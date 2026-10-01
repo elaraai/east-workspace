@@ -31,6 +31,16 @@ import {
 /** A problem that keeps a program from being steps, as the query wire types hold one. */
 export type StepParseError = ValueTypeOf<typeof QueryErrorType>;
 
+/** Where a step was read from in the program's text: the segments it was made of, first to last. */
+export interface StepSpan {
+    /** The step's id. */
+    readonly stepId: string;
+    /** The offset its first segment starts at. */
+    readonly from: number;
+    /** The offset after its last segment. */
+    readonly to: number;
+}
+
 /** A segment of the program's pipeline, and where it is. */
 interface Segment {
     readonly node: JqNode;
@@ -480,7 +490,8 @@ function readArrayStep(body: JqNode, shape: Shape): Step | undefined {
  *
  * @param program - the program's text, or what east's `parseJq` made of it
  * @param root - the root's type: a struct of the data sources
- * @returns the query as steps, or the problem that keeps it from being steps
+ * @returns the query as steps, with where each was read from in the text; or
+ *   the problem that keeps it from being steps
  *
  * @remarks
  * The program starts with the `.ds as $ds` binds of its Look ups, then reads
@@ -489,7 +500,7 @@ function readArrayStep(body: JqNode, shape: Shape): Step | undefined {
  * fresh on every parse. A program that does not parse, or does not start
  * from a data source, is not steps.
  */
-export function parseSteps(program: string | ParsedJq, root: EastType): { query: StepQuery } | { error: StepParseError } {
+export function parseSteps(program: string | ParsedJq, root: EastType): { query: StepQuery; spans: readonly StepSpan[] } | { error: StepParseError } {
     const parsed = typeof program === "string" ? parseJq(program) : program;
     const text = parsed.text;
     if (parsed.program.type === "none") return { error: parsed.diagnostics[0]! };
@@ -557,6 +568,7 @@ export function parseSteps(program: string | ParsedJq, root: EastType): { query:
 
     const bound = new Set(binds.map(b => b.name));
     const steps: Step[] = [];
+    const spans: StepSpan[] = [];
     let jqFrom: number | undefined;
     for (let i = 1; i < segments.length;) {
         const seg = segments[i]!;
@@ -564,10 +576,13 @@ export function parseSteps(program: string | ParsedJq, root: EastType): { query:
         const found = jqFrom === undefined ? recognise(seg.node, next?.node, shape, bound) : undefined;
         if (found === undefined) {
             jqFrom ??= i;
-            steps.push(variant("jq", { id: freshId("step"), text: sliceOf(seg) }));
+            const step: Step = variant("jq", { id: freshId("step"), text: sliceOf(seg) });
+            steps.push(step);
+            spans.push({ stepId: step.value.id, from: seg.from, to: seg.to });
             i += 1;
             continue;
         }
+        spans.push({ stepId: found.step.value.id, from: seg.from, to: segments[i + found.used - 1]!.to });
         const taken = segments.slice(i, i + found.used).map(sliceOf);
         const tentative = [...working, ...taken];
         const check = checkJq(parseJq(tentative.join(SEP)), root, { root: true });
@@ -586,5 +601,5 @@ export function parseSteps(program: string | ParsedJq, root: EastType): { query:
     if (unused !== undefined) {
         return { error: problem(text, "unsupported", `unsupported: $${unused.name} is bound but no Look up reads it, so the visual editor cannot keep it.`, unused.from, unused.to) };
     }
-    return { query: { source, steps } };
+    return { query: { source, steps }, spans };
 }

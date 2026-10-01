@@ -13,8 +13,8 @@
  *   start from a saved query." while there are none; and the foot, with Add a
  *   step at the end and Quick add;
  * - **jq**: the note, while visual steps are left out or the jq does not
- *   parse, then the jq as typed, filling the tab. Leaving it is one gesture.
- *   (The jq view's highlighting, completions and problems panel are #937's.)
+ *   parse, then the jq view's editor (#937), filling the tab. Leaving it is
+ *   one gesture.
  *
  * What it draws and does is {@link useQueryEditor}'s.
  *
@@ -22,10 +22,11 @@
  */
 
 import { Fragment, memo } from "react";
-import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { BannerView } from "@elaraai/east-ui-components";
 import { QueryFoot } from "./foot.js";
-import type { PartStyles, Styles } from "./parts.js";
+import { JqEditor } from "./jq-editor.js";
+import type { PartStyles } from "./parts.js";
 import { ShapeLineView } from "./shape-line.js";
 import { SourceCardView } from "./source.js";
 import { StepCard } from "./step-card.js";
@@ -52,21 +53,14 @@ export interface QueryTabPanelProps {
 export const QueryTabPanel = memo(function QueryTabPanel({ editor, ps, workspace, focus }: QueryTabPanelProps) {
     const { styles, words } = ps;
     const m = words.messages;
-    const jq = useSlotRecipe({ key: "jqEditor" })() as Styles;
-    if (editor.view === "jq") {
+    if (editor.view === "jq" && editor.jqChecked !== undefined) {
         return (
             <Box css={styles.tab} data-query-tab="query" data-mode="jq">
                 {editor.jqNote !== undefined && (
                     <Box css={styles.notices}><BannerView status="warning" title={editor.jqNote} /></Box>
                 )}
-                <Box css={jq.root}>
-                    <Box css={jq.editor}>
-                        <Box css={jq.code}>
-                            <chakra.textarea css={jq.input} value={editor.jqText} aria-label={m.jqLabel()} spellCheck={false}
-                                data-query-jq="" onChange={(event) => editor.onJqText(event.target.value)} onBlur={editor.leaveJq} />
-                        </Box>
-                    </Box>
-                </Box>
+                <JqEditor text={editor.jqText} checked={editor.jqChecked} root={editor.root} summaries={editor.summaries} ps={ps}
+                    onText={editor.onJqText} onLeave={editor.leaveJq} onFix={editor.onJqFix} />
             </Box>
         );
     }

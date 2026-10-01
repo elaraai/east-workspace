@@ -61,6 +61,9 @@ const FIXTURE = fromEastTypeValue(fixture.type);
 if (FIXTURE.type !== "Struct") throw new Error("the fixture's root is a struct");
 export const OrdersType = FIXTURE.fields["orders"] as EastType;
 export const CustomersType = FIXTURE.fields["customers"] as EastType;
+/** The shared fixture's root type, and its value: every dataset, by name. */
+export const FixtureType: EastType = FIXTURE;
+export const FIXTURE_VALUE: unknown = fixture.value;
 
 /** The root a page binding orders and customers gives. */
 export const ROOT: QueryRoot = queryRoot([

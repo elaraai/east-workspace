@@ -335,6 +335,17 @@ describe("S1: printSteps ↔ parseSteps", () => {
         assert.deepEqual(q.steps.map(s => s.type), ["filter", "jq", "jq"]);
     });
 
+    test("each step is placed where it was read from: a form of two segments over both, a jq step over its own", () => {
+        const program = ".orders\n| group_by(.customer_id)\n| map({customer_id: .[0].customer_id, n: length})\n| map(.n)";
+        const result = parseSteps(program, ROOT);
+        if ("error" in result) assert.fail(result.error.message);
+        assert.deepEqual(result.query.steps.map(s => s.type), ["group", "jq"]);
+        assert.deepEqual(result.spans.map(s => [s.stepId, program.slice(s.from, s.to)]), [
+            [result.query.steps[0]!.value.id, "group_by(.customer_id)\n| map({customer_id: .[0].customer_id, n: length})"],
+            [result.query.steps[1]!.value.id, "map(.n)"],
+        ]);
+    });
+
     test("an all filter's case condition prints first, so it parses back first", () => {
         const q = query("orders", [filter("all", [cond("total", "ge", num(100)), cond("status", "eq", text("shipped"))])]);
         const printed = printSteps(q, ROOT).text;

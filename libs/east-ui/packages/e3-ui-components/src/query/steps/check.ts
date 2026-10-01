@@ -26,6 +26,9 @@ import { needsValue, type Condition, type Step, type StepQuery, type StepValue }
 /** A diagnostic of the checker, as the query wire types hold it. */
 type JqDiagnostic = ValueTypeOf<typeof QueryErrorType>;
 
+/** A jq step's note, in the checker's manner: a part of the program the visual view keeps as jq. */
+export const JQ_STEP_NOTE = "custom: not a visual step; it stays as jq in the visual editor.";
+
 const printFloat = printFor(FloatType);
 const printBoolean = printFor(BooleanType);
 
@@ -535,7 +538,7 @@ export function checkSteps(query: StepQuery, root: EastType): CheckedSteps {
     }
     for (const laid of layout.steps) {
         if (laid.step.type === "jq" && laid.printed) {
-            diagnostics.push(own(laid.step.value.id, "note", "custom", "custom: not a visual step; it stays as jq in the visual editor.", { slot: "text" }));
+            diagnostics.push(own(laid.step.value.id, "note", "custom", JQ_STEP_NOTE, { slot: "text" }));
         }
     }
     return {

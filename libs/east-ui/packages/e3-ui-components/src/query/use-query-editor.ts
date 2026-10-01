@@ -15,8 +15,10 @@
  *   query has rendered again, and a step added scrolls into view;
  * - **Visual · jq** (§4.8): to jq prints the program, a note counting the
  *   unfinished steps left out; the jq typed in and left is one gesture —
- *   steps where it parses into them, else the program as jq; back to visual
- *   keeps jq while the jq does not parse, and says which parts stay jq steps;
+ *   steps where it parses into them, else the program as jq — and a fix taken
+ *   in the jq view (#937) one more, after the jq typed before it; back to
+ *   visual keeps jq while the jq does not parse, and says which parts stay jq
+ *   steps;
  * - **the check** (§4.12): the steps' check in the visual view, the jq's in
  *   the jq view, and the shape the query gives.
  *
@@ -27,7 +29,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { checkJq, describeJqType, none, some } from "@elaraai/east";
+import { checkJq, describeJqType, none, some, type CheckJqResult } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import { cardsFor, sourceCard, type Card, type SourceCard } from "./model/cards.js";
 import type { ActionRef, InputRef, RemoveRef, SlotRef } from "./model/refs.js";
@@ -98,6 +100,8 @@ export interface SlotPopover {
 export interface QueryEditorOptions {
     /** The query's entries as its drafts stand. */
     readonly entries: readonly QueryEntry[];
+    /** The query's entries as the drafts stand this moment — after a gesture in the same event, too. */
+    readonly current: () => readonly QueryEntry[] | undefined;
     /** Records a gesture: the entries it leaves, as one transaction. */
     readonly gesture: (next: readonly QueryEntry[], origin: Origin, label: string) => boolean;
     /** Moves with every change of the session. */
@@ -143,8 +147,16 @@ export interface QueryEditor {
     readonly onJqText: (text: string) => void;
     /** The jq typed in and left: one gesture. */
     readonly leaveJq: () => void;
+    /** A fix taken in the jq view: the jq typed so far left, then the text the fix makes, a gesture of its own, under its label. */
+    readonly onJqFix: (text: string, label: string) => void;
+    /** The jq view's check of the jq as typed; `undefined` in the visual view. */
+    readonly jqChecked: CheckJqResult | undefined;
     /** The jq view's note: unfinished steps left out, or the jq kept for its syntax. */
     readonly jqNote: string | undefined;
+    /** The root, which the jq view completes and reads steps over. */
+    readonly root: QueryRoot;
+    /** The builder's summaries, whose values the jq view's completions offer. */
+    readonly summaries: QueryEditorOptions["summaries"];
     /** The program as it stands: what Run runs and Copy jq copies — in the jq view, the jq as typed. */
     readonly program: string;
     /** The status line's check, and the shape the query gives. */
@@ -188,7 +200,7 @@ function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | und
  * @returns What the surfaces draw, and what they do
  */
 export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
-    const { entries, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId } = options;
+    const { entries, current, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId } = options;
     const m = words.messages;
     const { header, query } = useMemo(() => entriesQuery(entries), [entries]);
     const isJq = header.jq.type === "some";
@@ -241,28 +253,40 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         setNotices([]);
     }, [sourceId]);
 
-    /** The jq typed in and left: steps where it parses into them, else the program as jq. Whether it parses. */
-    const flushJq = useCallback((text: string): boolean => {
+    /**
+     * The jq typed in and left, under a label: steps where it parses into them,
+     * else the program as jq. It is taken against the drafts as they stand,
+     * so a gesture before it in the same event composes. Whether it parses.
+     */
+    const flushJq = useCallback((text: string, label: string = m.editJqGesture()): boolean => {
+        const now = entriesQuery(current() ?? entries);
+        const program = queryProgram(now.header, now.query, root.type);
         const parsed = parseSteps(text, root.type);
         if ("error" in parsed) {
-            if (text !== held) {
+            if (text !== program) {
                 flushed.current = text;
-                gesture(queryEntries({ ...header, jq: some(text) }, []), "typed", m.editJqGesture());
+                gesture(queryEntries({ ...now.header, jq: some(text) }, []), "typed", label);
             }
             return false;
         }
         const printed = printSteps(parsed.query, root.type).text;
-        if (printed !== held || isJq) {
+        if (printed !== program || now.header.jq.type === "some") {
             flushed.current = printed;
-            gesture(queryEntries({ ...header, jq: none, source: parsed.query.source }, parsed.query.steps), "typed", m.editJqGesture());
+            gesture(queryEntries({ ...now.header, jq: none, source: parsed.query.source }, parsed.query.steps), "typed", label);
         }
         return true;
-    }, [root, held, header, isJq, gesture, m]);
+    }, [current, entries, root, gesture, m]);
 
     const leaveJq = useCallback(() => {
         if (view !== "jq" || jqText === held) return;
         flushJq(jqText);
     }, [view, jqText, held, flushJq]);
+
+    const onJqFix = useCallback((text: string, label: string) => {
+        leaveJq();
+        setJqText(text);
+        flushJq(text, label);
+    }, [leaveJq, flushJq]);
 
     const setView = useCallback((next: QueryView) => {
         onShowQuery();
@@ -458,7 +482,7 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
 
     return {
         header, query, checked, source, cards, quick,
-        view, setView, jqText, onJqText: setJqText, leaveJq, jqNote,
+        view, setView, jqText, onJqText: setJqText, leaveJq, onJqFix, jqChecked: view === "jq" ? jqCheck : undefined, jqNote, root, summaries,
         program: view === "jq" ? jqText : held,
         check, gives, notices, dismiss, actions, onQuick, popover,
     };

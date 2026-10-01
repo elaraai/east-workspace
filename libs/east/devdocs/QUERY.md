@@ -1986,8 +1986,9 @@ its rest) and checked, and the value before the cursor is typed.
 | `$` | the variables in scope (`variable`) | the type · the plain kind |
 | a word | the builtins and defs that start with it (`builtin`), not an exact match | the signature (`select(f)`) · the catalog's rule |
 
-A builtin that takes arguments inserts `name(`; a case or a value inside a
-string inserts its closing quote. Items are ordered by kind (case, value,
+A builtin that takes arguments inserts `name(`; a case, a value or a key
+inside a string inserts its text escaped as the string's (`say \"hi\"`), then
+its closing quote. Items are ordered by kind (case, value,
 key, dataset, field, variable, builtin) and then label, 40 at most.
 
 ### 19.2 The type as jq sees it

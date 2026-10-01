@@ -70,6 +70,11 @@ const MAX_ITEMS = 40;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PARAMS = ["f", "g", "h", "i", "j", "k", "l", "m"];
 
+/** A text completed inside a string: escaped as a jq string's text, then the closing quote — `say \"hi\""`. */
+function closeString(text: string): string {
+  return printString(text).slice(1);
+}
+
 /** A builtin's signatures: `first, first(f)`. */
 function signature(name: string, arities: readonly number[]): string {
   return arities.map(n => n === 0 ? name : `${name}(${PARAMS.slice(0, n).join("; ")})`).join(", ");
@@ -255,18 +260,18 @@ export function completeJq(text: string, offset: number, input: EastType, option
           const variant = unwrap(nullablePayload(t) ?? t);
           if (variant.type !== "Variant") continue;
           for (const name of Object.keys(variant.cases as Record<string, EastType>)) {
-            items.push({ label: name, kind: "case", detail: `case of ${describeType(variant)}`, insert: `${name}"` });
+            items.push({ label: name, kind: "case", detail: `case of ${describeType(variant)}`, insert: closeString(name) });
           }
         }
         return finish(from, offset, items, typed, true);
       }
       const values = options.values?.(before.slice(chainFrom, chainTo), typed) ?? [];
-      return finish(from, offset, values.map(v => ({ label: v.value, kind: "value", detail: `${v.count} in data`, insert: `${v.value}"` })), typed, true);
+      return finish(from, offset, values.map(v => ({ label: v.value, kind: "value", detail: `${v.count} in data`, insert: closeString(v.value) })), typed, true);
     }
     if (previous?.role === "punct" && previous.value === "[" && lexemes[at - 2]?.role === "variable") {
       const dict = lexemes[at - 2]!;
       const values = options.values?.(dict.text, typed) ?? [];
-      return finish(from, offset, values.map(v => ({ label: v.value, kind: "key", detail: `${v.count} in data`, insert: `${v.value}"` })), typed, true);
+      return finish(from, offset, values.map(v => ({ label: v.value, kind: "key", detail: `${v.count} in data`, insert: closeString(v.value) })), typed, true);
     }
     return null;
   }

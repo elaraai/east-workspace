@@ -97,6 +97,14 @@ describe("completeJq (K1)", () => {
     });
   }
 
+  test("a value or a key completed inside a string is escaped as the string's text", () => {
+    const values: CompleteJqOptions["values"] = () => [{ value: "say \"hi\" \\ bye", count: 1 }];
+    const value = ".orders[] | select(.customer_id == \"s";
+    assert.equal(completeJq(value, value.length, FixtureRoot, { values })?.items[0]?.insert, "say \\\"hi\\\" \\\\ bye\"");
+    const key = ".customers as $c | $c[\"s";
+    assert.equal(completeJq(key, key.length, FixtureRoot, { values })?.items[0]?.insert, "say \\\"hi\\\" \\\\ bye\"");
+  });
+
   test("offers at most 40 items", () => {
     const done = completeJq(".orders | s", 11, FixtureRoot);
     assert.ok(done !== null && done.items.length <= 40 && done.items.length > 0);
