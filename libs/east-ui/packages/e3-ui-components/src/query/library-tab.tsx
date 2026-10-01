@@ -27,22 +27,14 @@ import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { SavedQueryType } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "@elaraai/east-ui-components";
-import { describeQuery } from "./model/words.js";
+import { queryAbout, type QueryAbout } from "./about.js";
 import type { QueryRoot } from "./one-shot.js";
 import type { QueryOpen } from "./open-query.js";
 import type { PartStyles } from "./parts.js";
-import { entriesQuery, rootRefusal, savedEntries, type SavedQueries, type SavedQuery } from "./session.js";
-import { checkSteps } from "./steps/check.js";
+import type { SavedQueries, SavedQuery } from "./session.js";
 
 const nameEqual = equalFor(StringType);
 const runEqual = equalFor(SavedQueryType);
-
-/** What the tab knows of a query: the data source it starts from, its description, and why it can't open here. */
-interface QueryAbout {
-    readonly source: string;
-    readonly description: string | undefined;
-    readonly refusal: string | undefined;
-}
 
 /** Props of {@link LibraryTab}. */
 export interface LibraryTabProps {
@@ -77,17 +69,8 @@ export const LibraryTab = memo(function LibraryTab({ record, recent, root, open,
     const m = words.messages;
     const [notice, setNotice] = useState<string | undefined>(undefined);
 
-    // What each query is, once per record, run list and root.
-    const about = useMemo(() => {
-        return (saved: SavedQuery): QueryAbout => {
-            const refusal = rootRefusal(saved, root, words);
-            const authored = saved.description.type === "some" ? saved.description.value : undefined;
-            const { header, query } = entriesQuery(savedEntries(saved, root.type));
-            if (header.jq.type === "some") return { source: saved.root[0]?.name ?? "", description: authored, refusal };
-            const generated = authored === undefined ? describeQuery(query, checkSteps(query, root.type), words) : "";
-            return { source: query.source, description: authored ?? (generated === "" ? undefined : generated), refusal };
-        };
-    }, [root, words]);
+    // What each query is — the data source it starts from, its description, why it can't open here — once per record, run list and root.
+    const about = useCallback((saved: SavedQuery): QueryAbout => queryAbout(saved, root, words), [root, words]);
 
     const savedList = useMemo(() => [...record.values()].map((saved) => ({ saved, about: about(saved) })), [record, about]);
     const runList = useMemo(() => recent.map((run) => ({ run, about: about(run) })), [recent, about]);

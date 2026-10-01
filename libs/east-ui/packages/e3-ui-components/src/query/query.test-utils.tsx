@@ -8,7 +8,8 @@
  * orders and customers bound on a page — the orders paged, the customers
  * whole — and a saved queries record in memory whose patch door applies each
  * patch with East's own checks; the builder mounted through its carrier, as a
- * surface mounts it, with a host's one-shot call.
+ * surface mounts it, with a host's one-shot call; and the query library
+ * (#1063) mounted the same way, alone or beside a builder sharing its id.
  *
  * @packageDocumentation
  */
@@ -18,12 +19,14 @@ import { join } from "node:path";
 import { act, fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    BooleanType, East, OptionType, PatchType, SortedMap, StringType, applyFor, checkJq, compareFor, decodeBeast2, decodeBeast2For,
+    BooleanType, East, NullType, OptionType, PatchType, SortedMap, StringType, applyFor, checkJq, compareFor, decodeBeast2, decodeBeast2For,
     encodeBeast2For, fromEastTypeValue, none, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import {
+    DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
+} from "@elaraai/east-ui-components";
 import {
     Query, RecordBindHandleType, bindPagedPinnedPlatformFn, bindPlatformFn, queryKeys, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -37,8 +40,9 @@ import { createInMemoryQueryCall } from "./in-memory-call.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import type { SavedQuery } from "./session.js";
-// The builder is an extension: its renderer registers as it loads.
+// The builder and the query library are extensions: their renderers register as they load.
 import "./builder.js";
+import "./library.js";
 
 // jsdom lacks the ResizeObserver the panes and the menus' positioners reach for, and the CSS.escape a menu finds its items with.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -224,6 +228,44 @@ export async function mountBuilder(call?: QueryCall, options: { e3?: E3Config } 
     const utils = render(
         <ChakraProvider value={system}>
             {options.e3 === undefined ? called : <E3Provider config={options.e3}>{called}</E3Provider>}
+        </ChakraProvider>,
+    );
+    await settle();
+    return utils;
+}
+
+/** The State a query library's `onOpen` writes the name it opened to, in the surface {@link mountLibrary} mounts. */
+export const TOLD = "query-library-test.told";
+
+/**
+ * Mounts the query library as a surface mounts it — the record and the same
+ * two data sources bound — under a line saying what it last told the host it
+ * opened ("told Big orders"); with the builder beside it, sharing its id and
+ * with a host's one-shot call, when one is given; under a drag layer when
+ * asked.
+ *
+ * @param options - `id`: the name the library and the builder share; `builder`: the builder's one-shot call, which mounts the builder too; `drag`: a `DragLayerProvider` around them
+ * @returns The rendered surface
+ */
+export async function mountLibrary(options: { id?: string; builder?: QueryCall; drag?: boolean } = {}): Promise<RenderResult> {
+    const named = options.id === undefined ? {} : { id: options.id };
+    const withBuilder = options.builder !== undefined;
+    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const orders = $.let(bindPagedPinnedPlatformFn([OrdersType], ORDERS, East.value(none, OptionType(StringType)), East.value(false, BooleanType)));
+        const customers = $.let(bindPlatformFn([CustomersType], CUSTOMERS, none, variant("direct", null)));
+        const record = $.let(recordBindPlatformFn([HandleType], RECORD));
+        const told = $.let(State.bind([StringType], TOLD, "nothing"));
+        const onOpen = $.const(East.function([StringType], NullType, ($2, name) => { $2(told.write(name)); }));
+        const datasets = { orders: orders as never, customers: customers as never };
+        const library = Query.Library({ queries: record as never, datasets, onOpen, ...named });
+        const builder = Query.Builder({ queries: record as never, datasets, ...named });
+        return Stack.VStack(withBuilder ? [Text.Root(East.str`told ${told.read()}`), library, builder] : [Text.Root(East.str`told ${told.read()}`), library]);
+    }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
+    const surface = <EastChakraComponent value={program()} storageKey="query-library" />;
+    const called = options.builder === undefined ? surface : <QueryCallProvider call={options.builder}>{surface}</QueryCallProvider>;
+    const utils = render(
+        <ChakraProvider value={system}>
+            {options.drag === true ? <DragLayerProvider>{called}</DragLayerProvider> : called}
         </ChakraProvider>,
     );
     await settle();

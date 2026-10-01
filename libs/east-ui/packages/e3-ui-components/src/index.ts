@@ -21,6 +21,7 @@ import './studio/builder.js';             // → implementUIComponent(StudioBuil
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
+import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -57,11 +58,12 @@ export {
     type StudioMessagesProviderProps,
 } from './studio/messages.js';
 
-// The query builder (#875) — its renderer registers itself against its
-// extension on import — the builder's words, how it makes a one-shot call (and
-// a call answered in memory, where there is no server), and the query's
-// one-shot call itself, which a host can make without the builder.
+// The query builder and the query library (#875) — each renderer registers
+// itself against its extension on import — their words, how the builder makes
+// a one-shot call (and a call answered in memory, where there is no server),
+// and the query's one-shot call itself, which a host can make without it.
 export { EastChakraQueryBuilder, type EastChakraQueryBuilderProps, type QueryFocus, type QueryTab } from './query/builder.js';
+export { EastChakraQueryLibrary, type EastChakraQueryLibraryProps } from './query/library.js';
 export {
     QueryMessagesProvider,
     useQueryMessages,

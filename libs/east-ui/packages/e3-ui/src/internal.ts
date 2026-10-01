@@ -125,9 +125,10 @@ export {
     publishRefusal,
 } from './studio/index.js';
 
-// The query builder (#875): its factory and carrier, the payload the renderer
-// takes, the East it calls, and the types its step functions take. `Query`
-// here is the internal namespace — the public one, and the saved queries' East.
+// The query builder and the query library (#875): their factories and
+// carriers, the payloads the renderers take, the East they call, and the types
+// the step functions take. `Query` here is the internal namespace — the public
+// one, and the saved queries' East.
 export {
     QueryInternal as Query,
     QueryAggregateFunctionType,
@@ -135,6 +136,9 @@ export {
     QueryBuilder,
     QueryBuilderComponent,
     QueryBuilderPayloadType,
+    QueryLibrary,
+    QueryLibraryComponent,
+    QueryLibraryPayloadType,
     QueryComparisonType,
     QueryConditionType,
     QueryDatePartType,
@@ -160,6 +164,7 @@ export {
     type QueriesHandle,
     type QueryBuilderOptions,
     type QueryInternalNamespace,
+    type QueryLibraryOptions,
     type QueryNamespace,
     type QueryTypes,
 } from './query/index.js';

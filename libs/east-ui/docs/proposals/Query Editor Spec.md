@@ -135,9 +135,12 @@ surface's `ui()` manifest follows from the payload: the record and its patch, an
 
 `QueryInternal` holds the East behind them: the patch a save commits (`save`, by name: an insert, an update
 of the open query's entry, or a rename's delete and insert in one patch), a refused write in words
-(`nameWriteRefusal`, as Studio's), the library's rows and counts, and whether a saved query's root is bound
-on this surface — and if not, why not (`rootBound`: `bound`, `missing` a name, or bound `elsewhere`, which
-the renderer words as "Reads {name}, which isn't here" and "Reads {path}, not this builder's {name}").
+(`nameWriteRefusal`, as Studio's), and whether a saved query's root is bound on this surface — and if not,
+why not (`rootBound`: `bound`, `missing` a name, or bound `elsewhere`, which the renderer words as "Reads
+{name}, which isn't here" and "Reads {path}, not this builder's {name}"). As built, the library's rows and
+counts are its renderer's, not East's: a query starts from the data source its steps start from, which only
+the steps' parse — in the browser — knows; East over the record sees only its root's first entry, which is
+the binding order (#1063).
 
 ### The renderers (`@elaraai/e3-ui-components`)
 
@@ -171,7 +174,9 @@ e3-api-client's `oneShotExecute`.
   else e3-api-client's `oneShotExecute` against the `E3Provider`'s server and workspace.
 - **The open query** is the UI store's, under the builder's key (`queryKeys(id).query`), as Studio's open
   page is (`builderKeys(id).page`). The Library tab, `<Query.Library>` and a drop write it; the builder reads
-  it. It begins as a new query on the first bound data source.
+  it. It begins as a new query on the first bound data source. Beside it, under the same key, is the notice
+  it arrived with — "Opened “Big orders” from the query library." — which the builder shows when that query
+  opens, whichever surface opened it.
 - **The query library** keeps its filter, search, order and layout as its own; its body is one
   `Library` gallery whose media are wireframes of each query (§5).
 
@@ -580,25 +585,42 @@ Under the pane and the results, the `status` recipe's dots and words:
 Studio's page library with queries where pages are:
 
 - **One toolbar**, the shared `Toolbar`: the search, "Search {n} queries…", over names, descriptions and data
-  sources; Sort · Recent or Name (a menu, as Studio's Sort); Grid · List (`LibraryLayoutSwitch`); a rule; and
-  the primary **+ New query on {dataset}** — the dataset the pane shows, else the first bound.
+  sources, Esc clearing it; Sort · Recent or Name (a menu, as Studio's Sort); Grid · List
+  (`LibraryLayoutSwitch`); a rule; and the primary **+ New query on {dataset}** — the dataset the pane shows,
+  else the first bound.
 - **The pane** (the `queryLibrary` recipe, as `studioLibrary`'s): "Data sources" — All queries, then each bound
-  data source with its count of queries, the one shown in the brand; at its foot, Recent, with its count.
+  data source, in the order bound, with the count of saved queries whose steps start from it — the one shown
+  in the brand; at its foot, Recent, with its count. A query that reads a data source not bound here counts in
+  All queries alone.
 - **The gallery**: one `Library` gallery, three across, or a list:
-  - **media** (`renderMedia`): a wireframe of the query — its source and a bar per step with its icon, as
-    Studio's cards draw a wireframe of each layout. A query that doesn't check against this surface's data
-    sources shows its problem count, dashed, instead;
-  - its **name**, and its **description** under it — the author's, else the generated sentence;
+  - **media** (`renderMedia`): a wireframe of the query — its source, then a bar per step with its icon and
+    title, four at most and the rest counted ("+2 more") — as Studio's cards draw a wireframe of each layout.
+    A query that doesn't check against this surface's data sources shows its problem count, dashed, instead,
+    with the first problem — or why it can't open here — under it;
+  - its **name**, and its **description** under it — the author's, else the generated sentence — on the
+    gallery's meta line;
   - its **byline**: "{source} · {n} steps · {shape in words} · saved {when}" ("orders · 5 steps · up to 10
-    shipped orders · saved Tue");
+    orders · saved Tue"): "{n} steps" is "jq" for a program that is not steps, the shape is the problem count
+    while it has problems, and when is the time today, the weekday within six days, else the date; a recent
+    run "ran" when it ran;
   - **Open in builder →**, its action.
-  Cards drag onto any builder on the page (§4.13).
-- **Open in builder →** writes the builder's open query, shared by `id`, and tells the host (`onOpen`), as
-  Studio's does. A query whose root is not bound here is marked with the reason and does not open (§4.10).
+  A saved query's card drags onto the builder that shares the library's id (§4.13); a recent run's does not,
+  since the builder opens a dropped query by its name.
+- **Open in builder →** writes the builder's open query, shared by `id`, with its notice — "Opened “{name}”
+  from the query library.", which the builder shows — and tells the host (`onOpen`) the query's name, as
+  Studio's does. **+ New query on {dataset}** writes a new query on it, with "Started a new query on
+  {dataset}.", and tells the host its name, "Untitled {dataset} query". A recent run of a saved query opens
+  the saved query; one never saved, a new query begun as it. A query whose root is not bound here carries
+  the reason, trailing, in the warning tone, has no action, and its click says why in a notice over the
+  gallery instead of opening (§4.10).
 - **Empty** (the `emptyState` recipe): "No queries match “{text}”" — Check the spelling · Clear the filter to
-  search every query; "No queries yet" — Save a query in the builder.
+  search every query (Search by query name, description or data source, while every query shows); "No
+  recent runs" — Run a query in the builder to see it here; "No queries yet" — Save a query in the builder.
 - Recent are this viewer's runs, the builder's (`usePersistedState`, under the builder's key, each run kept as
   East text).
+- **It reads no dataset**: only the saved queries record. Its data sources are the surface's bindings, which
+  the host loads with the surface as it loads any; a large one is bound with `Data.bindPaged`, declared and
+  never loaded whole.
 
 ---
 
@@ -686,6 +708,11 @@ The mock is a designer's prototype; Studio's patterns are how the product is bui
 | "10 orders" on a card | The shape in words: "up to 10 orders" | The count |
 | The library's filter as a chip in its toolbar | The pane shows the filter | Clearing it from the toolbar — All queries in the pane does |
 | A favourite star on every card, and Favourites in the pane | Not built: a `Library` card has no toggle of its own | Starring queries — a later `Library` feature could bring it back |
+| The query library's control rail names the workspace | The one toolbar; the host names the library | The workspace's name |
+| A card's description in two lines of prose, its meta line under it | The gallery card's meta line under the name holds the description, one line, cut short; the source, the steps and what it gives are the byline | The description's second line |
+| Datasets in the pane only when they have queries, by how many | Every bound data source, in the order bound, with its count | Nothing — a data source with no queries yet is where New query on it starts |
+| The list layout: a 36 px table — query, dataset, steps, result, saved | The gallery's list: a card per row, its wireframe at its start | The compact table |
+| Open in editor | Open in builder →, as Studio's | Nothing |
 | Recent in the page's storage | The viewer's own, under the builder's key | Nothing |
 | The Datasets search holds "⌘ /" and ⌘/ focuses it | ⌘/ opens the Datasets tab | Typing straight into the search — a click more |
 | A drag in HTML5 with `application/x-east-query` and `text/plain` | The drag layer: library cards by the library's id | Dropping a query into a text field as jq |

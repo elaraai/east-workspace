@@ -7,7 +7,10 @@
  * The query open in a builder (#935) — held in the UI store under the
  * builder's key (`queryKeys(id).query`), where `State.bind` keeps its State,
  * so a builder and a query library with the same `id` open one query together,
- * as Studio's builder and page library open one page.
+ * as Studio's builder and page library open one page. Beside it, under the
+ * same key, the notice the query arrived with (#939, #1063) — "Opened “Big
+ * orders” from the query library." — which the builder shows when the query
+ * opens, whichever surface opened it.
  *
  * @packageDocumentation
  */
@@ -34,8 +37,21 @@ export const QueryOpenType = VariantType({
 /** The query open in a builder. */
 export type QueryOpen = ValueTypeOf<typeof QueryOpenType>;
 
+/**
+ * The notice a query arrived with.
+ *
+ * @property sourceId - The session of the query it arrived with ({@link querySourceId})
+ * @property text - What the Query tab says when that query opens
+ */
+export const QueryArrivalType = StructType({ sourceId: StringType, text: StringType });
+
+/** The notice a query arrived with. */
+export type QueryArrival = ValueTypeOf<typeof QueryArrivalType>;
+
 const encodeOpen = encodeBeast2For(QueryOpenType);
 const decodeOpen = decodeBeast2For(QueryOpenType);
+const encodeArrival = encodeBeast2For(QueryArrivalType);
+const decodeArrival = decodeBeast2For(QueryArrivalType);
 const printString = printFor(StringType);
 
 /**
@@ -66,18 +82,36 @@ export function newQuery(source: string, from?: ValueTypeOf<typeof SavedQueryTyp
 }
 
 /**
- * The query open in the builder the key names, and a way to open another.
+ * Opens a query: writes it as the open query, with the notice it arrives with.
+ *
+ * @param next - The query to open
+ * @param notice - What the Query tab says when it opens — none for a query opened without one
+ */
+export type OpenQueryWrite = (next: QueryOpen, notice?: string) => void;
+
+/**
+ * The query open in the builder the key names, a way to open another, and the
+ * notice the open query arrived with.
  *
  * @param key - The builder's open-query key
  * @param first - The query it opens before any is written — a new query on its first data source
- * @returns The open query, and the write that opens another
+ * @returns The open query; the write that opens another, with the notice it arrives with; and the last notice written
  */
-export function useOpenQuery(key: string, first: QueryOpen): [QueryOpen, (next: QueryOpen) => void] {
+export function useOpenQuery(key: string, first: QueryOpen): [QueryOpen, OpenQueryWrite, QueryArrival | undefined] {
     const store = StateRuntime.getStore();
+    const arrivalKey = `${key}.arrival`;
     const subscribe = useCallback((notify: () => void) => store.subscribe(key, notify), [store, key]);
     const snapshot = useCallback(() => store.read(key), [store, key]);
     const bytes = useSyncExternalStore(subscribe, snapshot);
+    const subscribeArrival = useCallback((notify: () => void) => store.subscribe(arrivalKey, notify), [store, arrivalKey]);
+    const snapshotArrival = useCallback(() => store.read(arrivalKey), [store, arrivalKey]);
+    const arrivalBytes = useSyncExternalStore(subscribeArrival, snapshotArrival);
     const open = useMemo(() => (bytes === undefined ? first : decodeOpen(bytes)), [bytes, first]);
-    const write = useCallback((next: QueryOpen) => { store.write(key, encodeOpen(next)); }, [store, key]);
-    return [open, write];
+    const arrival = useMemo(() => (arrivalBytes === undefined ? undefined : decodeArrival(arrivalBytes)), [arrivalBytes]);
+    // The notice first, so the builder finds it when the query it arrives with opens.
+    const write = useCallback<OpenQueryWrite>((next, notice) => {
+        if (notice !== undefined) store.write(arrivalKey, encodeArrival({ sourceId: querySourceId(next), text: notice }));
+        store.write(key, encodeOpen(next));
+    }, [store, key, arrivalKey]);
+    return [open, write, arrival];
 }

@@ -39,8 +39,9 @@
  * Datasets tab (#939) lists the data sources, and a click starts a new query
  * on one; the Library tab lists this viewer's recent runs and the saved
  * queries, and a click opens one, which runs. A query opened or started there
- * arrives with its notice, and ⌘/Ctrl / opens the Datasets tab. The builder
- * fills its host and draws no border around itself.
+ * arrives with its notice — as one a query library sharing the builder's id
+ * opens does (#1063) — and ⌘/Ctrl / opens the Datasets tab. The builder fills
+ * its host and draws no border around itself.
  *
  * @packageDocumentation
  */
@@ -63,7 +64,7 @@ import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
 import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { LibraryTab } from "./library-tab.js";
-import { newQuery, querySourceId, useOpenQuery, type QueryOpen } from "./open-query.js";
+import { newQuery, useOpenQuery, type OpenQueryWrite, type QueryArrival, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
 import { QueryResults, ResultStrips, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
@@ -154,7 +155,7 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     const opening = value.query.type === "some" ? value.query.value : undefined;
     const first = useMemo((): QueryOpen => (opening !== undefined ? variant("saved", opening) : variant("new", { id: "first", source: firstSource, from: none })),
         [opening, firstSource]);
-    const [open, writeOpen] = useOpenQuery(keys.query, first);
+    const [open, writeOpen, arrival] = useOpenQuery(keys.query, first);
     const session = useQuerySession({ handle, record, root, open, writeOpen, storageKey: `${storageKey}.query`, words });
 
     if (!result.ok) {
@@ -168,7 +169,7 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     }
     return (
         <QueryBuilderView session={session} entries={session.entries} record={record} root={root} open={open}
-            writeOpen={writeOpen} words={words} storageKey={storageKey} recentKey={keys.recent} id={id} />
+            writeOpen={writeOpen} arrival={arrival} words={words} storageKey={storageKey} recentKey={keys.recent} id={id} />
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
@@ -184,8 +185,10 @@ interface QueryBuilderViewProps {
     readonly root: QueryRoot;
     /** The open query. */
     readonly open: QueryOpen;
-    /** Opens another query. */
-    readonly writeOpen: (next: QueryOpen) => void;
+    /** Opens another query, with the notice it arrives with. */
+    readonly writeOpen: OpenQueryWrite;
+    /** The notice the last query opened arrived with. */
+    readonly arrival: QueryArrival | undefined;
     /** The words. */
     readonly words: QueryWords;
     /** The structural storage key. */
@@ -197,7 +200,7 @@ interface QueryBuilderViewProps {
 }
 
 /** The builder over a query it can edit: the toolbar, the pane, the results and the status line. */
-function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, words, storageKey, recentKey, id }: QueryBuilderViewProps) {
+function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, arrival, words, storageKey, recentKey, id }: QueryBuilderViewProps) {
     const ps = usePartStyles(words);
     const { styles } = ps;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
@@ -249,12 +252,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const onOpenSaved = useCallback((name: string) => writeOpen(variant("saved", name)), [writeOpen]);
 
     // ── Opening and starting queries from the Datasets and Library tabs (#939) ──
-    // The query opened arrives with its notice, shown when it opens.
-    const [arrival, setArrival] = useState<{ sourceId: string; text: string } | undefined>(undefined);
-    const arrive = useCallback((next: QueryOpen, text: string) => {
-        setArrival({ sourceId: querySourceId(next), text });
-        writeOpen(next);
-    }, [writeOpen]);
+    // The query opened arrives with its notice, shown when it opens — as one a query library opens does (#1063).
+    const arrive = useCallback((next: QueryOpen, text: string) => writeOpen(next, text), [writeOpen]);
     const onStart = useCallback((name: string) => arrive(newQuery(name), m.startedOn({ name })), [arrive, m]);
     const onOpenFromLibrary = useCallback((name: string) => arrive(variant("saved", name), m.openedFromLibrary({ name })), [arrive, m]);
     const onOpenRun = useCallback((run: SavedQuery) => {

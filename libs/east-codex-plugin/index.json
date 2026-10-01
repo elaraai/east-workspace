@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1246,
+    "totalEntries": 1247,
     "totalFiles": 203,
     "packages": {
       "east": 568,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 380,
-      "e3-ui": 55,
+      "e3-ui": 56,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -43598,6 +43598,41 @@
         "tsx"
       ],
       "source": "// A builder over a record with no saved queries: a new query on orders, its Query tab asking for a first step, and nothing run yet\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const saved = $.let(Record.bind(queriesEmpty, [queriesEmptyPatch]));\n            const orderRows = $.let(Data.bind(orders));\n            const customerRows = $.let(Data.bind(customers));\n            return (\n                <Box height=\"560px\">\n                    <Query.Builder queries={saved} id=\"empty\" datasets={{ orders: orderRows, customers: customerRows }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:query.examples.tsx:queryLibrary",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/query/query.examples.tsx",
+      "suite": "",
+      "test": "The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which opens the query in the builder that shares its id",
+      "keywords": [
+        "Query",
+        "Query.Library",
+        "query library",
+        "saved queries",
+        "gallery",
+        "wireframe",
+        "Open in builder",
+        "New query",
+        "search",
+        "sort",
+        "grid",
+        "list",
+        "recent",
+        "Record.bind",
+        "Data.bind"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which opens the query in the builder that shares its id\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const saved = $.let(Record.bind(queries, [queriesPatch]));\n            const orderRows = $.let(Data.bind(orders));\n            const customerRows = $.let(Data.bind(customers));\n            const weekly = $.let(Data.bind(forecast));\n            const demand = $.let(Data.bind(model));\n            const parts = $.let(Data.bind(bom));\n            return (\n                <Box height=\"720px\">\n                    <Query.Library queries={saved} id=\"top\"\n                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:component.examples.tsx:studioComponent",
