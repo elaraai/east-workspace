@@ -34,6 +34,7 @@ import {
 } from "@elaraai/east";
 import { Editing, EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import { QueryStepType, SavedQueriesType, SavedQueryType, type QueriesHandleType } from "@elaraai/e3-ui/internal";
+import { pathToString } from "@elaraai/e3-types";
 import type { BatchReadiness, EditIssue, EditSession, EntryVersion, Origin, Placement } from "@elaraai/east-ui-components";
 import type { UIStoreInterface } from "@elaraai/east-ui-components";
 import { checkSteps, type CheckedSteps } from "./steps/check.js";
@@ -219,7 +220,8 @@ export function savedEntries(saved: SavedQuery, root: EastType): QueryEntry[] {
  * The base the open query's session begins from: a save it committed; else
  * the base it was given last, while the record still holds the entry it is
  * of; else the saved query's entries, parsed once; else a new query's header
- * alone.
+ * alone — or, for a new query begun as a run never saved, the run's entries,
+ * its name and description with them.
  *
  * @remarks
  * A save the session committed is its base from the moment it commits, while
@@ -264,9 +266,12 @@ export function queryBase(
     }
     if (open.type === "new") {
         if (last !== undefined && last.saved === undefined) return last;
+        const from = open.value.from;
         const base: QueryBase = {
             saved: undefined,
-            entries: queryEntries({ id: QUERY_HEADER_ID, name: untitled(open.value.source), description: none, source: open.value.source, jq: none }, []),
+            entries: from.type === "some"
+                ? savedEntries(from.value, root)
+                : queryEntries({ id: QUERY_HEADER_ID, name: untitled(open.value.source), description: none, source: open.value.source, jq: none }, []),
         };
         known.set(sourceId, base);
         return base;
@@ -336,6 +341,29 @@ export function savedOffers(record: SavedQueries, root: QueryRoot): SavedOffer[]
         offers.push({ name: saved.name, source: header.source });
     }
     return offers;
+}
+
+/**
+ * Why a saved query — or a recent run — can't open here, in the builder's
+ * words (`Query Editor Spec.md` §4.10): a data source it reads that no binding
+ * here has the name of, or one bound here at another path
+ * (`QueryInternal.rootBound`).
+ *
+ * @param saved - The saved query, or the run
+ * @param root - The root the builder's data sources make
+ * @param words - The words
+ * @returns The reason — "Reads customers, which isn't here", "Reads
+ *   .inputs.archive.orders, not this builder's orders" — or `undefined` when
+ *   it can open
+ */
+export function rootRefusal(saved: SavedQuery, root: QueryRoot, words: QueryWords): string | undefined {
+    const m = words.messages;
+    const reason = queryEast().rootBound(saved, root.entries.map(e => ({ name: e.name, path: e.path })));
+    switch (reason.type) {
+        case "bound": return undefined;
+        case "missing": return m.rootMissing({ name: reason.value });
+        case "elsewhere": return m.rootElsewhere({ path: pathToString(reason.value.path), name: reason.value.name });
+    }
 }
 
 // ============================================================================

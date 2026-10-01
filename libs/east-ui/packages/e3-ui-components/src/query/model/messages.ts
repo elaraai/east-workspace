@@ -642,6 +642,46 @@ export interface QueryMessages {
     resultJoin: (p: { parts: readonly string[] }) => string;
     /** A calculation in a result's cell. */
     resultFunction: () => string;
+
+    // ── The Datasets and Library tabs (#939) ─────────────────────────────
+    /** A group of the Datasets tab, by its data sources' kind. */
+    datasetGroup: (p: { kind: "rows" | "lookups" | "values" | "models" }) => string;
+    /** What the Datasets tab lists, for its search — `data source`, `data sources`. */
+    dataSourceNoun: (p: { n: number }) => string;
+    /** A data source of rows, counted — `40 orders`; the noun already in the count's number. */
+    sourceRows: (p: { count: string; noun: string }) => string;
+    /** A lookup table, counted — `8 customers by ID`; the noun already in the count's number. */
+    sourceLookup: (p: { count: string; noun: string }) => string;
+    /** A tree, uncounted. */
+    sourceTree: () => string;
+    /** A record. */
+    sourceRecord: () => string;
+    /** A calculation, by its inputs and what it gives — `price, region → number`. */
+    sourceModel: (p: { inputs: string; output: string }) => string;
+    /** A data source's size, then its hash when it is known — `40 orders · #4f2a1c8d`. */
+    sourceMeta: (p: { size: string; hash: string | undefined }) => string;
+    /** What the open query reads a data source as — Source, Looked up. */
+    sourceRole: (p: { role: "source" | "lookedUp" }) => string;
+    /** What the Library tab lists, for its search — `query`, `queries`. */
+    savedNoun: (p: { n: number }) => string;
+    /** The Library tab's group of this viewer's recent runs. */
+    recentGroup: () => string;
+    /** The notice after a query is started on a data source — `Started a new query on customers.` */
+    startedOn: (p: { name: string }) => string;
+    /** The notice after a query is opened from the Library tab — `Opened “Big orders” from the library.` */
+    openedFromLibrary: (p: { name: string }) => string;
+    /** The notice after a query library's card is dropped on the builder — `Opened “Big orders” from the query library.` */
+    openedFromQueryLibrary: (p: { name: string }) => string;
+
+    // ── Dropping (#939) ──────────────────────────────────────────────────
+    /** Over the builder while a query library's card rests on it — `Drop to open “Revenue by region”`. */
+    dropToOpen: (p: { name: string }) => string;
+    /** Under it: how many steps that query has — `5 steps.` */
+    dropSteps: (p: { count: string; n: number }) => string;
+    /** The builder, as the drag layer names it in what it says — `Revenue by region is over the query builder.` */
+    dropTargetName: () => string;
+    /** The builder refusing a card, as the drag layer names it, with why — `the query builder (Reads customers, which isn't here) does not take Big orders.` */
+    dropRefusedName: (p: { reason: string }) => string;
 }
 
 const STEP_TITLE: Readonly<Record<Exclude<StepKind, "drill">, string>> = {
@@ -1137,4 +1177,24 @@ export const queryMessages: QueryMessages = {
     resultGrid: ({ rows, cols }) => `${rows} × ${cols}`,
     resultJoin: ({ parts }) => parts.join(" · "),
     resultFunction: () => "function",
+
+    datasetGroup: ({ kind }) => (kind === "rows" ? "Rows" : kind === "lookups" ? "Lookups" : kind === "values" ? "Values" : "Models"),
+    dataSourceNoun: ({ n }) => (n === 1 ? "data source" : "data sources"),
+    sourceRows: ({ count, noun }) => `${count} ${noun}`,
+    sourceLookup: ({ count, noun }) => `${count} ${noun} by ID`,
+    sourceTree: () => "one tree",
+    sourceRecord: () => "one record",
+    sourceModel: ({ inputs, output }) => `${inputs} → ${output}`,
+    sourceMeta: ({ size, hash }) => (hash === undefined ? size : size === "" ? `#${hash}` : `${size} · #${hash}`),
+    sourceRole: ({ role }) => (role === "source" ? "Source" : "Looked up"),
+    savedNoun: ({ n }) => (n === 1 ? "query" : "queries"),
+    recentGroup: () => "Recent",
+    startedOn: ({ name }) => `Started a new query on ${name}.`,
+    openedFromLibrary: ({ name }) => `Opened “${name}” from the library.`,
+    openedFromQueryLibrary: ({ name }) => `Opened “${name}” from the query library.`,
+
+    dropToOpen: ({ name }) => `Drop to open “${name}”`,
+    dropSteps: ({ count, n }) => `${count} ${n === 1 ? "step" : "steps"}.`,
+    dropTargetName: () => "the query builder",
+    dropRefusedName: ({ reason }) => `the query builder (${reason})`,
 };

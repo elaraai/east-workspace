@@ -23,6 +23,13 @@
  * the jq view and the results are their own recipes' (`jqEditor`,
  * `queryResults`).
  *
+ * Dropping a query in (#939): while a drag layer is on the page, the body sits
+ * in its drop zone — the one cell a query library's card drops on — and the
+ * target over it is drawn as Studio's canvas draws its end zone: hidden at
+ * rest, the dashed brand frame while a card it takes is dragged, and the brand
+ * wash with its words while one rests on it, by CSS alone on the drag layer's
+ * `data-drop-valid` / `data-drop-active`. The shared ⊘ refusal stays.
+ *
  * @packageDocumentation
  */
 
@@ -53,6 +60,8 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         "tabFoot", "addAtEnd", "quick", "quickLabel",
         // The status line.
         "statusCheck", "statusRule", "statusShape", "statusFields", "statusSave", "statusName",
+        // Dropping a query in (#939).
+        "dropZone", "dropTarget", "dropTitle", "dropMeta",
     ],
     base: {
         /* As tall as its host lets it be, and unframed; the autocomplete hangs inside it. */
@@ -540,6 +549,60 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             fontSize: "12px",
             color: "fg.muted",
+        },
+
+        /* ── Dropping a query in (#939) ──────────────────────────────────── */
+        /* The body's frame while a drag layer is on the page, in the body's
+         * place: the one cell a query library's card drops on. Its target draws
+         * the armed and over looks, so the shared candidate and active frames
+         * give way to it, as on Studio's canvas; the shared ⊘ refusal stays. */
+        dropZone: {
+            position: "relative",
+            flex: "1",
+            minHeight: "0",
+            display: "flex",
+            flexDirection: "column",
+            "&[data-drag-cell][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before": { borderStyle: "none" },
+            "&[data-drag-cell][data-drop-active]:not([data-drop-invalid])::before": { borderStyle: "none" },
+            "&[data-drag-cell][data-drop-active]:not([data-drop-invalid])": { background: "transparent" },
+        },
+        /* The target over the body, as the canvas's end zone: hidden at rest;
+         * armed — the dashed brand frame — while a card it takes is dragged;
+         * over — the brand wash and its words — while one rests on it. */
+        dropTarget: {
+            position: "absolute",
+            inset: "0",
+            zIndex: 4,
+            display: "none",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "{spacing.1}",
+            padding: "{spacing.6}",
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            borderColor: "brand.solid",
+            textAlign: "center",
+            pointerEvents: "none",
+            transitionProperty: "background",
+            transitionDuration: "{durations.fast}",
+            "[data-drop-valid]:not([data-drop-invalid]) > &": { display: "flex" },
+            "[data-drop-active]:not([data-drop-invalid]) > &": { display: "flex", background: "bg.brand.subtle" },
+        },
+        /* Its words, while a card rests on it: the query a drop opens, and its steps. */
+        dropTitle: {
+            display: "none",
+            fontSize: "14px",
+            fontWeight: "semibold",
+            color: "brand.fg",
+            "[data-drop-active] > * > &": { display: "block" },
+        },
+        dropMeta: {
+            display: "none",
+            fontSize: "12px",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.muted",
+            "[data-drop-active] > * > &": { display: "block" },
         },
     },
 });

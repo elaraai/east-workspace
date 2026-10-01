@@ -456,9 +456,12 @@ A `Library` of the bound data sources, as Studio's Components tab is a `Library`
 - **Groups** by kind, each with its count: Rows (arrays), Lookups (dicts), Values (trees and records) and
   Models (functions).
 - **An item**, as a palette card: its kind's icon (`table-list`, `key`, `sitemap`, `cube`, `calculator`), its
-  name, "{size} · #{hash}" under it — "40 orders", "8 customers by ID", "14 parts in one tree", "5 regions",
+  name, "{size} · #{hash}" under it — "40 orders · #4f2a1c8d", "8 customers by ID", "one tree", "one record",
   "price, region → number" — and, trailing, **Source** or **Looked up** when the open query reads it (the item
-  is `placed`).
+  is `placed`; the Library's trailing glyph, `play` or `arrow-right-arrow-left`, says which). As built: a list's
+  or a lookup table's count and every hash come from the dataset's status on e3 — with no server there is no
+  count, and the card shows its name alone — and a tree or a record is not counted, since only a stored
+  collection's manifest counts its elements.
 - **A click** starts a new query on it (§4.13); the query that was open keeps its drafts.
 - The `Library`'s own search, over names; ⌘/ anywhere in the builder opens the tab.
 
@@ -470,9 +473,11 @@ A `Library` of the saved queries, as Studio's Pages tab is a `Library` of the pr
   they start from, each by name.
 - **An item**: its name, and under it its description — the author's, else the generated sentence; the open
   query is `placed`.
-- A click opens it (§4.13). A query whose root is not bound here, by name and by path, carries the reason,
-  trailing, and its click says so in a notice instead of opening: "Reads {name}, which isn't here", "Reads
-  {path}, not this builder's {name}".
+- A click opens it (§4.13): a saved query as itself; a recent run as the saved query of its name when there
+  is one, else as a new query begun as the run — its steps, its name and its description — which runs. A
+  query whose root is not bound here, by name and by path, carries the reason, trailing, in the warning tone,
+  and its click says so in a notice at the top of the Library tab instead of opening: "Reads {name}, which
+  isn't here", "Reads {path}, not this builder's {name}".
 - The `Library`'s own search, over names and descriptions.
 
 ### 4.11 Results

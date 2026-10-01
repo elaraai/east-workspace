@@ -13,18 +13,21 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, printFor, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { SavedQueryType } from "@elaraai/e3-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 
 /**
  * The query open in a builder.
  *
  * @property new - A query not yet saved: `id` tells it from every other new
- *   query, so each keeps its own drafts; `source` is the data source it starts from
+ *   query, so each keeps its own drafts; `source` is the data source it starts
+ *   from; `from`, when it begins as a run of this viewer's that was never
+ *   saved, is that run — its name, its description and its checked query
  * @property saved - A saved query, by its name
  */
 export const QueryOpenType = VariantType({
-    new: StructType({ id: StringType, source: StringType }),
+    new: StructType({ id: StringType, source: StringType, from: OptionType(SavedQueryType) }),
     saved: StringType,
 });
 
@@ -44,6 +47,22 @@ const printString = printFor(StringType);
  */
 export function querySourceId(open: QueryOpen): string {
     return open.type === "saved" ? `query.saved:${printString(open.value)}` : `query.new:${printString(open.value.id)}`;
+}
+
+/** How many new queries this page has started: each gets an id of its own. */
+let started = 0;
+
+/**
+ * A new query: on a data source, or begun as a run of this viewer's that was
+ * never saved — its own id, so its drafts are its own.
+ *
+ * @param source - The data source it starts from
+ * @param from - The run it begins as, when it does
+ * @returns The query to open
+ */
+export function newQuery(source: string, from?: ValueTypeOf<typeof SavedQueryType>): QueryOpen {
+    started += 1;
+    return variant("new", { id: `${Date.now().toString(36)}-${started}`, source, from: from === undefined ? none : some(from) });
 }
 
 /**
