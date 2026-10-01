@@ -133,6 +133,20 @@ export function DocList({
         paddingStart: PAD_START,
         paddingEnd: PAD_END,
     });
+    /* A row above the fold that changes size moves the scroll by as much, so
+     * what shows at the fold holds still — whichever way the list last
+     * scrolled. The virtualizer's default skips a row measured before while
+     * the list scrolls backward: a live example above a deep link that grew
+     * as it rendered and shrank once it had, just after a correction of a
+     * few pixels upward, left the list past its link at the end of the page.
+     * Otherwise the default's rule stands: a row's first measure moves the
+     * scroll when its top is above the fold, a later one only when the whole
+     * row is, so a row spanning the fold that grows at its bottom never drags
+     * the view. */
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+        const fold = (instance.scrollOffset ?? 0) + instance.scrollAdjustments;
+        return instance.itemSizeCache.has(item.key) ? item.end <= fold : item.start < fold;
+    };
 
     /* Reset scroll on entry-set change so switching to a shorter category
      * doesn't leave the viewport pinned at an out-of-range offset. (A
