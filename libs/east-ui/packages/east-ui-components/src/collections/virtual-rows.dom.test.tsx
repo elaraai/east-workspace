@@ -18,7 +18,8 @@ import { useEffect } from "react";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
-import { VirtualRows, devicePixels, type RowsViewport } from "./virtual-rows.js";
+import type { Virtualizer } from "@tanstack/react-virtual";
+import { VirtualRows, devicePixels, observeOffsetWithin, type RowsViewport } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -724,5 +725,38 @@ describe("VirtualRows — what moves its rows (#856)", () => {
         unmount();
         expect(seen).toHaveLength(4);
         expect(seen[3]).toBeNull();
+    });
+});
+
+describe("VirtualRows — the unbounded frame's offset observer", () => {
+    test("a scroll settles while the observer is subscribed; a settle still to come when it unsubscribes is dropped, so nothing reaches a frame that has gone", async () => {
+        const ancestor = document.createElement("div");
+        const rows = document.createElement("div");
+        ancestor.append(rows);
+        document.body.append(ancestor);
+        try {
+            // TanStack settles a scroll this long after its last event.
+            const instance = { scrollElement: ancestor, targetWindow: window, options: { isScrollingResetDelay: 10 } } as unknown as Virtualizer<HTMLElement, Element>;
+            const observe = observeOffsetWithin<HTMLElement>({ current: rows }, { current: null });
+            const reports: [number, boolean][] = [];
+            const report = (offset: number, isScrolling: boolean) => { reports.push([offset, isScrolling]); };
+            // A timer set after the settle's, and longer: it fires after the settle would have.
+            const past = () => new Promise<void>((resolve) => { setTimeout(resolve, 50); });
+
+            const subscribed = observe(instance, report)!;
+            fireEvent.scroll(ancestor);
+            await act(past);
+            expect(reports).toEqual([[0, true], [0, false]]);
+            subscribed();
+
+            reports.length = 0;
+            const gone = observe(instance, report)!;
+            fireEvent.scroll(ancestor);
+            gone();
+            await act(past);
+            expect(reports).toEqual([[0, true]]);
+        } finally {
+            ancestor.remove();
+        }
     });
 });

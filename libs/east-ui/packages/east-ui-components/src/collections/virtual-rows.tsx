@@ -407,10 +407,18 @@ function offsetNow(target: HTMLElement | Window | undefined, items: RefObject<HT
  * The unbounded frame's offset observer: the ancestor's scroll events, read as
  * the viewport's position INSIDE the rows (see {@link offsetWithin}). Settles to
  * `isScrolling: false` after the virtualizer's reset delay, as TanStack's own
- * observers do. While subscribed it also publishes a re-sample — for the
- * rows moving with nothing scrolling (the frame's header growing).
+ * observers do — and, as theirs do, drops a settle still to come when it
+ * unsubscribes, so nothing reaches a frame that has gone. While subscribed it
+ * also publishes a re-sample — for the rows moving with nothing scrolling (the
+ * frame's header growing).
+ *
+ * @internal Exported for its test.
+ *
+ * @param items - The element that holds the rows
+ * @param resample - Where the observer publishes its re-sample while subscribed
+ * @returns The virtualizer's `observeElementOffset`
  */
-function observeOffsetWithin<T extends HTMLElement | Window>(
+export function observeOffsetWithin<T extends HTMLElement | Window>(
     items: RefObject<HTMLElement | null>,
     resample: React.MutableRefObject<(() => void) | null>,
 ) {
@@ -436,6 +444,7 @@ function observeOffsetWithin<T extends HTMLElement | Window>(
         target.addEventListener("scroll", onScroll, { passive: true });
         return () => {
             target.removeEventListener("scroll", onScroll);
+            settle.cancel();
             if (resample.current === again) resample.current = null;
         };
     };
