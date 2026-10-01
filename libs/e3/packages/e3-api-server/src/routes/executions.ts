@@ -18,6 +18,7 @@ import {
 import { decodeBody } from '../beast2.js';
 import { DataflowRequestType } from '../types.js';
 import type { GetRunner } from './functions.js';
+import { badQuery, wholeQuery } from './query.js';
 
 export type { RunnerBudget };
 
@@ -104,12 +105,18 @@ export function createExecutionRoutes(
     const ws = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    // Get query params
-    const stream = (c.req.query('stream') as 'stdout' | 'stderr') || 'stdout';
-    const offset = parseInt(c.req.query('offset') || '0', 10);
-    const limit = parseInt(c.req.query('limit') || '65536', 10);
+    // The stream and the window, refused before any store is asked when
+    // malformed. The stream names the log the store reads, so nothing but its
+    // two is taken; and a window of no bytes is a window, which reports the
+    // log's size, as the CLI's probe reads it.
+    const stream = c.req.query('stream') || 'stdout';
+    if (stream !== 'stdout' && stream !== 'stderr') {
+      return badQuery(`stream must be stdout or stderr, got ${JSON.stringify(stream)}`);
+    }
+    const window = wholeQuery(c, { offset: 0, limit: 0 });
+    if (window instanceof Response) return window;
 
-    return getTaskLogs(storage, repoPath, ws, taskName, stream, offset, limit);
+    return getTaskLogs(storage, repoPath, ws, taskName, stream, window.offset ?? 0, window.limit ?? 65536);
   });
 
   // GET /api/repos/:repo/workspaces/:ws/dataflow/execution - Get execution state (for polling)
@@ -118,11 +125,12 @@ export function createExecutionRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
 
-    // Get query params for pagination
-    const offset = c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : undefined;
-    const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined;
+    // The window of events, refused before the store is asked when malformed;
+    // a window of none still carries the run's state and its count of events
+    const window = wholeQuery(c, { offset: 0, limit: 0 });
+    if (window instanceof Response) return window;
 
-    return getDataflowExecution(seams.getStateStore(repoPath), seams.getOrchestrator(repoPath), repoPath, ws, { offset, limit }, seams.budget);
+    return getDataflowExecution(seams.getStateStore(repoPath), seams.getOrchestrator(repoPath), repoPath, ws, window, seams.budget);
   });
 
   // GET /api/repos/:repo/workspaces/:ws/dataflow/budget - The budget a run gets

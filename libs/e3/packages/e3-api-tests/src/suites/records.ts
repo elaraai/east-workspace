@@ -26,6 +26,7 @@ import {
   workspaceRecordMutate,
   workspaceRecordCompact,
   workspaceRecordHistory,
+  ApiError,
 } from '@elaraai/e3-api-client';
 
 import type { TestContext } from '../context.js';
@@ -268,6 +269,21 @@ export function recordTests(setup: TestSetup<TestContext>): void {
       // An unknown cursor terminates the walk gracefully (empty, not an error).
       const unknown = (await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts, 'f'.repeat(64))).commits;
       assert.equal(unknown.length, 0);
+    });
+
+    it('refuses a history limit that is not a positive integer with bad_request, rather than serving the whole chain', async (t) => {
+      const ctx = await withRecords(t);
+      const opts = await ctx.opts();
+
+      // The client sends a number as it prints
+      for (const limit of [0, -1, 1.5, NaN]) {
+        await assert.rejects(workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', limit, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.equal(err.code, 'bad_request');
+          assert.equal(err.details, `limit must be a positive integer, got "${String(limit)}"`);
+          return true;
+        });
+      }
     });
   });
 }
