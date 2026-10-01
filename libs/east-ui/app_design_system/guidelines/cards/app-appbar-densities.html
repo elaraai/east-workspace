@@ -1,36 +1,46 @@
-<!-- @dsCard group="App layout" viewport="700x300" subtitle="comfortable ≈90 · compact ≈68 · condensed 44 — one-row for data-dense screens" name="App bar densities" -->
+<!-- @dsCard group="App layout" viewport="700x470" subtitle="comfortable ≈90 · compact ≈68 · condensed 44 — the logo region matches each height" name="App bar densities" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
-.wrap { display: grid; gap: 10px; max-width: 620px; }
-.bar { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; border-bottom-width: 1px; }
-.crumb { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.06em; color: var(--ink-3); }
-.crumb .sep { color: var(--ink-4); padding-right: 6px; }
-.title { font-family: var(--font-brand); font-weight: 700; color: var(--ink); }
-.cap { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); margin: 3px 2px 0; }
-.comf { padding: 16px 24px; }
-.comf .crumb { font-size: 11px; margin-bottom: 8px; }
-.comf .title { font-size: 24px; letter-spacing: -0.015em; line-height: 1.1; }
-.comp { padding: 12px 20px; }
-.comp .crumb { font-size: 10.5px; margin-bottom: 4px; }
-.comp .title { font-size: 18px; letter-spacing: -0.015em; line-height: 1.1; }
-.cond { height: 44px; padding: 0 20px; display: flex; align-items: center; }
-.cond .crumb { font-size: 10.5px; }
-.cond .div { width: 1px; height: 14px; background: var(--rule-strong); margin: 0 12px; }
-.cond .title { font-size: 16px; letter-spacing: -0.01em; line-height: 1; }
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; gap: 12px; }
+.item { display: grid; gap: 4px; }
+.slice { display: grid; grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: auto 12px; border: 1px solid var(--rule); }
+.logo { display: flex; align-items: center; padding: 0 16px; background: var(--paper-2); border-right: 1px solid var(--rule); }
+.ph { flex: 1; height: 24px; box-sizing: border-box; display: flex; align-items: center; padding: 0 8px; border: 1px dashed var(--rule-strong); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.bar { background: var(--paper); border-bottom: 1px solid var(--rule); min-width: 0; }
+.side { background: var(--paper-2); border-right: 1px solid var(--rule); }
+.main { background: var(--paper-2); }
+.crumb { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.06em; color: var(--ink-3); }
+.crumb .sep { color: var(--ink-4); }
+.title { font-family: var(--font-brand); font-weight: 700; color: var(--ink); white-space: nowrap; }
+.comf .bar { display: grid; gap: 8px; align-content: start; padding: 16px 24px; }
+.comf .crumb { height: 24px; font-size: var(--fs-label-lg); }
+.comf .title { font-size: var(--fs-title-xl); letter-spacing: -0.015em; line-height: 1.1; }
+.comp .bar { display: grid; gap: 4px; align-content: start; padding: 12px 20px; }
+.comp .crumb { height: 20px; font-size: var(--fs-label-md); }
+.comp .title { font-size: var(--fs-title-md); letter-spacing: -0.015em; line-height: 1.1; }
+.cond .bar { height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 20px; }
+.cond .crumb { font-size: var(--fs-label-md); }
+.cond .div { width: 1px; height: 14px; flex: none; background: var(--rule-strong); }
+.cond .title { font-size: var(--fs-title-sm); letter-spacing: -0.01em; line-height: 1; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="wrap">
-  <div>
-    <div class="bar comf"><div class="crumb"><span class="sep">/</span>Settings</div><div class="title">Acme Operations</div></div>
-    <div class="cap">comfortable · ≈90px · two rows · pad 16/24 · title 24 — default</div>
-  </div>
-  <div>
-    <div class="bar comp"><div class="crumb"><span class="sep">/</span>Settings</div><div class="title">Acme Operations</div></div>
-    <div class="cap">compact · ≈68px · pad 12/20 · title 18 — dense toolbars</div>
-  </div>
-  <div>
-    <div class="bar cond"><span class="crumb"><span class="sep">/</span>Settings</span><span class="div"></span><span class="title">Acme Operations</span></div>
-    <div class="cap">condensed · 44px · one row · crumb + 1×14 divider + title 16 — reclaim space</div>
-  </div>
+<div class="item comf">
+<div class="slice"><div class="logo"><span class="ph">Logo</span></div><div class="bar"><div class="crumb"><span>Acme Ops</span><span class="sep">/</span><span>Staffing</span><span class="sep">/</span><span>Rosters</span></div><div class="title">DC-North</div></div><div class="side"></div><div class="main"></div></div>
+<div class="cap"><span class="f">comfortable</span> · <span class="f">≈90px</span> · <span class="f">2 rows: crumb 24, gap 8, title</span> · <span class="f">pad 16/24</span> · <span class="f">crumb 11</span> · <span class="f">title 24/700 −0.015em — default</span></div>
 </div>
+<div class="item comp">
+<div class="slice"><div class="logo"><span class="ph">Logo</span></div><div class="bar"><div class="crumb"><span>Acme Ops</span><span class="sep">/</span><span>Staffing</span><span class="sep">/</span><span>Rosters</span></div><div class="title">DC-North</div></div><div class="side"></div><div class="main"></div></div>
+<div class="cap"><span class="f">compact</span> · <span class="f">≈68px</span> · <span class="f">2 rows: crumb 20, gap 4, title</span> · <span class="f">pad 12/20</span> · <span class="f">crumb 10.5</span> · <span class="f">title 18/700 — dense toolbars</span></div>
+</div>
+<div class="item cond">
+<div class="slice"><div class="logo"><span class="ph">Logo</span></div><div class="bar"><span class="crumb"><span>Acme Ops</span><span class="sep">/</span><span>…</span><span class="sep">/</span><span>Rosters</span></span><span class="div"></span><span class="title">DC-North</span></div><div class="side"></div><div class="main"></div></div>
+<div class="cap"><span class="f">condensed</span> · <span class="f">44px</span> · <span class="f">1 row</span> · <span class="f">pad 0/20</span> · <span class="f">crumb 10.5, root</span> · <span class="f">…</span> · <span class="f">parent</span> · <span class="f">1×14 --rule-strong divider, gap 12</span> · <span class="f">title 16/700 — data-dense</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;App&gt; · &lt;Breadcrumb&gt;</b> · <span class="f">--paper</span> · <span class="f">1px --rule bottom</span> · <span class="f">no shadow</span> · <span class="f">the logo region matches the bar's height at each density</span> · <span class="f">logo region: sidebar top, --paper-2, 16px side pad, rule-free below</span> · <span class="f">breadcrumb = ancestors, title = the leaf</span> · <span class="f">collections use the same three density names</span> · <span class="f">no logo yet: dashed placeholder</span></div>
 </body></html>

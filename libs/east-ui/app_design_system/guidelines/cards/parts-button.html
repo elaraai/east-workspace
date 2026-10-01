@@ -1,0 +1,97 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x920" subtitle="Four roles · md 32 / sm 24 · rest, hover, focus, disabled, loading · icon 32×32 and ghost in-row · Override · Modify · Apply" name="Button" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.wrap { display: grid; gap: 20px; }
+.item { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.stack { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.mx { display: grid; grid-template-columns: 164px repeat(4, minmax(0, 1fr)); gap: 12px; align-items: center; }
+.mx .btn { justify-self: start; }
+.rh { display: grid; gap: 4px; }
+.nm { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.04em; color: var(--ink); }
+.line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.line.end { justify-content: flex-end; }
+.btn { height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); white-space: nowrap; }
+.btn i { font-size: 16px; }
+.btn.override { border-color: var(--ink-3); color: var(--ink-2); font-weight: 600; }
+.btn.primary { background: var(--brand-d); border-color: var(--brand-d); color: var(--paper); font-weight: 600; }
+.btn.link { height: 20px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--brand-d); }
+.btn.hover { background: var(--paper-2); }
+.btn.primary.hover { background: var(--brand-dd); border-color: var(--brand-dd); }
+.btn.link.hover { background: none; color: var(--brand-dd); text-decoration: underline; text-underline-offset: 2px; }
+.btn.focus { box-shadow: var(--shadow-focus); }
+.btn.dis, .btn.primary.dis { background: var(--paper); border-color: var(--rule); color: var(--ink-5); }
+.btn.link.dis { background: none; }
+.btn.sm { height: 24px; padding: 0 8px; }
+.btn.sm i { font-size: 14px; }
+.btn.ib { width: 32px; padding: 0; justify-content: center; }
+.btn.sm.ib { width: 24px; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--ink-3); }
+.btn.ghost.hover { background: var(--paper-3); color: var(--ink); }
+.btn.ghost.dis { border-color: transparent; background: transparent; color: var(--ink-5); }
+@keyframes east-pulse { 0% { transform: scale(1); opacity: 0.6; } 25%, 100% { transform: scale(2.5); opacity: 0; } }
+.slot { width: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.ld { position: relative; width: 8px; height: 8px; flex: none; border-radius: var(--r-full); background: currentColor; }
+.ld::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-full); background: inherit; animation: east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite; }
+@media (prefers-reduced-motion: reduce) { .ld::after { animation: none; opacity: 0; } }
+.ibs { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; align-items: center; column-gap: 20px; row-gap: 4px; }
+.ibs .cap { white-space: nowrap; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 240px 80px 68px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.st { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); white-space: nowrap; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; text-align: right; }
+.th .r { text-align: right; }
+.tr.hover { background: var(--paper-2); }
+.acts { display: flex; justify-content: flex-end; gap: 4px; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="mx">
+<span></span><span class="cap">rest</span><span class="cap">hover</span><span class="cap">focus</span><span class="cap">disabled</span>
+<div class="rh"><span class="nm">primary</span><span class="cap">--brand-d · --paper 600</span></div>
+<span class="btn primary">Apply</span><span class="btn primary hover">Apply</span><span class="btn primary focus">Apply</span><span class="btn primary dis" aria-disabled="true">Apply</span>
+<div class="rh"><span class="nm">default</span><span class="cap">--paper · --rule-strong</span></div>
+<span class="btn">Modify</span><span class="btn hover">Modify</span><span class="btn focus">Modify</span><span class="btn dis" aria-disabled="true">Modify</span>
+<div class="rh"><span class="nm">override</span><span class="cap">--ink-3 edge · --ink-2 600</span></div>
+<span class="btn override">Override</span><span class="btn override hover">Override</span><span class="btn override focus">Override</span><span class="cap">n/a · always offered</span>
+<div class="rh"><span class="nm">link / ghost</span><span class="cap">--brand-d 500 · no box</span></div>
+<span class="btn link">Open run →</span><span class="btn link hover">Open run →</span><span class="btn link focus">Open run →</span><span class="btn link dis" aria-disabled="true">Open run →</span>
+</div>
+<div class="two">
+<div class="stack">
+<div class="item"><div class="line"><span class="btn"><i class="fa-solid fa-download" aria-hidden="true"></i>Export</span><span class="btn">Compare<i class="fa-solid fa-angle-down" aria-hidden="true"></i></span><span class="btn primary">Apply</span></div><div class="cap"><span class="f">md · 32 — default</span> · <span class="f">pad 0 12</span> · <span class="f">icon 16, gap 8</span></div></div>
+<div class="item"><div class="line"><span class="btn sm"><i class="fa-solid fa-download" aria-hidden="true"></i>Export</span><span class="btn sm">Compare<i class="fa-solid fa-angle-down" aria-hidden="true"></i></span><span class="btn sm ib ghost" role="button" aria-label="More actions"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></div><div class="cap"><span class="f">sm · 24</span> · <span class="f">pad 0 8</span> · <span class="f">icon 14</span> · <span class="f">36px bands: the eyebrow row, the footer band</span> · <span class="f">compact and condensed rows</span> · <span class="f">never Primary or Override</span></div></div>
+<div class="item"><div class="line"><span class="btn primary" aria-busy="true"><span class="slot"><span class="ld"></span></span>Apply</span><span class="btn" aria-busy="true"><span class="slot"><span class="ld"></span></span>Export</span></div><div class="cap"><span class="f">loading · after --dur-base</span> · <span class="f">label and fill stay</span> · <span class="f">the live dot takes the icon slot, in the label's colour</span> · <span class="f">aria-busy, no hover, no clicks</span></div></div>
+</div>
+<div class="item">
+<div class="ibs">
+<span class="btn ib" role="button" aria-label="Download CSV"><i class="fa-solid fa-download" aria-hidden="true"></i></span><span class="btn ib hover" role="button" aria-label="Download CSV"><i class="fa-solid fa-download" aria-hidden="true"></i></span><span class="btn ib focus" role="button" aria-label="Download CSV"><i class="fa-solid fa-download" aria-hidden="true"></i></span><span class="btn ib dis" role="button" aria-label="Download CSV" aria-disabled="true"><i class="fa-solid fa-download" aria-hidden="true"></i></span><span class="btn sm ib" role="button" aria-label="Download CSV"><i class="fa-solid fa-download" aria-hidden="true"></i></span>
+<span class="cap">rest</span><span class="cap">hover</span><span class="cap">focus</span><span class="cap">disabled</span><span class="cap">sm 24</span>
+</div>
+<div class="cap"><span class="f">icon button · 32×32</span> · <span class="f">aria-label</span> · <span class="f">toolbars, row-end</span></div>
+</div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th"><span>Site</span><span>State</span><span class="r">Fill rate</span><span></span></div>
+<div class="tr"><span>DC-North</span><span class="st">rest · --ink-3, no border</span><span class="n">96.4%</span><span class="acts"><span class="btn ib ghost" role="button" aria-label="Edit DC-North"><i class="fa-solid fa-pen" aria-hidden="true"></i></span><span class="btn ib ghost" role="button" aria-label="More actions for DC-North"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr hover"><span>DC-East</span><span class="st">hover · --paper-3, icon --ink</span><span class="n">94.1%</span><span class="acts"><span class="btn ib ghost" role="button" aria-label="Edit DC-East"><i class="fa-solid fa-pen" aria-hidden="true"></i></span><span class="btn ib ghost hover" role="button" aria-label="More actions for DC-East"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr"><span>DC-South</span><span class="st">focus · --shadow-focus, outside</span><span class="n">97.8%</span><span class="acts"><span class="btn ib ghost focus" role="button" aria-label="Edit DC-South"><i class="fa-solid fa-pen" aria-hidden="true"></i></span><span class="btn ib ghost" role="button" aria-label="More actions for DC-South"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr"><span>DC-West</span><span class="st">disabled · --ink-5</span><span class="n">91.2%</span><span class="acts"><span class="btn ib ghost dis" role="button" aria-label="Edit DC-West" aria-disabled="true"><i class="fa-solid fa-pen" aria-hidden="true"></i></span><span class="btn ib ghost" role="button" aria-label="More actions for DC-West"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+</div>
+<div class="cap"><span class="f">ghost in-row · 32×32 in a 36px row, 4 apart</span> · <span class="f">the row hovers --paper-2, the button --paper-3</span> · <span class="f">on a selected row the icon carries the hover</span></div>
+</div>
+<div class="two">
+<div class="item"><div class="line"><span class="btn">Cancel</span><span class="btn primary">Archive roster</span></div><div class="cap"><span class="f">dialog pair · Cancel + Primary</span> · <span class="f">verb and object</span></div></div>
+<div class="item"><div class="line end"><span class="btn override">Override</span><span class="btn">Modify</span><span class="btn primary">Apply</span></div><div class="cap"><span class="f">commit cluster · always this order</span> · <span class="f">gap 8</span></div></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Button&gt; · &lt;IconButton&gt;</b> · <span class="f">md 32, sm 24 in 36px bands and compact or condensed rows; Primary and Override always md</span> · <span class="f">pad 0 12, sm 0 8</span> · <span class="f">Inter Tight 12.5</span> · <span class="f">--r-md</span> · <span class="f">primary --brand-d, --paper 600, hover --brand-dd</span> · <span class="f">default --paper, 1px --rule-strong, --ink 500</span> · <span class="f">override 1px --ink-3, --ink-2 600</span> · <span class="f">link --brand-d 500, hover --brand-dd + underline</span> · <span class="f">hover --paper-2</span> · <span class="f">focus --shadow-focus</span> · <span class="f">disabled 1px --rule, --ink-5</span> · <span class="f">icon 16 (sm 14), gap 8</span> · <span class="f">loading: live dot in the icon slot, label kept, aria-busy</span> · <span class="f">ghost --ink-3, hover --paper-3</span> · <span class="f">clusters gap 8, right-aligned</span> · <span class="f">--dur-fast</span></div>
+</body></html>

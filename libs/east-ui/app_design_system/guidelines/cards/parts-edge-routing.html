@@ -1,0 +1,48 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x620" subtitle="Orthogonal and corner routing · weighted by measured volume, with the evidence badge" name="Edge · routing & weight" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.canvas { display: grid; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 12px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.g2 { display: grid; grid-template-columns: repeat(2, 301px); gap: 20px 16px; }
+.it { display: grid; gap: 8px; align-content: start; }
+.sp { position: relative; width: 301px; height: 72px; }
+.fan { position: relative; width: 618px; height: 184px; }
+.sp svg, .fan svg { position: absolute; inset: 0; overflow: visible; }
+.e { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ah { fill: var(--ink-3); }
+.gl { position: absolute; width: 32px; height: 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-size: 14px; color: var(--ink-3); }
+.n { position: absolute; width: 144px; height: 56px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 12px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.nl { white-space: nowrap; font-size: var(--fs-body); font-weight: 500; line-height: 1.25; color: var(--ink); }
+.nm { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); line-height: 1.4; color: var(--ink-4); }
+.p { position: absolute; width: 8px; height: 8px; box-sizing: border-box; background: var(--ink-4); border: 1px solid var(--ink-4); }
+.ct { position: absolute; left: 385px; transform: translate(-50%, -50%); height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; background: var(--paper-3); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; font-feature-settings: "tnum" 1; color: var(--ink-2); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="canvas">
+<div class="sec">
+<div class="k">Route · orthogonal, corner 0 and corner 8</div>
+<div class="g2">
+<div class="it"><div class="sp"><svg width="301" height="72" viewBox="0 0 301 72" aria-hidden="true"><path class="e" d="M36 16H150V56H258"></path><path class="ah" d="M265 56l-8-4v8z"></path></svg><span class="gl" style="left:0;top:0"><i class="fa-solid fa-industry" aria-label="Plant 2"></i><span class="p" style="right:-5px;top:11px"></span></span><span class="gl" style="left:269px;top:40px"><i class="fa-solid fa-warehouse" aria-label="DC-North"></i><span class="p" style="left:-5px;top:11px"></span></span></div><div class="cap"><span class="f">orthogonal</span> · <span class="f">corner 0</span> · <span class="f">H and V segments, sharp 90° bends</span> · <span class="f">bend at the midpoint</span></div></div>
+<div class="it"><div class="sp"><svg width="301" height="72" viewBox="0 0 301 72" aria-hidden="true"><path class="e" d="M36 16H142A8 8 0 0 1 150 24V48A8 8 0 0 0 158 56H258"></path><path class="ah" d="M265 56l-8-4v8z"></path></svg><span class="gl" style="left:0;top:0"><i class="fa-solid fa-industry" aria-label="Plant 2"></i><span class="p" style="right:-5px;top:11px"></span></span><span class="gl" style="left:269px;top:40px"><i class="fa-solid fa-warehouse" aria-label="DC-North"></i><span class="p" style="left:-5px;top:11px"></span></span></div><div class="cap"><span class="f">corner</span> · <span class="f">the same route, bends at radius 8</span> · <span class="f">default</span></div></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Weighted · stroke from measured volume, u/wk</div>
+<div class="fan">
+<svg width="618" height="184" viewBox="0 0 618 184" aria-hidden="true"><path class="e" style="stroke-width:8" d="M148 76H292A8 8 0 0 0 300 68V36A8 8 0 0 1 308 28H463"></path><path class="ah" d="M470 28l-8-8v16z"></path><path class="e" style="stroke-width:4" d="M148 92H463"></path><path class="ah" d="M470 92l-8-4v8z"></path><path class="e" style="stroke-width:2" d="M148 108H292A8 8 0 0 1 300 116V148A8 8 0 0 0 308 156H463"></path><path class="ah" d="M470 156l-8-4v8z"></path></svg>
+<div class="n" style="left:0;top:64px"><span class="nl">DC-East · outbound</span><span class="nm">4,770 u/wk out</span><span class="p" style="right:-5px;top:7px"></span><span class="p" style="right:-5px;top:23px"></span><span class="p" style="right:-5px;top:39px"></span></div>
+<div class="n" style="left:474px;top:0"><span class="nl">DC-North</span><span class="nm">in 3,120 u/wk</span><span class="p" style="left:-5px;top:23px"></span></div>
+<div class="n" style="left:474px;top:64px"><span class="nl">DC-South</span><span class="nm">in 1,240 u/wk</span><span class="p" style="left:-5px;top:23px"></span></div>
+<div class="n" style="left:474px;top:128px"><span class="nl">DC-Central</span><span class="nm">in 410 u/wk</span><span class="p" style="left:-5px;top:23px"></span></div>
+<span class="ct" style="top:28px">3,120</span><span class="ct" style="top:92px">1,240</span><span class="ct" style="top:156px">410</span>
+</div>
+<div class="cap"><span class="f">8px top third · 4px middle third · 2px bottom third</span> · <span class="f">badge = Count, --paper-3, --r-sm, mono 10/600, on the last segment</span> · <span class="f">planned links carry no evidence and stay 1.5</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Schematic&gt; link · route orthogonal { corner } · &lt;Flowchart&gt; link · evidence volume → weight + badge</b> · <span class="f">every route is H and V segments</span> · <span class="f">corner 0: sharp bends</span> · <span class="f">corner 8: rounded bends, the default</span> · <span class="f">bends at the midpoint between ports</span> · <span class="f">ports 16 apart</span> · <span class="f">weight 2 / 4 / 8px by volume tercile, observed links only</span> · <span class="f">arrowhead 8 long, max(8, 2 × stroke) wide</span> · <span class="f">colour stays --ink-3: weight carries magnitude, never hue</span> · <span class="f">badge centred on the final segment, knocks the stroke out</span></div>
+</body></html>

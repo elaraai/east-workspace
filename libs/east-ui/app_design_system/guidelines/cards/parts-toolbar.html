@@ -1,0 +1,206 @@
+<!-- @dsCard group="Parts · Toolbar & slice" viewport="700x4600" subtitle="One 44 band on every host · the fold ladder rung by rung: rail 0–7, Plan 10–13, Sheet 10–15 · one-affordance floors · held and open · loading · the Plan's narrow row · touch · improvements marked (proposed)" name="Toolbar" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css">
+<style>
+.lad{display:grid;gap:12px}
+.stp{display:grid;gap:4px;min-width:0}
+.lb{display:flex;align-items:baseline;gap:8px;min-width:0;font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.4;letter-spacing:0.04em;color:var(--ink-4)}
+.lb .rk{flex:none;min-width:64px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-2)}
+.lb .wh{flex:1;min-width:0}
+.lb b{font-weight:600;color:var(--ink-2)}
+.lb .px{flex:none;font-feature-settings:"tnum" 1}
+.winw{position:relative;min-width:0}
+.win{overflow-x:auto;scrollbar-width:none}
+.win.rtl{direction:rtl}.win.rtl>.slice{direction:ltr}
+.win::-webkit-scrollbar{display:none}
+.winw.hide-l::before,.winw.hide-r::after{content:"";position:absolute;top:0;bottom:0;z-index:1;border-left:1px dashed var(--ink-4)}
+.winw.hide-l::before{left:0}.winw.hide-r::after{right:0}
+.st{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.5;letter-spacing:0.02em;color:var(--ink-4);overflow-wrap:anywhere}
+.held{position:relative;height:432px}
+.lanes{display:grid}
+.lane{height:36px;box-sizing:border-box;display:grid;grid-template-columns:128px minmax(0,1fr);border-bottom:1px solid var(--rule)}
+.lane>span{display:flex;align-items:center;padding-left:20px;border-right:1px solid var(--rule);font-size:var(--fs-body);color:var(--ink);white-space:nowrap}
+.lane.hz{height:38px}
+.lane.hz>span{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-4)}
+.lane.ru{height:48px}
+.rt{display:grid;grid-template-rows:24px 23px;min-width:0}
+.rt .t1{display:flex;align-items:center;padding-left:12px;border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap}
+.rt .t2{display:grid;grid-template-columns:repeat(8,minmax(0,1fr))}
+.rt .t2 b{display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;font-feature-settings:"tnum" 1;color:var(--ink-4)}
+.nw{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;background:var(--paper)}
+.nw .hbw{margin-left:auto}
+.fl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.fl .to{font-family:var(--font-mono);font-size:var(--fs-label-lg);color:var(--ink-4)}
+</style></head><body>
+<div class="wrap" id="wrap">
+<div class="sec">
+<div class="k">One band · every host at the card's full width</div>
+<div class="lad" id="hosts"></div>
+<div class="cap"><span class="f">one flex row: nowrap, never scrolls, clips horizontally only</span> · <span class="f">items flex none; the first end item takes the slack</span> · <span class="f"><b>every host the same band: 44, pad 0 20 in Main (12 in the rail), gap 12</b> (proposed)</span> · <span class="f">the row starts on the Frame's padding edge, over the first column and the lane names</span> · <span class="f">the decision queue's rail is its end item</span> · <span class="f">under the Table, Plan and Sheet bands: data-toolbar-state, key=form/forms</span></div>
+</div>
+<div class="sec">
+<div class="k">Fold ladder · rail cluster, ranks 0–7 · Table eyebrow</div>
+<div class="lad" id="lad-rail"></div>
+<div class="cap"><span class="f">each strip at the widest width where its step has happened</span> · <span class="f">a strip wider than the card scrolls; the dashed edge marks the side off the card</span> · <span class="f">clause chips fold trailing first, one per step</span> · <span class="f">ranks 1–5: search, range, cohort / presets, breakdown, filter</span> · <span class="f">each collapses to a summary chip, in fold order</span> · <span class="f">6: one terminal chip naming active families first</span> · <span class="f">7: the icon, with the active narrowing count (proposed); its tooltip every family's text</span> · <span class="f">every trigger opens the sectioned editor</span></div>
+</div>
+<div class="sec">
+<div class="k">Fold ladder · Plan host steps 10–13</div>
+<div class="lad" id="lad-plan"></div>
+<div class="cap"><span class="f">the rail first (0–7): both clusters at their floor, then the Plan's own items from HOST_RANK 10</span> · <span class="f">drawn with pick and editing off</span> · <span class="f">Series, the history bar, key search and diagnostics never fold:</span> <span class="f">each adds its width to every threshold</span> · <span class="f">below the last rung the row clips at its end</span></div>
+</div>
+<div class="sec">
+<div class="k">Fold ladder · Sheet, rail then host steps 10–15</div>
+<div class="lad" id="lad-sheet"></div>
+<div class="cap"><span class="f">tabs fold into +n trailing first; the active tab always stays</span> · <span class="f">13 compact: + TAB icon only, no whole-sheet count</span> · <span class="f">14 capped: names at 72</span> · <span class="f">15 is two steps at one rank, in row order: the strip closes, then the context switch goes</span> · <span class="f">a tab's × shows on the active, hovered or focused tab; its 14 box is always kept, so hover never re-folds (proposed)</span> · <span class="f">drawn without the badge and history, which never fold</span></div>
+</div>
+<div class="sec">
+<div class="k">One-affordance floors</div>
+<div class="canvas" id="floors"></div>
+<div class="cap"><span class="f">a cluster of one affordance has no terminal chip and no icon</span> · <span class="f">its floor is its summary chip and the caret</span> · <span class="f">the Plan's range cluster at its Range chip and caret, brand while a range is set</span> · <span class="f">the Sheet's default rail at its Search chip and caret</span></div>
+</div>
+<div class="sec">
+<div class="k">Held and open · the cluster keeps its form while its editor is open</div>
+<div class="held" id="held"></div>
+<div class="cap"><span class="f">the trigger carries data-state=open, so its cluster takes no steps</span> · <span class="f"><b>open</b>: its chips --paper-3, a brand chip keeps its tint with a --brand-dd edge, the caret turns up (proposed)</span> · <span class="f">the rest of the row folds around it</span> · <span class="f">the popover floats; the band keeps 44</span> · <span class="f">the head counts the narrowings in its own sections (proposed)</span> · <span class="f">Save as cohort → in its foot from one filter (proposed)</span> · <span class="f">under it the horizon 38, the Plan's 48 time axis, lanes 36 with names at 20 (proposed)</span></div>
+</div>
+<div class="sec">
+<div class="k">Loading · the result of a slice change is in flight</div>
+<div class="lad" id="loading"></div>
+<div class="cap"><span class="f">after --dur-base, the Loading Status takes the slot of the count it will change (proposed)</span> · <span class="f">the Plan's summary, the Sheet's count line, Slice.Summary's N of M</span> · <span class="f">held at the count's width, so nothing re-folds</span> · <span class="f">the chips stay live: a second change supersedes the first</span></div>
+</div>
+<div class="sec">
+<div class="k">Narrow · the Plan in a container under 480</div>
+<div class="slice" style="width:422px" id="narrow"></div>
+<div class="cap"><span class="f">no band: one wrapping row, gap 8, pad 8 12 (proposed)</span> · <span class="f">the rail as one cluster, range included, folding within its line</span> · <span class="f">the resolution menu · diagnostics · the history bar</span> · <span class="f"><b>the history bar pinned to the end of the last line</b> (proposed)</span> · <span class="f">no grain segment, no summary, no Series, no horizon</span> · <span class="f">tab counts read ~N on a paged canvas</span></div>
+</div>
+<div class="sec">
+<div class="k">Touch · a coarse pointer (proposed)</div>
+<div class="lad" id="touch"></div>
+<div class="cap"><span class="f">band 56 · chips at the ChipRail's large 34, pad 0 12, gap 8</span> · <span class="f">× and pencil 34 squares at the chip's end</span> · <span class="f">the pill, segments and buttons 44 (as the history bar already grows)</span> · <span class="f">the same ladder: the wider parts fold sooner, and the editor opens at the same sizes</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Toolbar&gt; (src/toolbar) · toolbar recipe · Slice.Rail clusters · &lt;Plan&gt; toolbar · &lt;Sheet&gt; toolbar</b> · <span class="f">root flex, nowrap, overflow-x clip, 3px clip room each side so focus rings show</span> · <span class="f">items flex none, first end item margin-left auto</span> · <span class="f">gap 12 on every host, the Plan's 10 included (proposed)</span> · <span class="f">every band 44, pad 0 + the Frame's padding: 20 in Main, 12 in the rail (proposed)</span> · <span class="f">Sheet tabs: the Tabs part (11/600/0.16em) at the band's height, underline on the hairline, hover --paper-2, focus inset (proposed)</span> · <span class="f">+ TAB the dashed caps chip (proposed)</span> · <span class="f">grain, resolution, context: SegmentGroup sm 24; context captioned (proposed)</span> · <span class="f">summary and count line in Slice.Summary's voice, counting narrowings (proposed)</span> · <span class="f">paged badge a dashed Tag (proposed)</span> · <span class="f">Loading Status in the count's slot (proposed)</span> · <span class="f">the Flowchart's pill 200 (proposed)</span> · <span class="f">narrow: pad 8 12, history last (proposed)</span> · <span class="f">coarse pointer: band 56, chips 34, targets 44 (proposed)</span> · <span class="f">open: --paper-3, caret up (proposed)</span> · <span class="f">fold: forms widest first; steps merged by rank, ties in row order</span> · <span class="f">the fewest steps that fit, tolerance 0.5</span> · <span class="f">widths measured per form, kept until the item's version changes</span> · <span class="f">held: an open trigger keeps its item's form</span> · <span class="f">rail ranks 0–7 · HOST_RANK 10 · one form never folds</span> · <span class="f">hairline --rule below</span> · <span class="f">overlays float; the band never changes height</span></div>
+<div id="ms" style="position:absolute;left:-10000px;top:0;visibility:hidden;display:flex;flex-direction:column;align-items:flex-start"></div>
+<script>
+(()=>{
+const I=(n,c)=>`<i class="fa-solid fa-${n}${c?' '+c:''}" aria-hidden="true"></i>`;
+const esc=s=>String(s).replace(/"/g,'&quot;');
+const META={filter:['filter','Filter'],breakdown:['layer-group','Split'],cohort:['users','Cohort'],presets:['users','Presets'],search:['magnifying-glass','Search'],range:['calendar','Range']};
+const CR={search:1,range:2,cohort:3,presets:3,breakdown:4,filter:5};
+const clause=t=>`<span class="ch br" role="button" aria-haspopup="dialog">${t}<span class="x" role="button" aria-label="Remove filter">×</span></span>`;
+const more=n=>`<span class="ch mo" role="button" aria-haspopup="dialog">+${n} more${I('chevron-down','cr')}</span>`;
+const add=t=>`<span class="ch cp da" role="button" aria-haspopup="dialog">${I('plus','pl')}${t}</span>`;
+const pill=q=>`<span class="sp" role="combobox" aria-label="Search">${q?`<span class="q">${q}</span><span class="cx" role="button" aria-label="Clear search">${I('xmark')}</span>`:`<span class="q ph">Search…</span><span class="kh">/</span>`}</span>`;
+const range=r=>`<span class="ch${r?' br':''}" role="button" aria-haspopup="dialog">${r?`${r.text}<span class="me">${r.meta}</span>`:'All time'}${I('chevron-down','cr')}</span>`;
+const coh=(c,edit)=>`<span class="ch${c.on?' br':''}" role="button" aria-pressed="${c.on}"><span class="dt${c.on?' on':''}"></span>${c.name}<span class="me">· ${c.count}</span>${edit?`<span class="pen" role="button" aria-label="Edit ${c.name}">${I('pen')}</span>`:''}</span>`;
+const dimOn=l=>`<span class="ch br" role="button">${l}<span class="x" role="button" aria-label="Clear breakdown">×</span></span>`;
+function control(k,S,fold){switch(k){
+case 'filter':{const n=S.filters.length;return `<span class="ctl">${S.filters.slice(0,n-fold).map(clause).join('')}${fold?more(fold):''}${add('Filter')}</span>`;}
+case 'search':return pill(S.search);
+case 'range':return range(S.range);
+case 'cohort':return `<span class="run">${S.cohorts.map(c=>coh(c,true)).join('')}${add('Cohort')}</span>`;
+case 'presets':return `<span class="run">${S.cohorts.map(c=>coh(c,false)).join('')}</span>`;
+case 'breakdown':return S.breakdown?dimOn(S.breakdown):add('Dimension');}}
+function desc(k,S){const icon=META[k][0];switch(k){
+case 'filter':{const n=S.filters.length;return{icon,text:n?`${n} filter${n>1?'s':''}`:'Filter',active:n>0};}
+case 'breakdown':return S.breakdown?{icon,text:S.breakdown,active:true}:{icon,text:'Split',active:false};
+case 'cohort':case 'presets':{const on=S.cohorts.filter(c=>c.on);if(on.length)return{icon,text:on.length===1?on[0].name:`${on[0].name} +${on.length-1}`,active:true};const fam=[...new Set(S.cohorts.map(c=>c.group).filter(Boolean))];if(fam.length)return{icon,text:fam.length<=2?fam.join(' · '):`${fam.slice(0,2).join(' · ')} +${fam.length-2}`,active:false};const a=S.cohorts.length;return{icon,text:a===1?'1 cohort':`${a} cohorts`,active:false};}
+case 'range':return{icon,text:'Range',active:!!S.range};
+case 'search':return S.search?{icon,text:`"${S.search}"`,active:true}:{icon,text:'Search',active:false};}}
+const nar=(k,S)=>k==='filter'?S.filters.length:(k==='cohort'||k==='presets')?S.cohorts.filter(c=>c.on).length:k==='search'?+!!S.search:k==='range'?+!!S.range:0;
+const sumChip=d=>`<span class="ch${d.active?' br':''}" data-slice-fold>${I(d.icon,'ic')}<span>${d.text}</span></span>`;
+function trigger(kinds,order,S,f,open){let inner;
+if(f.s==='chips')inner=order.slice(0,f.f).map(o=>sumChip(desc(kinds[o.i],S))).join('');
+else{const ds=kinds.map((k,x)=>({d:desc(k,S),x})).sort((a,b)=>(b.d.active-a.d.active)||a.x-b.x).map(o=>o.d);const L=ds.map(d=>d.text),any=ds.some(d=>d.active),ic=ds[0].icon,n=kinds.reduce((t,k)=>t+nar(k,S),0);
+inner=f.s==='icon'?`<span class="ch${any?' br':''}" title="${esc(L.join(' · '))}" data-rail-rung="icon">${I(ic,'ic')}${n?`<span>${n}</span>`:''}</span>`:sumChip({icon:ic,text:L.length?L.slice(0,2).join(' · ')+(L.length>2?` +${L.length-2}`:''):'Slice',active:any});}
+return `<span class="tg${open?' op':''}" role="button" aria-haspopup="dialog" aria-expanded="${!!open}"${open?' data-state="open"':''}>${inner}${I('chevron-down','cr')}</span>`;}
+function railForm(kinds,order,S,f,open){const col=new Set(order.slice(0,f.f).map(o=>o.i));let h='<span class="cl">';
+kinds.forEach((k,i)=>{if(col.has(i))return;h+=`<span class="af" title="${META[k][1]}"><span class="fi">${I(META[k][0])}</span>${control(k,S,k==='filter'?f.c:0)}</span>`;});
+if(f.f>0)h+=trigger(kinds,order,S,f,open);return h+'</span>';}
+function rail(key,kinds,S,side){const order=kinds.map((k,i)=>({i,r:CR[k]??3})).sort((a,b)=>a.r-b.r||a.i-b.i);
+const nc=kinds.includes('filter')?S.filters.length:0;const F=[{f:0,c:0,s:'chips'}],R=[],N=[null];
+for(let c=1;c<=nc;c++){F.push({f:0,c,s:'chips'});R.push(0);N.push(`<b>${S.filters[nc-c]}</b> goes into +${c} more`);}
+order.forEach((o,j)=>{F.push({f:j+1,c:nc,s:'chips'});R.push(o.r);N.push(`${META[kinds[o.i]][1].toLowerCase()} collapses to <b>${desc(kinds[o.i],S).text}</b>`);});
+if(kinds.length>1){F.push({f:kinds.length,c:nc,s:'terminal'});R.push(6);N.push('the folded chips merge into the <b>terminal chip</b>');F.push({f:kinds.length,c:nc,s:'icon'});R.push(7);N.push('the <b>icon</b> and its count, with its caret');}
+return{key,side,kinds,order,S,F,forms:F.map(f=>railForm(kinds,order,S,f)),ranks:R,notes:N};}
+const seg=(labels,on,al)=>`<span class="sg" role="radiogroup" aria-label="${al}">${labels.map((l,i)=>`<span class="o${i===on?' on':''}" role="radio" aria-checked="${i===on}">${l}</span>`).join('')}</span>`;
+const segMenu=l=>`<span class="ch cp" role="button" aria-haspopup="menu" data-slot="segMenu">${l}${I('chevron-down','cr')}</span>`;
+const sum=h=>`<span class="sum" data-slot="toolbarSummary">${h}</span>`;
+const loadSt=w=>`<span class="stt" data-slot="toolbarSummary" style="min-width:${w}px" aria-live="polite"><span class="dot live"></span>Loading</span>`;
+const series=h=>`<span class="bt" role="button" aria-haspopup="dialog">${I('eye')}Series${h?`<span class="mt">${h}</span>`:''}</span>`;
+const hist=()=>`<span class="hb" data-slot="history"><span class="bt ib gh" role="button" aria-label="Undo">${I('arrow-rotate-left')}</span><span class="bt ib gh dis" role="button" aria-label="Redo" aria-disabled="true">${I('arrow-rotate-right')}</span><span class="bt ib" role="button" aria-label="Discard changes">${I('trash-can')}</span><span class="bt" role="button">Apply</span></span>`;
+const badge=()=>`<span class="bdg" data-slot="toolbarBadge">Loaded rows only</span>`;
+const diag=()=>`<span class="ch dg">${I('triangle-exclamation','w')}<span class="t">12 rows skipped</span></span>`;
+const tab=(t,o)=>`<span class="tab${o.on?' on':''}" role="tab" aria-selected="${!!o.on}"><span class="nm">${t}</span>${o.count!=null?`<span class="tc">${o.count}</span>`:''}${o.x?`<span class="tx" role="button" aria-label="Close view">${I('xmark')}</span>`:''}</span>`;
+function tabsForm(V,all,act,folded,strip){const fold=V.map((v,i)=>i).filter(i=>i!==act),hid=new Set(fold.slice(fold.length-folded));
+let h=`<span class="tset${strip?' '+strip:''}"><span class="tlist" role="tablist">`;
+h+=tab('All',{count:strip?null:all});V.forEach((v,i)=>{if(hid.has(i))return;h+=tab(v.name,{on:i===act,count:strip==='closed'?null:v.count,x:true});});h+='</span>';
+if(hid.size)h+=`<span class="tmore" role="button" aria-haspopup="menu" aria-label="${hid.size} more views">+${hid.size}${I('chevron-down')}</span>`;
+h+=strip?`<span class="ch cp da io" role="button" aria-label="New tab from this view">${I('plus','pl')}</span>`:`<span class="ch cp da" role="button">${I('plus','pl')}Tab</span>`;return h+'</span>';}
+const ctx=lab=>`<span class="cxw">${lab?'<span class="cxl">Context</span>':''}<span class="sg" role="radiogroup" aria-label="Context"><span class="o" role="radio" aria-checked="false">none</span><span class="o on" role="radio" aria-checked="true">±1</span><span class="o" role="radio" aria-checked="false">±3</span></span></span>`;
+const TS={filters:['hours ≥ 8','fill < 90'],search:'nights',range:null,cohorts:[{name:'Late',count:'86',on:false}],breakdown:'Site'};
+const PS={filters:['qty ≥ 10'],search:'',range:{text:'Jul 27 – Oct 18',meta:'84d'},cohorts:[{name:'Late',count:'86',on:true}],breakdown:null};
+const NS={filters:[],search:'',range:null,cohorts:[],breakdown:null};
+const DS={filters:['status = open'],search:'',range:{text:'Jun 29 – Sep 20',meta:'84d'},cohorts:[{name:'Mine',count:'14',on:true},{name:'Blocked',count:'3',on:false}],breakdown:null};
+const CS={filters:['site in DC-North, DC-East'],search:'',range:{text:'Jun 29 – Sep 20',meta:'84d'},cohorts:[],breakdown:'Site'};
+const SS={filters:['zone = cold'],search:'',range:null,cohorts:[{name:'Critical path',count:'18',on:true}],breakdown:null};
+const FS={filters:['kind = decision'],search:'',range:null,cohorts:[],breakdown:null};
+const QS={filters:['impact ≥ 10000'],search:'',range:null,cohorts:[{name:'Mine',count:'7',on:false},{name:'Overdue',count:'3',on:true}],breakdown:null};
+const V=[{name:'Final assembly',count:4},{name:'Lathe',count:9},{name:'Weld',count:2}];
+const tableItems=()=>[rail('rail',['filter','search','range','presets','breakdown'],TS)];
+const planItems=(o={})=>[rail('cluster',['cohort','filter','search'],PS),
+{key:'grain',forms:[seg(['Group','Resource'],1,'Grain'),segMenu('Resource')],ranks:[12],notes:[null,'the grain segment folds to its <b>RESOURCE</b> menu']},
+rail('range',['range'],PS),
+{key:'resolution',forms:[seg(['Week','Day'],0,'Resolution'),segMenu('Week')],ranks:[11],notes:[null,'the resolution segment folds to its <b>WEEK</b> menu']},
+{key:'summary',side:'end',forms:[sum('<b>1,204</b> of 3,480 rows · <b>3</b> narrowings'),sum('<b>1,204</b> of 3,480'),null],ranks:[10,13],notes:[null,'the summary shortens to its count','the summary hides']},
+o.series&&{key:'series',side:'end',forms:[series(o.hidden)],ranks:[]},
+o.history&&{key:'history',side:'end',forms:[hist()],ranks:[]}].filter(Boolean);
+const sheetItems=(o={})=>[{key:'tabs',fh:true,forms:[tabsForm(V,212,0,0),tabsForm(V,212,0,1),tabsForm(V,212,0,2),tabsForm(V,212,0,2,'compact'),tabsForm(V,212,0,2,'capped'),tabsForm(V,212,0,2,'closed')],ranks:[10,10,13,14,15],notes:[null,'<b>Weld</b> folds into +1','<b>Lathe</b> folds into +2','the strip goes <b>compact</b>: + TAB icon only, no All count','the strip goes <b>capped</b>: names at 72','the strip <b>closes</b>: its counts go']},
+{key:'context',forms:[ctx(true),ctx(false),null],ranks:[12,15],notes:[null,'the context caption drops','the <b>context switch</b> goes']},
+{key:'count',forms:['<span class="cnt" data-slot="toolbarCount"><b>6</b> matches · <b>12</b> context</span>',null],ranks:[11],notes:[null,'the count line goes']},
+rail('rail',['search'],NS,'end'),
+o.badge&&{key:'badge',side:'end',forms:[badge()],ranks:[]},
+o.history&&{key:'history',side:'end',forms:[hist()],ranks:[]}].filter(Boolean);
+const GAP=12,PAD=40;
+function seq(items){const s=[];items.forEach((it,i)=>{if(it.held!==undefined)return;let fl=-Infinity;for(let to=1;to<it.forms.length;to++){fl=Math.max(fl,it.ranks[to-1]??0);s.push({item:i,to,rank:fl});}});return s.sort((a,b)=>a.rank-b.rank);}
+function formsAt(items,s,n){const o=items.map(it=>it.held??0);for(let k=0;k<n&&k<s.length;k++)o[s[k].item]=s[k].to;return o;}
+function rowW(items,forms,W){let t=0,d=0;items.forEach((it,i)=>{const f=forms[i];if(it.forms[f]==null)return;t+=W[i][f];d++;});return t+GAP*Math.max(0,d-1);}
+function choose(items,s,W,a){for(let n=0;n<s.length;n++)if(rowW(items,formsAt(items,s,n),W)<=a+0.5)return n;return s.length;}
+function measure(items,touch){const ms=document.getElementById('ms');ms.className=touch?'touch':'';const W=items.map(it=>it.forms.map(f=>{if(f==null)return 0;ms.innerHTML=`<span class="it">${f}</span>`;return ms.firstChild.getBoundingClientRect().width;}));ms.className='';return W;}
+function band(items,forms,touch){let h='',end=false;items.forEach((it,i)=>{const f=it.forms[forms[i]];if(f==null)return;let c='it'+(it.fh?' fh':'');if(it.side==='end'&&!end){c+=' end';end=true;}h+=`<span class="${c}">${f}</span>`;});
+const st=items.map((it,i)=>`${it.key}=${forms[i]}/${it.forms.length}`).join(';');
+return {html:`<div class="band${touch?' touch':''}" data-toolbar-state="${st}"><div class="tb">${h}</div></div>`,st};}
+function strip(items,forms,bw,lab,anchor,cw,showState,touch){const b=band(items,forms,touch),cut=bw+2>cw;
+return `<div class="stp"><div class="lb"><span class="rk">${lab.rank}</span><span class="wh">${lab.note}</span><span class="px">${bw}px${cut?` · ${Math.round(bw+2-cw)}px hidden`:''}</span></div><div class="winw${cut?(anchor==='end'?' hide-l':' hide-r'):''}"><div class="win${anchor==='end'?' rtl':''}"><div class="slice" style="width:${bw+2}px">${b.html}</div></div></div>${showState?`<div class="st">${b.st}</div>`:''}</div>`;}
+function ladder(id,items,o){const W=measure(items),s=seq(items),cw=o.cw;const need=n=>rowW(items,formsAt(items,s,n),W);
+let k0=s.findIndex(x=>x.rank>=(o.min??-Infinity));if(k0<0)k0=s.length;let out=strip(items,formsAt(items,s,k0),Math.ceil(need(k0))+PAD,{rank:'start',note:o.start},o.anchor(null),cw);
+for(let n=k0+1;n<=s.length;n++){const a=Math.ceil(need(n-1)-0.5)-1,c=choose(items,s,W,a),st=s[n-1];out+=strip(items,formsAt(items,s,c),a+PAD,{rank:`rank ${st.rank}`,note:items[st.item].notes[st.to]+(c!==n?' (and the next step with it)':'')},o.anchor(st),cw);}
+if(o.below){const a=Math.floor(need(s.length))-o.below;out+=strip(items,formsAt(items,s,s.length),a+PAD,{rank:'below',note:'fully folded and still too wide: the row clips at its end'},'start',cw);}
+document.getElementById(id).innerHTML=out;}
+function fit(items,bw,touch){const W=measure(items,touch),s=seq(items),n=choose(items,s,W,bw-PAD);return{W,s,n,f:formsAt(items,s,n),r:n?s[n-1].rank:'—'};}
+function render(){const cw=document.getElementById('wrap').getBoundingClientRect().width,bw=Math.floor(cw)-2;
+const H=[['Table · eyebrow · one cluster',tableItems(),true],['Deck · Library · eyebrow, no breakdown',[rail('rail',['filter','search','range','presets'],DS)]],['Chart · eyebrow; its legend sits under the chart',[rail('rail',['filter','range','breakdown'],CS)]],['Schematic · eyebrow',[rail('rail',['filter','search','cohort'],SS)]],['Flowchart · its own 44 eyebrow, the pill at 200 (proposed)',[rail('rail',['search','filter'],FS)]],['Decision queue (e3-ui) · the rail right-aligned',[rail('rail',['filter','search','presets'],QS,'end')]],['Plan · two clusters · pick on, 3 series hidden',planItems({series:true,hidden:'4 of 7'}),true],['Plan · the same band with editing on',planItems({series:true,history:true}),true],['Sheet · paged source, not exhausted',sheetItems({badge:true}),true]];
+document.getElementById('hosts').innerHTML=H.map(([name,items,st])=>{const F=fit(items,bw);return strip(items,F.f,bw,{rank:`rank ${F.r}`,note:name},'start',cw,st);}).join('');
+ladder('lad-rail',tableItems(),{cw,start:'nothing folded: filter · search · range · presets · split, all live',anchor:()=>'start'});
+ladder('lad-plan',planItems(),{cw,min:10,below:40,start:'the rail at rank 7: the narrowing cluster at its icon, the range cluster at its floor',anchor:()=>'start'});
+ladder('lad-sheet',sheetItems(),{cw,start:'nothing folded',anchor:st=>st&&st.rank<10?'end':'start'});
+const rp=rail('range',['range'],PS),rs=rail('rail',['search'],NS);
+document.getElementById('floors').innerHTML=`<div class="fl"><span class="it">${rp.forms[0]}</span><span class="to">→</span><span class="it">${rp.forms[1]}</span></div><div class="fl"><span class="it">${rs.forms[0]}</span><span class="to">→</span><span class="it">${rs.forms[1]}</span></div>`;
+const hi=planItems({series:true}),c0=hi[0];c0.held=4;c0.forms[4]=railForm(c0.kinds,c0.order,c0.S,c0.F[4],true);
+const HF=fit(hi,bw),bb=band(hi,HF.f);
+document.getElementById('held').innerHTML=`<div class="slice" style="width:${bw+2}px">${bb.html.replace('class="band"','class="band rule"')}<div class="lanes"><div class="lane hz"><span>Horizon · 26 wk</span><i></i></div><div class="lane ru"><span></span><div class="rt"><span class="t1">Jul – Oct 2026</span><span class="t2">${['W31','W32','W33','W34','W35','W36','W37','W38'].map(w=>`<b>${w}</b>`).join('')}</span></div></div>${['Press 1','Press 2','Paint line','Final assembly','Lathe','Weld'].map((l,i,a)=>`<div class="lane"${i===a.length-1?' style="border-bottom:0"':''}><span>${l}</span><i></i></div>`).join('')}</div></div>
+<div class="pop lg" id="hp" role="dialog" aria-label="Narrowing" style="position:absolute;top:54px;left:12px"><span class="arw" id="ha"></span><div class="hd"><span>Narrowing · <span class="ac">2 active</span></span><span class="cls" role="button" aria-label="Close">${I('xmark')}</span></div><div class="bd"><div class="esec"><span class="ecap">Cohort</span><div class="ebody">${coh(PS.cohorts[0],true)}${add('Cohort')}</div></div><div class="esec"><span class="ecap">Filter</span><div class="ebody">${clause('qty ≥ 10')}${add('Add filter')}</div></div><div class="esec"><span class="ecap">Search</span><span class="srch">${I('magnifying-glass')}<span class="q ph">Search…</span></span></div></div><div class="ft"><span class="lk" role="button">Save as cohort →</span><span class="acts"><span class="bt" role="button">Done</span></span></div></div>
+<div class="st" style="position:absolute;left:0;right:0;bottom:0">${bb.st}</div>`;
+const held=document.getElementById('held'),tg=held.querySelector('.tg[data-state=open]');if(tg){const hr=held.getBoundingClientRect(),tr=tg.getBoundingClientRect(),pop=document.getElementById('hp'),pw=pop.getBoundingClientRect().width;let left=Math.max(12,Math.min(tr.left-hr.left+tr.width/2-pw/2,hr.width-pw-12));pop.style.left=left+'px';pop.style.top=(tr.bottom-hr.top+10)+'px';document.getElementById('ha').style.left=(tr.left-hr.left+tr.width/2-left-6)+'px';}
+const li=planItems({series:true}),LF=fit(li,bw),si=li.findIndex(x=>x.key==='summary');if(li[si].forms[LF.f[si]]!=null){const w=Math.round(LF.W[si][LF.f[si]]);li[si].forms=li[si].forms.map((f,j)=>j===LF.f[si]?loadSt(w):f);}
+document.getElementById('loading').innerHTML=strip(li,LF.f,bw,{rank:'loading',note:'the Plan · a filter was just added; the Loading Status holds the summary’s slot'},'start',cw,false);
+const rn=rail('narrow',['cohort','filter','search','range'],PS);
+document.getElementById('narrow').innerHTML=`<div class="nw"><span class="it">${rn.forms[rn.forms.length-2]}</span><span class="it">${segMenu('Week')}</span><span class="it">${diag()}</span><span class="it hbw">${hist()}</span></div>`;
+const TT=tableItems(),TF=fit(TT,bw,true);
+document.getElementById('touch').innerHTML=strip(TT,TF.f,bw,{rank:`rank ${TF.r}`,note:'Table · the same slice as the first band, at touch sizes'},'start',cw,false,true);}
+let lw=0;const go=()=>{const w=Math.round(document.getElementById('wrap').getBoundingClientRect().width);if(w&&w!==lw){lw=w;render();}};
+render();lw=Math.round(document.getElementById('wrap').getBoundingClientRect().width);
+document.fonts&&document.fonts.ready.then(render);window.addEventListener('load',render);setTimeout(render,1500);
+new ResizeObserver(go).observe(document.getElementById('wrap'));
+})();
+</script>
+</body></html>

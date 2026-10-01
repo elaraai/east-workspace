@@ -1,0 +1,52 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x550" subtitle="Observed links solid, planned links dashed · hover, selected, focus · label and metric mid-path" name="Edge" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.canvas { display: grid; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 12px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.g2 { display: grid; grid-template-columns: repeat(2, 301px); gap: 20px 16px; }
+.it { display: grid; gap: 8px; align-content: start; }
+.sp { position: relative; width: 301px; height: 48px; }
+.sp svg { position: absolute; inset: 0; overflow: visible; }
+.e { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ah { fill: var(--ink-3); }
+.e.plan { stroke: var(--brand-d); stroke-dasharray: 4 4; }
+.ah.plan { fill: var(--brand-d); }
+.e.hov { stroke: var(--ink-2); }
+.ah.hov { fill: var(--ink-2); }
+.e.sel { stroke: var(--ink); stroke-width: 2; }
+.ah.sel { fill: var(--ink); }
+.e.plan.sel { stroke: var(--brand-dd); }
+.ah.plan.sel { fill: var(--brand-dd); }
+.gl { position: absolute; top: 8px; width: 32px; height: 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-size: 14px; color: var(--ink-3); }
+.p { position: absolute; top: 11px; width: 8px; height: 8px; box-sizing: border-box; background: var(--ink-4); border: 1px solid var(--ink-4); }
+.el { position: absolute; left: 150px; top: 24px; transform: translate(-50%, -50%); display: flex; gap: 8px; padding: 0 4px; background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 16px; white-space: nowrap; color: var(--ink-3); }
+.el .mt { color: var(--ink-4); }
+.el.sel { font-weight: 600; color: var(--ink); }
+.el.focus { border-radius: var(--r-sm); box-shadow: var(--shadow-focus); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="canvas">
+<div class="sec">
+<div class="k">Kind · observed and planned</div>
+<div class="g2">
+<div class="it"><div class="sp"><svg width="301" height="48" viewBox="0 0 301 48" aria-hidden="true"><path class="e" d="M36 24H258"></path><path class="ah" d="M265 24l-8-4v8z"></path></svg><span class="gl" style="left:0"><i class="fa-solid fa-warehouse" aria-label="DC-East"></i><span class="p" style="right:-5px"></span></span><span class="gl" style="right:0"><i class="fa-solid fa-warehouse" aria-label="DC-North"></i><span class="p" style="left:-5px"></span></span><span class="el">Linehaul<span class="mt">1,240 u/wk</span></span></div><div class="cap"><span class="f">observed</span> · <span class="f">solid --ink-3 1.5</span> · <span class="f">measured evidence behind it: committed truth</span></div></div>
+<div class="it"><div class="sp"><svg width="301" height="48" viewBox="0 0 301 48" aria-hidden="true"><path class="e plan" d="M36 24H258"></path><path class="ah plan" d="M265 24l-8-4v8z"></path></svg><span class="gl" style="left:0"><i class="fa-solid fa-warehouse" aria-label="DC-East"></i><span class="p" style="right:-5px"></span></span><span class="gl" style="right:0"><i class="fa-solid fa-warehouse" aria-label="DC-Inland"></i><span class="p" style="left:-5px"></span></span><span class="el">Linehaul<span class="mt">plan 1,300 u/wk</span></span></div><div class="cap"><span class="f">planned</span> · <span class="f">dashed --brand-d 1.5, 4/4</span> · <span class="f">a projection the next run can revise</span></div></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">State</div>
+<div class="g2">
+<div class="it"><div class="sp"><svg width="301" height="48" viewBox="0 0 301 48" aria-hidden="true"><path class="e hov" d="M36 24H258"></path><path class="ah hov" d="M265 24l-8-4v8z"></path></svg><span class="gl" style="left:0"><i class="fa-solid fa-warehouse" aria-label="DC-East"></i><span class="p" style="right:-5px"></span></span><span class="gl" style="right:0"><i class="fa-solid fa-warehouse" aria-label="DC-Central"></i><span class="p" style="left:-5px"></span></span><span class="el">Transfer<span class="mt">380 u/wk</span></span></div><div class="cap"><span class="f">hover</span> · <span class="f">--ink-2</span> · <span class="f">planned hovers to --brand-dd</span></div></div>
+<div class="it"><div class="sp"><svg width="301" height="48" viewBox="0 0 301 48" aria-hidden="true"><path class="e sel" d="M36 24H258"></path><path class="ah sel" d="M265 24l-8-4v8z"></path></svg><span class="gl" style="left:0"><i class="fa-solid fa-warehouse" aria-label="DC-East"></i><span class="p" style="right:-5px"></span></span><span class="gl" style="right:0"><i class="fa-solid fa-warehouse" aria-label="DC-North"></i><span class="p" style="left:-5px"></span></span><span class="el sel">Linehaul<span class="mt">1,240 u/wk</span></span></div><div class="cap"><span class="f">selected</span> · <span class="f">2px --ink</span> · <span class="f">label 600 --ink</span></div></div>
+<div class="it"><div class="sp"><svg width="301" height="48" viewBox="0 0 301 48" aria-hidden="true"><path class="e plan sel" d="M36 24H258"></path><path class="ah plan sel" d="M265 24l-8-4v8z"></path></svg><span class="gl" style="left:0"><i class="fa-solid fa-warehouse" aria-label="DC-East"></i><span class="p" style="right:-5px"></span></span><span class="gl" style="right:0"><i class="fa-solid fa-warehouse" aria-label="DC-Inland"></i><span class="p" style="left:-5px"></span></span><span class="el sel">Linehaul<span class="mt">plan 1,300 u/wk</span></span></div><div class="cap"><span class="f">selected · planned</span> · <span class="f">2px --brand-dd, dash kept</span></div></div>
+<div class="it"><div class="sp"><svg width="301" height="48" viewBox="0 0 301 48" aria-hidden="true"><path class="e" d="M36 24H258"></path><path class="ah" d="M265 24l-8-4v8z"></path></svg><span class="gl" style="left:0"><i class="fa-solid fa-warehouse" aria-label="DC-East"></i><span class="p" style="right:-5px"></span></span><span class="gl" style="right:0"><i class="fa-solid fa-warehouse" aria-label="DC-Central"></i><span class="p" style="left:-5px"></span></span><span class="el focus">Transfer<span class="mt">380 u/wk</span></span></div><div class="cap"><span class="f">focus</span> · <span class="f">on the label</span> · <span class="f">--shadow-focus, --r-sm</span></div></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Flowchart&gt; link · kind observed | planned · &lt;Schematic&gt; link · style solid | dashed</b> · <span class="f">observed: solid --ink-3 1.5px</span> · <span class="f">planned: dashed --brand-d 1.5px, dash 4 gap 4</span> · <span class="f">planned is the dashed one: it projects flow the next run can revise</span> · <span class="f">forecasts and targets are dashed for the same reason</span> · <span class="f">observed links carry measured volume, so they are solid</span> · <span class="f">hover --ink-2 (planned --brand-dd)</span> · <span class="f">selected 2px --ink (planned 2px --brand-dd, dash kept)</span> · <span class="f">arrowhead 8 × 8 in the stroke colour, tip on the port's outer face</span> · <span class="f">label mid-path: mono 10/500 --ink-3, metric --ink-4, gap 8, --paper knockout pad 0 4</span> · <span class="f">focus lands on the label</span> · <span class="f">no animated dash, no glow</span></div>
+</body></html>

@@ -1,0 +1,58 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x740" subtitle="Mono glyph, 15px title, a checklist of what to do next — in a Main frame, the rail and a table" name="Empty state" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; gap: 16px; }
+.row { display: grid; grid-template-columns: 380px 260px; gap: 20px; align-items: start; }
+.item { display: grid; gap: 4px; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.rail .eb { padding: 0 12px; }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.meta { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.es { display: grid; justify-items: center; text-align: center; padding: 40px 20px; }
+.rail .es { padding: 24px 12px; }
+.tbl .es { padding: 32px 20px; }
+.gy { font-family: var(--font-mono); font-size: var(--fs-num); line-height: 1; color: var(--rule-strong); }
+.ttl { padding-top: 8px; font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; color: var(--ink); }
+.cl { margin: 0; padding: 12px 0 0; list-style: none; display: grid; gap: 8px; max-width: 280px; text-align: left; }
+.cl li { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-body); line-height: 20px; color: var(--ink-2); }
+.cl .bx { width: 14px; flex: none; text-align: center; font-family: var(--font-mono); color: var(--ink-4); }
+.cl .ok { width: 14px; flex: none; text-align: center; font-size: 14px; color: var(--pos); }
+.cl .done { color: var(--ink-3); }
+.lk { color: var(--brand-d); font-weight: 500; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 160px 120px 96px; column-gap: 24px; align-items: center; padding: 0 20px; border-bottom: 1px solid var(--rule); }
+.tr span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="row">
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="lbl">Rosters · DC-North</span><span class="meta">no runs yet</span></div>
+<div class="es"><span class="gy">☐</span><span class="ttl">No rosters yet</span><ul class="cl"><li class="done"><i class="fa-solid fa-check ok" aria-label="Done"></i><span>Connect the roster source</span></li><li><span class="bx">☐</span><span class="lk">Set minimum cover per shift →</span></li><li><span class="bx">☐</span><span class="lk">Run the first plan →</span></li></ul></div>
+</div>
+<div class="cap"><span class="f">Main frame · first use</span> · <span class="f">pad 40/20</span> · <span class="f">done steps keep their check</span></div>
+</div>
+<div class="item">
+<div class="frame rail">
+<div class="eb"><span class="lbl">Journal</span><span class="meta"><span class="num">0</span> entries</span></div>
+<div class="es"><span class="gy">☐</span><span class="ttl">No journal entries</span><ul class="cl"><li><span class="bx">☐</span><span>Apply a change to start the journal</span></li></ul></div>
+</div>
+<div class="cap"><span class="f">rail frame</span> · <span class="f">pad 24/12</span></div>
+</div>
+</div>
+<div class="item">
+<div class="frame tbl">
+<div class="eb"><span class="lbl">Open decisions · run #42</span><span class="meta">2 filters</span></div>
+<div class="tr"><span>Decision</span><span>Site</span><span>Due</span><span style="text-align:right">Impact</span></div>
+<div class="es"><span class="gy">×</span><span class="ttl">No decisions match 2 filters</span><ul class="cl"><li><span class="bx">☐</span><span class="lk">Clear the region filter →</span></li><li><span class="bx">☐</span><span class="lk">Widen the horizon to <span class="num">28</span> days →</span></li></ul></div>
+</div>
+<div class="cap"><span class="f">table · filtered to nothing</span> · <span class="f">the header stays</span> · <span class="f">the empty state replaces the rows, pad 32/20</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;EmptyState&gt;</b> · <span class="f">centred in the body it replaces</span> · <span class="f">pad 40/20 in Main, 32/20 under a table header, 24/12 in the rail</span> · <span class="f">glyph mono 26 --rule-strong: ☐ nothing yet, × filtered to nothing</span> · <span class="f">gap 8</span> · <span class="f">title DM Sans 15/700 --ink, −0.01em, names what is empty</span> · <span class="f">gap 12</span> · <span class="f">checklist max 280, left-aligned, rows gap 8</span> · <span class="f">☐ mono --ink-4 to do · check --pos done, text --ink-3</span> · <span class="f">item Inter Tight 13 --ink-2; a step that navigates is a Link with →</span> · <span class="f">eyebrow and table header stay</span> · <span class="f">no illustration, no button cluster</span></div>
+</body></html>

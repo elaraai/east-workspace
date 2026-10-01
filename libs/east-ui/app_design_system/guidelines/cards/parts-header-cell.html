@@ -1,0 +1,112 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x890" subtitle="Sticky mono header · sort none / asc / desc · hover, focus · numeric right-aligned · resize handle · pinned column edge" name="Header cell" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.canvas { display: grid; gap: 16px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.spec { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 12px; }
+.sp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.hc { position: relative; height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 0 12px; background: var(--paper); border-bottom: 1px solid var(--rule); white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.hc.r, .tr > .r { justify-content: flex-end; }
+.hc.hover, .tr > .hover { background: var(--paper-2); color: var(--ink-2); }
+.hc.hover .sg { color: var(--ink-4); }
+.hc.on, .tr > .on { color: var(--ink); }
+.hc.focus { box-shadow: var(--shadow-focus-inset); }
+.sg { font-family: var(--font-mono); font-size: var(--fs-label-sm); letter-spacing: 0; line-height: 1; }
+.rh { position: absolute; top: 10px; right: 0; width: 1px; height: 16px; background: var(--rule-strong); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { position: relative; z-index: 2; height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.tr { height: 36px; box-sizing: border-box; display: grid; align-items: stretch; background: var(--paper); border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.tr.hover { background: var(--paper-2); }
+.tr.sel { background: var(--paper-3); }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { width: 8px; height: 8px; flex: none; box-sizing: border-box; border-radius: var(--r-full); }
+.d.pos { background: var(--pos); }
+.d.warn { background: var(--warn); }
+.d.stale { border: 1px dashed var(--ink-4); }
+.c4 { grid-template-columns: minmax(0, 1fr) 132px 96px 112px; }
+.body { position: relative; height: 126px; overflow: hidden; }
+.body .stuck { position: absolute; top: 0; left: 0; right: 0; z-index: 1; border-bottom: 1px solid var(--rule); }
+.body .rows { position: absolute; top: 18px; left: 0; right: 0; }
+.pin { display: grid; grid-template-columns: 112px minmax(0, 1fr); }
+.pin .pc { position: relative; z-index: 1; background: inherit; }
+.pin.edge .pc { border-right: 1px solid var(--rule-strong); }
+.pin .sc { min-width: 0; overflow: hidden; }
+.tr.pin > .sc { padding: 0; }
+.pin .sc .in { display: grid; grid-template-columns: 120px 72px 88px; width: 280px; transform: translateX(-64px); height: 100%; }
+.pin .sc .in > * { min-width: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; white-space: nowrap; }
+.pin .sc .in > :first-child { justify-content: flex-start; }
+.pin .sc .in > :last-child { padding-right: 20px; }
+.rsz { position: relative; }
+.rsz .tr { grid-template-columns: 136px minmax(0, 1fr) 96px; }
+.rsz .line { position: absolute; top: 0; bottom: 0; left: 135px; z-index: 1; width: 2px; background: var(--brand-d); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="canvas">
+<div class="k">Header cell · 36 · mono 10/600/0.16em caps</div>
+<div class="spec">
+<div class="sp"><span class="hc" aria-sort="none">Site</span><span class="cap">none · rest</span></div>
+<div class="sp"><span class="hc hover" aria-sort="none">Site<span class="sg">▲</span></span><span class="cap">hover · ▲ preview</span></div>
+<div class="sp"><span class="hc on" aria-sort="ascending">Site<span class="sg">▲</span></span><span class="cap">asc · ▲</span></div>
+<div class="sp"><span class="hc on" aria-sort="descending">Site<span class="sg">▼</span></span><span class="cap">desc · ▼</span></div>
+<div class="sp"><span class="hc focus" aria-sort="none">Site</span><span class="cap">focus · inset ring</span></div>
+<div class="sp"><span class="hc r" aria-sort="none">Fill rate</span><span class="cap">numeric · right</span></div>
+<div class="sp"><span class="hc r on" aria-sort="descending"><span class="sg">▼</span>Fill rate</span><span class="cap">numeric · desc</span></div>
+<div class="sp"><span class="hc hover">Site<span class="rh"></span></span><span class="cap">resize · hover</span></div>
+</div>
+<div class="cap"><span class="f">rest --ink-4, no glyph</span> · <span class="f">hover --paper-2, label --ink-2, ▲ --ink-4 previews the click</span> · <span class="f">sorted: label and glyph --ink</span> · <span class="f">click or ⏎ cycles asc → desc → none</span> · <span class="f">numeric: right-aligned, the glyph leads so the label stays flush with the figures</span> · <span class="f">resize handle 1 × 16 --rule-strong on the right edge, hit area 8</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="lbl">Fill rate by site · run #42</span><span class="meta">42 sites</span></div>
+<div class="body">
+<div class="tr th c4 stuck"><span>Site</span><span>Status</span><span class="r on" aria-sort="descending"><span class="sg">▼</span>Fill rate</span><span class="r">Staffed-hrs</span></div>
+<div class="rows">
+<div class="tr c4"><span>DC-Central</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">97.9%</span><span class="r n">1,204</span></div>
+<div class="tr c4"><span>DC-South</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">97.8%</span><span class="r n">988</span></div>
+<div class="tr c4"><span>DC-North</span><span><span class="status"><span class="d warn"></span>Pending</span></span><span class="r n">96.4%</span><span class="r n">1,482</span></div>
+<div class="tr c4"><span>DC-East</span><span><span class="status"><span class="d stale"></span>Stale</span></span><span class="r n">94.1%</span><span class="r n">1,106</span></div>
+</div>
+</div>
+</div>
+<div class="cap"><span class="f">sticky · body scrolled</span> · <span class="f">the header stays under the eyebrow on --paper and takes its own 1px --rule bottom while rows pass beneath</span> · <span class="f">no shadow</span> · <span class="f">at scroll 0 the first row's top rule divides</span></div>
+</div>
+<div class="two">
+<div class="item">
+<div class="frame">
+<div class="tr th pin edge"><span class="pc">Site</span><span class="sc"><span class="in"><span>Region</span><span>Shifts</span><span>Fill rate</span></span></span></div>
+<div class="tr pin edge"><span class="pc">DC-North</span><span class="sc"><span class="in"><span>South-east metro</span><span class="n">42</span><span class="n">96.4%</span></span></span></div>
+<div class="tr pin edge hover"><span class="pc">DC-East</span><span class="sc"><span class="in"><span>Eastern corridor</span><span class="n">38</span><span class="n">94.1%</span></span></span></div>
+<div class="tr pin edge sel"><span class="pc">DC-South</span><span class="sc"><span class="in"><span>South coast</span><span class="n">31</span><span class="n">97.8%</span></span></span></div>
+</div>
+<div class="cap"><span class="f">pinned column · scrolled</span> · <span class="f">1px --rule-strong edge through header and body</span> · <span class="f">opaque, takes the row's hover and selection</span> · <span class="f">no edge at scroll 0</span></div>
+</div>
+<div class="item">
+<div class="frame rsz">
+<span class="line" aria-hidden="true"></span>
+<div class="tr th"><span class="hover">Site</span><span>Status</span><span class="r">Fill rate</span></div>
+<div class="tr"><span>DC-North</span><span><span class="status"><span class="d warn"></span>Pending</span></span><span class="r n">96.4%</span></div>
+<div class="tr"><span>DC-East</span><span><span class="status"><span class="d stale"></span>Stale</span></span><span class="r n">94.1%</span></div>
+<div class="tr"><span>DC-South</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">97.8%</span></div>
+</div>
+<div class="cap"><span class="f">resize · dragging</span> · <span class="f">2px --brand-d through header and body</span> · <span class="f">the column follows the pointer</span> · <span class="f">min: label + glyph</span></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Table&gt; · columnHeader · sort none | asc | desc · pinned · resizable</b> · <span class="f">the row height: 36 comfortable, 32 compact, 28 condensed; content centred</span> · <span class="f">pad 0 12, first and last take the frame pad</span> · <span class="f">mono 10/600/0.16em caps --ink-4</span> · <span class="f">sticky under the eyebrow, --paper, own 1px --rule bottom when stuck</span> · <span class="f">sort glyph mono ▲ / ▼, gap 4, after the label; before it in right-aligned columns</span> · <span class="f">sorted label and glyph --ink</span> · <span class="f">hover --paper-2, --ink-2, ▲ preview --ink-4</span> · <span class="f">focus --shadow-focus-inset</span> · <span class="f">numeric headers right-aligned, the unit in the label</span> · <span class="f">pinned edge 1px --rule-strong when scrolled</span> · <span class="f">resize handle 1 × 16 --rule-strong, hit 8, drag 2px --brand-d</span> · <span class="f">no vertical rules otherwise</span></div>
+</body></html>

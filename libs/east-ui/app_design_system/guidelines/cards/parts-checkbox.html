@@ -1,0 +1,65 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x570" subtitle="14 × 14 · unchecked, hover, checked, indeterminate, focus, disabled · with a label · the leading column of a collection" name="Checkbox" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.canvas { display: grid; gap: 20px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.states { display: grid; grid-template-columns: repeat(8, auto); justify-content: start; justify-items: start; align-items: center; column-gap: 16px; row-gap: 8px; }
+.states .cap { white-space: nowrap; }
+.cb { position: relative; width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--paper); }
+.cb.hover { background: var(--paper-2); }
+.cb.on { background: var(--brand-d); border-color: var(--brand-d); }
+.cb.on.hover { background: var(--brand-dd); border-color: var(--brand-dd); }
+.cb.on::after { content: ""; width: 4px; height: 8px; box-sizing: border-box; border: solid var(--paper); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.cb.mix::after { content: ""; width: 8px; height: 2px; background: var(--ink-4); }
+.cb.focus { box-shadow: var(--shadow-focus); }
+.cb.dis { border-color: var(--rule); background: transparent; }
+.cb.dis.on::after { border-color: var(--ink-5); }
+.fs { display: grid; gap: 8px; }
+.lg { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.opt { display: flex; align-items: center; gap: 8px; min-height: 20px; font-size: var(--fs-body); color: var(--ink); white-space: nowrap; }
+.opt.dis { color: var(--ink-5); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: 46px minmax(0, 1fr) 120px 88px; align-items: stretch; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.tr.sel { background: var(--paper-3); }
+.r { justify-content: flex-end; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="canvas">
+<div class="states">
+<span class="cb" role="checkbox" aria-checked="false" aria-label="Unchecked"></span><span class="cb hover" role="checkbox" aria-checked="false" aria-label="Unchecked, hover"></span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Checked"></span><span class="cb on hover" role="checkbox" aria-checked="true" aria-label="Checked, hover"></span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Some selected"></span><span class="cb focus" role="checkbox" aria-checked="false" aria-label="Focused"></span><span class="cb dis" role="checkbox" aria-checked="false" aria-disabled="true" aria-label="Disabled"></span><span class="cb dis on" role="checkbox" aria-checked="true" aria-disabled="true" aria-label="Disabled, checked"></span>
+<span class="cap">unchecked</span><span class="cap">hover</span><span class="cap">checked</span><span class="cap">checked · hover</span><span class="cap">indeterminate</span><span class="cap">focus</span><span class="cap">disabled</span><span class="cap">disabled · checked</span>
+</div>
+<div class="fs" role="group" aria-label="Cover rules">
+<span class="lg">Cover rules</span>
+<span class="opt"><span class="cb on" role="checkbox" aria-checked="true" aria-label="Count agency staff toward minimum cover"></span>Count agency staff toward minimum cover</span>
+<span class="opt"><span class="cb" role="checkbox" aria-checked="false" aria-label="Allow split shifts"></span>Allow split shifts</span>
+<span class="opt dis"><span class="cb dis" role="checkbox" aria-checked="false" aria-disabled="true" aria-label="Carry overtime into next week"></span>Carry overtime into next week</span>
+</div>
+</div>
+<div class="cap"><span class="f">14 × 14, radius 3, --paper, 1px --rule-strong</span> · <span class="f">hover --paper-2</span> · <span class="f">checked --brand-d with a --paper tick, hover --brand-dd</span> · <span class="f">indeterminate --ink-4 minus 8 × 2, the parent affordance</span> · <span class="f">focus --shadow-focus, outside</span> · <span class="f">disabled 1px --rule, tick and label --ink-5</span> · <span class="f">label Inter Tight 13 --ink, 8 after the box</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th"><span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Select all rosters"></span></span><span>Roster</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="tr sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span class="r n">42</span><span class="r n">96.4%</span></div>
+<div class="tr"><span><span class="cb hover" role="checkbox" aria-checked="false" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span class="r n">28</span><span class="r n">91.2%</span></div>
+<div class="tr"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 32 days"></span></span><span>Week 32 · days</span><span class="r n">40</span><span class="r n">94.8%</span></div>
+</div>
+<div class="cap"><span class="f">in a collection · leading column 46: 20 + 14 + 12, at every density</span> · <span class="f">checked rows --paper-3</span> · <span class="f">the header box is the parent: indeterminate while some are checked</span> · <span class="f">⇧-click selects a range</span> · <span class="f">selection brings the batchBar</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Checkbox&gt;</b> · <span class="f">14 × 14, radius 3</span> · <span class="f">--paper, 1px --rule-strong, hover --paper-2</span> · <span class="f">checked --brand-d, tick 4 × 8 in 2px --paper strokes, hover --brand-dd</span> · <span class="f">indeterminate minus 8 × 2 --ink-4</span> · <span class="f">focus --shadow-focus</span> · <span class="f">disabled 1px --rule, --ink-5</span> · <span class="f">label 13 --ink, gap 8</span> · <span class="f">column 46 in a collection</span> · <span class="f">space toggles, ⇧-click ranges</span> · <span class="f">--dur-fast</span></div>
+</body></html>

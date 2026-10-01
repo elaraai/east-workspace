@@ -1,0 +1,91 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x1000" subtitle="The --heat-1…5 ramp · no data, zero, out of range, above domain · hover, selected, focus · legend · Matrix and Calendar cells" name="Heat cell" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; justify-items: start; min-width: 0; }
+.canvas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); justify-self: stretch; }
+.states { display: grid; grid-template-columns: repeat(7, auto); justify-content: start; justify-items: start; align-items: center; column-gap: 16px; row-gap: 4px; }
+.hc { position: relative; width: 64px; height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; background: var(--paper); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-body); font-weight: 500; color: var(--ink); white-space: nowrap; }
+.canvas .hc.s0, .canvas .hc.oor { outline: 1px solid var(--rule); outline-offset: -1px; }
+.h1 { background: var(--heat-1); }
+.h2 { background: var(--heat-2); }
+.h3 { background: var(--heat-3); }
+.h4 { background: var(--heat-4); color: var(--paper); }
+.h5 { background: var(--heat-5); color: var(--paper); }
+.hc.oor { background: var(--paper); }
+.states .cap { white-space: nowrap; }
+.hc.hover::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--ink-2); }
+.hc.sel::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--ink); }
+.hc.sel::before { content: ""; position: absolute; inset: 2px; border: 1px solid var(--paper); }
+.hc.focus { box-shadow: var(--shadow-focus-inset); }
+.nd { font-size: var(--fs-label-sm); font-style: italic; font-weight: 400; color: var(--ink-4); }
+.lgd { display: flex; align-items: flex-start; gap: 16px; }
+.lr { display: grid; gap: 4px; }
+.sw { display: flex; width: max-content; border: 1px solid var(--rule); }
+.sw > i { width: 40px; height: 12px; }
+.tk { position: relative; width: 248px; height: 14px; }
+.tk > span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.tk > span.a { transform: none; }
+.tk > span.z { transform: none; }
+.ks { display: flex; align-items: center; gap: 8px; height: 14px; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ks i { width: 20px; height: 12px; box-sizing: border-box; border: 1px solid var(--rule); background: var(--paper); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.mx { display: grid; grid-template-columns: 128px repeat(8, 64px); gap: 1px; background: var(--rule); }
+.mx > .th { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; background: var(--paper); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.mx > .th.c { justify-content: flex-start; padding-left: 20px; }
+.mx > .rh { height: 36px; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px 0 20px; background: var(--paper); font-size: var(--fs-body); color: var(--ink); white-space: nowrap; }
+.cal { display: grid; grid-template-columns: repeat(7, 80px); gap: 1px; background: var(--rule); }
+.cal > .wd { height: 24px; box-sizing: border-box; display: flex; align-items: center; padding: 0 8px; background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.cal > .hc { width: 80px; height: 48px; flex-direction: column; align-items: stretch; justify-content: space-between; padding: 6px 8px; }
+.cal .dt { display: flex; font-size: var(--fs-label-sm); font-weight: 600; line-height: 14px; }
+.cal .dt b { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; margin: -1px 0; padding: 0 4px; border-radius: var(--r-sm); background: var(--brand-d); font-weight: 600; color: var(--paper); }
+.cal .vl { align-self: flex-end; line-height: 16px; }
+.cal .hc.oor .dt { color: var(--ink-4); font-weight: 500; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="canvas">
+<div class="states">
+<span class="hc h1">120</span><span class="hc h2">380</span><span class="hc h3">640</span><span class="hc h4">880</span><span class="hc h5">1,120</span><span></span><span></span>
+<span class="cap">step 1</span><span class="cap">step 2</span><span class="cap">step 3</span><span class="cap">step 4</span><span class="cap">step 5</span><span></span><span></span>
+</div>
+<div class="states">
+<span class="hc s0"><span class="nd">no data</span></span><span class="hc h1">0</span><span class="hc oor"></span><span class="hc h5">1,480</span><span class="hc h3 hover">640</span><span class="hc h5 sel">1,120</span><span class="hc h3 focus">640</span>
+<span class="cap">no data</span><span class="cap">zero</span><span class="cap">out of range</span><span class="cap">above domain</span><span class="cap">hover</span><span class="cap">selected</span><span class="cap">focus</span>
+</div>
+<div class="lgd">
+<div class="lr"><div class="sw"><i class="h1"></i><i class="h2"></i><i class="h3"></i><i class="h4"></i><i class="h5"></i></div><div class="tk"><span class="a" style="left: 1px;">0</span><span style="left: 41px;">240</span><span style="left: 81px;">480</span><span style="left: 121px;">720</span><span style="left: 161px;">960</span><span class="z" style="left: 206px;">≥ 1,200</span></div></div>
+<div class="ks"><i></i>blank · out of range</div>
+</div>
+</div>
+<div class="cap"><span class="f">ramp --heat-1 … --heat-5: --brand-d at 12 · 32 · 56% in --paper, then --brand-d, then --brand-dd</span> · <span class="f">value --ink on 1–3, --paper on 4–5</span> · <span class="f">no data: --paper, "no data" mono italic 10 --ink-4</span> · <span class="f">zero is a value: step 1</span> · <span class="f">out of range: --paper, blank, date --ink-4 — --paper-2 would match step 1 in dark</span> · <span class="f">above domain clamps to 5, value stays true, legend end reads ≥</span> · <span class="f">hover 1px --ink-2 inset</span> · <span class="f">selected 2px --ink + 1px --paper inset, fill kept</span> · <span class="f">focus --shadow-focus-inset</span></div>
+</div>
+<div class="item">
+<div class="frame"><div class="mx">
+<span class="th c">Site</span><span class="th">W30</span><span class="th">W31</span><span class="th">W32</span><span class="th">W33</span><span class="th">W34</span><span class="th">W35</span><span class="th">W36</span><span class="th">W37</span>
+<span class="rh">DC-North</span><span class="hc h2">420</span><span class="hc h3">610</span><span class="hc h4">880</span><span class="hc h5 sel">1,020</span><span class="hc h5">1,180</span><span class="hc h4">940</span><span class="hc h3">700</span><span class="hc h3">520</span>
+<span class="rh">DC-East</span><span class="hc h1">180</span><span class="hc h2">260</span><span class="hc h2">350</span><span class="hc"><span class="nd">no data</span></span><span class="hc h3">590</span><span class="hc h4">730</span><span class="hc h5">1,480</span><span class="hc h4">890</span>
+<span class="rh">DC-South</span><span class="hc h1">0</span><span class="hc h1">95</span><span class="hc h1">140</span><span class="hc h2">310</span><span class="hc h2">450</span><span class="hc h3">505</span><span class="hc h3">610</span><span class="hc oor"></span>
+</div></div>
+<div class="cap"><span class="f">Matrix cell · 64 × 36, pad 0 8, value right-aligned mono 13 / 500 tabular</span> · <span class="f">1px --rule between cells</span> · <span class="f">row head Inter Tight 13, pad 20; column head mono 10 / 600 / 0.16em, right</span></div>
+</div>
+<div class="item">
+<div class="frame"><div class="cal">
+<span class="wd">Mo</span><span class="wd">Tu</span><span class="wd">We</span><span class="wd">Th</span><span class="wd">Fr</span><span class="wd">Sa</span><span class="wd">Su</span>
+<span class="hc oor"><span class="dt">27</span></span><span class="hc oor"><span class="dt">28</span></span><span class="hc oor"><span class="dt">29</span></span><span class="hc oor"><span class="dt">30</span></span><span class="hc oor"><span class="dt">31</span></span><span class="hc h2"><span class="dt">01</span><span class="vl">310</span></span><span class="hc h1"><span class="dt">02</span><span class="vl">220</span></span>
+<span class="hc h4"><span class="dt">03</span><span class="vl">880</span></span><span class="hc h4"><span class="dt">04</span><span class="vl">940</span></span><span class="hc h5"><span class="dt">05</span><span class="vl">1,020</span></span><span class="hc h5"><span class="dt"><b>06</b></span><span class="vl">990</span></span><span class="hc h4"><span class="dt">07</span><span class="vl">760</span></span><span class="hc h2"><span class="dt">08</span><span class="vl">290</span></span><span class="hc h1"><span class="dt">09</span><span class="vl">180</span></span>
+<span class="hc h4"><span class="dt">10</span><span class="vl">820</span></span><span class="hc h4"><span class="dt">11</span><span class="vl">910</span></span><span class="hc h5 sel"><span class="dt">12</span><span class="vl">1,060</span></span><span class="hc h5"><span class="dt">13</span><span class="vl">970</span></span><span class="hc h3"><span class="dt">14</span><span class="vl">700</span></span><span class="hc h2"><span class="dt">15</span><span class="vl">330</span></span><span class="hc h1"><span class="dt">16</span><span class="vl">210</span></span>
+<span class="hc"><span class="dt">17</span><span class="vl nd">no data</span></span><span class="hc h4"><span class="dt">18</span><span class="vl">860</span></span><span class="hc h5"><span class="dt">19</span><span class="vl">1,110</span></span><span class="hc h5"><span class="dt">20</span><span class="vl">1,000</span></span><span class="hc h3"><span class="dt">21</span><span class="vl">690</span></span><span class="hc h2"><span class="dt">22</span><span class="vl">350</span></span><span class="hc h2"><span class="dt">23</span><span class="vl">240</span></span>
+<span class="hc h4"><span class="dt">24</span><span class="vl">780</span></span><span class="hc h4"><span class="dt">25</span><span class="vl">830</span></span><span class="hc h4"><span class="dt">26</span><span class="vl">950</span></span><span class="hc h5"><span class="dt">27</span><span class="vl">1,180</span></span><span class="hc h4"><span class="dt">28</span><span class="vl">720</span></span><span class="hc h2"><span class="dt">29</span><span class="vl">300</span></span><span class="hc h1"><span class="dt">30</span><span class="vl">160</span></span>
+<span class="hc h3"><span class="dt">31</span><span class="vl">640</span></span><span class="hc oor"><span class="dt">01</span></span><span class="hc oor"><span class="dt">02</span></span><span class="hc oor"><span class="dt">03</span></span><span class="hc oor"><span class="dt">04</span></span><span class="hc oor"><span class="dt">05</span></span><span class="hc oor"><span class="dt">06</span></span>
+</div></div>
+<div class="cap"><span class="f">Calendar cell · 80 × 48, pad 6 8</span> · <span class="f">date mono 10 / 600 top-left in the value's ink</span> · <span class="f">value bottom-right mono 13 / 500</span> · <span class="f">days outside the month are out of range</span> · <span class="f">today's date takes the current-period flag</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Matrix&gt; cell · &lt;Calendar&gt; cell · legend</b> · <span class="f">5 steps: --heat-1 … --heat-5</span> · <span class="f">ink flips to --paper at step 4</span> · <span class="f">thresholds equal-width, closed end ≥</span> · <span class="f">matrix 64 × 36, calendar 80 × 48</span> · <span class="f">1px --rule grid</span> · <span class="f">no data: "no data" mono italic 10 --ink-4</span> · <span class="f">out of range --paper, blank</span> · <span class="f">hover 1px --ink-2 · selected 2px --ink + 1px --paper · focus --shadow-focus-inset</span> · <span class="f">legend swatch 40 × 12, 1px --rule edge, thresholds mono 9.5 --ink-4</span></div>
+</body></html>

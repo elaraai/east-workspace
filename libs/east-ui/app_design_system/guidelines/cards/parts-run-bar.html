@@ -1,0 +1,84 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x840" subtitle="Planned vs actual · running, on plan, overrun · hover, selected, focus, dirty · breach band · milestone and decision marks · finish-to-start links" name="Run bar" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.st { display: grid; grid-template-columns: 90px 562px; column-gap: 8px; align-items: start; }
+.lb { display: grid; grid-template-columns: minmax(0, 1fr); padding-top: 49px; }
+.lb > span { height: 36px; display: flex; align-items: center; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.ax { position: relative; width: 560px; overflow: hidden; }
+.up, .lo { position: relative; height: 24px; box-sizing: border-box; display: flex; border-bottom: 1px solid var(--rule); }
+.up { z-index: 1; }
+.lo { z-index: 3; }
+.up > span { flex: none; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px; border-right: 1px solid var(--rule); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.lo > span { flex: none; width: 48px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-right: 1px solid var(--rule); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 500; color: var(--ink-4); }
+.lo > span.cur b { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); background: var(--brand-d); font-weight: 600; line-height: 1; color: var(--paper); }
+.sh { position: absolute; top: 24px; bottom: 0; background: var(--paper-2); }
+.mj { position: absolute; top: 48px; bottom: 0; width: 1px; background: var(--rule); }
+.now { position: absolute; top: 24px; bottom: 0; z-index: 2; width: 1px; background: var(--brand-d); }
+.lane { position: relative; height: 36px; box-sizing: border-box; border-top: 1px solid var(--rule); }
+.lane.l0 { border-top: 0; }
+.bar { position: absolute; top: 8px; height: 20px; box-sizing: border-box; display: flex; align-items: center; padding: 0 8px; border-radius: var(--r-sm); overflow: hidden; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; line-height: 1; }
+.bar.plan { border: 1px dashed var(--brand-d); color: var(--brand-d); }
+.bar.act { background: var(--brand-d); color: var(--paper); }
+.bar.act.hover { background: var(--brand-dd); }
+.bar.act.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
+.bar.act.focus { box-shadow: var(--shadow-focus); }
+.bar.dirty { background: var(--brand-tint); border: 1px solid var(--brand-d); color: var(--brand-dd); }
+.pe { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--paper); }
+.brc { position: absolute; top: 0; bottom: 0; box-sizing: border-box; background: color-mix(in oklch, var(--neg) 6%, transparent); border-left: 1px solid var(--neg); border-right: 1px solid var(--neg); }
+.ro { position: absolute; top: 0; height: 36px; display: flex; align-items: center; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 500; color: var(--ink-2); }
+.ro.ng { color: var(--neg-text); }
+.ms { position: absolute; top: 13px; width: 10px; height: 10px; box-sizing: border-box; margin-left: -5px; transform: rotate(45deg); background: var(--ink); }
+.ms.miss { background: var(--neg); }
+.ms.plan { background: var(--paper); border: 1px dashed var(--brand-d); }
+.dc { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink); }
+.dc.pend { width: 0; background: transparent; border-left: 1px dashed var(--ink-3); }
+.df { position: absolute; top: 6px; width: 8px; height: 8px; box-sizing: border-box; background: var(--ink); }
+.df.pend { background: var(--paper); border: 1px solid var(--ink-3); }
+.lk { position: absolute; left: 0; top: 48px; z-index: 1; overflow: visible; }
+.e { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ah { fill: var(--ink-3); }
+.e.plan { stroke: var(--brand-d); stroke-dasharray: 4 4; }
+.ah.plan { fill: var(--brand-d); }
+.e.bad { stroke: var(--neg); }
+.ah.bad { fill: var(--neg); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="st">
+<div class="lb"><span>planned</span><span>running</span><span>on plan</span><span>overrun</span><span>hover</span><span>selected</span><span>focus</span><span>dirty</span><span>breach</span><span>milestones</span><span>decisions</span><span>links</span><span></span><span></span></div>
+<div class="frame"><div class="ax">
+<i class="sh" style="left: 240px; width: 96px;"></i><i class="mj" style="left: 336px;"></i>
+<div class="up"><span style="width: 336px;">W32 · Aug 03</span><span style="width: 336px;">W33 · Aug 10</span></div>
+<div class="lo"><span>Mo 03</span><span>Tu 04</span><span>We 05</span><span class="cur"><b>Th 06</b></span><span>Fr 07</span><span>Sa 08</span><span>Su 09</span><span>Mo 10</span><span>Tu 11</span><span>We 12</span><span>Th 13</span><span>Fr 14</span></div>
+<div class="lane l0"><span class="bar plan" style="left: 192px; width: 240px;">Wave 4</span></div>
+<div class="lane"><span class="bar plan" style="left: 48px; width: 144px;"></span><span class="bar act" style="left: 55px; width: 120px;">Wave 3 · 71%</span></div>
+<div class="lane"><span class="bar act" style="left: 0; width: 144px;">Wave 2</span></div>
+<div class="lane"><span class="bar act" style="left: 0; width: 168px;">Wave 1<i class="pe" style="left: 96px;"></i></span><span class="ro ng" style="left: 182px;">+1.5 d</span></div>
+<div class="lane"><span class="bar act hover" style="left: 192px; width: 192px;">Wave 5</span></div>
+<div class="lane"><span class="bar act sel" style="left: 192px; width: 192px;">Wave 5</span></div>
+<div class="lane"><span class="bar act focus" style="left: 192px; width: 192px;">Wave 5</span></div>
+<div class="lane"><span class="bar dirty" style="left: 240px; width: 192px;">Wave 5 · +1 d</span></div>
+<div class="lane"><i class="brc" style="left: 144px; width: 96px;"></i><span class="bar act" style="left: 48px; width: 240px;">Wave 6</span><span class="ro ng" style="left: 298px;">Over capacity · 2 d</span></div>
+<div class="lane"><i class="ms miss" style="left: 24px;"></i><span class="ro" style="left: 36px;">Audit</span><i class="ms" style="left: 96px;"></i><span class="ro" style="left: 108px;">Cut-over</span><i class="ms plan" style="left: 384px;"></i><span class="ro" style="left: 396px;">Go-live</span></div>
+<div class="lane"><i class="dc" style="left: 48px;"></i><i class="df" style="left: 49px;"></i><span class="ro" style="left: 64px;">D-118</span><i class="dc pend" style="left: 384px;"></i><i class="df pend" style="left: 385px;"></i><span class="ro" style="left: 400px;">D-121 · due Aug 11</span></div>
+<div class="lane"><span class="bar act" style="left: 0; width: 72px;">Receive</span><span class="bar plan" style="left: 384px; width: 96px;">Ship</span></div>
+<div class="lane"><span class="bar plan" style="left: 96px; width: 144px;"></span><span class="bar act" style="left: 96px; width: 79px;">Put-away</span></div>
+<div class="lane"><span class="bar plan" style="left: 288px; width: 144px;">Pick</span></div>
+<svg class="lk" width="560" height="504" viewBox="0 0 560 504" aria-hidden="true"><path class="e" d="M72 414 H84 V450 H90"></path><polygon class="ah" points="96,450 90,446.5 90,453.5"></polygon><path class="e plan" d="M240 450 H260 V486 H282"></path><polygon class="ah plan" points="288,486 282,482.5 282,489.5"></polygon><path class="e bad" d="M432 486 H440 V430 H370 V414 H378"></path><polygon class="ah bad" points="384,414 378,410.5 378,417.5"></polygon></svg>
+<i class="now" style="left: 175px;"></i>
+</div></div>
+</div>
+<div class="cap"><span class="f">bar 20 in a 36 lane, --r-sm, mono 10 / 600 label, pad 0 8</span> · <span class="f">planned 1px dashed --brand-d, label --brand-d</span> · <span class="f">actual --brand-d, --paper label, drawn over its plan up to now</span> · <span class="f">plan end past an overrun: 1px --paper tick, excess readout --neg-text</span> · <span class="f">hover --brand-dd</span> · <span class="f">selected 2px --ink outline, offset 1</span> · <span class="f">focus --shadow-focus</span> · <span class="f">dirty --brand-tint, 1px --brand-d, label --brand-dd</span> · <span class="f">breach 6% --neg wash, 1px --neg edges, full lane height, readout --neg-text</span></div>
+<div class="cap"><span class="f">milestone ◆ 10: met --ink · missed --neg · planned 1px dashed --brand-d on --paper</span> · <span class="f">decision 1px --ink through the lanes it governs + 8 flag; pending dashed --ink-3, open flag</span> · <span class="f">mark labels mono 10 / 500 --ink-2, 8 right</span> · <span class="f">links finish-to-start, out 8–16 then elbow, arrowhead 6</span> · <span class="f">done solid --ink-3 1.5</span> · <span class="f">planned dashed --brand-d 4 4</span> · <span class="f">conflict --neg: a successor that starts before its predecessor ends</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Plan&gt; · bar · plan | actual · mark · milestoneDot | decision · markLabel · link</b> · <span class="f">lane 36, bar 20 at top 8</span> · <span class="f">--r-sm</span> · <span class="f">plan 1px dashed --brand-d</span> · <span class="f">actual --brand-d → hover --brand-dd</span> · <span class="f">selected 2px --ink, offset 1</span> · <span class="f">dirty --brand-tint + 1px --brand-d</span> · <span class="f">breach 6% --neg + 1px --neg edges</span> · <span class="f">milestone 10 rotated 45°</span> · <span class="f">decision 1px + flag 8 at top 6</span> · <span class="f">link 1.5 stroke, elbow, head 6 × 7</span> · <span class="f">states of hover and selection on links as the Edge card</span> · <span class="f">nowLine 1px --brand-d above bars and links</span></div>
+</body></html>

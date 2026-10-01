@@ -1,22 +1,24 @@
-<!-- @dsCard group="App layout" viewport="700x230" subtitle="Single · Split · Grid — one per surface, rows sum to 12 columns" name="Main layouts" -->
+<!-- @dsCard group="App layout" viewport="700x260" subtitle="Single · Split · Grid — one per surface, rows sum to 12 columns (schematic)" name="Main layouts" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
-.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; max-width: 620px; }
-.lay { background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
-.lay .h { padding: 7px 11px; font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); border-bottom: 1px solid var(--rule); background: var(--paper-2); }
-.lay .b { padding: 8px; display: grid; gap: 5px; }
-.cell { background: var(--paper-3); border-radius: 3px; height: 52px; }
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.lay { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.lay .h { height: 36px; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px; background: var(--paper-2); border-bottom: 1px solid var(--rule); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.lay .b { padding: 12px 12px 8px; display: grid; gap: 4px; }
+.cell { height: 52px; background: var(--paper-3); border-radius: var(--r-sm); }
 .split .b { grid-template-columns: 1fr 1fr; }
 .gridl .b { grid-template-columns: 1fr 1fr 1fr; }
-.gridl .cell { height: 23px; }
-.lay .c { padding: 6px 11px 9px; font-size: 10.5px; line-height: 1.45; color: var(--ink-3); }
-.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 10px 2px 0; letter-spacing: 0.04em; line-height: 1.7; }
+.gridl .cell { height: 24px; }
+.lay .c { padding: 4px 12px 12px; font-size: var(--fs-body-sm); line-height: 1.45; color: var(--ink-3); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="grid3">
-  <div class="lay"><div class="h">Single</div><div class="b"><div class="cell"></div></div><div class="c">One pattern fills the region — the default.</div></div>
-  <div class="lay split"><div class="h">Split</div><div class="b"><div class="cell"></div><div class="cell"></div></div><div class="c">List left, briefing right. Never deeper than 2.</div></div>
-  <div class="lay gridl"><div class="h">Grid</div><div class="b"><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div></div><div class="c">Repeated Stat / Reference tiles.</div></div>
+<div class="lay"><div class="h">Single</div><div class="b"><div class="cell"></div></div><div class="c">One pattern fills the region — the default.</div></div>
+<div class="lay split"><div class="h">Split</div><div class="b"><div class="cell"></div><div class="cell"></div></div><div class="c">List left, briefing right. Never deeper than two.</div></div>
+<div class="lay gridl"><div class="h">Grid</div><div class="b"><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div></div><div class="c">Repeated Stat and Reference tiles.</div></div>
 </div>
-<div class="ann">12-col grid: sm=3 · md=6 · lg=8 · full=12 (alone in its row) · rows sum to 12 · frame gap 16px · max width 1480px centred · chrome (xs) never lands in Main</div>
+<div class="ann"><b>&lt;Grid&gt; · &lt;Stack&gt; · &lt;Splitter&gt;</b> · <span class="f">schematic, not 1:1</span> · <span class="f">Main is a 12-col grid: sm 3</span> · <span class="f">md 6</span> · <span class="f">lg 8</span> · <span class="f">full 12 (alone in its row)</span> · <span class="f">rows sum to 12</span> · <span class="f">frame gap 16</span> · <span class="f">split gap 20</span> · <span class="f">grid cell gap 12</span> · <span class="f">frames pad 20</span> · <span class="f">max width 1480 centred</span> · <span class="f">pad 32/24</span> · <span class="f">xs chrome never lands in Main</span></div>
 </body></html>

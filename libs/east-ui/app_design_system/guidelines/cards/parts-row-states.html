@@ -1,0 +1,106 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x1010" subtitle="Empty inside the frame · loading skeleton rows · error Banner band above the table — the eyebrow, toolbar and header stay real" name="Row-level states" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+@keyframes east-pulse { 0% { transform: scale(1); opacity: 0.6; } 25%, 100% { transform: scale(2.5); opacity: 0; } }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.eh { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ct { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; background: var(--paper-3); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; font-feature-settings: "tnum" 1; line-height: 1; color: var(--ink-2); }
+.tl { height: 48px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 20px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+.tl .gap { flex: 1; min-width: 0; }
+.rl { height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 20px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+.srch { width: 240px; height: 32px; box-sizing: border-box; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-size: var(--fs-body); color: var(--ink); }
+.srch .ic { flex: none; font-size: 14px; color: var(--ink-4); }
+.srch .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+.srch .x { flex: none; font-family: var(--font-mono); font-size: var(--fs-body); line-height: 1; color: var(--ink-3); }
+.seg { flex: none; display: inline-flex; height: 32px; box-sizing: border-box; border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--paper); }
+.seg .o { position: relative; display: inline-flex; align-items: center; padding: 0 12px; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.seg .o + .o { border-left: 1px solid var(--rule-strong); }
+.seg .o:first-child { border-radius: calc(var(--r-md) - 1px) 0 0 calc(var(--r-md) - 1px); }
+.seg .o:last-child { border-radius: 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0; }
+.seg .o.on { background: var(--brand-tint); color: var(--brand-dd); }
+.btn { height: 32px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); white-space: nowrap; }
+.btn i { font-size: 16px; }
+.chip { height: 22px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.chip.on { background: var(--brand-tint); border-color: var(--brand-d); color: var(--brand-dd); }
+.chip.add { border-style: dashed; background: transparent; color: var(--ink-4); }
+.chip .x { color: var(--brand-d); }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 136px 88px 88px; align-items: stretch; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.th.solo { border-bottom: 1px solid var(--rule); }
+.r { justify-content: flex-end; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.es { display: grid; justify-items: center; text-align: center; padding: 32px 20px; }
+.gy { font-family: var(--font-mono); font-size: var(--fs-num); line-height: 1; color: var(--rule-strong); }
+.ttl { padding-top: 8px; font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; color: var(--ink); }
+.cl { margin: 0; padding: 12px 0 0; list-style: none; display: grid; gap: 8px; max-width: 280px; text-align: left; }
+.cl li { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-body); line-height: 20px; color: var(--ink-2); white-space: nowrap; }
+.cl .bx { width: 14px; flex: none; text-align: center; font-family: var(--font-mono); color: var(--ink-4); }
+.lk { color: var(--brand-d); font-weight: 500; }
+.sk { background: var(--paper-3); }
+.t12 { height: 12px; }
+.skc { width: 24px; height: 16px; border-radius: var(--r-sm); }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { position: relative; width: 8px; height: 8px; flex: none; box-sizing: border-box; border-radius: var(--r-full); background: var(--brand); }
+.d.pos { background: var(--pos); }
+.d.warn { background: var(--warn); }
+.live::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-full); background: inherit; animation: east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite; }
+@media (prefers-reduced-motion: reduce) { .live::after { animation: none; opacity: 0; } }
+.bn { min-height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: var(--r-md); }
+.bm { width: 14px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.bw { flex: none; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.bt { flex: 1; min-width: 0; font-size: var(--fs-body); line-height: 20px; color: var(--ink); }
+.ba { flex: none; display: flex; align-items: center; gap: 8px; }
+.bn.err { background: color-mix(in oklch, var(--neg) 6%, transparent); border: 1px solid var(--neg); }
+.bn.err .bm { color: var(--neg); }
+.bn.err .bw { color: var(--neg-text); }
+.bn.band { border-width: 0 0 1px; border-radius: 0; padding: 8px 20px; }
+.bl { white-space: nowrap; font-size: var(--fs-body-sm); font-weight: 500; color: var(--brand-d); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="eh"><span class="lbl">Rosters · run #42</span><span class="ct" aria-label="0 rosters">0</span></span><span class="meta">2 filters</span></div>
+<div class="tl"><span class="srch"><i class="fa-solid fa-magnifying-glass ic" aria-hidden="true"></i><span class="q">nights</span><span class="x" role="button" aria-label="Clear search">×</span></span><span class="gap"></span><span class="seg" role="radiogroup" aria-label="View"><span class="o on" role="radio" aria-checked="true">Table</span><span class="o" role="radio" aria-checked="false">Grouped</span><span class="o" role="radio" aria-checked="false">Tree</span></span><span class="btn"><i class="fa-solid fa-download" aria-hidden="true"></i>Export</span></div>
+<div class="rl"><span class="chip">All sites</span><span class="chip">DC-North</span><span class="chip">DC-East</span><span class="chip on">DC-West<span class="x" role="button" aria-label="Remove DC-West">×</span></span><span class="chip add">+ Add site</span></div>
+<div class="tr th solo"><span>Roster</span><span>Status</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="es"><span class="gy">×</span><span class="ttl">No rosters match “nights” in DC-West</span><ul class="cl"><li><span class="bx">☐</span><span class="lk">Clear the search →</span></li><li><span class="bx">☐</span><span class="lk">Show all sites →</span></li></ul></div>
+</div>
+<div class="cap"><span class="f">empty · filtered to nothing</span> · <span class="f">eyebrow, toolbar and header stay; the Count reads 0</span> · <span class="f">the Empty state card in place of the rows, pad 32/20</span> · <span class="f">× filtered to nothing, ☐ nothing yet</span> · <span class="f">each step undoes one filter</span> · <span class="f">no pagination</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="eh"><span class="lbl">Rosters · run #43</span><span class="sk skc" aria-hidden="true"></span></span><span class="status"><span class="d live"></span>Loading</span></div>
+<div class="tr th"><span>Roster</span><span>Status</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="tr" aria-hidden="true"><span><span class="sk t12" style="width:112px"></span></span><span><span class="sk t12" style="width:72px"></span></span><span class="r"><span class="sk t12" style="width:24px"></span></span><span class="r"><span class="sk t12" style="width:48px"></span></span></div>
+<div class="tr" aria-hidden="true"><span><span class="sk t12" style="width:96px"></span></span><span><span class="sk t12" style="width:72px"></span></span><span class="r"><span class="sk t12" style="width:24px"></span></span><span class="r"><span class="sk t12" style="width:48px"></span></span></div>
+<div class="tr" aria-hidden="true"><span><span class="sk t12" style="width:128px"></span></span><span><span class="sk t12" style="width:72px"></span></span><span class="r"><span class="sk t12" style="width:24px"></span></span><span class="r"><span class="sk t12" style="width:48px"></span></span></div>
+</div>
+<div class="cap"><span class="f">loading · first load</span> · <span class="f">the Skeleton card: static --paper-3 bars, 12 tall, at each cell's alignment</span> · <span class="f">the Count an empty 24 × 16 rect</span> · <span class="f">only the Loading Status pulses</span> · <span class="f">rows to fill the page, at most 10</span> · <span class="f">a refresh keeps the rows</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="eh"><span class="lbl">Rosters · run #42</span><span class="ct" aria-label="42 rosters">42</span></span><span class="meta">refresh failed 09:14</span></div>
+<div class="bn err band"><span class="bm"><i class="fa-solid fa-circle-exclamation" aria-label="Error"></i></span><span class="bw">Error</span><span class="bt">Run <span class="num">#43</span> failed at solve · the rosters from run <span class="num">#42</span> stay in force.</span><span class="ba"><span class="bl">Open run #43 →</span></span></div>
+<div class="tr th"><span>Roster</span><span>Status</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="tr"><span>Week 31 · days</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">42</span><span class="r n">96.4%</span></div>
+<div class="tr"><span>Week 31 · nights</span><span><span class="status"><span class="d warn"></span>Pending</span></span><span class="r n">28</span><span class="r n">91.2%</span></div>
+</div>
+<div class="cap"><span class="f">error · the Banner card's band: edge to edge, radius 0, pad 8/20, bottom rule</span> · <span class="f">directly above the header row, under the toolbar or the eyebrow</span> · <span class="f">the last committed rows stay, solid</span> · <span class="f">failed first load: band and header, no rows</span> · <span class="f">never a toast</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Table&gt; · &lt;EmptyState&gt; · &lt;Skeleton&gt; · &lt;Banner&gt; status error</b> · <span class="f">frame, eyebrow, toolbar and header always stay</span> · <span class="f">empty: pad 32/20, header takes a bottom --rule</span> · <span class="f">loading: rows at the collection's height, bars --paper-3 12, static, shown after --dur-base</span> · <span class="f">Loading Status in the eyebrow</span> · <span class="f">error: band, 6% --neg wash, 1px --neg bottom, circle-exclamation --neg, word --neg-text</span> · <span class="f">message 13 --ink, Link →</span> · <span class="f">in over --dur-base --ease-out</span> · <span class="f">replaced in place</span></div>
+</body></html>

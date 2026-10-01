@@ -1,0 +1,70 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x590" subtitle="Chip states · comfortable 22, compact 15, large 34 · one-family rail · labeled mode · trust chip · Tag" name="Tag, Chip & ChipRail" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.wrap { display: grid; gap: 20px; }
+.item { display: grid; gap: 4px; align-content: start; justify-items: start; min-width: 0; }
+.states { display: grid; grid-template-columns: repeat(7, auto); justify-content: start; align-items: center; column-gap: 16px; row-gap: 4px; }
+.rail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rail.lab { align-items: flex-end; }
+.chip { height: 22px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.chip.hover { background: var(--paper-2); }
+.chip.on { background: var(--brand-tint); border-color: var(--brand-d); color: var(--brand-dd); }
+.chip.focus { box-shadow: var(--shadow-focus); }
+.chip.dis { border-color: var(--rule); color: var(--ink-5); }
+.chip.add { border-style: dashed; background: transparent; color: var(--ink-4); }
+.chip .x { color: var(--brand-d); }
+.chip.cmp { height: 15px; padding: 0 4px; font-size: var(--fs-label-xs); }
+.chip.lg { height: 34px; padding: 0 12px; gap: 8px; font-size: var(--fs-label-lg); }
+.lc { display: grid; gap: 4px; justify-items: stretch; }
+.lc .chip { justify-content: center; }
+.lc .k { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.chip.trust { gap: 8px; background: var(--paper-2); border-color: var(--rule); }
+.chip.trust.stale { border-style: dashed; border-color: var(--rule-strong); }
+.trust .t { font-weight: 600; color: var(--ink-2); }
+.trust .mt { color: var(--ink-4); }
+.d { width: 8px; height: 8px; flex: none; box-sizing: border-box; border-radius: var(--r-full); }
+.d.pos { background: var(--pos); }
+.d.stale { border: 1px dashed var(--ink-4); }
+.tag { height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--paper-3); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-3); white-space: nowrap; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="states">
+<span class="chip">DC-East</span><span class="chip hover">DC-East</span><span class="chip on">DC-North</span><span class="chip on">Port Kembla<span class="x" role="button" aria-label="Remove Port Kembla">×</span></span><span class="chip focus">DC-South</span><span class="chip dis" aria-disabled="true">DC-West</span><span class="chip add">+ Add site</span>
+<span class="cap">rest</span><span class="cap">hover</span><span class="cap">active</span><span class="cap">removable ×</span><span class="cap">focus</span><span class="cap">disabled</span><span class="cap">+ add</span>
+</div>
+<div class="cap"><span class="f">rest --paper, 1px --rule-strong, --ink-2</span> · <span class="f">hover --paper-2</span> · <span class="f">active --brand-tint, 1px --brand-d, --brand-dd</span> · <span class="f">× only on operator-set chips</span> · <span class="f">focus ring</span> · <span class="f">disabled --ink-5</span> · <span class="f">dashed = the trailing empty slot</span></div>
+</div>
+<div class="item">
+<div class="rail"><span class="chip on">DC-North</span><span class="chip">DC-East</span><span class="chip">DC-South</span><span class="chip">DC-West</span><span class="chip on">Port Kembla<span class="x" role="button" aria-label="Remove Port Kembla">×</span></span><span class="chip add">+ Add site</span></div>
+<div class="cap"><span class="f">comfortable · 22 · 10px · pad 0 8 — default</span></div>
+</div>
+<div class="item">
+<div class="rail"><span class="chip cmp on">DC-North</span><span class="chip cmp">DC-East</span><span class="chip cmp">DC-South</span><span class="chip cmp">DC-West</span><span class="chip cmp on">Port Kembla<span class="x" role="button" aria-label="Remove Port Kembla">×</span></span><span class="chip cmp add">+ Add site</span></div>
+<div class="cap"><span class="f">compact · 15 · 9.5px · pad 0 4</span></div>
+</div>
+<div class="item">
+<div class="rail"><span class="chip lg on">DC-North</span><span class="chip lg">DC-East</span><span class="chip lg">DC-South</span><span class="chip lg">DC-West</span><span class="chip lg on">Port Kembla<span class="x" role="button" aria-label="Remove Port Kembla">×</span></span><span class="chip lg add">+ Add site</span></div>
+<div class="cap"><span class="f">large · 34 · 11px · pad 0 12, gap 8 inside — touch</span> · <span class="f">one rail, one family (site), one density</span></div>
+</div>
+<div class="item">
+<div class="rail lab"><span class="lc"><span class="k">Jul 22</span><span class="chip">W30</span></span><span class="lc"><span class="k">Jul 29</span><span class="chip on">W31</span></span><span class="lc"><span class="k">Aug 05</span><span class="chip">W32</span></span><span class="lc"><span class="k">Aug 12</span><span class="chip">W33</span></span></div>
+<div class="cap"><span class="f">labeled mode · a caption above each chip when the bare value is ambiguous</span> · <span class="f">mono 9.5/600/0.14em --ink-4, gap 4</span></div>
+</div>
+<div class="item">
+<div class="rail"><span class="chip trust"><span class="d pos"></span><span class="t">staffing-v3.2.1</span><span class="mt">run #42 · 14m ago</span></span><span class="chip trust stale"><span class="d stale"></span><span class="t">demand-v2.0</span><span class="mt">run #39 · 3d ago</span></span></div>
+<div class="cap"><span class="f">trust chip · dot + label + meta</span> · <span class="f">read-only attribution that opens the Stamp, never a filter</span> · <span class="f">stale: dashed</span></div>
+</div>
+<div class="item">
+<div class="rail"><span class="tag">Night shift</span><span class="tag">Promo week</span><span class="tag">Union site</span></div>
+<div class="cap"><span class="f">tag · a named fact, read-only</span> · <span class="f">20 · --paper-3, 1px --rule, --ink-3</span> · <span class="f">not clickable, not a status</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;ChipRail&gt; · &lt;Tag&gt;</b> · <span class="f">--r-sm, 1px, mono 500</span> · <span class="f">comfortable 22 / 10, pad 0 8</span> · <span class="f">compact 15 / 9.5, pad 0 4</span> · <span class="f">large 34 / 11, pad 0 12</span> · <span class="f">gap 4 inside, 8 between</span> · <span class="f">one family, one density per rail</span> · <span class="f">active --brand-tint, 1px --brand-d, --brand-dd</span> · <span class="f">× --brand-d</span> · <span class="f">hover one paper step</span> · <span class="f">"+ add" dashed --rule-strong</span> · <span class="f">trust 22, --paper-2, 1px --rule, dot 8, gap 8</span> · <span class="f">tag 20, --paper-3, 1px --rule, --ink-3, --paper on a selected row</span></div>
+</body></html>

@@ -1,0 +1,86 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x950" subtitle="Indent guides · disclosure chevron · branch vs leaf · Count · selection with the parent state · typed leaf values: string, number, boolean, date, null" name="Tree row" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.eh { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.tr { height: 36px; box-sizing: border-box; display: grid; align-items: stretch; font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-bottom: 1px solid var(--rule); }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.ta { grid-template-columns: minmax(0, 1fr) 200px 88px; }
+.tb { grid-template-columns: minmax(0, 1fr) 240px 80px; }
+.r { justify-content: flex-end; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.n.agg { font-weight: 600; }
+.sc { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); }
+.tr.hover { background: var(--paper-2); }
+.tr.sel { background: var(--paper-3); }
+.tr.focus { box-shadow: var(--shadow-focus-inset); }
+.tr > .tc { align-items: stretch; gap: 0; }
+.ind { position: relative; width: 24px; flex: none; }
+.ind::before { content: ""; position: absolute; top: 0; bottom: 0; left: 8px; width: 1px; background: var(--rule); }
+.node { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chev { width: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-in-out); }
+.chev.open { transform: rotate(90deg); }
+.nm { white-space: nowrap; }
+.br { font-weight: 500; }
+.ct { height: 16px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 4px; background: var(--paper-3); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; font-feature-settings: "tnum" 1; line-height: 1; color: var(--ink-2); }
+.tr.sel .ct { background: var(--paper); }
+.cb { position: relative; width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--paper); }
+.cb.on { background: var(--brand-d); border-color: var(--brand-d); }
+.cb.on::after { content: ""; width: 4px; height: 8px; box-sizing: border-box; border: solid var(--paper); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.cb.mix::after { content: ""; width: 8px; height: 2px; background: var(--ink-4); }
+.key { font-family: var(--font-mono); color: var(--ink-3); }
+.key.br { color: var(--ink); }
+.v { white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; color: var(--ink); }
+.v.s { font-weight: 400; }
+.v .qm { color: var(--ink-4); }
+.v.nl { font-style: italic; font-weight: 400; color: var(--ink-4); }
+.pv { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--ink-4); }
+.ty { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame" role="tree" aria-label="Rosters by site">
+<div class="eb"><span class="eh"><span class="lbl">Rosters by site · run #42</span><span class="ct">9</span></span><span class="meta">4 selected</span></div>
+<div class="tr ta" role="treeitem" aria-expanded="true" aria-level="1"><span class="tc"><span class="node"><span class="chev open"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Select DC-North"></span><span class="nm br">DC-North</span><span class="ct">3</span></span></span><span class="sc">branch · open · some selected</span><span class="r n agg">94.5%</span></div>
+<div class="tr ta sel" role="treeitem" aria-level="2" aria-selected="true"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 days"></span><span class="nm">Week 31 · days</span></span></span><span class="sc">leaf · selected</span><span class="r n">96.4%</span></div>
+<div class="tr ta hover" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 nights"></span><span class="nm">Week 31 · nights</span></span></span><span class="sc">leaf · hover</span><span class="r n">91.2%</span></div>
+<div class="tr ta focus" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 32 days"></span><span class="nm">Week 32 · days</span></span></span><span class="sc">leaf · focus</span><span class="r n">94.8%</span></div>
+<div class="tr ta sel" role="treeitem" aria-expanded="false" aria-level="1" aria-selected="true"><span class="tc"><span class="node"><span class="chev"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select DC-East"></span><span class="nm br">DC-East</span><span class="ct">4</span></span></span><span class="sc">branch · closed · all selected</span><span class="r n agg">93.0%</span></div>
+<div class="tr ta" role="treeitem" aria-expanded="true" aria-level="1"><span class="tc"><span class="node"><span class="chev open"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select DC-South"></span><span class="nm br">DC-South</span><span class="ct">2</span></span></span><span class="sc">branch · open</span><span class="r n agg">97.8%</span></div>
+<div class="tr ta" role="treeitem" aria-expanded="true" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev open"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31"></span><span class="nm br">Week 31</span><span class="ct">2</span></span></span><span class="sc">branch · depth 2</span><span class="r n agg">97.8%</span></div>
+<div class="tr ta" role="treeitem" aria-level="3"><span class="tc"><span class="ind"></span><span class="ind"></span><span class="node"><span class="chev"></span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select nights"></span><span class="nm">Nights</span></span></span><span class="sc">leaf · depth 3</span><span class="r n">98.1%</span></div>
+</div>
+<div class="cap"><span class="f">TreeView · rows 36, no row rules: the guides carry the structure</span> · <span class="f">indent 24 = chevron 16 + gap 8: a child's chevron sits under its parent's checkbox</span> · <span class="f">guide 1px --rule, 8 in from its level</span> · <span class="f">branch: chevron, name 500, Count</span> · <span class="f">leaf: a 16 spacer</span> · <span class="f">branch values are aggregates, 600</span> · <span class="f">partial branch: indeterminate</span></div>
+</div>
+<div class="item">
+<div class="frame" role="tree" aria-label="Roster RST-0412">
+<div class="eb"><span class="lbl">RST-0412 · run #42</span><span class="meta">value</span></div>
+<div class="tr th tb"><span>Key</span><span>Value</span><span>Type</span></div>
+<div class="tr tb" role="treeitem" aria-expanded="true" aria-level="1"><span class="tc"><span class="node"><span class="chev open"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="key br">roster</span><span class="ct">7</span></span></span><span><span class="pv">id, week, fill_rate +4</span></span><span class="ty">struct</span></div>
+<div class="tr tb" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="key">id</span></span></span><span><span class="v s"><span class="qm">"</span>RST-0412<span class="qm">"</span></span></span><span class="ty">string</span></div>
+<div class="tr tb" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="key">week</span></span></span><span><span class="v">31</span></span><span class="ty">number</span></div>
+<div class="tr tb" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="key">fill_rate</span></span></span><span><span class="v">0.964</span></span><span class="ty">number</span></div>
+<div class="tr tb" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="key">published</span></span></span><span><span class="v">true</span></span><span class="ty">boolean</span></div>
+<div class="tr tb" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="key">committed_at</span></span></span><span><span class="v">2026-07-22 09:14</span></span><span class="ty">date</span></div>
+<div class="tr tb" role="treeitem" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"></span><span class="key">lead</span></span></span><span><span class="v nl">null</span></span><span class="ty">null</span></div>
+<div class="tr tb" role="treeitem" aria-expanded="false" aria-level="2"><span class="tc"><span class="ind"></span><span class="node"><span class="chev"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="key br">shifts</span><span class="ct">42</span></span></span><span><span class="pv">SH-1201, SH-1202 +40</span></span><span class="ty">array</span></div>
+</div>
+<div class="cap"><span class="f">ValueTree · key mono 13 --ink-3, branch key --ink 500</span> · <span class="f">values left: the column holds mixed types</span> · <span class="f">string mono 400 in --ink-4 quotes</span> · <span class="f">number mono 500 tnum</span> · <span class="f">boolean true / false</span> · <span class="f">date ISO</span> · <span class="f">null mono italic --ink-4</span> · <span class="f">branch preview mono 10.5 --ink-4</span> · <span class="f">type mono 10 --ink-4</span> · <span class="f">long values end in an ellipsis at the cell edge</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;TreeView&gt; · &lt;ValueTree&gt; row</b> · <span class="f">the Row part's heights and states: 36 / 32 / 28</span> · <span class="f">no row rules</span> · <span class="f">first cell pad 20, indent 24 per level, guides 1px --rule 8 in</span> · <span class="f">chevron fa-angle-right 14 in 16, --ink-3, 90° open, --dur-fast --ease-in-out</span> · <span class="f">gap 8</span> · <span class="f">Count 16 --paper-3, --paper on a selected row</span> · <span class="f">checkbox after the chevron</span> · <span class="f">→ opens, ← closes or goes to the parent, ↑ ↓ move</span></div>
+</body></html>

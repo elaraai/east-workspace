@@ -1,0 +1,89 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x1120" subtitle="Header with label, count and WIP limit · card stack · drop slot at the landing index · empty column · add slot rest, hover, focus, drop" name="Board column" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.cols { display: grid; grid-template-columns: repeat(2, 272px); gap: 12px; align-items: start; }
+.sp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.col { width: 272px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); background: var(--paper-2); border: 1px solid var(--rule); border-radius: var(--r-md); overflow: hidden; }
+.ch { height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--rule); }
+.col.solo .ch { border-bottom: 0; height: 34px; }
+.ch .gap { flex: 1; }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.wip { white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ch.at .wip { color: var(--warn-text); }
+.ch.over { background: color-mix(in oklch, var(--neg) 6%, transparent); }
+.ch.over .wip { color: var(--neg-text); }
+.cb { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 8px; align-content: start; }
+.ct { height: 16px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; line-height: 1; color: var(--ink-2); }
+.ic { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.ic.sel { background: var(--paper-3); border-color: var(--ink); }
+.bd { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px; min-width: 0; }
+.hd { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.tt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: 600; letter-spacing: -0.01em; line-height: 20px; color: var(--ink); }
+.mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; line-height: 16px; color: var(--ink-4); }
+.chips { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.chip { height: 22px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.mx { height: 20px; display: flex; align-items: center; gap: 8px; }
+.mv { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.v { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.u { font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.dp { height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 600; line-height: 1; white-space: nowrap; }
+.dp.pos { background: color-mix(in oklch, var(--pos) 6%, transparent); color: var(--pos-text); }
+.ft { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-top: 1px solid var(--rule); }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { width: 8px; height: 8px; flex: none; border-radius: var(--r-full); }
+.d.warn { background: var(--warn); }
+.d.neu { background: var(--ink-4); }
+.av { width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--rule-strong); border-radius: var(--r-full); background: var(--paper-3); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-transform: uppercase; color: var(--ink-2); }
+.av.none { border-style: dashed; background: transparent; }
+.slot { height: 102px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--brand-d); border-radius: var(--r-md); }
+.hint { white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.add { height: 36px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px dashed var(--rule-strong); border-radius: var(--r-md); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink-3); white-space: nowrap; }
+.add.hover { background: var(--paper-3); }
+.add.focus { box-shadow: var(--shadow-focus); }
+.add.empty { height: 72px; }
+.add.drop { border-color: var(--brand-d); }
+.spec { display: grid; grid-template-columns: 272px minmax(0, 1fr); gap: 8px 16px; align-items: center; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.cols .cap .f, .spec .cap .f { white-space: normal; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="cols">
+<div class="sp">
+<div class="col"><div class="ch"><span class="lbl">Pending</span><span class="ct">2</span><span class="gap"></span><span class="wip">WIP 4</span></div>
+<div class="cb">
+<div class="ic sel"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div>
+<div class="ic"><div class="bd"><div class="hd"><div class="tt">Dock 4 inspection</div><div class="mt">ROS-2063 · no due date</div></div></div><div class="ft"><span class="status"><span class="d neu"></span>Draft</span><span class="av none" aria-label="Unassigned"></span></div></div>
+<div class="slot"><span class="hint">Moves to Pending · 3 of 3</span></div>
+<div class="add">+ Add item</div>
+</div></div>
+<div class="cap"><span class="f">column 272, --paper-2, 1px --rule, --r-md</span> · <span class="f">stack pad 8, gap 8; cards are Item cards at 254</span> · <span class="f">drop slot: dashed --brand-d at the carried card's height</span></div>
+</div>
+<div class="sp">
+<div class="col"><div class="ch"><span class="lbl">Blocked</span><span class="ct">0</span><span class="gap"></span><span class="wip">WIP 3</span></div>
+<div class="cb"><div class="add empty"><span>+ Add item</span><span class="hint">or drop a card here</span></div></div></div>
+<div class="cap"><span class="f">empty column · the header and count 0 stay</span> · <span class="f">the add slot grows to 72 and carries the drop hint</span> · <span class="f">no empty-state glyph inside a column</span></div>
+</div>
+</div>
+</div>
+<div class="item">
+<div class="spec">
+<div class="col solo"><div class="ch"><span class="lbl">Pending</span><span class="ct">3</span><span class="gap"></span><span class="wip">WIP 5</span></div></div><div class="cap"><span class="f">within limit · count 16 --paper-3</span> · <span class="f">"WIP n" mono 9.5 --ink-4, right</span></div>
+<div class="col solo"><div class="ch at"><span class="lbl">Pending</span><span class="ct">5</span><span class="gap"></span><span class="wip">at WIP 5</span></div></div><div class="cap"><span class="f">at limit · the readout turns --warn-text</span></div>
+<div class="col solo"><div class="ch over"><span class="lbl">Pending</span><span class="ct">6</span><span class="gap"></span><span class="wip">1 over WIP 5</span></div></div><div class="cap"><span class="f">over limit · 6% --neg wash on the header</span> · <span class="f">readout names the excess in --neg-text</span> · <span class="f">advisory: never blocks a drop</span></div>
+<div class="col solo"><div class="ch"><span class="lbl">Done</span><span class="ct">128</span></div></div><div class="cap"><span class="f">no limit · count only</span></div>
+<div class="col"><div class="cb"><div class="add">+ Add item</div></div></div><div class="cap"><span class="f">add slot rest · 36, 1px dashed --rule-strong, Inter Tight 12.5 / 500 --ink-3</span></div>
+<div class="col"><div class="cb"><div class="add hover">+ Add item</div></div></div><div class="cap"><span class="f">hover · --paper-3, one step past the column</span></div>
+<div class="col"><div class="cb"><div class="add focus">+ Add item</div></div></div><div class="cap"><span class="f">focus · --shadow-focus</span></div>
+<div class="col"><div class="cb"><div class="add drop">+ Add item</div></div></div><div class="cap"><span class="f">drop · a carried card over an empty column: dashed --brand-d</span></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Board&gt; column · header headerCell</b> · <span class="f">272 wide, --paper-2, 1px --rule, --r-md: a part inside a Frame</span> · <span class="f">header 36, pad 0 12, gap 8, 1px --rule under</span> · <span class="f">label mono 10 / 600 / 0.14em --ink</span> · <span class="f">count 16, --paper-3, --r-sm, mono 10 / 600</span> · <span class="f">WIP readout mono 9.5 --ink-4 → at --warn-text → over --neg-text + 6% --neg wash</span> · <span class="f">stack pad 8, gap 8</span> · <span class="f">drop slot 1px dashed --brand-d, --r-md, carried height</span> · <span class="f">add slot 36 (72 when empty), 1px dashed --rule-strong, --r-md, last in the stack</span> · <span class="f">columns gap 12</span> · <span class="f">the column never tints on drag</span></div>
+</body></html>

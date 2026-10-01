@@ -1,0 +1,52 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x450" subtitle="240 × 32 · rest with the ⌘ / hint, hover, focus, filled, disabled · a search outside the slice toolbar, whose own search is the rail's pill" name="Input · search" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.canvas { display: grid; grid-template-columns: repeat(2, 240px); justify-content: start; gap: 16px 32px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sp { display: grid; gap: 8px; align-content: start; }
+.srch { width: 240px; height: 32px; box-sizing: border-box; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-size: var(--fs-body); color: var(--ink); }
+.srch .ic { flex: none; font-size: 14px; color: var(--ink-4); }
+.srch .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }
+.srch .ph { color: var(--ink-4); }
+.srch .caret { display: inline-block; width: 1px; height: 16px; vertical-align: middle; background: var(--ink); }
+.srch .x { flex: none; font-family: var(--font-mono); font-size: var(--fs-body); line-height: 1; color: var(--ink-3); }
+.srch.hover { background: var(--paper-2); }
+.srch.focus { box-shadow: var(--shadow-focus); }
+.srch.dis { border-color: var(--rule); }
+.srch.dis .ic, .srch.dis .ph { color: var(--ink-5); }
+.combo { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.kbd { height: 20px; min-width: 20px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper-2); font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.eh { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ct { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; background: var(--paper-3); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; font-feature-settings: "tnum" 1; line-height: 1; color: var(--ink-2); }
+.tl { height: 48px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 20px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+.tl .gap { flex: 1; min-width: 0; }
+.btn { height: 32px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); white-space: nowrap; }
+.btn i { font-size: 16px; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 120px 88px; align-items: center; padding: 0 20px; column-gap: 24px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.r { text-align: right; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="canvas">
+<div class="sp"><span class="srch"><i class="fa-solid fa-magnifying-glass ic" aria-hidden="true"></i><span class="q ph">Search rosters</span><span class="combo"><span class="kbd">⌘</span><span class="kbd">/</span></span></span><span class="cap"><span class="f">rest · placeholder --ink-4</span> · <span class="f">the ⌘ / Kbd hint while empty</span></span></div>
+<div class="sp"><span class="srch hover"><i class="fa-solid fa-magnifying-glass ic" aria-hidden="true"></i><span class="q ph">Search rosters</span><span class="combo"><span class="kbd">⌘</span><span class="kbd">/</span></span></span><span class="cap"><span class="f">hover · --paper-2</span></span></div>
+<div class="sp"><span class="srch focus"><i class="fa-solid fa-magnifying-glass ic" aria-hidden="true"></i><span class="q"><span class="caret"></span></span></span><span class="cap"><span class="f">focus · --shadow-focus</span> · <span class="f">hint hidden, 1px --ink caret</span></span></div>
+<div class="sp"><span class="srch"><i class="fa-solid fa-magnifying-glass ic" aria-hidden="true"></i><span class="q">nights</span><span class="x" role="button" aria-label="Clear search">×</span></span><span class="cap"><span class="f">filled · query 13 --ink</span> · <span class="f">× clears, --ink-3</span> · <span class="f">never tinted: a query is not a dirty value</span></span></div>
+<div class="sp"><span class="srch dis" aria-disabled="true"><i class="fa-solid fa-magnifying-glass ic" aria-hidden="true"></i><span class="q ph">Search rosters</span></span><span class="cap"><span class="f">disabled · 1px --rule, --ink-5, no hint</span></span></div>
+</div>
+<div class="cap"><span class="f">where it goes: a search in a form, a dialog or a panel</span> · <span class="f">not in a collection's toolbar: there the rail's search pill takes its place (Parts · Toolbar & slice)</span> · <span class="f">⌘ / focuses it, esc clears then blurs</span></div>
+</div>
+<div class="ann"><b>&lt;Input&gt; · search</b> · <span class="f">240 × 32, --paper, 1px --rule-strong, --r-md</span> · <span class="f">pad 0 12, gap 8</span> · <span class="f">fa-magnifying-glass 14 --ink-4</span> · <span class="f">query Inter Tight 13 --ink, placeholder --ink-4</span> · <span class="f">⌘ / Kbd hint at the end while empty and unfocused</span> · <span class="f">hover --paper-2</span> · <span class="f">focus --shadow-focus</span> · <span class="f">filled × mono 13 --ink-3</span> · <span class="f">disabled 1px --rule, --ink-5</span> · <span class="f">never --brand-tint</span></div>
+</body></html>

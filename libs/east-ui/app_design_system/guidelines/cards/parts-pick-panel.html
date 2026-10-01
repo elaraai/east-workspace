@@ -1,0 +1,86 @@
+<!-- @dsCard group="Parts · Toolbar & slice" viewport="700x1460" subtitle="The Plan's Series button in every state · the Series panel (Pick.Panel) in the flush lg popover as the Plan opens it · rows on and off, hover, focus · search, empty, Show all · improvements marked (proposed)" name="Pick panel" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css">
+<style>
+.ctx2{position:relative;height:600px}
+.srow{padding:8px 12px;border-bottom:1px solid var(--rule)}
+.pr{display:flex;align-items:center;gap:8px;min-height:44px;box-sizing:border-box;padding:8px 12px;border-bottom:1px solid var(--rule)}
+.pr:last-child{border-bottom:0}
+.pr.hv{background:var(--paper-2)}
+.pr.fo{box-shadow:var(--shadow-focus-inset)}
+.pr .kd{width:14px;height:14px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink-3)}
+.pr .tx{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.pr .tl{font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:600;line-height:1.2;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr .sb{font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:500;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pr .ey{width:14px;flex:none;display:inline-flex;justify-content:center;font-size:12px;color:var(--brand-d)}
+.pr.off .tl{font-weight:500;color:var(--ink-4)}
+.pr.off .sb,.pr.off .kd,.pr.off .ey{color:var(--ink-4)}
+.emp{padding:12px;font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--ink-3);text-align:center}
+.bs{display:grid;grid-template-columns:repeat(5,max-content);gap:8px 20px;align-items:center;justify-content:start}
+.bs .cap{white-space:nowrap}
+.pairs{display:grid;grid-template-columns:360px minmax(0,1fr);gap:20px;align-items:start}
+.notes{display:grid;gap:8px;align-content:start}
+.nt{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.5;letter-spacing:0.04em;color:var(--ink-4)}
+.nt b{font-weight:600;color:var(--ink-2)}
+.list{border:1px solid var(--rule-strong);border-radius:var(--r-md);overflow:hidden;background:var(--paper)}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Series button</div>
+<div class="canvas"><div class="bs">
+<span class="bt" role="button" aria-haspopup="dialog"><i class="fa-solid fa-eye" aria-hidden="true"></i>Series</span><span class="bt" role="button" aria-haspopup="dialog" aria-label="Series, 4 of 7 shown"><i class="fa-solid fa-eye" aria-hidden="true"></i>Series<span class="mt">4 of 7</span></span><span class="bt hv" role="button"><i class="fa-solid fa-eye" aria-hidden="true"></i>Series<span class="mt">4 of 7</span></span><span class="bt fo" role="button"><i class="fa-solid fa-eye" aria-hidden="true"></i>Series<span class="mt">4 of 7</span></span><span class="bt op" role="button" aria-expanded="true"><i class="fa-solid fa-eye" aria-hidden="true"></i>Series<span class="mt">4 of 7</span></span>
+<span class="cap">all shown</span><span class="cap">3 hidden</span><span class="cap">hover</span><span class="cap">focus</span><span class="cap">open</span>
+</div></div>
+<div class="cap"><span class="f">only with pick · at the row's end, before the history bar</span> · <span class="f">Default sm 24, "Series", icon 14, 8</span> · <span class="f"><b>fa-eye</b>: fa-layer-group is Split's family icon in the same row (proposed)</span> · <span class="f"><b>while any series is hidden it says how many show</b>, mono 11 --ink-3 (proposed)</span> · <span class="f"><b>open: --paper-3</b>, the pressed step, not the hover (proposed)</span> · <span class="f">one form: it never folds</span></div>
+</div>
+<div class="sec">
+<div class="k">As the Plan opens it</div>
+<div class="ctx2">
+<div class="slice"><div class="band rule"><div class="tb"><span class="it"><span class="tg" role="button"><span class="ch br" data-rail-rung="icon"><i class="fa-solid fa-users ic" aria-hidden="true"></i><span>2</span></span><i class="fa-solid fa-chevron-down cr" aria-hidden="true"></i></span></span><span class="it"><span class="ch cp" role="button">Resource<i class="fa-solid fa-chevron-down cr" aria-hidden="true"></i></span></span><span class="it end"><span class="sum"><b>1,204</b> of 3,480</span></span><span class="it"><span class="bt op" role="button" id="sb" aria-expanded="true"><i class="fa-solid fa-eye" aria-hidden="true"></i>Series<span class="mt">4 of 7</span></span></span><span class="it"><span class="hb"><span class="bt ib gh" role="button" aria-label="Undo"><i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i></span><span class="bt ib gh dis" role="button" aria-label="Redo" aria-disabled="true"><i class="fa-solid fa-arrow-rotate-right" aria-hidden="true"></i></span><span class="bt ib" role="button" aria-label="Discard changes"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></span><span class="bt" role="button">Apply</span></span></span></div></div><div style="height:540px"></div></div>
+<div class="pop lg" id="pp" role="dialog" aria-label="Series" style="position:absolute;top:54px;right:12px"><span class="arw" id="pa" style="left:200px"></span>
+<div class="hd"><span>Series · <span class="ac">4 of 7</span></span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd fl">
+<div class="srow"><span class="srch" role="searchbox"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="q ph">Search series</span></span></div>
+<div role="list">
+<div class="pr" role="button" aria-pressed="true"><span class="kd"><i class="fa-solid fa-bars-progress" aria-hidden="true"></i></span><span class="tx"><span class="tl">Plan</span><span class="sb">scheduled runs</span></span><i class="fa-solid fa-eye ey" aria-hidden="true"></i></div>
+<div class="pr hv" role="button" aria-pressed="true"><span class="kd"><i class="fa-solid fa-bars-progress" aria-hidden="true"></i></span><span class="tx"><span class="tl">Actual</span><span class="sb">completed runs</span></span><i class="fa-solid fa-eye ey" aria-hidden="true"></i></div>
+<div class="pr" role="button" aria-pressed="true"><span class="kd"><i class="fa-solid fa-chart-area" aria-hidden="true"></i></span><span class="tx"><span class="tl">Forecast p10–p90</span><span class="sb">demand band</span></span><i class="fa-solid fa-eye ey" aria-hidden="true"></i></div>
+<div class="pr fo" role="button" aria-pressed="true"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Capacity</span><span class="sb">staffed hours per line</span></span><i class="fa-solid fa-eye ey" aria-hidden="true"></i></div>
+<div class="pr off" role="button" aria-pressed="false"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Overtime</span><span class="sb">hours over contract</span></span><i class="fa-solid fa-eye-slash ey" aria-hidden="true"></i></div>
+<div class="pr off" role="button" aria-pressed="false"><span class="kd"><i class="fa-solid fa-diamond" aria-hidden="true"></i></span><span class="tx"><span class="tl">Maintenance windows</span><span class="sb">planned downtime</span></span><i class="fa-solid fa-eye-slash ey" aria-hidden="true"></i></div>
+<div class="pr off" role="button" aria-pressed="false"><span class="kd"></span><span class="tx"><span class="tl">Demand signal</span><span class="sb">orders per day</span></span><i class="fa-solid fa-eye-slash ey" aria-hidden="true"></i></div>
+</div>
+</div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Show all</span></span></div>
+</div>
+</div>
+<div class="cap"><span class="f">the flush lg popover under the Series button, shifted to stay in view, the arrow on the button</span> · <span class="f">head "Series · shown of total", the count 600 --brand-dd</span> · <span class="f">the panel drops its own frame inside the popover (editor density): rows and search inset 12 to meet the head (proposed)</span> · <span class="f"><b>foot: Show all</b>, only while a series is hidden (proposed)</span></div>
+</div>
+<div class="sec">
+<div class="k">Rows · search · empty</div>
+<div class="pairs">
+<div style="display:grid;gap:16px">
+<div class="list">
+<div class="pr" role="button" aria-pressed="true"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Capacity</span><span class="sb">on · rest</span></span><i class="fa-solid fa-eye ey" aria-hidden="true"></i></div>
+<div class="pr hv" role="button" aria-pressed="true"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Capacity</span><span class="sb">on · hover</span></span><i class="fa-solid fa-eye ey" aria-hidden="true"></i></div>
+<div class="pr off" role="button" aria-pressed="false"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Overtime</span><span class="sb">off · rest</span></span><i class="fa-solid fa-eye-slash ey" aria-hidden="true"></i></div>
+<div class="pr off hv" role="button" aria-pressed="false"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Overtime</span><span class="sb">off · hover</span></span><i class="fa-solid fa-eye-slash ey" aria-hidden="true"></i></div>
+<div class="pr off fo" role="button" aria-pressed="false"><span class="kd"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span><span class="tx"><span class="tl">Overtime</span><span class="sb">off · focus</span></span><i class="fa-solid fa-eye-slash ey" aria-hidden="true"></i></div>
+</div>
+<div class="pop lg" role="dialog" aria-label="Series"><div class="hd"><span>Series · <span class="ac">4 of 7</span></span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div><div class="bd fl"><div class="srow"><span class="srch fo" role="searchbox"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="q">weld</span><span class="x" role="button" aria-label="Clear search">×</span></span></div><div class="emp">No series match "weld"</div></div></div>
+</div>
+<div class="notes">
+<div class="nt"><b>search</b> · always present · <b>the Search Input, 32</b>: magnifier 14 --ink-4, 13 --ink, placeholder "Search series" --ink-4, × clear (proposed) · pad 8 12, hairline below</div>
+<div class="nt"><b>row</b> · 44 at least, pad 8 12, gap 8, hairline between, the last none · <b>hover --paper-2</b>, since --paper-3 on a row means selected (proposed) · <b>focus the inset ring</b>; ↑ ↓ move, Space toggles (proposed) · a click toggles it</div>
+<div class="nt">kind icon in a fixed 14 × 14 slot, glyph 12 --ink-3, kept empty when a series has none · title Inter Tight 12.5/600 --ink · subtitle mono 9.5/500 --ink-3 · <b>eye last, 12 in a 14 slot</b>: fa-eye --brand-d (proposed)</div>
+<div class="nt"><b>off</b> · title --ink-4 500, subtitle and kind icon --ink-4, fa-eye-slash --ink-4 · no opacity, so every part holds 4.5:1 (proposed)</div>
+<div class="nt"><b>empty</b> · mono 10.5 --ink-3, centred: No series match "…"</div>
+<div class="nt">no counts, no reordering</div>
+</div>
+</div>
+</div>
+</div>
+<div class="ann"><b>Plan Series button · SliceEditPopover flush lg · Pick.Panel (pickPanel recipe)</b> · <span class="f">button Default sm 24, fa-eye 14 (proposed), "4 of 7" while any is hidden (proposed)</span> · <span class="f">open --paper-3 (proposed)</span> · <span class="f">popover lg 360, flush body, head "Series · N of M" (proposed)</span> · <span class="f">search: the Search Input 32 (proposed)</span> · <span class="f">search row pad 8 12 · rows ≥ 44, pad 8 12, gap 8, hairline --rule (proposed)</span> · <span class="f">hover --paper-2 · focus inset · ↑ ↓, Space (proposed)</span> · <span class="f">kind 14 slot · title 12.5/600 · subtitle mono 9.5 · eye 12 (proposed)</span> · <span class="f">off: --ink-4 500, no opacity (proposed)</span> · <span class="f">foot Show all while any is hidden (proposed)</span></div>
+<script>
+(()=>{const f=()=>{const c=document.querySelector('.ctx2'),b=document.getElementById('sb'),p=document.getElementById('pp'),a=document.getElementById('pa');if(!c||!b)return;const cr=c.getBoundingClientRect(),br=b.getBoundingClientRect(),pr=p.getBoundingClientRect();a.style.left=Math.max(12,Math.min(br.left+br.width/2-pr.left-6,pr.width-24))+'px';p.style.top=(br.bottom-cr.top+10)+'px';};f();document.fonts&&document.fonts.ready.then(f);window.addEventListener('load',f);new ResizeObserver(f).observe(document.querySelector('.ctx2'));})();
+</script>
+</body></html>

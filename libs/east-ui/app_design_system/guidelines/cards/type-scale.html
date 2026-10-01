@@ -1,0 +1,33 @@
+<!-- @dsCard group="Type" viewport="700x550" subtitle="The only sizes — labels 9.5–11 · text 12.5–14 · titles 15–24 · large numbers 26" name="Type scale" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.tr { display: grid; grid-template-columns: minmax(0, 1fr) 96px 36px 172px; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.tk { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; color: var(--ink); }
+.px { font-family: var(--font-mono); font-size: var(--fs-label-xs); color: var(--ink-3); text-align: right; }
+.use { font-family: var(--font-mono); font-size: var(--fs-label-xs); color: var(--ink-4); }
+.lab { font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.crumb { font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.06em; color: var(--ink-3); }
+.tab { font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); }
+.body { font-family: var(--font-body); line-height: 1.4; }
+.ttl { font-family: var(--font-brand); font-weight: 700; line-height: 1.1; color: var(--ink); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="tr"><span class="lab" style="font-size:var(--fs-label-xs);letter-spacing:0.18em">Scenarios</span><span class="tk">--fs-label-xs</span><span class="px">9.5</span><span class="use">annotations, section eyebrows</span></div>
+<div class="tr"><span class="lab" style="font-size:var(--fs-label-sm)">Expected margin · next 14 days</span><span class="tk">--fs-label-sm</span><span class="px">10</span><span class="use">eyebrows, headers, axes</span></div>
+<div class="tr"><span class="crumb" style="font-size:var(--fs-label-md)">Acme Ops / Staffing / Rosters</span><span class="tk">--fs-label-md</span><span class="px">10.5</span><span class="use">compact crumb, legend</span></div>
+<div class="tr"><span class="tab" style="font-size:var(--fs-label-lg)">Evidence</span><span class="tk">--fs-label-lg</span><span class="px">11</span><span class="use">crumb, tabs, sidebar items</span></div>
+<div class="tr"><span class="body" style="font-size:var(--fs-body-sm);color:var(--ink-3)">Capacity holds until Thursday.</span><span class="tk">--fs-body-sm</span><span class="px">12.5</span><span class="use">buttons, captions</span></div>
+<div class="tr"><span class="body" style="font-size:var(--fs-body);color:var(--ink)">Shift <span class="num">240</span> units from DC-East to DC-North.</span><span class="tk">--fs-body</span><span class="px">13</span><span class="use">running text, table cells</span></div>
+<div class="tr"><span class="body" style="font-size:var(--fs-body-lg);color:var(--ink-3)">Utilisation exceeds <span class="num">92%</span> in week <span class="num">3</span>.</span><span class="tk">--fs-body-lg</span><span class="px">14</span><span class="use">ledes</span></div>
+<div class="tr"><span class="ttl" style="font-size:var(--fs-title-xs)">No open decisions</span><span class="tk">--fs-title-xs</span><span class="px">15</span><span class="use">empty-state title · h5</span></div>
+<div class="tr"><span class="ttl" style="font-size:var(--fs-title-sm);letter-spacing:-0.01em">DC-North</span><span class="tk">--fs-title-sm</span><span class="px">16</span><span class="use">condensed bar title · h4</span></div>
+<div class="tr"><span class="ttl" style="font-size:var(--fs-title-md);letter-spacing:-0.015em">Coverage plan</span><span class="tk">--fs-title-md</span><span class="px">18</span><span class="use">compact bar title · h3</span></div>
+<div class="tr"><span class="ttl" style="font-size:var(--fs-title-lg);letter-spacing:-0.015em">Archive this roster?</span><span class="tk">--fs-title-lg</span><span class="px">20</span><span class="use">dialog title · h2</span></div>
+<div class="tr"><span class="ttl" style="font-size:var(--fs-title-xl);letter-spacing:-0.015em">Recommendation briefing</span><span class="tk">--fs-title-xl</span><span class="px">24</span><span class="use">page title · h1</span></div>
+<div class="tr"><span class="num-lg" style="color:var(--ink)">$4.82M</span><span class="tk">--fs-num</span><span class="px">26</span><span class="use">large numbers · mono 600</span></div>
+<div class="ann"><b>&lt;Heading&gt; · &lt;Text&gt;</b> · <span class="f">these are the only sizes</span> · <span class="f">labels 9.5–11 (mono)</span> · <span class="f">running text 12.5–14 (Inter Tight)</span> · <span class="f">titles 15–24 (DM Sans, bold)</span> · <span class="f">large numbers 26/600 mono tabular (.num-lg)</span> · <span class="f">h1–h3 → --fs-title-xl / -lg / -md</span> · <span class="f">the old --fs-xs…--fs-6xl scale is retired</span></div>
+</body></html>

@@ -1,0 +1,85 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x560" subtitle="Menu chrome + 12px arrow · the trust chip's full stamp as the canonical Popover · a site HoverCard from a table link" name="Popover · HoverCard" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.grid { display: grid; grid-template-columns: 320px 320px; gap: 20px; align-items: start; }
+.item { display: grid; gap: 4px; align-content: start; }
+.ctx { position: relative; height: 320px; }
+.bar { height: 44px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 20px; background: var(--paper); border: 1px solid var(--rule); }
+.ttl { font-family: var(--font-brand); font-size: var(--fs-title-sm); font-weight: 700; letter-spacing: -0.01em; line-height: 1; color: var(--ink); white-space: nowrap; }
+.chip { height: 22px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--paper-3); border: 1px solid var(--rule); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; white-space: nowrap; }
+.chip .d { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--pos); }
+.chip .cl { font-weight: 600; color: var(--ink-2); }
+.chip .cm { color: var(--ink-4); }
+.pop { position: absolute; box-sizing: border-box; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.arw { position: absolute; top: -6px; width: 12px; height: 6px; }
+.arw::before { content: ""; position: absolute; left: 0; top: 0; border-style: solid; border-width: 0 6px 6px; border-color: transparent transparent var(--rule-strong); }
+.arw::after { content: ""; position: absolute; left: 1px; top: 1px; border-style: solid; border-width: 0 5px 5px; border-color: transparent transparent var(--paper); }
+.ps { display: grid; gap: 8px; padding: 12px; }
+.ps + .ps { border-top: 1px solid var(--rule); }
+.ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
+.lbl.mut { color: var(--ink-4); }
+.meta { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: baseline; }
+.vc { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.kk { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); white-space: nowrap; }
+.vt { min-width: 0; font-size: var(--fs-body); line-height: 1.5; color: var(--ink); }
+.vm { font-family: var(--font-mono); font-size: var(--fs-body); font-weight: 500; font-feature-settings: "tnum" 1; color: var(--ink); }
+.vv { font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 600; font-feature-settings: "tnum" 1; text-align: right; color: var(--ink); }
+.vs { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); white-space: nowrap; }
+.lk { white-space: nowrap; font-size: var(--fs-body-sm); font-weight: 500; color: var(--brand-d); }
+.lk.u { text-decoration: underline; text-underline-offset: 2px; color: var(--brand-dd); }
+.pf { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.btn { height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); white-space: nowrap; }
+.hn { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hname { font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; color: var(--ink); }
+.st { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.st .d { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--warn); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 72px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.tr.hover { background: var(--paper-2); }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; text-align: right; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="grid">
+<div class="item">
+<div class="ctx">
+<div class="bar"><span class="ttl">DC-North</span><span class="chip" aria-expanded="true"><span class="d"></span><span class="cl">run #42</span><span class="cm">14m ago</span></span></div>
+<div class="pop" style="top:54px;left:20px;width:280px" role="dialog" aria-label="Provenance, run #42">
+<span class="arw" style="left:210px"></span>
+<div class="ps"><div class="ph"><span class="lbl">Provenance · run #42</span><span class="meta">committed</span></div>
+<div class="kv"><span class="kk">Model</span><span class="vm">staffing-v3.2.1</span><span class="kk">Committed</span><span class="vm">2026-07-22 09:14</span><span class="kk">Confidence</span><span class="vm">0.78</span><span class="kk">Sources</span><span class="lk">Roster history +2</span><span class="kk">Assumptions</span><span class="vt">SE demand <span class="num">+14%</span> · <span class="num">1</span> more</span></div></div>
+<div class="ps"><div class="pf"><span class="lk">Open run #42 →</span><span class="btn">Compare runs</span></div></div>
+</div>
+</div>
+<div class="cap"><span class="f">Popover · sm 280</span> · <span class="f">on click</span> · <span class="f">trust chip → the full stamp, the canonical popover</span> · <span class="f">the trust chip (Tag, Chip & ChipRail card) holds --paper-3 while open</span></div>
+</div>
+<div class="item">
+<div class="ctx">
+<div class="frame">
+<div class="eb"><span class="lbl">Sites · run #42</span><span class="meta">5 sites</span></div>
+<div class="tr th"><span>Site</span><span style="text-align:right">Fill rate</span></div>
+<div class="tr hover"><span><span class="lk u">DC-North</span></span><span class="n">88.0%</span></div>
+<div class="tr"><span><span class="lk">DC-East</span></span><span class="n">94.1%</span></div>
+<div class="tr"><span><span class="lk">DC-South</span></span><span class="n">97.8%</span></div>
+<div class="tr"><span><span class="lk">DC-West</span></span><span class="n">91.2%</span></div>
+</div>
+<div class="pop" style="top:119px;left:12px;width:280px" role="dialog" aria-label="DC-North summary">
+<span class="arw" style="left:30px"></span>
+<div class="ps"><span class="lbl mut">Depot · SE region</span><div class="hn"><span class="hname">DC-North</span><span class="st"><span class="d"></span>At risk</span></div>
+<div class="kv"><span class="kk">Fill rate</span><span class="vc"><span class="vm">88.0%</span><span class="vs">target ≥ 95%</span></span><span class="kk">Open shifts</span><span class="vc"><span class="vm">4</span><span class="vs">next 24h</span></span><span class="kk">Utilisation</span><span class="vc"><span class="vm">92%</span><span class="vs">▲ +3 pts wow</span></span></div></div>
+<div class="ps"><span class="lk">Open DC-North →</span></div>
+</div>
+</div>
+<div class="cap"><span class="f">HoverCard · sm 280</span> · <span class="f">after 400ms hover, or on focus</span> · <span class="f">read-only, links only</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Popover&gt; · &lt;HoverCard&gt; · size xs 240 | sm 280 | md 320 | lg 360</b> · <span class="f">the Menu's chrome: --paper, 1px --rule-strong, --r-md, no shadow</span> · <span class="f">arrow 12 wide, 6 deep, 1px --rule-strong edge, aimed at the trigger, tip 4 away</span> · <span class="f">sections pad 12, split by 1px --rule</span> · <span class="f">eyebrow mono 10/600 caps</span> · <span class="f">body is the Key/value part: key column 96, gap 12/8, values 13 --ink, mono for numbers and ids</span> · <span class="f">Popover: on click, focus moves in</span> · <span class="f">links and Default actions, never a Primary</span> · <span class="f">esc or an outside click closes and returns focus</span> · <span class="f">HoverCard: preview only, closes when the pointer leaves trigger and card</span> · <span class="f">flips to stay in view, arrow follows</span></div>
+</body></html>

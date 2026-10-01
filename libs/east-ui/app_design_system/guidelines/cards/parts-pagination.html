@@ -1,0 +1,89 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x990" subtitle="The footer band · Showing N–M of T · per-page stepper · page buttons outline and subtle at sm, md and lg · first, middle and last page" name="Footer band & Pagination" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.set { display: grid; gap: 8px; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.slice { border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.slice .fb { border-top: 0; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 136px 88px 88px; align-items: stretch; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.r { justify-content: flex-end; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.id { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { width: 8px; height: 8px; flex: none; border-radius: var(--r-full); }
+.d.pos { background: var(--pos); }
+.d.warn { background: var(--warn); }
+.fb { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; background: var(--paper-2); border-top: 1px solid var(--rule); }
+.fb.s { height: 36px; }
+.fb.m { height: 48px; }
+.fb.l { height: 56px; }
+.rng { white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); color: var(--ink-4); }
+.fr { display: flex; align-items: center; gap: 24px; }
+.pp { display: flex; align-items: center; gap: 8px; }
+.pk { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.stp { flex: none; display: inline-flex; height: 24px; box-sizing: border-box; border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--paper); }
+.stp .sb { position: relative; width: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink-3); }
+.stp .sb:first-child { border-radius: calc(var(--r-md) - 1px) 0 0 calc(var(--r-md) - 1px); }
+.stp .sb:last-child { border-radius: 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0; }
+.stp .sv { width: 40px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: flex-end; padding: 0 8px; border-left: 1px solid var(--rule-strong); border-right: 1px solid var(--rule-strong); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 500; color: var(--ink); }
+.stp .sb.dis { color: var(--ink-5); }
+.stp .sb.focus { z-index: 1; box-shadow: var(--shadow-focus); }
+.pgs { display: flex; align-items: center; gap: 4px; }
+.pg { height: 24px; min-width: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--paper); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.pg i { font-size: 14px; }
+.m .pg { height: 32px; min-width: 32px; padding: 0 8px; font-size: var(--fs-label-lg); }
+.m .pg i, .l .pg i { font-size: 16px; }
+.l .pg { height: 40px; min-width: 40px; padding: 0 12px; font-size: var(--fs-body-sm); }
+.pg.hover { background: var(--paper-2); }
+.pg.on { background: var(--brand-tint); border-color: var(--brand-d); color: var(--brand-dd); font-weight: 600; }
+.pg.focus { box-shadow: var(--shadow-focus); }
+.pg.dis { border-color: var(--rule); color: var(--ink-5); }
+.sub .pg { border-color: transparent; background: transparent; color: var(--ink-3); }
+.sub .pg.hover { background: var(--paper-3); color: var(--ink); }
+.sub .pg.on { background: var(--brand-tint); border-color: transparent; color: var(--brand-dd); }
+.sub .pg.dis { border-color: transparent; color: var(--ink-5); }
+.gp { min-width: 16px; text-align: center; font-family: var(--font-mono); color: var(--ink-4); }
+.band { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; align-items: center; column-gap: 32px; row-gap: 4px; padding: 16px 20px; background: var(--paper-2); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.band .cap { white-space: nowrap; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame">
+<div class="tr th"><span>Shift</span><span>Status</span><span class="r">Hours</span><span class="r">Cover</span></div>
+<div class="tr"><span class="id">SH-1301</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">8.0</span><span class="r n">4</span></div>
+<div class="tr"><span class="id">SH-1302</span><span><span class="status"><span class="d warn"></span>Pending</span></span><span class="r n">10.5</span><span class="r n">3</span></div>
+<div class="tr"><span class="id">SH-1303</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">8.0</span><span class="r n">5</span></div>
+<nav class="fb s" aria-label="Pagination"><span class="rng">Showing 101–125 of 1,482</span><span class="fr"><span class="pp"><span class="pk">Per page</span><span class="stp"><span class="sb" role="button" aria-label="Fewer per page"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="sv">25</span><span class="sb" role="button" aria-label="More per page"><i class="fa-solid fa-plus" aria-hidden="true"></i></span></span></span><span class="pgs"><span class="pg" role="button" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg">1</span><span class="gp">…</span><span class="pg">4</span><span class="pg on" aria-current="page">5</span><span class="pg">6</span><span class="gp">…</span><span class="pg">60</span><span class="pg" role="button" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></span></nav>
+</div>
+<div class="cap"><span class="f">in a frame · sm in the 36 footer band, the Table default</span> · <span class="f">"Showing N–M of T" left on the frame edge</span> · <span class="f">per page + pages right, 24 apart</span> · <span class="f">only past 50 rows; below that the eyebrow's Count carries the total</span></div>
+</div>
+<div class="set">
+<div class="item"><div class="slice"><nav class="fb s" aria-label="Pagination"><span class="rng">Showing 1–25 of 1,482</span><span class="pgs"><span class="pg dis" role="button" aria-disabled="true" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg on" aria-current="page">1</span><span class="pg">2</span><span class="pg">3</span><span class="pg">4</span><span class="pg">5</span><span class="gp">…</span><span class="pg">60</span><span class="pg" role="button" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></nav></div><div class="cap"><span class="f">outline · sm 24 · band 36 — default</span> · <span class="f">first page: ‹ disabled, 1px --rule, --ink-5</span> · <span class="f">current --brand-tint, 1px --brand-d, --brand-dd 600</span></div></div>
+<div class="item"><div class="slice m"><nav class="fb m" aria-label="Pagination"><span class="rng">Showing 101–125 of 1,482</span><span class="pgs"><span class="pg" role="button" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg">1</span><span class="gp">…</span><span class="pg hover">4</span><span class="pg on" aria-current="page">5</span><span class="pg focus">6</span><span class="gp">…</span><span class="pg">60</span><span class="pg" role="button" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></nav></div><div class="cap"><span class="f">outline · md 32 · band 48 — under card grids and boards</span> · <span class="f">hover on 4 · --paper-2</span> · <span class="f">focus on 6 · --shadow-focus</span> · <span class="f">… marks a gap, not a button</span></div></div>
+<div class="item"><div class="slice l"><nav class="fb l" aria-label="Pagination"><span class="rng">Showing 1,476–1,482 of 1,482</span><span class="pgs"><span class="pg" role="button" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg">1</span><span class="gp">…</span><span class="pg">56</span><span class="pg">57</span><span class="pg">58</span><span class="pg">59</span><span class="pg on" aria-current="page">60</span><span class="pg dis" role="button" aria-disabled="true" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></nav></div><div class="cap"><span class="f">outline · lg 40 · band 56 — touch</span> · <span class="f">last page: › disabled</span> · <span class="f">the last page shows what is left</span></div></div>
+<div class="item"><div class="slice sub"><nav class="fb s" aria-label="Pagination"><span class="rng">Showing 1–25 of 1,482</span><span class="pgs"><span class="pg dis" role="button" aria-disabled="true" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg on" aria-current="page">1</span><span class="pg">2</span><span class="pg">3</span><span class="pg">4</span><span class="pg">5</span><span class="gp">…</span><span class="pg">60</span><span class="pg" role="button" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></nav></div><div class="cap"><span class="f">subtle · sm 24</span> · <span class="f">no border, --ink-3</span> · <span class="f">current --brand-tint, --brand-dd 600</span> · <span class="f">disabled --ink-5</span></div></div>
+<div class="item"><div class="slice sub m"><nav class="fb m" aria-label="Pagination"><span class="rng">Showing 101–125 of 1,482</span><span class="pgs"><span class="pg" role="button" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg">1</span><span class="gp">…</span><span class="pg hover">4</span><span class="pg on" aria-current="page">5</span><span class="pg focus">6</span><span class="gp">…</span><span class="pg">60</span><span class="pg" role="button" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></nav></div><div class="cap"><span class="f">subtle · md 32</span> · <span class="f">hover on 4 · --paper-3, one step below the band, --ink</span> · <span class="f">focus on 6 · --shadow-focus</span></div></div>
+<div class="item"><div class="slice sub l"><nav class="fb l" aria-label="Pagination"><span class="rng">Showing 1,476–1,482 of 1,482</span><span class="pgs"><span class="pg" role="button" aria-label="Previous page"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></span><span class="pg">1</span><span class="gp">…</span><span class="pg">56</span><span class="pg">57</span><span class="pg">58</span><span class="pg">59</span><span class="pg on" aria-current="page">60</span><span class="pg dis" role="button" aria-disabled="true" aria-label="Next page"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span></span></nav></div><div class="cap"><span class="f">subtle · lg 40</span> · <span class="f">last page</span></div></div>
+</div>
+<div class="item">
+<div class="band">
+<span class="stp"><span class="sb" role="button" aria-label="Fewer per page"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="sv">25</span><span class="sb" role="button" aria-label="More per page"><i class="fa-solid fa-plus" aria-hidden="true"></i></span></span><span class="stp"><span class="sb dis" role="button" aria-disabled="true" aria-label="Fewer per page"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="sv">10</span><span class="sb" role="button" aria-label="More per page"><i class="fa-solid fa-plus" aria-hidden="true"></i></span></span><span class="stp"><span class="sb" role="button" aria-label="Fewer per page"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="sv">100</span><span class="sb dis" role="button" aria-disabled="true" aria-label="More per page"><i class="fa-solid fa-plus" aria-hidden="true"></i></span></span><span class="stp"><span class="sb" role="button" aria-label="Fewer per page"><i class="fa-solid fa-minus" aria-hidden="true"></i></span><span class="sv">50</span><span class="sb focus" role="button" aria-label="More per page"><i class="fa-solid fa-plus" aria-hidden="true"></i></span></span>
+<span class="cap">rest</span><span class="cap">min · − disabled</span><span class="cap">max · + disabled</span><span class="cap">focus</span>
+</div>
+<div class="cap"><span class="f">per-page stepper · steps 10 · 25 · 50 · 100</span> · <span class="f">value mono tnum, right in 40</span> · <span class="f">− / + --ink-3, split by 1px --rule-strong</span> · <span class="f">disables at bound</span> · <span class="f">keeps the first row in view</span> · <span class="f">24 / 32 / 40 with the size</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Pagination&gt; · size sm | md | lg · variant outline | subtle</b> · <span class="f">the Frame's footer band, --paper-2, top 1px --rule, pad 0 20: 36 / 48 / 56</span> · <span class="f">sm under tables and lists, md under grids and boards, lg on touch</span> · <span class="f">range mono 10 tnum --ink-4</span> · <span class="f">buttons 24 / 32 / 40 min, pad 0 4 / 8 / 12, mono 10.5 / 11 / 12.5, gap 4, --r-md</span> · <span class="f">outline --paper, 1px --rule-strong, hover --paper-2</span> · <span class="f">subtle --ink-3, hover --paper-3</span> · <span class="f">current --brand-tint, --brand-dd 600</span> · <span class="f">focus --shadow-focus</span> · <span class="f">disabled --ink-5</span> · <span class="f">7 slots</span> · <span class="f">[ ] page, g G first and last</span> · <span class="f">never infinite scroll</span></div>
+</body></html>

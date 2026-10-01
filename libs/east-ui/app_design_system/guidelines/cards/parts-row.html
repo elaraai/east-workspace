@@ -1,0 +1,105 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x1090" subtitle="Rest, hover, selected, focus, dirty, stale, disabled · leading checkbox column · comfortable 36, compact 32, condensed 28 and the part sizes each holds" name="Row" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.tr { height: 36px; box-sizing: border-box; display: grid; align-items: stretch; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.r { justify-content: flex-end; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.sc { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); }
+.cs { grid-template-columns: 46px minmax(0, 1fr) 184px 88px 88px 64px; }
+.tr.hover { background: var(--paper-2); }
+.tr.sel { background: var(--paper-3); }
+.tr.focus, .tr > .focus { box-shadow: var(--shadow-focus-inset); }
+.tr.dirty, .tr > .dirty { background: var(--brand-tint); }
+.dv { color: var(--brand-dd); }
+.tr.stale { border-top: 1px dashed var(--rule-strong); border-bottom: 1px dashed var(--rule-strong); color: var(--ink-3); }
+.tr.stale + .tr { border-top: 0; }
+.tr.dis { color: var(--ink-5); }
+.cb { position: relative; width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--paper); }
+.cb.on { background: var(--brand-d); border-color: var(--brand-d); }
+.cb.on::after { content: ""; width: 4px; height: 8px; box-sizing: border-box; border: solid var(--paper); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.cb.mix::after { content: ""; width: 8px; height: 2px; background: var(--ink-4); }
+.cb.focus { box-shadow: var(--shadow-focus); }
+.cb.dis { border-color: var(--rule); background: transparent; }
+.cb.dis.on::after { border-color: var(--ink-5); }
+.btn { height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-md); border: 1px solid transparent; background: transparent; color: var(--ink-3); }
+.btn i { font-size: 16px; }
+.btn.ib { width: 32px; padding: 0; }
+.btn.sm { height: 24px; }
+.btn.sm.ib { width: 24px; }
+.btn.sm i { font-size: 14px; }
+.btn.hover { background: var(--paper-3); color: var(--ink); }
+.btn.dis { color: var(--ink-5); }
+.canvas { display: grid; grid-template-columns: repeat(6, auto); justify-content: start; align-items: center; column-gap: 24px; row-gap: 4px; padding: 12px 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.canvas .cb { justify-self: start; }
+.canvas .cap { white-space: nowrap; }
+.cd { grid-template-columns: 46px minmax(0, 1fr) 152px 112px 80px 64px; }
+.cd.c32 { height: 32px; grid-template-columns: 46px minmax(0, 1fr) 152px 112px 80px 56px; }
+.cd.c28 { height: 28px; grid-template-columns: 46px minmax(0, 1fr) 152px 112px 80px 56px; }
+.av { width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--rule-strong); border-radius: var(--r-full); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-transform: uppercase; color: var(--ink-2); }
+.av.s20 { width: 20px; height: 20px; font-size: var(--fs-label-xs); }
+.chip { height: 22px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.chip.cmp { height: 15px; padding: 0 4px; font-size: var(--fs-label-xs); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame">
+<div class="tr th cs"><span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Select all rosters"></span></span><span>Roster</span><span>State · fill</span><span class="r">Min cover</span><span class="r">Fill rate</span><span></span></div>
+<div class="tr cs"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span class="sc">rest · --paper</span><span class="r n">3</span><span class="r n">96.4%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 31 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs hover"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span class="sc">hover · --paper-2</span><span class="r n">2</span><span class="r n">91.2%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 31 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 32 days"></span></span><span>Week 32 · days</span><span class="sc">selected · --paper-3, same on hover</span><span class="r n">3</span><span class="r n">94.8%</span><span class="r"><span class="btn ib hover" role="button" aria-label="Actions for week 32 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs focus"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 32 nights"></span></span><span>Week 32 · nights</span><span class="sc">focus · row, inset ring</span><span class="r n">2</span><span class="r n">89.5%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 32 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 33 days"></span></span><span>Week 33 · days</span><span class="sc">focus · cell, inset ring</span><span class="r n focus">3</span><span class="r n">95.1%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 33 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs dirty"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 33 nights"></span></span><span>Week 33 · nights</span><span class="sc">dirty · row, --brand-tint</span><span class="r n dv">4</span><span class="r n">92.0%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 33 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 34 days"></span></span><span>Week 34 · days</span><span class="sc">dirty · cell alone</span><span class="r n dirty dv">4</span><span class="r n">93.6%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 34 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs stale"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 34 nights"></span></span><span>Week 34 · nights</span><span class="sc">stale · dashed rules, --ink-3</span><span class="r n">2</span><span class="r n">88.0%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 34 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cs dis" aria-disabled="true"><span><span class="cb dis" role="checkbox" aria-checked="false" aria-disabled="true" aria-label="Select week 30 days"></span></span><span>Week 30 · days</span><span class="sc">disabled · --ink-5, no hover</span><span class="r n">3</span><span class="r n">97.2%</span><span class="r"><span class="btn ib dis" role="button" aria-disabled="true" aria-label="Actions for week 30 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+</div>
+<div class="cap"><span class="f">comfortable · 36, rule included, ruled top-only</span> · <span class="f">checkbox column 46: 20 + 14 + 12</span> · <span class="f">dirty holds over hover and selection; the checkbox still shows selection</span> · <span class="f">edited value --brand-dd</span> · <span class="f">disabled: no hover, focus or selection</span></div>
+</div>
+<div class="item">
+<div class="canvas">
+<span class="cb" role="checkbox" aria-checked="false" aria-label="Unchecked"></span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Checked"></span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Some selected"></span><span class="cb focus" role="checkbox" aria-checked="false" aria-label="Focused"></span><span class="cb dis" role="checkbox" aria-checked="false" aria-disabled="true" aria-label="Disabled"></span><span class="cb dis on" role="checkbox" aria-checked="true" aria-disabled="true" aria-label="Disabled, checked"></span>
+<span class="cap">unchecked</span><span class="cap">checked</span><span class="cap">indeterminate</span><span class="cap">focus</span><span class="cap">disabled</span><span class="cap">disabled · checked</span>
+</div>
+<div class="cap"><span class="f">Checkbox (the Checkbox card) · 14 × 14, radius 3, --paper, 1px --rule-strong</span> · <span class="f">checked --brand-d, --paper tick</span> · <span class="f">indeterminate --ink-4 minus 8 × 2</span> · <span class="f">focus --shadow-focus, outside</span> · <span class="f">disabled 1px --rule, tick --ink-5</span> · <span class="f">⇧-click selects a range</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th cd"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Roster</span><span>Lead</span><span>Cohort</span><span class="r">Fill rate</span><span></span></div>
+<div class="tr cd"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span><span class="av">JM</span>Jo Marsh</span><span><span class="chip">Promo week</span></span><span class="r n">96.4%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 31 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cd sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span><span class="av">PN</span>Priya Nair</span><span><span class="chip">Night shift</span></span><span class="r n">91.2%</span><span class="r"><span class="btn ib" role="button" aria-label="Actions for week 31 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+</div>
+<div class="cap"><span class="f">comfortable · 36 — default</span> · <span class="f">avatar 24</span> · <span class="f">chip 22</span> · <span class="f">ghost icon button 32</span> · <span class="f">every row collection offers all three</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th cd c32"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Roster</span><span>Lead</span><span>Cohort</span><span class="r">Fill rate</span><span></span></div>
+<div class="tr cd c32"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span><span class="av s20">JM</span>Jo Marsh</span><span><span class="chip cmp">Promo week</span></span><span class="r n">96.4%</span><span class="r"><span class="btn sm ib" role="button" aria-label="Actions for week 31 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cd c32 sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span><span class="av s20">PN</span>Priya Nair</span><span><span class="chip cmp">Night shift</span></span><span class="r n">91.2%</span><span class="r"><span class="btn sm ib" role="button" aria-label="Actions for week 31 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+</div>
+<div class="cap"><span class="f">compact · 32</span> · <span class="f">avatar 20</span> · <span class="f">chip compact 15</span> · <span class="f">ghost icon button sm 24</span> · <span class="f">header 32</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th cd c28"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Roster</span><span>Lead</span><span>Cohort</span><span class="r">Fill rate</span><span></span></div>
+<div class="tr cd c28"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span><span class="av s20">JM</span>Jo Marsh</span><span><span class="chip cmp">Promo week</span></span><span class="r n">96.4%</span><span class="r"><span class="btn sm ib" role="button" aria-label="Actions for week 31 days"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+<div class="tr cd c28 sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span><span class="av s20">PN</span>Priya Nair</span><span><span class="chip cmp">Night shift</span></span><span class="r n">91.2%</span><span class="r"><span class="btn sm ib" role="button" aria-label="Actions for week 31 nights"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></span></span></div>
+</div>
+<div class="cap"><span class="f">condensed · 28</span> · <span class="f">the smallest that clears a 24 button by 2 at each rule</span> · <span class="f">same parts as compact</span> · <span class="f">header 28</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Table&gt; · &lt;DataList&gt; · &lt;TreeView&gt; row · density comfortable | compact | condensed · &lt;Checkbox&gt;</b> · <span class="f">36 / 32 / 28, rule included, header row the same</span> · <span class="f">every row collection offers all three, one per collection</span> · <span class="f">text 13, header 10, cells pad 0 12, first and last 20, at every density</span> · <span class="f">hover --paper-2</span> · <span class="f">selected --paper-3</span> · <span class="f">focus --shadow-focus-inset</span> · <span class="f">dirty --brand-tint</span> · <span class="f">stale dashed --rule-strong</span> · <span class="f">disabled --ink-5</span> · <span class="f">checkbox 14, radius 3, column 46</span> · <span class="f">multi-select brings the header checkbox and the batch bar</span></div>
+</body></html>

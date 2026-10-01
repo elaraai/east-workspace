@@ -1,24 +1,40 @@
 /* East — spacing, radii, shadow, and motion tokens. */
 :root {
-  /* spacing (4px base) */
-  --sp-0: 0; --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  /* spacing (4px base) — Main frames pad 20px, rail frames 12px, rows 12px
+     horizontal, internal gaps 8px. Never an off-scale px. */
+  --sp-0: 0; /* @kind spacing */ --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
   --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
 
-  /* radii — East is square-ish: chips/badges 2-4px, buttons 6px,
-     frames 10px. Never use --r-full on anything but avatars/dots. */
-  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px; --r-2xl: 16px; --r-full: 9999px;
+  /* radii — East is square-ish: chips, counts, NEW, DeltaPill and kbd 4px;
+     buttons, inputs, menus and popovers 6px; frames, dialogs, the Commit bar
+     and the Stamp 10px. Nothing pill-shaped: --r-full only on avatars/dots. */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-full: 9999px;
 
-  /* shadows — reserved for overlays (menus, dialogs). Nothing inside a
-     frame is ever shadowed; structure comes from 1px rules. */
+  /* shadows — the focus ring is the ONE allowed shadow: outside on controls,
+     inset on cells and rows. Nothing else is ever shadowed (frames, menus,
+     popovers, dialogs, the Commit bar); structure comes from 1px rules.
+     Light: 3px of --brand at 35%. Dark: 3px of --brand-d at 80%, which holds
+     3.5:1 on --paper-3 (the dark block below). */
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+  --shadow-focus-inset: inset 0 0 0 3px rgba(72, 142, 151, 0.35);
+  /* DEPRECATED — not allowed; kept only so older mocks resolve. */
   --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
   --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
   --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
   --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
-  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
 
-  /* motion — fast and matter-of-fact; no bounces */
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 360ms;
+  /* motion — fast and matter-of-fact; no bounces. fast = hover/focus,
+     base = panels, banners, the Commit bar, slow = run pulse, diff settle.
+     --ease-out for everything that moves; --ease-in-out for state toggles only. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */ --dur-base: 200ms; /* @kind other */ --dur-slow: 360ms; /* @kind other */
+}
+
+/* Dark: 35% of --brand disappears on the dark papers, so the ring takes the
+   lifted --brand-d at 80% — 4.6 / 4.0 / 3.5:1 on --paper / -2 / -3. */
+[data-theme="dark"], .dark {
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+  --shadow-focus-inset: inset 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
 }

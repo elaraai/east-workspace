@@ -1,20 +1,25 @@
-<!-- @dsCard group="Foundations" viewport="700x160" subtitle="4px spacing scale · square-ish radii · fast flat motion" name="Spacing, radii, motion" -->
+<!-- @dsCard group="Foundations" viewport="700x350" subtitle="4px scale · square-ish radii · the focus ring is the only shadow · fast, flat motion" name="Spacing, radii, shadow, motion" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { background: var(--paper); margin: 0; padding: 14px 18px; font-family: var(--font-mono); }
-.sec { display: grid; grid-template-columns: 82px 1fr; gap: 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--rule); }
-.sec:last-child { border-bottom: 0; }
-.k { font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
-.bar { background: var(--brand-tint); border: 1px solid var(--brand); height: 14px; display: inline-block; vertical-align: middle; }
-.spx { font-size: 9px; color: var(--ink-4); margin: 0 10px 0 4px; }
-.r { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); background: var(--paper-2); height: 26px; padding: 0 10px; font-size: 9.5px; color: var(--ink-3); margin-right: 8px; }
-.v { font-size: 10.5px; color: var(--ink-3); }
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; font-family: var(--font-mono); }
+.sec { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.k { font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.sp { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; white-space: nowrap; font-size: var(--fs-label-xs); color: var(--ink-4); }
+.bar { height: 16px; box-sizing: border-box; background: var(--paper-3); border: 1px solid var(--rule-strong); }
+.r { white-space: nowrap; height: 28px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; background: var(--paper-2); border: 1px solid var(--rule-strong); font-size: var(--fs-label-xs); color: var(--ink-3); }
+.nw { white-space: nowrap; }
+.v { font-size: var(--fs-label-md); color: var(--ink-3); line-height: 1.6; }
+.ctl { white-space: nowrap; height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); box-shadow: var(--shadow-focus); font-family: var(--font-body); font-size: var(--fs-body-sm); color: var(--ink); }
+.rowf { white-space: nowrap; width: 220px; height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--paper); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); box-shadow: var(--shadow-focus-inset); font-family: var(--font-body); font-size: var(--fs-body); color: var(--ink); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
-<div class="sec"><span class="k">Spacing</span><span>
-  <span class="bar" style="width:4px"></span><span class="spx">4</span><span class="bar" style="width:8px"></span><span class="spx">8</span><span class="bar" style="width:12px"></span><span class="spx">12</span><span class="bar" style="width:16px"></span><span class="spx">16</span><span class="bar" style="width:24px"></span><span class="spx">24</span><span class="bar" style="width:32px"></span><span class="spx">32</span><span class="bar" style="width:48px"></span><span class="spx">48</span>
-</span></div>
-<div class="sec"><span class="k">Radii</span><span>
-  <span class="r" style="border-radius:3px">chip 3–4</span><span class="r" style="border-radius:6px">button 6</span><span class="r" style="border-radius:10px">frame 10</span><span class="r" style="border-radius:999px;width:26px;padding:0">av</span><span class="v">· --r-full for avatars/dots only</span>
-</span></div>
-<div class="sec"><span class="k">Motion</span><span class="v">120 / 200 / 360ms · ease-out (0.16, 1, 0.3, 1) · no bounces, no hover lift</span></div>
+<div class="sec"><span class="k">Spacing</span><span class="line"><span class="sp"><span class="bar" style="width:4px"></span>4</span><span class="sp"><span class="bar" style="width:8px"></span>8</span><span class="sp"><span class="bar" style="width:12px"></span>12</span><span class="sp"><span class="bar" style="width:16px"></span>16</span><span class="sp"><span class="bar" style="width:20px"></span>20</span><span class="sp"><span class="bar" style="width:24px"></span>24</span><span class="sp"><span class="bar" style="width:32px"></span>32</span><span class="sp"><span class="bar" style="width:48px"></span>48</span><span class="v nw">gap 8 · row, rail frame 12 · Main frame 20</span></span></div>
+<div class="sec"><span class="k">Radii</span><span class="line"><span class="r" style="border-radius:var(--r-sm)">sm 4 · chip</span><span class="r" style="border-radius:var(--r-md)">md 6 · button</span><span class="r" style="border-radius:var(--r-lg)">lg 10 · frame</span><span class="r" style="border-radius:var(--r-full);width:28px;padding:0"></span><span class="v nw">full · dots, avatars only</span></span></div>
+<div class="sec"><span class="k">Shadow</span><span class="line"><span class="ctl">Focused control</span><span class="rowf">Focused row<span class="num">96.4%</span></span><span class="v nw">the only shadow</span></span></div>
+<div class="sec" style="border-bottom:0"><span class="k">Motion</span><span class="v">fast 120ms hover, focus · base 200ms panels, banners, Commit bar · slow 360ms run pulse, diff settle · --ease-out (0.16, 1, 0.3, 1) for all movement · --ease-in-out (0.65, 0, 0.35, 1) for state toggles only · no bounce, no hover lift</span></div>
+<div class="ann"><b>&lt;Stack&gt; · &lt;Grid&gt; · &lt;Box&gt;</b> · <span class="f">4px scale only (--sp-1…--sp-20)</span> · <span class="f">Main frame pad 20</span> · <span class="f">rail frame 12</span> · <span class="f">cell pad 12, first and last cells take the frame pad</span> · <span class="f">internal gap 8</span> · <span class="f">--r-sm 4</span> · <span class="f">--r-md 6</span> · <span class="f">--r-lg 10</span> · <span class="f">--r-full dots/avatars</span> · <span class="f">--shadow-focus on controls, --shadow-focus-inset on cells and rows</span> · <span class="f">--dur-fast / --dur-base / --dur-slow</span> · <span class="f">--r-xl and --r-2xl retired</span></div>
 </body></html>

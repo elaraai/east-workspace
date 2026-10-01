@@ -1,0 +1,58 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x710" subtitle="Text only — definition, formula, n, and the name of an icon-only control · the 14px ⓘ ring in rest, hover and focus" name="Tooltip" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.canvas { display: grid; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 12px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.trig { display: flex; gap: 48px; }
+.it { display: grid; gap: 8px; align-content: start; }
+.g2 { display: grid; grid-template-columns: repeat(2, 301px); gap: 24px 16px; }
+.ctx { position: relative; height: 128px; display: flex; align-items: flex-end; }
+.lbl { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; line-height: 16px; text-transform: uppercase; white-space: nowrap; color: var(--ink-4); }
+.ti { position: relative; width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--ink-4); border-radius: var(--r-full); font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0; line-height: 1; text-transform: none; color: var(--ink-4); }
+.ti.on { border-color: var(--ink-2); color: var(--ink-2); }
+.ti.focus { box-shadow: var(--shadow-focus); }
+.tt { position: absolute; z-index: 1; width: max-content; max-width: 240px; box-sizing: border-box; padding: 8px 12px; background: var(--bg-inverse); color: var(--fg-inverse); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 400; line-height: 1.5; letter-spacing: 0; text-transform: none; text-align: left; white-space: normal; font-feature-settings: "tnum" 1; }
+.tt.up { bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); }
+.tt.rt { left: calc(100% + 4px); top: 50%; transform: translateY(-50%); }
+.tt.up.end { left: auto; right: -4px; transform: none; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.stat { width: 208px; box-sizing: border-box; padding: 20px; display: grid; gap: 8px; }
+.big { display: flex; align-items: baseline; gap: 4px; color: var(--ink); }
+.unit { font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.thr { width: 301px; height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 120px; column-gap: 24px; align-items: center; padding: 0 20px; border-bottom: 1px solid var(--rule); }
+.thr .lbl { letter-spacing: 0.16em; }
+.r { justify-self: end; }
+.axis { width: 240px; display: grid; gap: 8px; }
+.axis .ln { height: 1px; background: var(--rule); }
+.axis .tk { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; color: var(--ink-4); }
+.side { position: relative; width: 56px; box-sizing: border-box; padding: 8px 0; background: var(--paper-2); border-right: 1px solid var(--rule); }
+.ni { height: 36px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: var(--ink-3); }
+.ni.hov { position: relative; background: var(--paper-3); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="canvas">
+<div class="sec">
+<div class="k">Affordance · 14px ⓘ ring</div>
+<div class="trig">
+<div class="it"><span class="lbl">Fill rate<span class="ti" aria-label="About fill rate">i</span></span><span class="cap"><span class="f">rest</span> · <span class="f">1px --ink-4, never coloured</span></span></div>
+<div class="it"><span class="lbl">Fill rate<span class="ti on" aria-label="About fill rate">i</span></span><span class="cap"><span class="f">hover, open</span> · <span class="f">--ink-2</span></span></div>
+<div class="it"><span class="lbl">Fill rate<span class="ti on focus" aria-label="About fill rate">i</span></span><span class="cap"><span class="f">focus</span> · <span class="f">--shadow-focus, opens at once</span></span></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Open · above the trigger, centred, 4 away</div>
+<div class="g2">
+<div class="it"><div class="ctx" style="padding-left:12px"><div class="frame stat"><span class="lbl">Utilisation<span class="ti on" aria-label="About utilisation">i<span class="tt up" role="tooltip">Share of scheduled capacity in use, per site, per day.</span></span></span><div class="big"><span class="num-lg">92%</span></div></div></div><div class="cap"><span class="f">definition</span> · <span class="f">on a Stat label</span></div></div>
+<div class="it"><div class="ctx"><div class="thr"><span class="lbl">Site</span><span class="lbl r">Fill rate<span class="ti on" aria-label="About fill rate">i<span class="tt up end" role="tooltip">fill = staffed ÷ required shifts · target ≥ 95%</span></span></span></div></div><div class="cap"><span class="f">formula</span> · <span class="f">on a table header</span> · <span class="f">shifted to stay inside the frame</span></div></div>
+<div class="it"><div class="ctx" style="padding-left:24px"><div class="axis"><span class="lbl">Staffed-hrs<span class="ti on" aria-label="About staffed hours">i<span class="tt up" role="tooltip">n = 1,482 shifts · 5 sites</span></span></span><span class="ln"></span><span class="tk"><span>Jul 22</span><span>Jul 29</span><span>Aug 05</span></span></div></div><div class="cap"><span class="f">n</span> · <span class="f">on an axis name</span></div></div>
+<div class="it"><div class="ctx"><div class="side"><div class="ni"><i class="fa-solid fa-chart-line" aria-label="Forecast"></i></div><div class="ni hov"><i class="fa-solid fa-calendar-days" aria-label="Rosters"></i><span class="tt rt" role="tooltip">Rosters</span></div><div class="ni"><i class="fa-solid fa-warehouse" aria-label="Sites"></i></div></div></div><div class="cap"><span class="f">label</span> · <span class="f">an icon-only control, e.g. the collapsed sidebar</span> · <span class="f">to the right</span></div></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Tooltip&gt; · &lt;ToggleTip&gt; on touch</b> · <span class="f">text only: definition, formula, n, or the name of an icon-only control</span> · <span class="f">--bg-inverse fill, --fg-inverse text</span> · <span class="f">mono 11/1.5, tabular</span> · <span class="f">pad 8/12, max 240, --r-md</span> · <span class="f">1px --rule-strong edge like every overlay, no shadow, no arrow</span> · <span class="f">above and centred, 4 from the trigger; beside it for side controls; flips to stay in view</span> · <span class="f">opens after 400ms hover, at once on focus; fades in over --dur-fast --ease-out; esc, blur or leave closes</span> · <span class="f">ⓘ 14 × 14, 1px ring, i mono 9.5/600, --ink-4 → --ink-2</span> · <span class="f">a shortcut rides after the text as Kbd caps on --bg-inverse (the Kbd card)</span> · <span class="f">never help text for a field: that stays inline</span></div>
+</body></html>

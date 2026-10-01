@@ -1,0 +1,85 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x700" subtitle="Row actions from the kebab — groups, accelerators, a disabled reason, destructive items last after a rule" name="Menu" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.grid { display: grid; grid-template-columns: 360px 280px; gap: 20px; align-items: start; }
+.item { display: grid; gap: 4px; align-content: start; }
+.ctx { position: relative; height: 412px; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.meta { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 64px 32px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.eb + .tr { border-top: 0; }
+.tr.hover { background: var(--paper-2); }
+.m { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; color: var(--ink-3); }
+.kb { width: 32px; height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-md); font-size: 16px; color: var(--ink-3); }
+.kb.hov, .kb.held { background: var(--paper-3); color: var(--ink); }
+.kb.focus { box-shadow: var(--shadow-focus); }
+.menu { position: absolute; top: 75px; left: 99px; width: 240px; box-sizing: border-box; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.mg { padding: 4px 0; }
+.mg + .mg { border-top: 1px solid var(--rule); }
+.gh { height: 24px; box-sizing: border-box; display: flex; align-items: flex-end; padding: 0 12px 4px; font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.mi { height: 32px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--paper); font-size: var(--fs-body-sm); color: var(--ink); white-space: nowrap; }
+.mi .ic { width: 16px; flex: none; text-align: center; font-size: 14px; color: var(--ink-3); }
+.mi .t { flex: 1; min-width: 0; }
+.mi .ac { flex: none; padding-left: 24px; font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--ink-4); }
+.mi .ac.keys { display: inline-flex; align-items: center; gap: 4px; }
+.kbd { height: 20px; min-width: 20px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper-2); font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.mi.hov { background: var(--paper-2); }
+.mi.focus { background: var(--paper-2); box-shadow: var(--shadow-focus-inset); }
+.mi.off, .mi.off .ic { color: var(--ink-5); }
+.mi.del, .mi.del .ic { color: var(--neg-text); }
+.canvas { display: grid; gap: 16px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 8px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.trig { display: grid; grid-template-columns: repeat(4, 54px); gap: 8px; }
+.tg { display: grid; justify-items: center; gap: 4px; text-align: center; }
+.tg .well { padding: 2px; background: var(--paper-2); border-radius: var(--r-md); }
+.spec { display: grid; gap: 4px; }
+.spec .mi { margin: 0 -20px; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="grid">
+<div class="item">
+<div class="ctx">
+<div class="frame">
+<div class="eb"><span class="lbl">Rosters · DC-North</span><span class="meta">3 rosters</span></div>
+<div class="tr hover"><span>Week 31 · days</span><span class="m">Jul 28</span><span class="kb held" aria-label="Actions for week 31" aria-expanded="true"><i class="fa-solid fa-ellipsis"></i></span></div>
+<div class="tr"><span>Week 31 · nights</span><span class="m">Jul 28</span><span class="kb" aria-label="Actions"><i class="fa-solid fa-ellipsis"></i></span></div>
+<div class="tr"><span>Week 32 · days</span><span class="m">Aug 04</span><span class="kb" aria-label="Actions"><i class="fa-solid fa-ellipsis"></i></span></div>
+</div>
+<div class="menu" role="menu">
+<div class="mg"><div class="gh">Roster</div><div class="mi"><span class="ic"><i class="fa-solid fa-arrow-up-right-from-square"></i></span><span class="t">Open roster</span></div><div class="mi hov"><span class="ic"><i class="fa-solid fa-clone"></i></span><span class="t">Duplicate</span><span class="ac keys"><span class="kbd">⌘</span><span class="kbd">D</span></span></div><div class="mi"><span class="ic"><i class="fa-solid fa-code-compare"></i></span><span class="t">Compare with plan</span></div><div class="mi"><span class="ic"><i class="fa-solid fa-link"></i></span><span class="t">Copy link</span><span class="ac keys"><span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">C</span></span></div></div>
+<div class="mg"><div class="gh">Export</div><div class="mi"><span class="ic"><i class="fa-solid fa-file-csv"></i></span><span class="t">Export CSV</span></div><div class="mi off"><span class="ic"><i class="fa-solid fa-file-export"></i></span><span class="t">Send to payroll</span><span class="ac">commit first</span></div></div>
+<div class="mg"><div class="mi del"><span class="ic"><i class="fa-solid fa-box-archive"></i></span><span class="t">Archive roster</span></div><div class="mi del"><span class="ic"><i class="fa-solid fa-trash"></i></span><span class="t">Delete roster</span></div></div>
+</div>
+</div>
+<div class="cap"><span class="f">open from the row's kebab</span> · <span class="f">4 below, end-aligned</span> · <span class="f">row keeps its hover, the trigger holds its hover</span></div>
+</div>
+<div class="canvas">
+<div class="sec">
+<div class="k">Trigger · 32 × 32 ghost</div>
+<div class="trig">
+<div class="tg"><span class="kb"><i class="fa-solid fa-ellipsis" aria-label="Actions"></i></span><span class="cap">rest</span></div>
+<div class="tg"><span class="kb hov"><i class="fa-solid fa-ellipsis" aria-label="Actions"></i></span><span class="cap">hover</span></div>
+<div class="tg"><span class="kb focus"><i class="fa-solid fa-ellipsis" aria-label="Actions"></i></span><span class="cap">focus</span></div>
+<div class="tg"><span class="well"><span class="kb held"><i class="fa-solid fa-ellipsis" aria-label="Actions"></i></span></span><span class="cap">open</span></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Item · 32</div>
+<div class="spec"><div class="mi"><span class="ic"><i class="fa-solid fa-clone"></i></span><span class="t">Duplicate</span><span class="ac keys"><span class="kbd">⌘</span><span class="kbd">D</span></span></div><span class="cap"><span class="f">rest</span> · <span class="f">accelerator Kbd caps</span></span></div>
+<div class="spec"><div class="mi hov"><span class="ic"><i class="fa-solid fa-clone"></i></span><span class="t">Duplicate</span><span class="ac keys"><span class="kbd">⌘</span><span class="kbd">D</span></span></div><span class="cap"><span class="f">hover</span> · <span class="f">--paper-2</span></span></div>
+<div class="spec"><div class="mi focus"><span class="ic"><i class="fa-solid fa-clone"></i></span><span class="t">Duplicate</span><span class="ac keys"><span class="kbd">⌘</span><span class="kbd">D</span></span></div><span class="cap"><span class="f">keyboard focus</span> · <span class="f">inset ring</span></span></div>
+<div class="spec"><div class="mi off"><span class="ic"><i class="fa-solid fa-file-export"></i></span><span class="t">Send to payroll</span><span class="ac">commit first</span></div><span class="cap"><span class="f">disabled</span> · <span class="f">--ink-5</span> · <span class="f">reason in its slot</span></span></div>
+<div class="spec"><div class="mi del"><span class="ic"><i class="fa-solid fa-box-archive"></i></span><span class="t">Archive roster</span></div><span class="cap"><span class="f">destructive</span> · <span class="f">--neg-text</span> · <span class="f">opens a Dialog</span></span></div>
+<div class="spec"><div class="mi del hov"><span class="ic"><i class="fa-solid fa-box-archive"></i></span><span class="t">Archive roster</span></div><span class="cap"><span class="f">destructive hover</span> · <span class="f">--paper-2</span></span></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Menu&gt;</b> · <span class="f">secondary and tertiary actions only</span> · <span class="f">--paper, 1px --rule-strong, --r-md, no shadow</span> · <span class="f">200–280 wide</span> · <span class="f">groups pad 4/0, split by 1px --rule</span> · <span class="f">group header mono 9.5/600/0.14em caps --ink-4, 24</span> · <span class="f">item 32, pad 0 12, gap 8</span> · <span class="f">accelerators Kbd caps (the Kbd card), right-aligned, 24 clear of the label</span> · <span class="f">hover --paper-2</span> · <span class="f">keyboard focus --paper-2 + --shadow-focus-inset</span> · <span class="f">disabled --ink-5, reason mono --ink-4 in the accelerator slot</span> · <span class="f">trigger: the Button card's ghost icon button, fa-ellipsis 16 --ink-3, hover --paper-3 + --ink, held while open</span> · <span class="f">destructive items last, after a rule, --neg-text, no accelerator, each opens a Dialog</span> · <span class="f">appears at once below the trigger, 4 away, end-aligned</span> · <span class="f">↑ ↓ move, ⏎ runs, esc closes and returns focus</span> · <span class="f">no check items: choices belong in Select or SegmentGroup</span></div>
+</body></html>

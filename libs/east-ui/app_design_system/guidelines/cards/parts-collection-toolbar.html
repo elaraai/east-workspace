@@ -1,0 +1,58 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x620" subtitle="The batch bar takes the Table's rail band in place while rows are selected · the band itself is Parts · Toolbar & slice" name="Batch bar" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css">
+<style>
+.item{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;align-content:start;min-width:0}
+.frame{background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-lg);overflow:hidden}
+.ceb{height:36px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 20px;background:var(--paper-2);border-bottom:1px solid var(--rule)}
+.eh{display:flex;align-items:center;gap:8px;min-width:0}
+.lbl{white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink)}
+.meta{white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-xs);letter-spacing:0.04em;color:var(--ink-4)}
+.ct{height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;background:var(--paper-3);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;font-feature-settings:"tnum" 1;line-height:1;color:var(--ink-2)}
+.bb{min-height:44px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--paper-3);border-bottom:1px solid var(--rule)}
+.bb .gap{flex:1;min-width:0}
+.bsum{white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-lg);font-weight:500;letter-spacing:0.04em;color:var(--ink-2)}
+.bsum b{font-weight:600;color:var(--ink)}
+.keys{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--ink-3)}
+.btn{height:32px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border-radius:var(--r-md);border:1px solid var(--rule-strong);background:var(--paper);font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;color:var(--ink);white-space:nowrap}
+.btn i{font-size:16px}.btn.ib{width:32px;padding:0;justify-content:center}
+.tr{height:36px;box-sizing:border-box;display:grid;grid-template-columns:46px minmax(0,1fr) 120px 88px 88px;align-items:stretch;border-top:1px solid var(--rule);font-size:var(--fs-body);color:var(--ink)}
+.tr>*{min-width:0;display:flex;align-items:center;padding:0 12px;white-space:nowrap}
+.tr>:first-child{padding-left:20px}.tr>:last-child{padding-right:20px}
+.th{border-top:0}
+.th>*{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.tr.sel{background:var(--paper-3)}
+.r{justify-content:flex-end}
+.n{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-weight:500}
+.cb{position:relative;width:14px;height:14px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule-strong);border-radius:3px;background:var(--paper)}
+.cb.on{background:var(--brand-d);border-color:var(--brand-d)}
+.cb.on::after{content:"";width:4px;height:8px;box-sizing:border-box;border:solid var(--paper);border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.cb.mix::after{content:"";width:8px;height:2px;background:var(--ink-4)}
+.status{white-space:nowrap;display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3)}
+.d{width:8px;height:8px;flex:none;box-sizing:border-box;border-radius:var(--r-full)}
+.d.pos{background:var(--pos)}.d.warn{background:var(--warn)}.d.neu{background:var(--ink-4)}
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame">
+<div class="ceb"><span class="eh"><span class="lbl">Rosters · run #42</span><span class="ct" aria-label="12 rosters">12</span></span><span class="meta">1 filter · refreshed 14m ago</span></div>
+<div class="band eb rule"><div class="tb"><span class="it"><span class="cl"><span class="af" title="Filter"><span class="fi"><i class="fa-solid fa-filter" aria-hidden="true"></i></span><span class="ctl"><span class="ch n br" role="button">site = DC-North<span class="x" role="button" aria-label="Remove filter">×</span></span><span class="ch cp da" role="button"><i class="fa-solid fa-plus pl" aria-hidden="true"></i>Filter</span></span></span><span class="af" title="Search"><span class="fi"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><span class="sp" role="combobox" aria-label="Search"><span class="q ph">Search…</span><span class="kh">/</span></span></span><span class="tg" role="button" aria-haspopup="dialog"><span class="ch n" data-slice-fold><i class="fa-solid fa-calendar ic" aria-hidden="true"></i>Range</span><i class="fa-solid fa-chevron-down cr" aria-hidden="true"></i></span></span></span></div></div>
+<div class="tr th"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all rosters"></span></span><span>Roster</span><span>Status</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="tr"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">42</span><span class="r n">96.4%</span></div>
+<div class="tr"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span><span class="status"><span class="d warn"></span>Pending</span></span><span class="r n">28</span><span class="r n">91.2%</span></div>
+</div>
+<div class="cap"><span class="f">no selection · the eyebrow band is the slice rail (Parts · Toolbar & slice)</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="ceb"><span class="eh"><span class="lbl">Rosters · run #42</span><span class="ct" aria-label="12 rosters">12</span></span><span class="meta">1 filter · refreshed 14m ago</span></div>
+<div class="bb"><span class="btn ib" role="button" aria-label="Clear selection"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span><span class="bsum"><b>3 selected</b> of 12</span><span class="keys">Week 31 · days, Week 32 · days +1</span><span class="gap"></span><span class="btn">Export CSV</span><span class="btn">Assign lead</span><span class="btn">Archive</span></div>
+<div class="tr th"><span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Select all rosters"></span></span><span>Roster</span><span>Status</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="tr sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span><span class="status"><span class="d pos"></span>Committed</span></span><span class="r n">42</span><span class="r n">96.4%</span></div>
+<div class="tr"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span><span class="status"><span class="d warn"></span>Pending</span></span><span class="r n">28</span><span class="r n">91.2%</span></div>
+<div class="tr sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 32 days"></span></span><span>Week 32 · days</span><span><span class="status"><span class="d neu"></span>Draft</span></span><span class="r n">40</span><span class="r n">94.8%</span></div>
+</div>
+<div class="cap"><span class="f">batchBar · one or more rows selected</span> · <span class="f">takes the rail band in place, at its 44: nothing below moves</span> · <span class="f">--paper-3, pad 0 12, gap 8</span> · <span class="f">× or ⌫ clears, and the rail returns as it was</span> · <span class="f">Default buttons, increasing commitment</span> · <span class="f">Archive opens a Dialog: "Archive 3 rosters"</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Card&gt; eyebrow · &lt;Table&gt; · batchBar (no east-ui slot) · &lt;Button&gt;</b> · <span class="f">in the rail band's place while ≥ 1 row is selected, min 44, --paper-3</span> · <span class="f">× clear 32 · "N selected of T" mono 11, N 600 --ink · the selected keys mono 10.5 --ink-3, ellipsis</span> · <span class="f">actions Default md 32, right, never a Primary</span> · <span class="f">the Card eyebrow 36 and the header row stay</span> · <span class="f">the rail itself: Parts · Toolbar & slice</span></div>
+</body></html>

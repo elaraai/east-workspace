@@ -1,21 +1,37 @@
-<!-- @dsCard group="Foundations" viewport="700x210" subtitle="1px rules give structure; shadows only on overlays; dashed = ephemeral" name="Borders & structure" -->
+<!-- @dsCard group="Foundations" viewport="700x450" subtitle="1px rules · 36px rows at comfortable · the eyebrow and the first column share the frame's edge · dashed = ephemeral" name="Borders & structure" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
-.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; overflow: hidden; max-width: 560px; }
-.band { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--paper-2); }
-.lbl { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink); }
-.meta { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
-.row { padding: 10px 16px; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--ink); display: flex; justify-content: space-between; }
-.row .n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
-.row.stale { border-top: 1px dashed var(--rule-strong); border-bottom: 1px dashed var(--rule-strong); color: var(--ink-3); font-size: 12px; }
-.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 8px 16px; letter-spacing: 0.04em; }
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.meta { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 200px 96px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.st { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); white-space: nowrap; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; text-align: right; }
+.hover { background: var(--paper-2); }
+.sel { background: var(--paper-3); }
+.focus { box-shadow: var(--shadow-focus-inset); }
+.stale { border-top: 1px dashed var(--rule-strong); border-bottom: 1px dashed var(--rule-strong); color: var(--ink-3); }
+.ft { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-top: 1px solid var(--rule); font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); }
+.stale + .ft { border-top: 0; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 8px; }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="frame">
-  <div class="band"><span class="lbl">Frame</span><span class="meta">10px radius · --rule-strong edge · no shadow</span></div>
-  <div class="row"><span>Inside-card divider</span><span class="n">--rule · 1px</span></div>
-  <div class="row stale"><span>─ ─ dashed hairline = ephemeral / partial / stale</span></div>
-  <div class="row" style="border-bottom:none"><span>Header/footer bands</span><span class="n">--paper-2</span></div>
+<div class="eb"><span class="lbl">Fill rate by site · run #42</span><span class="meta">14m ago</span></div>
+<div class="tr th"><span>Site</span><span>State · fill</span><span style="text-align:right">Fill rate</span></div>
+<div class="tr"><span>DC-North</span><span class="st">rest · --paper</span><span class="n">96.4%</span></div>
+<div class="tr hover"><span>DC-East</span><span class="st">hover · --paper-2</span><span class="n">94.1%</span></div>
+<div class="tr sel"><span>DC-South</span><span class="st">selected · --paper-3</span><span class="n">97.8%</span></div>
+<div class="tr focus"><span>DC-West</span><span class="st">focused · inset ring</span><span class="n">91.2%</span></div>
+<div class="tr stale"><span>DC-Central</span><span class="st">stale · dashed rules</span><span class="n">88.0%</span></div>
+<div class="ft"><span>Showing 1–5 of 42</span><span>footer band · --paper-2</span></div>
 </div>
-<div class="ann">shadows: overlays only (menus, dialogs) — never on cards, never on hover</div>
+<div class="cap"><span class="f">one edge: eyebrow, first column and footer start 20px from the frame (12 in the rail)</span> · <span class="f">cells between pad 12, so columns sit 24 apart</span></div>
+<div class="ann"><b>&lt;Card&gt; · &lt;Table&gt;</b> · <span class="f">1px --rule inside, 1px --rule-strong edge, --r-lg</span> · <span class="f">a table body runs edge to edge</span> · <span class="f">first and last cells take the frame's padding, inner cells pad 12</span> · <span class="f">rows 36 at comfortable (32 compact, 28 condensed), content centred, ruled top-only</span> · <span class="f">hover --paper-2, one step below the --paper row</span> · <span class="f">selected --paper-3, unchanged on hover</span> · <span class="f">focus ring drawn inset</span> · <span class="f">dashed = ephemeral / partial / stale</span> · <span class="f">no shadow but the focus ring</span></div>
 </body></html>

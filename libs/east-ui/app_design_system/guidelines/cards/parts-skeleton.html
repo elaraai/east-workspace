@@ -1,0 +1,58 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x600" subtitle="Static --paper-3 shapes in the final layout · labels and headers stay real · the loading Status carries the pulse" name="Skeleton" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; gap: 16px; }
+.row { display: grid; grid-template-columns: repeat(3, 208px); gap: 18px; align-items: start; }
+.item { display: grid; gap: 4px; align-content: start; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.stat { padding: 20px; display: grid; gap: 8px; }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; line-height: 16px; text-transform: uppercase; white-space: nowrap; color: var(--ink-4); }
+.l16 { height: 16px; display: flex; align-items: center; }
+.l26 { height: 26px; display: flex; align-items: center; }
+.big { height: 26px; display: flex; align-items: baseline; gap: 4px; color: var(--ink); }
+.val { font-family: var(--font-mono); font-size: var(--fs-label-md); line-height: 16px; color: var(--ink-4); }
+.val .up { font-weight: 600; color: var(--pos-text); }
+.sk { background: var(--paper-3); }
+.t8 { height: 8px; }
+.t12 { height: 12px; }
+.t24 { height: 24px; }
+.rc { height: 32px; border-radius: var(--r-md); }
+.ci { width: 24px; height: 24px; border-radius: var(--r-full); }
+.shapes { display: grid; gap: 12px; padding: 20px; }
+.shp { display: grid; gap: 4px; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.eb .lbl { color: var(--ink); }
+.st { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { position: relative; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--brand); }
+.live::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-full); background: inherit; animation: east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite; }
+@keyframes east-pulse { 0% { transform: scale(1); opacity: 0.6; } 25%, 100% { transform: scale(2.5); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live::after { animation: none; opacity: 0; } }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 160px 96px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); }
+.th { border-top: 0; }
+.th span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.r { justify-self: end; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="row">
+<div class="item"><div class="frame stat"><div class="lbl">Fill rate · week 3</div><div class="l26"><span class="sk t24" style="width:96px"></span></div><div class="l16"><span class="sk t8" style="width:120px"></span></div></div><div class="cap"><span class="f">Stat · loading</span> · <span class="f">label real, value 24, sub 8</span></div></div>
+<div class="item"><div class="frame stat"><div class="lbl">Fill rate · week 3</div><div class="big"><span class="num-lg">96.4%</span></div><div class="val"><span class="up">▲ +1.2 pts</span> · vs plan</div></div><div class="cap"><span class="f">Stat · loaded</span> · <span class="f">same height, nothing moves</span></div></div>
+<div class="item"><div class="frame shapes"><div class="shp"><span class="sk t12" style="width:120px"></span><span class="cap">text · radius 0</span></div><div class="shp"><span class="sk rc" style="width:72px"></span><span class="cap">rect · the part's radius</span></div><div class="shp"><span class="sk ci"></span><span class="cap">circle · avatars only</span></div></div><div class="cap"><span class="f">shape text | rect | circle</span></div></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="lbl">Fill rate by site · run #43</span><span class="st"><span class="d live"></span>Loading</span></div>
+<div class="tr th"><span>Site</span><span>Reported</span><span style="text-align:right">Fill rate</span></div>
+<div class="tr"><span class="sk t12" style="width:96px"></span><span class="sk t12" style="width:48px"></span><span class="sk t12 r" style="width:48px"></span></div>
+<div class="tr"><span class="sk t12" style="width:72px"></span><span class="sk t12" style="width:48px"></span><span class="sk t12 r" style="width:48px"></span></div>
+<div class="tr"><span class="sk t12" style="width:112px"></span><span class="sk t12" style="width:48px"></span><span class="sk t12 r" style="width:48px"></span></div>
+</div>
+<div class="cap"><span class="f">table · loading</span> · <span class="f">eyebrow and header real</span> · <span class="f">rows at the collection's height, bars at each cell's alignment</span> · <span class="f">the eyebrow's Status pulses; the bars never do</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Skeleton&gt; · shape text | rect | circle</b> · <span class="f">--paper-3, static</span> · <span class="f">no shimmer, no sweep, no fade: the only loop is the status-dot pulse, on the Loading Status in the eyebrow</span> · <span class="f">only unknown values are bars; titles, labels, headers and units render</span> · <span class="f">text bars square-ended: 8 for labels, 12 for body, 24 for large numbers, centred in the line box</span> · <span class="f">rect takes the footprint and radius of its part; a chart or map body is one rect at its final height</span> · <span class="f">circle for avatars</span> · <span class="f">shown after --dur-base so quick loads never flash</span> · <span class="f">replaced in place, same height</span> · <span class="f">a failed load becomes an error Banner</span></div>
+</body></html>

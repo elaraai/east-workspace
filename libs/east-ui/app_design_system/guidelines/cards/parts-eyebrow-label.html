@@ -1,0 +1,76 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x610" subtitle="Mono uppercase label · frame and section eyebrows · meta line · key/value, inline and stacked" name="Eyebrow & label" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.wrap { display: grid; gap: 20px; }
+.item { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.bd { padding: 20px; display: grid; gap: 8px; }
+.rail { padding: 12px; display: grid; gap: 8px; }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.eb .lbl { color: var(--ink); }
+.lbl.l11 { font-size: var(--fs-label-lg); letter-spacing: 0.16em; }
+.lbl.l105 { font-size: var(--fs-label-md); letter-spacing: 0.1em; color: var(--ink-3); }
+.lbl.sec { font-size: var(--fs-label-xs); letter-spacing: 0.18em; }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.txt { font-size: var(--fs-body); line-height: 1.5; color: var(--ink-2); }
+.lad { display: grid; }
+.lr { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.lr:first-child { padding-top: 0; }
+.lr:last-child { padding-bottom: 0; border-bottom: 0; }
+.kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: baseline; }
+.v { min-width: 0; font-size: var(--fs-body); line-height: 1.5; color: var(--ink); }
+.v.m { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.kvs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 24px; }
+.pair { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame"><div class="eb"><span class="lbl">Coverage gaps · run #42</span><span class="meta">refreshed 14m ago</span></div><div class="bd"><div class="txt"><span class="num">3</span> shifts fall below minimum cover on Thursday.</div></div></div>
+<div class="cap"><span class="f">frame eyebrow</span> · <span class="f">row 36, content centred</span> · <span class="f">pad 0 20, 12 in the rail</span> · <span class="f">--paper-2 band, bottom --rule</span> · <span class="f">name 10/600/0.14em --ink, run anchor after " · "</span> · <span class="f">meta right, gap 8</span></div>
+</div>
+<div class="two">
+<div class="item">
+<div class="lad">
+<div class="lr"><span class="lbl l11">Evidence</span><span class="cap"><span class="f">11 · 0.16em</span> · <span class="f">tabs, segmented</span> · <span class="f">sidebar items 0.12em</span></span></div>
+<div class="lr"><span class="lbl l105">Committed</span><span class="cap"><span class="f">10.5 · 0.1em</span> · <span class="f">status word, --ink-3</span></span></div>
+<div class="lr"><span class="lbl">Fill rate</span><span class="cap"><span class="f">10 · 0.14em</span> · <span class="f">label, key, eyebrow</span> · <span class="f">table header 0.16em</span></span></div>
+<div class="lr"><span class="lbl sec">Assumptions</span><span class="cap"><span class="f">9.5 · 0.18em</span> · <span class="f">section eyebrow</span></span></div>
+</div>
+<div class="cap"><span class="f">mono uppercase label · 600</span> · <span class="f">uppercased by CSS, source stays sentence case</span> · <span class="f">--ink-4 unless its recipe names another ink</span></div>
+</div>
+<div class="item">
+<div class="frame rail">
+<span class="lbl sec">Assumptions</span>
+<div class="kv">
+<span class="lbl">Horizon</span><span class="v"><span class="num">14</span> days</span>
+<span class="lbl">Min cover</span><span class="v"><span class="num">2</span> leads per shift</span>
+<span class="lbl">Demand</span><span class="v">SE region forecast</span>
+<span class="lbl">Model</span><span class="v m">staffing-v3.2.1</span>
+</div>
+<span class="meta">3 sources · refreshed 14m ago</span>
+</div>
+<div class="cap"><span class="f">section eyebrow · 9.5/600/0.18em --ink-4</span> · <span class="f">8 above its content</span></div>
+<div class="cap"><span class="f">key/value inline · key column 96, gap 12</span> · <span class="f">pairs 8 apart, baseline</span></div>
+<div class="cap"><span class="f">meta line · 9.5/400/0.04em --ink-4</span> · <span class="f">sentence case, facts joined by " · "</span></div>
+</div>
+</div>
+<div class="item">
+<div class="kvs">
+<div class="pair"><span class="lbl">Run</span><span class="v m">run #42</span></div>
+<div class="pair"><span class="lbl">Committed at</span><span class="v m">2026-07-22 09:14</span></div>
+<div class="pair"><span class="lbl">Confidence</span><span class="v m">conf 0.78</span></div>
+<div class="pair"><span class="lbl">Scope</span><span class="v">DC-North, DC-East</span></div>
+</div>
+<div class="cap"><span class="f">key/value stacked · key over value, gap 4</span> · <span class="f">pairs 24 apart</span> · <span class="f">value 13 --ink</span> · <span class="f">ids, dates and numerals mono 500 tnum</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Text&gt; · &lt;Card&gt; · &lt;DataList&gt;</b> · <span class="f">labels mono 600, uppercase by CSS, 9.5–11</span> · <span class="f">--ink-4 unless the recipe names another ink</span> · <span class="f">label, key 10 / 0.14em</span> · <span class="f">section eyebrow 9.5 / 0.18em</span> · <span class="f">eyebrow row 36, pad 0 20, --paper-2, name --ink</span> · <span class="f">meta 9.5 / 400 / 0.04em</span> · <span class="f">inline key 96, gap 12, rows 8</span> · <span class="f">stacked gap 4, pairs 24</span> · <span class="f">values 13 --ink, ids and numerals mono 500</span></div>
+</body></html>
