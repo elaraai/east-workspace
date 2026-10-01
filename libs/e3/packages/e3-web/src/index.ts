@@ -4,20 +4,39 @@
  */
 
 /**
- * e3 in a browser: its storage over IndexedDB, OPFS and Web Locks, and its
- * runner over a pool of Web Workers.
+ * e3 in a browser: the page's connection to its e3 worker, and the seams the
+ * e3 worker runs e3 over — its storage over IndexedDB, OPFS and Web Locks,
+ * its runner over a pool of Web Workers, and its transfers.
  *
- * `openWebStorage` opens e3's storage backend in a page — `WebStorage`, over
- * the four adapters below — and `WebStateStore` keeps a dataflow run's state
- * beside it. `WebTaskRunner` runs a repository's units on the workers of a
- * `UnitPool`: Web Workers whose script calls `serveUnits()` from
+ * `createWebE3` connects a page to its e3 worker, whose script calls
+ * `serveE3()` from `@elaraai/e3-web/worker`, and gives the page the `fetch`
+ * the worker answers, with the URL e3's client is given. The seams the e3
+ * worker runs: `openWebStorage` opens e3's storage backend — `WebStorage`,
+ * over the four adapters below — and `WebStateStore` keeps a dataflow run's
+ * state beside it; `WebTaskRunner` runs a repository's units on the workers of
+ * a `UnitPool`: Web Workers whose script calls `serveUnits()` from
  * `@elaraai/e3-web/units`, or, for a test in Node, workers in this thread
- * (`inProcessUnits`). This entry reaches nothing of Node, so a page or a
- * worker bundles it. The files adapter over the machine's files is
- * `@elaraai/e3-web/node`.
+ * (`inProcessUnits`); and `WebTransferBackend` stages uploads and runs the
+ * jobs, and `createWebDataEndpoints` answers the byte URLs it gives. This entry reaches nothing of Node, so a page or a worker bundles it.
+ * The files adapter over the machine's files is `@elaraai/e3-web/node`.
  *
  * @packageDocumentation
  */
+
+export { createWebE3, type WebE3, type WebE3Options } from './bridge/page.js';
+
+export {
+  DEFAULT_EXPORT_ROUND_BYTES,
+  DEFAULT_RECORD_RETENTION_MS,
+  DEFAULT_RESULT_TTL_MS,
+  DEFAULT_RETENTION_INTERVAL_MS,
+  DEFAULT_WEB_PART_BYTES,
+  WebTransferBackend,
+  type TransferKind,
+  type WebTransferBackendOptions,
+} from './transfer/WebTransferBackend.js';
+
+export { createWebDataEndpoints, type WebDataEndpoints } from './transfer/endpoints.js';
 
 export {
   DEFAULT_WHOLE_INTAKE_LIMIT,
@@ -27,7 +46,7 @@ export {
   type WebTaskRunnerOptions,
 } from './execution/WebTaskRunner.js';
 
-export { UnitPool, type UnitPoolOptions, type UnitRun, type UnitRunOptions } from './execution/pool.js';
+export { UnitPool, type UnitConnection, type UnitPoolOptions, type UnitRun, type UnitRunOptions } from './execution/pool.js';
 
 export { inProcessUnits, type InProcessUnitsOptions } from './execution/in-process.js';
 

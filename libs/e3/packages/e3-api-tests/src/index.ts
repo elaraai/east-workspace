@@ -102,26 +102,40 @@ import { transferTests } from './suites/transfer.js';
 import { packageTransferTests } from './suites/package-transfer.js';
 
 /**
- * Register all API test suites (excluding CLI tests).
+ * Every API test suite (excluding CLI tests), by name, in the order
+ * {@link allApiTests} registers them.
+ *
+ * @remarks
+ * For a harness that runs the suites in parts — a test file each, to keep
+ * each file's time well inside its limit — and checks that its parts name
+ * every suite here once, so a suite added here is run there too.
+ */
+export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContext>) => void>> = {
+  repository: repositoryTests,
+  packages: packageTests,
+  workspaces: workspaceTests,
+  datasets: datasetTests,
+  datasetPages: datasetPageTests,
+  datasetTransfer: datasetTransferTests,
+  dataflow: dataflowTests,
+  functions: functionTests,
+  records: recordTests,
+  keyedRecords: keyedRecordTests,
+  recordDeploy: recordDeployTests,
+  packageTransfer: packageTransferTests,
+  platform: platformTests,
+};
+
+/**
+ * Register all API test suites (excluding CLI tests): every suite of
+ * {@link apiTestSuites}, in order.
  *
  * CLI tests require additional credentials setup and are registered separately.
  *
  * @param setup - Factory that creates a fresh test context per test
  */
 export function allApiTests(setup: TestSetup<TestContext>): void {
-  repositoryTests(setup);
-  packageTests(setup);
-  workspaceTests(setup);
-  datasetTests(setup);
-  datasetPageTests(setup);
-  datasetTransferTests(setup);
-  dataflowTests(setup);
-  functionTests(setup);
-  recordTests(setup);
-  keyedRecordTests(setup);
-  recordDeployTests(setup);
-  packageTransferTests(setup);
-  platformTests(setup);
+  for (const register of Object.values(apiTestSuites)) register(setup);
 }
 
 /**

@@ -15,16 +15,36 @@
  * once it answers `ready`. A unit's run is stopped by terminating its worker
  * — when the run is aborted, or runs past its timeout — and the worker is
  * replaced by the next unit that needs one. A worker that fails, or never
- * starts serving units, is let go the same way, failing the unit it was given.
+ * starts serving units, is let go the same way, failing the unit it was given;
+ * so is one that stops on its own — closes itself, say, which no event tells
+ * its pool — learned of through the Web Lock it holds while it lives. A worker
+ * let go has its host's services ended with it.
  *
  * @packageDocumentation
  */
 
 import { UnitResultType, UnitType, decodeBeast2For, encodeBeast2For, type Unit, type UnitResult } from '@elaraai/east';
+import { watchLifeline } from '../bridge/protocol.js';
 import { transferOf, type UnitFile, type UnitWorker, type WorkerMessage } from './protocol.js';
 
 /** How long a worker may take to start serving units. */
 const START_TIMEOUT_MS = 60_000;
+
+/**
+ * The services a host serves one unit worker: the port the worker is handed,
+ * and what ends them once the pool lets the worker go.
+ */
+export interface UnitConnection {
+  /** The port the worker is handed as it starts: its end of the services */
+  readonly port: MessagePort;
+  /**
+   * Ends the host's side, once the pool has let the worker go — terminated
+   * it, or learned it has stopped: what it was answering for the worker is
+   * given up, and its end of the port closed. A browser's port says nothing
+   * as the worker at its other end goes.
+   */
+  close(): void;
+}
 
 /**
  * How a {@link UnitPool} starts its workers.
@@ -38,11 +58,12 @@ export interface UnitPoolOptions {
    *  cores (`navigator.hardwareConcurrency`) unless set */
   readonly width?: number;
   /**
-   * Makes the port each worker is handed as it starts: the services the host
-   * serves its units, such as a fetch into the e3 worker that e3's own
-   * platform functions are bound to. Unset, a worker is handed none.
+   * Makes the services each worker is handed as it starts: the port of what
+   * the host serves its units, such as a fetch into the e3 worker that e3's
+   * own platform functions are bound to, and what ends the host's side once
+   * the worker is let go. Unset, a worker is handed none.
    */
-  readonly connect?: () => MessagePort;
+  readonly connect?: () => UnitConnection;
   /** How long a worker may take to start serving units, in milliseconds:
    *  60 s unless set */
   readonly startTimeoutMs?: number;
@@ -107,14 +128,21 @@ class PooledWorker {
   private answerReady!: () => void;
   private refuseReady!: (err: Error) => void;
   private readonly startTimer: ReturnType<typeof setTimeout>;
+  /** Aborted as the worker is let go: withdraws the wait on its lifeline */
+  private readonly ending = new AbortController();
 
   /**
    * @param worker - The worker, just started
-   * @param port - The port it is handed, or `null`
+   * @param connection - The services it is handed, or `null`
    * @param startTimeoutMs - How long it may take to start serving units
    * @param lost - Tells the pool the worker is let go
    */
-  constructor(private readonly worker: UnitWorker, port: MessagePort | null, startTimeoutMs: number, private readonly lost: (worker: PooledWorker) => void) {
+  constructor(
+    private readonly worker: UnitWorker,
+    private readonly connection: UnitConnection | null,
+    startTimeoutMs: number,
+    private readonly lost: (worker: PooledWorker) => void,
+  ) {
     this.ready = new Promise<void>((resolve, reject) => {
       this.answerReady = resolve;
       this.refuseReady = reject;
@@ -129,6 +157,7 @@ class PooledWorker {
       event.preventDefault();
       this.fail(`the unit worker failed${event.message ? `: ${event.message}` : ''}`);
     };
+    const port = connection?.port ?? null;
     worker.postMessage({ kind: 'start', port }, port === null ? [] : [port]);
   }
 
@@ -141,6 +170,10 @@ class PooledWorker {
   private hear(message: WorkerMessage): void {
     if (message.kind === 'ready') {
       clearTimeout(this.startTimer);
+      // A worker that stops on its own frees its lifeline: no event says so.
+      watchLifeline(message.lifeline, this.ending.signal, () => {
+        this.fail('the unit worker stopped: it closed itself, or something other than its pool ended it');
+      });
       this.answerReady();
       return;
     }
@@ -170,11 +203,14 @@ class PooledWorker {
     this.inFlight?.settle({ kind: 'failed', message: why });
   }
 
-  /** Terminates the worker, and tells the pool it is let go. */
+  /** Terminates the worker, ends the services it was handed, and tells the
+   *  pool it is let go. */
   private end(why: string): void {
     this.ended = why;
     clearTimeout(this.startTimer);
+    this.ending.abort();
     this.worker.terminate();
+    this.connection?.close();
     this.lost(this);
   }
 
@@ -340,8 +376,15 @@ export class UnitPool {
 
   /** Starts a worker. */
   private start(): PooledWorker {
-    const port = this.options.connect?.() ?? null;
-    const worker = new PooledWorker(this.options.units(), port, this.startTimeoutMs, (gone) => {
+    const connection = this.options.connect?.() ?? null;
+    let unit: UnitWorker;
+    try {
+      unit = this.options.units();
+    } catch (err) {
+      connection?.close();
+      throw err;
+    }
+    const worker = new PooledWorker(unit, connection, this.startTimeoutMs, (gone) => {
       this.live.delete(gone);
       const at = this.idle.indexOf(gone);
       if (at >= 0) this.idle.splice(at, 1);

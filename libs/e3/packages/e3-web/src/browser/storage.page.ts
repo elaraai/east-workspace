@@ -249,6 +249,30 @@ servePage({
     return { records: stored, blobs: found, file };
   },
 
+  /**
+   * Deletes a database a connection of the page's holds open, and does not
+   * close when asked, and answers what the deletion said; the connection then
+   * closes, and the deletion goes through.
+   */
+  async deleteWhileHeld(): Promise<string> {
+    const name = unique();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('records');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('the database did not open'));
+    });
+    // No onversionchange: the connection does not close when a deletion asks.
+    try {
+      await deleteIndexedDbRecords(name);
+      return 'deleted';
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    } finally {
+      db.close();
+    }
+  },
+
   /** Removes what {@link writeState} wrote under a name. */
   async clearState(name: string): Promise<void> {
     await deleteIndexedDbRecords(name);

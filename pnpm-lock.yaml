@@ -323,6 +323,12 @@ importers:
 
   libs/e3/packages/e3-web:
     dependencies:
+      '@elaraai/e3-api-client':
+        specifier: workspace:*
+        version: link:../e3-api-client
+      '@elaraai/e3-api-server':
+        specifier: workspace:*
+        version: link:../e3-api-server
       '@elaraai/e3-core':
         specifier: workspace:*
         version: link:../e3-core
@@ -335,10 +341,16 @@ importers:
       '@elaraai/east-web-std':
         specifier: workspace:*
         version: link:../../../east-web/packages/east-web-std
+      hono:
+        specifier: ^4.6.0
+        version: 4.12.10
     devDependencies:
       '@elaraai/e3':
         specifier: workspace:*
         version: link:../e3
+      '@elaraai/e3-api-tests':
+        specifier: workspace:*
+        version: link:../e3-api-tests
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -387,6 +399,9 @@ importers:
       '@elaraai/e3-types':
         specifier: workspace:*
         version: link:../../packages/e3-types
+      '@elaraai/e3-web':
+        specifier: workspace:*
+        version: link:../../packages/e3-web
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east

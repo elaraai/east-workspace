@@ -106,6 +106,22 @@ export const NO_COMMANDS = 'a browser runs no commands';
  *  sets one: 256 MiB, since a unit holds its delivery in memory. */
 export const DEFAULT_WHOLE_INTAKE_LIMIT = 256 * 2 ** 20;
 
+/**
+ * A whole-intake limit, as a runner takes it: what a host that makes its
+ * runners as it needs them checks as it starts.
+ *
+ * @param limit - The limit the host gives, in bytes:
+ *   {@link DEFAULT_WHOLE_INTAKE_LIMIT} unless given
+ * @returns The limit
+ * @throws {RangeError} When it is not a whole number of bytes, zero or more
+ */
+export function wholeIntakeLimitOf(limit: number = DEFAULT_WHOLE_INTAKE_LIMIT): number {
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    throw new RangeError(`a runner's whole-intake limit is a whole number of bytes, zero or more, not ${limit}`);
+  }
+  return limit;
+}
+
 /** The runner a browser's units run on, as an intake names it. */
 export const WEB_RUNNER = 'east-web';
 
@@ -270,11 +286,7 @@ export class WebTaskRunner implements TaskRunner {
    *   bytes, zero or more
    */
   constructor(options: WebTaskRunnerOptions) {
-    const limit = options.wholeIntakeLimit ?? DEFAULT_WHOLE_INTAKE_LIMIT;
-    if (!Number.isSafeInteger(limit) || limit < 0) {
-      throw new RangeError(`a runner's whole-intake limit is a whole number of bytes, zero or more, not ${limit}`);
-    }
-    this.wholeIntakeLimit = limit;
+    this.wholeIntakeLimit = wholeIntakeLimitOf(options.wholeIntakeLimit);
     this.repo = options.repo;
     this.pool = options.pool;
     this.locks = options.locks;

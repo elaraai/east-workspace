@@ -10,15 +10,17 @@
  *
  * Its functions show what the specs need to see of a unit from outside it: a
  * greeting, which an app's package answers; a tick, which a unit that loops
- * calls, so a spec in the unit's thread sees whether it still runs; and an
- * echo through the port the pool handed the unit's worker, which shows a
- * package reaching back to its host.
+ * calls, so a spec in the unit's thread sees whether it still runs; an echo
+ * through the port the pool handed the unit's worker, which shows a package
+ * reaching back to its host; and an exit, which closes a Web Worker as a
+ * worker closes itself.
  *
  * @packageDocumentation
  */
 
 import { East, IntegerType, NullType, StringType } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
+import type { UnitConnection } from '../execution/pool.js';
 import type { UnitPlatformContext, UnitPlatformPackage } from '../execution/unit-server.js';
 
 /** The name tasks list the package under, as a runner's `{ custom }`
@@ -38,6 +40,10 @@ export const test_host_echo = East.asyncPlatform('test_host_echo', [StringType],
 /** `test_wait()`: waits for the host to say, through the port, that it may go
  *  on. */
 export const test_wait = East.asyncPlatform('test_wait', [], NullType);
+
+/** `test_exit()`: closes the unit's Web Worker, as a worker closes itself, and
+ *  never returns. */
+export const test_exit = East.asyncPlatform('test_exit', [], NullType);
 
 /** How many times `test_tick` has been called in this thread. */
 let ticks = 0n;
@@ -87,16 +93,24 @@ export const testPlatform: UnitPlatformPackage = (context): PlatformFunction[] =
     await askHost(context, 'wait');
     return null;
   }),
+  test_exit.implement(() => {
+    // A dedicated worker's scope closes it: no event tells its pool.
+    (globalThis as unknown as { close(): void }).close();
+    return new Promise<null>(() => undefined);
+  }),
 ];
 
 /**
  * The host side of the ports a pool hands its workers, as a spec serves it.
  */
 export interface TestHost {
-  /** Makes the port a worker is handed: the pool's `connect` */
-  readonly connect: () => MessagePort;
+  /** Makes the services a worker is handed: the pool's `connect` */
+  readonly connect: () => UnitConnection;
   /** What units have asked, in order: `echo:<text>`, or `wait` */
   readonly asked: readonly string[];
+  /** How many of the ports it made the pool has closed, letting their
+   *  workers go */
+  readonly closed: () => number;
   /** Lets every wait asked go on, and every one asked after */
   release(): void;
   /** Closes every port it made, and every wait still asked */
@@ -114,8 +128,10 @@ export function testHost(): TestHost {
   const ports: MessagePort[] = [];
   const waiting: MessagePort[] = [];
   let released = false;
+  let closed = 0;
   return {
     asked,
+    closed: () => closed,
     connect: () => {
       const channel = new MessageChannel();
       ports.push(channel.port1);
@@ -129,7 +145,16 @@ export function testHost(): TestHost {
         reply.postMessage(event.data.startsWith('echo:') ? `${event.data.slice(5)}, from the host` : 'go on');
         reply.close();
       };
-      return channel.port2;
+      let open = true;
+      return {
+        port: channel.port2,
+        close: () => {
+          if (!open) return;
+          open = false;
+          closed++;
+          channel.port1.close();
+        },
+      };
     },
     release: () => {
       released = true;

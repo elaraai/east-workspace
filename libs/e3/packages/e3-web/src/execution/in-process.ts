@@ -16,7 +16,9 @@
  * Web Worker: a unit in a synchronous loop runs until the loop ends, whatever
  * stops it. A unit that calls or awaits a platform function is stopped there:
  * once the worker is terminated, every call of a platform function, and every
- * call still awaited, fails, and the unit's program unwinds. Its answer is
+ * call still awaited, fails, and the unit's program unwinds. What its
+ * packages left waiting stops with it — a sleep's timer is cleared — so
+ * nothing of the unit's keeps the thread's event loop alive. Its answer is
  * never heard, since its channel is closed.
  *
  * @packageDocumentation
@@ -31,8 +33,8 @@ import { STANDARD_PLATFORMS, UnitServer, type UnitPlatforms } from './unit-serve
  */
 export interface InProcessUnitsOptions {
   /** An app's platform packages, by the name a runner lists each under:
-   *  served beside east-node-std's, as `serveUnits({ platforms })` serves
-   *  them in a Web Worker */
+   *  served beside the standard ones — east-node-std's and e3's own — as
+   *  `serveUnits({ platforms })` serves them in a Web Worker */
   readonly platforms?: UnitPlatforms;
 }
 
@@ -83,7 +85,7 @@ class InProcessUnitWorker implements UnitWorker {
           if (!this.stopped.signal.aborted) worker.postMessage(message, transfer);
         },
       },
-      { platforms, guard: (functions) => guarded(functions, this.stopped.signal) },
+      { platforms, guard: (functions) => guarded(functions, this.stopped.signal), signal: this.stopped.signal },
     );
     worker.onmessage = (event: MessageEvent<HostMessage>) => {
       void server.receive(event.data);
@@ -110,7 +112,8 @@ class InProcessUnitWorker implements UnitWorker {
  * units on in e3's Node test pass, as it runs them on Web Workers in a
  * browser.
  *
- * @param options - The app's platform packages, served beside east-node-std's
+ * @param options - The app's platform packages, served beside the standard
+ *   ones
  * @returns The factory
  *
  * @example

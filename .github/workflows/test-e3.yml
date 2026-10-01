@@ -10,6 +10,8 @@ on:
       - "libs/east-web/**"
       - "libs/east-py/**"
       - "libs/east-c/**"
+      # httpbin, which e3-web's browser specs call, is started from here.
+      - "docker/services/**"
       - ".github/workflows/test-e3.yml"
   pull_request:
     branches: [main]
@@ -20,6 +22,8 @@ on:
       - "libs/east-web/**"
       - "libs/east-py/**"
       - "libs/east-c/**"
+      # httpbin, which e3-web's browser specs call, is started from here.
+      - "docker/services/**"
       - ".github/workflows/test-e3.yml"
 
 concurrency:
@@ -199,15 +203,63 @@ jobs:
         working-directory: libs/e3
         run: make lint
 
+      # e3-web's browser specs run east-node-std's exported compliance suite
+      # over east-web-std in Chromium. Its Fetch tests call httpbin on :8085:
+      # in Docker on Linux, as test-east-web.yml runs it, and go-httpbin off
+      # Linux, where the runners have no Docker, as test-east-node.yml runs it.
+      - name: Start httpbin (Linux, e3-web's browser specs)
+        if: matrix.shard == 'packages' && runner.os == 'Linux'
+        run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait httpbin
+
+      - name: Use Go (go-httpbin, e3-web's browser specs)
+        if: matrix.shard == 'packages' && runner.os != 'Linux'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Start httpbin (go-httpbin :8085, e3-web's browser specs)
+        if: matrix.shard == 'packages' && runner.os != 'Linux'
+        run: |
+          go install github.com/mccutchen/go-httpbin/v2/cmd/go-httpbin@v2.18.3
+          "$(go env GOPATH)/bin/go-httpbin" -port 8085 &
+          echo "GO_HTTPBIN_PID=$!" >> "$GITHUB_ENV"
+          for ((i = 0; i < 30; i++)); do
+            curl -sf http://localhost:8085/get >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:8085/get >/dev/null
+
+      # The export goes to a directory of the runner's own, which the package
+      # tests are given too. It is written with forward slashes, so Node and
+      # bash read it as one place: on Windows they read /tmp as two.
+      - name: Export east-node-std's compliance suite (e3-web's browser specs)
+        if: matrix.shard == 'packages'
+        timeout-minutes: 10
+        run: |
+          export EAST_NODE_STD_IR="${RUNNER_TEMP//\\//}/east-node-std"
+          echo "EAST_NODE_STD_IR=$EAST_NODE_STD_IR" >> "$GITHUB_ENV"
+          make -C libs/east-node test-export-std
+
       # A hung test would otherwise hold its job to the 90-minute limit, and a
       # job's log is readable only once the job ends. Each limit sits well
-      # above its step's slowest green run (Windows); e3's package test
-      # scripts also time a test file out after 8 minutes, naming it.
+      # above its step's slowest green run (Windows: ten minutes before e3-web
+      # ran every API suite in Chromium, which adds minutes); e3's package
+      # test scripts also time a test file out after 8 minutes, naming it.
       - name: Run package tests
         if: matrix.shard == 'packages'
         working-directory: libs/e3
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: make test-packages
+
+      - name: Stop httpbin (e3-web's browser specs)
+        if: always() && matrix.shard == 'packages'
+        run: |
+          case "$RUNNER_OS" in
+            Linux) docker compose -f docker/services/docker-compose.yml --profile services down -v ;;
+            # Git Bash's $! is not the process's Windows id: stop it by its image
+            Windows) taskkill //F //IM go-httpbin.exe ;;
+            *) kill "$GO_HTTPBIN_PID" ;;
+          esac
 
       - name: Run integration tests
         if: matrix.shard != 'packages'

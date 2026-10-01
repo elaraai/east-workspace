@@ -11,12 +11,15 @@
  * - bundles each with esbuild, for a browser;
  * - serves the bundles, and a page that loads each, from a local HTTP server
  *   on the loopback address, a secure context, so the pages have OPFS and Web
- *   Locks;
+ *   Locks — and serves the files of any directories the spec names, for the
+ *   pages to fetch;
  * - launches Chromium through playwright-core, and opens pages of the one
  *   origin in one browser context, so they share its IndexedDB, OPFS and Web
  *   Locks as the tabs of one site do;
  * - calls a page's functions from Node, failing the call with what the page
- *   threw, or with an error the page raised meanwhile.
+ *   threw, or with an error the page raised meanwhile; and keeps every error
+ *   a page raised, which a spec asserts is none as each case ends, so one
+ *   raised after a case's last call fails it too.
  *
  * A spec registers each in-page case as a `node:test` test of its own, which
  * calls the page to run it. A spec never skips itself: when Chromium cannot
@@ -26,6 +29,7 @@
  * @packageDocumentation
  */
 
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as path from 'node:path';
@@ -133,6 +137,33 @@ function pageFor(name: string): string {
   ].join('\n');
 }
 
+/** A path of a file a served directory holds: `/<directory>/<file>`, neither
+ *  name starting with a dot. */
+const SERVED_FILE = /^\/([\w-][\w.-]*)\/([\w-][\w.-]*)$/;
+
+/**
+ * Answers a request with a file of a directory the harness serves: `404` when
+ * the directory holds no such file.
+ *
+ * @param response - The response to answer with
+ * @param file - The file's path
+ */
+function serveFile(response: ServerResponse, file: string): void {
+  readFile(file).then(
+    (body) => {
+      response.writeHead(200, {
+        'content-type': path.extname(file) === '.json' ? 'application/json' : 'application/octet-stream',
+        'cache-control': 'no-store',
+      }).end(body);
+    },
+    (err: unknown) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      const missing = code === 'ENOENT' || code === 'EISDIR';
+      response.writeHead(missing ? 404 : 500, { 'content-type': 'text/plain' }).end(missing ? 'not found' : firstLine(err));
+    },
+  );
+}
+
 /**
  * How {@link Harness.open} sets up.
  */
@@ -140,6 +171,10 @@ export interface HarnessOptions {
   /** The modules the pages load: each a test page's entry, by the name a
    *  page is opened by */
   readonly entries: Readonly<Record<string, string>>;
+  /** Directories whose files the pages fetch, each by the name it is served
+   *  under: a file of the directory named `<name>` is at `/<name>/<file>`.
+   *  Only a directory's own files are served, nothing above or below it. */
+  readonly directories?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -175,15 +210,24 @@ export class Harness {
   /**
    * Bundles the pages' modules, serves them, and launches Chromium.
    *
-   * @param options - The modules the pages load
+   * @param options - The modules the pages load, and the directories they
+   *   fetch files from
    * @returns The harness, with no page open
    * @throws {Error} When a module does not bundle, or Chromium does not
    *   launch, with the remediation
    */
   static async open(options: HarnessOptions): Promise<Harness> {
     const bundles = await bundle(options.entries);
+    const directories = new Map(Object.entries(options.directories ?? {}));
     const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-      const name = /^\/([\w.-]+)\.(js|html)$/.exec(new URL(request.url ?? '/', 'http://localhost').pathname);
+      const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+      const served = SERVED_FILE.exec(pathname);
+      const directory = served === null ? undefined : directories.get(served[1]!);
+      if (served !== null && directory !== undefined && request.method === 'GET') {
+        serveFile(response, path.join(directory, served[2]!));
+        return;
+      }
+      const name = /^\/([\w.-]+)\.(js|html)$/.exec(pathname);
       const body = name === null ? undefined : name[2] === 'js' ? bundles.get(name[1]!) : bundles.has(name[1]!) ? pageFor(name[1]!) : undefined;
       if (request.method !== 'GET' || name === null || body === undefined) {
         response.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
@@ -246,6 +290,8 @@ export class Harness {
 export class HarnessPage {
   /** What the page raised outside any call's answer, not yet reported */
   private readonly errors: Error[] = [];
+  /** Every error the page has raised, reported or not: never cleared */
+  private readonly everRaised: Error[] = [];
   private closed = false;
 
   /**
@@ -255,7 +301,20 @@ export class HarnessPage {
    * @internal
    */
   constructor(readonly page: Page, private readonly url: string, private readonly forget: () => void) {
-    page.on('pageerror', (error) => this.errors.push(error));
+    page.on('pageerror', (error) => {
+      this.errors.push(error);
+      this.everRaised.push(error);
+    });
+  }
+
+  /**
+   * Every error the page has raised since it opened — reported by a call or
+   * not, in the order raised: what a spec asserts is none as each case ends,
+   * so an error raised after a case's last call, or while a call whose answer
+   * nothing reads ran, fails the case too.
+   */
+  get raisedErrors(): readonly Error[] {
+    return [...this.everRaised];
   }
 
   /**
@@ -306,6 +365,22 @@ export class HarnessPage {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Calls a function the page serves, and reads no answer: what a caller
+   * that wants none sends — a forwarded request's abort, say. What the page
+   * raised meanwhile stays to be reported, by the next call and in
+   * {@link raisedErrors}; what the function throws is let go.
+   *
+   * @param name - The function's name
+   * @param args - Its arguments, which serialize
+   */
+  tell(name: string, ...args: unknown[]): void {
+    this.page.evaluate(
+      ({ bridge, fn, fnArgs }) => (globalThis as unknown as Record<string, PageBridge>)[bridge]!.call(fn, fnArgs),
+      { bridge: BRIDGE, fn: name, fnArgs: args },
+    ).catch(() => undefined);
   }
 
   /**

@@ -5,10 +5,12 @@ The standard platform functions for East programs in a browser: `Console`,
 east-node-std's names and East types, from web-standard globals only.
 
 `WebPlatform` bundles them for `compile()` / `compileAsync()`.
-`createWebPlatform({ console, test })` gives one program a platform of its
-own: the host's console sink (e3-web appends it to the execution's log), its
-test host, and a Random generator nobody else shares. FileSystem, Env and the
-large-JSON reader have no browser meaning and are left out.
+`createWebPlatform({ console, test, signal })` gives one program a platform of
+its own: the host's console sink (e3-web appends it to the execution's log),
+its test host, a Random generator nobody else shares, and the host's signal,
+which stops the program's sleeps (e3-web's in-process host aborts it as it
+terminates a unit). FileSystem, Env and the large-JSON reader have no browser
+meaning and are left out.
 
 ## Rules
 

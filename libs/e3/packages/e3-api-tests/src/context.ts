@@ -67,6 +67,20 @@ export interface TestConfig {
    * running in a page — gives the `fetch` that reaches it.
    */
   fetch?: typeof globalThis.fetch;
+
+  /**
+   * Whether the server runs commands, such as a custom task's (default true).
+   * The dataflow suite's one command case runs a custom task whose command
+   * fails: a server that runs commands records it `failed`, exit code 1, and
+   * one that runs none records it `error`, with a message saying the server
+   * runs no commands.
+   *
+   * @remarks
+   * Every other task the suites run is East, which every server runs, their
+   * failing tasks included. A harness whose server runs no commands — e3
+   * running in a page — sets it false.
+   */
+  commands?: boolean;
 }
 
 /**
@@ -92,6 +106,10 @@ export interface TestContext {
   /** The `fetch` a suite's own requests go through: {@link TestConfig.fetch},
    *  or the global `fetch` when the harness gives none. */
   fetch: typeof globalThis.fetch;
+
+  /** Whether the server runs commands: {@link TestConfig.commands}, or true
+   *  when the harness does not say. */
+  commands: boolean;
 
   /** Create a test package and return path to zip file */
   createPackage: (name: string, version: string) => Promise<string>;
@@ -206,6 +224,8 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     readerOpts: async () => requestOptions(await config.getReaderToken(repoName)),
 
     fetch: (input, init) => requestFetch(config)(input, init),
+
+    commands: config.commands ?? true,
 
     createPackage: async (name: string, version: string) => {
       const zipPath = await createPackageZip(tempDir, name, version);

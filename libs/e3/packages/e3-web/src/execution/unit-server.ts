@@ -11,11 +11,12 @@
  * The platform functions a unit lists are resolved by package name, from the
  * packages its worker serves: east-node-std's name is answered by
  * east-web-std's platform, whose console writes to the unit's logs as it
- * writes, and an app adds its own packages. A package the worker does not
- * serve fails the unit, naming the package; a platform function a package
- * does not provide fails it at compile, naming the function, as east's
- * compile names it. A failed unit's message and locations are written to its
- * stderr, as east-node's `exec` writes them.
+ * writes; e3-api-client's by e3's own platform functions, bound to the e3
+ * worker that started the unit worker; and an app adds its own packages. A
+ * package the worker does not serve fails the unit, naming the package; a
+ * platform function a package does not provide fails it at compile, naming
+ * the function, as east's compile names it. A failed unit's message and
+ * locations are written to its stderr, as east-node's `exec` writes them.
  *
  * `serveUnits` (`../units.ts`) serves this in a dedicated Web Worker, and the
  * in-process host (`in-process.ts`) over a `MessageChannel` in the e3
@@ -35,16 +36,25 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { createWebPlatform, type ConsoleSink } from '@elaraai/east-web-std';
+import { E3_PLATFORM, e3Platform } from './e3-platform.js';
 import { transferOf, type HostMessage, type UnitFile, type WorkerMessage } from './protocol.js';
 
 /**
  * What a unit's platform package is given when it is resolved for a unit: its
- * console, and the port of the services the unit's host serves.
+ * console, the port of the services the unit's host serves, and what stops
+ * the unit where its host cannot end its thread.
  */
 export interface UnitPlatformContext {
   /** Where the unit's console output goes: the execution's logs, as it is
    *  written. */
   readonly console: ConsoleSink;
+  /**
+   * Aborted once the host stops the unit without ending its thread — the
+   * in-process host's terminate — so a package stops what the unit left
+   * waiting, its timers cleared; `null` where stopping a unit ends its thread,
+   * as terminating a Web Worker does.
+   */
+  readonly signal: AbortSignal | null;
   /**
    * The port the e3 worker handed this unit worker as it started it, or
    * `null` when it handed none: what a package that reaches back to its host
@@ -70,13 +80,18 @@ export type UnitPlatforms = Readonly<Record<string, UnitPlatformPackage>>;
 export const EAST_NODE_STD = '@elaraai/east-node-std';
 
 /**
- * The packages every unit worker serves: east-node-std's name, answered by
- * east-web-std's platform, so a task written for east-node runs unchanged in
- * a browser. Its console writes to the unit's logs, and each unit has a Random
- * generator of its own.
+ * The packages every unit worker serves:
+ * - east-node-std's name, answered by east-web-std's platform, so a task
+ *   written for east-node runs unchanged in a browser. Its console writes to
+ *   the unit's logs, each unit has a Random generator of its own, and its
+ *   sleeps stop with the unit where the host cannot end the unit's thread;
+ * - e3-api-client's name ({@link E3_PLATFORM}), answered by e3's own platform
+ *   functions bound to the e3 worker that started the unit worker, so a task
+ *   that calls `Platform.workspaceList` lists the in-page e3's workspaces.
  */
 export const STANDARD_PLATFORMS: UnitPlatforms = {
-  [EAST_NODE_STD]: (context) => createWebPlatform({ console: context.console }),
+  [EAST_NODE_STD]: (context) => createWebPlatform({ console: context.console, ...(context.signal !== null && { signal: context.signal }) }),
+  [E3_PLATFORM]: e3Platform,
 };
 
 /** Where a unit server's messages go: a worker's global scope, or a port. */
@@ -101,11 +116,24 @@ export interface UnitServerOptions {
   /** The platform packages it serves, by name */
   readonly platforms: UnitPlatforms;
   /**
+   * Takes the lifeline its `ready` names: a Web Lock its worker holds while it
+   * lives, which the pool waits on to learn the worker has stopped on its own.
+   * A Web Worker's server takes one; the in-process host's, which shares the
+   * e3 worker's thread, takes none, and names `null`.
+   */
+  readonly lifeline?: () => Promise<string | null>;
+  /**
    * Wraps each package's platform functions before a unit is compiled with
    * them: the in-process host's, which shares the e3 worker's thread and so
    * cannot terminate it, stops a unit at its next platform call this way.
    */
   readonly guard?: PlatformGuard;
+  /**
+   * Aborted once the host stops its units without ending their thread: each
+   * unit's packages are given it ({@link UnitPlatformContext.signal}), so what
+   * a unit left waiting stops with it.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** An error's message. */
@@ -138,7 +166,8 @@ export class UnitServer {
   async receive(message: HostMessage): Promise<void> {
     if (message.kind === 'start') {
       this.port = message.port;
-      this.endpoint.postMessage({ kind: 'ready' }, []);
+      const lifeline = this.options.lifeline === undefined ? null : await this.options.lifeline();
+      this.endpoint.postMessage({ kind: 'ready', lifeline }, []);
       return;
     }
     try {
@@ -169,7 +198,11 @@ export class UnitServer {
     const write = (stream: 'stdout' | 'stderr') => (text: string): void => {
       this.endpoint.postMessage({ kind: 'log', id, stream, text }, []);
     };
-    const context: UnitPlatformContext = { console: { stdout: write('stdout'), stderr: write('stderr') }, port: this.port };
+    const context: UnitPlatformContext = {
+      console: { stdout: write('stdout'), stderr: write('stderr') },
+      port: this.port,
+      signal: this.options.signal ?? null,
+    };
     const result = await executeUnit(unit, io, { platforms: (name) => this.platforms(name, context) });
     if (result.outcome.type === 'failed') {
       // A failed unit's message and its source locations, written to its

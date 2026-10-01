@@ -34,6 +34,10 @@ const STORE = 'records';
 /** The database's version: its one object store, since its first. */
 const VERSION = 1;
 
+/** How long a request IndexedDB holds up waits for the connections that hold
+ *  it up to close, unless told otherwise: 5 s. */
+const BLOCKED_MS = 5_000;
+
 /**
  * How {@link openIndexedDbRecords} and {@link deleteIndexedDbRecords} reach
  * IndexedDB.
@@ -42,6 +46,13 @@ export interface IndexedDbOptions {
   /** The IndexedDB to open the database in: the global `indexedDB` unless
    *  given */
   readonly factory?: IDBFactory;
+  /**
+   * How long a request IndexedDB holds up for a connection elsewhere waits
+   * for it to close before it is refused, in milliseconds: 5 s unless given.
+   * A connection that closes as it is asked, its last transactions still
+   * finishing, lets the request through well within it.
+   */
+  readonly blockedMs?: number;
 }
 
 /** The global IndexedDB, unless the page has none. */
@@ -60,13 +71,59 @@ function settle<T>(request: IDBRequest<T>): Promise<T> {
 }
 
 /**
+ * What a request to open or delete a database answers, once it has — refused,
+ * naming why, when a connection elsewhere holds the database and does not
+ * close within the time given: IndexedDB would otherwise hold the request
+ * until that connection closes, which it may never do. A connection that
+ * closes as it is asked, its last transactions still finishing, holds the
+ * request up for no longer than they take. A connection that opens after its
+ * open was refused is closed at once.
+ *
+ * @param request - The open or delete request
+ * @param blockedMs - How long a request held up waits before it is refused
+ * @param refusal - What a request held up says, from the event that says so
+ */
+function settleUnblocked<T>(request: IDBOpenDBRequest, blockedMs: number, refusal: (event: IDBVersionChangeEvent) => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let refused = false;
+    let waiting: ReturnType<typeof setTimeout> | undefined;
+    request.onsuccess = () => {
+      clearTimeout(waiting);
+      if (!refused) {
+        resolve(request.result as T);
+        return;
+      }
+      // What opened once the connection elsewhere closed: no one keeps it.
+      (request.result as IDBDatabase | undefined)?.close();
+    };
+    request.onerror = () => {
+      clearTimeout(waiting);
+      reject(request.error ?? new Error('an IndexedDB request failed'));
+    };
+    request.onblocked = (event) => {
+      clearTimeout(waiting);
+      waiting = setTimeout(() => {
+        refused = true;
+        reject(refusal(event));
+      }, blockedMs);
+    };
+  });
+}
+
+/** What a connection elsewhere that holds a database up is, and what to do. */
+const ELSEWHERE = 'a connection elsewhere — another tab of this site, say — has it open';
+
+/**
  * Opens the records of a database, making the database when it is not there.
  *
  * @param name - The database's name
- * @param options - The IndexedDB to open it in
+ * @param options - The IndexedDB to open it in, and how long an open held up
+ *   waits
  * @returns The records
  * @throws {Error} When the page has no IndexedDB, or the database will not
- *   open
+ *   open: a connection elsewhere holds it at an older version, and does not
+ *   close within {@link IndexedDbOptions.blockedMs}, say, which the message
+ *   names
  *
  * @example
  * ```ts
@@ -80,10 +137,11 @@ export async function openIndexedDbRecords(name: string, options: IndexedDbOptio
   request.onupgradeneeded = () => {
     request.result.createObjectStore(STORE);
   };
-  request.onblocked = () => {
-    // An older version is open elsewhere: the request waits until it closes.
-  };
-  return new IndexedDbRecords(await settle(request), factory);
+  const db = await settleUnblocked<IDBDatabase>(request, options.blockedMs ?? BLOCKED_MS, (event) => new Error(
+    `IndexedDB cannot open the database '${name}': ${ELSEWHERE} at version ${event.oldVersion}, and has not closed it ` +
+    `for version ${event.newVersion ?? VERSION}: close the site's other tabs, and open it again`,
+  ));
+  return new IndexedDbRecords(db, factory);
 }
 
 /**
@@ -91,10 +149,16 @@ export async function openIndexedDbRecords(name: string, options: IndexedDbOptio
  * closed: an adapter over it closes its connection when asked to.
  *
  * @param name - The database's name
- * @param options - The IndexedDB it is in
+ * @param options - The IndexedDB it is in, and how long a deletion held up
+ *   waits
+ * @throws {Error} When a connection elsewhere holds the database and does not
+ *   close within {@link IndexedDbOptions.blockedMs}, naming it: the deletion
+ *   goes through once it closes
  */
 export async function deleteIndexedDbRecords(name: string, options: IndexedDbOptions = {}): Promise<void> {
-  await settle(factoryOf(options).deleteDatabase(name));
+  await settleUnblocked<undefined>(factoryOf(options).deleteDatabase(name), options.blockedMs ?? BLOCKED_MS, () => new Error(
+    `IndexedDB cannot delete the database '${name}': ${ELSEWHERE}, and has not closed it: close the site's other tabs, and delete it again`,
+  ));
 }
 
 /** The key range of the records under a prefix a scan asks for, or `null`

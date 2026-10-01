@@ -11,8 +11,8 @@ The directory structure is:
  - packages/e3-cli - CLI tool (`e3 repo|package|workspace|dataset|task|dataflow|run|call|mutate|history|compact|reindex|watch|convert|auth|completion`)
  - packages/e3-api-client - Stateless HTTP client for remote e3 repositories (BEAST2-serialized)
  - packages/e3-api-server - HTTP server exposing e3-core as a REST API
- - packages/e3-api-tests - Shared API compliance test suites (run against both e3-api-server and e3-cloud)
- - packages/e3-web - e3 running in a browser (epic #1019): a storage backend (`WebStorage`, `WebStateStore`) over IndexedDB, OPFS and Web Locks, a runner (`WebTaskRunner`) whose units run on a pool of Web Workers, and a Chromium test harness
+ - packages/e3-api-tests - Shared API compliance test suites (run against e3-api-server, e3-web and e3-cloud)
+ - packages/e3-web - e3 running in a browser (epic #1019): the page's `createWebE3`, the e3 worker's `serveE3` (e3-api-server's portable routes over e3-web's seams), a storage backend (`WebStorage`, `WebStateStore`) over IndexedDB, OPFS and Web Locks, a runner (`WebTaskRunner`) whose units run on a pool of Web Workers, a transfer backend (`WebTransferBackend`), and a Chromium test harness that runs every API suite against it
  - native/e3-job - The Windows job launcher (`e3-job.exe`) e3-core runs each runner through; `make install-job` installs it in a checkout (see its README)
  - test/integration - End-to-end CLI tests
  - design - Design documentation (see design/e3-data-architecture.md for how e3 stores data and runs work)

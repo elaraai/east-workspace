@@ -70,6 +70,10 @@ import { createWebPlatform } from "@elaraai/east-web-std";
 const compiled = myFunction.toIR().compile(createWebPlatform({ console: sink }));
 ```
 
+A host that stops a program without ending its thread gives a `signal`: once
+it aborts, a `Time.sleep` under way fails at once, its timer cleared, so
+nothing the program left keeps the thread's event loop alive.
+
 **Individual modules:**
 ```typescript
 import { Path, Crypto } from "@elaraai/east-web-std";

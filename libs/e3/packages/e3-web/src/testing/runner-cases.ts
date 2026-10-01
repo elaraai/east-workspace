@@ -101,7 +101,7 @@ import type { LocksAdapter } from '../storage/adapters.js';
 import type { WebStorage } from '../storage/WebStorage.js';
 import type { AdapterCase, AdapterSetup } from './adapter-contract.js';
 import { AssertionError, deepEqual, equal, ok, rejects } from './assert.js';
-import { TEST_PLATFORM, test_host_echo, test_wait, testHost, type TestHost } from './test-platform.js';
+import { TEST_PLATFORM, test_exit, test_host_echo, test_wait, testHost, type TestHost } from './test-platform.js';
 
 // =============================================================================
 // The fixtures
@@ -536,6 +536,11 @@ const waiting = East.asyncFunction([], NullType, ($) => {
 
 /** Its text, echoed by its host through the port its worker was handed. */
 const echoing = East.asyncFunction([StringType], StringType, ($, text) => test_host_echo(text));
+
+/** Closes its own worker, as a worker closes itself, and never returns. */
+const exiting = East.asyncFunction([], NullType, ($) => {
+  $(test_exit());
+});
 
 /** How many words. */
 const countWords = East.function([WordsType], IntegerType, ($, words) => words.size());
@@ -1129,7 +1134,8 @@ export const runnerCases: readonly AdapterCase<RunnerSetup>[] = [
 /**
  * The cases only workers on threads of their own pass — Web Workers, not the
  * in-process host, whose units share the thread of the test that runs them: a
- * unit that never yields that thread is ended only by terminating it.
+ * unit that never yields that thread is ended only by terminating it, and only
+ * a Web Worker closes itself.
  */
 export const threadCases: readonly AdapterCase<RunnerSetup>[] = [
   {
@@ -1144,6 +1150,23 @@ export const threadCases: readonly AdapterCase<RunnerSetup>[] = [
       const next = await runner.runDetached(call(double, [encodeInteger(5n)]), { storage });
       ok(next.kind === 'success', `the next call runs: ${next.kind}`);
       same(IntegerType, decodeInteger(next.value), 10n, 'its value');
+      equal(counts.started, 2, 'on a worker started in its place');
+    },
+  },
+  {
+    name: 'fails a call whose worker closes itself, which no event says, letting the worker go, and runs the next on another',
+    run: async (setup) => {
+      const counts = { started: 0, terminated: 0 };
+      const runner = setup.runner(setup.pool({ width: 1, units: counting(counts) }));
+      const { storage } = setup;
+      const exited = await settled('the call whose worker closed itself to end', runner.runDetached(call(exiting, [], WITH_TEST), { storage }));
+      ok(exited.kind === 'failed' && exited.exitCode === -1, `the call failed, its worker gone: ${exited.kind}`);
+      ok(/the unit worker stopped: it closed itself/.test(exited.stderr), `naming why: ${JSON.stringify(exited.stderr)}`);
+      equal(setup.host.closed(), 1, 'the services its worker was handed were ended');
+      // Its place is free: the pool is one wide.
+      const next = await settled('the next call to run', runner.runDetached(call(double, [encodeInteger(6n)]), { storage }));
+      ok(next.kind === 'success', `the next call runs: ${next.kind}`);
+      same(IntegerType, decodeInteger(next.value), 12n, 'its value');
       equal(counts.started, 2, 'on a worker started in its place');
     },
   },

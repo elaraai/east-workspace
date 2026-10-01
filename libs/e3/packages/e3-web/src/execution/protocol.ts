@@ -8,7 +8,9 @@
  *
  * The e3 worker starts each unit worker with `start`, handing it the port of
  * the services it serves units, and the worker answers `ready` once it serves
- * units. A unit is sent with `run`: the unit, encoded, and every file it
+ * units, naming the Web Lock it holds while it lives, which the pool waits on
+ * to learn it has stopped on its own. A unit is sent with `run`: the unit,
+ * encoded, and every file it
  * names, their buffers transferred rather than copied. The worker answers a
  * run with what the unit's console writes, as it writes it (`log`), and then
  * `done` — the unit's result, encoded, and every file it wrote — or `broken`,
@@ -36,8 +38,10 @@ export type HostMessage =
 
 /** A message a unit worker sends the e3 worker. */
 export type WorkerMessage =
-  /** The worker serves units: what it answers `start` with. */
-  | { readonly kind: 'ready' }
+  /** The worker serves units: what it answers `start` with. `lifeline` is
+   *  the Web Lock it holds while it lives — the browser frees it once the
+   *  worker has stopped, however it stopped — or `null` when it holds none. */
+  | { readonly kind: 'ready'; readonly lifeline: string | null }
   /** Text a running unit's console wrote, as it wrote it. */
   | { readonly kind: 'log'; readonly id: number; readonly stream: 'stdout' | 'stderr'; readonly text: string }
   /** A unit ran: its `UnitResultType` value's beast2 bytes, and every file it

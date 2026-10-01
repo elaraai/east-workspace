@@ -124,12 +124,52 @@ export const time_get_timezone_offset = East.platform(
     IntegerType,
 );
 
+/** What a sleep a host stopped fails with. */
+const STOPPED = "the program was stopped";
+
 /**
- * Browser implementation of time platform functions.
- *
- * Pass this array to {@link East.compileAsync} to enable time operations.
+ * Waits a number of milliseconds, unless a signal stops the wait first: then
+ * its timer is cleared, and it fails.
  */
-const TimeImpl: PlatformFunction[] = [
+function sleepFor(ms: number, signal: AbortSignal | undefined): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted === true) {
+            reject(new Error(STOPPED));
+            return;
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const stop = (): void => {
+            clearTimeout(timer);
+            reject(new Error(STOPPED));
+        };
+        timer = setTimeout(() => {
+            signal?.removeEventListener("abort", stop);
+            resolve();
+        }, ms);
+        signal?.addEventListener("abort", stop, { once: true });
+    });
+}
+
+/**
+ * Browser implementation of time platform functions, whose sleeps a host may
+ * stop.
+ *
+ * @param signal - Stops the program's sleeps, for a host that stops a program
+ *   without ending its thread: once it aborts, a sleep under way fails at
+ *   once, its timer cleared, and a later one fails as it starts. Unset, a
+ *   sleep ends once its time has passed
+ * @returns The platform functions, to pass to {@link East.compileAsync}
+ *
+ * @example
+ * ```ts
+ * const stop = new AbortController();
+ * const compiled = await East.compileAsync(delayedTask.toIR(), createTimeImpl(stop.signal));
+ * const running = compiled();
+ * stop.abort();  // the sleep under way fails at once: "Failed to sleep: the program was stopped"
+ * ```
+ */
+export function createTimeImpl(signal?: AbortSignal): PlatformFunction[] {
+    return [
     time_now.implement(() => {
         try {
             return BigInt(Date.now());
@@ -142,7 +182,7 @@ const TimeImpl: PlatformFunction[] = [
     }),
     time_sleep.implement(async (ms: bigint) => {
         try {
-            await new Promise(resolve => setTimeout(resolve, Number(ms)));
+            await sleepFor(Number(ms), signal);
         } catch (err: any) {
             throw new EastError(`Failed to sleep: ${err.message}`, {
                 location: [{ filename: "time_sleep", line: 0n, column: 0n }],
@@ -170,7 +210,15 @@ const TimeImpl: PlatformFunction[] = [
             });
         }
     }),
-];
+    ];
+}
+
+/**
+ * Browser implementation of time platform functions.
+ *
+ * Pass this array to {@link East.compileAsync} to enable time operations.
+ */
+const TimeImpl: PlatformFunction[] = createTimeImpl();
 
 /**
  * Grouped time platform functions.

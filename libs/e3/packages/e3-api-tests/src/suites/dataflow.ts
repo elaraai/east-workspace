@@ -6,7 +6,11 @@
 /**
  * Dataflow execution test suite.
  *
- * Tests: start, execute (blocking), poll for completion, logs
+ * Tests: start, execute (blocking), poll for completion, logs, and failures.
+ * A failing task fails in East, which every server runs: it is recorded
+ * `failed`, exit code 1, with its message in its stderr log. One case runs a
+ * command, a custom task's, which a server that runs no commands records
+ * `error` ({@link TestContext.commands}).
  */
 
 import { describe, it } from 'node:test';
@@ -34,16 +38,19 @@ import {
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import {
+  LOGGED_LINES,
   createPackageZip,
   createDiamondPackageZip,
   createFailingPackageZip,
+  createLoggingPackageZip,
+  createCommandPackageZip,
   createSlowPackageZip,
   createParallelMixedPackageZip,
   createFailingDiamondPackageZip,
   createWideParallelPackageZip,
   createSlowDiamondPackageZip,
 } from '../fixtures.js';
-import { assertDataflowSucceeded } from '../assertions.js';
+import { assertDataflowSucceeded, describeDataflowResult } from '../assertions.js';
 import { waitFor } from '../cli.js';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 
@@ -102,6 +109,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withSimpleExec = withDeployed(setup, createPackageZip, 'exec-pkg', 'exec-ws');
   const withDiamond = withDeployed(setup, createDiamondPackageZip, 'diamond-pkg', 'diamond-ws');
   const withFailing = withDeployed(setup, createFailingPackageZip, 'fail-pkg', 'fail-ws');
+  const withCommand = withDeployed(setup, createCommandPackageZip, 'cmd-pkg', 'cmd-ws');
   const withMixed = withDeployed(setup, createParallelMixedPackageZip, 'mixed-pkg', 'mixed-ws');
   const withFailingDiamond = withDeployed(setup, createFailingDiamondPackageZip, 'fdiamond-pkg', 'fdiamond-ws');
   const withWideParallel: TestSetup<TestContext> = async (t) => {
@@ -138,7 +146,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withCache = withDeployed(setup, createPackageZip, 'cache-pkg', 'cache-ws');
   const withFilter = withDeployed(setup, createDiamondPackageZip, 'filter-pkg', 'filter-ws');
   const withGraph = withDeployed(setup, createDiamondPackageZip, 'graph-pkg', 'graph-ws');
-  const withLogPag = withDeployed(setup, createPackageZip, 'logpag-pkg', 'logpag-ws');
+  const withLogPag = withDeployed(setup, createLoggingPackageZip, 'logpag-pkg', 'logpag-ws');
   const withEvtPag = withDeployed(setup, createDiamondPackageZip, 'evtpag-pkg', 'evtpag-ws');
 
   describe('dataflow', { concurrency: false }, () => {
@@ -365,7 +373,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(result.executed, 0n);
         assert.strictEqual(result.tasks.length, 1);
         assert.strictEqual(result.tasks[0].name, 'failing');
-        assert.strictEqual(result.tasks[0].state.type, 'failed');
+        // The body's own failure: its runner records it, and exits 1
+        assert.deepStrictEqual(result.tasks[0].state, variant('failed', { exitCode: 1n }));
       });
 
       it('dataflowExecutePoll shows failed status after task failure', async (t) => {
@@ -416,6 +425,35 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
+    // The suites' one command: a custom task's. Every other task is East,
+    // which every server runs; a server that runs no commands — e3 in a page —
+    // records the task error, saying so.
+    describe('command task', { concurrency: false }, () => {
+      it('records a failing command failed, or error on a server that runs no commands', async (t) => {
+        const ctx = await withCommand(t);
+        const opts = await ctx.opts();
+
+        const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'cmd-ws', { force: true }, opts);
+
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.failed, 1n);
+        assert.strictEqual(result.executed, 0n);
+        assert.strictEqual(result.tasks.length, 1);
+        const task = result.tasks[0];
+        assert.strictEqual(task.name, 'command');
+        if (ctx.commands) {
+          // The command ran, and exited 1
+          assert.deepStrictEqual(task.state, variant('failed', { exitCode: 1n }), describeDataflowResult(result));
+        } else {
+          // Nothing ran, and the server says why
+          if (task.state.type !== 'error') {
+            assert.fail(`expected the command task recorded error on a server that runs no commands\n${describeDataflowResult(result)}`);
+          }
+          assert.match(task.state.value.message, /runs no commands/);
+        }
+      });
+    });
+
     describe('parallel task failures', { concurrency: false }, () => {
       describe('mixed success/failure', { concurrency: false }, () => {
         it('parallel tasks with mixed success/failure complete without stalling', async (t) => {
@@ -428,10 +466,10 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           assert.strictEqual(result.success, false);
           assert.strictEqual(result.failed, 1n);
 
-          // The failing task must be reported
+          // The failing task must be reported: its body's failure, exit code 1
           const failC = result.tasks.find(t => t.name === 'fail_c');
           assert.ok(failC, 'fail_c task should be in results');
-          assert.strictEqual(failC.state.type, 'failed');
+          assert.deepStrictEqual(failC.state, variant('failed', { exitCode: 1n }));
 
           // Tasks that did execute should have succeeded
           for (const task of result.tasks) {
@@ -453,6 +491,9 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
           assert.ok(typeof logs.data === 'string', 'logs.data should be a string');
           assert.ok(typeof logs.complete === 'boolean', 'logs.complete should be a boolean');
+          // Its stderr holds the failure's message, which its body made from
+          // its input as it ran
+          assert.match(logs.data, /fail_c fails, given 3/);
         });
 
         it('workspace status reflects failed tasks correctly', async (t) => {
@@ -463,10 +504,14 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
           const status = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'mixed-ws', opts);
 
-          // Failed task should show 'failed' status, not stuck as 'in-progress'
+          // Failed task should show 'failed' status, not stuck as 'in-progress',
+          // with the exit code its runner gave its body's failure
           const failedTask = status.tasks.find(t => t.name === 'fail_c');
           assert.ok(failedTask, 'fail_c task should be in workspace status');
-          assert.strictEqual(failedTask.status.type, 'failed', 'Failed task should have failed status');
+          if (failedTask.status.type !== 'failed') {
+            assert.fail(`Failed task should have failed status, got ${failedTask.status.type}`);
+          }
+          assert.strictEqual(failedTask.status.value.exitCode, 1n);
 
           // No task should be stuck as 'in-progress'
           for (const task of status.tasks) {
@@ -496,7 +541,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           assert.ok(mergeTask, 'merge task should be in results');
 
           assert.strictEqual(leftTask.state.type, 'success');
-          assert.strictEqual(rightTask.state.type, 'failed');
+          assert.deepStrictEqual(rightTask.state, variant('failed', { exitCode: 1n }));
           assert.strictEqual(mergeTask.state.type, 'skipped');
         });
 
@@ -620,14 +665,13 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const ctx = await withSlow(t);
         const opts = await ctx.opts();
 
-        // Try to cancel when nothing is running
-        try {
-          await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
-          assert.fail('Should have thrown an error');
-        } catch (err) {
-          assert.ok(err instanceof Error);
-          // Expect error about no active execution
-        }
+        // Nothing is running to cancel: the server says so
+        await assert.rejects(dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'internal');
+          assert.match((err.details as { message?: string } | undefined)?.message ?? '', /No active execution/);
+          return true;
+        });
       });
     });
 
@@ -945,35 +989,42 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       it('taskLogs supports offset and limit', async (t) => {
         const ctx = await withLogPag(t);
         const opts = await ctx.opts();
+        const read = (logOptions: { offset?: number; limit?: number }) =>
+          taskLogs(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'log', { stream: 'stdout', ...logOptions }, opts);
+        const total = BigInt(LOGGED_LINES.length);
 
-        // Execute to generate logs
-        await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', { force: true }, opts);
+        // The task writes three known lines to its stdout
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', { force: true }, opts));
 
-        // Get full logs
-        const full = await taskLogs(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'compute', { stream: 'stdout' }, opts);
+        // The whole log
+        const full = await read({});
+        assert.strictEqual(full.data, LOGGED_LINES);
+        assert.strictEqual(full.offset, 0n);
+        assert.strictEqual(full.size, total);
+        assert.strictEqual(full.totalSize, total);
+        assert.strictEqual(full.complete, true);
 
-        // Skip test if log is too short for meaningful pagination
-        if (full.totalSize < 5n) {
-          return;
-        }
+        // Its first 5 bytes: a limit cuts it, short of its end
+        const head = await read({ offset: 0, limit: 5 });
+        assert.strictEqual(head.data, 'line ');
+        assert.strictEqual(head.offset, 0n);
+        assert.strictEqual(head.size, 5n);
+        assert.strictEqual(head.totalSize, total);
+        assert.strictEqual(head.complete, false);
 
-        // Get first 5 bytes
-        const chunk1 = await taskLogs(
-          ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'compute',
-          { stream: 'stdout', offset: 0, limit: 5 },
-          opts
-        );
-        assert.strictEqual(chunk1.data, full.data.slice(0, 5));
-        assert.strictEqual(chunk1.offset, 0n);
+        // A window from byte 5: an offset and a limit together
+        const middle = await read({ offset: 5, limit: 9 });
+        assert.strictEqual(middle.data, '0\nline 1\n');
+        assert.strictEqual(middle.offset, 5n);
+        assert.strictEqual(middle.size, 9n);
+        assert.strictEqual(middle.complete, false);
 
-        // Get from byte 5 onwards
-        const chunk2 = await taskLogs(
-          ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'compute',
-          { stream: 'stdout', offset: 5 },
-          opts
-        );
-        assert.strictEqual(chunk2.offset, 5n);
-        assert.strictEqual(chunk2.data, full.data.slice(5));
+        // From byte 14 to its end: an offset alone
+        const tail = await read({ offset: 14 });
+        assert.strictEqual(tail.data, 'line 2\n');
+        assert.strictEqual(tail.offset, 14n);
+        assert.strictEqual(tail.size, 7n);
+        assert.strictEqual(tail.complete, true);
       });
     });
 

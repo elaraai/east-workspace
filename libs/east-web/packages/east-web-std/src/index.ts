@@ -35,7 +35,7 @@ export * from "./random.js";
 import { ConsoleImpl, createConsoleImpl, globalConsoleSink, type ConsoleSink } from "./console.js";
 import { PathImpl } from "./path.js";
 import { CryptoImpl } from "./crypto.js";
-import { TimeImpl } from "./time.js";
+import { TimeImpl, createTimeImpl } from "./time.js";
 import { FetchImpl } from "./fetch.js";
 import { RandomImpl, createRandomImpl } from "./random.js";
 import { TestImpl, createTestImpl, type TestHost } from "./test.js";
@@ -56,6 +56,15 @@ export interface WebPlatformOptions {
      * running them in place (see {@link TestImpl}).
      */
     test?: TestHost;
+
+    /**
+     * Stops the program's waits, for a host that stops a program without
+     * ending its thread: once it aborts, a `Time.sleep` under way fails at
+     * once, its timer cleared — nothing the program left keeps its thread's
+     * event loop alive — and a later one fails as it starts. Unset, a sleep
+     * ends once its time has passed, or with its thread.
+     */
+    signal?: AbortSignal;
 }
 
 /**
@@ -63,10 +72,11 @@ export interface WebPlatformOptions {
  *
  * The platform holds east-node-std's platform functions that mean the same in
  * a browser — Console, Path, Crypto, Time, Fetch, Random and Test — writing
- * console output to the host's sink and running tests through its host.
- * Random starts unseeded, with a generator no other platform shares.
+ * console output to the host's sink and running tests through its host, its
+ * sleeps stopped by the host's signal when it gives one. Random starts
+ * unseeded, with a generator no other platform shares.
  *
- * @param options - The host's console sink and test host
+ * @param options - The host's console sink, test host and signal
  * @returns The platform functions, to pass to `compile()` or `compileAsync()`
  *
  * @example
@@ -90,7 +100,7 @@ export function createWebPlatform(options: WebPlatformOptions = {}): PlatformFun
         ...createConsoleImpl(options.console ?? globalConsoleSink),
         ...PathImpl,
         ...CryptoImpl,
-        ...TimeImpl,
+        ...createTimeImpl(options.signal),
         ...FetchImpl,
         ...createRandomImpl(),
         ...createTestImpl(options.test),

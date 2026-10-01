@@ -7,17 +7,20 @@
  * The unit protocol's edges, which a working worker never shows: the pool
  * over workers that never start, fail, cannot run a unit or answer what does
  * not decode, and a pool closed with units in it; what a message moves rather
- * than copies; the unit server's answers to a host; and what refuses to be
- * set up wrong. Every unit a worker runs is the runner cases' business
+ * than copies; the unit server's answers to a host; the in-process host's
+ * terminate, which leaves no timer of the unit's behind; and what refuses to
+ * be set up wrong. Every unit a worker runs is the runner cases' business
  * (`WebTaskRunner.spec.ts`, and in Chromium `../browser/runner.spec.ts`).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { variant } from '@elaraai/east';
+import { East, NullType, encodeEastIR, variant } from '@elaraai/east';
 import { callUnitOf } from '@elaraai/e3-core/portable';
+import { Console, Time } from '@elaraai/east-web-std';
 import { MemoryLockSpace } from '../storage/memory.js';
 import { serveUnits } from '../units.js';
+import { inProcessUnits } from './in-process.js';
 import { UnitPool, type UnitRun } from './pool.js';
 import { transferOf, type HostMessage, type UnitWorker, type WorkerMessage } from './protocol.js';
 import { UnitServer } from './unit-server.js';
@@ -62,7 +65,7 @@ class FakeWorker implements UnitWorker {
 /** A worker that serves units, and answers each it is given as `run` says. */
 function serving(run: (message: Extract<HostMessage, { kind: 'run' }>, worker: FakeWorker) => void = () => {}): FakeWorker {
   return new FakeWorker((message, worker) => {
-    if (message.kind === 'start') worker.say({ kind: 'ready' });
+    if (message.kind === 'start') worker.say({ kind: 'ready', lifeline: null });
     else run(message, worker);
   });
 }
@@ -167,13 +170,84 @@ describe('the unit protocol', () => {
     await server.receive({ kind: 'start', port: null });
     await server.receive({ kind: 'run', id: 7, unit: new Uint8Array([1, 2, 3]), files: [] });
     assert.equal(said.length, 2);
-    assert.deepEqual(said[0], { kind: 'ready' });
+    assert.deepEqual(said[0], { kind: 'ready', lifeline: null }, 'a server that takes no lifeline names none');
     const broken = said[1]!;
     assert.ok(broken.kind === 'broken' && broken.id === 7 && /^the unit does not decode: /.test(broken.message), JSON.stringify(broken));
   });
 
   it('serves units only in a dedicated Web Worker', () => {
     assert.throws(() => serveUnits(), /serveUnits serves units in a dedicated Web Worker/);
+  });
+});
+
+/** How long the sleeping unit sleeps: ten minutes, which a timer no one
+ *  clears holds the process for. */
+const SLEEP_MS = 600_000;
+
+/**
+ * Watches the timers this thread sets for a while: those of a delay, as they
+ * are set, and every timer cleared.
+ *
+ * @param ms - The delay of the timers watched
+ * @returns What it saw, and what puts the thread's timers back
+ */
+function watchTimers(ms: number): { readonly set: Set<unknown>; readonly cleared: Set<unknown>; restore(): void } {
+  const setTimer = globalThis.setTimeout;
+  const clearTimer = globalThis.clearTimeout;
+  const set = new Set<unknown>();
+  const cleared = new Set<unknown>();
+  globalThis.setTimeout = ((handler: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    const timer = setTimer(handler, delay, ...args);
+    if (delay === ms) set.add(timer);
+    return timer;
+  }) as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = ((timer?: Parameters<typeof clearTimer>[0]) => {
+    cleared.add(timer);
+    clearTimer(timer);
+  }) as typeof globalThis.clearTimeout;
+  return {
+    set,
+    cleared,
+    restore: () => {
+      globalThis.setTimeout = setTimer;
+      globalThis.clearTimeout = clearTimer;
+    },
+  };
+}
+
+describe('the in-process host', () => {
+  it('clears the timer of a sleep under way as it terminates the unit\'s worker, so nothing of the unit\'s holds the process', async () => {
+    // A program that says it sleeps, and sleeps ten minutes.
+    const sleeper = East.asyncFunction([], NullType, ($) => {
+      $(Console.log('sleeping'));
+      $(Time.sleep(BigInt(SLEEP_MS)));
+    });
+    const unit = callUnitOf(variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }), 'program.beast2', [], 'output.beast2', 1, false);
+    const pool = new UnitPool({ units: inProcessUnits(), width: 1 });
+    const timers = watchTimers(SLEEP_MS);
+    try {
+      const controller = new AbortController();
+      let said = '';
+      const running = pool.run(unit, [['program.beast2', encodeEastIR(sleeper.toIR())]], {
+        signal: controller.signal,
+        onLog: (_stream, text) => {
+          said += text;
+        },
+      });
+      // Its sleep has begun once its timer is set, and what it said has come.
+      for (let waited = 0; (timers.set.size === 0 || said === '') && waited < 10_000; waited += 5) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      assert.equal(said, 'sleeping\n', 'the unit said it sleeps');
+      assert.equal(timers.set.size, 1, 'its sleep set its timer');
+      controller.abort();
+      assert.deepEqual(await running, { kind: 'aborted', started: true });
+      assert.deepEqual([...timers.set].filter((timer) => !timers.cleared.has(timer)), [],
+        'the sleep\'s timer was cleared: it holds the process for ten minutes no more');
+    } finally {
+      timers.restore();
+      pool.close();
+    }
   });
 });
 

@@ -160,6 +160,55 @@ function blobKey(repo: string, blob: string): BlobKey {
   return [repo, 'objects', blob.slice(0, 2), blob];
 }
 
+// =============================================================================
+// Where each transfer is
+// =============================================================================
+
+/** The kinds of record a transfer backend over a `WebStorage` keeps. */
+export type TransferKind = 'upload' | 'download' | 'import' | 'export' | 'deploy' | 'gc' | 'split';
+
+/**
+ * The key of each record a transfer backend over a `WebStorage` keeps, in its
+ * records adapter: `['transfer', <kind>, <id>]`.
+ *
+ * @remarks
+ * A job is found by its id alone, as a route asks for it, and its record names
+ * the repository that started it, which the route checks. gc's sweep reads
+ * which transfers have a record ({@link WebRepoStore.gcSweepBackend}).
+ */
+export const transferKeys = {
+  /** Every transfer's record */
+  all: (): RecordKey => ['transfer'],
+  /** Every record of a kind */
+  kind: (kind: TransferKind): RecordKey => ['transfer', kind],
+  /** A record of a kind */
+  of: (kind: TransferKind, id: string): RecordKey => ['transfer', kind, id],
+};
+
+/**
+ * The key of each blob a transfer stages, in the blobs adapter: under its
+ * repository, which takes them with it when it is removed.
+ */
+export const stagedKeys = {
+  /** Everything every transfer of a repository staged */
+  all: (repo: string): BlobKey => [repo, 'transfer'],
+  /** Everything a transfer staged */
+  of: (repo: string, id: string): BlobKey => [repo, 'transfer', id],
+  /** A part of a dataset upload, from 1 */
+  part: (repo: string, id: string, part: number): BlobKey => [repo, 'transfer', id, `part-${String(part).padStart(6, '0')}`],
+  /** A package import's zip */
+  zip: (repo: string, id: string): BlobKey => [repo, 'transfer', id, 'zip'],
+  /** A round of an export's zip, from 0: the bytes one round wrote */
+  exported: (repo: string, id: string, round: number): BlobKey => [repo, 'transfer', id, `export-${String(round).padStart(6, '0')}`],
+};
+
+/**
+ * How long what a transfer staged is kept, however its record stands: a day,
+ * the longest a transfer backend keeps a record nothing finished or fetched.
+ * gc sweeps what is older, as it sweeps what no record names.
+ */
+export const TRANSFER_RETENTION_MS = 24 * 60 * 60 * 1000;
+
 /** Runs writes that read nothing as one transaction. */
 function writeRecords(records: RecordsAdapter, writes: (tx: RecordsTransaction) => void): Promise<void> {
   return records.transact((tx) => {
@@ -317,7 +366,7 @@ const PLACE_CHUNK = 1024 * 1024;
  * East's SHA-256 names bytes whole, so a streamed write, and a file adopted,
  * are held whole to be named.
  */
-class WebObjectStore implements ObjectStore {
+export class WebObjectStore implements ObjectStore {
   /** Objects are blobs apart from any file: placing one copies its bytes. */
   readonly placement = 'download';
 
@@ -335,6 +384,24 @@ class WebObjectStore implements ObjectStore {
 
   async writeStream(repo: string, stream: AsyncIterable<Uint8Array>): Promise<string> {
     return this.write(repo, await collect(stream));
+  }
+
+  /**
+   * Stores bytes the caller has hashed, under that hash, without hashing them
+   * again: what a transfer's commit stores once it has checked the bytes it
+   * staged against the hash its upload declared.
+   *
+   * @param repo - Repository identifier
+   * @param hash - The bytes' SHA-256, as the caller computed it
+   * @param data - The bytes
+   * @returns The hash
+   * @throws {Error} When a sweep took the write in flight for abandoned:
+   *   nothing is stored
+   * @internal
+   */
+  async writeHashed(repo: string, hash: string, data: Uint8Array): Promise<string> {
+    await this.store(repo, hash, data);
+    return hash;
   }
 
   /**
@@ -1205,7 +1272,9 @@ class WebRepoStore implements RepoStore {
    * store staged (a tab closed mid-write), a write in flight recorded longer
    * ago than the age gate, with its blob, and the blobs nothing names — a
    * delete cut short between an entry and its blob, or a write's blob that
-   * another write of the same bytes beat to the catalogue.
+   * another write of the same bytes beat to the catalogue — and what transfers
+   * staged ({@link stagedKeys}) that no transfer's record names, past the age
+   * gate, or that is older than {@link TRANSFER_RETENTION_MS}.
    *
    * @remarks
    * A write in flight younger than the age gate is left; one older is taken
@@ -1253,6 +1322,32 @@ class WebRepoStore implements RepoStore {
       if (named.has(key[key.length - 1]!)) continue;
       if (!dryRun) await this.blobs.delete(key);
       deletedPartials++;
+    }
+
+    // What transfers staged that no record names — a tab closed between a
+    // transfer's record going and its staging — or that is past its
+    // retention, as a local repository's sweep takes its staged transfers.
+    // The blobs are listed before the records are read, so a transfer
+    // staging now is named by its record.
+    const transfers = new Map<string, { count: number; newest: number }>();
+    for (const { key, lastModified } of await this.blobs.list(stagedKeys.all(repo))) {
+      const id = key[2];
+      if (id === undefined) continue;
+      const seen = transfers.get(id) ?? { count: 0, newest: 0 };
+      transfers.set(id, { count: seen.count + 1, newest: Math.max(seen.newest, lastModified) });
+    }
+    if (transfers.size > 0) {
+      const recorded = new Set((await this.records.keys(transferKeys.all())).map((key) => key[2]!));
+      for (const [id, { count, newest }] of transfers) {
+        const stale = now - newest > TRANSFER_RETENTION_MS;
+        if (recorded.has(id) && !stale) continue;
+        if (!stale && minAge > 0 && now - newest < minAge) {
+          skippedYoung += count;
+          continue;
+        }
+        if (!dryRun) await this.blobs.deletePrefix(stagedKeys.of(repo, id));
+        deletedPartials += count;
+      }
     }
     return { deletedPartials, skippedYoung };
   }
@@ -1302,7 +1397,7 @@ export interface WebAdapters {
  */
 export class WebStorage implements StorageBackend {
   readonly upgrades: readonly RepositoryUpgrade[] = WEB_REPOSITORY_UPGRADES;
-  readonly objects: ObjectStore;
+  readonly objects: WebObjectStore;
   readonly refs: RefStore;
   readonly locks: LockService;
   readonly logs: LogStore;

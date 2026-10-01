@@ -81,6 +81,13 @@ describe('e3-web\'s storage in Chromium', () => {
     }
   }
 
+  describe('an IndexedDB database another connection holds open', () => {
+    it('refuses to delete it, naming why, rather than waiting for a connection that does not close', async () => {
+      assert.match(await page.call<string>('deleteWhileHeld'),
+        /^IndexedDB cannot delete the database 'e3-web-test-[\w-]+': a connection elsewhere — another tab of this site, say — has it open, and has not closed it: close the site's other tabs, and delete it again$/);
+    });
+  });
+
   describe('the OPFS blobs\' staging', () => {
     it('counts what a write in flight and one abandoned leave, removing only the abandoned one, and only past the age gate', async () => {
       const found = await page.call<{
