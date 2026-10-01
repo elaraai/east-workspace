@@ -268,8 +268,10 @@ function setSlotField(query: StepQuery, fix: Extract<StepFix, { kind: "setField"
             case "pick":
                 return variant("pick", { ...s.value, fields: s.value.fields.map(p => p.id === fix.id ? { ...p, field: some(fix.field) } : p) });
             case "lookup":
+                // A field brought in is named by itself, the slot's id.
                 return fix.slot === "key" ? variant("lookup", { ...s.value, key: some(fix.field) })
-                    : fix.slot === "dataset" ? variant("lookup", { ...s.value, dataset: some(fix.field) }) : s;
+                    : fix.slot === "dataset" ? variant("lookup", { ...s.value, dataset: some(fix.field) })
+                    : fix.slot === "fields" ? variant("lookup", { ...s.value, fields: s.value.fields.map(f => f === fix.id ? fix.field : f) }) : s;
             case "sort": return variant("sort", { ...s.value, field: some(fix.field) });
             case "fill": return variant("fill", { ...s.value, field: some(fix.field) });
             case "drill": return variant("drill", { ...s.value, field: some(fix.field) });

@@ -334,7 +334,7 @@ the step (or a Keep rows where step before it).
 
 | Where | Plain words | Checker | Fix |
 |---|---|---|---|
-| a step on one value | "{Shape} — there are no rows to {verb} here." | `not_iterable` | Remove this step |
+| a step on one value | "{Shape} — there are no rows to {verb} here." | `type_mismatch` (`map`, `sort_by`) · `not_indexable` (a slice) · `not_iterable` (`.[]`) | Remove this step |
 | a field slot | "Choose a {what}." | — | — |
 | a field of the wrong kind | "{Label} is {kind} — pick a {what}." | `type_mismatch` | — |
 | an unknown field | "There's no “{name}” here. The rows have {labels}…" | `unknown_field` | Use {label} |
@@ -347,11 +347,11 @@ the step (or a Keep rows where step before it).
 | a number that isn't | "{Label} is a {kind} — “{v}” isn't one." | `type_mismatch` | — |
 | a whole number against a fraction | "{Label} is a whole number, so it can never equal {v}." | `type_mismatch` | — |
 | an inner condition · an empty group · a filter with none | "Finish the inner condition." · "This group is empty." · "Add a condition, or remove this step." | — | — |
-| Look up | "{dataset} can't be looked up by key." · "{Dataset} are found by {kind} ids, but {label} is a {kind}." · "{Noun} records have no “{f}”." | `not_indexable` · `type_mismatch` · `unknown_field` | — |
+| Look up | "{dataset} can't be looked up by key." · "{Dataset} are found by {kind} ids, but {label} is a {kind}." · "{Noun} records have no “{f}”." | `not_indexable` (the steps', for a data source that is not a Dict) · `type_mismatch` · `unknown_field` | Use {label} |
 | Group and total | "Choose what to group by." · "Can't add up {label} — it's {kind}. Pick a number, or count instead." · "{Label} has no lowest or highest." · (warning) "Two fields are called {x}; the last one wins." | `type_mismatch` · lint | Use {number fields} |
 | Keep the first | "Keep the first needs a whole number, 1 or more." | `type_mismatch` | — |
 | Fill (warning) | "{Label} is never missing, so this changes nothing." | lint | — |
-| List every part · Try the model | "There is no tree to walk here." · "There is no calculation to try here." · "The range needs a start below the end and a step above 0." · (warning) "That range gives more than 1,000 rows; results will be cut off." | `type_mismatch` · lint | — |
+| List every part · Try the model | "There is no tree to walk here." · "There is no calculation to try here." · "The range needs a start below the end and a step above 0." · (warning) "That range gives more than 1,000 rows; results will be cut off." | `type_mismatch` · `too_many_rows` (the steps') | — |
 | the program | "The jq has a stray bracket." · "A text value is missing its closing quote." · "A bracket is never closed." · "The query ends with a pipe." · "The query is empty." · "There's no data source called “{x}”." · "Start the query from a data source." | `syntax` · `unknown_field` · `unsupported` | Use .{y} |
 | a jq step | "Custom jq step." | (note) "Not a visual step: it stays as jq in the visual editor." | — |
 | an excluded builtin | "{name} isn't available in queries." | `unsupported` | — |
