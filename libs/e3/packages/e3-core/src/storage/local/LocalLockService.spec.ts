@@ -116,6 +116,41 @@ describe('LocalLockService', () => {
       assert.strictEqual(raced.size, 2);
     });
 
+    it('waits out a release removing its resource\'s directory, which Windows refuses to make or write in meanwhile', async () => {
+      // While a release removes a resource's directory, Windows refuses to
+      // make it, or anything in it, until it is gone: EPERM, at the mkdir or
+      // at a file's open, more often while another acquirer lists it. The
+      // race is narrow, so the refusal is made here: the exclusive acquirer
+      // meets it at its file's write, the shared one at the making.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const { mkdir, writeFile } = fsPromises;
+      const met: string[] = [];
+      const refuse = (syscall: string, target: string) => {
+        met.push(syscall);
+        return Object.assign(new Error(`EPERM: operation not permitted, ${syscall} '${target}'`), { code: 'EPERM', syscall, path: target });
+      };
+      const mockedMkdir = mock.method(fsPromises, 'mkdir', async (dir: string, options: { recursive: true }) => {
+        if (path.basename(dir) === 'ws-removing-shared' && !met.includes('mkdir')) throw refuse('mkdir', dir);
+        return mkdir(dir, options);
+      });
+      const mockedWriteFile = mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array) => {
+        if (path.basename(path.dirname(file)) === 'ws-removing' && !met.includes('open')) throw refuse('open', file);
+        return writeFile(file, data);
+      });
+      syncBuiltinESMExports();
+      try {
+        const exclusive = await acquireWorkspaceLock(repoPath, 'ws-removing', variant('deployment', null));
+        await exclusive.release();
+        const shared = await acquireWorkspaceLock(repoPath, 'ws-removing-shared', variant('dataset_write', null), { mode: 'shared' });
+        await shared.release();
+      } finally {
+        mockedMkdir.mock.restore();
+        mockedWriteFile.mock.restore();
+        syncBuiltinESMExports();
+      }
+      assert.deepStrictEqual(met, ['open', 'mkdir']);
+    });
+
     it('counts only its own resource\'s shared holders, not those of a resource its name begins', async () => {
       const shared = await acquireWorkspaceLock(repoPath, 'a.b', variant('dataflow', null), { mode: 'shared' });
       try {
