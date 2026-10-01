@@ -20,9 +20,10 @@ import {
 import "@elaraai/e3-ui-components";
 import {
     createInMemoryQueryCall,
+    createInMemorySourceStatus,
     QueryCallProvider,
+    QuerySourceStatusProvider,
     type InMemoryDataset,
-    type QueryCall,
 } from "@elaraai/e3-ui-components";
 import type { DatasetDef } from "@elaraai/e3";
 import { App } from "./App";
@@ -48,11 +49,8 @@ function isSeedableInput(x: unknown): x is DatasetDef & { source: Extract<NonNul
         && (x as DatasetDef).source?.type === "value";
 }
 
-/** The query builder's one-shot calls (#940), answered in the browser over
- *  every e3 example module's exported `e3.input`s' inline values. The
- *  examples' bindings resolve through the e3 the page runs (#849); a query's
- *  call runs its body here. */
-function exampleQueryCall(): QueryCall {
+/** Every e3 example module's exported `e3.input`s, with their inline values. */
+function exampleQueryDatasets(): InMemoryDataset[] {
     const datasets: InMemoryDataset[] = [];
     for (const mod of e3ExampleModules) {
         for (const value of Object.values(mod)) {
@@ -60,10 +58,20 @@ function exampleQueryCall(): QueryCall {
             datasets.push({ path: value.path, type: value.type, value: value.source.value });
         }
     }
-    return createInMemoryQueryCall(datasets);
+    return datasets;
 }
 
-const queryCall = exampleQueryCall();
+const queryDatasets = exampleQueryDatasets();
+
+/** The query builder's one-shot calls (#940), answered in the browser over the
+ *  e3 examples' inline inputs. The examples' bindings resolve through the e3
+ *  the page runs (#849); a query's call runs its body here. */
+const queryCall = createInMemoryQueryCall(queryDatasets);
+
+/** The same inputs' statuses (#941): what each holds and weighs, which a run
+ *  of the query builder weighs before it plans. The showcase's datasets are
+ *  tiny, so every run plans one call — and its plan says so. */
+const queryStatus = createInMemorySourceStatus(queryDatasets);
 
 /* Route at the root: when `?file=<pathKey>` is in the URL we render the
  * isolated stack of cards for that source file *only* — no sidebar, no
@@ -92,9 +100,12 @@ createRoot(document.getElementById("root")!).render(
                              *  this host-injected React chrome in their bar / rail. */}
                             <AppProvider barEnd={<HostBarEnd />} railFooter={<HostRailFooter />}>
                                 <AppErrorBoundary>
-                                    {/* The query builder's runs, answered in the browser (#940). */}
+                                    {/* The query builder's runs, answered in the browser (#940),
+                                      * each planned over its datasets' statuses (#941). */}
                                     <QueryCallProvider call={queryCall}>
-                                        <Root />
+                                        <QuerySourceStatusProvider status={queryStatus}>
+                                            <Root />
+                                        </QuerySourceStatusProvider>
                                     </QueryCallProvider>
                                     {/* The e3 the page runs (#849), once an e3 example has
                                       * started it: e3-ui-components' providers over it, which

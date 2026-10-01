@@ -75,3 +75,35 @@ describe("run.ts (#938)", () => {
         expect(runOutput(plan, { inputs: [], query: none, outcome: variant("timed_out", { ms: 30_000n }) })).toBeUndefined();
     });
 });
+
+describe("run.ts — what a split run sends (#941)", () => {
+    test("the visual view: the query, a rows result followed by its counts — the last counted stage's — and the source whose stored rows count", () => {
+        const plan = planRun(editorOf(".orders\n| map(select(.total >= 1000))"), ROOT);
+        expect(plan.split).toEqual({
+            program: ".orders\n| map(select(.total >= 1000))\n| {counts: [length], result: .[:1000]}",
+            counted: [plan.counted![1]!],
+            source: "orders",
+        });
+        // One value: the query itself, which answers the value alone.
+        const count = planRun(editorOf(".orders\n| map(select(.total >= 1000))\n| length"), ROOT);
+        expect(count.split).toEqual({ program: ".orders\n| map(select(.total >= 1000))\n| length", counted: undefined, source: "orders" });
+    });
+
+    test("the jq view: the jq, canonically, with no counts", () => {
+        const plan = planRun(editorOf(".orders", "jq", ".orders  |  map(.id)"), ROOT);
+        expect(plan.split).toEqual({ program: ".orders\n| map(.id)", counted: undefined, source: undefined });
+    });
+
+    test("a split run's answer: the source's count as its stored rows, the result's as the call counted them, and nothing between", () => {
+        const plan = planRun(editorOf(".orders\n| map(select(.total >= 1000))"), ROOT);
+        const Row = StructType({ id: IntegerType });
+        const Cut = StructType({ counts: ArrayType(IntegerType), result: ArrayType(Row) });
+        const answer = encodeBeast2For(Cut)({ counts: [4210n], result: [{ id: 1n }, { id: 2n }] });
+        const read = runOutput(plan.split, { inputs: [], query: none, outcome: variant("ok", { outputs: 1n, result: answer, truncated: false }) }, new Map([[SOURCE_COUNT, 90_000]]))!;
+        expect([...read.counts!.entries()]).toEqual([[SOURCE_COUNT, 90_000], [plan.counted![1]!, 4210]]);
+        expect([read.total, (read.value as unknown[]).length]).toEqual([4210, 2]);
+        // An answer that is the result alone keeps the counts known before it.
+        const one = runOutput({ counted: undefined }, { inputs: [], query: none, outcome: variant("ok", { outputs: 1n, result: encodeBeast2For(IntegerType)(7n), truncated: false }) }, new Map([[SOURCE_COUNT, 40]]))!;
+        expect([one.value, [...one.counts!.entries()]]).toEqual([7n, [[SOURCE_COUNT, 40]]]);
+    });
+});

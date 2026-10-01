@@ -9,6 +9,10 @@ export {
 } from "./types.js";
 export { QueryError, evaluateJq, runtimeErrorAt, type EvaluateJqOptions, type QueryDiagnostic } from "./evaluate.js";
 export { translateJq, TranslationError, type JqTranslation, type TranslateJqOptions } from "./jq/translate.js";
+export {
+  splitJq, type JqCombine, type JqPruning, type JqSplit, type JqSplitCall, type JqSplitOutput, type JqSplitStages, type JqTotal,
+  type JqWhole, type JqWholeReason, type SplitJqOptions,
+} from "./jq/split.js";
 export { lexJq, type JqToken, type JqTokenKind } from "./jq/lex.js";
 export { parseJq, type ParsedJq } from "./jq/parse.js";
 export { printJq, type PrintJqOptions, type PrintedJq } from "./jq/print.js";

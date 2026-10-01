@@ -13,6 +13,16 @@
  * - **The call** (`useQueryCall`): how a one-shot call is made — e3-api-client's
  *   `oneShotExecute` against the `E3Provider`'s server, or a host's own
  *   ({@link QueryCallProvider}).
+ * - **The split call** (`useQuerySplitCall`, #941): how a split call is made —
+ *   e3-api-client's `splitCall` against the `E3Provider`'s server, which
+ *   launches it, polls it with backoff and reports its progress; or a host's
+ *   own ({@link QuerySplitCallProvider}).
+ * - **A data source's status** (`useQuerySourceStatus`, #941): what it weighs
+ *   and how many rows it holds, which a run reads before it plans — e3's
+ *   dataset status, through the query the Datasets tab polls; or a host's own
+ *   ({@link QuerySourceStatusProvider}).
+ * - **The plan's options** (`useQueryPlanOptions`, #941): the most a dataset
+ *   may weigh and still be read by one call ({@link QueryPlanOptionsProvider}).
  * - **Summaries** (`useQuerySummaries`): #934's summary programs, run the same
  *   way, kept by prefix and the hashes of what they read.
  * - **Recent runs** (`useRecentQueries`): this viewer's last ten, kept in the
@@ -22,19 +32,24 @@
  */
 
 import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
 import {
     ArrayType, SummaryType, decodeBeast2, equalFor, isValueOf, parseFor, printFor, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { DataSourceType, SavedQueryType } from "@elaraai/e3-ui/internal";
-import { oneShotExecute } from "@elaraai/e3-api-client";
-import type { ExecuteResult, OneShotRequest, TreePath } from "@elaraai/e3-types";
+import { datasetGetStatus, oneShotExecute, splitCall } from "@elaraai/e3-api-client";
+import {
+    pathToString,
+    type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallProgress, type SplitCallRequest, type TreePath,
+} from "@elaraai/e3-types";
 import { useDataStable, usePersistedState } from "@elaraai/east-ui-components";
-import { useE3ConfigOptional } from "../platform/e3-config.js";
+import { e3RequestOptions, useE3ConfigOptional, type E3Config } from "../platform/e3-config.js";
 import { pagedSourceOf } from "../platform/paged-runtime.js";
 import { SUMMARY_LIMITS, SummaryCache, type Summary, type SummaryRequest } from "./model/summaries.js";
 import type { QueryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryRoot, type QueryRootEntry } from "./one-shot.js";
+import type { PlanOptions } from "./plan.js";
 
 /** A data source the builder is handed. */
 export type DataSource = ValueTypeOf<typeof DataSourceType>;
@@ -136,7 +151,7 @@ export function QueryCallProvider({ call, children }: QueryCallProviderProps) {
 /**
  * How the builder makes a one-shot call: a {@link QueryCallProvider}'s, else
  * e3-api-client's `oneShotExecute` against the `E3Provider`'s server and
- * workspace.
+ * workspace, with its token and through its `fetch`.
  *
  * @returns The call, or `undefined` when there is no server to call
  */
@@ -148,8 +163,233 @@ export function useQueryCall(): QueryCall | undefined {
         if (config === null || config.workspace === undefined) return undefined;
         const { apiUrl, workspace } = config;
         const repo = config.repo ?? "default";
-        return (request) => oneShotExecute(apiUrl, repo, workspace, request, { token: config.token ?? null });
+        return (request) => oneShotExecute(apiUrl, repo, workspace, request, e3RequestOptions(config));
     }, [provided, config]);
+}
+
+// ============================================================================
+// The split call (#941)
+// ============================================================================
+
+/** What a split call is given: the signal that abandons it, and where its progress goes. */
+export interface QuerySplitCallOptions {
+    /** Abandons the call: it stops polling, and rejects with the signal's reason. Its job runs on. */
+    readonly signal: AbortSignal;
+    /** Told the call's progress each time e3 reports it: its stage, and the units of it done of all. */
+    readonly onProgress: (progress: SplitCallProgress) => void;
+}
+
+/**
+ * Makes a split call: the request, answered by the call's result once its job
+ * ends — read as a one-shot call's is.
+ *
+ * @param request - The request — a plan's, platform-free (`splitCallRequest`)
+ * @param options - The signal that abandons it, and where its progress goes
+ * @returns The call's result
+ *
+ * @remarks
+ * It rejects with e3-api-client's `ApiError` or `AuthError` when the server
+ * refuses the call, with a `TypeError` when the server cannot be reached, as
+ * `fetch` does, and with any other error when e3 could not run it (a job that
+ * ended `failed`); and with the signal's reason once it is abandoned.
+ */
+export type QuerySplitCall = (request: SplitCallRequest, options: QuerySplitCallOptions) => Promise<ExecuteResult>;
+
+const QuerySplitCallContext = createContext<QuerySplitCall | null>(null);
+
+/** Props of {@link QuerySplitCallProvider}. */
+export interface QuerySplitCallProviderProps {
+    /** How a split call is made for the subtree. */
+    call: QuerySplitCall;
+    /** The subtree. */
+    children?: ReactNode;
+}
+
+/**
+ * Makes the query builder's split calls with a host's own function — a
+ * test's (`createInMemorySplitCall`), or a host that reaches e3 another way.
+ *
+ * @param props - The call and the subtree
+ * @returns The provider
+ */
+export function QuerySplitCallProvider({ call, children }: QuerySplitCallProviderProps) {
+    return createElement(QuerySplitCallContext.Provider, { value: call }, children);
+}
+
+/**
+ * How the builder makes a split call: a {@link QuerySplitCallProvider}'s, else
+ * e3-api-client's `splitCall` against the `E3Provider`'s server and workspace,
+ * with its token and through its `fetch`, which launches the call, polls it —
+ * 100 ms apart at first, backing off to a second — and reports each progress
+ * it finds.
+ *
+ * @returns The call, or `undefined` when there is no server to call
+ */
+export function useQuerySplitCall(): QuerySplitCall | undefined {
+    const provided = useContext(QuerySplitCallContext);
+    const config = useE3ConfigOptional();
+    return useMemo((): QuerySplitCall | undefined => {
+        if (provided !== null) return provided;
+        if (config === null || config.workspace === undefined) return undefined;
+        const { apiUrl, workspace } = config;
+        const repo = config.repo ?? "default";
+        return async (request, { signal, onProgress }) =>
+            (await splitCall(apiUrl, repo, workspace, request, e3RequestOptions(config), { signal, onProgress })).result;
+    }, [provided, config]);
+}
+
+// ============================================================================
+// A data source's status (#941)
+// ============================================================================
+
+/** What e3's status says of a data source: how many rows it holds, its hash, and what it weighs. */
+export interface SourceStatus {
+    /** How many elements a stored list or lookup table holds; `undefined` for a value that is not a collection, or not known. */
+    readonly rows: number | undefined;
+    /** The hash of its value; `undefined` when it has none, or it is not known. */
+    readonly hash: string | undefined;
+    /** What its value weighs in the store, in bytes — a collection's segments and its manifest; `undefined` when not known. */
+    readonly bytes: number | undefined;
+}
+
+/**
+ * Reads a data source's status: what a run weighs before it plans.
+ *
+ * @param path - The dataset's path, as the root holds it
+ * @returns Its status
+ */
+export type QuerySourceStatus = (path: TreePath) => Promise<SourceStatus>;
+
+const QuerySourceStatusContext = createContext<QuerySourceStatus | null>(null);
+
+/** Props of {@link QuerySourceStatusProvider}. */
+export interface QuerySourceStatusProviderProps {
+    /** How a data source's status is read for the subtree. */
+    status: QuerySourceStatus;
+    /** The subtree. */
+    children?: ReactNode;
+}
+
+/**
+ * Reads the data sources' statuses with a host's own function — a test's, or
+ * the showcase's over its datasets in memory (`createInMemorySourceStatus`).
+ *
+ * @param props - The status and the subtree
+ * @returns The provider
+ */
+export function QuerySourceStatusProvider({ status, children }: QuerySourceStatusProviderProps) {
+    return createElement(QuerySourceStatusContext.Provider, { value: status }, children);
+}
+
+/** How long a status a run reads stays fresh: as long as the Datasets tab waits to poll it again. */
+const STATUS_FRESH_MS = 5_000;
+
+/** A data source's status query, as TanStack Query takes it: its key, and its function. */
+export interface SourceStatusQuery {
+    /** Its key: the server, the repository, the workspace and the dataset's path. */
+    readonly queryKey: readonly unknown[];
+    /** Its function: e3-api-client's `datasetGetStatus`. */
+    readonly queryFn: () => Promise<DatasetStatusDetail>;
+}
+
+/**
+ * A data source's status query on e3, as TanStack Query takes it: the Datasets
+ * tab polls it, and a run reads it through the same cache before it plans.
+ *
+ * @param config - The server: its token, and the `fetch` its requests go through
+ * @param workspace - The workspace
+ * @param path - The dataset's path
+ * @returns The query's key, and its function: e3-api-client's `datasetGetStatus`
+ */
+export function sourceStatusQuery(config: E3Config, workspace: string, path: TreePath): SourceStatusQuery {
+    const { apiUrl } = config;
+    const repo = config.repo ?? "default";
+    return {
+        queryKey: ["querySourceStatus", apiUrl, repo, workspace, pathToString(path)],
+        queryFn: () => datasetGetStatus(apiUrl, repo, workspace, path, e3RequestOptions(config)),
+    };
+}
+
+/**
+ * A data source's status, as e3's dataset status gives it.
+ *
+ * @param detail - The dataset's status detail
+ * @returns Its rows, hash and stored bytes
+ */
+export function sourceStatusOf(detail: DatasetStatusDetail): SourceStatus {
+    return {
+        rows: detail.rows.type === "none" ? undefined : Number(detail.rows.value),
+        hash: detail.hash.type === "none" ? undefined : detail.hash.value,
+        bytes: detail.size.type === "none" ? undefined : Number(detail.size.value),
+    };
+}
+
+/**
+ * How the builder reads a data source's status: a
+ * {@link QuerySourceStatusProvider}'s, else e3's dataset status against the
+ * `E3Provider`'s server and workspace, through the TanStack Query cache the
+ * Datasets tab polls, a status read in the last 5 seconds serving again.
+ *
+ * @returns The status, or `undefined` when there is no server to ask
+ */
+export function useQuerySourceStatus(): QuerySourceStatus | undefined {
+    const provided = useContext(QuerySourceStatusContext);
+    const config = useE3ConfigOptional();
+    const client = useContext(QueryClientContext);
+    return useMemo((): QuerySourceStatus | undefined => {
+        if (provided !== null) return provided;
+        if (config === null || config.workspace === undefined) return undefined;
+        const workspace = config.workspace;
+        return async (path) => {
+            const query = sourceStatusQuery(config, workspace, path);
+            const detail = client === undefined ? await query.queryFn() : await client.fetchQuery({ ...query, staleTime: STATUS_FRESH_MS });
+            return sourceStatusOf(detail);
+        };
+    }, [provided, config, client]);
+}
+
+// ============================================================================
+// The plan's options (#941)
+// ============================================================================
+
+/** The builder's plan's options: the default, e3's smallest piece. */
+const NO_PLAN_OPTIONS: PlanOptions = {};
+
+const QueryPlanOptionsContext = createContext<PlanOptions>(NO_PLAN_OPTIONS);
+
+/** Props of {@link QueryPlanOptionsProvider}. */
+export interface QueryPlanOptionsProviderProps {
+    /**
+     * The most a dataset may weigh, in stored bytes, and still be read by one
+     * call: e3's smallest piece (`PIECE_SIZES.min`, 16 MiB) when omitted. A
+     * host over a server that cuts small pieces (`E3_TEST_PIECE_BYTES`) sets
+     * it small, so its runs split.
+     */
+    pieceBytes?: number;
+    /** The subtree. */
+    children?: ReactNode;
+}
+
+/**
+ * Sets how the query builder plans its runs for a subtree: the most a dataset
+ * may weigh and still be read by one call.
+ *
+ * @param props - The options and the subtree
+ * @returns The provider
+ */
+export function QueryPlanOptionsProvider({ pieceBytes, children }: QueryPlanOptionsProviderProps) {
+    const value = useMemo((): PlanOptions => (pieceBytes === undefined ? NO_PLAN_OPTIONS : { pieceBytes }), [pieceBytes]);
+    return createElement(QueryPlanOptionsContext.Provider, { value }, children);
+}
+
+/**
+ * How the builder plans its runs: a {@link QueryPlanOptionsProvider}'s options,
+ * else the defaults.
+ *
+ * @returns The options
+ */
+export function useQueryPlanOptions(): PlanOptions {
+    return useContext(QueryPlanOptionsContext);
 }
 
 // ============================================================================

@@ -17,15 +17,17 @@
  *   differs from the one the result is of; a run that gave no result, worded by
  *   how it ended; and the note after a download, dismissible;
  * - **the body**: before any run, the empty state; while a run goes, the data
- *   sources it reads over skeleton rows; a result as a Table (east-ui's Table
- *   renderer, over `results-table.ts`'s rows) or as a Value tree (east-ui's
- *   ValueTree renderer, read-only). Rows open as a Table and one value as a
- *   tree; the toolbar's switch overrides it until the next run. A stale
- *   result's body is dashed;
+ *   sources it reads over skeleton rows — and a split run's progress, pieces
+ *   done of all (#941); a result as a Table (east-ui's Table renderer, over
+ *   `results-table.ts`'s rows) or as a Value tree (east-ui's ValueTree
+ *   renderer, read-only). Rows open as a Table and one value as a tree; the
+ *   toolbar's switch overrides it until the next run. A stale result's body
+ *   is dashed;
  * - **the footer**: the result's read-outs — its count in words and its
- *   fields, or how many of how many it shows; the run's number, time and
- *   duration, its East type on hover; and each data source it read, with its
- *   hash. Its parts give way as the results narrow.
+ *   fields, or how many of how many it shows; how the run reads its data, its
+ *   plan's explanation on a click (`plan-popover.tsx`, #941); the run's
+ *   number, time and duration, its East type on hover; and each data source
+ *   it read, with its hash. Its parts give way as the results narrow.
  *
  * @packageDocumentation
  */
@@ -37,8 +39,9 @@ import { faCaretDown, faCircleExclamation, faCircleInfo, faDownload, faSitemap, 
 import { describeJqType, fromEastTypeValue, none, some } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
 import { EastChakraTable, EastChakraValueTree, EmptyStateView, Toolbar, type ToolbarItem, type ValueTreeValue } from "@elaraai/east-ui-components";
-import { countWords, fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
+import { byteWords, countWords, fieldLabels, planProgressWords, shapeWords, type QueryWords } from "./model/words.js";
 import { Tip, type Styles } from "./parts.js";
+import { QueryPlanReadout } from "./plan-popover.js";
 import { resultTable } from "./results-table.js";
 import type { RunOutput, RunState } from "./run.js";
 import { unwrapRecursive } from "./steps/shape.js";
@@ -78,19 +81,6 @@ function rowCount(output: RunOutput): number | undefined {
     if (t.type === "Array" || t.type === "Vector") return (output.value as readonly unknown[]).length;
     if (t.type === "Set") return (output.value as ReadonlySet<unknown>).size;
     return undefined;
-}
-
-/** A size in bytes, in words — `1.4 MB`. */
-function byteWords(bytes: bigint, words: QueryWords): string {
-    const n = Number(bytes);
-    const units = ["B", "KB", "MB", "GB"] as const;
-    let unit = 0;
-    let value = n;
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit += 1;
-    }
-    return words.messages.byteSize({ value: unit === 0 ? words.formatters.number(value) : words.formatters.value(value, undefined), unit: units[unit]! });
 }
 
 /** What a run that gave no result says: its title, and the words under it. */
@@ -252,6 +242,9 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
                 <Box css={styles.runningHead}>
                     <Box as="span" css={live.indicator} aria-hidden />
                     <span>{m.reading({ sources: m.list({ items: state.reads }) })}</span>
+                    {state.progress !== undefined && (
+                        <Box as="span" css={styles.runningProgress} data-query-results-progress="">{planProgressWords(state.progress, words)}</Box>
+                    )}
                 </Box>
                 {Array.from({ length: SKELETON_ROWS }, (_, i) => (
                     <Box key={i} css={styles.skeletonRow} aria-hidden>
@@ -279,6 +272,11 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
                 <Box as="span" css={styles.footerCount} data-query-result-count="">{footer.count}</Box>
                 {footer.fields !== "" && <Box as="span" css={styles.footerFields} data-query-result-fields="">{footer.fields}</Box>}
                 <Box css={styles.footerSpacer} />
+                {state.status !== "idle" && state.planned !== undefined && (
+                    <QueryPlanReadout planned={state.planned} words={words}
+                        progress={state.status === "running" ? state.progress : undefined}
+                        pieces={state.status === "failed" ? undefined : state.pieces} />
+                )}
                 {footer.run !== "" && (
                     <Tip label={footer.type}>
                         <Box as="span" css={styles.footerRun} data-query-result-run="">{footer.run}</Box>

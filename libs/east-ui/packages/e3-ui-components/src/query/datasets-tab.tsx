@@ -26,10 +26,9 @@
 import { memo, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { none, some, type EastType } from "@elaraai/east";
-import { datasetGetStatus } from "@elaraai/e3-api-client";
-import { pathToString } from "@elaraai/e3-types";
 import { EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "@elaraai/east-ui-components";
 import { useE3ConfigOptional, type E3Config } from "../platform/e3-config.js";
+import { sourceStatusOf, sourceStatusQuery, type SourceStatus } from "./hooks.js";
 import { human, plainKind, plural, type QueryWords } from "./model/words.js";
 import type { QueryRoot } from "./one-shot.js";
 import { optionPayload, singular } from "./steps/shape.js";
@@ -44,13 +43,8 @@ const KIND_ORDER: readonly SourceKind[] = ["rows", "lookups", "values", "models"
 /** How the open query reads a data source: as its source, or looked up. */
 export type SourceRole = "source" | "lookedUp";
 
-/** What e3's status says of a data source: how many rows it holds, when it counts them, and its hash. */
-export interface SourceStatus {
-    /** How many elements a stored list or lookup table holds. */
-    readonly rows: number | undefined;
-    /** The hash of its value. */
-    readonly hash: string | undefined;
-}
+/** A data source not read yet: nothing known of it. */
+const UNREAD: SourceStatus = { rows: undefined, hash: undefined, bytes: undefined };
 
 /** How many characters of a hash an item shows. */
 const HASH_CHARS = 8;
@@ -143,23 +137,14 @@ export const DatasetsTab = memo(function DatasetsTab(props: DatasetsTabProps) {
     return <DatasetsWithStatus {...props} config={config} workspace={config.workspace} />;
 });
 
-/** The tab over e3: each data source's status fetched, and the library over them. */
+/** The tab over e3: each data source's status polled — the query a run reads through too — and the library over them. */
 function DatasetsWithStatus({ config, workspace, ...props }: DatasetsTabProps & { config: E3Config; workspace: string }) {
-    const { apiUrl, token } = config;
-    const repo = config.repo ?? "default";
     const results = useQueries({
-        queries: props.root.entries.map((entry) => ({
-            queryKey: ["querySourceStatus", apiUrl, repo, workspace, pathToString(entry.path)],
-            queryFn: () => datasetGetStatus(apiUrl, repo, workspace, entry.path, { token: token ?? null }),
-            refetchInterval: 5000,
-        })),
+        queries: props.root.entries.map((entry) => ({ ...sourceStatusQuery(config, workspace, entry.path), refetchInterval: 5000 })),
     });
     const statuses = useMemo(() => new Map(props.root.entries.map((entry, i): [string, SourceStatus] => {
         const detail = results[i]?.data;
-        return [entry.name, {
-            rows: detail === undefined || detail.rows.type === "none" ? undefined : Number(detail.rows.value),
-            hash: detail === undefined || detail.hash.type === "none" ? undefined : detail.hash.value,
-        }];
+        return [entry.name, detail === undefined ? UNREAD : sourceStatusOf(detail)];
     })), [props.root, results]);
     return <DatasetsLibrary {...props} statuses={statuses} />;
 }

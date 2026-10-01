@@ -176,6 +176,43 @@ export interface PreparedQuery {
 }
 
 /**
+ * What reading a call's answer needs ({@link queryResultOf}): the query that
+ * ran, the checker's record of it, the data sources in the call's argument
+ * order, and its most outputs. A one-shot call's {@link PreparedQuery} is one;
+ * so is a split call's, which the planner gives (`plan.ts`).
+ */
+export type QueryReading = Pick<PreparedQuery, "query" | "checked" | "entries" | "maxOutputs">;
+
+/** A call's limits and runner, as its options set them: what a one-shot call and a split call both send. */
+export interface QueryLimits {
+    /** The most outputs a `many` query returns. */
+    readonly maxOutputs: number;
+    /** The call's limits: its time limit, and its largest answer as `maxResultBytes`. */
+    readonly limits: OneShotRequest["limits"];
+    /** The runner: east-c given no platform package, unless the options name another. */
+    readonly runner: RunnerValue;
+}
+
+/**
+ * A call's limits and runner, from its options, each limit its default when
+ * the options give none.
+ *
+ * @param options - the call's limits and its runner
+ * @returns the most outputs, the limits and the runner
+ * @throws {RangeError} When a limit is not a whole number of at least 1.
+ */
+export function queryLimits(options: QueryOptions = {}): QueryLimits {
+    const maxOutputs = Math.min(limitOf(options.maxOutputs, DEFAULT_MAX_OUTPUTS, "maxOutputs"), MAX_OUTPUTS);
+    const maxBytes = limitOf(options.maxBytes, DEFAULT_MAX_BYTES, "maxBytes");
+    const timeoutMs = limitOf(options.timeoutMs, DEFAULT_TIMEOUT_MS, "timeoutMs");
+    return {
+        maxOutputs,
+        limits: some({ timeoutMs: some(BigInt(timeoutMs)), maxResultBytes: some(BigInt(maxBytes)), maxLogBytes: none }),
+        runner: options.runner ?? platformFreeEastC(),
+    };
+}
+
+/**
  * Prepares a query's one-shot call: checks the program once against the whole
  * root, translates it, and builds the request.
  *
@@ -218,18 +255,34 @@ export interface PreparedQuery {
  * ```
  */
 export function prepareQuery(program: string, root: QueryRoot, options: QueryOptions = {}): { prepared: PreparedQuery } | { result: QueryResult } {
-    const maxOutputs = Math.min(limitOf(options.maxOutputs, DEFAULT_MAX_OUTPUTS, "maxOutputs"), MAX_OUTPUTS);
-    const maxBytes = limitOf(options.maxBytes, DEFAULT_MAX_BYTES, "maxBytes");
-    const timeoutMs = limitOf(options.timeoutMs, DEFAULT_TIMEOUT_MS, "timeoutMs");
-    const checked = checkJq(program, root.type, { root: true });
+    // The limits are checked before the program, so a wrong one is refused whatever the program.
+    queryLimits(options);
+    return prepareCheckedQuery(checkJq(program, root.type, { root: true }), root, options);
+}
+
+/**
+ * Prepares a query's one-shot call from what the checker made of it: what
+ * {@link prepareQuery} does once it has checked the program, for a caller that
+ * has checked it already — the planner, which checks a query once to split it
+ * and to call it.
+ *
+ * @param checked - what `checkJq` made of the program, against `root.type`, as an e3 root
+ * @param root - the root
+ * @param options - the call's limits and its runner
+ * @returns the prepared call; or, for a program that does not check, the `error` result a run of it gives
+ * @throws {RangeError} When a limit is not a whole number of at least 1.
+ * @throws {TranslationError} When the checked program holds something the translator cannot express.
+ */
+export function prepareCheckedQuery(checked: CheckJqResult, root: QueryRoot, options: QueryOptions = {}): { prepared: PreparedQuery } | { result: QueryResult } {
+    const { maxOutputs, limits, runner } = queryLimits(options);
     if (checked.query === null) return { result: { inputs: [], outcome: variant("error", checked.diagnostics), query: none } };
     const translation = translateJq(checked, checked.multiplicity === "many" ? { maxOutputs } : {});
     const entries = translation.inputs.map(input => entryNamed(root, input.name));
     const request: OneShotRequest = {
         bodyIr: encodeEastIR(translation.fn().toIR()),
         args: entries.map(entry => variant("dataset", entry.path)),
-        runner: options.runner ?? platformFreeEastC(),
-        limits: some({ timeoutMs: some(BigInt(timeoutMs)), maxResultBytes: some(BigInt(maxBytes)), maxLogBytes: none }),
+        runner,
+        limits,
     };
     return { prepared: { query: checked.query, checked, entries, request, maxOutputs } };
 }
@@ -253,13 +306,14 @@ function limitOf(value: number | undefined, fallback: number, name: string): num
  * The data source of a root a query reads by a name.
  *
  * @param root - the root
- * @param name - the root field the translation reads
+ * @param name - the root field the translation, or the split, reads
+ * @param caller - what asks, for the error: `prepareQuery` by default
  * @returns the data source
  * @throws {Error} When the root has none of that name: its type was not made from its entries.
  */
-function entryNamed(root: QueryRoot, name: string | null): QueryRootEntry {
+export function entryNamed(root: QueryRoot, name: string | null, caller = "prepareQuery"): QueryRootEntry {
     const entry = root.entries.find(e => e.name === name);
-    if (entry === undefined) throw new Error(`prepareQuery: the query reads .${name ?? ""}, which no data source of the root is`);
+    if (entry === undefined) throw new Error(`${caller}: the query reads .${name ?? ""}, which no data source of the root is`);
     return entry;
 }
 
@@ -276,10 +330,12 @@ function platformFreeEastC(): RunnerValue {
 // ─── Reading the answer ──────────────────────────────────────────────────────
 
 /**
- * What a query's one-shot call answered.
+ * What a query's call answered: a one-shot call's, or a split call's.
  *
- * @param prepared - the call, as {@link prepareQuery} prepared it
- * @param result - what e3-api-client's `oneShotExecute` returned for it
+ * @param prepared - the call, as {@link prepareQuery} prepared it; or a split
+ *   call's reading, as the planner gives it — both a {@link QueryReading}
+ * @param result - what e3-api-client's `oneShotExecute` returned for it, or a
+ *   split call's result (`splitCall`'s `result`)
  * @returns the answer: how the run ended, the datasets it read, and the query
  *   that ran
  * @throws {Error} When the call read a dataset other than the one the query
@@ -313,7 +369,7 @@ function platformFreeEastC(): RunnerValue {
  * if (result.outcome.type === "ok") show(decodeBeast2(result.outcome.value.result), result.outcome.value.truncated);
  * ```
  */
-export function queryResultOf(prepared: PreparedQuery, result: ExecuteResult): QueryResult {
+export function queryResultOf(prepared: QueryReading, result: ExecuteResult): QueryResult {
     const inputs = inputsOf(prepared, result);
     const query = some(prepared.query);
     const outcome = result.outcome;
@@ -342,7 +398,7 @@ const samePath = equalFor(TreePathType);
  * @returns the datasets read
  * @throws {Error} When an argument read a dataset other than the data source the query reads there.
  */
-function inputsOf(prepared: PreparedQuery, result: ExecuteResult): QueryInput[] {
+function inputsOf(prepared: QueryReading, result: ExecuteResult): QueryInput[] {
     return result.inputs.map((input, i) => {
         const entry = prepared.entries[i];
         if (entry === undefined || !samePath(entry.path, input.path)) {
@@ -361,7 +417,7 @@ function inputsOf(prepared: PreparedQuery, result: ExecuteResult): QueryInput[] 
  * @returns the `ok` outcome
  * @throws {Error} When the answer does not decode at the query's result type.
  */
-function answered(prepared: PreparedQuery, bytes: Uint8Array): QueryOutcome {
+function answered(prepared: QueryReading, bytes: Uint8Array): QueryOutcome {
     const { element_type, multiplicity } = prepared.query.value;
     const element = fromEastTypeValue(element_type);
     switch (multiplicity.type) {
@@ -464,7 +520,7 @@ const UNASSIGNED = /^Dataset argument (\d+) is not assigned\b/;
  * @param message - e3's diagnostic
  * @returns the diagnostic
  */
-function refused(prepared: PreparedQuery, message: string): QueryDiagnostic {
+function refused(prepared: QueryReading, message: string): QueryDiagnostic {
     const unassigned = UNASSIGNED.exec(message);
     const entry = unassigned === null ? undefined : prepared.entries[Number(unassigned[1])];
     if (entry !== undefined) return problem("no_value", `no_value: ${entry.name} has no value yet.`, none);

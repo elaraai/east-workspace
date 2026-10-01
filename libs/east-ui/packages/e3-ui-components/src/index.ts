@@ -60,8 +60,10 @@ export {
 
 // The query builder and the query library (#875) — each renderer registers
 // itself against its extension on import — their words, how the builder makes
-// a one-shot call (and a call answered in memory, where there is no server),
-// and the query's one-shot call itself, which a host can make without it.
+// a one-shot call, a split call and reads a data source's status, and the
+// query's calls themselves — a one-shot call, a run's plan with its split
+// call (#941), and each answered in memory where there is no server — which a
+// host can make without it, Node included (`@elaraai/e3-ui-components/query`).
 export { EastChakraQueryBuilder, type EastChakraQueryBuilderProps, type QueryFocus, type QueryTab } from './query/builder.js';
 export { EastChakraQueryLibrary, type EastChakraQueryLibraryProps } from './query/library.js';
 export {
@@ -76,17 +78,21 @@ export {
     useQueryCall,
     type QueryCall,
     type QueryCallProviderProps,
+    QuerySplitCallProvider,
+    useQuerySplitCall,
+    type QuerySplitCall,
+    type QuerySplitCallOptions,
+    type QuerySplitCallProviderProps,
+    QuerySourceStatusProvider,
+    useQuerySourceStatus,
+    type QuerySourceStatus,
+    type QuerySourceStatusProviderProps,
+    type SourceStatus,
+    QueryPlanOptionsProvider,
+    useQueryPlanOptions,
+    type QueryPlanOptionsProviderProps,
 } from './query/hooks.js';
-export { createInMemoryQueryCall, type InMemoryDataset } from './query/in-memory-call.js';
-export {
-    prepareQuery,
-    queryResultOf,
-    queryRoot,
-    type PreparedQuery,
-    type QueryOptions,
-    type QueryRoot,
-    type QueryRootEntry,
-} from './query/one-shot.js';
+export * from './query/calls.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

@@ -36,28 +36,15 @@ import {
   segmentKeyTypeOf,
   type EastTypeValue,
 } from '@elaraai/east';
-import type { TaskInput } from '@elaraai/e3-types';
+import { PIECE_SIZES, type PieceSizes, type TaskInput } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { storeCollection, type CollectionSource } from '../store-collection.js';
 
-/**
- * The sizes the piece rule closes pieces at, in stored bytes: a piece closes
- * only once it holds `min`, weighs its segments against `max` until it holds
- * `target` and against `min` after, and always closes once it holds `max`.
- */
-export interface PieceSizes {
-  /** The least a piece holds, unless the input ends first. */
-  readonly min: number;
-  /** Where a piece starts closing readily: the pieces' middle size, which a
-   *  merge range aims for too. */
-  readonly target: number;
-  /** The most a piece holds, but for the rest of a `by` group. */
-  readonly max: number;
-}
-
-/** The platform's piece sizes: 16, 64 and 256 MiB. */
-export const PIECE_SIZES: PieceSizes = { min: 16 * 2 ** 20, target: 64 * 2 ** 20, max: 256 * 2 ** 20 };
+// The sizes the piece rule closes pieces at, and the platform's: e3-types'
+// own, which a caller planning a split call in a browser weighs a dataset
+// against, and which the engine and this rule take from here.
+export { PIECE_SIZES, type PieceSizes };
 
 /** Where this process reads the piece size a test sets: nowhere, until its
  *  host says ({@link readTestPieceBytesFrom}). */

@@ -6,18 +6,21 @@
 /**
  * The query builder's plain words (#934): what a step, a field, a kind, a
  * shape, a count, a summary and a problem are called in the visual view
- * (`Query Editor Spec.md` §4.3–§4.6), and the sentence a saved query shows
- * when its author wrote none (§4.13). Every string comes from the message
- * table; every number from the locale's formatters.
+ * (`Query Editor Spec.md` §4.3–§4.6), the sentence a saved query shows when
+ * its author wrote none (§4.13), and a run's plan, its path, stages and
+ * pruning (#941). Every string comes from the message table; every number
+ * from the locale's formatters.
  *
  * @packageDocumentation
  */
 
 import {
     none, some, variant,
-    type EastType, type SummaryLeafType, type ValueTypeOf,
+    type EastType, type JqRange, type JqTotal, type SummaryLeafType, type ValueTypeOf,
 } from "@elaraai/east";
+import type { SplitCallProgress } from "@elaraai/e3-types";
 import type { Formatters, TickFormatOpt } from "@elaraai/east-ui-components";
+import type { PlanExplanation, QueryPlan } from "../plan.js";
 import { conditionIn, datasetType, type CheckedSteps, type StepDiagnostic, type StepFix } from "../steps/check.js";
 import { DEFAULT_MAX_ROWS } from "../steps/count.js";
 import { fieldByRef, fieldsOf, itemRecordOf, type StepField } from "../steps/fields.js";
@@ -791,4 +794,176 @@ export function describeQuery(query: StepQuery, checked: CheckedSteps, words: Qu
     if (sentence.length <= DESCRIPTION_MAX) return sentence;
     const ellipsis = m.ellipsis();
     return sentence.slice(0, DESCRIPTION_MAX - ellipsis.length).replace(/[\s,]+\S*$/, "") + ellipsis;
+}
+
+// ─── Sizes ───────────────────────────────────────────────────────────────────
+
+/** The units a size is said in, each 1,024 of the one before. */
+const BYTE_UNITS = ["B", "KB", "MB", "GB"] as const;
+
+/**
+ * A size in bytes, in words — `1.4 MB`, `16 MB`, `512 B`: in the largest unit
+ * it holds one of, to GB.
+ *
+ * @param bytes - the size
+ * @param words - the words
+ * @returns the size
+ */
+export function byteWords(bytes: number | bigint, words: QueryWords): string {
+    let value = Number(bytes);
+    let unit = 0;
+    while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return words.messages.byteSize({ value: unit === 0 ? words.formatters.number(value) : words.formatters.value(value, undefined), unit: BYTE_UNITS[unit]! });
+}
+
+// ─── A plan in words (#941) ──────────────────────────────────────────────────
+
+/** A line of a plan's explanation: a sentence, and the jq it is about. */
+export interface PlanLine {
+    /** What it says: the path and why; what each piece runs, how the pieces combine, a total, what runs once; what every piece reads whole; the pieces; a read that prunes. */
+    readonly kind: "path" | "piece" | "combine" | "total" | "then" | "broadcast" | "pieces" | "pruning";
+    /** Its sentence: one that ends with a colon has its jq after it. */
+    readonly text: string;
+    /** The jq it is about, as the query writes it; `undefined` when it is about none. */
+    readonly code: string | undefined;
+}
+
+/** What a run knows of its plan as it goes: a split call's progress, and how many pieces it cut. */
+export interface PlanRun {
+    /** A split call's progress, while it goes. */
+    readonly progress?: SplitCallProgress | undefined;
+    /** How many pieces it cut, once e3 says. */
+    readonly pieces?: number | undefined;
+}
+
+/**
+ * How far a split run has got, in words — `3 of 12 pieces done`, `1 of 1
+ * merges done`.
+ *
+ * @param progress - its progress, as e3 reports it
+ * @param words - the words
+ * @returns the words
+ */
+export function planProgressWords(progress: SplitCallProgress, words: QueryWords): string {
+    const f = words.formatters;
+    const units = Number(progress.units);
+    return words.messages.planProgress({ phase: progress.phase.type, done: f.number(Number(progress.done)), units: f.number(units), n: units });
+}
+
+/**
+ * A plan's explanation in words: one line per sentence, each with the jq it
+ * is about.
+ *
+ * @param explanation - the plan's explanation (`plan.ts`)
+ * @param words - the words
+ * @param run - what the run knows of its plan: a split call's progress while
+ *   it goes, and how many pieces it cut once e3 says
+ * @returns the lines, in order
+ *
+ * @remarks
+ * - **The path**, first: a split call over a dataset and what it weighs, more
+ *   than one piece; or one call — within one piece, a weight not known, a
+ *   split call that could not be made, or the reason the query runs as one
+ *   unit, with the jq the reason is about.
+ * - **A split's stages**: what each piece runs; how their outputs combine —
+ *   rows joined; totals, each by its rule; grouped by a key, each group's
+ *   totals combined or its rows collected; the distinct rows; the first row of
+ *   each key; a reduce's updates by key, added or the last kept; what runs
+ *   once after them; the data sources every piece reads whole; and the
+ *   pieces — how far the run has got while it goes, then how many and about
+ *   what each weighs.
+ * - **The reads that prune**, last: a count from a dataset's index, a key
+ *   seek, a stream that stops.
+ */
+export function planWords(explanation: PlanExplanation, words: QueryWords, run: PlanRun = {}): PlanLine[] {
+    const m = words.messages;
+    const f = words.formatters;
+    const jq = (range: JqRange | null): string | undefined => (range === null ? undefined : explanation.program.slice(range.from, range.to));
+    const lines: PlanLine[] = [];
+    const say = (kind: PlanLine["kind"], text: string, code?: string): void => {
+        lines.push({ kind, text, code });
+    };
+    const totals = (list: readonly { readonly range: JqRange; readonly rule: JqTotal["rule"] }[]): void => {
+        for (const total of list) say("total", m.planTotal({ rule: total.rule }), jq(total.range));
+    };
+    const path = explanation.path;
+    if (path.kind === "one_shot") {
+        const why = path.why;
+        switch (why.kind) {
+            case "whole":
+                say("path", m.planWhole({ code: why.reason.code, name: why.reason.name ?? undefined, at: why.reason.range !== null }), jq(why.reason.range));
+                break;
+            case "small":
+                say("path", m.planSmall({ over: why.over, bytes: byteWords(why.bytes, words), piece: byteWords(why.pieceBytes, words) }));
+                break;
+            case "unweighed":
+                say("path", m.planUnweighed({ over: why.over }));
+                break;
+            case "unsplit":
+                say("path", m.planUnsplit({ message: why.message }));
+                break;
+        }
+    } else {
+        say("path", m.planSplit({ over: path.over, bytes: byteWords(path.bytes, words), piece: byteWords(path.pieceBytes, words) }));
+        say("piece", m.planPiece({ over: path.over }), jq(path.stages.piece));
+        const combine = path.stages.combine;
+        switch (combine.kind) {
+            case "concat":
+                say("combine", m.planCombine({ kind: "concat" }));
+                break;
+            case "totals":
+                say("combine", m.planCombine({ kind: "totals" }));
+                totals(combine.totals);
+                break;
+            case "group":
+                say("combine", m.planCombine({ kind: "group" }), jq(combine.key));
+                if (combine.totals === null) {
+                    say("combine", m.planCombine({ kind: "groupRows" }));
+                } else {
+                    say("combine", m.planCombine({ kind: "groupTotals" }));
+                    totals(combine.totals);
+                }
+                break;
+            case "distinct":
+                say("combine", m.planCombine({ kind: "distinct" }), jq(combine.range));
+                break;
+            case "distinct_by":
+                say("combine", m.planCombine({ kind: "distinctBy" }), jq(combine.key));
+                break;
+            case "reduce":
+                say("combine", m.planCombine({ kind: combine.update === "add" ? "reduceAdd" : "reduceReplace" }), jq(combine.key));
+                break;
+        }
+        if (path.stages.then !== null) say("then", m.planThen(), jq(path.stages.then));
+        if (path.broadcast.length > 0) say("broadcast", m.planBroadcast({ names: m.list({ items: path.broadcast }) }));
+        if (run.progress !== undefined) {
+            say("pieces", planProgressWords(run.progress, words));
+        } else if (run.pieces !== undefined && run.pieces > 0) {
+            say("pieces", m.planPieces({ over: path.over, count: f.number(run.pieces), n: run.pieces, size: byteWords(Math.round(path.bytes / run.pieces), words) }));
+        }
+    }
+    for (const read of explanation.pruning) say("pruning", m.planPruning({ kind: read.kind, name: read.name }), jq(read.range));
+    return lines;
+}
+
+/**
+ * A plan's read-out, beside a run's: `One call`; `Split call`, with how far it
+ * has got while it goes — `Split call · 3 of 12 pieces done` — and how many
+ * pieces it cut once e3 says — `Split call · 12 pieces`.
+ *
+ * @param planned - the run's plan
+ * @param words - the words
+ * @param run - what the run knows of its plan
+ * @returns the read-out
+ */
+export function planBadge(planned: QueryPlan, words: QueryWords, run: PlanRun = {}): string {
+    const m = words.messages;
+    if (planned.kind === "one_shot") return m.planBadge({ split: false, detail: "" });
+    const detail = run.progress !== undefined ? planProgressWords(run.progress, words)
+        : run.pieces !== undefined ? m.planPieceCount({ count: words.formatters.number(run.pieces), n: run.pieces })
+            : "";
+    return m.planBadge({ split: true, detail });
 }

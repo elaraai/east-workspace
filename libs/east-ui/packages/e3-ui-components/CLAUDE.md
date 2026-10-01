@@ -16,6 +16,11 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
 
 ## Architecture
 
+- Two entries (`vite.config.ts`): the package's, which needs a DOM as it
+  loads (its renderers), and `./query` (`src/query/calls.ts`) — a query's
+  calls without the builder: the root, the one-shot call, the plan and its
+  split call, the calls in memory — which loads no React and no renderer,
+  so a host in Node uses it (`test/query/node-safe.spec.ts` guards that).
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —
