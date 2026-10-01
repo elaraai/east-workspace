@@ -124,6 +124,26 @@ export {
     publishSummary,
     publishRefusal,
 } from './studio/index.js';
+
+// The query builder (#875): its East types, which the renderers' step functions take.
+export {
+    Query,
+    QueryAggregateFunctionType,
+    QueryAggregateType,
+    QueryComparisonType,
+    QueryConditionType,
+    QueryDatePartType,
+    QueryGroupByType,
+    QueryMatchType,
+    QueryPickFieldType,
+    QuerySortDirectionType,
+    QueryStepInputType,
+    QueryStepType,
+    QueryStepValueType,
+    QueryStepsType,
+    type QueryNamespace,
+    type QueryTypes,
+} from './query/index.js';
 export {
     Diff,
     DiffComponent,

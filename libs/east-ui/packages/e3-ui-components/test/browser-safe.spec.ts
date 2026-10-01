@@ -91,6 +91,18 @@ test('@elaraai/e3-ui-components bundles for the browser without pulling Node-onl
     );
 });
 
+test('the query builder\'s steps bundle for the browser without pulling Node-only @elaraai/e3 (#933)', async () => {
+    // The package's index reaches the steps only once the builder's renderer imports them (#935),
+    // so they are bundled on their own here: checking, printing and parsing run in the browser.
+    const leaks = await nodeLeaksOf({ entryPoints: [path.join(PKG_DIR, 'src', 'query', 'steps', 'index.ts')] });
+    assert.deepEqual(
+        leaks,
+        [],
+        `Browser bundle of the query builder's steps reached Node-only modules:\n  ${leaks.join('\n  ')}\n` +
+        `Import the e3-free '@elaraai/e3-ui/internal' entry, never the bare '@elaraai/e3-ui' barrel.`,
+    );
+});
+
 test('the @elaraai/e3-ui main barrel is browser-safe — ui() must not drag in @elaraai/e3 node IO (issue #99)', async () => {
     const leaks = await nodeLeaksOf({
         stdin: { contents: 'export * from "@elaraai/e3-ui";', resolveDir: PKG_DIR, loader: 'ts' },
