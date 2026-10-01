@@ -1685,8 +1685,8 @@ builtin is unavailable:
 queries against jq 1.8.1 over the fixture scaled to 100 000 orders: the mock's
 generator drawing on from its seed, so the first 40 are the fixture's, written
 as beast2 for East and as JSON for jq (as jq sees it, §2). Each query runs
-whole-process in east-c, with its inputs eager (`EAST_LAZY_INPUT_BYTES=0`) and
-lazy (`=1`), in east-node and in jq, and in process in TypeScript's compiler
+whole-process in east-c, with its inputs decoded whole (`--decode whole`) and
+lazy (the default), in east-node and in jq, and in process in TypeScript's compiler
 over inputs decoded once. Every East runner's result equals TypeScript's. The
 table is a run's, pasted here by hand; nothing asserts a time.
 

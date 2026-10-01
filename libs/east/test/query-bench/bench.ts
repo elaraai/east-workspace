@@ -195,12 +195,12 @@ for (const q of QUERIES) {
     if (!equal(result, expected)) throw new Error(`${q.name}: ${command} gave another result than TypeScript`);
     return ms;
   };
-  const eager = runners.eastC === null ? null : east(EAST_C, [], [], { EAST_LAZY_INPUT_BYTES: "0" });
-  const lazy = runners.eastC === null ? null : east(EAST_C, [], [], { EAST_LAZY_INPUT_BYTES: "1" });
+  const eager = runners.eastC === null ? null : east(EAST_C, [], ["--decode", "whole"], {});
+  const lazy = runners.eastC === null ? null : east(EAST_C, [], [], {});
   const node = runners.eastNode === null
     ? null
     // east-node finds its platform package from the working directory: the package's own resolves it.
-    : east(process.execPath, [EAST_NODE], ["-p", "@elaraai/east-node-std"], { EAST_LAZY_INPUT_BYTES: "0" }, EAST_NODE_STD);
+    : east(process.execPath, [EAST_NODE], ["-p", "@elaraai/east-node-std", "--decode", "whole"], {}, EAST_NODE_STD);
   const jq = runners.jq === null ? null : time(() => run(JQ, ["-c", q.jq ?? q.program, jsonFile], {}, join(DIR, "jq.json")));
   rows.push(`| ${q.name} | ${cell(eager)} | ${cell(lazy)} | ${cell(node)} | ${cell(typescript)} | ${cell(jq)} |`);
   console.error(`[+] ${q.name}`);
