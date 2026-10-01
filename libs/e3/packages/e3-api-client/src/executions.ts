@@ -348,7 +348,8 @@ export async function dataflowBudget(
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param options - Request options (token, etc.)
- * @throws {ApiError} If cancellation fails or no execution is running
+ * @throws {ApiError} `dataflow_error`, "No active execution for this
+ *   workspace", when no execution is running; or why else the cancel failed
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function dataflowCancel(

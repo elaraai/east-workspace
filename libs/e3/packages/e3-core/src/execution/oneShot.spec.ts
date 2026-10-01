@@ -16,7 +16,7 @@ import { DictType, East, FunctionType, IntegerType, NullType, StringType, encode
 import e3 from '@elaraai/e3';
 import type { OneShotRequest, RunnerValue } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
-import { packageImport } from '../packages.js';
+import { packageImport } from '../package-files.js';
 import { workspaceDeploy } from '../workspaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';

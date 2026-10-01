@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
-import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
+import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
@@ -323,7 +323,7 @@ export const dataBindPagedPlan = example({
         "canvas", "series", "collection", "large", "dataset", "Reactive", "stream",
         "grouped", "children", "rollup", "group",
     ],
-    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns a `{ page, total }` handle the canvas consumes structurally, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
+    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns the paged handle, the row-source contract the canvas recognises by its East type, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The paged handle — the dataset's element type comes from the def,
@@ -459,6 +459,224 @@ export const dataBindPagedIndex = example({
                 value: { header: "Work order" },
                 key:   { header: "Order" },
             }} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ── Several series over one bound source page as blocks (#823) ─────────────
+// A canvas is its series list's blocks, one after another — inline and paged
+// alike. Two series over one bound dataset are two blocks: each pages on its
+// own over the same windows, and one read of a window serves both.
+
+/**
+ * How many units the generated schedule holds. A small authored constant: the
+ * rows themselves come from {@link unitsTask}, which generates them in the
+ * dataflow — a dataset this size is made where data is made, never written
+ * into the package.
+ */
+export const unitCountInput = e3.input('unit_count', IntegerType, variant('value', 3_000n));
+
+/** A generated unit: the weeks it runs, and what it weighs. */
+export const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+
+/**
+ * The units, generated from their count — keyed `U10000`, `U10001`, …: fixed
+ * width, so key order is build order. Each runs two weeks, from one of ten
+ * consecutive weeks starting at W27, and weighs 40 to 119 t.
+ */
+export const generateUnits = East.function([IntegerType], DictType(StringType, UnitRow), ($, count) => {
+    // Monday of ISO week 1, 2026.
+    const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+    return East.Array.range(0n, count).toDict(
+        (_$, i) => East.str`U${i.add(10_000n)}`,
+        ($2, i) => $2.const({
+            start: w1.addWeeks(i.remainder(10n).add(26n)),
+            end: w1.addWeeks(i.remainder(10n).add(28n)),
+            tonnes: i.remainder(80n).add(40n).toFloat(),
+        }, UnitRow),
+    );
+});
+
+/** The task that generates the units — its output is the dataset the canvas pages. */
+export const unitsTask = e3.task('units', [unitCountInput], generateUnits);
+
+export const dataBindPagedBlocks = example({
+    keywords: [
+        "Data", "bindPaged", "paged", "task", "e3.task", "generated", "blocks", "block", "several series", "series",
+        "layout", "window", "windows", "band", "residency", "rebase", "one read", "transport", "footer", "total",
+        "scroll", "virtual", "large", "collection", "keyed", "Dict", "key order", "seek", "key", "prefix",
+        "row-source", "contract", "Plan", "canvas", "Reactive",
+    ],
+    description: "The paged canvas doing the thing it exists for — 3,000 units an `e3.task` generates, bound with `Data.bindPaged(unitsTask)` behind the canvas's 200-element page, so only the opening windows are built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Several series over the one source lay out as BLOCKS, exactly as inline (#823): every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads. Each block pages on its own — its own bands, its own resident run following the viewport, its own rebase on a far jump — while one read of a window serves every block. The footer counts in ELEMENTS, never canvas rows, and marks itself partial until the total is known and reached; the source is keyed, so its windows arrive in the dataset's key order and the canvas's key search seeks its own keys",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The units, a window at a time — the task's output dataset, bound
+            // through the task def: its path and type come from it.
+            const units = $.let(Data.bindPaged(unitsTask));
+            // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const series = $.const([
+                Plan.series.span(UnitRow, {
+                    key: "jobs", title: "Jobs",
+                    label: (_r, k) => k, id: true,
+                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                    runs: (r, k) => [Plan.run({
+                        key: "run", start: r.start, end: r.end, label: East.str`RUN · ${k}`,
+                        quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                        state: "actual",
+                    })],
+                }),
+                Plan.series.span(UnitRow, {
+                    key: "loads", title: "Loads",
+                    label: (_r, k) => East.str`${k} · load`,
+                    runs: (r) => [Plan.run({
+                        key: "run", start: r.start, end: r.end, label: "LOAD", state: "confirmed",
+                    })],
+                }),
+            ], ArrayType(Plan.Types.Series(UnitRow)));
+            // Every canvas DECLARES its window (#822): a paged one could not
+            // fit to data that has not landed.
+            const axis = $.const(Plan.axis({
+                window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+            }));
+            // Bounded, so the canvas virtualizes and each block pages by what is in view.
+            return <Plan axis={axis} data={units} series={series} style={{ maxHeight: "420px" }} />;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ── A Table over a bound tree (#954) ────────────────────────────────────────
+
+/** A bill-of-materials part — an assembly holds its parts (#954). `cost` is the
+ *  part's extended cost; an assembly's own is 0, and its column shows its
+ *  parts' subtotal. */
+export const BomPart = RecursiveType((self) => StructType({
+    part: StringType,
+    sku: StringType,
+    qty: IntegerType,
+    cost: FloatType,
+    parts: ArrayType(self),
+}));
+
+/** Two top-level assemblies, four deep: a bicycle (frame set, drivetrain, a
+ *  wheel set of two wheels) and a tool kit. */
+export const bomInput = e3.input('bom', ArrayType(BomPart), variant('value', [
+    { part: "Bicycle", sku: "BK-100", qty: 1n, cost: 0.0, parts: [
+        { part: "Frame set", sku: "FS-10", qty: 1n, cost: 0.0, parts: [
+            { part: "Frame", sku: "FR-1", qty: 1n, cost: 420.0, parts: [] },
+            { part: "Fork", sku: "FK-2", qty: 1n, cost: 180.0, parts: [] },
+        ] },
+        { part: "Drivetrain", sku: "DT-20", qty: 1n, cost: 0.0, parts: [
+            { part: "Crankset", sku: "CR-3", qty: 1n, cost: 145.0, parts: [] },
+            { part: "Chain", sku: "CH-4", qty: 1n, cost: 32.0, parts: [] },
+            { part: "Cassette", sku: "CS-5", qty: 1n, cost: 68.0, parts: [] },
+        ] },
+        { part: "Wheel set", sku: "WS-30", qty: 1n, cost: 0.0, parts: [
+            { part: "Front wheel", sku: "WF-31", qty: 1n, cost: 0.0, parts: [
+                { part: "Rim", sku: "RM-6", qty: 1n, cost: 55.0, parts: [] },
+                { part: "Hub", sku: "HB-7", qty: 1n, cost: 48.0, parts: [] },
+                { part: "Spokes", sku: "SP-8", qty: 32n, cost: 11.2, parts: [] },
+            ] },
+            { part: "Rear wheel", sku: "WR-32", qty: 1n, cost: 0.0, parts: [
+                { part: "Rim", sku: "RM-6", qty: 1n, cost: 55.0, parts: [] },
+                { part: "Hub", sku: "HB-9", qty: 1n, cost: 62.0, parts: [] },
+                { part: "Spokes", sku: "SP-8", qty: 32n, cost: 11.2, parts: [] },
+            ] },
+        ] },
+    ] },
+    { part: "Tool kit", sku: "TK-40", qty: 1n, cost: 0.0, parts: [
+        { part: "Multi-tool", sku: "MT-11", qty: 1n, cost: 24.0, parts: [] },
+        { part: "Pump", sku: "PM-12", qty: 1n, cost: 29.0, parts: [] },
+    ] },
+]));
+
+export const dataBindPagedTable = example({
+    keywords: [
+        "Data", "bindPaged", "paged", "Table", "tree", "children", "nested", "RecursiveType", "window", "page",
+        "total", "subtotal", "aggregate", "count", "sum", "positional", "Array", "stream order", "sort",
+        "partial", "row-source", "contract", "bill of materials", "#954", "#576",
+    ],
+    description: "A Table over a BOUND dataset — `Data.bindPaged(bom)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const bom = $.let(Data.bindPaged(bomInput));
+            return (
+                <Table
+                    variant="line"
+                    data={bom}
+                    columns={{
+                        part: { header: "Part", width: "240px" },
+                        sku: { header: "SKU · parts", aggregate: "count" },
+                        qty: { header: "Qty" },
+                        cost: { header: "Cost", format: Format.Currency({ currency: "EUR" }), aggregate: "sum" },
+                    }}
+                    tree={{ children: (p) => p.parts }}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ── A Sheet over a bound keyed source (§3.13) ───────────────────────────────
+
+/** How many jobs the generated sheet holds — a small authored constant; {@link jobsTask} makes the rows. */
+export const jobCountInput = e3.input('job_count', IntegerType, variant('value', 600n));
+
+/** A generated job: when it starts, what it is, and how many. */
+export const JobRow = StructType({ start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
+
+/**
+ * The jobs, generated from their count — keyed `J1000`, `J1001`, …: fixed
+ * width, so key order is the order the sheet reads them in, and a key search
+ * addresses real rows. One a day from 5 January, the three tasks in turn.
+ */
+export const generateJobs = East.function([IntegerType], DictType(StringType, JobRow), ($, count) => {
+    const day0 = $.const(new Date("2026-01-05T00:00:00Z"), DateTimeType);
+    const tasks = $.const(["Machining", "Painting", "Packaging"], ArrayType(StringType));
+    return East.Array.range(0n, count).toDict(
+        (_$, i) => East.str`J${i.add(1_000n)}`,
+        ($2, i) => $2.const({
+            start: some(day0.addDays(i)),
+            task: tasks.get(i.remainder(3n)),
+            qty: some(i.multiply(15n).toFloat().add(180.0)),
+        }, JobRow),
+    );
+});
+
+/** The task that generates the jobs — its output is the dataset the sheet pages. */
+export const jobsTask = e3.task('jobs', [jobCountInput], generateJobs);
+
+export const dataBindPagedSheet = example({
+    keywords: [
+        "Data", "bindPaged", "paged", "task", "e3.task", "generated", "Sheet", "Root", "keyed", "Dict", "key order",
+        "window", "page", "seek", "key search", "transport", "partial", "exhausted", "readOnly", "row-source",
+        "contract", "Reactive",
+    ],
+    description: "A paged sheet over a BOUND keyed dataset — `Data.bindPaged(jobsTask)` over the jobs an `e3.task` generates: windows land as the planner scrolls, the footer counts elements, the blank tail appears once the source is exhausted, and key search seeks the dataset's own keys. A keyed source needs no `id` — its key is the row id. Read-only: a sheet edits a paged source only through an authoritative `onApply`, which this one declares none of",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const jobs = $.let(Data.bindPaged(jobsTask));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Sheet
+                        data={jobs}
+                        columns={{
+                            start: Sheet.column.date(JobRow, { header: "Start", width: "96px" }),
+                            task:  Sheet.column.text(JobRow, { header: "Task", width: "180px" }),
+                            qty:   Sheet.column.quantity(JobRow, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                        }}
+                        readOnly={true}
+                        style={{ height: "420px" }}
+                    />
+                    <Text.MonoLabel>Bound dataset · key search and paging</Text.MonoLabel>
+                </VStack>
+            );
         }}</Reactive>
     )),
     inputs: [],

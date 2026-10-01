@@ -18,11 +18,12 @@ import e3 from '@elaraai/e3';
 import { E3_RELEASE, WorkspaceRecordType } from '@elaraai/e3-types';
 import { RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
-import { packageImport } from '../packages.js';
+import { packageImport } from '../package-files.js';
 import { recordHistory, recordSystemCommit } from '../records.js';
 import { REPOSITORY_UPGRADES, repositoryOpen } from '../repository-record.js';
 import { withRunningWork } from '../running-work.js';
-import { workspaceCreate, workspaceDeploy } from '../workspaces.js';
+import { workspaceCreate } from '../workspaces.js';
+import { workspaceDeploy } from '../workspace-files.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
 import type { BackendSetup } from './setup.js';
 

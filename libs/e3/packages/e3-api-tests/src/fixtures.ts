@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
 import { ArrayType, DictType, FunctionType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
-import { Time } from '@elaraai/east-node-std';
+import { Console, Time } from '@elaraai/east-node-std';
 
 /**
  * Create a simple compute package for testing.
@@ -467,11 +467,65 @@ export async function createDiamondPackageZip(
 }
 
 /**
+ * Create a package whose task writes known lines to its stdout.
+ *
+ * Creates a package with:
+ * - Input: "lines" (Integer, default 3)
+ * - Task: "log" - writes `line 0` … `line <lines - 1>` to stdout, a line
+ *   each, and returns how many it wrote
+ *
+ * With the default input its stdout log is {@link LOGGED_LINES}, every
+ * server's alike, which a read of the log by offset and limit is checked
+ * against.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createLoggingPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const lines = e3.input('lines', IntegerType, variant('value', 3n));
+  const task = e3.task(
+    'log',
+    [lines],
+    East.function([IntegerType], IntegerType, ($, n) => {
+      const i = $.let(0n);
+      $.while(East.less(i, n), ($) => {
+        $(Console.log(East.str`line ${i}`));
+        $.assign(i, i.add(1n));
+      });
+      return n;
+    })
+  );
+  const pkg = e3.package(name, version, task);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The stdout log of {@link createLoggingPackageZip}'s task, run on its
+ *  default input. */
+export const LOGGED_LINES = 'line 0\nline 1\nline 2\n';
+
+/**
  * Create a package with a task that always fails.
  *
  * Creates a package with:
  * - Input: "value" (String, default "test")
- * - Task: "failing" - exits with code 1
+ * - Task: "failing" - fails in East as it runs, with the message "failing
+ *   fails, given test"
+ *
+ * The failure is the East body's own, so every server runs it, one that runs
+ * no commands included. A server records it as the runner protocol does: the
+ * task `failed`, exit code 1, with the message in its stderr log.
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -486,8 +540,45 @@ export async function createFailingPackageZip(
   mkdirSync(tempDir, { recursive: true });
 
   const input = e3.input('value', StringType, variant('value', 'test'));
-  const task = e3.customTask(
+  const task = e3.task(
     'failing',
+    [input],
+    East.function([StringType], StringType, ($, value) => $.error(East.str`failing fails, given ${value}`))
+  );
+  const pkg = e3.package(name, version, task);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
+ * Create a package whose task runs a command, which fails.
+ *
+ * Creates a package with:
+ * - Input: "value" (String, default "test")
+ * - Task: "command" - a custom task whose command is `exit 1`
+ *
+ * The suites' one command task. A server that runs commands records it
+ * `failed`, exit code 1; one that runs none records it `error`, saying it runs
+ * no commands (`TestConfig.commands`).
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createCommandPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const input = e3.input('value', StringType, variant('value', 'test'));
+  const task = e3.customTask(
+    'command',
     [input],
     StringType,
     ($, _inputs, _output) => East.str`exit 1`
@@ -546,10 +637,12 @@ export async function createSlowPackageZip(
  * - Input: "b" (Integer, default 4)
  * - Task: "succeed_a" - returns a + b (succeeds)
  * - Task: "succeed_b" - returns a * b (succeeds)
- * - Task: "fail_c" - exits with code 1 (always fails)
+ * - Task: "fail_c" - fails in East as it runs, with the message "fail_c fails,
+ *   given 3" (always fails)
  *
  * All tasks are independent — dispatched in the same Map iteration.
- * Stresses apply-results serialization with mixed success/failure.
+ * Stresses apply-results serialization with mixed success/failure. Every task
+ * is East, so every server runs them.
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -578,11 +671,10 @@ export async function createParallelMixedPackageZip(
     East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.multiply(b))
   );
 
-  const failC = e3.customTask(
+  const failC = e3.task(
     'fail_c',
     [inputA],
-    StringType,
-    ($, _inputs, _output) => East.str`exit 1`
+    East.function([IntegerType], StringType, ($, a) => $.error(East.str`fail_c fails, given ${a}`))
   );
 
   const pkg = e3.package(name, version, succeedA, succeedB, failC);
@@ -600,10 +692,12 @@ export async function createParallelMixedPackageZip(
  * - Input: "a" (Integer, default 10)
  * - Input: "b" (Integer, default 5)
  * - Task: "left" - returns a + b (succeeds)
- * - Task: "right" - exits with code 1 (always fails)
+ * - Task: "right" - fails in East as it runs, with the message "right fails,
+ *   given 10" (always fails)
  * - Task: "merge" - depends on left.output + right.output (should be skipped)
  *
  * Tests that merge is properly skipped and the dataflow completes without stalling.
+ * Every task is East, so every server runs them.
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -626,11 +720,10 @@ export async function createFailingDiamondPackageZip(
     East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b))
   );
 
-  const rightTask = e3.customTask(
+  const rightTask = e3.task(
     'right',
     [inputA],
-    IntegerType,
-    ($, _inputs, _output) => East.str`exit 1`
+    East.function([IntegerType], IntegerType, ($, a) => $.error(East.str`right fails, given ${a}`))
   );
 
   const mergeTask = e3.task(

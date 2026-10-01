@@ -4,10 +4,9 @@
  */
 
 import { Hono } from 'hono';
-import { randomUUID } from 'node:crypto';
 import { variant, none } from '@elaraai/east';
-import { packageResolve, PackageNotFoundError } from '@elaraai/e3-core';
-import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
+import { packageResolve, PackageNotFoundError } from '@elaraai/e3-core/portable';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
 import {
   PackageTransferInitRequestType,
   PackageTransferInitResponseType,
@@ -66,7 +65,7 @@ export function createPackageTransferRoutes(
       }));
     }
 
-    const transferId = randomUUID();
+    const transferId = globalThis.crypto.randomUUID();
     await transferBackend.packageImport.create(transferId, {
       repo,
       size,
@@ -183,7 +182,7 @@ export function createPackageTransferRoutes(
       throw err;
     }
 
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     await transferBackend.packageExport.create(id, {
       repo,
       name,

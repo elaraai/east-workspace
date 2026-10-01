@@ -37,10 +37,11 @@ import * as fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { readBeast2ExtentsRanged, spliceBeast2Tail, variant, type Beast2RangedExtents } from '@elaraai/east';
+import { variant } from '@elaraai/east';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { deliveryPiece } from '../delivery-intake.js';
 import { DeliveryRefusedError } from '../errors.js';
-import { storeDatasetFile } from '../store-collection.js';
+import { storeDatasetFile } from '../store-collection-file.js';
 import { uuidv7 } from '../uuid.js';
 import type { IntakeOptions, IntakeResult, IntakeSpec } from './interfaces.js';
 import { spawnAndCapture, type SpawnAndCaptureResult } from './processExec.js';
@@ -202,9 +203,6 @@ async function stageAndRun(
     'add @elaraai/east-node-cli (or east-c) to the project');
 }
 
-/** How many bytes of a stored delivery a piece's staging reads at once. */
-const PIECE_READ_BYTES = 8 * 1024 * 1024;
-
 /** A run of a stored delivery's segments, staged as a blob of its own. */
 interface StagedPiece {
   /** The run, as the staged blob numbers its segments: all of them. */
@@ -221,10 +219,9 @@ interface StagedPiece {
 
 /**
  * Stages segments `[from, to)` of a delivery the store holds as a blob of their
- * own at `dest`: the delivery's header, the run's frames as they are stored,
- * and a terminator, index and footer for them. That is what an intake of the
- * run reads of the delivery, and all that is read of it, by ranges: its footer
- * and index, its header, and then the run.
+ * own at `dest` ({@link deliveryPiece}): the delivery's header, the run's
+ * frames as they are stored, and a terminator, index and footer for them,
+ * read by ranges.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -247,58 +244,10 @@ async function stagePiece(
   segments: { readonly from: number; readonly to: number },
   dest: string,
 ): Promise<StagedPiece | null> {
-  const { size } = await storage.objects.stat(repo, hash);
-  const store: { failure: { err: unknown } | null } = { failure: null };
-  let extents: Beast2RangedExtents;
-  try {
-    // A probe of the footer alone, so the read that follows is the index: a
-    // run that does not hold the last segments reads none of their bytes.
-    extents = await readBeast2ExtentsRanged(
-      {
-        size,
-        read: async (offset, length) => {
-          try {
-            return await storage.objects.readRange(repo, hash, offset, length);
-          } catch (err) {
-            store.failure = { err };
-            throw err;
-          }
-        },
-      },
-      { tailProbeBytes: 16 },
-    );
-  } catch {
-    // The store's failure is its own; extents that do not parse are the
-    // delivery's, which the runner refuses in its own words, given it whole.
-    if (store.failure !== null) throw store.failure.err;
-    return null;
-  }
-  const count = extents.offsets.length;
-  const { from, to } = segments;
-  if (!extents.selfContained || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > count) return null;
-  const start = extents.offsets[from]!;
-  const end = to < count ? extents.offsets[to]! : extents.segmentsEnd;
-  // The run moves back to follow the header directly.
-  const shift = start - extents.prefixEnd;
-  const table = extents.offsets.slice(from, to).map((offset, i) => ({ offset: offset - shift, count: extents.counts[from + i]! }));
-  await pipeline(async function* () {
-    yield extents.head;
-    for (let at = start; at < end; at += PIECE_READ_BYTES) {
-      const length = Math.min(PIECE_READ_BYTES, end - at);
-      const bytes = await storage.objects.readRange(repo, hash, at, length);
-      if (bytes.length !== length) throw new Error(`object ${hash} ends at ${at + bytes.length}, inside the segments its index names`);
-      yield bytes;
-    }
-    yield spliceBeast2Tail(table, extents.prefixEnd + end - start);
-  }, createWriteStream(dest));
-  return {
-    segments: { from: 0, to: to - from },
-    inDelivery: (refusal) => refusal.replace(
-      /\bsegment (\d+) of the delivery(?:, at offset (\d+))?/g,
-      (_match, n: string, offset: string | undefined) =>
-        `segment ${Number(n) + from} of the delivery${offset === undefined ? '' : `, at offset ${Number(offset) + shift}`}`,
-    ),
-  };
+  const piece = await deliveryPiece(storage, repo, hash, segments);
+  if (piece === null) return null;
+  await pipeline(piece.bytes, createWriteStream(dest));
+  return piece;
 }
 
 /** Removes what a runner wrote for a unit, so another runs it from a clean

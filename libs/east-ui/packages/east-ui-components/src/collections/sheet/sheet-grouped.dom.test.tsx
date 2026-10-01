@@ -18,7 +18,7 @@ import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, East, FloatType, OptionType, StringType, StructType,
+    ArrayType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
     none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged, StatusValueType } from "@elaraai/east-ui";
@@ -389,17 +389,106 @@ describe("the lens on a grouped sheet", () => {
     });
 });
 
+// ── Paged sources, built by hand to the row-source contract ─────────────────
+// Paged data is bound (`Data.bindPaged`), so no package produces one: each
+// source below serves a module-scope fixture of plans a window at a time,
+// keyed by an id that sorts as it streams, so its `seek` addresses real
+// positions. The fixtures and their sources are built here, at module scope —
+// an East body never calls a host helper.
+
+/**
+ * Where a key query lands among sorted String ids. Their order makes every
+ * query's matches ONE contiguous run — `[lo, hi)` — so a hit is its first row
+ * and a count, and a miss carries the row it would sit at. The ids are
+ * Strings: leading struct fields name none of theirs, so `fields` matches only
+ * as its prefix, and a range bounds on its first literal.
+ */
+const SEEK_IDS = East.function([ArrayType(StringType), Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange), ($, ids, query) => {
+    const lo = $.let(0n);
+    const hi = $.let(0n);
+    $.match(query, {
+        key: ($2, literal) => {
+            const k = $2.let(literal.parse(StringType));
+            $2.assign(lo, ids.filter((_$, x) => x.less(k)).size());
+            $2.assign(hi, ids.filter((_$, x) => x.lessEqual(k)).size());
+        },
+        prefix: ($2, p) => {
+            $2.assign(lo, ids.filter((_$, x) => x.less(p)).size());
+            $2.assign(hi, lo.add(ids.filter((_$, x) => x.startsWith(p)).size()));
+        },
+        fields: ($2, f) => {
+            $2.if(f.values.size().equal(0n), ($3) => {
+                const p = $3.let(f.prefix.unwrap("some", () => ""));
+                $3.assign(lo, ids.filter((_$, x) => x.less(p)).size());
+                $3.assign(hi, lo.add(ids.filter((_$, x) => x.startsWith(p)).size()));
+            });
+        },
+        range: ($2, r) => {
+            $2.if(r.from.size().greater(0n), ($3) => {
+                const from = $3.let(r.from.get(0n).parse(StringType));
+                $3.assign(lo, ids.filter((_$, x) => x.less(from)).size());
+            });
+            $2.assign(hi, ids.size());
+            $2.if(r.to.size().greater(0n), ($3) => {
+                const to = $3.let(r.to.get(0n).parse(StringType));
+                $3.assign(hi, ids.filter((_$, x) => x.less(to)).size());
+            });
+            $2.if(hi.less(lo), ($3) => { $3.assign(hi, lo); });
+        },
+    });
+    return some({ found: hi.greater(lo), row: lo, count: hi.subtract(lo) });
+});
+
+type PlanValue = ValueTypeOf<typeof PlanType>;
+const Plans = ArrayType(PlanType);
+/** A window of a plans fixture: its plans from `offset`, at most `limit`, in stream order. */
+const PLANS_WINDOW = East.function([Plans, IntegerType, IntegerType], OptionType(Plans), ($, all, offset, limit) => {
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+/** A fixture serves one snapshot for good: a refresh leaves it there. */
+const ONE_SNAPSHOT = East.function([], OptionType(StringType), () => some("plans-1"));
+const STAYS = East.function([OptionType(StringType)], NullType, () => null);
+
+/** `n` plans of one line each, keyed `P1000`, `P1001`, … */
+const plansOfOneLine = (n: number): PlanValue[] => Array.from({ length: n }, (_x, i) => ({
+    id: `P${i + 1_000}`, name: `Plan ${i}`, owner: "", status: "", total: 0.0,
+    lines: [{ start: none, task: `Task ${i}`, qty: none, status: "" }],
+}));
+/** A PINNED source over `plans` — a bound dataset the planner edits — under `id`. */
+function pinnedOver(id: string, plans: PlanValue[]) {
+    const ids = plans.map((p) => p.id);
+    return {
+        id,
+        page: East.function([IntegerType, IntegerType], OptionType(Plans), ($, offset, limit) => {
+            const window = $.const(PLANS_WINDOW);
+            return window($.const(plans, Plans), offset, limit);
+        }),
+        total: East.function([], OptionType(IntegerType), ($) => {
+            const all = $.const(plans, Plans);
+            return some(all.size());
+        }),
+        seek: some(East.function([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange), ($, query) => {
+            const find = $.const(SEEK_IDS);
+            return find($.const(ids, ArrayType(StringType)), query);
+        })),
+        revision: ONE_SNAPSHOT,
+        refresh: STAYS,
+    };
+}
+const PAGED_PLANS = {
+    10: pinnedOver("sheet_grouped_paged_10", plansOfOneLine(10)),
+    250: pinnedOver("sheet_grouped_paged_250", plansOfOneLine(250)),
+    1000: pinnedOver("sheet_grouped_paged_1000", plansOfOneLine(1_000)),
+    2000: pinnedOver("sheet_grouped_paged_2000", plansOfOneLine(2_000)),
+};
+
 /** A pinned paged source of `n` plans — a bound dataset the planner edits —, one line each, keyed by an id that sorts as it streams. */
-function buildPagedPlans(n: number): SheetRootValue {
-    const count = BigInt(n);
-    const sourceId = `sheet_grouped_paged_${n}`;
+function buildPagedPlans(n: 10 | 250 | 1000 | 2000): SheetRootValue {
     const program = East.function([], UIComponentType, ($) => {
-        const total = $.const(count);
-        const plans = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
-            id: East.str`P${i.add(1000n)}`, name: East.str`Plan ${i}`, owner: "", status: "", total: 0.0,
-            lines: [{ start: none, task: East.str`Task ${i}`, qty: none, status: "" }],
-        }, PlanType)), ArrayType(PlanType));
-        const source = $.const(Paged.pinned(sourceId, plans, { key: (p) => p.id }));
+        const source = $.const(PAGED_PLANS[n], Paged.Types.PinnedSource(Plans));
         return Sheet.Root(source, {
             task: Sheet.column.text(LineType, { header: "Task" }),
         }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) });
@@ -485,24 +574,53 @@ const CutLineType = StructType({ task: StringType, ops: ArrayType(OpType) });
 const CutPlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(CutLineType) });
 const OPS = [{ code: "CUT", name: "Cut to length" }, { code: "DRL", name: "Drill" }];
 
+type CutPlanValue = ValueTypeOf<typeof CutPlanType>;
+const CutPlans = ArrayType(CutPlanType);
+/** A window of a cut-plans fixture: its plans from `offset`, at most `limit`, in stream order. */
+const CUT_PLANS_WINDOW = East.function([CutPlans, IntegerType, IntegerType], OptionType(CutPlans), ($, all, offset, limit) => {
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+/** A source over `plans` under `id`, naming no snapshot — a read-only sheet's. */
+function sourceOver(id: string, plans: CutPlanValue[]) {
+    const ids = plans.map((p) => p.id);
+    return {
+        id,
+        page: East.function([IntegerType, IntegerType], OptionType(CutPlans), ($, offset, limit) => {
+            const window = $.const(CUT_PLANS_WINDOW);
+            return window($.const(plans, CutPlans), offset, limit);
+        }),
+        total: East.function([], OptionType(IntegerType), ($) => {
+            const all = $.const(plans, CutPlans);
+            return some(all.size());
+        }),
+        seek: some(East.function([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange), ($, query) => {
+            const find = $.const(SEEK_IDS);
+            return find($.const(ids, ArrayType(StringType)), query);
+        })),
+    };
+}
+/** 2,000 plans of two lines — `Cut i`, with two operations as its sub rows, and `Fit i` — keyed `P10000`, … */
+const FRAMED = sourceOver("sheet_grouped_framed_2000", Array.from({ length: 2_000 }, (_x, i) => ({
+    id: `P${i + 10_000}`, name: `Plan ${i}`, lines: [{ task: `Cut ${i}`, ops: OPS }, { task: `Fit ${i}`, ops: [] }],
+})));
+/** 2,000 plans keyed `P10000`, …: plans 0–199 one line, every later plan two, none with operations. */
+const VARIED = sourceOver("sheet_grouped_varied_2000", Array.from({ length: 2_000 }, (_x, i) => ({
+    id: `P${i + 10_000}`, name: `Plan ${i}`,
+    lines: i < 200 ? [{ task: "Fit", ops: [] }] : [{ task: "Cut", ops: [] }, { task: "Fit", ops: [] }],
+})));
+
 /**
- * A read-only paged sheet of `n` plans in a 600 px frame (#855): every plan
+ * A read-only paged sheet of 2,000 plans in a 600 px frame (#855): every plan
  * two lines — `Cut i`, with two operations as its sub rows, and `Fit i` —
  * keyed by an id that sorts as it streams. Read-only, a group draws no blank
  * line: a plan is its band and its two lines, 42 + 2 × 36 = 114 px.
  */
-function buildFramedPlans(n: number): SheetRootValue {
-    const count = BigInt(n);
-    const sourceId = `sheet_grouped_framed_${n}`;
+function buildFramedPlans(): SheetRootValue {
     const program = East.function([], UIComponentType, ($) => {
-        const ops = $.const(OPS, ArrayType(OpType));
-        const noOps = $.const([], ArrayType(OpType));
-        const total = $.const(count);
-        const plans = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
-            id: East.str`P${i.add(10000n)}`, name: East.str`Plan ${i}`,
-            lines: [{ task: East.str`Cut ${i}`, ops }, { task: East.str`Fit ${i}`, ops: noOps }],
-        }, CutPlanType)), ArrayType(CutPlanType));
-        const source = $.const(Paged.of(sourceId, plans, { key: (p) => p.id }));
+        const source = $.const(FRAMED, Paged.Types.Source(CutPlans));
         return Sheet.Root(source, {
             task: Sheet.column.text(CutLineType, { header: "Task" }),
         }, {
@@ -523,18 +641,9 @@ function buildFramedPlans(n: number): SheetRootValue {
  * (#878): plans 0–199 have one line (78 px), every later plan two (114 px), so
  * an unvisited window is described at 78 px a plan and lands 7,200 px taller.
  */
-function buildVariedPlans(n: number): SheetRootValue {
-    const count = BigInt(n);
-    const sourceId = `sheet_grouped_varied_${n}`;
+function buildVariedPlans(): SheetRootValue {
     const program = East.function([], UIComponentType, ($) => {
-        const one = $.const([{ task: "Fit", ops: [] }], ArrayType(CutLineType));
-        const two = $.const([{ task: "Cut", ops: [] }, { task: "Fit", ops: [] }], ArrayType(CutLineType));
-        const total = $.const(count);
-        const plans = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
-            id: East.str`P${i.add(10000n)}`, name: East.str`Plan ${i}`,
-            lines: i.less(200n).ifElse(($3) => one, ($3) => two),
-        }, CutPlanType)), ArrayType(CutPlanType));
-        const source = $.const(Paged.of(sourceId, plans, { key: (p) => p.id }));
+        const source = $.const(VARIED, Paged.Types.Source(CutPlans));
         return Sheet.Root(source, {
             task: Sheet.column.text(CutLineType, { header: "Task" }),
         }, {
@@ -744,7 +853,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
 
     test("paged: the anchor's window is fetched first, and the view lands on its item", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P11500", offset: 20, index: 3, element: 1500 } }));
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         // Window 7 (elements 1,400–1,599) is read, plan 1,500's band lands, and the view rests 20 px into it.
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
@@ -755,7 +864,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     test("paged: an anchor past the end of a source that shrank lands on its last item, and hands the viewport back", async () => {
         // Plan 3,500 was in view; the source holds 2,000 plans now.
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P13500", offset: 20, index: 3, element: 3_500 } }));
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         // The last plan's window is fetched, and the last plan is in view.
         await waitFor(() => {
@@ -769,7 +878,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
 
     test("paged: an anchor whose item is gone lands on the item now at its element — not at its index in another run", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P1GONE", offset: 20, index: 3, element: 1_500 } }));
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
@@ -777,7 +886,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     }, 30_000);
 
     test("paged: a view resting over an unloaded band persists the element the band draws there, and comes back to it", async () => {
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         const transport = () => ui.container.querySelector('[data-slot="footerTransport"]')!.textContent;
         await waitFor(() => expect(transport()).toBe("600 loaded of 2,000"));
@@ -790,7 +899,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         await waitFor(() => expect(localStorage.getItem("sheet-grouped-test")).toContain('"key":"band:head"'));
         ui.unmount();
         // The remount's run starts at the top — it draws no head band — and the element brings the view back.
-        const again = mount(buildFramedPlans(2_000));
+        const again = mount(buildFramedPlans());
         const g = framed(again);
         await waitFor(() => expect(again.band("P10250")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(g.frame().scrollTop).toBe(g.bandTop("P10250")));
@@ -819,7 +928,7 @@ describe("what the viewer arranged survives a remount (#857)", () => {
 
     test("paged: a band is never an anchor's item — one persisted over the tail band lands on its element, not on the band a remount draws", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "band:tail", offset: 20, index: 1, element: 1_500 } }));
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
@@ -892,7 +1001,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
     }
 
     test("the document is every plan's height from the first landing, and after a far scroll every plan sits where the geometry put it — windows landing above and leaving the run move nothing", async () => {
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
         // Three windows landed, seven described: the document is all 2,000 plans.
@@ -911,7 +1020,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
     }, 30_000);
 
     test("a window landing above the rows in view leaves them where they are", async () => {
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
         f.scrollTo(1_500 * PLAN_PX);
@@ -927,7 +1036,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
     }, 30_000);
 
     test("what a planner opens and folds counts: the window is re-measured, and leaving the run it leaves exactly what its rows drew", async () => {
-        const ui = mount(buildFramedPlans(2_000));
+        const ui = mount(buildFramedPlans());
         const f = framed(ui);
         await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
         // Plan 0's first line opens its two operations (2 × 30 px), and plan 1
@@ -963,7 +1072,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         });
 
         test("lands above the rows in view and leaves them where they are — the view follows its rows, not its estimate", async () => {
-            const ui = mount(buildVariedPlans(2_000));
+            const ui = mount(buildVariedPlans());
             const f = framed(ui);
             await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
             // Unvisited windows are described at the first window's 78 px a plan.

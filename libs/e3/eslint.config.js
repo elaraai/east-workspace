@@ -2,13 +2,13 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 
-// BSL 1.1 packages: e3-core, e3-cli, e3-api-client, e3-api-server
+// BSL 1.1 packages: e3-core, e3-cli, e3-api-client, e3-api-server, e3-web
 const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under BSL 1.1. See LICENSE for details.';
 
 // Dual AGPL-3.0 / Commercial packages: e3, e3-types
 const agplHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.';
 
-const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server'];
+const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-web'];
 const agplPackages = ['e3', 'e3-types'];
 
 const baseRules = {
@@ -174,6 +174,29 @@ export default [
   // in the package's test entry (BSL 1.1)
   {
     files: ['packages/e3-core/src/contract/**/*.ts'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        project: true
+      }
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+      'headers': headers
+    },
+    rules: {
+      ...testRules,
+      'headers/header-format': ['error', {
+        source: 'string',
+        content: bslHeader
+      }]
+    }
+  },
+  // e3-web's test code beside its specs: the adapters' contract and the
+  // assertions it runs with in Node and in a page, and the Chromium harness
+  // with its test pages (BSL 1.1)
+  {
+    files: ['packages/e3-web/src/testing/**/*.ts', 'packages/e3-web/src/browser/**/*.ts'],
     languageOptions: {
       parser: tsparser,
       parserOptions: {

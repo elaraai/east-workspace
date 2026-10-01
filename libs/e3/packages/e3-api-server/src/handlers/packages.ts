@@ -8,8 +8,8 @@ import {
   packageList,
   packageRemove,
   packageRead,
-} from '@elaraai/e3-core';
-import type { StorageBackend } from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
+import type { StorageBackend } from '@elaraai/e3-core/portable';
 import { PackageObjectType } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';

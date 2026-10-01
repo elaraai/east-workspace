@@ -1,16 +1,16 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1234,
-    "totalFiles": 202,
+    "totalEntries": 1231,
+    "totalFiles": 201,
     "packages": {
       "east": 557,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 389,
-      "e3-ui": 47,
-      "e3": 15,
+      "east-ui": 380,
+      "e3-ui": 51,
+      "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
     }
@@ -31410,247 +31410,6 @@
       "source": "// Pivot grid — rows and columns derive from filtered records; the threshold slider reshapes both axes\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const BookingArrayType = ArrayType(StructType({ resource: StringType, day: StringType, load: FloatType }));\n            const bookings = $.const([\n                { resource: \"Alice\", day: \"Mon\", load: 0.90 },\n                { resource: \"Alice\", day: \"Tue\", load: 0.30 },\n                { resource: \"Alice\", day: \"Wed\", load: 0.60 },\n                { resource: \"Bob\", day: \"Mon\", load: 0.20 },\n                { resource: \"Bob\", day: \"Wed\", load: 0.80 },\n                { resource: \"Carol\", day: \"Tue\", load: 0.50 },\n                { resource: \"Carol\", day: \"Thu\", load: 0.95 },\n                { resource: \"Dave\", day: \"Fri\", load: 0.15 },\n            ], BookingArrayType);\n            const thresholdBind = $.let(State.bind([FloatType], \"matrix_pivot_threshold\", 0.0));\n            const threshold = $.let(thresholdBind.read());\n            const onThreshold = $.const(East.function([FloatType], NullType, ($, next) => {\n                $(thresholdBind.write(next));\n            }));\n            const kept = $.let(bookings.filter(($, b) => b.load.greaterEqual(threshold)));\n            const dayKeys = $.let(kept.toSet(($, b) => b.day).toArray());\n            const resourceKeys = $.let(kept.toSet(($, b) => b.resource).toArray());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Slider value={threshold} min={0} max={1} step={0.05} onChange={onThreshold} />\n                    {<Text.MonoLabel>{East.str`THRESHOLD ${East.print(threshold)} · ${resourceKeys.size()} ROWS × ${dayKeys.size()} COLS`}</Text.MonoLabel>}\n                    <Matrix\n                        data={resourceKeys.map(($, name) => ({\n                            name,\n                            loads: dayKeys.toDict(\n                                ($, day) => day,\n                                ($, day) => kept.filter(($, b) => b.resource.equal(name).and(() => b.day.equal(day))).sum(($, b) => b.load),\n                            ),\n                        }))}\n                        columns={dayKeys.map(($, day) => Matrix.column({ key: day, label: day }))}\n                        rowKey={r => r.name}\n                        rowHeader=\"Resource\"\n                        cell={(r, col) => Matrix.cell({ segments: [\n                            Matrix.segment({ fill: \"brand\", weight: r.loads.get(col.key), label: East.str`${r.loads.get(col.key).multiply(100.0)}%` }),\n                            Matrix.segment({ fill: \"free\", weight: East.value(1.0, FloatType).subtract(r.loads.get(col.key)) }),\n                        ] })}\n                        legend={[{ fill: \"brand\", label: \"Booked\" }, { fill: \"free\", label: \"Free\" }]}\n                    />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
-      "id": "east-ui:paged-source.examples.tsx:pagedSourceCanvas",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "Window a collection already in hand — `Paged.of` over a KEYED dict serves DICT windows in canonical key order (the same shape and order a keyed dataset's windows arrive in), reports an exact total, and derives `seek` from the keys themselves, so a search result addresses the rows its entry makes; the canvas consumes it exactly as it consumes a bound source, which is what makes the whole paged path — windowing, exhaustion on an empty window, totals, key search — runnable with no server",
-      "keywords": [
-        "Paged",
-        "of",
-        "paged",
-        "source",
-        "window",
-        "page",
-        "total",
-        "seek",
-        "key",
-        "prefix",
-        "row-source",
-        "contract",
-        "in-memory",
-        "Plan",
-        "canvas",
-        "keyed",
-        "Dict",
-        "key order",
-        "offline"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// Window a collection already in hand — `Paged.of` over a KEYED dict serves DICT windows in canonical key order (the same shape and order a keyed dataset's windows arrive in), reports an exact total, and derives `seek` from the keys themselves, so a search result addresses the rows its entry makes; the canvas consumes it exactly as it consumes a bound source, which is what makes the whole paged path — windowing, exhaustion on an empty window, totals, key search — runnable with no server\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        // KEYED: `page` windows this order, `seek` searches it, and a row's id\n        // path starts with its entry's key (#822), so a hit addresses the rows\n        // that entry makes. The authored order is irrelevant — a Dict is\n        // canonical.\n        const units = $.const(new Map([\n            [\"L1-M07\", { start: week(27n), end: week(30n), tonnes: 64.0 }],\n            [\"L1-M09\", { start: week(28n), end: week(32n), tonnes: 112.0 }],\n            [\"L2-M11\", { start: week(30n), end: week(34n), tonnes: 92.0 }],\n            [\"L2-M12\", { start: week(33n), end: week(38n), tonnes: 88.0 }],\n        ]), DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                key: \"units\", title: \"Units\",\n                label: (_r, k) => k, id: true,\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`,\n                    quantity: Plan.quantity(r.tonnes, { unit: \"t\", format: Format.Number({ maximumFractionDigits: 0n }) }),\n                    state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        // Every canvas DECLARES its window (#822): a paged one could not fit to\n        // data that has not landed, so an inline one does not either.\n        const axis = $.const(Plan.axis({\n            window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n),\n        }));\n        return <Plan axis={axis} data={source} series={series} />;\n    })"
-    },
-    {
-      "id": "east-ui:paged-source.examples.tsx:pagedTableSource",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), as a Plan's row windows do too, its rows carrying their own typed ids. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table",
-      "keywords": [
-        "Paged",
-        "of",
-        "paged",
-        "source",
-        "Table",
-        "window",
-        "page",
-        "total",
-        "row-source",
-        "contract",
-        "positional",
-        "sort",
-        "partial",
-        "in-memory"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), as a Plan's row windows do too, its rows carrying their own typed ids. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const([\n            { unit: \"L1-M07\", line: \"Line 1\", tonnes: 64.0 },\n            { unit: \"L1-M09\", line: \"Line 1\", tonnes: 112.0 },\n            { unit: \"L2-M11\", line: \"Line 2\", tonnes: 92.0 },\n            { unit: \"L2-M12\", line: \"Line 2\", tonnes: 88.0 },\n        ], ArrayType(UnitRow));\n        // POSITIONAL: an array source, so no key accessor and no `seek` — an\n        // Array's stream order has nothing to binary-search.\n        const source = $.const(Paged.of(\"units\", units));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
-    },
-    {
-      "id": "east-ui:paged-source.examples.tsx:pagedSourceTrimmed",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "A source that serves SHORT windows still gives a component WHOLE ones — `pageLimit` trims every window the way e3 trims pages of wide elements to its byte budget, and the component's derived `page` re-requests whatever a trimmed window left out, so no element is ever skipped. Set `pageLimit` in examples and tests to exercise the path a dataset of wide rows takes in production",
-      "keywords": [
-        "Paged",
-        "of",
-        "pageLimit",
-        "trim",
-        "trimmed",
-        "short window",
-        "byte budget",
-        "whole windows",
-        "paged",
-        "source",
-        "Table",
-        "row-source",
-        "contract",
-        "offline"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A source that serves SHORT windows still gives a component WHOLE ones — `pageLimit` trims every window the way e3 trims pages of wide elements to its byte budget, and the component's derived `page` re-requests whatever a trimmed window left out, so no element is ever skipped. Set `pageLimit` in examples and tests to exercise the path a dataset of wide rows takes in production\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const(TRIMMED_UNITS, ArrayType(UnitRow));\n        // At most 25 elements per window, whatever the table asks for.\n        const source = $.const(Paged.of(\"units\", units, { pageLimit: 25 }));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
-    },
-    {
-      "id": "east-ui:paged-source.examples.tsx:pagedSourceWindows",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable",
-      "keywords": [
-        "Paged",
-        "of",
-        "paged",
-        "window",
-        "windows",
-        "band",
-        "transport",
-        "footer",
-        "total",
-        "scroll",
-        "virtual",
-        "large",
-        "collection",
-        "Plan",
-        "canvas",
-        "key order",
-        "residency",
-        "offline"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        const units = $.const(WIDE_UNITS, DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                key: \"units\", title: \"Units\",\n                label: (_r, k) => k, id: true,\n                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`, state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        const axis = $.const(Plan.axis({\n            window: { min: mondayOfWeek(27), max: mondayOfWeek(40) }, resolution: \"week\",\n            now: mondayOfWeek(31),\n        }));\n        // Bounded, so the canvas virtualizes: an unbounded paged canvas would\n        // mount every resident row at once and page purely on demand.\n        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: \"420px\" }} />;\n    })"
-    },
-    {
-      "id": "east-ui:paged-source.examples.tsx:indexWindowQueue",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "A queue view rendered from INDEX pages alone — the window a record's secondary index serves, which is an ordered array of `{ik, key, value, row}` rather than a keyed collection, because a Dict would re-sort by its own key and throw the index order away. Every entry carries the index key it sorts under, the row's own key, and the covering projection the view renders; `row` stays `none` because nothing here asked to join, which is the whole point of a covering index — the view touches the index's segments and none of the record's",
-      "keywords": [
-        "Paged",
-        "of",
-        "index",
-        "window",
-        "ordered",
-        "queue",
-        "covering",
-        "projection",
-        "Table",
-        "row-source",
-        "contract",
-        "secondary index",
-        "record",
-        "by_status",
-        "ik",
-        "key",
-        "value",
-        "row"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A queue view rendered from INDEX pages alone — the window a record's secondary index serves, which is an ordered array of `{ik, key, value, row}` rather than a keyed collection, because a Dict would re-sort by its own key and throw the index order away. Every entry carries the index key it sorts under, the row's own key, and the covering projection the view renders; `row` stays `none` because nothing here asked to join, which is the whole point of a covering index — the view touches the index's segments and none of the record's\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const StatusKey = StructType({ status: StringType, due: IntegerType });\n        const PlanRow = StructType({ title: StringType, owner: StringType });\n        const Entry = StructType({\n            ik: StatusKey, key: StringType, value: StringType, row: OptionType(PlanRow),\n        });\n        // What `Data.bindPaged(plans, { index: byStatus })` serves: the index's\n        // own order — every `late` entry before every `ok` one, whatever the\n        // plans' own keys are.\n        const entries = $.const([\n            { ik: { status: \"late\", due: 2n }, key: \"p-03\", value: \"Reline kiln 2\", row: none },\n            { ik: { status: \"late\", due: 5n }, key: \"p-11\", value: \"Swap conveyor belt\", row: none },\n            { ik: { status: \"ok\", due: 1n }, key: \"p-07\", value: \"Weekly calibration\", row: none },\n            { ik: { status: \"ok\", due: 9n }, key: \"p-02\", value: \"Quarterly audit\", row: none },\n        ], ArrayType(Entry));\n        const source = $.const(Paged.of(\"plans@by_status\", entries));\n        return <Table data={source} columns={{\n            ik: { header: \"Status\", value: (ik) => ik.status },\n            value: { header: \"Plan\" },\n            key: { header: \"Key\" },\n        }} />;\n    })"
-    },
-    {
-      "id": "east-ui:paged-source.examples.tsx:pagedSourceBlocks",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "Several series over ONE paged source lay out as BLOCKS, exactly as inline (#823) — every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads, then the next window's. Each block pages on its own: its own bands, sized from its own ledger, its own resident run following the viewport, and its own rebase on a far jump — while one read of a window serves every block. 3,000 units, generated in East, behind the canvas's 200-element page",
-      "keywords": [
-        "Paged",
-        "of",
-        "paged",
-        "blocks",
-        "block",
-        "several series",
-        "series",
-        "layout",
-        "window",
-        "band",
-        "residency",
-        "rebase",
-        "one read",
-        "Plan",
-        "canvas",
-        "offline"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// Several series over ONE paged source lay out as BLOCKS, exactly as inline (#823) — every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads, then the next window's. Each block pages on its own: its own bands, sized from its own ledger, its own resident run following the viewport, and its own rebase on a far jump — while one read of a window serves every block. 3,000 units, generated in East, behind the canvas's 200-element page\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        // Generated in East, keyed U10000…U12999: fixed width, so key order is\n        // build order.\n        const units = $.let(East.Array.range(0n, 3_000n).toDict(\n            (_$, i) => East.str`U${i.add(10_000n)}`,\n            ($2, i) => $2.const({\n                start: week(i.remainder(10n).add(27n)),\n                end: week(i.remainder(10n).add(29n)),\n                tonnes: i.remainder(80n).add(40n).toFloat(),\n            }, UnitRow),\n        ), DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                key: \"jobs\", title: \"Jobs\",\n                label: (_r, k) => k, id: true,\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end, label: East.str`RUN · ${k}`, state: \"actual\",\n                })],\n            }),\n            Plan.series.span(UnitRow, {\n                key: \"loads\", title: \"Loads\",\n                label: (_r, k) => East.str`${k} · load`,\n                runs: (r) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end, label: \"LOAD\", state: \"confirmed\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        const axis = $.const(Plan.axis({\n            window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n),\n        }));\n        // Bounded, so the canvas virtualizes and each block pages by what is in view.\n        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: \"420px\" }} />;\n    })"
-    },
-    {
-      "id": "east-ui:paged-source.examples.tsx:pagedSnapshotRevision",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
-      "suite": "",
-      "test": "A PINNED in-memory source — `Paged.pinned` names its snapshot, as a dataset's handle does, so it is the fixture a view that edits or follows its source takes. Its revision is its id, for good: refresh(none) and refresh(some(id)) keep it, and any other target throws, since an in-memory source cannot move. A bound source refreshes to none to find its current content, or to some(hash) to move to a write it confirmed",
-      "keywords": [
-        "Paged",
-        "pinned",
-        "revision",
-        "refresh",
-        "snapshot",
-        "immutable",
-        "PinnedSource",
-        "fixture",
-        "editing"
-      ],
-      "imports": [
-        "import {",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Format, Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A PINNED in-memory source — `Paged.pinned` names its snapshot, as a dataset's handle does, so it is the fixture a view that edits or follows its source takes. Its revision is its id, for good: refresh(none) and refresh(some(id)) keep it, and any other target throws, since an in-memory source cannot move. A bound source refreshes to none to find its current content, or to some(hash) to move to a write it confirmed\n// inputs: []\nEast.function([], UIComponentType, $ => {\n        const rows = $.const([{ id: \"r1\", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));\n        const source = $.let(Paged.pinned(\"orders:fixture-1\", rows));\n        $(source.refresh(none));\n        $(source.refresh(some(\"orders:fixture-1\")));\n        return <Text>{East.str`Snapshot: ${source.revision().unwrap(\"some\")}`}</Text>;\n    })"
-    },
-    {
       "id": "east-ui:pagination.examples.tsx:paginationBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -33846,41 +33605,6 @@
       "source": "// Grouped work packages — edit names and child rows, fold groups, create drafts with explicit defaults, then apply or undo the batch\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const JobType = StructType({ task: StringType, qty: OptionType(FloatType), notes: StringType, createdBy: StringType });\n            const PackageType = StructType({ id: StringType, name: StringType, owner: StringType, jobs: ArrayType(JobType) });\n            const packages = $.let(State.bind([ArrayType(PackageType)], \"sheet_grouped_packages\", [\n                { id: \"roughing\", name: \"P-40 · Roughing\", owner: \"planner\", jobs: [\n                    { task: \"Machine blanks\", qty: some(1200.0), notes: \"Four CNC lathes\", createdBy: \"planner\" },\n                    { task: \"Inspect lots\", qty: some(4.0), notes: \"Check before finishing\", createdBy: \"planner\" },\n                ] },\n                { id: \"finishing\", name: \"P-40 · Finishing\", owner: \"planner\", jobs: [\n                    { task: \"Finish housings\", qty: some(1200.0), notes: \"After inspection\", createdBy: \"planner\" },\n                    { task: \"Pack for assembly\", qty: some(100.0), notes: \"Twelve per carton\", createdBy: \"planner\" },\n                ] },\n            ]));\n            const applied = $.let(packages.read());\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Text textStyle=\"caption\" color=\"fg.muted\">Edit a package name or task. Use the gutter + to insert a task, or the stacked-rows + button to create a package at a group boundary. Apply changes saves the batch; Undo and Redo retain each gesture.</Text>\n                    <Sheet\n                        data={packages}\n                        id=\"id\"\n                        group={Sheet.group(PackageType, \"jobs\", { title: \"name\" })}\n                        ready={{ group: East.function([Sheet.Types.DraftGroup(PackageType, \"jobs\")], Sheet.Types.Readiness, ($, group) => {\n                            $.if(group.name.hasTag(\"value\").and(() => group.name.unwrap(\"value\").length().equal(0n)), $ => {\n                                $.return(East.value(variant(\"incomplete\", [{ field: \"name\", message: \"Name the work package\" }]), Sheet.Types.Readiness));\n                            });\n                            return East.value(variant(\"ready\", null), Sheet.Types.Readiness);\n                        }) }}\n                        columns={{\n                            task: Sheet.column.text(JobType, { header: \"Task\", width: \"240px\" }),\n                            qty: Sheet.column.quantity(JobType, { header: \"Qty\", width: \"112px\" }),\n                            notes: Sheet.column.text(JobType, { header: \"Notes\", width: \"300px\" }),\n                        }}\n                        newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {\n                            notes: \"\", createdBy: \"planner\",\n                        }))}\n                        newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(PackageType), () => Sheet.patch(PackageType, {\n                            owner: \"planner\", jobs: [],\n                        }))}\n                        onUpdate={packages.write}\n                        style={{ height: \"440px\" }}\n                    />\n                    <Text.MonoLabel>{East.str`SAVED · ${applied.length()} packages · ${applied.map((_$, p) => p.jobs.length()).sum()} tasks`}</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
-      "id": "east-ui:sheet.examples.tsx:sheetPaged",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/sheet.examples.tsx",
-      "suite": "",
-      "test": "A paged sheet — the same tag over a Paged.of source keyed by id: windows land on scroll, the footer counts elements, key search seeks the source, and its immutable snapshot stays read-only",
-      "keywords": [
-        "Sheet",
-        "Root",
-        "paged",
-        "Paged",
-        "of",
-        "window",
-        "page",
-        "seek",
-        "key search",
-        "transport",
-        "partial",
-        "exhausted",
-        "onPatch",
-        "journal",
-        "row-source",
-        "Reactive",
-        "State"
-      ],
-      "imports": [
-        "import {",
-        "import {"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A paged sheet — the same tag over a Paged.of source keyed by id: windows land on scroll, the footer counts elements, key search seeks the source, and its immutable snapshot stays read-only\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });\n            // Six hundred rows behind a source that windows them — keyed by id,\n            // which sorts as the sheet reads, so `seek` addresses real rows.\n            const rows = $.const(East.Array.generate(600n, JobType, (_$, i) => ({\n                id: East.str`J${i.add(1000n)}`,\n                start: some(East.value(new Date(\"2026-01-05T00:00:00Z\"), DateTimeType).addDays(i)),\n                task: i.remainder(3n).equal(0n).ifElse((_$2) => \"Machining\", (_$2) => i.remainder(3n).equal(1n).ifElse((_$3) => \"Painting\", (_$3) => \"Packaging\")),\n                qty: some(i.multiply(15n).toFloat().add(180.0)),\n            })), ArrayType(JobType));\n            const source = $.const(Paged.of(\"sheet_paged_jobs\", rows, { key: r => r.id }));   // Data.bindPaged(planInput) in e3-ui\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Sheet\n                        data={source}\n                        id=\"id\"\n                        columns={{\n                            start: Sheet.column.date(JobType, { header: \"Start\", width: \"96px\" }),\n                            task:  Sheet.column.text(JobType, { header: \"Task\", width: \"180px\" }),\n                            qty:   Sheet.column.quantity(JobType, { header: \"Qty\", width: \"112px\", format: Format.Number({ maximumFractionDigits: 0n }) }),\n                        }}\n                        style={{ height: \"420px\" }}\n                    />\n                    <Text.MonoLabel>Immutable snapshot · key search and paging</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
-    },
-    {
       "id": "east-ui:sheet.examples.tsx:sheetStress",
       "skill": "east-ui",
       "package": "east-ui",
@@ -34126,7 +33850,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34164,7 +33888,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34190,7 +33914,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34221,7 +33945,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34255,7 +33979,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34295,7 +34019,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34331,46 +34055,13 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// A four-deep bill of materials from the data's own tree — cost subtotals in the column's currency format, a leaf-part count and a collapsed assembly\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const bom = $.const(BOM, ArrayType(BomPart));\n        return (\n            <Table\n                variant=\"line\"\n                data={bom}\n                columns={{\n                    part: { header: \"Part\", width: \"240px\" },\n                    sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                    qty: { header: \"Qty\" },\n                    cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                }}\n                tree={{\n                    children: (p) => p.parts,\n                    collapsed: (p) => p.part.equal(\"Wheel set\"),\n                }}\n            />\n        );\n    })"
-    },
-    {
-      "id": "east-ui:table.examples.tsx:tableTreePaged",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/collections/table.examples.tsx",
-      "suite": "",
-      "test": "The bill of materials over a paged source — windows of whole top-level assemblies, subtotals exact as inline",
-      "keywords": [
-        "Table",
-        "Root",
-        "tree",
-        "children",
-        "nested",
-        "paged",
-        "Paged",
-        "Paged.of",
-        "pageLimit",
-        "window",
-        "subtotal",
-        "aggregate",
-        "#954",
-        "#576"
-      ],
-      "imports": [
-        "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// The bill of materials over a paged source — windows of whole top-level assemblies, subtotals exact as inline\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const bom = $.const(BOM, ArrayType(BomPart));\n        const source = $.const(Paged.of(\"table-tree-bom\", bom, { pageLimit: 1 }));\n        return (\n            <Table\n                variant=\"line\"\n                data={source}\n                columns={{\n                    part: { header: \"Part\", width: \"240px\" },\n                    sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                    qty: { header: \"Qty\" },\n                    cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                }}\n                tree={{ children: (p) => p.parts }}\n            />\n        );\n    })"
     },
     {
       "id": "east-ui:table.examples.tsx:tableVariants",
@@ -34421,7 +34112,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34453,7 +34144,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34479,7 +34170,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -34513,7 +34204,7 @@
       ],
       "imports": [
         "import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Paged, State, Style, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { State, Style, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from \"@elaraai/east-ui\";"
       ],
       "languages": [
@@ -41975,8 +41666,8 @@
         "read"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -42011,8 +41702,8 @@
         "conditional"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -42037,8 +41728,8 @@
         "transactional"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -42071,8 +41762,8 @@
         "diff"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -42087,7 +41778,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
-      "test": "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns a `{ page, total }` handle the canvas consumes structurally, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
+      "test": "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns the paged handle, the row-source contract the canvas recognises by its East type, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
       "keywords": [
         "Data",
         "bindPaged",
@@ -42110,15 +41801,15 @@
         "group"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns a `{ page, total }` handle the canvas consumes structurally, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // The paged handle — the dataset's element type comes from the def,\n            // so `page(offset, limit)` is typed Option<Dict<String, OpsLine>>\n            // with no decode step to write.\n            const paged = $.let(Data.bindPaged(opsInput));\n            // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The stored\n            // rows carry week INDICES; instants are the series' business.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const series = $.const([\n                // Lines — one span row per line whose own runs are none: it\n                // DECLARES a union rollup, so its ×k concurrency bands are the\n                // renderer's, over the machines stepped down into from the\n                // line's own entry — exact in every window, since a line\n                // arrives with all of its machines.\n                Plan.series.span(OpsLine, {\n                    key: \"lines\", title: \"Lines\",\n                    match: (_l, line) => line.equal(\"Docks\").not(),\n                    label: (_l, line) => line,\n                    runs: _l => [],\n                    rollup: \"union\",\n                    children: Plan.children((l) => l, [\n                        // Machines — each flat row becomes TWO bars: a one-week\n                        // setup ahead of the job, then the run itself, with its\n                        // label and quantity built from the batch code and tonnage\n                        // (a quantity carries its unit — the line's bands sum by it).\n                        Plan.series.span(OpsRow, {\n                            key: \"machines\", title: \"Machines\",\n                            label: (_r, k) => k, id: true,\n                            value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                            runs: r => [\n                                Plan.run({\n                                    key: East.str`${r.batch}-set`,\n                                    start: week(r.startWeek.subtract(1n)), end: week(r.startWeek),\n                                    label: \"SET\", state: r.state,\n                                }),\n                                Plan.run({\n                                    key: r.batch,\n                                    start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),\n                                    label: East.str`RUN · ${r.batch}`,\n                                    quantity: Plan.quantity(r.tonnes, { unit: \"t\", format: Format.Number({ maximumFractionDigits: 0n }) }),\n                                    state: r.state,\n                                }),\n                            ],\n                        }),\n                    ]),\n                }),\n                // Docks — one collapsed group strip, its mean derived from the\n                // berths it nests: the SAME flat row read as a load strip, one\n                // scalar `load` expanded by `East.Array.generate` into a cell\n                // per week, drifting with a per-berth phase so the strip reads\n                // as a real profile rather than a flat band.\n                Plan.series.group(OpsLine, {\n                    key: \"docks\", title: \"Docks\",\n                    match: (_l, line) => line.equal(\"Docks\"),\n                    label: (_l, line) => line,\n                    collapsed: true, summaryAggregate: \"mean\",\n                    children: Plan.children((l) => l, [\n                        Plan.series.heat(OpsRow, {\n                            key: \"berths\", title: \"Berths\",\n                            label: (_r, k) => k, id: true,\n                            cells: r => Plan.heatCells(\n                                East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {\n                                    const drift = $.let(i.toFloat().multiply(2.5).subtract(6.0), FloatType);\n                                    const value = $.let(r.load.add(drift), FloatType);\n                                    // A heat cell is a stored RECORD, so its instant is\n                                    // spelled — `Plan.at.time` on the time arm (#631).\n                                    return {\n                                        at: Plan.at.time(week(r.startWeek.add(i))),\n                                        value: some(value),\n                                        label: some(East.Float.printFixed(value, 0n)),\n                                    };\n                                }),\n                                { min: 0, max: 100, warnAt: 95 },\n                            ),\n                        }),\n                    ]),\n                }),\n            ], ArrayType(Plan.Types.Series(OpsLine)));\n            const axis = $.const(Plan.axis({\n                window: { min: week(24n), max: week(42n) },\n                resolution: \"week\", resolutions: [\"month\", \"week\", \"day\"], now: week(31n),\n            }));\n            return <Plan axis={axis} data={paged} series={series} />;\n        }}</Reactive>\n    ))"
+      "source": "// Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns the paged handle, the row-source contract the canvas recognises by its East type, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // The paged handle — the dataset's element type comes from the def,\n            // so `page(offset, limit)` is typed Option<Dict<String, OpsLine>>\n            // with no decode step to write.\n            const paged = $.let(Data.bindPaged(opsInput));\n            // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The stored\n            // rows carry week INDICES; instants are the series' business.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const series = $.const([\n                // Lines — one span row per line whose own runs are none: it\n                // DECLARES a union rollup, so its ×k concurrency bands are the\n                // renderer's, over the machines stepped down into from the\n                // line's own entry — exact in every window, since a line\n                // arrives with all of its machines.\n                Plan.series.span(OpsLine, {\n                    key: \"lines\", title: \"Lines\",\n                    match: (_l, line) => line.equal(\"Docks\").not(),\n                    label: (_l, line) => line,\n                    runs: _l => [],\n                    rollup: \"union\",\n                    children: Plan.children((l) => l, [\n                        // Machines — each flat row becomes TWO bars: a one-week\n                        // setup ahead of the job, then the run itself, with its\n                        // label and quantity built from the batch code and tonnage\n                        // (a quantity carries its unit — the line's bands sum by it).\n                        Plan.series.span(OpsRow, {\n                            key: \"machines\", title: \"Machines\",\n                            label: (_r, k) => k, id: true,\n                            value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                            runs: r => [\n                                Plan.run({\n                                    key: East.str`${r.batch}-set`,\n                                    start: week(r.startWeek.subtract(1n)), end: week(r.startWeek),\n                                    label: \"SET\", state: r.state,\n                                }),\n                                Plan.run({\n                                    key: r.batch,\n                                    start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),\n                                    label: East.str`RUN · ${r.batch}`,\n                                    quantity: Plan.quantity(r.tonnes, { unit: \"t\", format: Format.Number({ maximumFractionDigits: 0n }) }),\n                                    state: r.state,\n                                }),\n                            ],\n                        }),\n                    ]),\n                }),\n                // Docks — one collapsed group strip, its mean derived from the\n                // berths it nests: the SAME flat row read as a load strip, one\n                // scalar `load` expanded by `East.Array.generate` into a cell\n                // per week, drifting with a per-berth phase so the strip reads\n                // as a real profile rather than a flat band.\n                Plan.series.group(OpsLine, {\n                    key: \"docks\", title: \"Docks\",\n                    match: (_l, line) => line.equal(\"Docks\"),\n                    label: (_l, line) => line,\n                    collapsed: true, summaryAggregate: \"mean\",\n                    children: Plan.children((l) => l, [\n                        Plan.series.heat(OpsRow, {\n                            key: \"berths\", title: \"Berths\",\n                            label: (_r, k) => k, id: true,\n                            cells: r => Plan.heatCells(\n                                East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {\n                                    const drift = $.let(i.toFloat().multiply(2.5).subtract(6.0), FloatType);\n                                    const value = $.let(r.load.add(drift), FloatType);\n                                    // A heat cell is a stored RECORD, so its instant is\n                                    // spelled — `Plan.at.time` on the time arm (#631).\n                                    return {\n                                        at: Plan.at.time(week(r.startWeek.add(i))),\n                                        value: some(value),\n                                        label: some(East.Float.printFixed(value, 0n)),\n                                    };\n                                }),\n                                { min: 0, max: 100, warnAt: 95 },\n                            ),\n                        }),\n                    ]),\n                }),\n            ], ArrayType(Plan.Types.Series(OpsLine)));\n            const axis = $.const(Plan.axis({\n                window: { min: week(24n), max: week(42n) },\n                resolution: \"week\", resolutions: [\"month\", \"week\", \"day\"], now: week(31n),\n            }));\n            return <Plan axis={axis} data={paged} series={series} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:data.examples.tsx:dataBindPagedRevision",
@@ -42145,8 +41836,8 @@
         "Reactive"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -42184,8 +41875,8 @@
         "by_status"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -42193,6 +41884,148 @@
         "tsx"
       ],
       "source": "// Read a record THROUGH one of its indexes — `Data.bindPaged(workOrders, { index: workQueue })` serves the INDEX's pages in the index's own order, so the dispatch queue arrives late-first and by due date within each status, whatever the work orders' ids are. Each row is `{ ik, key, value, row }`: the index key, the order's id, and the title the index covers — so the Table renders from index pages alone and reads no order's row (`join: true` would fill `row` from the record too)\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // Pass the index DECLARATION, not its name: the window's type —\n            // its key and what it covers — comes from it.\n            const queue = $.let(Data.bindPaged(workOrders, { index: workQueue }));\n            return <Table data={queue} columns={{\n                ik:    { header: \"Due\", value: (ik) => East.str`${ik.status} · ${ik.due.printFormatted(\"ddd D MMM\")}` },\n                value: { header: \"Work order\" },\n                key:   { header: \"Order\" },\n            }} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:data.examples.tsx:dataBindPagedBlocks",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
+      "suite": "",
+      "test": "The paged canvas doing the thing it exists for — 3,000 units an `e3.task` generates, bound with `Data.bindPaged(unitsTask)` behind the canvas's 200-element page, so only the opening windows are built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Several series over the one source lay out as BLOCKS, exactly as inline (#823): every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads. Each block pages on its own — its own bands, its own resident run following the viewport, its own rebase on a far jump — while one read of a window serves every block. The footer counts in ELEMENTS, never canvas rows, and marks itself partial until the total is known and reached; the source is keyed, so its windows arrive in the dataset's key order and the canvas's key search seeks its own keys",
+      "keywords": [
+        "Data",
+        "bindPaged",
+        "paged",
+        "task",
+        "e3.task",
+        "generated",
+        "blocks",
+        "block",
+        "several series",
+        "series",
+        "layout",
+        "window",
+        "windows",
+        "band",
+        "residency",
+        "rebase",
+        "one read",
+        "transport",
+        "footer",
+        "total",
+        "scroll",
+        "virtual",
+        "large",
+        "collection",
+        "keyed",
+        "Dict",
+        "key order",
+        "seek",
+        "key",
+        "prefix",
+        "row-source",
+        "contract",
+        "Plan",
+        "canvas",
+        "Reactive"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data } from \"@elaraai/e3-ui\";",
+        "import * as e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The paged canvas doing the thing it exists for — 3,000 units an `e3.task` generates, bound with `Data.bindPaged(unitsTask)` behind the canvas's 200-element page, so only the opening windows are built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Several series over the one source lay out as BLOCKS, exactly as inline (#823): every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads. Each block pages on its own — its own bands, its own resident run following the viewport, its own rebase on a far jump — while one read of a window serves every block. The footer counts in ELEMENTS, never canvas rows, and marks itself partial until the total is known and reached; the source is keyed, so its windows arrive in the dataset's key order and the canvas's key search seeks its own keys\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // The units, a window at a time — the task's output dataset, bound\n            // through the task def: its path and type come from it.\n            const units = $.let(Data.bindPaged(unitsTask));\n            // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const series = $.const([\n                Plan.series.span(UnitRow, {\n                    key: \"jobs\", title: \"Jobs\",\n                    label: (_r, k) => k, id: true,\n                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                    runs: (r, k) => [Plan.run({\n                        key: \"run\", start: r.start, end: r.end, label: East.str`RUN · ${k}`,\n                        quantity: Plan.quantity(r.tonnes, { unit: \"t\", format: Format.Number({ maximumFractionDigits: 0n }) }),\n                        state: \"actual\",\n                    })],\n                }),\n                Plan.series.span(UnitRow, {\n                    key: \"loads\", title: \"Loads\",\n                    label: (_r, k) => East.str`${k} · load`,\n                    runs: (r) => [Plan.run({\n                        key: \"run\", start: r.start, end: r.end, label: \"LOAD\", state: \"confirmed\",\n                    })],\n                }),\n            ], ArrayType(Plan.Types.Series(UnitRow)));\n            // Every canvas DECLARES its window (#822): a paged one could not\n            // fit to data that has not landed.\n            const axis = $.const(Plan.axis({\n                window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n),\n            }));\n            // Bounded, so the canvas virtualizes and each block pages by what is in view.\n            return <Plan axis={axis} data={units} series={series} style={{ maxHeight: \"420px\" }} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:data.examples.tsx:dataBindPagedTable",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
+      "suite": "",
+      "test": "A Table over a BOUND dataset — `Data.bindPaged(bom)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table",
+      "keywords": [
+        "Data",
+        "bindPaged",
+        "paged",
+        "Table",
+        "tree",
+        "children",
+        "nested",
+        "RecursiveType",
+        "window",
+        "page",
+        "total",
+        "subtotal",
+        "aggregate",
+        "count",
+        "sum",
+        "positional",
+        "Array",
+        "stream order",
+        "sort",
+        "partial",
+        "row-source",
+        "contract",
+        "bill of materials",
+        "#954",
+        "#576"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data } from \"@elaraai/e3-ui\";",
+        "import * as e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A Table over a BOUND dataset — `Data.bindPaged(bom)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bom = $.let(Data.bindPaged(bomInput));\n            return (\n                <Table\n                    variant=\"line\"\n                    data={bom}\n                    columns={{\n                        part: { header: \"Part\", width: \"240px\" },\n                        sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                        qty: { header: \"Qty\" },\n                        cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                    }}\n                    tree={{ children: (p) => p.parts }}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:data.examples.tsx:dataBindPagedSheet",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
+      "suite": "",
+      "test": "A paged sheet over a BOUND keyed dataset — `Data.bindPaged(jobsTask)` over the jobs an `e3.task` generates: windows land as the planner scrolls, the footer counts elements, the blank tail appears once the source is exhausted, and key search seeks the dataset's own keys. A keyed source needs no `id` — its key is the row id. Read-only: a sheet edits a paged source only through an authoritative `onApply`, which this one declares none of",
+      "keywords": [
+        "Data",
+        "bindPaged",
+        "paged",
+        "task",
+        "e3.task",
+        "generated",
+        "Sheet",
+        "Root",
+        "keyed",
+        "Dict",
+        "key order",
+        "window",
+        "page",
+        "seek",
+        "key search",
+        "transport",
+        "partial",
+        "exhausted",
+        "readOnly",
+        "row-source",
+        "contract",
+        "Reactive"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data } from \"@elaraai/e3-ui\";",
+        "import * as e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A paged sheet over a BOUND keyed dataset — `Data.bindPaged(jobsTask)` over the jobs an `e3.task` generates: windows land as the planner scrolls, the footer counts elements, the blank tail appears once the source is exhausted, and key search seeks the dataset's own keys. A keyed source needs no `id` — its key is the row id. Read-only: a sheet edits a paged source only through an authoritative `onApply`, which this one declares none of\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Data.bindPaged(jobsTask));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Sheet\n                        data={jobs}\n                        columns={{\n                            start: Sheet.column.date(JobRow, { header: \"Start\", width: \"96px\" }),\n                            task:  Sheet.column.text(JobRow, { header: \"Task\", width: \"180px\" }),\n                            qty:   Sheet.column.quantity(JobRow, { header: \"Qty\", width: \"112px\", format: Format.Number({ maximumFractionDigits: 0n }) }),\n                        }}\n                        readOnly={true}\n                        style={{ height: \"420px\" }}\n                    />\n                    <Text.MonoLabel>Bound dataset · key search and paging</Text.MonoLabel>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:func.examples.tsx:funcBindCall",
@@ -44173,6 +44006,122 @@
       "languages": [
         "typescript"
       ]
+    },
+    {
+      "id": "e3:static:web-e3",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "@elaraai/e3-web",
+      "test": "Run e3 entirely in a browser, with no server: the unit worker, the e3 worker, and a page that creates, deploys and runs a repository through e3.fetch",
+      "keywords": [
+        "e3",
+        "e3-web",
+        "browser",
+        "in-page",
+        "no server",
+        "static site",
+        "GitHub Pages",
+        "Web Worker",
+        "serveUnits",
+        "serveE3",
+        "createWebE3",
+        "e3.fetch",
+        "apiUrl",
+        "RequestOptions",
+        "fetch",
+        "IndexedDB",
+        "OPFS",
+        "Web Locks",
+        "offline",
+        "repoList",
+        "packageImport",
+        "workspaceDeploy",
+        "dataflowExecute"
+      ],
+      "imports": [],
+      "source": "// unit.worker.ts — where East programs run: east-web-std answers for east-node-std's\n// platform functions, and e3's own (e3-api-client's Platform) reach the e3 worker\nimport { serveUnits } from '@elaraai/e3-web/units';\nserveUnits();\n\n// e3.worker.ts — e3 itself: its storage, orchestrator, runner and API\nimport { serveE3 } from '@elaraai/e3-web/worker';\nserveE3({\n  units: () => new Worker(new URL('./unit.worker.ts', import.meta.url), { type: 'module' }),\n});\n\n// main.ts — the page: e3-api-client's calls, every one answered by the e3 worker\nimport { createWebE3 } from '@elaraai/e3-web';\nimport {\n  dataflowExecute, packageImport, repoCreate, repoList, workspaceCreate, workspaceDeploy,\n} from '@elaraai/e3-api-client';\n\nconst e3 = await createWebE3(new Worker(new URL('./e3.worker.ts', import.meta.url), { type: 'module' }));\nconst opts = { token: null, fetch: e3.fetch };\n\n// The first visit makes the repository; later visits find it where they left it.\nif (!(await repoList(e3.apiUrl, opts)).includes('default')) {\n  await repoCreate(e3.apiUrl, 'default', opts);\n  // The package zip e3.export wrote at build time, served beside the page\n  const zip = new Uint8Array(await (await fetch('/sales-planning-1.0.0.zip')).arrayBuffer());\n  const { name, version } = await packageImport(e3.apiUrl, 'default', zip, opts);\n  await workspaceCreate(e3.apiUrl, 'default', 'main', opts);\n  await workspaceDeploy(e3.apiUrl, 'default', 'main', `${name}@${version}`, opts);\n  await dataflowExecute(e3.apiUrl, 'default', 'main', {}, opts);\n}",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:web-e3-options",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "@elaraai/e3-web",
+      "test": "Serve an in-page e3: an app's own platform package in its unit workers, and callers known by their tokens and granted by their roles",
+      "keywords": [
+        "e3",
+        "e3-web",
+        "browser",
+        "serveUnits",
+        "platforms",
+        "platform package",
+        "custom platform",
+        "serveE3",
+        "identify",
+        "access",
+        "OneShotAccess",
+        "oneShotAccessByRoles",
+        "Identity",
+        "token",
+        "roles",
+        "401",
+        "persist",
+        "name",
+        "one-shot",
+        "platform_free"
+      ],
+      "imports": [],
+      "source": "// unit.worker.ts — an app's own platform package, served beside east-web-std's and e3's own.\n// A task lists it as its runner lists any package: { custom: '@acme/pricing' }\nimport { East, FloatType } from '@elaraai/east';\nimport { serveUnits } from '@elaraai/e3-web/units';\n\nconst price = East.platform('acme.price', [FloatType], FloatType);\nserveUnits({ platforms: { '@acme/pricing': [price.implement((x: number) => x * 1.1)] } });\n\n// e3.worker.ts — callers known by their tokens, and granted by their roles\nimport { serveE3, type Identity } from '@elaraai/e3-web/worker';\n\nconst callers = new Map<string, Identity>([\n  ['Bearer admin-token', { sub: 'admin', roles: ['admin'] }],\n  ['Bearer analyst-token', { sub: 'analyst', roles: [] }],\n]);\n\nserveE3({\n  units: () => new Worker(new URL('./unit.worker.ts', import.meta.url), { type: 'module' }),\n  // An unknown caller is answered 401; `access` is then oneShotAccessByRoles():\n  // an admin's or owner's one-shots run `any`, every other caller's `platform_free`\n  identify: (request) => callers.get(request.headers.get('authorization') ?? ''),\n  persist: true,   // false: repositories in memory, gone with the page\n  name: 'e3',      // e3 workers of one name share their repositories, in one tab or several\n});",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3-ui:static:e3-provider-in-page",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "static",
+      "suite": "@elaraai/e3-ui-components",
+      "test": "Render a deployed ui() task in a React app over an e3 running in the page: E3Provider given e3.fetch, ReactiveDatasetProvider and UITaskPreview",
+      "keywords": [
+        "e3-ui",
+        "e3-ui-components",
+        "E3Provider",
+        "E3Config",
+        "fetch",
+        "apiUrl",
+        "workspace",
+        "token",
+        "ReactiveDatasetProvider",
+        "UITaskPreview",
+        "React",
+        "app",
+        "host",
+        "render",
+        "e3-web",
+        "createWebE3",
+        "in-page",
+        "browser",
+        "Data.bind",
+        "Data.bindPaged",
+        "Func.bind",
+        "Record.bind"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "imports": [
+        "import { createRoot } from 'react-dom/client';",
+        "import { ChakraProvider } from '@chakra-ui/react';",
+        "import { system } from '@elaraai/east-ui-components';",
+        "import { E3Provider, ReactiveDatasetProvider, UITaskPreview } from '@elaraai/e3-ui-components';",
+        "import { createWebE3 } from '@elaraai/e3-web';"
+      ],
+      "source": "// main.tsx — a deployed ui() task, every request it makes answered in the page\nconst e3 = await createWebE3(new Worker(new URL('./e3.worker.ts', import.meta.url), { type: 'module' }));\n\ncreateRoot(document.getElementById('root')!).render(\n  <ChakraProvider value={system}>\n    <E3Provider config={{ apiUrl: e3.apiUrl, repo: 'default', workspace: 'main', fetch: e3.fetch }}>\n      <ReactiveDatasetProvider>\n        <UITaskPreview task=\"dashboard\" />\n      </ReactiveDatasetProvider>\n    </E3Provider>\n  </ChakraProvider>,\n);"
     }
   ]
 }

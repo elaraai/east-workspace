@@ -643,6 +643,46 @@ describe("BindRuntime.buildBindHandle — staged, with patch", () => {
 });
 
 // =============================================================================
+// C.9b — the staged store a runtime given none uses
+// =============================================================================
+
+describe("BindRuntime — a runtime given no staged store", () => {
+    test("buffers in the store installed when it binds — initializeStagedStore reaches Data.bind — and reports its persistence failures", async () => {
+        const { initializeStagedStore, clearStagedStoreSingleton } = await import("../src/platform/staged-store.js");
+        // Made first, as the package's default runtime is, as its module loads.
+        const runtime = new BindRuntime();
+        // A host installs its own store after: one whose saves fail.
+        const installed = new StagedStore({
+            loadAll: async () => new Map(),
+            save: async () => { throw new Error("quota exceeded"); },
+            remove: async () => {},
+            clear: async () => {},
+        });
+        await installed.ready();
+        initializeStagedStore(installed);
+        try {
+            const api = createMockDatasetApi();
+            const cache = new ReactiveDatasetCache({ workspace: ws }, api, createFakeClock());
+            runtime.initializeCache(cache);
+            api.seed(ws, sourcePath, encodeFloat(10));
+            await cache.preload(ws, sourcePath);
+            const errors: unknown[] = [];
+            runtime.onWriteError((err) => errors.push(err));
+
+            const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
+            handle.write(50);
+            assert.deepEqual(installed.getBuffered(ws, sourcePath), encodeFloat(50));
+            assert.equal(handle.read(), 50);
+            await installed.flushPending();
+            assert.equal(errors.length, 1);
+            assert.match(String(errors[0]), /quota exceeded/);
+        } finally {
+            clearStagedStoreSingleton();
+        }
+    });
+});
+
+// =============================================================================
 // C.10 — buildPlatform smoke
 // =============================================================================
 

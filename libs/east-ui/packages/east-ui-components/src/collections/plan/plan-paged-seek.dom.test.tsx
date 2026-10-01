@@ -9,12 +9,15 @@
  * Two gaps met here that no other test covers.
  *
  * The first is composition. Every paged test elsewhere hands the renderer a
- * hand-written `{ id, page, total, seek }` literal — `plan-paged.dom.test.tsx`
- * fakes the source, `controller/paging.test.ts` fakes it again for the driver,
- * and `paged-source.spec.ts` exercises `Paged.of` with no renderer in sight. Each
- * half is covered and nothing proves they compose. Here the value under test is
- * built by the east-ui factory from a real `Paged.of` and COMPILED, so the
- * closures the driver calls are the ones East emits.
+ * hand-written `{ id, page, total, seek }` literal of JS closures —
+ * `plan-paged.dom.test.tsx` fakes the source, `controller/paging.test.ts` fakes
+ * it again for the driver, and `paged-source.spec.ts` exercises the derived
+ * source with no renderer in sight. Each half is covered and nothing proves
+ * they compose. Here the value under test is built by the east-ui factory over
+ * a source built to the row-source contract IN EAST — its `page`, `total` and
+ * `seek` East functions over a keyed fixture, as `Data.bindPaged`'s are
+ * platform calls — and COMPILED, so the closures the driver calls are the ones
+ * East emits.
  *
  * The second is direction. Every paged renderer test streams forward from
  * window 0; none starts, or lands, anywhere else. But the reason a canvas pages
@@ -36,7 +39,7 @@ import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType,
     none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
@@ -71,21 +74,88 @@ const TARGET_KEY = `u${String(TARGET).padStart(4, "0")}`;
 /** A span row's height (the default density's geometry). */
 const ROW_PX = 32;
 
-/** The source, generated at MODULE scope: East bodies never call host helpers
+const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+const Units = DictType(StringType, UnitRow);
+
+/** The fixture, generated at MODULE scope: East bodies never call host helpers
  *  (east 990020). Fixed-width keys, so canonical String order is index order —
  *  which is what makes "element N" and "key uN" the same place. */
 const UNITS = new Map(Array.from({ length: ELEMENTS }, (_, i) => [
     `u${String(i).padStart(4, "0")}`,
     { start: W27, end: W39, tonnes: (i % 50) + 0.5 },
 ] as const));
+/** Its keys, in key order. */
+const UNIT_KEYS = [...UNITS.keys()];
 
-/** Build the canvas the way an author does — `Paged.of` handed to the factory,
+// The source, built by hand to the row-source contract — paged data is bound
+// (`Data.bindPaged`), so no package produces one.
+
+/** A window of a units fixture: its entries from `offset`, at most `limit`, in key order. */
+const UNITS_WINDOW = East.function([Units, IntegerType, IntegerType], OptionType(Units), ($, all, offset, limit) => {
+    const keys = $.let(all.toArray((_$, _v, k) => k));
+    const n = $.let(keys.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.getKeys(keys.slice(start, end).toSet()));
+});
+const UNITS_PAGE = East.function([IntegerType, IntegerType], OptionType(Units), ($, offset, limit) => {
+    const window = $.const(UNITS_WINDOW);
+    return window($.const(UNITS, Units), offset, limit);
+});
+const UNITS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(UNITS, Units);
+    return some(all.size());
+});
+/**
+ * Where a key query lands among the units' keys. Key order makes every query's
+ * matches ONE contiguous run — `[lo, hi)` — so a hit is its first row and a
+ * count, and a miss carries the row it would sit at. The keys are Strings:
+ * leading struct fields name none of theirs, so `fields` matches only as its
+ * prefix, and a range bounds on its first literal.
+ */
+const UNITS_SEEK = East.function([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange), ($, query) => {
+    const keys = $.const(UNIT_KEYS, ArrayType(StringType));
+    const lo = $.let(0n);
+    const hi = $.let(0n);
+    $.match(query, {
+        key: ($2, literal) => {
+            const k = $2.let(literal.parse(StringType));
+            $2.assign(lo, keys.filter((_$, x) => x.less(k)).size());
+            $2.assign(hi, keys.filter((_$, x) => x.lessEqual(k)).size());
+        },
+        prefix: ($2, p) => {
+            $2.assign(lo, keys.filter((_$, x) => x.less(p)).size());
+            $2.assign(hi, lo.add(keys.filter((_$, x) => x.startsWith(p)).size()));
+        },
+        fields: ($2, f) => {
+            $2.if(f.values.size().equal(0n), ($3) => {
+                const p = $3.let(f.prefix.unwrap("some", () => ""));
+                $3.assign(lo, keys.filter((_$, x) => x.less(p)).size());
+                $3.assign(hi, lo.add(keys.filter((_$, x) => x.startsWith(p)).size()));
+            });
+        },
+        range: ($2, r) => {
+            $2.if(r.from.size().greater(0n), ($3) => {
+                const from = $3.let(r.from.get(0n).parse(StringType));
+                $3.assign(lo, keys.filter((_$, x) => x.less(from)).size());
+            });
+            $2.assign(hi, keys.size());
+            $2.if(r.to.size().greater(0n), ($3) => {
+                const to = $3.let(r.to.get(0n).parse(StringType));
+                $3.assign(hi, keys.filter((_$, x) => x.less(to)).size());
+            });
+            $2.if(hi.less(lo), ($3) => { $3.assign(hi, lo); });
+        },
+    });
+    return some({ found: hi.greater(lo), row: lo, count: hi.subtract(lo) });
+});
+const UNITS_SOURCE = { id: "units", page: UNITS_PAGE, total: UNITS_TOTAL, seek: some(UNITS_SEEK) };
+
+/** Build the canvas the way an author does — the source handed to the factory,
  *  then compiled — and unwrap the `Plan` arm the renderer takes. */
 function buildPagedPlan(): PlanRootValue {
     const program = East.function([], UIComponentType, ($) => {
-        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
-        const units = $.const(UNITS, DictType(StringType, UnitRow));
-        const source = $.const(Paged.of("units", units));
+        const source = $.const(UNITS_SOURCE, Paged.Types.Source(Units));
         const series = $.const([
             Plan.series.span(UnitRow, {
                 key: "units", title: "Units",
@@ -107,8 +177,8 @@ function buildPagedPlan(): PlanRootValue {
     return value.value;
 }
 
-/** The compiled canvas's source — every canvas paged here is built over
- *  `Paged.of`, which the factory carries on the `paged` arm. */
+/** The compiled canvas's source — every canvas paged here is built over a
+ *  source that names no snapshot, which the factory carries on the `paged` arm. */
 function pagedOf(root: PlanRootValue) {
     if (root.rows.type !== "paged") throw new Error(`expected a paged canvas, got its ${root.rows.type} arm`);
     return root.rows.value;
@@ -178,7 +248,7 @@ function renderPlan(value: PlanRootValue, key: string) {
 }
 
 describe("Plan paged random access (#567/#574/#577)", () => {
-    test("a REAL Paged.of source drives the canvas — the seam the fakes never cross", async () => {
+    test("a source built in East drives the canvas — the seam the fakes never cross", async () => {
         const { root, asked } = withRecordedWindows(buildPagedPlan());
         const { container } = renderPlan(root, "plan-seam");
 
@@ -193,8 +263,8 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         });
         // It walked a bounded ring, not the whole source.
         expect(Math.max(...asked)).toBeLessThan(5);
-        // The compiled source carries a real `seek` — a keyed collection derives
-        // one from its own keys — which is what the jump test then drives.
+        // The compiled source carries the handle's `seek` — an East function
+        // over the fixture's keys — which is what the jump test then drives.
         expect(pagedOf(root).seek.type).toBe("some");
     }, 30_000);
 
@@ -309,17 +379,47 @@ describe("Plan paged random access (#567/#574/#577)", () => {
     }, 30_000);
 });
 
+/** `n` units of one shape — generated at module scope (East bodies never call host helpers). */
+const uniformUnits = (n: number) => new Map(Array.from({ length: n }, (_, i) => [
+    `u${String(i).padStart(4, "0")}`,
+    { start: W27, end: W39, tonnes: i + 0.5 },
+] as const));
+/** One window's worth of units, and two windows' worth. */
+const UNIFORM = { 30: uniformUnits(30), 300: uniformUnits(300) };
+/** Each as a source built to the contract, a window of it at a time. */
+const UNIFORM_SOURCES = {
+    30: {
+        id: "uniform",
+        page: East.function([IntegerType, IntegerType], OptionType(Units), ($, offset, limit) => {
+            const window = $.const(UNITS_WINDOW);
+            return window($.const(UNIFORM[30], Units), offset, limit);
+        }),
+        total: East.function([], OptionType(IntegerType), ($) => {
+            const all = $.const(UNIFORM[30], Units);
+            return some(all.size());
+        }),
+        seek: none,
+    },
+    300: {
+        id: "uniform",
+        page: East.function([IntegerType, IntegerType], OptionType(Units), ($, offset, limit) => {
+            const window = $.const(UNITS_WINDOW);
+            return window($.const(UNIFORM[300], Units), offset, limit);
+        }),
+        total: East.function([], OptionType(IntegerType), ($) => {
+            const all = $.const(UNIFORM[300], Units);
+            return some(all.size());
+        }),
+        seek: none,
+    },
+};
+
 describe("the same canvas inline and paged (#822)", () => {
     /** One canvas over `n` units, built by the factory and compiled — its
-     *  `series` over the Dict itself, or over a `Paged.of` of it. */
-    function buildOver(n: number, twoSeries: boolean, paged: boolean): PlanRootValue {
-        const units = new Map(Array.from({ length: n }, (_, i) => [
-            `u${String(i).padStart(4, "0")}`,
-            { start: W27, end: W39, tonnes: i + 0.5 },
-        ] as const));
+     *  `series` over the Dict itself, or over a source of it. */
+    function buildOver(n: 30 | 300, twoSeries: boolean, paged: boolean): PlanRootValue {
         const program = East.function([], UIComponentType, ($) => {
-            const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
-            const data = $.const(units, DictType(StringType, UnitRow));
+            const data = $.const(UNIFORM[n], Units);
             const jobs = Plan.series.span(UnitRow, {
                 key: "jobs", title: "Jobs", label: (_r, k) => k,
                 runs: (r, k) => [Plan.run({ key: "run", start: r.start, end: r.end, label: k, state: "actual" })],
@@ -331,7 +431,7 @@ describe("the same canvas inline and paged (#822)", () => {
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             const series = twoSeries ? [jobs, loads] : [jobs];
             return paged
-                ? Plan.Root({ axis, data: $.const(Paged.of("uniform", data)), series })
+                ? Plan.Root({ axis, data: $.const(UNIFORM_SOURCES[n], Paged.Types.Source(Units)), series })
                 : Plan.Root({ axis, data, series });
         });
         const value = East.compile(program, getRegisteredPlatformImplementations())() as
@@ -346,7 +446,7 @@ describe("the same canvas inline and paged (#822)", () => {
         return `${series}/${testKeyOf(key)}`;
     });
 
-    async function bothWays(n: number, twoSeries: boolean): Promise<[string[], string[]]> {
+    async function bothWays(n: 30 | 300, twoSeries: boolean): Promise<[string[], string[]]> {
         const inline = renderPlan(buildOver(n, twoSeries, false), `plan-822-inline-${n}`);
         const expected = drawn(inline.container);
         cleanup();
@@ -425,13 +525,29 @@ const LINES = new Map(Array.from({ length: 1_001 }, (_, i) => {
         },
     ] as const))] as const;
 }));
+const Machines = DictType(StringType, MachineRow);
+const Lines = DictType(StringType, Machines);
+
+/** The lines as a source built to the contract — a window of lines at a time, in key order. */
+const LINES_PAGE = East.function([IntegerType, IntegerType], OptionType(Lines), ($, offset, limit) => {
+    const all = $.const(LINES, Lines);
+    const keys = $.let(all.toArray((_$, _v, k) => k));
+    const n = $.let(keys.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.getKeys(keys.slice(start, end).toSet()));
+});
+const LINES_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(LINES, Lines);
+    return some(all.size());
+});
+const LINES_SOURCE = { id: "lines", page: LINES_PAGE, total: LINES_TOTAL, seek: none };
 
 describe("a parent sits whole in its window (#823)", () => {
-    /** The lines canvas — inline over the Dict, or paged over a `Paged.of` of it. */
+    /** The lines canvas — inline over the Dict, or paged over a source of it. */
     function buildLines(paged: boolean): PlanRootValue {
         const program = East.function([], UIComponentType, ($) => {
-            const Machines = DictType(StringType, MachineRow);
-            const lines = $.const(LINES, DictType(StringType, Machines));
+            const lines = $.const(LINES, Lines);
             const series = [
                 // One strip per line, its machines its members — collapsed, it
                 // rests as their summed load.
@@ -462,7 +578,7 @@ describe("a parent sits whole in its window (#823)", () => {
             ];
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             return paged
-                ? Plan.Root({ axis, data: $.const(Paged.of("lines", lines)), series })
+                ? Plan.Root({ axis, data: $.const(LINES_SOURCE, Paged.Types.Source(Lines)), series })
                 : Plan.Root({ axis, data: lines, series });
         });
         const value = East.compile(program, getRegisteredPlatformImplementations())() as

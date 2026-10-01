@@ -78,16 +78,15 @@ export {
 
 // Row-source contract (#567) — how a collection takes its rows: inline, or a
 // windowed source fetched a page at a time, pinned to a snapshot when it names
-// one. east-ui declares the shape; whoever can fetch windows produces one
-// (`Data.bindPaged` in @elaraai/e3-ui, or `Paged.of` / `Paged.pinned` for a
-// collection already in hand).
+// one. east-ui declares the shape; paged data is bound, so the platform that
+// owns the data produces it (`Data.bindPaged` in @elaraai/e3-ui).
 export {
     SeekRangeType, SeekQueryType,
     PagedSourceType, type PagedSource,
     PinnedSourceType, type PinnedSource,
     RowSourceType, type RowSource,
     type PagedSourceLike, type RowSourceInput,
-    Paged, type PagedOfOptions,
+    Paged,
 } from "./contracts/source.js";
 
 // Pick contract (#590) — which of a component's declared things are shown. A

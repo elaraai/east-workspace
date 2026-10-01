@@ -8,6 +8,9 @@ import assert from 'node:assert';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { computeHash, isObjectHash } from './objects.js';
+import { computeHash as nodeComputeHash } from './objects-node.js';
+import * as root from './index.js';
+import * as portable from './portable.js';
 import {
   objectWrite,
   objectWriteStream,
@@ -71,6 +74,44 @@ describe('objects', () => {
 
       assert.strictEqual(typeof hash, 'string');
       assert.strictEqual(hash.length, 64); // SHA256 produces 64 hex chars
+    });
+
+    it('is, through the root entry, Node\'s own SHA-256: a function other than the portable entry\'s, East\'s', () => {
+      assert.strictEqual(root.computeHash, nodeComputeHash, 'the root entry\'s is the Node module\'s');
+      assert.strictEqual(portable.computeHash, computeHash, 'the portable entry\'s is East\'s');
+      assert.notStrictEqual(root.computeHash, portable.computeHash, 'the two entries hash with different functions');
+    });
+
+    it('gives the digest Node\'s own SHA-256 gives, byte for byte, at every length to 300 bytes and at several megabytes', async () => {
+      // Bytes no two runs differ in: a xorshift stream from a fixed seed.
+      const bytes = (length: number, seed: number): Uint8Array => {
+        const out = new Uint8Array(length);
+        let state = seed >>> 0 || 1;
+        for (let i = 0; i < length; i++) {
+          state ^= state << 13;
+          state ^= state >>> 17;
+          state ^= state << 5;
+          out[i] = state & 0xff;
+        }
+        return out;
+      };
+
+      // Either side of the 55/56-byte padding split and of each 64-byte block,
+      // for the first few blocks.
+      for (let length = 0; length <= 300; length++) {
+        const data = bytes(length, length + 1);
+        assert.strictEqual(computeHash(data), nodeComputeHash(data), `${length} bytes`);
+      }
+      // Several megabytes, not a whole number of blocks.
+      const large = bytes(3 * 1024 * 1024 + 7, 0x5eed);
+      assert.strictEqual(computeHash(large), nodeComputeHash(large), 'several megabytes');
+      // A view into a larger buffer hashes its own bytes, and a Buffer as the
+      // Uint8Array it is.
+      const view = large.subarray(1001, 1001 + 70_000);
+      assert.strictEqual(computeHash(view), nodeComputeHash(view), 'a view with an offset');
+      assert.strictEqual(computeHash(Buffer.from(view)), nodeComputeHash(view), 'a Buffer');
+      // And the local store, which hashes its own writes, names them alike.
+      assert.strictEqual(await objectWrite(testRepo, large), computeHash(large), 'the local store\'s name for it');
     });
   });
 

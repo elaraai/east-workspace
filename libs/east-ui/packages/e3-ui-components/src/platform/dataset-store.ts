@@ -44,6 +44,7 @@ import {
     workspaceStatus,
     ApiError,
     type DatasetStatusInfo,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import type { TreePath, DatasetStatus as PlatformDatasetStatus } from "@elaraai/e3-types";
 
@@ -74,7 +75,7 @@ const HASH_POLL_MS = 1000;
  * (and any non-e3 host) can inject a synthetic implementation; the
  * default wraps the `@elaraai/e3-api-client` module-level functions.
  *
- * The cache passes its own `apiUrl` / `repo` / `token` config to the
+ * The cache passes its own `apiUrl` / `repo` / request options to the
  * adapter only via the {@link createDefaultDatasetApi} factory — the
  * adapter itself doesn't see those values, so tests don't need to
  * scaffold dummy URLs.
@@ -95,32 +96,37 @@ export interface DatasetApi {
  * Build the default {@link DatasetApi} that talks to a real e3 server
  * via `@elaraai/e3-api-client`. Tests typically construct a
  * hand-rolled adapter instead.
+ *
+ * @param apiUrl - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
+ * @returns The adapter
  */
 export function createDefaultDatasetApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
 ): DatasetApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async get(workspace, path) {
-            const result = await datasetGet(apiUrl, repo, workspace, path, opts());
+            const result = await datasetGet(apiUrl, repo, workspace, path, getOptions());
             return { data: result.data, hash: result.hash ?? null };
         },
         async set(workspace, path, value) {
-            await datasetSet(apiUrl, repo, workspace, path, value, opts());
+            await datasetSet(apiUrl, repo, workspace, path, value, getOptions());
         },
         async launchDataflow(workspace) {
-            await dataflowExecuteLaunch(apiUrl, repo, workspace, {}, opts());
+            await dataflowExecuteLaunch(apiUrl, repo, workspace, {}, getOptions());
         },
         async listRoot(workspace) {
-            return e3DatasetList(apiUrl, repo, workspace, opts());
+            return e3DatasetList(apiUrl, repo, workspace, getOptions());
         },
         async listAt(workspace, path) {
-            return datasetListAt(apiUrl, repo, workspace, path, opts());
+            return datasetListAt(apiUrl, repo, workspace, path, getOptions());
         },
         async workspaceStatus(workspace) {
-            return workspaceStatus(apiUrl, repo, workspace, opts());
+            return workspaceStatus(apiUrl, repo, workspace, getOptions());
         },
     };
 }

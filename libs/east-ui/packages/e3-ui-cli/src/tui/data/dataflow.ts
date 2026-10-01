@@ -144,7 +144,7 @@ export async function cancelRun(controller: Controller, ws: string): Promise<voi
     } catch (err) {
         controller.dispatch({ type: 'data/executionFlag', ws, stopping: false });
         controller.deps.log(`stop ${ws} failed: ${describeError(err)}`);
-        if (apiCode(err) === 'internal' && /no active execution/i.test(detailMessage(err))) {
+        if (apiCode(err) === 'dataflow_error' && /no active execution/i.test(detailMessage(err))) {
             controller.toast('nothing to cancel here — the run was started by another server process; stop it from there', 'warn');
         } else {
             controller.toast(describeError(err), 'neg');

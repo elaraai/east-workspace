@@ -351,16 +351,23 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
 
 describe("paged canvases (#819)", () => {
     // Sixteen rows a window: window 0 fills the jsdom viewport, so the demand
-    // rests on its ring [0, 2] — windows 1 and 2 in flight, 3 and 4 a band.
+    // rests on its ring [0, 2] — windows 1 and 2 in flight, 3 and 4 not asked
+    // for, and all four the band (#876).
     test("an unloaded run is ONE row — the band — and the rows that land before it take their numbers", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-paged");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
         const grid = gridOf(container);
-        // Window 0's rows, then the band for elements 601–1,000.
+        // Window 0's rows, then the band for elements 201–1,000: the windows
+        // in flight are the band's until they land. It says which of its
+        // elements are loading — those two windows', not the two past them
+        // that nothing has asked for (#1082).
         expect(grid.getAttribute("aria-rowcount")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("role")).toBe("row");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("17");
+        expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
+        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 201–600");
+        expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
@@ -369,6 +376,9 @@ describe("paged canvases (#819)", () => {
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("49");
         expect(announced(container)).toBe("Loaded elements 201–600 of 1,000");
+        // Nothing the band covers is in flight now: it says how many elements it holds.
+        expect(item(container, "b:0:tail").textContent).toBe("400 more elements — scroll to load");
+        expect(item(container, "b:0:tail").hasAttribute("aria-busy")).toBe(false);
     });
 });
 
@@ -550,23 +560,29 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(announced(container)).toMatch(/^Loaded elements 601–/);
     });
 
-    test("when the demand takes the band away — its windows now in flight — focus waits on the last row, then moves on", async () => {
+    test("past the last loaded row, the band stands for the windows still in flight (#876) — focus waits on it, then moves on to the first row that lands", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-inflight");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
         act(() => gridOf(container).focus());
         for (let i = 0; i < 15; i++) press("ArrowDown");
         expect(focusedItem()).toBe("r:w0r15");
-        // Asking for window 3 wants the source's rest: every window is in flight, no band stands.
+        // Windows 1 and 2 are on the wire, and the move asks for window 3 too:
+        // the band stands for all of them, so focus lands on it and waits.
         press("ArrowDown");
-        expect(item(container, "b:0:tail")).toBeNull();
-        expect(focusedItem()).toBe("r:w0r15");
+        expect(focusedItem()).toBe("b:0:tail");
+        expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
+        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 201–800");
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
+        // Windows 1 and 2 land where the band's top was; focus goes on to the
+        // first. The band is loading window 3 still — and says just that.
         await waitFor(() => expect(focusedItem()).toBe("r:w1r00"));
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
+        expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("400");
+        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 601–800");
     });
 
     test("End reaches the source's last row and Home its first — across the unloaded run", async () => {

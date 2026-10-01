@@ -1535,7 +1535,7 @@ export type PlanBlocksValue = ExprType<PlanBlocksType>;
  * The paged source of a `data` + `series` canvas — the SHARED row-source
  * contract ({@link PagedSourceType}) instantiated at the canvas's BLOCKS
  * (`Plan Data Interface.md` §3.8). The factory builds it from the author's
- * source (a `Data.bindPaged` handle, a `Paged.of` fixture) by wrapping each
+ * source (a `Data.bindPaged` handle — paged data is bound) by wrapping each
  * window with the series' `derive` functions, so the renderer only ever sees
  * typed canvas-row windows — no bytes and no domain types. A window is the
  * canvas's blocks over that window's entries: each data series' block holds

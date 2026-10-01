@@ -208,7 +208,7 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
       //    Local server validates size at upload time (BEAST2 error response).
       //    Cloud server accepts the upload (S3 presigned URL) and validates at execute time.
       const shortData = new Uint8Array(50);
-      const uploadRes = await fetch(uploadUrl, {
+      const uploadRes = await ctx.fetch(uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/zip' },
         body: shortData,

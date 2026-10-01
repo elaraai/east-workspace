@@ -16,7 +16,7 @@ import {
     ArrayType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
     decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { ApprovalStateType, Editing, EditingRequestStore, Plan, UIComponentType } from "@elaraai/east-ui/internal";
+import { ApprovalStateType, Editing, EditingRequestStore, Paged, Plan, UIComponentType } from "@elaraai/east-ui/internal";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
@@ -389,11 +389,8 @@ const pagedHarness = East.function([], Logged, ($) => {
             return some(out);
         }),
         total: East.function([], OptionType(IntegerType), () => some(2n)),
-    }, StructType({
-        id: StringType,
-        page: FunctionType([IntegerType, IntegerType], OptionType(Lines)),
-        total: FunctionType([], OptionType(IntegerType)),
-    }));
+        seek: none,
+    }, Paged.Types.Source(Lines));
     const ui = $.let(Plan.Root({ axis, data: handle, series: SERIES, editing: {} }));
     return { ui, log: East.function([], ArrayType(StringType), () => log) };
 });

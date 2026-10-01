@@ -21,6 +21,7 @@ import {
     type ReactNode,
 } from "react";
 import type { TreePath } from "@elaraai/e3-types";
+import type { RequestOptions } from "@elaraai/e3-api-client";
 import {
     ReactiveDatasetCache,
     type ReactiveDatasetCacheInterface,
@@ -48,7 +49,7 @@ import {
     clearRecordApi,
 } from "./record-runtime.js";
 import { getStagedStore } from "./staged-store.js";
-import { useE3Config } from "./e3-config.js";
+import { e3RequestOptions, useE3Config } from "./e3-config.js";
 
 // =============================================================================
 // Context
@@ -110,10 +111,11 @@ export function ReactiveDatasetProvider({
     const { apiUrl, workspace } = e3;
     const repo = e3.repo ?? "default";
 
-    // `getToken` is a getter (not a snapshot) so token rotation in the
-    // surrounding context propagates without rebuilding the cache.
-    const tokenRef = useRef<string | null>(e3.token ?? null);
-    tokenRef.current = e3.token ?? null;
+    // `getOptions` is a getter (not a snapshot) so a token or a `fetch` the
+    // surrounding context rotates propagates without rebuilding the cache.
+    const options = e3RequestOptions(e3);
+    const optionsRef = useRef<RequestOptions>(options);
+    optionsRef.current = options;
 
     const [installed, setInstalled] = useState<InstalledCache | null>(null);
 
@@ -125,10 +127,10 @@ export function ReactiveDatasetProvider({
     // instead of reviving the destroyed one, and a provider that replaces
     // another installs after the old one has torn down, not before.
     useEffect(() => {
-        const getToken = (): string | null => tokenRef.current;
+        const getOptions = (): RequestOptions => optionsRef.current;
         const cache = new ReactiveDatasetCache(
             workspace !== undefined ? { workspace } : {},
-            createDefaultDatasetApi(apiUrl, repo, getToken),
+            createDefaultDatasetApi(apiUrl, repo, getOptions),
         );
         cache.setScheduler((notify) => queueMicrotask(notify));
         initializeReactiveDatasetCache(cache);
@@ -136,9 +138,9 @@ export function ReactiveDatasetProvider({
         // server identity; a record IS a dataset, so its current value is read
         // through the same cache. A paged source reads windows through its own
         // endpoints and follows its dataset through the cache's status poll.
-        const functionApi = createDefaultFunctionApi(apiUrl, repo, getToken);
-        const pagedApi = createDefaultPagedApi(apiUrl, repo, getToken, cache);
-        const recordApi = createDefaultRecordApi(apiUrl, repo, getToken);
+        const functionApi = createDefaultFunctionApi(apiUrl, repo, getOptions);
+        const pagedApi = createDefaultPagedApi(apiUrl, repo, getOptions, cache);
+        const recordApi = createDefaultRecordApi(apiUrl, repo, getOptions);
         if (workspace !== undefined) {
             initializeFunctionApi(functionApi, workspace);
             initializePagedApi(pagedApi, workspace);

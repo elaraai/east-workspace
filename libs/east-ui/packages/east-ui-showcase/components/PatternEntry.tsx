@@ -21,7 +21,9 @@ import { faChevronDown, faChevronRight } from "@fortawesome/free-solid-svg-icons
 import { EastFunction } from "@elaraai/east-ui-components";
 import type { CatalogEntry, CodeEntry, LiveEntry } from "../catalog";
 import { useCodeLanguage, type CodeLanguage } from "../code-language";
+import { SECTION_E3 } from "../showcase-config";
 import { exampleIr } from "./example-ir";
+import { E3Gate } from "./ShowcaseE3";
 
 import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
@@ -140,10 +142,13 @@ export function PatternEntry({ entry }: { entry: CatalogEntry }) {
 /** Live example: rendered frame hugging its content, with the captured
  *  dependencies and source in disclosures beneath it. The doc virtualizer
  *  measures rows dynamically, so the frame needs no fixed height — `minH`
- *  just keeps tiny artifacts (a lone badge) from collapsing it to a sliver. */
+ *  just keeps tiny artifacts (a lone badge) from collapsing it to a sliver.
+ *  An e3 example renders through the gate that starts the e3 the page runs
+ *  (#849). */
 function LiveBody({ entry }: { entry: LiveEntry }) {
     // One IR per example, so a remount renders what was compiled (example-ir).
     const ir = exampleIr(entry);
+    const view = <EastFunction ir={ir} storageKey={`example-${entry.pathKey}-${entry.name}`} />;
     return (
         <>
             <Box
@@ -158,7 +163,7 @@ function LiveBody({ entry }: { entry: LiveEntry }) {
                 // responsive Playwright sweep asserts).
                 overflowX="auto"
             >
-                <EastFunction ir={ir} storageKey={`example-${entry.pathKey}-${entry.name}`} />
+                {entry.section === SECTION_E3 ? <E3Gate entry={entry}>{view}</E3Gate> : view}
             </Box>
             {/* The un-inlined defs the body references (e3.input / record /
               * mutation) get their own disclosure, above source — present only

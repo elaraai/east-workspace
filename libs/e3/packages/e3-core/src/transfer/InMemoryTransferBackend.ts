@@ -19,7 +19,8 @@ import { urlPathToTreePath, type IntakeFile } from '@elaraai/e3-types';
 
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
-import { adoptProgressToIntakeFile, datasetAdoptFile, datasetAdoptObject, type DatasetAdoptProgress } from '../dataset-adopt.js';
+import { adoptProgressToIntakeFile, datasetAdoptObject, type DatasetAdoptProgress } from '../dataset-adopt.js';
+import { datasetAdoptFile } from '../dataset-adopt-file.js';
 import { DatasetTypeMismatchError } from '../errors.js';
 import { packageStagingPath, transferStagingDir, transferStagingPath } from '../storage/local/localHelpers.js';
 import type {
@@ -34,7 +35,8 @@ import type {
   WorkspaceDeployStore,
 } from './interfaces.js';
 import type { DatasetCommitStatus, DatasetUpload, PackageImport, PackageExport, RepoGcJob, SplitCallJob, WorkspaceDeployJob } from './types.js';
-import { handleProcessDeploy, handleProcessExport, handleProcessGc, handleProcessImport, handleProcessSplitCall } from './process.js';
+import { handleProcessDeploy, handleProcessGc, handleProcessSplitCall } from './process.js';
+import { handleProcessExport, handleProcessImport } from './process-files.js';
 
 /** The part size a dataset upload is planned with by default. */
 export const DEFAULT_TRANSFER_PART_BYTES = 64 * 1024 * 1024;

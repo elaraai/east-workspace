@@ -500,6 +500,13 @@ function detectDefaultAdapter(): StagedPersistenceAdapter {
 
 let _stagedStore: StagedStoreInterface | null = null;
 
+/**
+ * The staged store the package uses: the one installed
+ * ({@link initializeStagedStore}), else the default — over IndexedDB where
+ * there is one, made when it is first asked for.
+ *
+ * @returns The store
+ */
 export function getStagedStore(): StagedStoreInterface {
     if (!_stagedStore) {
         _stagedStore = new StagedStore(detectDefaultAdapter());
@@ -507,6 +514,15 @@ export function getStagedStore(): StagedStoreInterface {
     return _stagedStore;
 }
 
+/**
+ * Install the staged store the package uses from now on. The default
+ * `Data.bind` runtime, its reactive tracker and the providers each read the
+ * store installed when they use it, so a host installs its own as it loads —
+ * one that keeps edits in memory, say, when what they are staged against
+ * lives no longer than the page.
+ *
+ * @param store - The store
+ */
 export function initializeStagedStore(store: StagedStoreInterface): void {
     _stagedStore = store;
 }

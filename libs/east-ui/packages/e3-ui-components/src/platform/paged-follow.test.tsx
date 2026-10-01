@@ -99,6 +99,8 @@ function standInServer(initial: Content) {
         poll() { for (const w of [...watchers]) w(state.content.hash); },
         /** Let a revision's held pages answer. */
         release(hash: string) { state.held.get(hash)?.resolve(); state.held.delete(hash); },
+        /** How many follow the dataset — what its status poll runs for. */
+        watching() { return watchers.length; },
     };
 }
 
@@ -196,6 +198,22 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
         expect(container.querySelector(machineRow("m1"))).toBe(row);
+    });
+
+    test("unmounted, it lets its dataset go: nothing follows the dataset, so nothing polls for it", async () => {
+        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
+        initializePagedApi(server.api, "ws");
+        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
+        const { unmount } = render(
+            <ChakraProvider value={system}>
+                <EastChakraPlan value={planOver(handle)} storageKey="e3-849-plan-unfollow" />
+            </ChakraProvider>,
+        );
+        await screen.findByText("A-M1");
+        expect(server.watching()).toBe(1);
+        unmount();
+        await settle();
+        expect(server.watching()).toBe(0);
     });
 });
 

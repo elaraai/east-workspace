@@ -63,6 +63,11 @@ export interface PlanBand {
     to: number;
     /** The band's pixel height. */
     px: number;
+    /** Which of its elements are loading (#1082): from the first element of
+     *  the first window it covers that is in flight to the last element of
+     *  the last (inclusive), when any is. A band far from every window in
+     *  flight is loading nothing — it says how many elements it holds. */
+    loading?: { from: number; to: number } | undefined;
 }
 
 /**

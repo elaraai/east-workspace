@@ -1,0 +1,36 @@
+{
+  "name": "east-web-monorepo",
+  "version": "1.0.83",
+  "private": true,
+  "description": "East Web - browser platform integration for East language",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm --filter @elaraai/east-web-std run build",
+    "test": "pnpm --filter @elaraai/east-web-std run test",
+    "test:compliance": "pnpm --filter @elaraai/east-web-std run test:compliance",
+    "lint": "pnpm --filter @elaraai/east-web-std run lint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-web"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "browser",
+    "web",
+    "platform",
+    "runtime"
+  ],
+  "author": "Elara AI Pty Ltd",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@elaraai/east": "workspace:*"
+  }
+}

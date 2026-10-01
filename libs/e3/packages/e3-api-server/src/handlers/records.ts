@@ -14,8 +14,8 @@
  */
 
 import { none, some, variant } from '@elaraai/east';
-import { recordMutate, recordHistory, recordDescribe, recordCompact, DatasetNotFoundError } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, MutationOutcome } from '@elaraai/e3-core';
+import { recordMutate, recordHistory, recordDescribe, recordCompact, DatasetNotFoundError } from '@elaraai/e3-core/portable';
+import type { StorageBackend, TaskRunner, MutationOutcome } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {

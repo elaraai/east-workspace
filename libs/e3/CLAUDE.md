@@ -11,7 +11,8 @@ The directory structure is:
  - packages/e3-cli - CLI tool (`e3 repo|package|workspace|dataset|task|dataflow|run|call|mutate|history|compact|reindex|watch|convert|auth|completion`)
  - packages/e3-api-client - Stateless HTTP client for remote e3 repositories (BEAST2-serialized)
  - packages/e3-api-server - HTTP server exposing e3-core as a REST API
- - packages/e3-api-tests - Shared API compliance test suites (run against both e3-api-server and e3-cloud)
+ - packages/e3-api-tests - Shared API compliance test suites (run against e3-api-server, e3-web and e3-cloud)
+ - packages/e3-web - e3 running in a browser (epic #1019): the page's `createWebE3`, the e3 worker's `serveE3` (e3-api-server's portable routes over e3-web's seams), a storage backend (`WebStorage`, `WebStateStore`) over IndexedDB, OPFS and Web Locks, a runner (`WebTaskRunner`) whose units run on a pool of Web Workers, a transfer backend (`WebTransferBackend`), and a Chromium test harness that runs every API suite against it
  - native/e3-job - The Windows job launcher (`e3-job.exe`) e3-core runs each runner through; `make install-job` installs it in a checkout (see its README)
  - test/integration - End-to-end CLI tests
  - design - Design documentation (see design/e3-data-architecture.md for how e3 stores data and runs work)
@@ -39,8 +40,8 @@ An e3 repository holds and manages datasets and East programs, and automatically
  - **per-dataset ref** - each dataset has its own atomic ref record (`workspaces/<ws>/data/<path>.beast2`) instead of a single root tree hash, enabling concurrent per-dataset writes
  - **version vector** - a `Map<string, string>` tracking which root input content hashes contributed to each dataset, used to detect stale reads in diamond dependencies
  - **reactive execution** - after each task completes, the orchestrator detects root input changes, invalidates affected tasks, and re-executes until a fixpoint is reached
- - **storage backend** - `StorageBackend` interface in e3-core abstracts object/dataset-ref storage (local filesystem today; S3/DynamoDB or EFS in cloud deployments)
- - **task runner** - `TaskRunner` interface in e3-core abstracts task execution; `LocalTaskRunner` spawns local processes, `MockTaskRunner` is used in tests
+ - **storage backend** - `StorageBackend` interface in e3-core abstracts object/dataset-ref storage (the local filesystem; a browser's IndexedDB, OPFS and Web Locks in e3-web's `WebStorage`; S3/DynamoDB or EFS in cloud deployments)
+ - **task runner** - `TaskRunner` interface in e3-core abstracts task execution; `LocalTaskRunner` spawns local processes, e3-web's `WebTaskRunner` runs units on a pool of Web Workers, `MockTaskRunner` is used in tests
  - **orchestrator** - `DataflowOrchestrator` (e.g. `LocalOrchestrator`) drives a resumable dataflow execution using a pluggable `ExecutionStateStore` (`InMemoryStateStore`, `FileStateStore`)
  - **transfer backend** - `TransferBackend` abstracts large-object upload/download for remote repos (used by API client/server and package/dataset transfer endpoints)
  - **repo manager** - abstraction for repository lifecycle (list, create, delete, status); see design/repo-manager-abstraction.md
@@ -52,11 +53,21 @@ Build/test/lint are orchestrated by pnpm at the workspace root, but each lib als
 ```bash
 # From libs/e3
 make build   # build all packages in dependency order
-make test    # run all tests
+make test    # run all tests: test-packages, then test-integration
 make lint    # run eslint
 ```
 
 Install deps from the workspace root (`pnpm install` there, not here).
+
+### What the package tests need
+
+`make test-packages` runs e3-web's browser specs with the rest of the packages' tests. They need what CI's packages shard (`.github/workflows/test-e3.yml`) sets up before it runs them:
+
+- **Chromium.** The executable `E3_UI_CHROMIUM_PATH` names, or else Playwright's managed headless shell: `pnpm --filter @elaraai/e3-web exec playwright-core install --only-shell chromium` (CI adds `--with-deps` on Linux, for the system libraries it needs). A spec that cannot launch it fails, naming the remedy; none skips.
+- **east-node-std's compliance suite, exported.** `make -C libs/east-node test-export-std`, from the workspace root, writes it to `EAST_NODE_STD_IR`, or to `/tmp/east-node-std` when that is unset. e3-web runs it over east-web-std in Chromium, and fails naming the command when there is nothing there.
+- **httpbin on `:8085`.** The workspace root's `make services-up`. The suite's Fetch tests call it.
+
+CI runs the integration specs in three shards: `make test-integration-shard SHARD=1|2|3`.
 
 ## References
 
@@ -73,5 +84,6 @@ See design/e3-watch.md for the `e3 watch` file-watching workflow.
 See design/e3-ui.md for first-class UI tasks (Data bindings, `e3.ui()`).
 See design/e3-functions.md for named package functions (`e3.function`) and graph-free / one-shot execution.
 See design/repo-manager-abstraction.md and design/task-runner-implementation.md for the storage/execution abstractions.
+See ../../docs/conventions/E3_BACKEND_SEAMS.md for the seams every backend implements — the local one, e3-web and e3-cloud — and the portable entries the shared logic is reached through.
 
 You can find the East language implementation at ../east

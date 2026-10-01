@@ -7,6 +7,11 @@ import * as fs from 'node:fs/promises';
 import * as crypto from 'node:crypto';
 import type { MiddlewareHandler } from 'hono';
 import type { KeyPair } from '../auth/keys.js';
+import type { Identity } from '../identity.js';
+
+// What the middleware sets on a request's context: declared apart from auth,
+// which needs Node, so the routes that read it run anywhere.
+export type { Identity } from '../identity.js';
 
 /**
  * JWT authentication configuration.
@@ -49,18 +54,6 @@ interface JwtPayload {
   nbf?: number;
   /** Issued at time (Unix timestamp) */
   iat?: number;
-}
-
-/**
- * Identity information extracted from JWT and set on context.
- */
-export interface Identity {
-  /** Subject - typically user ID */
-  sub: string;
-  /** User email (if present in token) */
-  email?: string;
-  /** User roles (if present in token) */
-  roles: string[];
 }
 
 /**

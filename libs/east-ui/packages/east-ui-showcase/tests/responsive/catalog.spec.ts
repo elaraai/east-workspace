@@ -7,7 +7,9 @@
  * The responsive catalog sweep (#357): for EVERY example file's page
  * (east-ui + e3-ui sections), at each project viewport, once the file's
  * examples have mounted and the page is at rest —
- *   1. there were no uncaught errors and there is no error overlay,
+ *   1. there were no uncaught errors, there is no error overlay, and no e3
+ *      example stands in its error (#849: the e3 the page runs started, and
+ *      loaded what each example reads),
  *   2. the page does not scroll horizontally (wide components pan inside
  *      their own frames instead — the epic's containment invariant).
  * A failing page leaves its screenshot and trace in test-results/.
@@ -36,12 +38,15 @@ for (const key of keys) {
         await expect(page.locator(`a[href^="#${key}/"]`).first()).toBeVisible();
         await settled(page);
 
-        // 1. No uncaught errors, no error overlay (the showcase surfaces
-        //    render/module failures as a Chakra error Alert).
+        // 1. No uncaught errors; no error overlay — the alert the showcase
+        //    surfaces a render or module failure as says so itself
+        //    (`data-showcase-error`); and no e3 example in its error's place
+        //    (`data-e3-start="failed"`).
         expect(pageErrors, `uncaught page errors on #${key}`).toEqual([]);
+        expect(await page.locator("[data-showcase-error]").count(), `error overlay on #${key}`).toBe(0);
         expect(
-            await page.locator('[data-scope="alert"][data-status="error"]').count(),
-            `error overlay on #${key}`,
+            await page.locator('[data-e3-start="failed"]').count(),
+            `an e3 example on #${key} whose e3 did not start, or whose reads did not load`,
         ).toBe(0);
 
         // 2. No page-level horizontal overflow.

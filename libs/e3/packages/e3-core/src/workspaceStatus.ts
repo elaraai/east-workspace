@@ -160,7 +160,7 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
   }
-  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  const record = decodeBeast2For(WorkspaceRecordType)(data);
   if (record.type === 'none') {
     throw new WorkspaceNotDeployedError(ws);
   }
@@ -209,7 +209,7 @@ export async function workspaceStatus(
 
   // Read package object to get tasks and structure
   const pkgData = await storage.objects.read(repo, state.packageHash);
-  const pkgObject = decodePackageObject(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(pkgData);
 
   // Build task nodes
   const taskNodes = new Map<string, TaskNode>();
@@ -218,7 +218,7 @@ export async function workspaceStatus(
 
   for (const [taskName, taskHash] of pkgObject.tasks) {
     const taskData = await storage.objects.read(repo, taskHash);
-    const task = taskDecoder(Buffer.from(taskData));
+    const task = taskDecoder(taskData);
 
     const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);

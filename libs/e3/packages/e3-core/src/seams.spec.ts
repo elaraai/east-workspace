@@ -12,6 +12,11 @@
  * repository's behalf, nor judges a process alive on the host that answers.
  * The modules that may are listed below, each with why; an entry that no
  * longer needs its exception fails too, so the list only shrinks.
+ *
+ * And the portable entry (`portable.ts`) runs wherever JavaScript does: every
+ * module it reaches imports only another of them, East and e3's types, and
+ * names none of Node's globals. The walk that says so is `portable-graph.ts`'s,
+ * which a portable entry built on this one is held to as well.
  */
 
 import { describe, it } from 'node:test';
@@ -19,6 +24,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+import { PORTABLE_PACKAGES, portableWalker } from './portable-graph.js';
 
 /** e3-core's sources: the spec runs from `dist/src`. */
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url));
@@ -52,7 +59,7 @@ const LOCAL = [
   'storage/local/',
   'execution/LocalTaskRunner.ts', 'execution/processExec.ts', 'execution/processHelpers.ts', 'execution/runDetached.ts',
   'execution/intake.ts', 'execution/units.ts', 'execution/environment.ts', 'execution/scratch.ts', 'execution/budget.ts',
-  'execution/cgroups.ts', 'execution/memory.ts', 'execution/segment-fetch.ts',
+  'execution/cgroups.ts', 'execution/memory.ts', 'execution/segment-fetch.ts', 'execution/local-orchestrator.ts',
 ];
 
 /** Test support: it creates local repositories and temporary files for tests. */
@@ -70,12 +77,12 @@ const LOCAL_IMPORTS: Record<string, string> = {
 const FILE_SYSTEM: Record<string, string> = {
   'dataflow/state-store/FileStateStore.ts': 'the local implementation of the execution state store',
   'transfer/InMemoryTransferBackend.ts': 'the local server\'s transfer backend, which stages in the repository',
-  'transfer/process.ts': 'a zip job given a file reads or writes it on the machine that runs it',
-  'packages.ts': 'an import reads, and an export writes, a zip given as a file on this machine',
-  'workspaces.ts': 'an export writes a zip given as a file, and a deploy reads a `file` source, on this machine',
-  'dataset-adopt.ts': 'an adoption takes in a file on this machine',
-  'delivery-intake.ts': 'an intake reads the index of a delivered file on this machine, to cut it into pieces',
-  'store-collection.ts': 'the store\'s door reads a runner\'s output files on this machine',
+  'transfer/process-files.ts': 'a zip job given a file reads or writes it on the machine that runs it',
+  'package-files.ts': 'an import reads, and an export writes, a zip given as a file on this machine',
+  'workspace-files.ts': 'an export writes a zip given as a file, and a deploy reads a `file` source, on this machine',
+  'dataset-adopt-file.ts': 'an adoption takes in a file on this machine',
+  'delivery-intake-file.ts': 'an intake reads the index of a delivered file on this machine, to cut it into pieces',
+  'store-collection-file.ts': 'the store\'s door reads a runner\'s output files on this machine',
   'formats.ts': 'the CLI\'s formats read and write a user\'s files on this machine',
   'storage/in-memory/InMemoryStorage.ts': 'its object store adopts and materializes files on this machine, as the interface asks',
 };
@@ -135,5 +142,76 @@ describe('the seams shared code goes through', () => {
       }
     }
     for (const place of LOCAL) assert.ok(existsSync(join(SRC, place)), `${place} is gone: remove it from the local modules`);
+  });
+});
+
+/** The walk the portable entry is held to: its modules may import East and
+ *  e3's types. */
+const portableGraph = portableWalker(ts, PORTABLE_PACKAGES);
+
+describe('the portable entry', () => {
+  /** A graph of modules held in memory, by path. */
+  const graph = (modules: Record<string, string>) => (file: string): string | null => modules[file] ?? null;
+
+  it('reaches nothing but its own modules, East and e3\'s types, and names none of Node\'s globals', () => {
+    const { modules, faults } = portableGraph('portable.ts', (file) => {
+      const path = join(SRC, file);
+      return existsSync(path) ? readFileSync(path, 'utf8') : null;
+    });
+    assert.deepEqual(faults, [], 'these reach beyond the portable modules: move what needs Node to a module of the root entry');
+    for (const carried of [
+      'dataflow/orchestrator/LocalOrchestrator.ts', 'execution/engine.ts', 'execution/cache.ts', 'store-collection.ts', 'workspaces.ts', 'gc.ts',
+      'zip.ts', 'packages.ts', 'transfer/process.ts',
+    ]) {
+      assert.ok(modules.includes(carried), `the walk reached ${carried}`);
+    }
+  });
+
+  it('fails a module that reaches Node, or a package besides East and e3\'s types, however far from the entry', () => {
+    const cases: [what: string, modules: Record<string, string>, faults: string[]][] = [
+      ['a builtin', { 'entry.ts': "import { readFile } from 'node:fs/promises';" }, ['entry.ts:1 imports node:fs/promises']],
+      ['a builtin by its bare name', { 'entry.ts': "import * as fs from 'fs';" }, ['entry.ts:1 imports fs']],
+      ['a type-only import', { 'entry.ts': "import type { Writable } from 'node:stream';" }, ['entry.ts:1 imports node:stream']],
+      ['a re-export', { 'entry.ts': "export { createHash } from 'node:crypto';" }, ['entry.ts:1 imports node:crypto']],
+      ['a dynamic import', { 'entry.ts': "export const load = () => import('node:zlib');" }, ['entry.ts:1 imports node:zlib']],
+      ['an import it computes', { 'entry.ts': 'export const load = (name: string) => import(name);' }, ['entry.ts:1 imports a module it computes']],
+      ['an import type', { 'entry.ts': "export type Sink = import('node:stream').Writable;" }, ['entry.ts:1 imports node:stream']],
+      ['another package', { 'entry.ts': "import yauzl from 'yauzl';" }, ['entry.ts:1 imports yauzl']],
+      ['the SDK', { 'entry.ts': "import { readDatasetFileHeader } from '@elaraai/e3';" }, ['entry.ts:1 imports @elaraai/e3']],
+      ['a module further on', {
+        'entry.ts': "export * from './a.js';",
+        'a.ts': "export { b } from './sub/b.js';",
+        'sub/b.ts': "import { randomUUID } from 'node:crypto';\nexport const b = randomUUID;",
+      }, ['sub/b.ts:1 imports node:crypto']],
+      ['a module that is not there', { 'entry.ts': "import './gone.js';" }, ['entry.ts:1 imports ./gone.js, which is no module']],
+      ['Buffer', { 'entry.ts': 'export const bytes = (text: string) => Buffer.from(text);' }, ['entry.ts:1 uses Buffer']],
+      ['process', { 'entry.ts': 'export const home = () => process.env.HOME;' }, ['entry.ts:1 uses process']],
+      ['process through the global object', { 'entry.ts': 'export const env = () => globalThis.process?.env;' }, ['entry.ts:1 uses globalThis.process']],
+      ['Buffer by the global object\'s key', { 'entry.ts': "export const B = globalThis['Buffer'];" }, ['entry.ts:1 uses globalThis.Buffer']],
+    ];
+    for (const [what, modules, faults] of cases) {
+      assert.deepEqual(portableGraph('entry.ts', graph(modules)).faults, faults, what);
+    }
+  });
+
+  it('passes a graph that reaches only its own modules, East and e3\'s types, and names Node\'s globals only as members', () => {
+    const { modules, faults } = portableGraph('entry.ts', graph({
+      'entry.ts': [
+        "import { variant } from '@elaraai/east';",
+        "import type { TaskObject } from '@elaraai/e3-types';",
+        "export * from './a.js';",
+        "export const load = () => import('./b.js');",
+        'export type Task = TaskObject;',
+        'export const none = variant;',
+      ].join('\n'),
+      'a.ts': [
+        'export const record = { process: 1, Buffer: 2 };',
+        'export interface Shape { process: number; Buffer: string }',
+        'export const read = (shape: Shape) => shape.process + shape.Buffer.length;',
+      ].join('\n'),
+      'b.ts': "export type Read = import('./a.js').Shape;",
+    }));
+    assert.deepEqual(faults, []);
+    assert.deepEqual(modules, ['a.ts', 'b.ts', 'entry.ts']);
   });
 });

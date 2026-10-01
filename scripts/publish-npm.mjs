@@ -18,6 +18,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { alreadyPublished } from './lib/already-published.mjs';
+import { missingEntryPoints } from './lib/entry-points.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -38,6 +39,7 @@ const PKGS = [
   'libs/east-node/packages/east-node-std/package.json',
   'libs/east-node/packages/east-node-io/package.json',
   'libs/east-node/packages/east-node-cli/package.json',
+  'libs/east-web/packages/east-web-std/package.json',
   'libs/east-py/packages/east-py-datascience/package.json',
   'libs/e3/packages/e3-types/package.json',
   'libs/e3/packages/e3/package.json',
@@ -46,6 +48,7 @@ const PKGS = [
   'libs/e3/packages/e3-cli/package.json',
   'libs/e3/packages/e3-api-server/package.json',
   'libs/e3/packages/e3-api-tests/package.json',
+  'libs/e3/packages/e3-web/package.json',
   'libs/east-ui/packages/east-ui/package.json',
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',
@@ -97,6 +100,16 @@ for (const rel of PKGS) {
   if (!DRY_RUN && !REGISTRY && alreadyPublished(pkg.name, pkg.version)) {
     console.log(`  skip: ${pkg.name}@${pkg.version} already on npm`);
     skipped++;
+    continue;
+  }
+
+  // A package whose manifest names files it does not hold was never built,
+  // and would install with no code. Refused here, so the release and its
+  // verdaccio dry-run, which drives this script, both fail on it.
+  const missing = missingEntryPoints(pkgDir, pkg);
+  if (missing.length > 0) {
+    console.error(`  NOT BUILT: ${pkg.name}@${pkg.version} lacks the entry points its manifest names: ${missing.join(', ')}`);
+    failed++;
     continue;
   }
 

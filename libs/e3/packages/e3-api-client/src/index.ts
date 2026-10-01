@@ -82,7 +82,7 @@ export type {
 } from './types.js';
 
 // HTTP utilities and auth
-export { ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, get, post, put, del, putEmpty } from './http.js';
+export { ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, post, put, del, putEmpty } from './http.js';
 export type { RequestOptions, RetryOptions, Response } from './http.js';
 
 // Repository
@@ -186,6 +186,8 @@ export {
 // Platform functions
 export {
   Platform,
+  platformImplementation,
+  type PlatformImplementationOptions,
   LogOptionsType,
   platform_repo_status,
   platform_repo_gc,

@@ -12,10 +12,8 @@
  */
 
 import type { EastTypeValue } from '@elaraai/east';
-import type { ExecutionStatus, PartitionProgress } from '@elaraai/e3-types';
+import type { ExecutionStatus, PartitionProgress, RunnerValue } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
-import type { MergeParts } from './units.js';
 
 // =============================================================================
 // Task Execution
@@ -122,6 +120,16 @@ export type ExecutionLiveness = (
   running: RunningExecution,
 ) => Promise<boolean>;
 
+/** What a `merge` unit of a split task assembles: outputs its pieces wrote. */
+export interface MergeParts {
+  /** The parts' hashes, in piece order. */
+  readonly parts: readonly string[];
+  /** The hash of the key range the merge is limited to — `{from, to}` over
+   *  the parts' key type, as `planMergeRanges` writes it — or `null` to
+   *  merge them whole. */
+  readonly range: string | null;
+}
+
 /**
  * One unit of a task split into pieces: a piece, which runs the task's program
  * over the piece's inputs, or a merge of what the pieces wrote.
@@ -189,6 +197,88 @@ export interface IntakeResult {
   readonly fallback?: string;
   /** The runner's peak resident memory, in bytes, when it reported one. */
   readonly peakBytes?: number;
+}
+
+// =============================================================================
+// Detached Execution
+// =============================================================================
+
+/**
+ * An argument of a detached run: a value's beast2 bytes, or a stored dataset,
+ * by the hash of the object its ref names.
+ */
+export type DetachedArg = Uint8Array | { readonly dataset: string };
+
+/**
+ * Specification of a detached run.
+ */
+export interface DetachedSpec {
+  /** function: from FunctionObject; one-shot: from request */
+  bodyIr: Uint8Array;
+  /** Positional arguments, already validated for arity. A stored dataset is
+   *  staged as a task input is — a collection as its manifest with the
+   *  segments linked, which a stock runner opens lazily, or spliced into one
+   *  file for a custom command — so a large one never passes through this
+   *  process. */
+  args: DetachedArg[];
+  /** wire runner variant: a stock runner runs the call as a unit, a custom
+   *  one its command */
+  runner: RunnerValue;
+  /** execution limits (all required — the caller applies defaults/clamps) */
+  limits: { timeoutMs: number; maxResultBytes: number; maxLogBytes: number };
+  /** environment spec object hash (FunctionObject.environment); the runner
+   *  materializes it and prepends its bin dir to the child PATH */
+  environment?: string;
+}
+
+/**
+ * Result of a detached run.
+ *
+ * - `success`: the value's beast2 bytes, under the size cap — the runner's
+ *   output file, or a collection's segments spliced into one blob
+ * - `failed`: the process exited non-zero (or failed to spawn)
+ * - `too_large`: the output over `maxResultBytes` — its file's size, or a
+ *   collection's segments' — and the value never loaded
+ * - `timed_out`: the process group was killed at `timeoutMs`
+ */
+export type DetachedResult =
+  | { kind: 'success';   value: Uint8Array; stdout: string; stderr: string; stdoutTruncated: boolean; stderrTruncated: boolean }
+  | { kind: 'failed';    exitCode: number;  stdout: string; stderr: string; stdoutTruncated: boolean; stderrTruncated: boolean }
+  | { kind: 'too_large'; bytes: number; limit: number; stdout: string; stderr: string; stdoutTruncated: boolean; stderrTruncated: boolean }
+  | { kind: 'timed_out'; ms: number; stdout: string; stderr: string; stdoutTruncated: boolean; stderrTruncated: boolean };
+
+/**
+ * Options for a detached run ({@link TaskRunner.runDetached}).
+ */
+export interface DetachedRunOptions {
+  /** AbortSignal for cancellation (kills the process group). */
+  signal?: AbortSignal;
+  /** Anchor directory for the runner-binary PATH walk (replaces the task
+   *  path's "walk up from repo dir" — one-shot has no repo path). The
+   *  process cwd is always searched as well. */
+  runnerSearchDir?: string;
+  /** Executable dirs prepended to the child PATH (a materialized
+   *  environment's bin dir). */
+  extraBins?: string[];
+  /** Storage backend for materializing `spec.environment` and staging a
+   *  stored dataset argument (local runner); required when the spec declares
+   *  an environment or has a dataset argument. */
+  storage?: StorageBackend;
+  /** The repository a local runner runs the call for. The call runs in a
+   *  scratch directory under its scratch root, as an execution does, so a
+   *  dataset argument's segments are linked rather than copied; required,
+   *  with `storage`, when the spec has a dataset argument. Without it the
+   *  call runs in the OS temp directory. */
+  repo?: string;
+  /** Pass `-v` to a stock runner's `exec`, so it prints where the time went
+   *  and its peak memory to stderr. */
+  verbose?: boolean;
+  /** Variables the runner gets in its environment, after this process's own:
+   *  the secrets a platform function reads, say. Runtime-only: never logged.
+   *  One that sets a variable e3 sets itself (`PATH`,
+   *  `E3_RUNNER_SEARCH_DIRS`, `E3_FETCH_SEGMENTS`, which only a unit turns
+   *  on) is refused. */
+  extraEnv?: Readonly<Record<string, string>>;
 }
 
 /**

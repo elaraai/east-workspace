@@ -18,8 +18,8 @@ import {
   type DataflowExecutionState as CoreDataflowExecutionState,
   type DataflowExecutionStatus,
   type OrchestratorExecutionStatus,
-} from '@elaraai/e3-core';
-import type { Budget, DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
+import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -112,9 +112,30 @@ function convertTaskStatus(info: CoreTaskStatusInfo): TaskStatusInfo {
   };
 }
 
+/**
+ * The budget a host's runners take from, as the dataflow routes serve it: its
+ * capacity, and what the runners hold of it now.
+ *
+ * @remarks
+ * e3-core's `Budget`, which a local server's runners hold, is one. The routes
+ * read no more of it than this, so they take it from a host whose budget is
+ * its own.
+ */
+export interface RunnerBudget {
+  /** Runner processes at once. */
+  readonly cores: number;
+  /** Bytes of memory the runners may reserve between them. */
+  readonly memory: number;
+  /** Runner processes holding the budget now. */
+  readonly inFlight: number;
+  /** Bytes the runners hold now, each at the larger of its reservation and
+   *  what it was last measured using. */
+  readonly used: number;
+}
+
 /** A budget as the API serves it: its capacity, and what its runners hold of
  *  it now; `none` for a server whose runners hold no budget. */
-function budgetView(budget: Budget | undefined): DataflowExecutionState['budget'] {
+function budgetView(budget: RunnerBudget | undefined): DataflowExecutionState['budget'] {
   if (budget === undefined) return none;
   return some({
     cores: BigInt(budget.cores),
@@ -313,7 +334,7 @@ export async function getDataflowExecution(
   repoPath: string,
   workspace: string,
   options: { offset?: number; limit?: number } = {},
-  budget?: Budget
+  budget?: RunnerBudget
 ): Promise<Response> {
   let coreState: CoreDataflowExecutionState | null;
   try {
@@ -481,7 +502,7 @@ export async function getDataflowExecution(
  * @returns The budget with what its runners hold now, or `none` for a server
  *   whose runners hold none
  */
-export function getDataflowBudget(budget: Budget | undefined): Response {
+export function getDataflowBudget(budget: RunnerBudget | undefined): Response {
   return sendSuccess(OptionType(DataflowBudgetType), budgetView(budget));
 }
 
@@ -493,7 +514,9 @@ export function getDataflowBudget(budget: Budget | undefined): Response {
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
  * @param workspace - The workspace
- * @returns The response: null once the run is cancelled, or why it is not
+ * @returns The response: null once the run is cancelled; `dataflow_error`
+ *   when no run is running, the request meeting the workspace's state rather
+ *   than a fault of the server's; or why else it is not
  */
 export async function cancelDataflow(
   stateStore: ExecutionStateStore,
@@ -504,7 +527,7 @@ export async function cancelDataflow(
   try {
     const state = await stateStore.readLatest(repoPath, workspace);
     if (state === null || state.status !== 'running') {
-      return sendError(NullType, variant('internal', {
+      return sendError(NullType, variant('dataflow_error', {
         message: 'No active execution for this workspace',
       }));
     }

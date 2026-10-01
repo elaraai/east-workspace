@@ -553,13 +553,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         const more = paging.blocks.filter((b) => b.tail !== undefined);
         return {
             tail: more[more.length - 1]?.tail,
-            loading: paging.loading,
             onViewport: (key: string) => controller.reportViewport({ kind: "row", key }, false),
             onLoadMore: () => {
                 for (const b of more) controller.reportViewport({ kind: "band", block: b.index, at: "tail" }, false);
             },
         };
-    }, [paged, paging.blocks, paging.loading, controller]);
+    }, [paged, paging.blocks, controller]);
     // What the toolbar reports (#811) — everything the canvas carried on past.
     const diagnostics = useMemo<PlanDiagnostics>(() => ({
         skipped: derived.diagnostics.size,
@@ -654,9 +653,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                 && paging.total !== undefined && last.resident.to >= paging.total),
         };
     }, [paged, paging.loading, paging.blocks, paging.total]);
-    // A keyboard move onto a band waits — on the band, or on the item it set
-    // out from when the demand took the band away — for the rows, then goes
-    // on to the row it was headed for (`resolveNavIntent`).
+    // A keyboard move onto a band waits — on the band, which stands for its
+    // windows while they load (#876), or on the item it set out from when the
+    // demand took the band away — for the rows, then goes on to the row it was
+    // headed for (`resolveNavIntent`).
     const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
     useEffect(() => {
         const pending = navIntent.current;
@@ -774,9 +774,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                 break;
             case "band": {
                 // The window beside the run, asked for now — whatever the
-                // scroll reports after. The demand may take the band away (its
-                // windows in flight now, with no band standing for them):
-                // focus then stays where it is until the rows land.
+                // scroll reports after. While its windows load the band stands
+                // for them (#876); a demand whose windows landed at once may
+                // have filled it, and focus then stays where it is until the
+                // intent finds the row it was headed for.
                 controller.reportViewport(move.demand, false);
                 const p = controller.getSnapshot().paging;
                 const demand = move.demand;
@@ -1065,7 +1066,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                                     return <PlanGapBand gap={item.gap} h={body.heights[i] ?? 0} styles={styles}
                                         gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
                                 case "band":
-                                    return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
+                                    return <WindowBand band={item.band} styles={styles} />;
                                 case "failed":
                                     return <WindowFailureBand failure={item.failure} styles={styles} onRetry={controller.retry} />;
                                 case "row":

@@ -10,7 +10,7 @@ import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
 import { printResult, runProgram, UsageError } from './runner.js';
-import { executeUnit, readUnit } from './exec.js';
+import { execUnit, readUnit } from './exec.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
 import { serve as serveLsp } from './lsp.js';
@@ -202,9 +202,9 @@ async function cmdExec(unitPath: string, options: { verbose?: boolean; exitWithP
     startLifeline(options);
     let result: UnitResult;
     try {
-        const read = readUnit(unitPath);
-        result = await executeUnit(read, options.verbose ?? false);
-        writeFileSync(read.at(read.unit.result), encodeBeast2For(UnitResultType)(result));
+        const unit = readUnit(unitPath);
+        result = await execUnit(unit, options.verbose ?? false);
+        writeFileSync(unit.result, encodeBeast2For(UnitResultType)(result));
     } catch (err) {
         return fail(`Error: exec ${unitPath}: ${(err as Error).message ?? String(err)}`, 2);
     }

@@ -19,7 +19,7 @@ import '@elaraai/east-ui-components/fonts';
 // self-injects the xyflow stylesheet via emotion, so no separate CSS import
 // is needed here.
 import '@elaraai/e3-ui-components';
-import { encodeBeast2For, FloatType, IntegerType, type EastType } from '@elaraai/east';
+import { encodeBeast2For, type EastType } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 
 // Minimal structural shapes of the e3 SDK def objects. The snapshot only needs
@@ -62,8 +62,8 @@ function isFunctionDef(x: unknown): x is FunctionDef {
 /**
  * Compile a module's exported `e3.function`s into offline implementations.
  *
- * The showcase / snapshot can't run an e3 backend, so `Func.bind` has no server
- * to call. We stand in by compiling each function's East body to JS (East
+ * The snapshot runs no e3 backend, so `Func.bind` has no server to call. We
+ * stand in by compiling each function's East body to JS (East
  * functions are runnable on their own) and registering it — the function-side
  * mirror of the `e3.input` dataset seeding. One source of truth; no duplicated
  * fixture values.
@@ -85,13 +85,6 @@ function seedFunctions(mod: Record<string, unknown>): InMemoryFunctionDef[] {
     }
     return defs;
 }
-
-/** Hand-written offline impls for `Func.bind` examples whose `e3.function` defs
- *  aren't exported from their module (so {@link seedFunctions} can't find them). */
-const FALLBACK_FUNCTIONS: InMemoryFunctionDef[] = [
-    { name: 'forecast', inputTypes: [IntegerType, FloatType], outputType: FloatType, fn: (periods, growth) => Number(periods as bigint) * (growth as number) * 100 },
-    { name: 'rebalance', inputTypes: [FloatType], outputType: FloatType, fn: (x) => 1 - (x as number) },
-];
 
 /** An export is a seedable record iff it's an `e3.record` def. A record *is a*
  *  dataset (`kind: 'dataset'`); `recordKind` is the distinguishing discriminant. */
@@ -160,12 +153,9 @@ async function seedCache(mod: Record<string, unknown>): Promise<void> {
     initializeReactiveDatasetCache(cache);
 
     // Offline implementations for the `Func.bind` functions the example calls:
-    // every exported `e3.function` compiled from its East body, plus hand-written
-    // fallbacks for examples that don't export their defs.
-    const fns = new Map<string, InMemoryFunctionDef>();
-    for (const f of seedFunctions(mod)) fns.set(f.name, f);
-    for (const f of FALLBACK_FUNCTIONS) if (!fns.has(f.name)) fns.set(f.name, f);
-    initializeFunctionApi(createInMemoryFunctionApi([...fns.values()]), WORKSPACE);
+    // every `e3.function` its module exports — as every e3 definition an
+    // example binds is — compiled from its East body.
+    initializeFunctionApi(createInMemoryFunctionApi(seedFunctions(mod)), WORKSPACE);
 
     // NOTE: no offline `Data.bindPaged`. Paging is a server capability — the
     // windows, the exact total and the key search all come from the stored

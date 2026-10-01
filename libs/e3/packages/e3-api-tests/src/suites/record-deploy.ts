@@ -35,6 +35,7 @@ import {
   datasetGet,
   workspaceRecordMutate,
   workspaceRecordHistory,
+  requestFetch,
   type DeployProgress,
   type LockStatus,
   type RequestOptions,
@@ -54,8 +55,8 @@ const encodeStr = encodeBeast2For(StringType);
 const decodeTasks = decodeBeast2For(TasksV2Type);
 
 /**
- * One request made the way a client without e3-api-client makes it: the
- * success value, failing the test on an API error.
+ * One request made the way a client without e3-api-client makes it, through
+ * the options' `fetch`: the success value, failing the test on an API error.
  */
 async function call<T extends EastType>(
   url: string,
@@ -64,7 +65,7 @@ async function call<T extends EastType>(
   opts: RequestOptions,
   body?: Uint8Array,
 ): Promise<ValueTypeOf<T>> {
-  const response = await fetch(url, {
+  const response = await requestFetch(opts)(url, {
     method,
     headers: {
       'Accept': BEAST2_CONTENT_TYPE,

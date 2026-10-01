@@ -377,11 +377,19 @@ function progressOf(progress: PartitionProgress): SplitCallProgress {
   return { phase, done: BigInt(progress.completed), units: BigInt(progress.total) };
 }
 
+/** A text's UTF-8 bytes. */
+const utf8Bytes = new TextEncoder();
+
+/** UTF-8 bytes as text: a sequence cut short reads as U+FFFD, and a leading
+ *  byte order mark is kept as the character it is, as Node's own decode keeps
+ *  it. */
+const utf8Text = new TextDecoder('utf-8', { ignoreBOM: true });
+
 /** The last `limit` bytes of a text, and whether it was cut. */
 function tail(text: string, limit: number): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(text, 'utf-8');
+  const bytes = utf8Bytes.encode(text);
   if (bytes.length <= limit) return { text, truncated: false };
-  return { text: bytes.subarray(bytes.length - limit).toString('utf-8'), truncated: true };
+  return { text: utf8Text.decode(bytes.subarray(bytes.length - limit)), truncated: true };
 }
 
 /**

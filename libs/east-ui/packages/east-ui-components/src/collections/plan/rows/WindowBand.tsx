@@ -35,32 +35,32 @@ type Styles = Record<string, Record<string, unknown>>;
 export interface WindowBandProps {
     band: PlanBand;
     styles: Styles;
-    /** Whether a window inside this band is currently in flight. */
-    loading: boolean;
 }
 
 /**
  * What an unloaded run says — how many source elements it covers and that
- * scrolling there loads them (or which ones are loading). The canvas band and
- * the narrow list's load-more card (#812) both say it, the same way.
+ * scrolling there loads them, or, while windows it covers are in flight,
+ * which of its elements are loading: just theirs (#1082), 1-based like the
+ * transport line and a failed window's band. The canvas band and the narrow
+ * list's load-more card (#812) both say it, the same way.
  *
  * @param band - The unloaded run
- * @param loading - Whether a window is in flight
  * @param w - The canvas's words (#820)
  * @returns The caption
  */
-export function bandCaption(band: PlanBand, loading: boolean, w: PlanWords): string {
+export function bandCaption(band: PlanBand, w: PlanWords): string {
+    const { loading } = band;
+    if (loading !== undefined) return w.m.bandLoading({ from: w.number(loading.from + 1), to: w.number(loading.to + 1) });
     const count = bandElements(band);
-    if (loading) return w.m.bandLoading({ from: w.number(band.from), to: w.number(band.to) });
     const n = { n: count, count: w.number(count) };
     return band.at === "head" ? w.m.bandEarlier(n) : w.m.bandLater(n);
 }
 
 /** The unloaded run above or below the resident rows. */
-export function WindowBand({ band, styles, loading }: WindowBandProps) {
+export function WindowBand({ band, styles }: WindowBandProps) {
     const words = usePlanWords();
     const count = bandElements(band);
-    const caption = bandCaption(band, loading, words);
+    const caption = bandCaption(band, words);
     const itemKey = bodyItemKey({ kind: "band", band });
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
@@ -80,7 +80,7 @@ export function WindowBand({ band, styles, loading }: WindowBandProps) {
             // to a class, so this is what a DOM test (jsdom resolves no
             // Chakra classes) can hold the geometry contract against (#613).
             data-plan-px={Math.round(Math.max(0, band.px))}
-            aria-busy={loading ? "true" : undefined}
+            aria-busy={band.loading !== undefined ? "true" : undefined}
         >
             <Box css={styles.windowBandCaption} role="gridcell">{caption}</Box>
         </Box>

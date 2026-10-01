@@ -8,7 +8,7 @@ import type { TreePath } from '@elaraai/e3-types';
 import { BEAST2_CONTENT_TYPE, E3_RELEASE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import { computeHash } from './util.js';
 import {
-  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, type RequestOptions, type Response,
+  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, requestFetch, type RequestOptions, type Response,
 } from './http.js';
 import {
   ResponseType,
@@ -182,7 +182,7 @@ export async function datasetGetStream(
     if ('manifest' in body) {
       return { hash, chunks: await collectionChunks(url, repo, body.manifest, options) };
     }
-    const redirectResponse = await fetch(body.url, {
+    const redirectResponse = await requestFetch(options)(body.url, {
       method: 'GET',
       headers: { 'Accept': BEAST2_CONTENT_TYPE },
     });
@@ -270,7 +270,7 @@ async function objectGet(url: string, repo: string, hash: string, options: Reque
     const downloaded = await fetchWithRetry(download, {
       method: 'GET',
       headers: { 'Accept': BEAST2_CONTENT_TYPE },
-    }, { idempotent: true, retry: options.retry });
+    }, { idempotent: true, retry: options.retry, fetch: options.fetch });
     if (!downloaded.ok) {
       throw new Error(`Failed to get object ${hash} (download): ${downloaded.status} ${downloaded.statusText}`);
     }
@@ -758,7 +758,7 @@ async function putRange(
       },
       ...({ body, ...(streaming ? { duplex: 'half' } : {}) } as Record<string, unknown>),
     } as RequestInit;
-  }, { idempotent: true, retry: options.retry });
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
 
   if (!res.ok) {
     throw new Error(`${failure}: ${res.status} ${res.statusText}`);

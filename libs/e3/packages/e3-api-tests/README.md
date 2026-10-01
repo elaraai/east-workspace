@@ -47,19 +47,31 @@ The suites call as two callers:
 
 A server with no auth answers any token. One with auth needs both tokens signed or fetched, as `test/integration/src/api-compliance.spec.ts` signs them for the local server.
 
+A harness whose server answers requests in its own process, such as e3 running in a page, gives `fetch`. Every request of the suites then goes through it: the client's calls, the suites' own requests (`ctx.fetch`) and e3's platform functions. `test/integration/src/api-compliance-fetch.spec.ts` runs the suites through a `fetch` that forwards to the local server, while the global `fetch` refuses every request.
+
+A harness whose server runs no commands, such as e3 running in a page, sets `commands: false`. The suites' tasks are East, which every server runs, and their failing tasks fail in East: each is recorded `failed`, exit code 1, with its message in its stderr log. One case in `dataflowTests` runs a command, a custom task that exits 1. On a server that runs commands it expects that task `failed`, exit code 1; on one that runs none, recorded `error`, with a message saying the server runs no commands.
+
 ## Exports
 
 | Export | Description |
 |--------|-------------|
 | `TestSetup<T>` | Type for per-test context factory: `(t: TestContext) => Promise<T>` |
 | `createTestContext` | Create test context with helpers for setup/teardown |
-| `allApiTests` | Register all API test suites (repository, packages, workspaces, datasets, dataflow) |
+| `allApiTests` | Register every API test suite of `apiTestSuites`: repository, packages, workspaces, datasets, dataset pages, dataset transfer, dataflow, functions, records, keyed records, record deploys, package transfer and platform |
+| `apiTestSuites` | Every API test suite by name, in the order `allApiTests` registers them: for a harness that runs them in parts, and checks its parts name each once |
 | `allTests` | Register all tests including CLI tests (requires credentials env) |
 | `repositoryTests` | Repository CRUD tests |
 | `packageTests` | Package import/export tests |
 | `workspaceTests` | Workspace management tests |
 | `datasetTests` | Dataset read/write tests |
+| `datasetPageTests` | Paged dataset reads and key search |
+| `datasetTransferTests` | Dataset uploads and downloads through the transfer protocol |
 | `dataflowTests` | Dataflow execution tests |
+| `functionTests` | Function calls, one-shots and split calls, as an admin and as a reader |
+| `recordTests` | Record mutations |
+| `keyedRecordTests` | Keyed records: every write form, and their indexes |
+| `recordDeployTests` | Records across deploys: migrations |
+| `packageTransferTests` | Package imports and exports as jobs |
 | `platformTests` | Platform capability tests |
 | `cliTests` | CLI integration tests |
 | `transferTests` | Cross-repository transfer tests |

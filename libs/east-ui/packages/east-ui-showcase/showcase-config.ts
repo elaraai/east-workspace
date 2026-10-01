@@ -16,12 +16,18 @@
  */
 
 /** Sidebar section labels. East / e3 Components = renderable `.tsx`
- *  examples (e3 ones run against the in-memory dataset cache seeded in
- *  `main.tsx`); Code Reference = static `.ts` examples shown as code
- *  blocks. */
+ *  examples (e3 ones run against the e3 the page runs, `showcase-e3.ts`);
+ *  Code Reference = static `.ts` examples shown as code blocks. */
 export const SECTION_EAST = "East Components";
 export const SECTION_E3 = "e3 Components";
 export const SECTION_CODE = "Code Reference";
+
+/** The showcase's e3 package (#849), served beside the page: the dev server
+ *  answers `/<name>`, and the build emits it as an asset of this name and
+ *  its content's hash (`assets/e3-showcase-<hash>.zip`), whose URL the
+ *  bundle carries. The e3 the page runs imports it (`showcase-e3.ts`);
+ *  `scripts/vite-plugin-e3-showcase.ts` makes it. */
+export const E3_SHOWCASE_ZIP = "e3-showcase.zip";
 
 /** Pseudo-categories — the "All" page per section that concatenates every
  *  category into one document, keyed by section label. */

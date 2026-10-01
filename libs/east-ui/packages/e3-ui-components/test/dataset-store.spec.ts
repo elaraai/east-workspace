@@ -14,8 +14,10 @@ import { describe, test } from "node:test";
 
 import { variant } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
+import type { RequestOptions } from "@elaraai/e3-api-client";
 import {
     ReactiveDatasetCache,
+    createDefaultDatasetApi,
     datasetCacheKey,
     datasetPathToString,
     type DatasetApi,
@@ -736,24 +738,45 @@ describe("ReactiveDatasetCache — destroy", () => {
 });
 
 // =============================================================================
-// A.19 — createDefaultDatasetApi smoke
+// A.19 — createDefaultDatasetApi: each request's options
 // =============================================================================
 
 describe("createDefaultDatasetApi", () => {
-    test("getToken is called per request (token rotation propagates)", async () => {
-        // Smoke test only — the real network calls would need a server.
-        // We verify the adapter shape and that getToken is callable.
-        let token: string | null = "first";
-        const { createDefaultDatasetApi } = await import("../src/platform/dataset-store.js");
-        const api = createDefaultDatasetApi("http://invalid.test", "default", () => token);
-        // We don't actually call api.set — just verify type + token getter
-        // is captured by closure (rotated tokens would be picked up).
-        assert.equal(typeof api.set, "function");
-        assert.equal(typeof api.get, "function");
-        assert.equal(typeof api.workspaceStatus, "function");
-        token = "second";
-        // Cannot meaningfully exercise without a server; covered indirectly
-        // by the integration-test extension run.
+    test("each request goes out with the options read when it is made: the token, and the fetch it goes through", async () => {
+        const networkFetch = globalThis.fetch;
+        const escaped: string[] = [];
+        globalThis.fetch = (async (input: string | URL | Request) => {
+            escaped.push(String(input));
+            throw new Error(`the global fetch was called for ${String(input)}`);
+        }) as typeof globalThis.fetch;
+        /** A fetch recording each request's URL and token, answering each with a refusal. */
+        const server = () => {
+            const seen: { url: string; auth: string | null }[] = [];
+            const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+                seen.push({ url: String(input), auth: new Headers(init?.headers).get("authorization") });
+                return new Response(JSON.stringify({ error: { type: "not_found", message: "not served here" } }), {
+                    status: 404,
+                    headers: { "Content-Type": "application/json" },
+                });
+            }) as typeof globalThis.fetch;
+            return { seen, fetch };
+        };
+        try {
+            const first = server();
+            const second = server();
+            let options: RequestOptions = { token: "first", fetch: first.fetch };
+            const api = createDefaultDatasetApi("http://e3.test", "default", () => options);
+
+            await assert.rejects(api.workspaceStatus(ws));
+            options = { token: "second", fetch: second.fetch };
+            await assert.rejects(api.listRoot(ws));
+
+            assert.deepEqual(first.seen, [{ url: `http://e3.test/api/repos/default/workspaces/${ws}/status`, auth: "Bearer first" }]);
+            assert.deepEqual(second.seen, [{ url: `http://e3.test/api/repos/default/workspaces/${ws}/datasets`, auth: "Bearer second" }]);
+            assert.deepEqual(escaped, [], "no request went to the global fetch");
+        } finally {
+            globalThis.fetch = networkFetch;
+        }
     });
 });
 

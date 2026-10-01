@@ -8,6 +8,10 @@
 > from the def (no explicit `[[Inputs…], Output], name` form; same for
 > `Data.bind(dataset)`). Signature spellings below predate this and read
 > as the def-form equivalent.
+> **Showcase amendment (#849):** the east-ui showcase runs e3 itself in the
+> page (e3-web), so its `Func.bind` examples call the deployed function. The
+> in-memory `FunctionApi` (§7.0, §8, §11) is the e3-ui-components snapshot
+> harness's.
 > Audience: e3-ui maintainers + an implementing agent. Companion to
 > `e3-functions.md` (the `e3.function` execution primitive this binds to) and
 > `e3-ui.md` (the `e3.ui()` / `Data.bind` surface this extends). Implementation
@@ -385,7 +389,7 @@ and the remaining shared pieces follow the existing conventions:
   uniformly.
 - **API seam + config.** Workspace identity and client wiring come from the
   same `E3Config` / provider; like `DatasetApi`, a narrow `FunctionApi`
-  interface (`list`, `call`) is what tests stub and the showcase harness
+  interface (`list`, `call`) is what tests stub and the snapshot harness
   (§8) swaps for an in-memory implementation.
 - **Codec memoization.** Extract the structural-type-keyed `SortedMap`
   memoizer from `getBindingHelpers` (`bind-runtime.ts:106`) into a shared
@@ -448,11 +452,13 @@ East IR. Two existing surfaces gain awareness:
 
 - **Task preview / inspector** (`e3-ui-components`): show a UI task's bound
   functions from its manifest next to its bound paths.
-- **Showcase harness** (`east-ui-showcase` / `e3-ui-showcase` seeding): the
-  harness supplies an in-memory `FunctionApi` (§7.0) whose `call` resolves
-  against locally-registered example implementations, so examples render
+- **Snapshot harness** (e3-ui-components' `snapshot/`): the harness
+  supplies an in-memory `FunctionApi` (§7.0) whose `call` resolves against
+  locally-registered example implementations, so examples render
   deterministic `succeeded` states without a server — the same seam the
-  dataset cache already uses for its snapshot seeding.
+  dataset cache already uses for its snapshot seeding. The east-ui showcase
+  needs no stand-in: it calls the deployed function, on the e3 it runs in
+  its page (#849).
 
 ## 9. Testing
 
@@ -492,10 +498,10 @@ East IR. Two existing surfaces gain awareness:
 |---|---|---|
 | 0 | `e3-ui-components` | **Rebase `ReactiveDatasetCache` on `@tanstack/query-core`** (§7.0): interface-preserving rewrite of `dataset-store.ts`; explicit `@tanstack/query-core` dependency; existing dataset/bind suites stay green; new regression tests for review findings #1–#7. |
 | 1 | `e3-ui` | `src/func.ts` (types, platform fn, `Func` namespace), export from `index.ts`/`internal.ts`; `manifest.ts` field + dual-decode; `derive.ts` walks `function_bind`. |
-| 2 | `e3-ui-components` | `src/platform/func-runtime.ts` (mutation-backed registry, closures, `FunctionApi` seam, `memoizeByEastType` extraction), registration in `src/index.ts`; in-memory `FunctionApi` for the showcase harness. |
+| 2 | `e3-ui-components` | `src/platform/func-runtime.ts` (mutation-backed registry, closures, `FunctionApi` seam, `memoizeByEastType` extraction), registration in `src/index.ts`; in-memory `FunctionApi` for the snapshot harness. |
 | 3 | tests | per §9 — all runnable headless under `make test` (stubbed `FunctionApi`/`DatasetApi`, fake clocks; no server, no browser). |
 | 4 | docs | `e3-ui` SKILL/USAGE updates (coordinate — plugin skill files). |
 
 Definition of done: `cd libs/east-ui && make build && make lint && make test`
-clean, plus examples visible in the showcase with a deterministic mocked
-`succeeded` flow.
+clean, plus examples visible in the showcase with a `succeeded` flow — since
+#849 a call to the deployed function, on the e3 the showcase runs in its page.

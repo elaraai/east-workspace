@@ -16,7 +16,10 @@
  * splices them: these tests pin that the splice is the value's blob, that an
  * object answered by URL is fetched without the API's auth, and that an object
  * which does not hash to its name is refused. `datasetGetStream`, which it is
- * built on, hands the splice over as it goes, a few segments ahead.
+ * built on, hands the splice over as it goes, a few segments ahead. Given a
+ * `fetch`, every request of a download goes through it — the URLs a large
+ * object or value is answered with among them — and none through the global
+ * one.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -36,6 +39,13 @@ afterEach(() => {
 const BASE = 'https://example.test';
 const HASH = 'f'.repeat(64);
 const lookupPath = [variant('field', 'inputs'), variant('field', 'lookup')];
+
+/** A global fetch that fails any request that reaches it. */
+function refuseGlobalFetch(): void {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    throw new Error(`the global fetch was called for ${String(input)}`);
+  }) as typeof fetch;
+}
 
 /** Installs a fetch mock returning `respond()` and recording request URLs. */
 function mockFetch(respond: () => globalThis.Response): { urls: string[] } {
@@ -160,14 +170,19 @@ function storedCollection(): { objects: Map<string, Uint8Array>; manifest: strin
   return { objects, manifest, segments, blob: encodeBeast2PagedFor(type)(value) };
 }
 
-/** Serves a dataset route naming `manifest`, and an objects route answering
- *  from `objects` — the `presigned` ones with a URL to fetch them from — and
- *  records each request, and whether it carried the API's auth. */
-function mockServer(manifest: string, objects: Map<string, Uint8Array>, presigned: Set<string>): { requests: { url: string; auth: boolean }[] } {
-  const state = { requests: [] as { url: string; auth: boolean }[] };
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+/** A `fetch` serving a dataset route naming `manifest`, and an objects route
+ *  answering from `objects` — the `presigned` ones with a URL to fetch them
+ *  from — which records each request, and whether it carried the API's
+ *  auth. */
+function collectionServer(
+  manifest: string,
+  objects: Map<string, Uint8Array>,
+  presigned: Set<string>,
+): { requests: { url: string; auth: boolean }[]; fetch: typeof globalThis.fetch } {
+  const requests: { url: string; auth: boolean }[] = [];
+  const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    state.requests.push({ url: url.href, auth: new Headers(init?.headers).has('Authorization') });
+    requests.push({ url: url.href, auth: new Headers(init?.headers).has('Authorization') });
     if (url.pathname.includes('/datasets/')) {
       return new Response(JSON.stringify({ manifest }), {
         status: 200,
@@ -182,8 +197,15 @@ function mockServer(manifest: string, objects: Map<string, Uint8Array>, presigne
       });
     }
     return new Response(objects.get(hash)!, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
-  }) as typeof fetch;
-  return state;
+  }) as typeof globalThis.fetch;
+  return { requests, fetch };
+}
+
+/** Stands {@link collectionServer} in for the global `fetch`. */
+function mockServer(manifest: string, objects: Map<string, Uint8Array>, presigned: Set<string>): { requests: { url: string; auth: boolean }[] } {
+  const server = collectionServer(manifest, objects, presigned);
+  globalThis.fetch = server.fetch;
+  return server;
 }
 
 describe('datasetGet', () => {
@@ -247,5 +269,42 @@ describe('datasetGet', () => {
     await assert.rejects(datasetGet(BASE, 'r', 'ws', lookupPath, { token: null }), {
       message: `object ${segments[2]} arrived as ${sha256Hex(cut)}: the download was cut short or corrupted`,
     });
+  });
+});
+
+describe('datasetGet through a given fetch', () => {
+  it('downloads a collection through the given fetch alone, a large object\'s URL among its requests', async () => {
+    refuseGlobalFetch();
+    const { objects, manifest, segments, blob } = storedCollection();
+    const server = collectionServer(manifest, objects, new Set([segments[1]!]));
+
+    const result = await datasetGet(BASE, 'r', 'ws', lookupPath, { token: 'tok', fetch: server.fetch });
+    assert.deepEqual(result.data, blob);
+    assert.equal(server.requests.length, segments.length + 4, 'the dataset, the manifest, the header, each segment and the URL');
+    assert.deepEqual(server.requests.filter((request) => request.url.startsWith('https://bucket.test/')),
+      [{ url: `https://bucket.test/${segments[1]}`, auth: false }]);
+  });
+
+  it('downloads a large value from the URL the dataset route answers with, through the given fetch', async () => {
+    refuseGlobalFetch();
+    const body = Uint8Array.from({ length: 300_000 }, (_, i) => i % 251);
+    const requests: { url: string; auth: boolean }[] = [];
+    const given = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      requests.push({ url: url.href, auth: new Headers(init?.headers).has('Authorization') });
+      if (url.host === 'example.test') {
+        return new Response(JSON.stringify({ url: 'https://bucket.test/value' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-Content-SHA256': HASH },
+        });
+      }
+      return new Response(new Blob([body]).stream(), { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
+    }) as typeof fetch;
+
+    const result = await datasetGet(BASE, 'r', 'ws', lookupPath, { token: 'tok', fetch: given });
+    assert.deepEqual(result.data, body);
+    assert.equal(result.hash, HASH);
+    assert.deepEqual(requests.map((request) => [new URL(request.url).host, request.auth]),
+      [['example.test', true], ['bucket.test', false]], 'the URL is fetched without the API\'s auth');
   });
 });

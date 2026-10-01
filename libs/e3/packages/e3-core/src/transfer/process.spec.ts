@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { DictType, East, StringType, StructType, none, some, variant } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
-import { packageImport } from '../packages.js';
+import { packageImport } from '../package-files.js';
 import { workspaceCreate, workspaceGetState } from '../workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from '../test-helpers.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';

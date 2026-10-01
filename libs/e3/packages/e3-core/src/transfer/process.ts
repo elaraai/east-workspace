@@ -4,29 +4,29 @@
  */
 
 /**
- * Shared processing handlers for package import/export, workspace deploy,
- * repository gc and split calls.
+ * Shared processing handlers for the jobs that outlast a request: package
+ * import and export, workspace deploy, repository gc and split calls.
  *
  * These are cloud-agnostic handlers that perform the actual work of each job.
  * Used by both the local InMemoryTransferBackend and cloud backends
- * (e.g. AWS Lambda/Step Functions).
+ * (e.g. AWS Lambda/Step Functions). An import reads its zip from a source read
+ * by ranges, and an export writes its zip to a WHATWG stream; a job whose zip
+ * is a file on this machine, or a Node stream, is the root entry's
+ * (`process-files.ts`).
  */
 
-import { stat, unlink } from 'node:fs/promises';
-import type { Writable } from 'node:stream';
 import { none, some, variant } from '@elaraai/east';
 import type { RecordIndexPlan, RecordPlan } from '@elaraai/e3-types';
 
 import { ExportStoppedError } from '../errors.js';
 import { repoGc } from '../gc.js';
-import { packageExport } from '../packages.js';
-import { workspaceDeploy, workspaceExport } from '../workspaces.js';
-import { packageImport } from '../packages.js';
+import { packageExport, packageImportFrom, type PackageExportOptions, type PackageExportResult } from '../packages.js';
+import { workspaceDeploy, workspaceExport, type WorkspaceExportOptions, type WorkspaceExportResult } from '../workspaces.js';
 import { withRunningWork } from '../running-work.js';
-import type { LockHandle, StorageBackend } from '../storage/index.js';
+import type { LockHandle, StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner } from '../execution/interfaces.js';
 import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
-import type { ZipSource } from '../zip.js';
+import { openZip, zipSinkOf, zipSourceOf, type ZipReader, type ZipSource } from '../zip.js';
 import type { PackageExportStore, PackageImportStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
 import type { PackageZipCheckpoint } from './types.js';
 
@@ -100,12 +100,28 @@ export interface ProcessExportDeps {
 export interface ProcessExportInput {
   id: string;
   repo: string;
-  /** Where the zip is written: its path, or a stream, such as a multipart
-   *  upload, which the export ends once the zip is whole. */
-  zip: string | Writable;
+  /** The stream the zip is written to, such as a multipart upload, which the
+   *  export closes once the zip is whole. */
+  zip: WritableStream<Uint8Array>;
   /** The checkpoint a call of this job that was stopped handed over: the
    *  export goes on from it, and `zip` holds the bytes it counts. */
   resume?: PackageZipCheckpoint;
+}
+
+/**
+ * How an export job writes its zip: a package's export, or a workspace's,
+ * each to where the job's zip goes.
+ *
+ * @internal
+ */
+export interface ExportZip {
+  /** Exports a package. */
+  package(name: string, version: string, options: PackageExportOptions): Promise<PackageExportResult>;
+  /** Exports a workspace as the package it names. */
+  workspace(workspace: string, name: string, version: string, options: WorkspaceExportOptions): Promise<WorkspaceExportResult>;
+  /** Removes what an export that failed wrote, before its job is recorded
+   *  failed. */
+  discard?(): Promise<void>;
 }
 
 /**
@@ -115,21 +131,51 @@ export interface ProcessExportInput {
  * export (based on the `workspace` field), runs the appropriate export
  * function, and updates the status to completed or failed.
  *
+ * @remarks
+ * The zip is written to a WHATWG stream, which the export closes once the zip
+ * is whole; a call stopped at its signal leaves it open, holding the bytes the
+ * checkpoint counts, for the call that goes on. A zip written to a file on
+ * this machine, or to a Node stream, is the root entry's job.
+ *
  * @param deps - Storage backend, export store, and the caller's workspace lock
  *   and the signal that stops the call
- * @param input - Job ID, repository path, where the zip is written, and the
- *   checkpoint it resumes from
+ * @param input - Job ID, repository path, the stream the zip is written to,
+ *   and the checkpoint it resumes from
  *
  * @throws {ExportStoppedError} When `deps.signal` stopped the export, with the
  *   job left `processing`.
- * @throws Re-throws errors after updating status to failed and cleaning up
+ * @throws {TypeError} When the zip is no `WritableStream`: a path or a Node
+ *   stream, which the root entry writes to.
+ * @throws Re-throws errors after updating status to failed
  */
 export async function handleProcessExport(
   deps: ProcessExportDeps,
   input: ProcessExportInput,
 ): Promise<void> {
-  const { storage, exportStore, lock, signal } = deps;
-  const { id, repo, zip, resume } = input;
+  const sink = zipSinkOf(input.zip, 'export job');
+  const { storage } = deps;
+  const { repo } = input;
+  return handleProcessExportWith(deps, input, {
+    package: (name, version, options) => packageExport(storage, repo, name, version, sink, options),
+    workspace: (workspace, name, version, options) => workspaceExport(storage, repo, workspace, sink, name, version, options),
+  });
+}
+
+/**
+ * Processes an export job as {@link handleProcessExport} does, writing its zip
+ * through `zip`: what the root entry's job writes a file or a Node stream
+ * through.
+ *
+ * @param zip - Writes the job's zip, and removes what a failed one wrote
+ * @internal
+ */
+export async function handleProcessExportWith(
+  deps: ProcessExportDeps,
+  input: { id: string; resume?: PackageZipCheckpoint },
+  zip: ExportZip,
+): Promise<void> {
+  const { exportStore, lock, signal } = deps;
+  const { id, resume } = input;
 
   const record = await exportStore.get(id);
   if (!record) throw new Error(`Export record ${id} not found`);
@@ -141,8 +187,8 @@ export async function handleProcessExport(
 
   try {
     const result = record.workspace.type === 'some'
-      ? await workspaceExport(storage, repo, record.workspace.value, zip, record.name, record.version, { onProgress, lock, signal, resume })
-      : await packageExport(storage, repo, record.name, record.version, zip, { onProgress, signal, resume });
+      ? await zip.workspace(record.workspace.value, record.name, record.version, { onProgress, lock, signal, resume })
+      : await zip.package(record.name, record.version, { onProgress, signal, resume });
     await onProgress.flush();
     await exportStore.updateStatus(id, variant('completed', {
       size: BigInt(result.bytes),
@@ -150,7 +196,7 @@ export async function handleProcessExport(
   } catch (err) {
     // A call its caller stopped hands over, and the job goes on.
     if (err instanceof ExportStoppedError) throw err;
-    if (typeof zip === 'string') await unlink(zip).catch(() => {});
+    await zip.discard?.();
     const message = err instanceof Error ? err.message : String(err);
     await exportStore.updateStatus(id, variant('failed', { message }));
     throw err;
@@ -178,22 +224,42 @@ export interface ProcessImportDeps {
 export interface ProcessImportInput {
   id: string;
   repo: string;
-  /** The staged zip: its path, removed once the job ends, or a source read by
-   *  ranges where it lies, which its owner removes. */
-  zip: string | ZipSource;
+  /** The staged zip: a source read by ranges where it lies, which its owner
+   *  removes. */
+  zip: ZipSource;
+}
+
+/**
+ * The zip an import job takes in: its size, how it opens, and what removes it
+ * once the job is done with it.
+ *
+ * @internal
+ */
+export interface ImportZip {
+  /** The zip's size in bytes. */
+  size(): Promise<number>;
+  /** Opens the zip. */
+  open(): Promise<ZipReader>;
+  /** Removes the zip, once the job has ended rather than been handed over. */
+  discard?(): Promise<void>;
 }
 
 /**
  * Processes a package import job.
  *
  * Gets the import record, verifies the zip's size matches, runs packageImport,
- * and updates the status to completed or failed. A staged zip file is removed
- * once the job ends.
+ * and updates the status to completed or failed.
+ *
+ * @remarks
+ * The zip is read by ranges where it lies, through its source, which its
+ * owner removes. A staged zip that is a file on this machine is the root
+ * entry's job, which removes the file once the job ends.
  *
  * @param deps - Storage backend, import store, and the signal that stops the
  *   call
  * @param input - Job ID, repository path, and the staged zip
  *
+ * @throws {TypeError} When the zip is a path, which the root entry reads.
  * @throws Re-throws errors after updating status to failed; or, when
  *   `deps.signal` has aborted, with the job left `processing`
  */
@@ -201,18 +267,34 @@ export async function handleProcessImport(
   deps: ProcessImportDeps,
   input: ProcessImportInput,
 ): Promise<void> {
+  const zip = zipSourceOf(input.zip, 'import job');
+  return handleProcessImportWith(deps, input, { size: () => Promise.resolve(zip.size), open: () => openZip(zip) });
+}
+
+/**
+ * Processes an import job as {@link handleProcessImport} does, reading its zip
+ * through `zip`: what the root entry's job reads a file through.
+ *
+ * @param zip - The zip's size, its opening, and its removal
+ * @internal
+ */
+export async function handleProcessImportWith(
+  deps: ProcessImportDeps,
+  input: { id: string; repo: string },
+  zip: ImportZip,
+): Promise<void> {
   const { storage, importStore, signal } = deps;
-  const { id, repo, zip } = input;
+  const { id, repo } = input;
 
   const record = await importStore.get(id);
   if (!record) throw new Error(`Import record ${id} not found`);
 
   // Verify the zip's size matches
-  const size = typeof zip === 'string' ? (await stat(zip)).size : zip.size;
+  const size = await zip.size();
   if (BigInt(size) !== record.size) {
     const message = `size mismatch: expected ${record.size}, got ${size}`;
     await importStore.updateStatus(id, variant('failed', { message }));
-    if (typeof zip === 'string') await unlink(zip).catch(() => {});
+    await zip.discard?.();
     throw new Error(message);
   }
 
@@ -223,7 +305,7 @@ export async function handleProcessImport(
         variant('processing', variant('importing', { objectsProcessed: BigInt(objectsProcessed) })));
     });
 
-    const result = await packageImport(storage, repo, zip, { onProgress, signal });
+    const result = await packageImportFrom(storage, repo, () => zip.open(), { onProgress, signal });
 
     await onProgress.flush();
     await importStore.updateStatus(id, variant('completed', {
@@ -242,7 +324,7 @@ export async function handleProcessImport(
     await importStore.updateStatus(id, variant('failed', { message }));
     throw err;
   } finally {
-    if (typeof zip === 'string' && !handedOver) await unlink(zip).catch(() => {});
+    if (!handedOver) await zip.discard?.();
   }
 }
 

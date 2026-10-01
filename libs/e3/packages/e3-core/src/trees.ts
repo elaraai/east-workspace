@@ -42,6 +42,7 @@ import {
   WorkspaceLockError,
   DatasetRefConflictError,
   DatasetTypeMismatchError,
+  lockStateToHolderInfo,
 } from './errors.js';
 
 // Bounded retries when a concurrent writer wins the per-path CAS. e3 set is a
@@ -100,7 +101,7 @@ export async function treeRead(
   const treeType = treeTypeFromStructure(structure);
   const data = await storage.objects.read(repo, hash);
   const decoder = decodeBeast2For(treeType);
-  return decoder(Buffer.from(data)) as TreeObject;
+  return decoder(data) as TreeObject;
 }
 
 /**
@@ -145,7 +146,7 @@ export async function datasetRead(
   hash: string
 ): Promise<{ type: EastType; value: unknown }> {
   const data = await readDatasetWhole(storage, repo, hash);
-  const result = decodeBeast2(Buffer.from(data));
+  const result = decodeBeast2(data);
   return { type: result.type as EastType, value: result.value };
 }
 
@@ -356,7 +357,7 @@ export async function workspaceSetDatasetBytes(
     } else {
       const parts: Uint8Array[] = [];
       for await (const part of body) parts.push(part);
-      hash = await datasetWrite(storage, repo, decodeBeast2For(leaf.type)(Buffer.concat(parts)), leaf.type);
+      hash = await datasetWrite(storage, repo, decodeBeast2For(leaf.type)(concatBytes(parts)), leaf.type);
     }
     await setDatasetValueRef(storage, repo, ws, treePath, leaf, hash);
   });
@@ -399,10 +400,7 @@ export async function withDatasetWriteLock<T>(
     lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
     if (!lock) {
       const state = await storage.locks.getState(repo, ws);
-      throw new WorkspaceLockError(ws, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
@@ -460,6 +458,19 @@ async function setDatasetValueRef(
  *  section wider than 16 MiB is malformed, not merely large. */
 const HEAD_TYPE_MAX_BYTES = 16 * 1024 * 1024;
 
+/** The bytes of `parts`, one after another, in one new array. */
+function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+  let length = 0;
+  for (const part of parts) length += part.length;
+  const bytes = new Uint8Array(length);
+  let at = 0;
+  for (const part of parts) {
+    bytes.set(part, at);
+    at += part.length;
+  }
+  return bytes;
+}
+
 /**
  * The wire type at the head of a stream of beast2 bytes, and the stream whole
  * again: the chunks read to find the type, then the rest as they arrive.
@@ -482,7 +493,7 @@ async function readHeadType(
       length += next.value.length;
     }
     try {
-      typeValue = readBeast2Type(Buffer.concat(head));
+      typeValue = readBeast2Type(concatBytes(head));
     } catch (err) {
       // A short head fails as a malformed one does: read on until the type
       // section must be in hand.
@@ -541,7 +552,7 @@ async function getWorkspaceStructure(
 
   // Read the deployed package object using the stored hash
   const pkgData = await storage.objects.read(repo, wsState.packageHash);
-  const pkgObject = decodePackageObject(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(pkgData);
 
   return {
     rootStructure: pkgObject.data.structure,

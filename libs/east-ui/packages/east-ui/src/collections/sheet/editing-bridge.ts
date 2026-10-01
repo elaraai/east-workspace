@@ -86,7 +86,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     if (input.applyMode === "auto" && input.onApply === undefined && input.onUpdate === undefined) throw new Error("Sheet: applyMode auto requires onApply or a live onUpdate binding");
     if (source.kind !== "inline" && !source.pinned && input.onApply !== undefined) {
         throw new Error("Sheet: editing paged rows needs a pinned source — one that names its snapshot with revision and refresh " +
-            "(Data.bindPaged's handle, Paged.pinned): a batch is checked against the snapshot it was drafted on, and the drafts " +
+            "(Data.bindPaged's handle): a batch is checked against the snapshot it was drafted on, and the drafts " +
             "retire once the rows read back at the snapshot it wrote");
     }
     const live = source.kind === "inline" ? source.live : undefined;

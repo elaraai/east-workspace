@@ -3,7 +3,6 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { randomUUID } from 'node:crypto';
 import { NullType, OptionType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
@@ -21,8 +20,8 @@ import {
   PackageNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceNotFoundError,
-} from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
+import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { LockStatusType, WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
@@ -301,7 +300,7 @@ export async function startWorkspaceDeploy(
     if (version === undefined) throw new PackageNotFoundError(name);
     await packageResolve(storage, repoPath, name, version);
 
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     await deployStore.create(id, {
       repo,
       workspace,

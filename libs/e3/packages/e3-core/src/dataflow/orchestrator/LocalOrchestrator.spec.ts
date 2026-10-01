@@ -19,7 +19,7 @@ import { East, IntegerType, decodeBeast2For, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { PackageObjectType } from '@elaraai/e3-types';
 import { MockTaskRunner } from '../../execution/MockTaskRunner.js';
-import { packageImport } from '../../packages.js';
+import { packageImport } from '../../package-files.js';
 import { InMemoryStorage } from '../../storage/in-memory/InMemoryStorage.js';
 import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from '../../workspaces.js';
 import { InMemoryStateStore } from '../state-store/InMemoryStateStore.js';

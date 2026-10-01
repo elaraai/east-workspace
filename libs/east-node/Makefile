@@ -16,7 +16,8 @@ test-export:
 	pnpm --filter @elaraai/east-node-std run test:export
 	pnpm --filter @elaraai/east-node-io run test:export
 
-## Export test IR from east-node-std only (no Docker services needed)
+## Export test IR from east-node-std only (no Docker services needed), into
+## EAST_NODE_STD_IR when it is set and /tmp/east-node-std otherwise
 test-export-std:
 	pnpm --filter @elaraai/east-node-std run test:export
 

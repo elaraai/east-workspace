@@ -41,6 +41,18 @@ export * from './datetime_format/parse.js';
 export { analyzeIR } from './analyze.js';
 export { compile_internal, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, printTypeValue } from './compile.js';
 export { SourceMap, with_source_map, ensure_source_map, get_current_source_map, printLocation, printLocations, type Location } from './location.js';
+// The runner protocol's host side — what a runner's file wrapper reads a
+// unit's files through (east-node's `exec` and `run`)
+export {
+    resolveUnitPaths, unitFileFormat, loadUnitProgram, loadUnitInput, openUnitInputLazy, openUnitInputs, unitInputBytes, lazyInputBytesRead,
+    type UnitFileFormat, type UnitInputOptions, type UnitInputsOptions,
+} from './runner_io.js';
+export { mergeUnitParts, loadUnitMergeFunction, type UnitMergeFunction, type UnitMergeOptions } from './runner_merge.js';
+// What e3 reads and writes its zips with, in every runtime: a deflated entry
+// inflated by Node's zlib where there is one and east's own inflate elsewhere,
+// and the CRC-32 each entry's bytes are named by, likewise
+export { inflateRawSync } from './serialization/beast2/v5/frames.js';
+export { crc32 } from './serialization/crc32.js';
 
 /**
  * Type helper for platform function definitions.

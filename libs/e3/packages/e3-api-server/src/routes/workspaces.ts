@@ -4,10 +4,9 @@
  */
 
 import { Hono } from 'hono';
-import { randomUUID } from 'node:crypto';
 import { variant, some } from '@elaraai/east';
-import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
-import { workspaceGetState } from '@elaraai/e3-core';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
+import { workspaceGetState } from '@elaraai/e3-core/portable';
 import { PackageJobResponseType } from '@elaraai/e3-types';
 import {
   listWorkspaces,
@@ -133,7 +132,7 @@ export function createWorkspaceRoutes(
     const exportName = requestName ?? state.packageName;
     const exportVersion = requestVersion ?? `${state.packageVersion}-${Date.now().toString(36)}`;
 
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     await transferBackend.packageExport.create(id, {
       repo,
       name: exportName,

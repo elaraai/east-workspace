@@ -92,10 +92,11 @@ export interface OrchestratorStartOptions {
   width?: number;
   /**
    * The owner a split task's own execution is recorded under while the loop
-   * drives its stages, which run in this process whatever runs the units: this
-   * process unless given. `null` records none, whose execution is never
-   * repaired as interrupted — what a host passes when no other process can
-   * check its liveness, as a cloud function's. A runtime setting like
+   * drives its stages, which run in this process whatever runs the units:
+   * unless given, the owner the orchestrator's host names — this process, for
+   * the root entry's `LocalOrchestrator`. `null` records none, whose execution
+   * is never repaired as interrupted — what a host passes when no other process
+   * can check its liveness, as a cloud function's. A runtime setting like
    * {@link signal}: never persisted.
    */
   owner?: ExecutionOwner | null;

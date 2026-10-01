@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Paged, State, Style, UIComponentType } from "@elaraai/east-ui";
+import { State, Style, UIComponentType } from "@elaraai/east-ui";
 import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
@@ -393,35 +393,6 @@ export const tableTree = example({
                     children: (p) => p.parts,
                     collapsed: (p) => p.part.equal("Wheel set"),
                 }}
-            />
-        );
-    }),
-    inputs: [],
-});
-
-/**
- * Nested rows over a PAGED source (#954) — the same bill of materials, served
- * one top-level assembly per window (`pageLimit: 1`). A window holds whole
- * top-level rows with their subtrees, so every subtotal is exact over what has
- * loaded, exactly as inline.
- */
-export const tableTreePaged = example({
-    keywords: ["Table", "Root", "tree", "children", "nested", "paged", "Paged", "Paged.of", "pageLimit", "window", "subtotal", "aggregate", "#954", "#576"],
-    description: "The bill of materials over a paged source — windows of whole top-level assemblies, subtotals exact as inline",
-    fn: East.function([], UIComponentType, ($) => {
-        const bom = $.const(BOM, ArrayType(BomPart));
-        const source = $.const(Paged.of("table-tree-bom", bom, { pageLimit: 1 }));
-        return (
-            <Table
-                variant="line"
-                data={source}
-                columns={{
-                    part: { header: "Part", width: "240px" },
-                    sku: { header: "SKU · parts", aggregate: "count" },
-                    qty: { header: "Qty" },
-                    cost: { header: "Cost", format: Format.Currency({ currency: "EUR" }), aggregate: "sum" },
-                }}
-                tree={{ children: (p) => p.parts }}
             />
         );
     }),

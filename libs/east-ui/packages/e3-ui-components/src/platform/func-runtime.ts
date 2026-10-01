@@ -52,6 +52,7 @@ import {
     workspaceFunctionCall,
     type ExecuteResult,
     type FunctionSignature,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import {
     registerReactiveTracker,
@@ -61,7 +62,7 @@ import { TrackedChannelStore } from "./tracked-channel.js";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through. Tests stub it;
-// the showcase harness swaps in an in-memory implementation.
+// the snapshot harness swaps in an in-memory implementation.
 // =============================================================================
 
 /** Request shape for {@link FunctionApi.call} — beast2-encoded positional
@@ -86,23 +87,28 @@ export interface FunctionApi {
 /**
  * Build the default {@link FunctionApi} that talks to a real e3 server via
  * `@elaraai/e3-api-client`.
+ *
+ * @param apiUrl - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
+ * @returns The adapter
  */
 export function createDefaultFunctionApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
 ): FunctionApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async list(workspace) {
-            return workspaceFunctionList(apiUrl, repo, workspace, opts());
+            return workspaceFunctionList(apiUrl, repo, workspace, getOptions());
         },
         async call(workspace, fn, req) {
             return workspaceFunctionCall(apiUrl, repo, workspace, fn, {
                 args: req.args,
                 runner: none,
                 limits: none,
-            }, opts());
+            }, getOptions());
         },
     };
 }
@@ -247,7 +253,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     // ----- wiring ----------------------------------------------------------
 
     /** Install the API adapter + workspace — called by the React provider
-     *  (or a test/showcase harness) before any handle is used. */
+     *  (or a test, or the snapshot harness) before any handle is used. */
     initialize(api: FunctionApi, workspace: string): void {
         this.api = api;
         this.workspace = workspace;
@@ -508,7 +514,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
 export const defaultFuncRuntime = new FuncRuntime();
 
 /** Install the function API adapter + workspace — called by the React
- *  provider on mount (or by a test/showcase harness). */
+ *  provider on mount (or by a test, or the snapshot harness). */
 export function initializeFunctionApi(api: FunctionApi, workspace: string): void {
     defaultFuncRuntime.initialize(api, workspace);
 }
@@ -543,7 +549,7 @@ export function createScopedFuncPlatform(functions: readonly string[]): Platform
 }
 
 // =============================================================================
-// In-memory FunctionApi — offline harnesses (showcase, snapshots, tests)
+// In-memory FunctionApi — offline harnesses (the snapshot harness, tests)
 // register deterministic implementations keyed by name; `call` round-trips
 // arguments and results through the same beast2 codecs a real server uses.
 // =============================================================================
@@ -563,7 +569,7 @@ export interface InMemoryFunctionDef {
 
 /**
  * Build an offline {@link FunctionApi} from local implementations — the
- * showcase/snapshot harnesses' stand-in for a deployed package.
+ * snapshot harness's stand-in for a deployed package.
  */
 export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): FunctionApi {
     const defs = functions.map(def => ({

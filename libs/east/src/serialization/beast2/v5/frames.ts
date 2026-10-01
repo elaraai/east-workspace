@@ -71,18 +71,22 @@ const zlib: ZlibModule | null =
   (globalThis as any).process?.getBuiltinModule?.("node:zlib") ?? null;
 
 /**
- * Decompresses a raw DEFLATE frame payload synchronously.
+ * Decompresses a raw DEFLATE (RFC 1951) stream synchronously: a frame's
+ * payload, or a zip entry's bytes, which e3 reads with it in every runtime.
  *
  * Prefers Node's zlib (native code); without it — browsers — falls back to
- * the portable pure-TS inflate, so synchronous decode works everywhere.
+ * the portable pure-TS inflate, so synchronous decode works everywhere. A
+ * stream that inflates to no bytes is inflated by the portable decoder too:
+ * zlib takes no output limit of zero.
  *
- * @param payload - the compressed frame payload
- * @param uncompressedLen - the expected logical byte length from the frame header
- * @returns the logical bytes
+ * @param payload - the raw DEFLATE stream (no zlib header or trailer)
+ * @param uncompressedLen - the exact length it inflates to: the logical byte
+ *   length from a frame header, or a zip entry's size
+ * @returns the inflated bytes
  * @throws {Error} When the stream is corrupt or the output length mismatches.
  */
 export function inflateRawSync(payload: Uint8Array, uncompressedLen: number): Uint8Array {
-  if (!zlib) {
+  if (!zlib || uncompressedLen === 0) {
     return inflateRawPure(payload, uncompressedLen);
   }
   const out = zlib.inflateRawSync(payload, { maxOutputLength: uncompressedLen });

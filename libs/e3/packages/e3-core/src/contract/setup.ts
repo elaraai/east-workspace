@@ -4,6 +4,7 @@
  */
 
 import type { TestContext } from 'node:test';
+import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 /**
@@ -15,6 +16,13 @@ export interface BackendContext {
   /** A repository the backend created, as it creates one, by the identifier
    *  its stores take */
   readonly repo: string;
+  /**
+   * The store a dataflow run's state is kept in beside the backend's, which
+   * the dataflow loop's cases run their orchestrators over: a backend that
+   * keeps run state its own way gives it, so the loop runs over both. Unless
+   * given, the runs keep their state in memory.
+   */
+  readonly stateStore?: ExecutionStateStore;
   /**
    * Leaves what the backend holds in bytes that do not read, as a crash, a
    * failing disk or a hand edit leaves them: what the cases of a record that

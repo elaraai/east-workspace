@@ -297,6 +297,6 @@ export async function workspaceExport(
   const { downloadUrl } = status.value;
 
   // 3. Download zip (no auth — URL may be a presigned S3 URL)
-  return fetchWithProgress(downloadUrl, exportOptions?.onDownloadProgress, signal);
+  return fetchWithProgress(downloadUrl, exportOptions?.onDownloadProgress, signal, options.fetch);
 }
 

@@ -53,6 +53,7 @@ import {
     type MutationResult,
     type RecordHistoryResult,
     type RecordCommitInfo,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import {
     registerReactiveTracker,
@@ -66,7 +67,7 @@ import type { TreePath } from "@elaraai/e3-types";
 // =============================================================================
 // API seam — the narrow surface the runtime talks through for the WRITE side.
 // (The read side goes through the dataset cache, not this.) Tests stub it; the
-// showcase harness swaps in an in-memory implementation.
+// snapshot harness swaps in an in-memory implementation.
 // =============================================================================
 
 /** Request shape for {@link RecordApi.mutate} — beast2-encoded positional
@@ -97,26 +98,31 @@ export interface RecordApi {
 /**
  * Build the default {@link RecordApi} that talks to a real e3 server via
  * `@elaraai/e3-api-client`.
+ *
+ * @param apiUrl - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
+ * @returns The adapter
  */
 export function createDefaultRecordApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
 ): RecordApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async describe(workspace, record) {
-            return workspaceRecordDescribe(apiUrl, repo, workspace, record, opts());
+            return workspaceRecordDescribe(apiUrl, repo, workspace, record, getOptions());
         },
         async mutate(workspace, record, mutation, req) {
             return workspaceRecordMutate(apiUrl, repo, workspace, record, mutation, {
                 args: req.args,
                 actor: none,
                 limits: none,
-            }, opts(), req.idempotencyKey);
+            }, getOptions(), req.idempotencyKey);
         },
         async history(workspace, record, limit, from) {
-            return workspaceRecordHistory(apiUrl, repo, workspace, record, limit, opts(), from);
+            return workspaceRecordHistory(apiUrl, repo, workspace, record, limit, getOptions(), from);
         },
     };
 }
@@ -272,7 +278,8 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
     // ----- wiring ----------------------------------------------------------
 
     /** Install the API adapter + dataset cache + workspace — called by the
-     *  React provider (or a test/showcase harness) before any handle is used. */
+     *  React provider (or a test, or the snapshot harness) before any handle
+     *  is used. */
     initialize(api: RecordApi, cache: ReactiveDatasetCacheInterface, workspace: string): void {
         this.api = api;
         this.cache = cache;
@@ -667,7 +674,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
 export const defaultRecordRuntime = new RecordRuntime();
 
 /** Install the record API adapter + dataset cache + workspace — called by the
- *  React provider on mount (or by a test/showcase harness). */
+ *  React provider on mount (or by a test, or the snapshot harness). */
 export function initializeRecordApi(api: RecordApi, cache: ReactiveDatasetCacheInterface, workspace: string): void {
     defaultRecordRuntime.initialize(api, cache, workspace);
 }
@@ -702,7 +709,7 @@ export function createScopedRecordPlatform(records: readonly string[]): Platform
 }
 
 // =============================================================================
-// In-memory RecordApi — offline harnesses (showcase, snapshots, tests) register
+// In-memory RecordApi — offline harnesses (the snapshot harness, tests) register
 // deterministic implementations; `mutate` writes the new state straight into
 // the dataset cache (so `read()` re-renders offline without a poller) and
 // appends a synthetic commit.
@@ -726,7 +733,7 @@ export interface InMemoryRecordDef {
 
 /**
  * Build an offline {@link RecordApi} from local implementations — the
- * showcase/snapshot harnesses' stand-in for a deployed record. Seeds each
+ * snapshot harness's stand-in for a deployed record. Seeds each
  * record's current value into the dataset cache so `read()` works offline.
  *
  * @remarks

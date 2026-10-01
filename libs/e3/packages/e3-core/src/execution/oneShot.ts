@@ -27,8 +27,7 @@ import { PermissionDeniedError } from '../errors.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { workspaceGetPackage } from '../workspaces.js';
-import type { TaskRunner } from './interfaces.js';
-import type { DetachedArg, DetachedResult } from './runDetached.js';
+import type { DetachedArg, DetachedResult, TaskRunner } from './interfaces.js';
 
 /**
  * What a caller may run through one-shot: the grant the host's auth gives it.

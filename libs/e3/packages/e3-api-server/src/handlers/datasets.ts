@@ -16,8 +16,8 @@ import {
   resolveRecordIndex,
   DatasetSegments,
   type TreeNode,
-} from '@elaraai/e3-core';
-import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant, sendJsonError } from '../errors.js';
 import { DatasetStatusDetailType, ListEntryType, type ListEntry, type DatasetStatusDetail } from '../types.js';

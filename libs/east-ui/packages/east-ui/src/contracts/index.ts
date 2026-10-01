@@ -96,5 +96,5 @@ export {
     RowSourceType, type RowSource,
     type PagedSourceLike, type RowSourceInput, type ResolvedRowSource,
     resolveRowSource, buildRowSource,
-    Paged, type PagedOfOptions,
+    Paged,
 } from "./source.js";

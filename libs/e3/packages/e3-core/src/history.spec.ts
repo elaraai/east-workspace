@@ -18,11 +18,12 @@ import e3 from '@elaraai/e3';
 import { PackageObjectType, decodeUnitPlan } from '@elaraai/e3-types';
 import { repoGc } from './gc.js';
 import { LocalStorage } from './storage/local/index.js';
-import { dataflowExecute } from './dataflow.js';
+import { dataflowExecute } from './execution/local-orchestrator.js';
 import { inputsHash } from './executions.js';
-import { packageImport } from './packages.js';
+import { packageImport } from './package-files.js';
 import { workspaceSetDataset } from './trees.js';
-import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from './workspaces.js';
+import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
+import { workspaceDeploy } from './workspace-files.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
 import type { StorageBackend } from './storage/interfaces.js';
 

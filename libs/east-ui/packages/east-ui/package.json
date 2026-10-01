@@ -33,10 +33,6 @@
       "types": "./dist/test/platform/*.examples.d.ts",
       "default": "./dist/test/platform/*.examples.js"
     },
-    "./examples/patterns/*": {
-      "types": "./dist/test/patterns/*.examples.d.ts",
-      "default": "./dist/test/patterns/*.examples.js"
-    },
     "./examples/buttons/*": {
       "types": "./dist/test/buttons/*.examples.d.ts",
       "default": "./dist/test/buttons/*.examples.js"

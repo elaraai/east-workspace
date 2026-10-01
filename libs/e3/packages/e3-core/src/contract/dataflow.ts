@@ -18,16 +18,18 @@ import { join } from 'node:path';
 import { East, IntegerType, decodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { PackageObjectType } from '@elaraai/e3-types';
-import { LocalOrchestrator } from '../dataflow/orchestrator/LocalOrchestrator.js';
+import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
+import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import { DataflowAbortedError } from '../errors.js';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
-import { packageImport } from '../packages.js';
+import { packageImport } from '../package-files.js';
 import { workspaceSetDataset } from '../trees.js';
-import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from '../workspaces.js';
-import type { BackendSetup } from './setup.js';
+import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
+import { workspaceDeploy } from '../workspace-files.js';
+import type { BackendContext, BackendSetup } from './setup.js';
 
 /** A directory for a test's own files, removed when the test ends. */
 function scratch(t: TestContext): string {
@@ -36,15 +38,23 @@ function scratch(t: TestContext): string {
   return dir;
 }
 
+/** The store a case's runs keep their state in: the one the backend's setup
+ *  gives, or one in memory. */
+function stateStoreOf(context: BackendContext): ExecutionStateStore {
+  return context.stateStore ?? new InMemoryStateStore();
+}
+
 /**
  * Registers the dataflow loop's contract suite over a backend.
  *
- * @param setup - Makes a fresh backend and a repository in it for each test
+ * @param setup - Makes a fresh backend and a repository in it for each test,
+ *   and the store the runs keep their state in, when the backend gives one
  */
 export function dataflowTests(setup: BackendSetup): void {
   describe('the dataflow loop', () => {
     it('runs a workspace\'s tasks in the order they depend on each other, writing each output and recording the run', async (t) => {
-      const { storage, repo } = await setup(t);
+      const context = await setup(t);
+      const { storage, repo } = context;
       const sales = e3.input('sales', IntegerType, variant('value', 1n));
       const doubled = e3.task('doubled', [sales], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
       const report = e3.task('report', [doubled.output], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
@@ -58,7 +68,7 @@ export function dataflowTests(setup: BackendSetup): void {
       const runner = new MockTaskRunner();
       runner.setResult(deployed.tasks.get('doubled')!, { state: 'success', cached: false, outputHash: 'doubled-out' });
       runner.setResult(deployed.tasks.get('report')!, { state: 'success', cached: false, outputHash: 'report-out' });
-      const stateStore = new InMemoryStateStore();
+      const stateStore = stateStoreOf(context);
       const orchestrator = new LocalOrchestrator(stateStore);
       const handle = await orchestrator.start(storage, repo, 'ws', { runner });
       const result = await orchestrator.wait(handle);
@@ -78,7 +88,8 @@ export function dataflowTests(setup: BackendSetup): void {
     });
 
     it('serves a task from the execution cache when its latest attempt over its inputs succeeded', async (t) => {
-      const { storage, repo } = await setup(t);
+      const context = await setup(t);
+      const { storage, repo } = context;
       const sales = e3.input('sales', IntegerType, variant('value', 1n));
       const doubled = e3.task('doubled', [sales], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
       const zip = join(scratch(t), 'flow.zip');
@@ -91,7 +102,7 @@ export function dataflowTests(setup: BackendSetup): void {
 
       const runner = new MockTaskRunner();
       runner.setResult(taskHash, { state: 'success', cached: false, outputHash: 'doubled-out' });
-      const first = new LocalOrchestrator(new InMemoryStateStore());
+      const first = new LocalOrchestrator(stateStoreOf(context));
       await first.wait(await first.start(storage, repo, 'ws', { runner }));
       const inputs = runner.getCalls()[0]!.inputHashes;
 
@@ -102,7 +113,7 @@ export function dataflowTests(setup: BackendSetup): void {
         peakBytes: none, plan: none, unit: false,
       }));
       runner.clearCalls();
-      const second = new LocalOrchestrator(new InMemoryStateStore());
+      const second = new LocalOrchestrator(stateStoreOf(context));
       const result = await second.wait(await second.start(storage, repo, 'ws', { runner }));
 
       assert.equal(result.success, true);
@@ -113,7 +124,8 @@ export function dataflowTests(setup: BackendSetup): void {
     });
 
     it('skips what depends on a task that failed, and records the run failed', async (t) => {
-      const { storage, repo } = await setup(t);
+      const context = await setup(t);
+      const { storage, repo } = context;
       const sales = e3.input('sales', IntegerType, variant('value', 1n));
       const doubled = e3.task('doubled', [sales], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
       const report = e3.task('report', [doubled.output], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
@@ -126,7 +138,7 @@ export function dataflowTests(setup: BackendSetup): void {
 
       const runner = new MockTaskRunner();
       runner.setResult(deployed.tasks.get('doubled')!, { state: 'failed', cached: false, exitCode: 1 });
-      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      const orchestrator = new LocalOrchestrator(stateStoreOf(context));
       const result = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
 
       assert.equal(result.success, false);
@@ -137,7 +149,8 @@ export function dataflowTests(setup: BackendSetup): void {
     });
 
     it('runs a task again when an input it read is written while the run is in flight', async (t) => {
-      const { storage, repo } = await setup(t);
+      const context = await setup(t);
+      const { storage, repo } = context;
       const sales = e3.input('sales', IntegerType, variant('value', 1n));
       const doubled = e3.task('doubled', [sales], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
       const zip = join(scratch(t), 'flow.zip');
@@ -156,7 +169,7 @@ export function dataflowTests(setup: BackendSetup): void {
         }
         return { state: 'success', cached: false, outputHash: `doubled-v${calls}` };
       });
-      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      const orchestrator = new LocalOrchestrator(stateStoreOf(context));
       const result = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
 
       assert.equal(result.success, true);
@@ -167,7 +180,8 @@ export function dataflowTests(setup: BackendSetup): void {
     });
 
     it('stops a run its orchestrator is asked to cancel, and records it cancelled', async (t) => {
-      const { storage, repo } = await setup(t);
+      const context = await setup(t);
+      const { storage, repo } = context;
       const sales = e3.input('sales', IntegerType, variant('value', 1n));
       const doubled = e3.task('doubled', [sales], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
       const zip = join(scratch(t), 'flow.zip');
@@ -177,7 +191,7 @@ export function dataflowTests(setup: BackendSetup): void {
       await workspaceDeploy(storage, repo, 'ws', 'flow', '1.0.0');
       const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
 
-      const stateStore = new InMemoryStateStore();
+      const stateStore = stateStoreOf(context);
       const orchestrator = new LocalOrchestrator(stateStore);
       const runner = new MockTaskRunner();
       let handle!: ExecutionHandle;

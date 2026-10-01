@@ -330,12 +330,13 @@ test.describe("Plan bound ui state (#824)", () => {
 
 /**
  * A paged canvas pages block by block, each window holding its entries whole
- * (#823) — measured in a real layout. `pagedSourceBlocks` is two series over
- * one source of 3,000 units: two blocks of 3,000 32px rows, and every row sits
- * at its unit's offset in its block — its window's place in the ledger plus
- * its place in the window. That holds from the first landing, through a far
- * jump that evicts the head of the run into a band, and through a window
- * landing above the rows in view: nothing on screen moves.
+ * (#823) — measured in a real layout. `dataBindPagedBlocks` is two series over
+ * one bound source of 3,000 units, which an e3 task generates (#849): two
+ * blocks of 3,000 32px rows, and every row sits at its unit's offset in its
+ * block — its window's place in the ledger plus its place in the window. That
+ * holds from the first landing, through a far jump that evicts the head of
+ * the run into a band, and through a window landing above the rows in view:
+ * nothing on screen moves.
  */
 test.describe("Plan paged blocks (#823)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
@@ -362,7 +363,7 @@ test.describe("Plan paged blocks (#823)", () => {
     }
 
     test("every row sits at its unit's offset in its block — through a far jump that evicts the run's head, and a window landing above the rows in view", async ({ page }) => {
-        const entry = await openExample(page, "pagedSourceBlocks", "collections/paged-source");
+        const entry = await openExample(page, "dataBindPagedBlocks", "e3/bind/data/data");
         const frame = entry.locator('[data-virtual-rows="bounded"]');
         const extent = entry.locator("[data-virtual-extent]");
         const transport = entry.locator('[data-slot="footerTransport"]');

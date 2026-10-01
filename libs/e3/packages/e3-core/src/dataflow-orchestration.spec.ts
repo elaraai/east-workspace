@@ -26,14 +26,14 @@ import {
   type DatasetRef,
   type StageUnit,
 } from '@elaraai/e3-types';
-import { dataflowExecute } from './dataflow.js';
-import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js';
+import { dataflowExecute, LocalOrchestrator } from './execution/local-orchestrator.js';
 import type { ExecutionHandle, ExecutionStatus, TaskCompletedCallback } from './dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from './dataflow/state-store/InMemoryStateStore.js';
 import { datasetWrite } from './trees.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
-import { workspaceDeploy, workspaceCreate, workspaceGetPackage } from './workspaces.js';
-import { packageImport } from './packages.js';
+import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
+import { workspaceDeploy } from './workspace-files.js';
+import { packageImport } from './package-files.js';
 import { recordMutate } from './records.js';
 import { workspaceSetDataset } from './trees.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';

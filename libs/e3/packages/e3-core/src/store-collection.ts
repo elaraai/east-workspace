@@ -27,6 +27,7 @@
  *   in under the hashes that name them, and a blob's segments are carved out of
  *   the file. A delivered file reaches the door so: intake units take it in on
  *   the runners (`delivery-intake.ts`), and each writes a manifest directory.
+ *   Files are read on the machine they lie on (`store-collection-file.ts`).
  * - Everything else is foreign: an API `PUT` body, a custom task's output, a
  *   collection stored whole. Its elements are read a segment of the source at
  *   a time and written again through the Writer, so nothing about the source's
@@ -39,47 +40,36 @@
  * @packageDocumentation
  */
 
-import { createReadStream } from 'node:fs';
-import { open, readFile, type FileHandle } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   Beast2ElementWriter,
   EastTypeValueType,
-  carveBeast2Ranged,
   decodeBeast2ElementsFor,
   encodeBeast2FenceFor,
   isTypeValueEqual,
   isVariant,
-  openBeast2PagesFor,
   printFor,
-  readBeast2ExtentsRanged,
-  readBeast2SegmentLogicalBytes,
   readBeast2Type,
   segmentKeyTypeOf,
   segmentRuleFor,
   toEastTypeValue,
-  type Beast2RangedExtents,
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
 import {
-  decodeCollectionManifest,
-  isCollectionManifestType,
   isCollectionRoot,
   writeCollectionManifest,
   type CollectionManifest,
   type CollectionPiece,
   type CollectionSegmentRef,
 } from '@elaraai/e3-types';
-import { readDatasetFileType } from '@elaraai/e3';
 import { computeHash } from './objects.js';
 import { openDatasetObject } from './dataset-open.js';
-import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** Bytes a stored blob or a file is read in when it is read front to back:
- *  what the door holds of a foreign source besides the segment it decodes. */
-const READ_CHUNK_BYTES = 1024 * 1024;
+ *  what the door holds of a foreign source besides the segment it decodes.
+ *  @internal */
+export const READ_CHUNK_BYTES = 1024 * 1024;
 
 /**
  * One source of a collection, in order, as {@link storeCollection} takes it.
@@ -89,21 +79,50 @@ export type CollectionSource =
    *  or its segments `[from, to)`; or a collection stored whole, as the object
    *  it arrived as. */
   | { readonly stored: string; readonly from?: number; readonly to?: number }
-  /** A beast2 blob in a file. `canonical` when the Writer wrote it — a stock
-   *  runner's output — so its segments are stored as they stand; otherwise
-   *  its elements are read and written again. */
-  | { readonly file: string; readonly canonical?: boolean }
-  /** A manifest directory: the manifest in the file `manifest`, and each
-   *  object it names in `<manifest>.segments/`, the file named by the
-   *  object's SHA-256. `canonical` when the Writer wrote it — a stock
-   *  runner's output — so its segments are stored as they stand; otherwise
-   *  its elements are read and written again. */
-  | { readonly manifest: string; readonly canonical?: boolean }
   /** A beast2 blob arriving as a stream of bytes, from outside. */
   | { readonly chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array> }
   /** Elements in canonical order: an Array's in position, a Set's or a
    *  Dict's (as `[key, value]` pairs) ascending. */
   | { readonly elements: Iterable<unknown> | AsyncIterable<unknown> };
+
+/**
+ * The door as it stores one collection: what a source of a kind the door does
+ * not read itself — a file on the machine that stores it — is read under.
+ *
+ * @internal
+ */
+export interface CollectionDoor {
+  /** The collection's type. */
+  readonly typeValue: EastTypeValue;
+  /** The current segment rule for it. */
+  readonly rule: ReturnType<typeof segmentRuleFor>;
+  /** The Writer's own header: a segment is carried over only under it. */
+  readonly header: Uint8Array;
+  /** The header's hash, which a current manifest names. */
+  readonly headerHash: string;
+  /** Encodes a key as a segment's fence; `null` for an Array. */
+  readonly fenceOf: ReturnType<typeof encodeBeast2FenceFor> | null;
+  /** Reads a source's elements, a segment of it at a time. */
+  readonly readElements: ReturnType<typeof decodeBeast2ElementsFor>;
+  /**
+   * Refuses a source that holds another type than the collection's.
+   *
+   * @param source - The source, as a refusal names it
+   * @param wire - The type it holds
+   * @throws {Error} When it is not the collection's.
+   */
+  checkType(source: string, wire: EastTypeValue): void;
+  /**
+   * A current manifest's segments `[from, to)`, by reference: each carries the
+   * entry that names it, and the fence that followed it.
+   *
+   * @param manifest - The manifest
+   * @param from - The first segment
+   * @param to - The segment after the last
+   * @returns The segments' references
+   */
+  manifestRefs(manifest: CollectionManifest, from: number, to: number): CollectionSegmentRef[];
+}
 
 /**
  * Store a collection, given as sources in order, and return its manifest's
@@ -121,12 +140,17 @@ export type CollectionSource =
  * parts whose key ranges overlap first. An empty list of sources stores the
  * empty collection.
  *
+ * A file on this machine — a stock runner's output, a manifest directory — is
+ * stored through the root entry's `storeCollection`, which reads it where it
+ * lies.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param type - The collection type (Array / Set / Dict)
  * @param sources - The collection's sources, in order
  * @returns The manifest object's hash
- * @throws {TypeError} When `type` is not a collection type.
+ * @throws {TypeError} When `type` is not a collection type, or a source is
+ *   none of the door's own.
  * @throws {Error} When a source holds another type, its elements do not
  *   ascend, a foreign segment is larger than the limit a collection is read in,
  *   a stored source is missing, or a stored manifest was cut under another rule
@@ -137,6 +161,33 @@ export async function storeCollection(
   repo: string,
   type: EastType | EastTypeValue,
   sources: Iterable<CollectionSource> | AsyncIterable<CollectionSource>,
+): Promise<string> {
+  return storeCollectionThrough<never>(storage, repo, type, sources, (source) => {
+    throw new TypeError(`store: a source is a stored collection, chunks or elements, and ${JSON.stringify(Object.keys(source))} is none: ` +
+      'a file on this machine is stored through the root entry of @elaraai/e3-core');
+  });
+}
+
+/**
+ * Store a collection, given as sources in order, some of a kind the door does
+ * not read itself, which `other` reads under the door it is given: what the
+ * root entry's `storeCollection` stores a file on this machine through.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param type - The collection type (Array / Set / Dict)
+ * @param sources - The collection's sources, in order
+ * @param other - Reads a source of another kind as a piece of the collection
+ * @returns The manifest object's hash
+ * @throws As {@link storeCollection} does, and whatever `other` throws.
+ * @internal
+ */
+export async function storeCollectionThrough<S extends object>(
+  storage: StorageBackend,
+  repo: string,
+  type: EastType | EastTypeValue,
+  sources: Iterable<CollectionSource | S> | AsyncIterable<CollectionSource | S>,
+  other: (source: S, door: CollectionDoor) => Promise<CollectionPiece>,
 ): Promise<string> {
   const typeValue = isVariant(type) ? (type as EastTypeValue) : toEastTypeValue(type as EastType);
   if (!isCollectionRoot(typeValue)) {
@@ -204,78 +255,13 @@ export async function storeCollection(
     return { segments: manifestRefs(manifest, source.from ?? 0, source.to ?? manifest.entries.length) };
   };
 
-  /** A stock runner's output: its segments carved out of the file as they
-   *  stand. A file that is not the Writer's — no index, segments that alias
-   *  one another, another header — is read as foreign bytes instead. */
-  const filePiece = async (file: string, canonical: boolean): Promise<CollectionPiece> => {
-    if (canonical) {
-      let extents: Beast2RangedExtents | null = null;
-      const handle = await open(file, 'r');
-      try {
-        extents = await readBeast2ExtentsRanged({ size: (await handle.stat()).size, read: (offset, length) => readRange(handle, offset, length) });
-      } catch {
-        extents = null;
-      } finally {
-        await handle.close();
-      }
-      if (extents !== null) {
-        checkType(file, extents.typeValue);
-        if (extents.selfContained && bytesEqual(extents.head, header)) return { segments: fileRefs(file, extents) };
-      }
-    }
-    return { elements: readElements(createReadStream(file, { highWaterMark: READ_CHUNK_BYTES })) };
-  };
-
-  /** A manifest directory. A stock runner's, cut by the current rule under
-   *  the canonical header, is the Writer's: each segment file is linked into
-   *  the store under the hash that names it and carried by its entry, never
-   *  read. The segments are adopted OBJECT_CONCURRENCY at a time — a link each
-   *  locally, but a request each on a remote store — and one an Array's
-   *  manifest names twice is adopted once. Any other has its elements read a
-   *  segment file at a time and written again. */
-  const directoryPiece = async (file: string, canonical: boolean): Promise<CollectionPiece> => {
-    const manifest = decodeCollectionManifest(await readFile(file));
-    checkType(file, manifest.type);
-    const segmentFile = (hash: string): string => join(`${file}.segments`, `${hash}.beast2`);
-    if (canonical && manifest.rule === rule && manifest.header === headerHash) {
-      await eachAtMost([...new Set(manifest.entries.map((entry) => entry.hash))], OBJECT_CONCURRENCY,
-        (hash) => storage.objects.adoptFile(repo, segmentFile(hash), hash));
-      return { segments: manifestRefs(manifest, 0, manifest.entries.length) };
-    }
-    async function* elements(): AsyncGenerator<unknown> {
-      for (const entry of manifest.entries) yield* readElements([await readFile(segmentFile(entry.hash))]);
-    }
-    return { elements: elements() };
-  };
-
-  /** Each segment of a canonical file, carved as it is reached: its fence is
-   *  its first key, and its logical size is in its frame's header. */
-  async function* fileRefs(file: string, extents: Beast2RangedExtents): AsyncGenerator<CollectionSegmentRef> {
-    const handle = await open(file, 'r');
-    try {
-      const pages = openBeast2PagesFor(typeValue);
-      for (let i = 0; i < extents.offsets.length; i++) {
-        const start = extents.offsets[i]!;
-        const end = i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd;
-        const blob = carveBeast2Ranged(extents, await readRange(handle, start, end - start), i, i + 1);
-        yield {
-          count: extents.counts[i]!,
-          fence: fenceOf === null ? new Uint8Array(0) : fenceOf(pages(blob).fence(0)),
-          logicalBytes: readBeast2SegmentLogicalBytes(blob)[0]!,
-          read: () => blob,
-        };
-      }
-    } finally {
-      await handle.close();
-    }
-  }
+  const door: CollectionDoor = { typeValue, rule, header, headerHash, fenceOf, readElements, checkType, manifestRefs };
 
   async function* pieces(): AsyncGenerator<CollectionPiece> {
     for await (const source of sources) {
-      if ('elements' in source) yield { elements: source.elements };
+      if (!isDoorSource(source)) yield await other(source, door);
+      else if ('elements' in source) yield { elements: source.elements };
       else if ('chunks' in source) yield { elements: readElements(source.chunks) };
-      else if ('file' in source) yield await filePiece(source.file, source.canonical === true);
-      else if ('manifest' in source) yield await directoryPiece(source.manifest, source.canonical === true);
       else yield await storedPiece(source);
     }
   }
@@ -284,45 +270,10 @@ export async function storeCollection(
   return storage.objects.write(repo, manifest);
 }
 
-/**
- * Store a beast2 file as a dataset value: a collection through the door, any
- * other value as the object the file is.
- *
- * @remarks
- * What a task's output takes. A manifest file is the manifest directory a stock
- * runner writes a collection as, and is stored from its segment files. A
- * collection blob a stock runner wrote is the Writer's, so it is `canonical`
- * and its segments are stored as they stand; one any other program wrote is
- * read and written again. Any other root is adopted as it stands, by link where
- * the store's objects are files — and so is a file whose header does not read,
- * which the reader that needs its type refuses.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param file - Path to the file
- * @param options - Whether the Writer wrote the file
- * @returns The dataset object's hash — the manifest, for a collection
- * @throws {Error} When the file is missing, or the door refuses the collection
- *   it holds.
- */
-export async function storeDatasetFile(
-  storage: StorageBackend,
-  repo: string,
-  file: string,
-  options: { canonical?: boolean } = {},
-): Promise<string> {
-  let type: EastTypeValue;
-  try {
-    type = readDatasetFileType(file);
-  } catch {
-    return (await storage.objects.adoptFile(repo, file)).hash;
-  }
-  if (isCollectionManifestType(type)) {
-    const { type: manifestType } = decodeCollectionManifest(await readFile(file));
-    return storeCollection(storage, repo, manifestType, [{ manifest: file, canonical: options.canonical === true }]);
-  }
-  if (!isCollectionRoot(type)) return (await storage.objects.adoptFile(repo, file)).hash;
-  return storeCollection(storage, repo, type, [{ file, canonical: options.canonical === true }]);
+/** Whether a source is of a kind the door reads itself: a stored collection,
+ *  chunks or elements. */
+function isDoorSource<S extends object>(source: CollectionSource | S): source is CollectionSource {
+  return 'stored' in source || 'chunks' in source || 'elements' in source;
 }
 
 /**
@@ -348,25 +299,4 @@ export async function storeDatasetBytes(storage: StorageBackend, repo: string, b
   }
   if (!isCollectionRoot(type)) return storage.objects.write(repo, bytes);
   return storeCollection(storage, repo, type, [{ chunks: [bytes] }]);
-}
-
-/** Exactly `length` bytes of a file at `offset`, or fewer at its end. */
-async function readRange(handle: FileHandle, offset: number, length: number): Promise<Uint8Array> {
-  const buffer = new Uint8Array(length);
-  let read = 0;
-  while (read < length) {
-    const { bytesRead } = await handle.read(buffer, read, length - read, offset + read);
-    if (bytesRead === 0) break;
-    read += bytesRead;
-  }
-  return read === length ? buffer : buffer.subarray(0, read);
-}
-
-/** Whether two byte strings are equal. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }

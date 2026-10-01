@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import { isObjectHash, type StorageBackend, type TransferBackend } from '@elaraai/e3-core';
+import { isObjectHash, type StorageBackend, type TransferBackend } from '@elaraai/e3-core/portable';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { sendJsonError } from '../errors.js';
 import { DOWNLOAD_REDIRECT_BYTES } from '../handlers/datasets.js';

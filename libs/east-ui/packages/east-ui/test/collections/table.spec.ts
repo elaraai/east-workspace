@@ -7,7 +7,7 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Paged, Table, Badge, Format, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, EastTypeType, FloatType, IntegerType, NullType, OptionType, ArrayType, RecursiveType, StringType, StructType, some, toEastTypeValue, variant, type ExprType } from "@elaraai/east";
+import { East, EastTypeType, FloatType, IntegerType, NullType, OptionType, ArrayType, RecursiveType, StringType, StructType, none, some, toEastTypeValue, variant, type ExprType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
 
 // East TYPE VALUES — the form the arm-equality test compares them in (#874).
@@ -32,6 +32,28 @@ const TREE = [
     { name: "b", amount: 5.0, rows: [] },
 ];
 
+const Nodes = ArrayType(Node);
+
+/**
+ * TREE behind a paged source, built by hand to the row-source contract (paged
+ * data is bound, so no package produces one): each window serves ONE top-level
+ * row whatever is asked — a short window, as a server trims one — carrying its
+ * whole subtree.
+ */
+const TREE_PAGE = East.function([IntegerType, IntegerType], OptionType(Nodes), ($, offset, limit) => {
+    const all = $.const(TREE, Nodes);
+    const n = $.let(all.length());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const served = $.let(limit.less(1n).ifElse(() => limit, () => 1n));
+    const end = $.let(start.add(served).less(n).ifElse(() => start.add(served), () => n));
+    return some(all.slice(start, end));
+});
+const TREE_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(TREE, Nodes);
+    return some(all.length());
+});
+const TREE_SOURCE = { id: "tree", page: TREE_PAGE, total: TREE_TOTAL, seek: none };
+
 describeEast("Table", (test) => {
     Assert.examples(test, {
         tableBasic: ex.tableBasic,
@@ -41,7 +63,6 @@ describeEast("Table", (test) => {
         tablePnl: ex.tablePnl,
         tableNumberFormats: ex.tableNumberFormats,
         tableTree: ex.tableTree,
-        tableTreePaged: ex.tableTreePaged,
         tableVariants: ex.tableVariants,
         tablePaginated: ex.tablePaginated,
         tableExpandable: ex.tableExpandable,
@@ -86,8 +107,7 @@ describeEast("Table", (test) => {
     });
 
     test("a paged tree serves whole top-level rows per window, each flattened with its subtree (#954)", $ => {
-        const tree = $.const(TREE, ArrayType(Node));
-        const source = $.const(Paged.of("tree", tree, { pageLimit: 1 }));
+        const source = $.const(TREE_SOURCE, Paged.Types.Source(Nodes));
         const table = $.let(Table.Root(source, ["name"], { tree: { children: (r) => r.rows } }));
         const paged = $.let(table.unwrap().unwrap("Table").rows.unwrap("paged"));
         // Element 0 is `a` and its whole subtree; element 1 is `b`.

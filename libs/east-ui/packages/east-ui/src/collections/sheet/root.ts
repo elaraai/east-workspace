@@ -474,7 +474,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  * @remarks
  * `id` is required on a positional source. `onUpdate` is refused on the
  * paged arm; edit paged rows with onApply over a pinned source — one that names
- * its snapshot (`Data.bindPaged`, `Paged.pinned`). A `Dict` inline is refused: a sorted map would
+ * its snapshot (`Data.bindPaged`'s handle). A `Dict` inline is refused: a sorted map would
  * sit rows in key order, not the planner's.
  *
  * With `group` (#740) the rows are GROUPS: `columns` are declared over the
@@ -626,7 +626,7 @@ export function createSheet(
     if (resolved.kind === "inline" && collectionTag !== "Array") {
         throw new Error(
             "Sheet: a dictionary's rows sit in key order, not the planner's — pass an Array<R> (or a bind handle of one), " +
-            "or page a keyed source (`Paged.of` / `Data.bindPaged` over the Dict)",
+            "or page a keyed source (`Data.bindPaged` over the Dict)",
         );
     }
     const keyed = resolved.kind === "paged" && collectionTag === "Dict";

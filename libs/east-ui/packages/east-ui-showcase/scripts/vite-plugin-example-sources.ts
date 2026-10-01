@@ -168,7 +168,8 @@ function extractRaw(filePath: string, code: string): Record<string, RawExample> 
  * Capture the file's module-scope "dependencies" — the top-level declarations
  * the example bodies reference but can't inline (the un-inlined `e3.input` /
  * `e3.function` / `e3.record` / `e3.mutation` defs and any supporting types),
- * since they must be module-scope exports for the runtime to seed.
+ * since they must be module-scope exports for the showcase's e3 package to
+ * carry them (`e3-showcase-package.ts`, #849).
  *
  * Only declarations reachable from an `example({...})` body are kept — the
  * transitive reference closure over the file's example bodies — so unrelated

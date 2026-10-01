@@ -231,7 +231,7 @@ async function getWorkspaceStructure(
   }
 
   const pkgData = await storage.objects.read(repo, record.value.packageHash);
-  const pkgObject = decodePackageObject(Buffer.from(pkgData));
+  const pkgObject = decodePackageObject(pkgData);
 
   return pkgObject.data.structure;
 }

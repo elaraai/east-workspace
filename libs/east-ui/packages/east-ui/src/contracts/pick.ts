@@ -383,8 +383,8 @@ export function createPickBind<I extends EastType>(
         items: pickItems(allExpr, opts),
     }, PickBindType);
 
-    // Two-step cast (the `Paged.of` idiom): the members are built against the
-    // item type recovered from the expression, which TS sees as the erased
+    // Two-step cast (the `Data.bindPaged` idiom): the members are built against
+    // the item type recovered from the expression, which TS sees as the erased
     // `EastType`. The East-side type is what actually types the value.
     return East.value({
         pick,
@@ -459,8 +459,8 @@ export function pickVisible<I extends EastType>(
         const hiddenSet = $.let(off.toSet(), SetType(StringType));
         return items.filter((_$, item) => hiddenSet.has(idOf(item)).not());
     });
-    // Two-step cast (the `Paged.of` idiom): `fn` is built against the item type
-    // recovered from the expression, which TS sees as the erased `EastType`
+    // Two-step cast (the `Data.bindPaged` idiom): `fn` is built against the item
+    // type recovered from the expression, which TS sees as the erased `EastType`
     // rather than the caller's `I`. The East-side types are what type the call.
     const idErased = id as unknown as SubtypeExprOrValue<FunctionType<[EastType], StringType>>;
     return fn(hidden, allExpr, idErased) as unknown as ExprType<ArrayType<I>>;

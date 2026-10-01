@@ -17,10 +17,10 @@
 
 import { Hono } from 'hono';
 import { variant } from '@elaraai/east';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { StorageBackend } from '@elaraai/e3-core/portable';
 import { decodeBody, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import type { Identity } from '../middleware/auth.js';
+import type { Identity } from '../identity.js';
 import { MutationCallRequestType, MutationResultType, RecordSignatureType } from '../types.js';
 import { callMutationSync, getRecordHistory, describeRecord, compactRecord } from '../handlers/records.js';
 import type { GetRunner } from './functions.js';

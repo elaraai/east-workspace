@@ -7,22 +7,31 @@
  * Generic object utilities for e3.
  *
  * This module contains only storage-agnostic utilities.
- * Local filesystem operations are in storage/local/LocalObjectStore.ts
+ * Local filesystem operations are in storage/local/LocalObjectStore.ts, and
+ * Node's own hash, which the root entry exports, in objects-node.ts
  */
 
-import * as crypto from 'crypto';
+import { sha256Hex } from '@elaraai/east';
 
 /**
- * Calculate SHA256 hash of data.
+ * Calculate SHA256 hash of data: the portable hash.
  *
  * This is the core hashing function used throughout e3 for content addressing.
  * It's storage-agnostic and can be used with any backend.
+ *
+ * @remarks
+ * East's SHA-256, which runs wherever e3 does, a browser among them, and names
+ * an object as every runtime's Writer names it. The portable entry exports
+ * this one, and e3's shared modules hash with it. The root entry's
+ * `computeHash` is Node's own SHA-256 (`objects-node.ts`), which gives the
+ * same digest natively: a backend on Node names its writes by that one, as the
+ * local store does.
  *
  * @param data - Data to hash
  * @returns SHA256 hash as a hex string
  */
 export function computeHash(data: Uint8Array): string {
-  return crypto.createHash('sha256').update(data).digest('hex');
+  return sha256Hex(data);
 }
 
 /** An object's hash, as {@link computeHash} gives it: a SHA-256 in lowercase hex. */

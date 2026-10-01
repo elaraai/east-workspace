@@ -340,20 +340,20 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.equal(BigInt(page.totalBytes), status.size.type === 'some' ? status.size.value : -1n);
       assert.ok(page.totalBytes > page.data.length, 'whole-blob bytes exceed one page');
 
-      // Header semantics via raw fetch: pinned ⇒ immutable, unpinned ⇒
+      // Header semantics via a raw request: pinned ⇒ immutable, unpinned ⇒
       // no-store, stale pin ⇒ 409 carrying the current hash — a hash-keyed
       // URL never answers with different bytes, so HTTP caches stay sound.
       const base = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/pages-ws/datasets/inputs/rows?page=true&offset=0&limit=10`;
       const auth = { 'Authorization': `Bearer ${opts.token}` };
-      const pinned = await fetch(`${base}&hash=${hash}`, { headers: auth });
+      const pinned = await ctx.fetch(`${base}&hash=${hash}`, { headers: auth });
       assert.equal(pinned.status, 200);
       assert.match(pinned.headers.get('Cache-Control') ?? '', /immutable/);
 
-      const unpinned = await fetch(base, { headers: auth });
+      const unpinned = await ctx.fetch(base, { headers: auth });
       assert.equal(unpinned.status, 200);
       assert.equal(unpinned.headers.get('Cache-Control'), 'no-store');
 
-      const stale = await fetch(`${base}&hash=${'0'.repeat(64)}`, { headers: auth });
+      const stale = await ctx.fetch(`${base}&hash=${'0'.repeat(64)}`, { headers: auth });
       assert.equal(stale.status, 409);
       assert.equal(stale.headers.get('X-Content-SHA256'), hash);
       assert.equal(stale.headers.get('Cache-Control'), 'no-store');

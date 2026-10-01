@@ -15,22 +15,25 @@
  * until a package is deployed, then its state. No record means the workspace
  * does not exist. A local repository keeps it at `workspaces/<name>.beast2`,
  * and its dataset refs at `workspaces/<ws>/data/<path>.beast2`.
+ *
+ * A deploy's `file` sources are read on the machine that has them
+ * (`workspace-files.ts`). An export writes its zip to a stream here, as every
+ * backend does; one to a file on this machine, or to a Node stream, is the
+ * root entry's.
  */
 
-import * as fs from 'fs/promises';
-import type { Writable } from 'node:stream';
 import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
-import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
 import {
-  E3_RELEASE, PackageObjectType, WorkspaceRecordType, ExecutionStatusType, decodePackageObject, decodeRecordObject, isCollectionRoot,
+  E3_RELEASE, ExecutionStatusType, PackageObjectType, WorkspaceRecordType, decodePackageObject, decodeRecordObject, isCollectionRoot,
 } from '@elaraai/e3-types';
 import type {
-  DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
-  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, DatasetRef, TreePath,
+  DatasetRef, DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
+  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
 } from '@elaraai/e3-types';
-import { objectAdoptFile, type DatasetTaken } from './dataset-adopt.js';
+import type { DatasetAdoptProgress, DatasetTaken, ObjectAdoptResult } from './dataset-adopt.js';
 import { eachAtMost } from './concurrency.js';
 import { ZIP_RELEASE_ENTRY, addPackageObjects, packageResolve, packageRead, writePackageZip } from './packages.js';
+import { zipSinkOf } from './zip.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
 import { workspaceSetDatasetByHash } from './trees.js';
@@ -40,6 +43,7 @@ import {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  lockStateToHolderInfo,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -86,7 +90,7 @@ async function readState(
     return { exists: false };
   }
 
-  const record = decodeBeast2For(WorkspaceRecordType)(Buffer.from(data));
+  const record = decodeBeast2For(WorkspaceRecordType)(data);
   if (record.type === 'none') {
     return { exists: true, deployed: false };
   }
@@ -97,8 +101,9 @@ async function readState(
  * Read workspace state, throwing if workspace doesn't exist or is not deployed.
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
+ * @internal
  */
-async function readStateOrThrow(storage: StorageBackend, repo: string, name: string): Promise<WorkspaceState> {
+export async function readStateOrThrow(storage: StorageBackend, repo: string, name: string): Promise<WorkspaceState> {
   const result = await readState(storage, repo, name);
   if (!result.exists) {
     throw new WorkspaceNotFoundError(name);
@@ -175,10 +180,7 @@ export async function workspaceRemove(
     lock = await storage.locks.acquire(repo, name, variant('removal', null));
     if (!lock) {
       const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
@@ -432,6 +434,70 @@ export interface WorkspaceDeployOptions {
 }
 
 /**
+ * The files a deploy's `file` sources name, as the machine the deploy runs on
+ * reads them: a delivery's header checked against its declared type, its size,
+ * and its adoption.
+ *
+ * @internal
+ */
+export interface DeployFiles {
+  /**
+   * Reads a delivery's header and checks it holds the declared type.
+   *
+   * @param file - The delivery's path
+   * @param subject - The input, as a refusal names it
+   * @param type - The type the input declares
+   * @returns `null` when the file reads as the declared type; otherwise why it
+   *   does not read, which the deploy reports as a missing delivery
+   * @throws The type mismatch, when the file holds another type: a broken
+   *   package, which fails the deploy whatever its warning sink.
+   */
+  check(file: string, subject: string, type: EastTypeValue): { readonly err: unknown } | null;
+  /**
+   * The delivery's size in bytes.
+   *
+   * @param file - The delivery's path
+   */
+  size(file: string): Promise<number>;
+  /**
+   * Adopts the delivery into the object store, as the root entry's
+   * `objectAdoptFile` does.
+   *
+   * @param storage - Storage backend
+   * @param repo - Repository identifier
+   * @param file - The delivery's path
+   * @param options - The type it declares, the runner that takes a collection
+   *   in, the signal that stops it, and a listener for how far it has got
+   */
+  adopt(
+    storage: StorageBackend,
+    repo: string,
+    file: string,
+    options: {
+      declared: { subject: string; type: EastTypeValue };
+      runner: TaskRunner | undefined;
+      signal: AbortSignal;
+      onProgress: (progress: DatasetAdoptProgress) => void;
+    },
+  ): Promise<ObjectAdoptResult>;
+}
+
+/** Why a deploy that reads no files leaves a `file` source: it names a file on
+ *  a machine this e3 does not read. */
+function readsNoFiles(subject: string, file: string): Error {
+  return new Error(`${subject} is the file ${file}, and this e3 reads no files: deploy the package where the file lies, ` +
+    'or complete the input over the dataset transfer protocol (resolveFileSources: false)');
+}
+
+/** The files of a deploy that reads none: each `file` source is one that does
+ *  not read. */
+const NO_FILES: DeployFiles = {
+  check: (file, subject) => ({ err: readsNoFiles(subject, file) }),
+  size: (file) => Promise.reject(readsNoFiles('a file source', file)),
+  adopt: (_storage, _repo, file, { declared }) => Promise.reject(readsNoFiles(declared.subject, file)),
+};
+
+/**
  * Deploy a package to a workspace.
  *
  * Creates the workspace if it doesn't exist. Writes state file atomically
@@ -441,6 +507,12 @@ export interface WorkspaceDeployOptions {
  * Acquires a workspace lock to prevent conflicts with running dataflows
  * or concurrent deploys. Throws WorkspaceLockError if the workspace is
  * currently locked by another process.
+ *
+ * A package's `file` source names a file on the machine that exported it,
+ * which the root entry's `workspaceDeploy` reads. This entry reads no files:
+ * each `file` source is one whose delivery does not read, which
+ * {@link WorkspaceDeployOptions.sourceWarning} hears and the deploy leaves
+ * unassigned, or which fails the deploy without a sink.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -464,6 +536,26 @@ export async function workspaceDeploy(
   pkgVersion: string,
   options: WorkspaceDeployOptions = {}
 ): Promise<void> {
+  return workspaceDeployWith(storage, repo, name, pkgName, pkgVersion, options, NO_FILES);
+}
+
+/**
+ * Deploy a package to a workspace, as {@link workspaceDeploy} does, reading
+ * its `file` sources through `files`: what the root entry's `workspaceDeploy`
+ * deploys through.
+ *
+ * @param files - How the files a `file` source names are read
+ * @internal
+ */
+export async function workspaceDeployWith(
+  storage: StorageBackend,
+  repo: string,
+  name: string,
+  pkgName: string,
+  pkgVersion: string,
+  options: WorkspaceDeployOptions,
+  files: DeployFiles,
+): Promise<void> {
   // Acquire lock if not provided externally
   const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;
@@ -471,10 +563,7 @@ export async function workspaceDeploy(
     lock = await storage.locks.acquire(repo, name, variant('deployment', null));
     if (!lock) {
       const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
@@ -520,7 +609,7 @@ export async function workspaceDeploy(
     // follows the same rule as a record: every file source is validated here,
     // before the wipe.
     const sourceFiles = validateDatasetSources(
-      pkg, options.sourceWarning, options.resolveFileSources ?? true,
+      pkg, options.sourceWarning, options.resolveFileSources ?? true, files,
     );
     if (options.runner === undefined) {
       for (const [refPath, { declared }] of sourceFiles) {
@@ -549,7 +638,7 @@ export async function workspaceDeploy(
       const deliveries = [...sourceFiles];
       const stop = new AbortController();
       const hashes: string[] = new Array(deliveries.length);
-      const sizes = await Promise.all(deliveries.map(async ([, { file }]) => (await fs.stat(file)).size));
+      const sizes = await Promise.all(deliveries.map(([, { file }]) => files.size(file)));
       const sources = { count: deliveries.length, bytes: sizes.reduce((sum, size) => sum + size, 0) };
       // How far the deploy has got goes through its lock to whoever watches
       // the workspace, and to the caller.
@@ -567,7 +656,7 @@ export async function workspaceDeploy(
             options.onSourceProgress?.(progress);
             reports.file(progress);
           };
-          const { hash, size, taken, runners, fallback } = await objectAdoptFile(storage, repo, file, {
+          const { hash, size, taken, runners, fallback } = await files.adopt(storage, repo, file, {
             declared,
             runner: options.runner,
             signal: stop.signal,
@@ -780,6 +869,7 @@ function deployReports(
  *   rather than failing the deploy
  * @param resolve - Whether this process reads and validates the `file` sources;
  *   false leaves every one unassigned without touching its path
+ * @param files - How this process reads the files the sources name
  * @returns refPath -> the absolute file path and the type it must hold, for
  *   the sources to adopt (always empty when `resolve` is false)
  * @throws {DatasetTypeMismatchError} When a delivery's type has drifted
@@ -790,8 +880,9 @@ function validateDatasetSources(
   pkg: PackageObject,
   warn: ((message: string) => void) | undefined,
   resolve: boolean,
+  files: DeployFiles,
 ): Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }> {
-  const files = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
+  const sources = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
   for (const [refPath, source] of pkg.sources) {
     const inputName = refPath.split('/').pop() ?? refPath;
     const type = recordLeafType(pkg.data.structure, refPath);
@@ -806,17 +897,17 @@ function validateDatasetSources(
       continue;
     }
     const declared = { subject: `input '${inputName}'`, type };
-    try {
-      readDatasetFileHeader(source.value.path, declared.subject, declared.type);
-      files.set(refPath, { file: source.value.path, declared });
-    } catch (err) {
-      if (!warn || err instanceof DatasetFileTypeMismatchError) throw err;
-      warn(
-        `input '${inputName}' is left unassigned: ${err instanceof Error ? err.message : String(err)}`
-      );
+    const unreadable = files.check(source.value.path, declared.subject, declared.type);
+    if (unreadable === null) {
+      sources.set(refPath, { file: source.value.path, declared });
+      continue;
     }
+    if (!warn) throw unreadable.err;
+    warn(
+      `input '${inputName}' is left unassigned: ${unreadable.err instanceof Error ? unreadable.err.message : String(unreadable.err)}`
+    );
   }
-  return files;
+  return sources;
 }
 
 /**
@@ -889,7 +980,8 @@ export interface WorkspaceExportOptions {
   /**
    * Aborting it stops the export once the entry it is writing is written: it
    * throws an `ExportStoppedError` holding the checkpoint it resumes from. A
-   * file destination keeps the zip so far at `<path>.partial`.
+   * stream is left open, holding the zip so far; a file destination of the
+   * root entry's keeps it at `<path>.partial`.
    */
   signal?: AbortSignal;
   /**
@@ -901,8 +993,11 @@ export interface WorkspaceExportOptions {
   resume?: PackageZipCheckpoint;
 }
 
+/** A run's logs, as an export carries them. */
+const LOG_BYTES = new TextEncoder();
+
 /**
- * Export a workspace as a package.
+ * Export a workspace as a package, to a stream.
  *
  * 1. Read workspace state
  * 2. Read deployed package structure using stored packageHash
@@ -912,10 +1007,11 @@ export interface WorkspaceExportOptions {
  *    executions the current run used to the .zip — not the run's record,
  *    which names this repository's workspace
  *
- * The zip is written an entry at a time, to a file or to a stream, as a
- * package's export writes it (`packageExport`), reading its segments ahead of
- * the entry it writes, and an export stopped at its signal is resumed from its
- * checkpoint.
+ * The zip is written an entry at a time to the stream, which is closed once
+ * the zip is whole, as a package's export writes it (`packageExport`), reading
+ * its segments ahead of the entry it writes, and an export stopped at its
+ * signal is resumed from its checkpoint. A file on this machine, or a Node
+ * stream, is written to by the root entry's `workspaceExport`.
  *
  * It writes a package object that nothing in the repository names, and reads
  * what the workspace named as it started, which a write may leave unnamed
@@ -926,8 +1022,7 @@ export interface WorkspaceExportOptions {
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
- * @param destination - The path to write the .zip file to, or the stream to
- *   write its bytes to
+ * @param destination - The stream the zip's bytes go to
  * @param outputName - Package name (default: deployed package name)
  * @param version - Package version (default: <pkgVersion>-<short hash>)
  * @param options - Progress, the workspace lock, and the signal that stops the
@@ -936,20 +1031,24 @@ export interface WorkspaceExportOptions {
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
  * @throws {ExportStoppedError} When `options.signal` stopped the export.
+ * @throws {TypeError} When the destination is no `WritableStream`: a path or a
+ *   Node stream, which the root entry writes to.
  * @throws {Error} When `options.resume` is given without the version, or is a
- *   checkpoint of the workspace as it was before it changed; and when a
- *   garbage collection or an upgrade holds the repository.
+ *   checkpoint of the workspace as it was before it changed; when the stream
+ *   fails a write; and when a garbage collection or an upgrade holds the
+ *   repository.
  */
 export async function workspaceExport(
   storage: StorageBackend,
   repo: string,
   name: string,
-  destination: string | Writable,
+  destination: WritableStream<Uint8Array>,
   outputName?: string,
   version?: string,
   options?: WorkspaceExportOptions,
 ): Promise<WorkspaceExportResult> {
-  return withRunningWork(storage, repo, () => exportWorkspace(storage, repo, name, destination, outputName, version, options));
+  const sink = zipSinkOf(destination, 'export');
+  return withRunningWork(storage, repo, () => exportWorkspace(storage, repo, name, sink, outputName, version, options));
 }
 
 /** The export of {@link workspaceExport}, holding the repository's running
@@ -958,7 +1057,7 @@ async function exportWorkspace(
   storage: StorageBackend,
   repo: string,
   name: string,
-  destination: string | Writable,
+  destination: WritableStream<Uint8Array>,
   outputName: string | undefined,
   version: string | undefined,
   options: WorkspaceExportOptions | undefined,
@@ -974,10 +1073,7 @@ async function exportWorkspace(
     lock = await storage.locks.acquire(repo, name, variant('export', null));
     if (!lock) {
       const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
@@ -986,8 +1082,7 @@ async function exportWorkspace(
   const state = await readStateOrThrow(storage, repo, name);
 
   // Read the deployed package object using the stored hash
-  const deployedPkgData = await storage.objects.read(repo, state.packageHash);
-  const deployedPkgObject = decodePackageObject(Buffer.from(deployedPkgData));
+  const deployedPkgObject = decodePackageObject(await storage.objects.read(repo, state.packageHash));
 
   // Determine output name and version
   const finalName = outputName ?? state.packageName;
@@ -1062,7 +1157,7 @@ async function exportWorkspace(
               continue;
             }
             if (log.length > 0) {
-              await zip.add(`executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`, Buffer.from(log));
+              await zip.add(`executions/${taskHash}/${inHash}/${executionId}/${stream}.txt`, LOG_BYTES.encode(log));
             }
           }
         }

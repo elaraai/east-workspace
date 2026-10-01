@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ApprovalStateType, CellRefType, Chart, Editing, Plan, Text, type PlanSeriesValue } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -20,6 +20,26 @@ const END = new Date("2026-09-21T00:00:00Z");
 // East TYPE VALUES — the form the arm-equality test compares them in (#814).
 const PLAN_ARM = toEastTypeValue(UIComponentType.node.cases.Plan);
 const PLAN_ROOT = toEastTypeValue(Plan.Types.Root);
+
+// A paged source, built by hand to the row-source contract — paged data is
+// bound (`Data.bindPaged`), so no package produces one: three keyed entries,
+// served a window at a time in key order.
+const LoadRow = StructType({ v: FloatType });
+const Loads = DictType(StringType, LoadRow);
+const LOADS = new Map([["a", { v: 1.0 }], ["b", { v: 2.0 }], ["c", { v: 3.0 }]]);
+const LOADS_PAGE = East.function([IntegerType, IntegerType], OptionType(Loads), ($, offset, limit) => {
+    const all = $.const(LOADS, Loads);
+    const keys = $.let(all.toArray((_$, _v, k) => k));
+    const n = $.let(keys.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.getKeys(keys.slice(start, end).toSet()));
+});
+const LOADS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(LOADS, Loads);
+    return some(all.size());
+});
+const LOADS_SOURCE = { id: "ops", page: LOADS_PAGE, total: LOADS_TOTAL, seek: none };
 
 describeEast("Plan", (test) => {
     Assert.examples(test, {
@@ -570,11 +590,14 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(refusal({ onApply, onUpdate }).includes("not both")), true));
         $(Assert.equal(East.value(refusal({ onUpdate }).includes("editing.onUpdate requires data={liveHandle}")), true));
         $(Assert.equal(East.value(refusal({ mode: "auto" }).includes("it needs onApply or onUpdate")), true));
-        // A paged source without revision and refresh cannot check a batch.
+        // A paged source without revision and refresh — the shape that
+        // predates them — cannot check a batch.
         const paged = East.value({
+            id: "rows",
             page: East.function([IntegerType, IntegerType], OptionType(Rows), () => none),
             total: East.function([], OptionType(IntegerType), () => none),
-        }, StructType({ page: FunctionType([IntegerType, IntegerType], OptionType(Rows)), total: FunctionType([], OptionType(IntegerType)) }));
+            seek: none,
+        }, Paged.Types.Source(Rows));
         $(Assert.equal(East.value(refusal({ onApply }, paged).includes("needs its revision and refresh")), true));
         // A callback over another entry or key type is named with the signature it must have.
         const Other = StructType({ approval: ApprovalStateType, extra: StringType });
@@ -1524,7 +1547,7 @@ describeEast("Plan", (test) => {
         // Paged, a window holds each member's share of its entries and the
         // fixed blocks as ever — so each member pages on its own and the
         // header is one row, not one per window.
-        const source = $.let(Paged.of("ops", data));
+        const source = $.let(LOADS_SOURCE, Paged.Types.Source(Loads));
         const paged = $.let(Plan.Root({ axis, data: source, series }).unwrap().unwrap("Plan").rows.unwrap("paged"));
         const w1 = $.let(paged.page(1n, 1n).unwrap("some"));
         $(Assert.equal(w1.map((_$, b) => b.fixed), [true, false, false, true]));
@@ -1956,17 +1979,14 @@ describeEast("Plan", (test) => {
         const Source = DictType(StringType, Row);
         const rows = $.const(new Map([["m1", { v: 1.0 }]]), Source);
         const handle = $.const({
+            id: "ops",
             page: East.function([IntegerType, IntegerType], OptionType(Source), ($, o, _l) => {
                 const noPage = $.const(none, OptionType(Source));
                 return o.equal(0n).ifElse(() => some(rows), () => noPage);
             }),
             total: East.function([], OptionType(IntegerType), (_$) => some(1n)),
-            id: East.value("ops"),
-        }, StructType({
-            page: FunctionType([IntegerType, IntegerType], OptionType(Source)),
-            total: FunctionType([], OptionType(IntegerType)),
-            id: StringType,
-        }));
+            seek: none,
+        }, Paged.Types.Source(Source));
         const spanSeries = Plan.series.span(Row, { key: "span", title: "Span", label: (_r, k) => k, runs: _r => [] });
         const heatSeries = Plan.series.heat(Row, {
             key: "heat", title: "Heat", label: (_r, k) => k,
@@ -1998,18 +2018,18 @@ describeEast("Plan", (test) => {
                 { batch: "B-1", start: W27, end: W29, state: variant("actual", null) }] }) }],
         ]), OpsSource);
         // A hermetic paged handle — pure East fns windowing the captured KEYED
-        // collection (the shape Data.bindPaged produces over a Dict dataset;
-        // no platform involved).
+        // collection, in the contract's shape without `revision` / `refresh`
+        // (Data.bindPaged's handle over a Dict dataset carries those too; no
+        // platform involved).
         const handle = $.const({
+            id: "ops",
             page: East.function([IntegerType, IntegerType], OptionType(OpsSource), ($, o, _l) => {
                 const noPage = $.const(none, OptionType(OpsSource));
                 return o.equal(0n).ifElse(() => some(ops), () => noPage);
             }),
             total: East.function([], OptionType(IntegerType), (_$) => some(1n)),
-        }, StructType({
-            page: FunctionType([IntegerType, IntegerType], OptionType(OpsSource)),
-            total: FunctionType([], OptionType(IntegerType)),
-        }));
+            seek: none,
+        }, Paged.Types.Source(OpsSource));
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: handle,

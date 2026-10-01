@@ -22,7 +22,9 @@
  * dataset store's status poll reporting a new hash, a refused pin, or
  * `refresh` moves it — and a move drops what the old snapshot delivered, so the
  * windows and searches still being read are fetched again, pinned to the new
- * one.
+ * one. It follows while something reads the dataset: once its readers have all
+ * let it go, nothing polls for it, and the next read follows it again — moved
+ * at the first report if the dataset moved meanwhile.
  *
  * One tracked channel per window, per total and per search, each keyed by the
  * revision it belongs to, plus one per dataset for its revision, which every
@@ -70,6 +72,7 @@ import {
     type DatasetPage,
     type DatasetFindQuery,
     type DatasetFindResult,
+    type RequestOptions,
 } from "@elaraai/e3-api-client";
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
@@ -160,26 +163,26 @@ export interface PagedApi {
  *
  * @param apiUrl - Base URL of the e3 API server
  * @param repo - Repository name
- * @param getToken - Reads the current token, so a rotated one is used at once
+ * @param getOptions - Reads the current request options — the token, and the
+ *   `fetch` requests go through — so a rotated one is used at once
  * @param datasets - The dataset store whose status poll reports the hashes
  * @returns The adapter
  */
 export function createDefaultPagedApi(
     apiUrl: string,
     repo: string,
-    getToken: () => string | null,
+    getOptions: () => RequestOptions,
     datasets: Pick<ReactiveDatasetCacheInterface, "watchHash">,
 ): PagedApi {
-    const opts = (): { token: string | null } => ({ token: getToken() });
     return {
         async getPage(workspace, path, window) {
-            return datasetGetPage(apiUrl, repo, workspace, path, window, opts());
+            return datasetGetPage(apiUrl, repo, workspace, path, window, getOptions());
         },
         async findKey(workspace, path, query) {
-            return datasetFindKey(apiUrl, repo, workspace, path, query, opts());
+            return datasetFindKey(apiUrl, repo, workspace, path, query, getOptions());
         },
         async getRevision(workspace, path) {
-            const status = await datasetGetStatus(apiUrl, repo, workspace, path, opts());
+            const status = await datasetGetStatus(apiUrl, repo, workspace, path, getOptions());
             return status.hash.type === "some" ? status.hash.value : null;
         },
         watchRevision(workspace, path, onChange) {
@@ -215,7 +218,8 @@ interface PageEntry {
 
 /** What every bind of one dataset shares: the content its reads are pinned to. */
 interface Snapshot {
-    /** The dataset, as snapshots are keyed. */
+    /** The dataset's revision channel, as snapshots are keyed — the channel
+     *  every read of the dataset tracks. */
     readonly key: string;
     /** The content hash reads are pinned to: `undefined` until found, `null`
      *  while the dataset has no value. */
@@ -233,8 +237,9 @@ interface Snapshot {
     findFailedAtMs?: number;
     /** The channels of the current revision, dropped when it moves. */
     readonly channels: Set<string>;
-    /** Stops following the dataset. */
-    unwatch: () => void;
+    /** Stops following the dataset; `undefined` while it is not followed —
+     *  nothing reads it, or no adapter is installed. */
+    unwatch: (() => void) | undefined;
 }
 
 /** Minimum gap between retries of a read whose fetch failed. */
@@ -479,9 +484,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     // ----- wiring ----------------------------------------------------------
 
     /** Install the API adapter + workspace — called by the React provider
-     *  (or a test/showcase harness) before any handle is used. Another adapter
-     *  or workspace starts from nothing: no snapshot of the old one's carries
-     *  over. */
+     *  (or a test) before any handle is used. Another adapter or workspace
+     *  starts from nothing: no snapshot of the old one's carries over. */
     initialize(api: PagedApi, workspace: string): void {
         if (this.api !== api || this.workspace !== workspace) this.reset();
         this.api = api;
@@ -505,7 +509,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
     /** Stop following every dataset, and drop what every snapshot delivered. */
     private reset(): void {
-        for (const snapshot of this.snapshots.values()) snapshot.unwatch();
+        for (const snapshot of this.snapshots.values()) snapshot.unwatch?.();
         this.snapshots.clear();
         this.clearChannels();
         this.loadedWindows.clear();
@@ -524,26 +528,48 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
     // ----- snapshots -------------------------------------------------------
 
-    /** A dataset's snapshot, followed from its first read until the runtime
-     *  is cleared. */
+    /** A dataset's snapshot, followed from a read while something reads the
+     *  dataset ({@link unsubscribed}) — the read that makes it, or the first
+     *  after its readers all let it go. */
     private snapshotOf(workspace: string, path: TreePath): Snapshot {
-        const key = `${workspace}:${datasetPathToString(path)}`;
-        const existing = this.snapshots.get(key);
-        if (existing !== undefined) return existing;
-        const snapshot: Snapshot = {
-            key,
-            revision: undefined,
-            moves: 0,
-            findSeq: 0,
-            finding: false,
-            channels: new Set(),
-            unwatch: () => {},
-        };
-        this.snapshots.set(key, snapshot);
-        if (this.api !== null) {
-            snapshot.unwatch = this.api.watchRevision(workspace, path, (hash) => this.moveTo(workspace, path, snapshot, hash));
+        const key = pagedRevisionKey(workspace, path);
+        let snapshot = this.snapshots.get(key);
+        if (snapshot === undefined) {
+            snapshot = {
+                key,
+                revision: undefined,
+                moves: 0,
+                findSeq: 0,
+                finding: false,
+                channels: new Set(),
+                unwatch: undefined,
+            };
+            this.snapshots.set(key, snapshot);
+        }
+        if (snapshot.unwatch === undefined && this.api !== null) {
+            const followed = snapshot;
+            snapshot.unwatch = this.api.watchRevision(workspace, path, (hash) => this.moveTo(workspace, path, followed, hash));
         }
         return snapshot;
+    }
+
+    /**
+     * A dataset its readers have all let go stops being followed, so nothing
+     * polls for it: every read tracks its revision channel, and a reader lets
+     * the channel go as it unmounts. What its snapshot delivered stays, and a
+     * read follows it again — moved at the first report if the dataset moved
+     * meanwhile.
+     */
+    protected override unsubscribed(key: string): void {
+        const snapshot = this.snapshots.get(key);
+        if (snapshot?.unwatch === undefined) return;
+        // A reader re-subscribing lets every channel go before it subscribes
+        // again: the dataset goes only if nothing reads it once that is done.
+        queueMicrotask(() => {
+            if (!this.isLive(snapshot) || this.isSubscribed(key)) return;
+            snapshot.unwatch?.();
+            snapshot.unwatch = undefined;
+        });
     }
 
     /** Whether a snapshot is still the runtime's, rather than one a clear or a
@@ -1046,7 +1072,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 export const defaultPagedRuntime = new PagedRuntime();
 
 /** Install the paging API adapter + workspace — called by the React provider
- *  on mount (or by a test/showcase harness). */
+ *  on mount (or by a test). */
 export function initializePagedApi(api: PagedApi, workspace: string): void {
     defaultPagedRuntime.initialize(api, workspace);
 }

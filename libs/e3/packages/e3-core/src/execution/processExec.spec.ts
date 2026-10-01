@@ -31,7 +31,7 @@ import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, SortedM
 import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
 import { unitArgv } from './units.js';
-import { storeDatasetFile } from '../store-collection.js';
+import { storeDatasetFile } from '../store-collection-file.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { datasetWrite } from '../trees.js';
 import { writeRecordState } from '../records.js';

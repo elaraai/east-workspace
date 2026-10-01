@@ -42,7 +42,7 @@ import {
     usePreloadReactiveDatasets,
     type ReactiveDatasetToPreload,
 } from '../platform/dataset-hooks.js';
-import { useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
+import { e3RequestOptions, useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
 import { createScopedPagedPlatform } from '../platform/paged-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
@@ -97,8 +97,10 @@ export const UITaskPreview = memo(function UITaskPreview({
     const apiUrl = config?.apiUrl ?? e3?.apiUrl ?? null;
     const repo = config?.repo ?? e3?.repo ?? 'default';
     const workspace = config?.workspace ?? e3?.workspace ?? null;
-    const token = config?.token ?? e3?.token ?? null;
-    const requestOptions = { token };
+    const requestOptions = e3RequestOptions({
+        token: config?.token ?? e3?.token ?? null,
+        fetch: config?.fetch ?? e3?.fetch,
+    });
     // The data bindings read the workspace the provider serves, through
     // runtimes that are process-global: an override naming another workspace
     // would render its task over this one's data.

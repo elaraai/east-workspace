@@ -97,17 +97,14 @@ function buildComponents(): LiveEntry[] {
     return entries;
 }
 
-/* e3-ui examples export `ExampleDef`s alongside the `e3.input` dataset
- * definitions their `Data.bind` calls read — so the modules are typed
- * `unknown` and filtered per-export. */
+/* e3-ui examples export `ExampleDef`s alongside the e3 definitions their
+ * bindings read (inputs, tasks, functions, records) — so the modules are
+ * typed `unknown` and filtered per-export. Those definitions reach the page
+ * as the showcase's e3 package, deployed in the e3 it runs (#849). */
 const e3Modules = import.meta.glob<Record<string, unknown>>(
     "../e3-ui/test/**/*.examples.tsx",
     { eager: true },
 );
-
-/** Raw e3 example modules — `main.tsx` seeds the in-memory reactive-dataset
- *  cache from their exported `e3.input` defaults before first render. */
-export const e3ExampleModules: ReadonlyArray<Record<string, unknown>> = Object.values(e3Modules);
 
 function isExampleDef(x: unknown): x is ExampleDef {
     return typeof x === "object" && x !== null

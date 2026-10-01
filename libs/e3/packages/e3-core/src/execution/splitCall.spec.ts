@@ -23,9 +23,9 @@ import type { ExecuteResult, PartitionProgress, SplitCallRequest } from '@elaraa
 import { readManifest } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
 import { inputsHash } from '../executions.js';
-import { packageImport } from '../packages.js';
+import { packageImport } from '../package-files.js';
 import { datasetWrite, workspaceSetDataset } from '../trees.js';
-import { workspaceDeploy } from '../workspaces.js';
+import { workspaceDeploy } from '../workspace-files.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -527,5 +527,31 @@ describe('split calls', () => {
     const late = await splitCallRun(storage, idle, repo, launched, { launchedAt, now: at(4_000) });
     assert.equal(late.outcome.type, 'timed_out');
     assert.equal(units, 2, 'the run with nothing left ran no unit');
+  });
+
+  it('keeps the last maxLogBytes of a failed task\'s error, cut and read back as Node\'s own UTF-8 reads them', async () => {
+    const launched = await splitCallPrepare(storage, repo, WS, countByRemainder, { grant: 'any' });
+    if ('outcome' in launched) assert.fail('refused');
+    // Characters of one to four bytes, a byte order mark, and a lone surrogate,
+    // which UTF-8 writes as U+FFFD: every cut below lands before, inside or
+    // after one of them.
+    const error = 'fail: ünïcødé ☃ ﻿mark 😀 lone \uD800 end';
+    const failing: TaskRunner = {
+      ...runner,
+      execute: () => Promise.resolve({ state: 'failed', cached: false, executionId: '', exitCode: 1, error }),
+    };
+    /** The tail as the Buffer this replaced cut it. */
+    const nodeTail = (limit: number): { text: string; truncated: boolean } => {
+      const bytes = Buffer.from(error, 'utf-8');
+      return bytes.length <= limit
+        ? { text: error, truncated: false }
+        : { text: bytes.subarray(bytes.length - limit).toString('utf-8'), truncated: true };
+    };
+    const byteLength = Buffer.byteLength(error, 'utf-8');
+    for (let limit = 0; limit <= byteLength + 1; limit++) {
+      const outcome = await splitCallRun(storage, failing, repo, { ...launched, limits: { ...launched.limits, maxLogBytes: limit } });
+      assert.equal(outcome.outcome.type, 'failed');
+      assert.deepEqual({ text: outcome.stderr, truncated: outcome.stderrTruncated }, nodeTail(limit), `the last ${limit} bytes`);
+    }
   });
 });

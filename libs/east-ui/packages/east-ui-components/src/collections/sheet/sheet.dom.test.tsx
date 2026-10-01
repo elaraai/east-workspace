@@ -106,16 +106,53 @@ function buildSheet(opts: Options = {}): SheetRootValue {
     return value.value;
 }
 
+// The paged arm's sources, built by hand to the row-source contract — paged
+// data is bound (`Data.bindPaged`), so no package produces one. Each serves its
+// generated jobs a window at a time; an Array has no key order to search.
+const Jobs = ArrayType(JobType);
+/** `n` generated jobs, `p0`, `p1`, … — module scope: East bodies never call host helpers. */
+const pagedJobs = (n: number): ValueTypeOf<typeof JobType>[] => Array.from({ length: n }, (_x, i) => ({
+    id: `p${i}`, start: none, task: `Task ${i}`, qty: none, code: "", status: "",
+}));
+const PAGED_JOBS = { 1000: pagedJobs(1_000), 450: pagedJobs(450) };
+/** A window of a jobs fixture: its rows from `offset`, at most `limit`, in stream order. */
+const JOBS_WINDOW = East.function([Jobs, IntegerType, IntegerType], OptionType(Jobs), ($, all, offset, limit) => {
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const PAGED_SOURCES = {
+    1000: {
+        id: "sheet_dom_1000",
+        page: East.function([IntegerType, IntegerType], OptionType(Jobs), ($, offset, limit) => {
+            const window = $.const(JOBS_WINDOW);
+            return window($.const(PAGED_JOBS[1000], Jobs), offset, limit);
+        }),
+        total: East.function([], OptionType(IntegerType), ($) => {
+            const all = $.const(PAGED_JOBS[1000], Jobs);
+            return some(all.size());
+        }),
+        seek: none,
+    },
+    450: {
+        id: "sheet_dom_450",
+        page: East.function([IntegerType, IntegerType], OptionType(Jobs), ($, offset, limit) => {
+            const window = $.const(JOBS_WINDOW);
+            return window($.const(PAGED_JOBS[450], Jobs), offset, limit);
+        }),
+        total: East.function([], OptionType(IntegerType), ($) => {
+            const all = $.const(PAGED_JOBS[450], Jobs);
+            return some(all.size());
+        }),
+        seek: none,
+    },
+};
+
 /** A paged sheet over `n` generated rows keyed by id. */
-function buildPaged(n: number): SheetRootValue {
-    const count = BigInt(n);
-    const sourceId = `sheet_dom_${n}`;
+function buildPaged(n: 1000 | 450): SheetRootValue {
     const program = East.function([], UIComponentType, ($) => {
-        const total = $.const(count);
-        const rows = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
-            id: East.str`p${i}`, start: none, task: East.str`Task ${i}`, qty: none, code: "", status: "",
-        }, JobType)), ArrayType(JobType));
-        const source = $.const(Paged.of(sourceId, rows, { key: (r) => r.id }));
+        const source = $.const(PAGED_SOURCES[n], Paged.Types.Source(Jobs));
         return Sheet.Root(source, {
             task: Sheet.column.text(JobType, { header: "Task" }),
             qty: Sheet.column.quantity(JobType, { header: "Qty" }),
@@ -501,7 +538,7 @@ describe("numbers in the viewer's language (#852)", () => {
 });
 
 describe("the paged arm (§3.13)", () => {
-    test("a REAL Paged.of source: windows land, the tail band describes the rest, the transport line counts elements, no blanks until exhaustion", async () => {
+    test("a source built in East: windows land, the tail band describes the rest, the transport line counts elements, no blanks until exhaustion", async () => {
         const restore = emulateWindowScroll();
         try {
             const { container, rows } = mount(buildPaged(1_000));

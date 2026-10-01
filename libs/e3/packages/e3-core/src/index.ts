@@ -9,6 +9,17 @@
  * This package provides the filesystem-based business logic for e3,
  * similar to libgit2 for git. It has no UI dependencies and can be
  * used programmatically.
+ *
+ * This root entry is the portable entry (`@elaraai/e3-core/portable`,
+ * `portable.ts`) — the same functions, classes and errors — and what needs
+ * this machine: local storage, the local runner, the file state store, and the
+ * forms of a few operations that read files or run tasks here
+ * (`LocalOrchestrator`, `probeExecutionCache`, `executeSplitTask`,
+ * `storeCollection`, `intakeDelivery`, `workspaceDeploy`), or read a zip from
+ * a file here, or write one to a file or a Node stream (`openZip`,
+ * `packageImport`, `packageZipOpen`, `packageExport`, `workspaceExport`,
+ * `handleProcessImport`, `handleProcessExport`); and `computeHash`, which is
+ * Node's own SHA-256 here, the portable entry's digest natively.
  */
 
 // =============================================================================
@@ -21,6 +32,10 @@
 
 export * from './storage/index.js';
 export * from './execution/index.js';
+
+// How a log store cuts a window of a log, as every one does: at the longest
+// prefix of its bytes that holds whole characters
+export { completeUtf8Length } from './storage/utf8.js';
 
 // =============================================================================
 // Repository Operations (filesystem-based)
@@ -51,6 +66,14 @@ export {
   type RepositoryHoldOptions,
 } from './running-work.js';
 
+// Moving many objects at once
+export {
+  OBJECT_CONCURRENCY,
+  TOUCH_BATCH,
+  eachAtMost,
+  readInOrder,
+} from './concurrency.js';
+
 // Garbage collection: holding the repository still, or beside running work in
 // steps; and the re-reference of what a caller roots without writing it
 export {
@@ -72,6 +95,10 @@ export {
   type SweepBatchResult,
 } from './gc.js';
 
+// The roots gc marks from, read through a backend's ref stores: what a
+// `RepoStore` serves its gc root scans from
+export { packageRoots, workspaceRoots, executionRoots } from './gc-roots.js';
+
 // The history gc keeps: which runs and executions, and the deletion of the rest
 export {
   pruneHistory,
@@ -81,8 +108,10 @@ export {
   type HistoryResult,
 } from './history.js';
 
-// Object storage, and the form every store checks an object's hash has
-export { computeHash, isObjectHash } from './objects.js';
+// Object storage: an object's hash, by Node's own SHA-256 — the portable
+// entry's digest, natively — and the form every store checks one has
+export { computeHash } from './objects-node.js';
+export { isObjectHash } from './objects.js';
 
 // Local object storage functions (for backwards compatibility)
 export {
@@ -100,11 +129,14 @@ export {
   packageStagingPath,
 } from './storage/local/localHelpers.js';
 
-// Package operations
+// Package operations: a zip read from a file on this machine or a source, and
+// written to a file or a Node stream; and the store's
 export {
   packageImport,
   packageZipOpen,
   packageExport,
+} from './package-files.js';
+export {
   packageZipCheckpointWithin,
   packageRemove,
   packageList,
@@ -118,19 +150,23 @@ export {
   type PackageExportOptions,
 } from './packages.js';
 
-// Zips read by ranges where they lie, and written a stream an entry at a time
+// Zips read by ranges where they lie — a file on this machine among them — and
+// written to a stream an entry at a time
+export { openZip } from './package-files.js';
 export {
   ZipWriter,
   ZipSourceError,
-  openZip,
   iterateZipEntries,
   type ZipSource,
   type ZipEntry,
+  type ZipReader,
   type ZipRecord,
   type ZipWritten,
 } from './zip.js';
 
-// Workspace operations
+// Workspace operations: a deploy that reads its `file` sources here, and an
+// export to a zip on this machine, beside the store's
+export { workspaceDeploy, workspaceExport } from './workspace-files.js';
 export {
   workspaceList,
   workspaceCreate,
@@ -138,8 +174,6 @@ export {
   workspaceGetState,
   workspaceGetPackage,
   workspaceLockStatus,
-  workspaceDeploy,
-  workspaceExport,
   type WorkspaceExportResult,
   type WorkspaceExportOptions,
   type WorkspaceRemoveOptions,
@@ -197,13 +231,14 @@ export {
   readDatasetWhole,
 } from './dataset-open.js';
 
-// The store's door: the one way a collection reaches the object store
+// The store's door: the one way a collection reaches the object store, from a
+// stored collection, chunks, elements, or a file or a directory on this machine
 export {
   storeCollection,
   storeDatasetFile,
-  storeDatasetBytes,
   type CollectionSource,
-} from './store-collection.js';
+} from './store-collection-file.js';
+export { storeDatasetBytes } from './store-collection.js';
 
 // The write path a mutation delta takes: only the segments it touched
 export {
@@ -213,14 +248,17 @@ export {
   type DeltaArmSummary,
 } from './record-apply.js';
 
-// Taking an existing file into a workspace as a dataset value (#765)
+// Taking an existing file into a workspace as a dataset value (#765), and a
+// delivery the store holds
 export {
   datasetAdoptFile,
+  objectAdoptFile,
+  type DatasetAdoptOptions,
+} from './dataset-adopt-file.js';
+export {
   datasetAdoptObject,
   datasetAdoptKnown,
-  objectAdoptFile,
   adoptProgressToIntakeFile,
-  type DatasetAdoptOptions,
   type DatasetAdoptObjectOptions,
   type DatasetAdoptProgress,
   type DatasetAdoptResult,
@@ -228,12 +266,16 @@ export {
   type ObjectAdoptResult,
 } from './dataset-adopt.js';
 
-// A delivered collection taken in by intake units on the runners, in pieces
+// A delivered collection taken in by intake units on the runners, in pieces:
+// one the store holds, or a file on this machine; and a piece of one the store
+// holds, as the blob of its own an intake unit reads
+export { intakeDelivery } from './delivery-intake-file.js';
 export {
-  intakeDelivery,
+  deliveryPiece,
   type DeliveryIntake,
   type DeliveryIntakeOptions,
   type DeliveryIntakeProgress,
+  type DeliveryPiece,
 } from './delivery-intake.js';
 
 // Tree and dataset operations (high-level, by path)
@@ -308,10 +350,13 @@ export {
   processOwner,
 } from './execution/processHelpers.js';
 
-// Dataflow execution
+// Dataflow execution: a workspace's dataflow run on this machine
 export {
   dataflowExecute,
   dataflowStart,
+  LocalOrchestrator,
+} from './execution/local-orchestrator.js';
+export {
   dataflowGetGraph,
   dataflowGetReadyTasks,
   dataflowCheckCache,
@@ -376,7 +421,7 @@ export {
   type OrchestratorStartOptions,
   type ResumeOptions,
   type TaskCompletedCallback,
-  LocalOrchestrator,
+  type LocalOrchestratorHost,
   stateToStatus,
   // API compatibility layer
   type ApiDataflowEventType,

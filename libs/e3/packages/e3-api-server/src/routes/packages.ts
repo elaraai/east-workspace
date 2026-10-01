@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { StorageBackend } from '@elaraai/e3-core/portable';
 import {
   listPackages,
   getPackage,

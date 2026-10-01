@@ -20,9 +20,11 @@ build:
 test: test-packages test-integration
 
 ## Run the unit tests of e3's packages
+# --no-bail runs every package's tests however many fail, and fails the target
+# once all have run, naming each that failed: one run reports them all.
 test-packages:
 	@echo "Running package tests..."
-	pnpm -r --workspace-concurrency=1 --filter='./packages/*' run test
+	pnpm -r --workspace-concurrency=1 --no-bail --filter='./packages/*' run test
 
 ## Run the integration tests
 test-integration:

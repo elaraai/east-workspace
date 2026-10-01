@@ -65,9 +65,15 @@ export function datasetRefStoreTests(setup: BackendSetup): void {
       const kept = await storage.datasets.read(repo, 'ws', SALES);
       assert.ok(kept !== null && equal(kept, first), 'a refused write leaves the ref as it was');
 
-      // An unconditional write moves the revision on too.
+      // An unconditional write moves the revision on too, each to one of its
+      // own, however alike the refs it writes.
       await storage.datasets.write(repo, 'ws', SALES, second);
       await assert.rejects(storage.datasets.writeIf(repo, 'ws', SALES, first, again.revision), DatasetRefConflictError);
+      const unconditional = await storage.datasets.readVersioned(repo, 'ws', SALES);
+      assert.ok(unconditional !== null);
+      await storage.datasets.write(repo, 'ws', SALES, second);
+      await assert.rejects(storage.datasets.writeIf(repo, 'ws', SALES, first, unconditional.revision), DatasetRefConflictError,
+        'the same ref written again is another revision');
       assert.equal(await storage.datasets.readVersioned(repo, 'ws', 'inputs/none'), null);
     });
   });

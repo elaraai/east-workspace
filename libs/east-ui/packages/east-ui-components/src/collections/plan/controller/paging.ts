@@ -34,6 +34,19 @@
  *     └──────────────────── the renderer's range signal ◀────────────┘
  * ```
  *
+ * # A window loading beside the run never moves it (#876)
+ *
+ * What a block draws is its RUN: the stretch of its resident windows that are
+ * in — landed, or failed (#811) — around the one nearest the element the
+ * viewport is centred on. A window still in flight ends the stretch, since its
+ * rows are not there to hold its slot: it, and every window past it, stay the
+ * band's until it lands, and landing it takes exactly the band's slot. So a
+ * window loading above or below the rows on screen never takes them off it,
+ * even when a window beyond it lands first, and a rebased run whose windows
+ * are all on the wire is still the whole of its block — its bands meet where
+ * it will land. The bands follow the run, not the residency, and so does
+ * where a band report measures from. The Sheet's driver does the same.
+ *
  * # One settle, one notification
  *
  * Every input — a source, a viewport report, a jump, a Retry, a window landing
@@ -134,8 +147,9 @@ export interface PlanResidentSpan {
     from: number;
     /** The element after the last landed one (exclusive). */
     to: number;
-    /** How many elements have landed — fewer than the span while a window
-     *  inside it is still in flight. */
+    /** How many elements have landed — fewer than the span when a window
+     *  inside it failed (#811). (A window still in flight is never inside
+     *  it: it ends the run, #876.) */
     elements: number;
 }
 
@@ -149,13 +163,14 @@ export interface PlanPagedBlock {
     /** The key of the row its top rows nest under — the header of the section
      *  it sits in — if any. Its bands hide with that row's subtree. */
     parent: RowKey | undefined;
-    /** The unloaded run above its resident rows, if any. */
+    /** Every element above its run (#876) — not resident, still loading, or
+     *  past a window still loading — if any. */
     head: PlanBand | undefined;
-    /** The unloaded run below them, if any. */
+    /** Every element below its run, likewise, if any. */
     tail: PlanBand | undefined;
-    /** Its resident windows whose read failed, ascending (#811). */
+    /** Its run's windows whose read failed, ascending (#811). */
     failures: readonly PlanWindowFailure[];
-    /** What has LANDED of it. */
+    /** What has LANDED of its run. */
     resident: PlanResidentSpan | undefined;
 }
 
@@ -174,10 +189,10 @@ export interface PlanPagingSnapshot {
     blocks: readonly PlanPagedBlock[];
     /** The source's element count, once known. */
     total: number | undefined;
-    /** What has landed of the block the viewport is in. The span and the
-     *  count differ while a window inside the run is still in flight —
-     *  reporting the demanded interval would claim elements are loaded that
-     *  are still on the wire. */
+    /** What has landed of the block the viewport is in — of its run (#876),
+     *  never the demanded interval, which would claim elements are loaded
+     *  that are still on the wire. The span and the count differ when a
+     *  window inside the run failed (#811). */
     resident: PlanResidentSpan | undefined;
     /** Whether every paged block holds every element — the source's rows are
      *  all on the canvas, so no count on it is partial. */
@@ -197,6 +212,8 @@ export interface PlanPagingSnapshot {
 
 /** No failed windows — one shared list, so an unfailed canvas's memos hold. */
 const NO_FAILURES: readonly PlanWindowFailure[] = [];
+/** A block that draws no window (#876). */
+const NO_RUN: Run = { from: 0, to: -1 };
 const NO_ROWS: readonly PlanRowValue[] = [];
 const NO_ORIGIN: ReadonlyMap<string, PlanRowOrigin> = new Map();
 const NO_BLOCKS: readonly PlanPagedBlock[] = [];
@@ -273,8 +290,9 @@ export interface PagingDriver {
      *  which rows are diagnostics): resident windows take theirs again. */
     reskeleton(): void;
     /** Where a visited row the body does not hold sits — in which block's
-     *  band, and how far down it (#823: a link into an evicted window).
-     *  `undefined` for a row never seen, or one whose window is resident. */
+     *  band, and how far down it (#823: a link into an evicted window, or
+     *  into a landed one past a window still in flight, #876). `undefined`
+     *  for a row never seen, or one whose window is in its block's run. */
     placeOf(key: RowKey): PlanRowPlace | undefined;
     /** Which block and window a row was last seen in, resident or evicted —
      *  what a request to bring it into view opens (#824). `undefined` for a
@@ -297,7 +315,8 @@ interface ReadOutcome {
     /** The source's own `total()` — never the ledgers' stand-in. */
     total: number | undefined;
     resident: { w: number; read: WindowRead }[];
-    loading: boolean;
+    /** The demanded windows still on the wire. */
+    inFlight: readonly number[];
     failed: { w: number; error: string }[];
     sourceError: string | undefined;
     /** The revision the windows were read at. */
@@ -305,8 +324,15 @@ interface ReadOutcome {
 }
 
 const NOTHING_READ: ReadOutcome = {
-    total: undefined, resident: [], loading: false, failed: [], sourceError: undefined, revision: undefined,
+    total: undefined, resident: [], inFlight: [], failed: [], sourceError: undefined, revision: undefined,
 };
+
+/** The windows a block draws (#876): `from` to `to`, inclusive; `to < from`
+ *  when none of its resident windows is in. */
+interface Run {
+    from: number;
+    to: number;
+}
 
 /** One paged block's geometry (#823). */
 interface Lane {
@@ -314,6 +340,11 @@ interface Lane {
     residency: Residency;
     /** The window the viewport was last in, within this block. */
     viewportWindow: number;
+    /** The element the viewport was last centred on, within this block — what
+     *  its run is anchored nearest (#876). */
+    viewportAt: number;
+    /** The run the last settle drew (#876) — where its bands start and end. */
+    run: Run;
     /** Every window this block has seen: which read its skeleton was taken
      *  from (a re-read at a new revision takes it again), the skeleton, its
      *  height at rest and how many rows it holds. Never the rows themselves —
@@ -351,9 +382,15 @@ function sameShape(a: readonly BlockShape[], b: readonly BlockShape[]): boolean 
     return a.length === b.length && a.every((x, i) => x.fixed === b[i]!.fixed && x.parent === b[i]!.parent);
 }
 
+function sameLoading(a: PlanBand["loading"], b: PlanBand["loading"]): boolean {
+    if (a === undefined || b === undefined) return a === b;
+    return a.from === b.from && a.to === b.to;
+}
+
 function sameBand(a: PlanBand | undefined, b: PlanBand | undefined): boolean {
     if (a === undefined || b === undefined) return a === b;
-    return a.block === b.block && a.at === b.at && a.from === b.from && a.to === b.to && a.px === b.px;
+    return a.block === b.block && a.at === b.at && a.from === b.from && a.to === b.to && a.px === b.px
+        && sameLoading(a.loading, b.loading);
 }
 
 function sameFailures(a: readonly PlanWindowFailure[], b: readonly PlanWindowFailure[]): boolean {
@@ -437,8 +474,50 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             ledger: createLedger(total, PLAN_PAGE_SIZE),
             residency: from?.residency ?? NO_RESIDENCY,
             viewportWindow: from?.viewportWindow ?? 0,
+            viewportAt: from?.viewportAt ?? 0,
+            run: from?.run ?? NO_RUN,
             skeletons: new Map(),
         };
+    }
+
+    /** Every window that is IN after the last read — landed (or standing in
+     *  from the previous revision, #821), or failed (#811). */
+    function windowsIn(): Set<number> {
+        const out = new Set<number>();
+        for (const r of last.resident) out.add(r.w);
+        for (const f of last.failed) out.add(f.w);
+        return out;
+    }
+
+    /**
+     * A block's run (#876): the stretch of its resident windows that are in,
+     * around the one nearest the element the viewport is centred on — its own
+     * window when that is in, else the nearer of the first in after it and
+     * the last in before it. The run crosses a failed window, whose elements
+     * are known (#811); a window still in flight ends it at either end.
+     */
+    function runOf(lane: Lane, isIn: ReadonlySet<number>): Run {
+        const { lo, hi } = lane.residency;
+        if (isEmpty(lane.residency)) return NO_RUN;
+        const at = Math.min((hi + 1) * PLAN_PAGE_SIZE - 1, Math.max(lo * PLAN_PAGE_SIZE, lane.viewportAt));
+        const own = Math.floor(at / PLAN_PAGE_SIZE);
+        let anchor: number | undefined = isIn.has(own) ? own : undefined;
+        if (anchor === undefined) {
+            let after: number | undefined;
+            for (let w = own + 1; w <= hi && after === undefined; w++) if (isIn.has(w)) after = w;
+            let before: number | undefined;
+            for (let w = own - 1; w >= lo && before === undefined; w--) if (isIn.has(w)) before = w;
+            anchor = after === undefined || before === undefined
+                ? after ?? before
+                : after * PLAN_PAGE_SIZE - at <= at - ((before + 1) * PLAN_PAGE_SIZE - 1) ? after : before;
+        }
+        // Nothing of the residency is in: the bands meet where it will land.
+        if (anchor === undefined) return { from: lo, to: lo - 1 };
+        let from = anchor;
+        while (from > lo && isIn.has(from - 1)) from--;
+        let to = anchor;
+        while (to < hi && isIn.has(to + 1)) to++;
+        return { from, to };
     }
 
     /** Every window some block demands, ascending. */
@@ -507,7 +586,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // snapshot has nothing left to stand in for.
             if (!result.stale) stale = undefined;
             return {
-                total: t, resident: result.resident, loading: result.loading, failed: result.failed, sourceError,
+                total: t, resident: result.resident, inFlight: result.inFlight, failed: result.failed, sourceError,
                 revision: current,
             };
         });
@@ -624,9 +703,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
         }
         if (demanded) {
-            // Whatever left every block's run leaves the cache with it — the
-            // half of eviction that actually frees memory. A failure record
-            // leaves too: a window demanded again later is asked afresh.
+            // Whatever left every block's residency leaves the cache with it —
+            // the half of eviction that actually frees memory. A failure
+            // record leaves too: a window demanded again later is asked afresh.
             const keep = new Set(wantedWindows());
             pruneCache(cache, keep);
             pruneCache(failures, keep);
@@ -636,7 +715,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     }
 
     /** The rows, block after block, and where each paged one came from —
-     *  rebuilt only when what they are made of moved. */
+     *  each paged block's run's landed windows (#876) — rebuilt only when what
+     *  they are made of moved. */
     function assemble(landed: ReadonlyMap<number, WindowRead>): void {
         const pieces: Piece[] = [];
         const count = shape?.length ?? 1;
@@ -648,7 +728,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
             const lane = lanes.get(b);
             if (lane === undefined) continue;
-            for (const w of residentWindows(lane.residency)) {
+            for (let w = lane.run.from; w <= lane.run.to; w++) {
                 const read = landed.get(w);
                 if (read !== undefined) pieces.push({ b, w, rows: read.blocks[b] ?? NO_ROWS });
             }
@@ -669,30 +749,61 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         assembled = { pieces, rows, origin };
     }
 
-    /** One paged block as the canvas draws it — reusing the previous object's
-     *  parts that did not move. */
-    function blockOf(b: number, lane: Lane, known: number | undefined, landedWindows: ReadonlySet<number>, prev: PlanPagedBlock | undefined): PlanPagedBlock {
-        const { ledger, residency } = lane;
+    /** Which elements of a block's windows `fromW` to `toW` are loading
+     *  (#1082) — those of the windows its residency demands that are still
+     *  on the wire — as one span, from the first such window's first
+     *  element to the last one's last; `undefined` when none is. */
+    function loadingIn(lane: Lane, inFlight: ReadonlySet<number>, fromW: number, toW: number, known: number): PlanBand["loading"] {
+        let lo: number | undefined;
+        let hi: number | undefined;
+        for (let w = Math.max(fromW, lane.residency.lo); w <= Math.min(toW, lane.residency.hi); w++) {
+            if (!inFlight.has(w)) continue;
+            lo ??= w;
+            hi = w;
+        }
+        if (lo === undefined || hi === undefined) return undefined;
+        return { from: lo * PLAN_PAGE_SIZE, to: Math.min(known, (hi + 1) * PLAN_PAGE_SIZE) - 1 };
+    }
+
+    /** One paged block as the canvas draws it — its run between its bands
+     *  (#876) — reusing the previous object's parts that did not move. */
+    function blockOf(
+        b: number, lane: Lane, known: number | undefined, landedWindows: ReadonlySet<number>, inFlight: ReadonlySet<number>,
+        prev: PlanPagedBlock | undefined,
+    ): PlanPagedBlock {
+        const { ledger, residency, run } = lane;
         let head: PlanBand | undefined;
         let tail: PlanBand | undefined;
         if (!isEmpty(residency) && ledger.windows > 0 && known !== undefined) {
-            head = residency.lo > 0
-                ? { block: b, at: "head", from: 0, to: residency.lo * PLAN_PAGE_SIZE - 1, px: offsetOfWindow(ledger, residency.lo) }
+            // The bands follow the run, not the residency: a window still in
+            // flight, and every window past it, are theirs until it lands.
+            // Each says which of its windows are loading — only those (#1082).
+            head = run.from > 0
+                ? {
+                    block: b,
+                    at: "head",
+                    from: 0,
+                    to: run.from * PLAN_PAGE_SIZE - 1,
+                    px: offsetOfWindow(ledger, run.from),
+                    loading: loadingIn(lane, inFlight, 0, run.from - 1, known),
+                }
                 : undefined;
-            tail = residency.hi < ledger.windows - 1
+            tail = run.to < ledger.windows - 1
                 ? {
                     block: b,
                     at: "tail",
-                    from: (residency.hi + 1) * PLAN_PAGE_SIZE,
+                    from: (run.to + 1) * PLAN_PAGE_SIZE,
                     to: known - 1,
-                    px: documentHeight(ledger) - offsetOfWindow(ledger, residency.hi + 1),
+                    px: documentHeight(ledger) - offsetOfWindow(ledger, run.to + 1),
+                    loading: loadingIn(lane, inFlight, run.to + 1, ledger.windows - 1, known),
                 }
                 : undefined;
         }
-        // Each failed window as its band (#811): at its ledger slot, floored so
-        // the reason and the Retry stay legible — a short last window, or a
-        // window 0 that failed before any landing taught the ledger a geometry.
-        const inRun = last.failed.filter((f) => f.w >= residency.lo && f.w <= residency.hi);
+        // Each failed window in the run as its band (#811): at its ledger slot,
+        // floored so the reason and the Retry stay legible — a short last
+        // window, or a window 0 that failed before any landing taught the
+        // ledger a geometry.
+        const inRun = last.failed.filter((f) => f.w >= run.from && f.w <= run.to);
         const failed: PlanWindowFailure[] = inRun.map(({ w, error }) => {
             const measured = known !== undefined && w < ledger.windows;
             const from = w * PLAN_PAGE_SIZE;
@@ -700,7 +811,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             return { block: b, w, from, to, px: Math.max(FAILED_BAND_MIN_PX, measured ? slotHeight(ledger, w) : 0), error };
         });
         let resident: PlanResidentSpan | undefined;
-        const mine = residentWindows(residency).filter((w) => landedWindows.has(w));
+        const mine: number[] = [];
+        for (let w = run.from; w <= run.to; w++) if (landedWindows.has(w)) mine.push(w);
         if (mine.length > 0 && known !== undefined) {
             // The SPAN of what landed — not of what was demanded.
             const lo = minOf(mine);
@@ -726,12 +838,16 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     function publish(): void {
         const prev = snapshot;
         const landed = new Map(last.resident.map((r) => [r.w, r.read]));
+        // What each paged block draws, from what is in now (#876).
+        const isIn = windowsIn();
+        for (const lane of lanes.values()) lane.run = runOf(lane, isIn);
         assemble(landed);
         // Between two revisions the source knows no total until the new one's
         // first window lands; the geometry stands meanwhile, so the bands and
         // the scroll extent do not collapse under the reader (#821).
         const known = last.total ?? (stale !== undefined && total > 0 ? total : undefined);
         const landedWindows = new Set(landed.keys());
+        const inFlight = new Set(last.inFlight);
         const count = shape?.length ?? 1;
         const blocks: PlanPagedBlock[] = [];
         for (let b = 0; b < count; b++) {
@@ -745,7 +861,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 blocks.push(before !== undefined && sameBlock(before, fixed) ? before : fixed);
                 continue;
             }
-            blocks.push(blockOf(b, lane, known, landedWindows, before));
+            blocks.push(blockOf(b, lane, known, landedWindows, inFlight, before));
         }
         const sameBlocks = blocks.length === prev.blocks.length && blocks.every((x, i) => x === prev.blocks[i]);
         const paged = blocks.filter((x) => !x.fixed);
@@ -772,7 +888,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             total: known,
             resident: sameResident(prev.resident, focus?.resident) ? prev.resident : focus?.resident,
             complete,
-            loading: last.loading,
+            loading: last.inFlight.length > 0,
             failures: failures.length === 0 ? NO_FAILURES
                 : sameFailures(prev.failures, failures) ? prev.failures : failures,
             sourceError: last.sourceError,
@@ -810,6 +926,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             lane.residency = unpinAll(lane.residency);
             if (block !== undefined && b !== block) continue;
             lane.viewportWindow = w;
+            lane.viewportAt = w * PLAN_PAGE_SIZE;
             if (rebase && !isEmpty(lane.residency) && (w < lane.residency.lo || w > lane.residency.hi)) {
                 lane.residency = { ...lane.residency, lo: w, hi: w };
             }
@@ -890,26 +1007,34 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 const lane = o !== undefined ? lanes.get(o.block) : undefined;
                 if (o !== undefined && lane !== undefined) {
                     lane.viewportWindow = o.w;
+                    lane.viewportAt = o.w * PLAN_PAGE_SIZE;
                     focusBlock = o.block;
                 }
             } else {
                 const lane = lanes.get(at.block);
                 if (lane !== undefined) {
                     focusBlock = at.block;
+                    let element: number;
                     if (at.kind === "window") {
-                        lane.viewportWindow = at.w;
+                        element = at.w * PLAN_PAGE_SIZE;
                     } else if (at.px !== undefined && lane.ledger.windows > 0) {
                         // The band's top is a ledger offset the band was SIZED
                         // from (a head band starts the block; a tail band starts
-                        // where its run ends), so the offset maps through
-                        // `elementAtOffset` whatever the resident rows in between
-                        // rendered at, and a far drag rebases (#612).
-                        const bandTop = at.at === "head" ? 0 : offsetOfWindow(lane.ledger, lane.residency.hi + 1);
-                        lane.viewportWindow = Math.floor(elementAtOffset(lane.ledger, bandTop + Math.max(0, at.px)) / PLAN_PAGE_SIZE);
+                        // where its run ends — not its residency, whose last
+                        // windows may still be loading inside it, #876), so the
+                        // offset maps through `elementAtOffset` whatever the
+                        // resident rows in between rendered at, and a far drag
+                        // rebases (#612).
+                        const bandTop = at.at === "head" ? 0 : offsetOfWindow(lane.ledger, lane.run.to + 1);
+                        element = elementAtOffset(lane.ledger, bandTop + Math.max(0, at.px));
                     } else {
-                        // Without one, the window just outside the run on that side.
-                        lane.viewportWindow = at.at === "head" ? Math.max(0, lane.residency.lo - 1) : lane.residency.hi + 1;
+                        // Without one, the element just outside the run on that side.
+                        element = at.at === "head"
+                            ? Math.max(0, lane.run.from * PLAN_PAGE_SIZE - 1)
+                            : (lane.run.to + 1) * PLAN_PAGE_SIZE;
                     }
+                    lane.viewportAt = element;
+                    lane.viewportWindow = Math.floor(element / PLAN_PAGE_SIZE);
                 }
             }
             settle();
@@ -961,10 +1086,11 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             const o = located.get(key);
             const lane = o !== undefined ? lanes.get(o.block) : undefined;
             if (o === undefined || lane === undefined || isEmpty(lane.residency)) return undefined;
-            const { lo, hi } = lane.residency;
-            if (o.w < lo) return { block: o.block, at: "head", px: offsetOfWindow(lane.ledger, o.w) };
-            if (o.w > hi) {
-                return { block: o.block, at: "tail", px: offsetOfWindow(lane.ledger, o.w) - offsetOfWindow(lane.ledger, hi + 1) };
+            // The bands are the run's (#876).
+            const { from, to } = lane.run;
+            if (o.w < from) return { block: o.block, at: "head", px: offsetOfWindow(lane.ledger, o.w) };
+            if (o.w > to) {
+                return { block: o.block, at: "tail", px: offsetOfWindow(lane.ledger, o.w) - offsetOfWindow(lane.ledger, to + 1) };
             }
             return undefined;
         },

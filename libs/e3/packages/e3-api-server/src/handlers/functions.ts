@@ -17,7 +17,6 @@
  * a split call's launch, which runs as a job the client polls.
  */
 
-import { randomUUID } from 'node:crypto';
 import { ArrayType, none, some, variant } from '@elaraai/east';
 import {
   packageRead,
@@ -31,8 +30,8 @@ import {
   splitCallPlatformFree,
   splitCallPrepare,
   splitCallResult,
-} from '@elaraai/e3-core';
-import type { ExecuteCeilings, OneShotGrant, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
+import type { ExecuteCeilings, OneShotGrant, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { type FunctionObject, type RunnerValue, decodeFunctionObject } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -66,8 +65,7 @@ async function resolveFunction(
   if (!fnHash) {
     throw new TaskNotFoundError(`function '${fnName}' in ${pkgName}@${version}`);
   }
-  const fnData = await storage.objects.read(repoPath, fnHash);
-  return decodeFunctionObject(Buffer.from(fnData));
+  return decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
 }
 
 /**
@@ -169,8 +167,7 @@ export async function listPackageFunctions(
     const pkg = await packageRead(storage, repoPath, pkgName, version);
     const signatures = [];
     for (const [name, fnHash] of pkg.functions) {
-      const fnData = await storage.objects.read(repoPath, fnHash);
-      const fnObj = decodeFunctionObject(Buffer.from(fnData));
+      const fnObj = decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
       signatures.push({
         name,
         inputTypes: fnObj.inputTypes,
@@ -308,7 +305,7 @@ export async function startSplitCall(
   try {
     const { ceilings } = options;
     const launched = await splitCallPrepare(storage, repoPath, workspace, request, { grant, ...(ceilings !== undefined && { ceilings }) });
-    const id = randomUUID();
+    const id = globalThis.crypto.randomUUID();
     const filed = {
       repo,
       workspace,

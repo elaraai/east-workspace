@@ -184,7 +184,14 @@ export interface BindHandle {
  */
 export class BindRuntime {
     private cache: ReactiveDatasetCacheInterface | null = null;
-    private readonly staged: StagedStoreInterface;
+    /** The staged store this runtime was given, if any. Without one it uses
+     *  the package's ({@link getStagedStore}) as it is when a binding reads or
+     *  writes, so a store a host installs (`initializeStagedStore`) reaches
+     *  `Data.bind` as it reaches the reactive tracker and the providers: the
+     *  default runtime is made as this module loads, before any host can. */
+    private readonly givenStaged: StagedStoreInterface | undefined;
+    /** The staged stores whose persistence failures this runtime reports. */
+    private readonly reported = new WeakSet<StagedStoreInterface>();
 
     // Pending-writes queue.
     private readonly pendingWrites: Array<() => Promise<void>> = [];
@@ -226,17 +233,30 @@ export class BindRuntime {
     );
 
     /**
-     * @param staged - The staged store this runtime uses for
-     *  staged-mode buffers. Defaults to the package singleton.
+     * @param staged - The staged store this runtime uses for staged-mode
+     *  buffers. Without one, the package's, as it is when a binding uses it.
      */
-    constructor(staged: StagedStoreInterface = getStagedStore()) {
-        this.staged = staged;
-        // Surface staged-buffer persistence failures (IndexedDB save/remove)
-        // through the same channel as dataset write failures, so a host that
-        // registers onWriteError sees 'edit not durably saved' too. Runtime
-        // and staged store share a lifetime, so the subscription is never torn
-        // down.
-        this.staged.onPersistError((_key, err) => this.emitWriteError(err));
+    constructor(staged?: StagedStoreInterface) {
+        this.givenStaged = staged;
+        if (staged !== undefined) this.reportPersistErrors(staged);
+    }
+
+    /** The staged store a binding buffers in now. */
+    private get staged(): StagedStoreInterface {
+        const store = this.givenStaged ?? getStagedStore();
+        this.reportPersistErrors(store);
+        return store;
+    }
+
+    /** Surface a staged store's persistence failures (IndexedDB save/remove)
+     *  through the same channel as dataset write failures, so a host that
+     *  registers onWriteError sees 'edit not durably saved' too. Once per
+     *  store: a store lives as long as the page, so the subscription is never
+     *  torn down. */
+    private reportPersistErrors(store: StagedStoreInterface): void {
+        if (this.reported.has(store)) return;
+        this.reported.add(store);
+        store.onPersistError((_key, err) => this.emitWriteError(err));
     }
 
     // ----- cache singleton ------------------------------------------------

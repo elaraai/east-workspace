@@ -33,8 +33,8 @@ Run from the workspace root (`/home/crambelsoupy/src/east-workspace/`):
 | `make services-up` | Start Docker services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin) for integration tests. |
 | `make services-down` | Stop the services. |
 | `make services-status` | Show service status. |
-| `make test-export` | Export IR JSON from east + east-node + east-py for cross-runtime compliance tests. Required before east-c/east-py compliance runs. |
-| `make test-all` | `services-up` + `test-export` + `test` + east-c tests + east-py tests + `services-down`. |
+| `make test-export` | Export IR JSON from east + east-node + east-py for cross-runtime compliance tests. Required before east-c/east-py/east-web compliance runs. |
+| `make test-all` | `services-up` + `test-export` + `test` + east-web compliance + east-c tests + east-py tests + `services-down`. |
 | `make clean` | Remove all build artifacts. |
 
 ---
@@ -56,6 +56,7 @@ Lib-specific extras (run `make help` in each):
 |---|---|
 | `libs/e3` | `make test-packages` and `make test-integration` (the two halves of `make test`), `make test-integration-shard SHARD=n` (one of the three integration shards CI runs side by side), `make e2e-stack` (the local stack the environment e2e installs), `make install-job` (the Windows job launcher) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
+| `libs/east-web` | `make test-compliance` (east-node-std's exported compliance suite over east-web-std, from `/tmp/east-node-std`; `make test` exports it first) |
 | `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627) |
 | `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all`, `make test-responsive` (the showcase's Playwright suite over the built showcase, exactly as CI runs it; `SHARD=n/4` runs one CI shard) |
 

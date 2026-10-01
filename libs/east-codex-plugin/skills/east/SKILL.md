@@ -1,11 +1,11 @@
 ---
 name: east
-description: "East programming language - a statically typed, expression-based language embedded in TypeScript, compiled to portable IR that runs on Node, C and Python. Use when: (1) writing East functions with East.function() / East.asyncFunction(), (2) defining types (IntegerType, StringType, ArrayType, StructType, VariantType, ...), (3) platform functions with East.platform() / East.asyncPlatform(), (4) compiling and running in-process with East.compile(), (5) East expressions: arithmetic, strings, dates, collections, vectors and matrices, control flow, (6) working with East values from TypeScript: compareFor/equalFor, SortedMap/SortedSet, isValueOf, the East-text, JSON, CSV and beast2 codecs, (7) serializing IR (.toIR(), encodeEastIR) and printing it back as source (East.toSource, east-node transpile), (8) running a program from the command line (east-node / east-c / east-py run, exec, east-c ir), (9) calling a function authored in… See the detailed scope below."
+description: "East programming language - a statically typed, expression-based language embedded in TypeScript, compiled to portable IR that runs on Node, C and Python. Use when: (1) writing East functions with East.function() / East.asyncFunction(), (2) defining types (IntegerType, StringType, ArrayType, StructType, VariantType, ...), (3) platform functions with East.platform() / East.asyncPlatform(), (4) compiling and running in-process with East.compile(), (5) East expressions: arithmetic, strings, dates, collections, vectors and matrices, control flow, (6) working with East values from TypeScript: compareFor/equalFor, SortedMap/SortedSet, isValueOf, the East-text, JSON, CSV and beast2 codecs, (7) serializing IR (.toIR(), encodeEastIR) and printing it back as source (East.toSource, east-node transpile), (8) running a program from the command line (east-node / east-c / east-py run, exec, east-c ir), or a runner-protocol unit in a host of… See the detailed scope below."
 ---
 
 ## Detailed skill scope
 
-East programming language - a statically typed, expression-based language embedded in TypeScript, compiled to portable IR that runs on Node, C and Python. Use when: (1) writing East functions with East.function() / East.asyncFunction(), (2) defining types (IntegerType, StringType, ArrayType, StructType, VariantType, ...), (3) platform functions with East.platform() / East.asyncPlatform(), (4) compiling and running in-process with East.compile(), (5) East expressions: arithmetic, strings, dates, collections, vectors and matrices, control flow, (6) working with East values from TypeScript: compareFor/equalFor, SortedMap/SortedSet, isValueOf, the East-text, JSON, CSV and beast2 codecs, (7) serializing IR (.toIR(), encodeEastIR) and printing it back as source (East.toSource, east-node transpile), (8) running a program from the command line (east-node / east-c / east-py run, exec, east-c ir), (9) calling a function authored in python, or exporting one for python (East.importFunction, East.exportFunctions, east-node export-functions), (10) checking that a module's East functions build (east-node check, east-node lsp), (11) collections larger than memory (Beast2ElementWriter, openBeast2PagesFor, blob.openBeast), (12) JSON Schema contracts (jsonSchemaFor, typeFromJsonSchema).
+East programming language - a statically typed, expression-based language embedded in TypeScript, compiled to portable IR that runs on Node, C and Python. Use when: (1) writing East functions with East.function() / East.asyncFunction(), (2) defining types (IntegerType, StringType, ArrayType, StructType, VariantType, ...), (3) platform functions with East.platform() / East.asyncPlatform(), (4) compiling and running in-process with East.compile(), (5) East expressions: arithmetic, strings, dates, collections, vectors and matrices, control flow, (6) working with East values from TypeScript: compareFor/equalFor, SortedMap/SortedSet, isValueOf, the East-text, JSON, CSV and beast2 codecs, (7) serializing IR (.toIR(), encodeEastIR) and printing it back as source (East.toSource, east-node transpile), (8) running a program from the command line (east-node / east-c / east-py run, exec, east-c ir), or a runner-protocol unit in a host of your own, such as a browser's worker (executeUnit over a UnitIO, InMemoryUnitIO), (9) calling a function authored in python, or exporting one for python (East.importFunction, East.exportFunctions, east-node export-functions), (10) checking that a module's East functions build (east-node check, east-node lsp), (11) collections larger than memory (Beast2ElementWriter, openBeast2PagesFor, blob.openBeast), (12) JSON Schema contracts (jsonSchemaFor, typeFromJsonSchema).
 
 # East Language
 
@@ -171,6 +171,8 @@ Task → What do you need?
     │
     ├─ Work with East values from TypeScript → "Values in TypeScript" (comparators, SortedMap, codecs)
     ├─ Run a program from the shell → "Runners" (east-node / east-c / east-py run, exec, east-c ir)
+    ├─ Run a runner-protocol unit in a host of your own (a browser's worker) → executeUnit(unit, io, { platforms })
+    │   over an InMemoryUnitIO ("Units in a host of your own")
     ├─ IR ↔ source → fn.toIR(), encodeEastIR, East.toSource(fn), east-node transpile
     ├─ A function written in python (or another package) → East.importFunction; yours for python → East.exportFunctions
     ├─ Check that a module BUILDS → east-node check (tsc cannot see the build's own errors)
@@ -362,6 +364,57 @@ east-py   run prog.beast2 -p east-py-std -i a.beast2 -o out.beast2              
   difference) and `ir convert` (JSON ↔ beast2, the source map kept).
 - east-node also has `transpile`, `check`, `lsp` and `export-functions`, below;
   east-py has the python twins, and `lint`.
+
+### Units in a host of your own: `executeUnit` and `UnitIO`
+
+east-node's `exec` is a file wrapper around `executeUnit`, the one TypeScript
+unit runner, which does a unit's work over a `UnitIO` rather than a file
+system — so a host with none runs units too: e3-web runs them in a browser's
+Web Workers. east-c has the same shape (`east/unit.h`).
+
+| Signature | Description |
+|-----------|-------------|
+| `executeUnit(unit: Unit, io: UnitIO, options: ExecuteUnitOptions): Promise<UnitResult>` | Does the unit's work — a run, a merge or an intake — over `io`, writing its output there by its kind, and returns the result, which the host writes where `unit.result` says if it keeps it. A failure is the result's `outcome`, `failed` with its message and source locations, never a throw |
+| `options.platforms(name: string): readonly PlatformFunction[] \| Promise<…>` | Each package the unit lists, asked once, in the unit's order, before the work begins; a throw fails the unit with its message |
+| `options.resident?: () => number` · `options.peakBytes?: () => bigint` | The host's memory gauges. Without `resident`, what reading a lazy input whole weighs and what decoding an input whole added both come to 0; without `peakBytes`, the result's `peakBytes` is 0, as a browser's is |
+| `options.report?: UnitRunReport` | Hears how a run unit's inputs open and what reading them came to: the account `exec -v` prints |
+| `UnitIO` | The unit's files, by the paths it names: `read`, `size`, `readRange`, `segment(path, fetch)`, `list`, `makeDirectory`, `write` — every one synchronous, since compiled East reads a lazy input without awaiting |
+| `new InMemoryUnitIO(files?: Iterable<[path: string, bytes: Uint8Array]>)` | A `UnitIO` in memory, for a host with no file system: given every file the unit names, segments included; `.files` then holds them and every file the unit wrote |
+| `UnitType` · `UnitResultType` | The unit and its result as East types, for a host that keeps them as beast2 |
+
+- The unit's thread grant (`threads`) caps the frame pool for the rest of the
+  process: a grant of one frames every output inline.
+- A unit whose host places segments as they are read (`fetch: true`) has
+  `io.segment` asked for each segment of a staged manifest before it is read.
+  `InMemoryUnitIO` holds every segment already, so its unit says `fetch: false`,
+  and a segment it does not hold fails at once, as any absent file does.
+
+```typescript
+import { East, IntegerType, InMemoryUnitIO, decodeBeast2For, encodeBeast2For, encodeEastIR, executeUnit, variant, type Unit } from "@elaraai/east";
+
+const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));
+
+// A unit names its files by path: here, the program, its one input and its output.
+const unit: Unit = {
+    work: variant("run", {
+        program: "program.beast2",
+        inputs: ["x.beast2"],
+        output: variant("value", "out.beast2"),
+        decode: variant("lazy", null),
+    }),
+    platforms: [],          // the platform packages it needs, each resolved by `options.platforms`
+    threads: 1n,
+    fetch: false,           // every segment it reads is in the IO already
+    result: "result.beast2",
+};
+const io = new InMemoryUnitIO([
+    ["program.beast2", encodeEastIR(double.toIR())],
+    ["x.beast2", encodeBeast2For(IntegerType)(21n)],
+]);
+const result = await executeUnit(unit, io, { platforms: () => [] });
+// result.outcome: ok, or failed with its message and source locations; a failure is never thrown
+decodeBeast2For(IntegerType)(io.read("out.beast2"));   // 42n
+```
 
 ## IR → source: `East.toSource` and `east-node transpile`
 

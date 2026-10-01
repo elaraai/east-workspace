@@ -10,11 +10,14 @@
  * source, and this module is the one place that vocabulary is spelled. Both are
  * parameterised on the COLLECTION the component speaks — an `Array<Row>` for a
  * positional surface, a `Dict<String, Row>` for a keyed one (#568). east-ui
- * declares the shape; whoever can actually fetch windows produces a value of
- * it. `Data.bindPaged` in `@elaraai/e3-ui` is the production implementation
- * (dataset windows over an e3 workspace) and {@link Paged.of} /
- * {@link Paged.pinned} are the in-memory ones; e3 is never named here, and
- * **nothing in this file imports e3**.
+ * declares the shape; the platform that owns the data produces a value of it.
+ * Paged data is BOUND: `Data.bindPaged` in `@elaraai/e3-ui` is the producer
+ * (dataset windows over an e3 workspace), and east-ui produces none. e3 is
+ * never named here, and **nothing in this file imports e3**.
+ *
+ * A component recognises a paged source by its East TYPE: a subtype of the
+ * contract over the collection its `page` serves, never a struct that merely
+ * has fields of the right names ({@link resolveRowSource}).
  *
  * # Why a variant, not a narrow struct
  *
@@ -48,7 +51,8 @@ import {
     StringType,
     StructType,
     VariantType,
-    isTypeEqual,
+    isSubtype,
+    printType,
     variant,
     some,
     none,
@@ -188,7 +192,10 @@ export type SeekQueryType = typeof SeekQueryType;
  * once: the same `id` serves the same rows for as long as the component holds
  * it. A source whose content moves under one id — a dataset the view follows,
  * a source the view writes — is a {@link PinnedSourceType}, which names the
- * snapshot its windows, total and searches belong to.
+ * snapshot its windows, total and searches belong to, and is what
+ * `Data.bindPaged` returns. This shape PREDATES `revision` / `refresh`: it is
+ * the handle `data_bind_paged` returned before them, which a UI exported then
+ * still carries, so a component takes it as it always did.
  *
  * @typeParam C - The collection type one window carries.
  * @param c - The collection type value.
@@ -244,8 +251,8 @@ export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSo
  * (#880) — which is why the Sheet and the Plan edit a paged source only
  * through this contract.
  *
- * `Data.bindPaged` in `@elaraai/e3-ui` returns one, its revision the dataset's
- * content hash, and {@link Paged.pinned} is the in-memory one.
+ * This is the contract: `Data.bindPaged` in `@elaraai/e3-ui` returns one, its
+ * revision the dataset's content hash.
  *
  * @typeParam C - The collection type one window carries.
  * @param c - The collection type value.
@@ -347,8 +354,9 @@ export type RowSource<C extends EastType> = ExprType<ReturnType<typeof RowSource
 /**
  * The loose TS face a paged source presents at a `rows` / `data` prop —
  * structural only (`page` / `total`, which a concrete source expression
- * exposes and an array expression does not). {@link resolveRowSource}'s
- * `Expr.type` dispatch is the real check.
+ * exposes and an array expression does not). The real check is
+ * {@link resolveRowSource}'s: the expression's East type must be a subtype of
+ * the contract.
  */
 export interface PagedSourceLike {
     /** The source's page method (typed precisely on the concrete value). */
@@ -453,36 +461,50 @@ function keyTypeOf(t: EastType | undefined): EastType | undefined {
     return undefined;
 }
 
-/** The members a {@link PinnedSourceType} adds to a paged source, at their types. */
-const SNAPSHOT_MEMBERS = {
-    revision: FunctionType([], OptionType(StringType)),
-    refresh:  FunctionType([OptionType(StringType)], NullType),
-};
+/**
+ * The collection a struct's `page` member serves — the `some` payload of the
+ * `Option` it returns — or `undefined` when `page` is not a function returning
+ * a variant with a `some` case.
+ *
+ * @remarks
+ * What {@link resolveRowSource} checks a struct against the contract AT: a
+ * paged source over `C` is one whose own `page` serves `C`.
+ */
+function pagePayload(fields: Record<string, EastType>): EastType | undefined {
+    const page = fields["page"];
+    if (page === undefined || page.type !== "Function") return undefined;
+    const output = page.output as EastType;
+    if (output.type !== "Variant") return undefined;
+    return (output.cases as Record<string, EastType>)["some"];
+}
 
 /**
- * Whether a windowed source names its snapshot — `revision` and `refresh`,
- * both, at {@link PinnedSourceType}'s types.
+ * Recognise a WINDOWED source by its East type, through East's own subtype
+ * relation: a subtype of {@link PinnedSourceType} over the collection its
+ * `page` serves — the contract, `Data.bindPaged`'s handle — or of
+ * {@link PagedSourceType}, the shape that predates `revision` / `refresh`.
  *
- * @param fields - The source's struct fields
- * @param label - Component name for the error message
- * @returns Whether the source is pinned
- * @throws Error when the source has one of the two without the other, or
- *   either at another type — it would build neither arm faithfully
+ * @param t - The rows prop's East type
+ * @param fields - Its struct fields
+ * @returns The collection the source serves, and whether it names its
+ *   snapshot; `undefined` when it is neither shape
  */
-function namesSnapshot(fields: Record<string, EastType>, label: string): boolean {
-    const revision = fields["revision"];
-    const refresh = fields["refresh"];
-    if (revision === undefined && refresh === undefined) return false;
-    if (revision !== undefined && refresh !== undefined
-        && isTypeEqual(revision, SNAPSHOT_MEMBERS.revision) && isTypeEqual(refresh, SNAPSHOT_MEMBERS.refresh)) {
-        return true;
-    }
-    const found = revision === undefined ? "only `refresh`" : refresh === undefined ? "only `revision`" : "them at other types";
-    throw new Error(
-        `${label}: a paged source names its snapshot with both \`revision: () → Option<String>\` and ` +
-        `\`refresh: (Option<String>) → Null\`, as Data.bindPaged's handle and Paged.pinned do — this one has ${found}`,
-    );
+function windowedSource(t: EastType, fields: Record<string, EastType>): { collectionType: EastType; pinned: boolean } | undefined {
+    const c = pagePayload(fields);
+    if (c === undefined) return undefined;
+    if (isSubtype(t, PinnedSourceType(c))) return { collectionType: c, pinned: true };
+    if (isSubtype(t, PagedSourceType(c))) return { collectionType: c, pinned: false };
+    return undefined;
 }
+
+/**
+ * The contract's fields, as a refusal spells them — every field in its order,
+ * at its type.
+ */
+const CONTRACT_FIELDS =
+    "`{ id: String, page: (Integer, Integer) → Option<C>, total: () → Option<Integer>, " +
+    "seek: Option<(SeekQuery) → Option<SeekRange>>, revision: () → Option<String>, " +
+    "refresh: (Option<String>) → Null }`";
 
 /**
  * Classify a component's rows prop at BUILD time — the one dispatch every
@@ -490,58 +512,65 @@ function namesSnapshot(fields: Record<string, EastType>, label: string): boolean
  *
  * Accepted shapes, in order:
  * - a collection expression / value (`Array<R>`, `Dict<K, V>`, `Set<R>`) ⇒ `inline`;
- * - a struct carrying `page` + `total` ⇒ `paged` (a {@link PagedSourceType},
- *   or anything structurally matching it), marked `pinned` when it also
- *   carries `revision` + `refresh` (a {@link PinnedSourceType} —
- *   `Data.bindPaged`'s handle, `Paged.pinned`);
+ * - a WINDOWED source, recognised by its East type: a subtype of
+ *   {@link PinnedSourceType} over the collection its `page` serves (the
+ *   contract — `Data.bindPaged`'s handle) builds the `pinned` arm, and a
+ *   subtype of {@link PagedSourceType} (the shape that predates `revision` /
+ *   `refresh`) builds `paged`. A window of index entries is `ordered`;
  * - a struct carrying `read` ⇒ a whole-value bind handle, which resolves by
  *   CALLING `read()` and recursing. The call becomes part of the surrounding
  *   East expression, so it is evaluated inside the component's reactive render
  *   and re-fires like any other tracked read — `rows={handle}` and
  *   `rows={handle.read()}` build the same IR.
  *
+ * A struct that carries `page` and `total` but is neither source shape — a
+ * field at another type, a field missing or out of order, one extra — is
+ * refused, naming the contract's fields: East struct subtyping is exact, and a
+ * lookalike read by its field names would be paged through members that do not
+ * mean what a component reads them as.
+ *
  * @param data - The rows prop as the author passed it
  * @param label - Component name for the error message (`"Plan"`, `"Table"`)
  * @returns The resolved arm, retaining a live handle for invocation-time reads — see {@link ResolvedRowSource}
- * @throws Error when the expression is none of the accepted shapes
+ * @throws Error when the expression is none of the accepted shapes — naming the
+ *   contract's fields when it carries `page` and `total` — or when a source's
+ *   `page` serves something other than a collection
  */
 export function resolveRowSource(data: unknown, label: string): ResolvedRowSource {
     const expr = East.value(data as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    const t = Expr.type(expr) as EastType & { type: string };
+    const t = Expr.type(expr) as EastType;
     const inlineElement = elementTypeOf(t);
     if (inlineElement !== undefined) {
         return { kind: "inline", rows: expr, collectionType: t, elementType: inlineElement, keyType: keyTypeOf(t) };
     }
     const fields = structFields(t);
-    if (fields !== undefined && fields["page"] !== undefined && fields["total"] !== undefined) {
-        // `page: Fn([Int, Int], Option<C>)` — recover the COLLECTION through
-        // it, then its element type. An Option is a VARIANT (`cases.some`), not
-        // a struct, so the collection hangs off the `some` case.
-        const page = fields["page"] as { output?: { cases?: { some?: EastType } } };
-        const collectionType = page.output?.cases?.some;
+    const windowed = fields === undefined ? undefined : windowedSource(t, fields);
+    if (windowed !== undefined) {
+        const { collectionType, pinned } = windowed;
         const elementType = elementTypeOf(collectionType);
-        if (collectionType === undefined || elementType === undefined) {
+        if (elementType === undefined) {
             throw new Error(
-                `${label}: the paged source's \`page\` must return \`Option<Collection>\` ` +
-                `(an Array, Dict or Set) — got ${JSON.stringify(page)}`,
+                `${label}: a paged source's \`page\` serves a collection — an Array, Dict or Set — ` +
+                `and this one's serves ${printType(collectionType)}`,
             );
         }
-        // A source that names its snapshot builds the `pinned` arm.
-        const pinned = namesSnapshot(fields, label);
+        const source = expr as unknown as ExprType<StructType>;
         // An ORDERED window: positional, but every row carries its own key.
         // Recognised by the element's shape rather than announced by a flag,
         // so a source that serves index entries needs no second vocabulary.
-        const entry = (collectionType as { type?: string }).type === "Array" ? orderedEntry(elementType) : null;
+        const entry = collectionType.type === "Array" ? orderedEntry(elementType) : null;
         if (entry !== null) {
-            return {
-                kind: "ordered", source: expr as unknown as ExprType<StructType>,
-                collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik, pinned,
-            };
+            return { kind: "ordered", source, collectionType, elementType, keyType: entry.key, orderKeyType: entry.ik, pinned };
         }
-        return {
-            kind: "paged", source: expr as unknown as ExprType<StructType>,
-            collectionType, elementType, keyType: keyTypeOf(collectionType), pinned,
-        };
+        return { kind: "paged", source, collectionType, elementType, keyType: keyTypeOf(collectionType), pinned };
+    }
+    if (fields !== undefined && fields["page"] !== undefined && fields["total"] !== undefined) {
+        throw new Error(
+            `${label}: a paged source is a platform bind's handle (Data.bindPaged) — ${CONTRACT_FIELDS}, ` +
+            `its fields in that order at those types, or the same without \`revision\` and \`refresh\` ` +
+            `(the handle a UI exported before them carries); this struct has \`page\` and \`total\` but is ` +
+            `neither: ${printType(t)}`,
+        );
     }
     if (fields !== undefined && fields["read"] !== undefined) {
         // A whole-value bind handle (`Data.bind`) — read it here, in the
@@ -551,7 +580,7 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         return resolved.kind === "inline" ? { ...resolved, live: expr as unknown as ExprType<StructType> } : resolved;
     }
     throw new Error(
-        `${label}: rows must be a collection, a paged source (\`{ id, page, total }\` — e.g. Data.bindPaged), ` +
+        `${label}: rows must be a collection, a paged source (a platform bind's handle — e.g. Data.bindPaged), ` +
         `or a bound value (\`{ read }\` — e.g. Data.bind); got a ${t.type}`,
     );
 }
@@ -643,22 +672,23 @@ export function buildRowSource<Out extends EastType>(
         });
         return result;
     });
-    // A source predating the contract carries no `id` / `seek`; fall back to a
-    // constant identity (it still compares equal to itself) and no seek.
-    const fields = structFields(Expr.type(resolved.source)) ?? {};
-    const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
-    const seek = fields["seek"] !== undefined
-        ? handle.seek
-        : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
+    // Either shape carries `id` and `seek` — the type check that resolved it
+    // says so — so the derived source forwards them as the handle has them.
     if (!resolved.pinned) {
         return East.value(
-            variant("paged", { id, page, total: handle.total, seek }) as never,
+            variant("paged", { id: handle.id, page, total: handle.total, seek: handle.seek }) as never,
             sourceType,
         ) as RowSource<Out>;
     }
-    const snapshot = resolved.source as unknown as ExprType<StructType<typeof SNAPSHOT_MEMBERS>>;
+    const snapshot = resolved.source as unknown as ExprType<StructType<{
+        revision: FunctionType<[], OptionType<StringType>>;
+        refresh: FunctionType<[OptionType<StringType>], NullType>;
+    }>>;
     return East.value(
-        variant("pinned", { id, page, total: handle.total, seek, revision: snapshot.revision, refresh: snapshot.refresh }) as never,
+        variant("pinned", {
+            id: handle.id, page, total: handle.total, seek: handle.seek,
+            revision: snapshot.revision, refresh: snapshot.refresh,
+        }) as never,
         sourceType,
     ) as RowSource<Out>;
 }
@@ -757,479 +787,75 @@ export function buildPagedWindow(
 }
 
 // ============================================================================
-// Paged.of — the in-memory source
+// The namespace — the contract's types
 // ============================================================================
 
-/** Options for {@link Paged.of} — `key` applies to the ARRAY form only,
- *  `pageLimit` to both. */
-export interface PagedOfOptions<R extends EastType> {
-    /**
-     * Key accessor. Supplying it declares the rows are SORTED by that key and
-     * enables `seek` (prefix-matched, the canonical key order the search
-     * chrome expects). Omitted ⇒ `seek` is `none`, exactly as an
-     * Array-backed dataset behaves.
-     *
-     * A keyed collection needs none of this — pass a `Dict` and its own keys
-     * are the row order and the search space.
-     */
-    key?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
-    /**
-     * Serve at most this many elements per window, whatever `limit` asks — the
-     * in-memory twin of a source that bounds its pages (e3 trims every page to
-     * a byte budget, so wide elements come back in short windows, #829).
-     *
-     * A component never sees the trim: `buildRowSource` re-requests what a
-     * short window left out, so every window it serves is whole. Set it to
-     * exercise that path in examples and tests. Must be a positive integer;
-     * omit it and a window is exactly what `limit` asks (clamped at the end).
-     */
-    pageLimit?: number;
-}
-
 /**
- * Build an in-memory {@link PagedSourceType} over a collection already in hand
- * — the paged sibling of passing the array directly.
+ * The `Paged` namespace — the row-source contract's East types.
  *
  * @remarks
- * Every window resolves immediately (`page` never returns `none`), so this is
- * the source to reach for in examples, fixtures and tests: it exercises the
- * whole paged path — windowing, exhaustion on `some([])`, totals, seek — with
- * no server, no platform function and no bind. `@elaraai/e3-ui`'s
- * `Data.bindPaged` is the same contract backed by real dataset windows.
- * `pageLimit` adds the one thing a real server does that an in-memory source
- * would not: short windows, as e3 serves wide elements under its byte budget.
- *
- * Windows follow the collection: an `Array` source serves array windows in
- * stream order, a `Dict` source serves DICT windows in canonical key order —
- * the same shape and the same order a keyed dataset's windows arrive in, which
- * is what a keyed component (the Plan) requires of its source (#568).
- *
- * The source captures an immutable copy of the collection when it is created,
- * so no window drifts with the input: changed content is a new source, under a
- * new id. A view that edits its source, or follows it from one snapshot to the
- * next, takes {@link Paged.pinned}.
- *
- * @typeParam R - The row type (array form) / the value type (dict form).
- * @param id - Comparable identity for this source (see {@link PagedSourceType}).
- * @param collection - The whole collection — an `Array<R>` or a `Dict<String, R>`.
- * @param options - {@link PagedOfOptions} — `key` (array form only) enables `seek`;
- *   `pageLimit` trims every window, as a server bounding its pages does.
- * @returns A `PagedSourceType` at the collection it was given.
- * @throws {Error} When `pageLimit` is not a positive integer.
- *
- * @example
- * ```tsx
- * // A keyed source: the canvas rows inherit these keys, so `seek` addresses
- * // real rows and a window's key range is a canvas key range.
- * const units = $.const(new Map([["UNIT-001", { … }]]), DictType(StringType, UnitRow));
- * const source = $.const(Paged.of("units", units));
- * // A paged canvas declares its window — fitting the axis to a partial
- * // prefix would re-fit it on every landed window (#567 D8).
- * const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
- * return <Plan axis={axis} data={source} series={series} style={{ height: "fill" }} />;
- * ```
- */
-function createPagedOf<R extends EastType>(
-    id: SubtypeExprOrValue<StringType>,
-    rows: SubtypeExprOrValue<ArrayType<R>>,
-    options?: PagedOfOptions<R>,
-): PagedSource<ArrayType<R>>;
-function createPagedOf<V extends EastType>(
-    id: SubtypeExprOrValue<StringType>,
-    entries: SubtypeExprOrValue<DictType<StringType, V>>,
-    options?: Pick<PagedOfOptions<V>, "pageLimit">,
-): PagedSource<DictType<StringType, V>>;
-function createPagedOf(
-    id: SubtypeExprOrValue<StringType>,
-    collection: SubtypeExprOrValue<EastType>,
-    options?: PagedOfOptions<EastType>,
-    // The erased implementation signature: `PagedSource<C>` is invariant in
-    // `C`, so neither overload's return is assignable to a common one. The
-    // overloads above are what callers see.
-): any {
-    return createInMemory(id, collection, options, false);
-}
-
-/**
- * Build an in-memory {@link PinnedSourceType} — {@link Paged.of} naming its
- * snapshot, for a fixture a view edits or follows.
- *
- * @remarks
- * The snapshot is the id, for good: `revision()` reads `some(id)`, a `refresh`
- * to `none` or to the id keeps it, and a refresh to any other snapshot throws —
- * an in-memory source cannot move, so a write it is told about is one it never
- * saw. Everything else is {@link Paged.of}'s: the captured copy, the windows,
- * the total, `seek` and `pageLimit`.
- *
- * @typeParam R - The row type (array form) / the value type (dict form).
- * @param id - The source's identity, and its one snapshot.
- * @param collection - The whole collection — an `Array<R>` or a `Dict<String, R>`.
- * @param options - {@link PagedOfOptions}, as {@link Paged.of} takes them.
- * @returns A `PinnedSourceType` at the collection it was given.
- * @throws {Error} When `pageLimit` is not a positive integer.
- *
- * @example
- * ```tsx
- * const rows = $.const([{ id: "r1", quantity: 2.0 }], ArrayType(OrderRow));
- * const source = $.let(Paged.pinned("orders:fixture-1", rows));
- * // A dataset handle's lifecycle, over one snapshot that never moves.
- * $(source.refresh(none));
- * $(source.refresh(some("orders:fixture-1")));
- * return <Text>{East.str`Snapshot: ${source.revision().unwrap("some")}`}</Text>;
- * ```
- */
-function createPagedPinned<R extends EastType>(
-    id: SubtypeExprOrValue<StringType>,
-    rows: SubtypeExprOrValue<ArrayType<R>>,
-    options?: PagedOfOptions<R>,
-): PinnedSource<ArrayType<R>>;
-function createPagedPinned<V extends EastType>(
-    id: SubtypeExprOrValue<StringType>,
-    entries: SubtypeExprOrValue<DictType<StringType, V>>,
-    options?: Pick<PagedOfOptions<V>, "pageLimit">,
-): PinnedSource<DictType<StringType, V>>;
-function createPagedPinned(
-    id: SubtypeExprOrValue<StringType>,
-    collection: SubtypeExprOrValue<EastType>,
-    options?: PagedOfOptions<EastType>,
-    // Erased for the reason `createPagedOf`'s is.
-): any {
-    return createInMemory(id, collection, options, true);
-}
-
-/**
- * The in-memory source over a collection — {@link Paged.of}'s, or, `pinned`,
- * {@link Paged.pinned}'s.
- *
- * @param id - The source's identity
- * @param collection - The whole collection
- * @param options - {@link PagedOfOptions}
- * @param pinned - Whether the source names its snapshot
- * @returns The source, at the collection it was given
- * @throws {Error} When `pageLimit` is not a positive integer
- */
-function createInMemory(
-    id: SubtypeExprOrValue<StringType>,
-    collection: SubtypeExprOrValue<EastType>,
-    options: PagedOfOptions<EastType> | undefined,
-    pinned: boolean,
-): ExprType<StructType> {
-    const pageLimit = options?.pageLimit;
-    if (pageLimit !== undefined && !(Number.isInteger(pageLimit) && pageLimit > 0)) {
-        throw new Error(`${pinned ? "Paged.pinned" : "Paged.of"}: \`pageLimit\` must be a positive integer — the most elements one window serves (got ${pageLimit})`);
-    }
-    const collectionExpr = East.value(collection as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    const collectionType = Expr.type(collectionExpr) as EastType;
-    const keyed = collectionType.type === "Dict";
-    const sourceType: EastType = pinned ? PinnedSourceType(collectionType) : PagedSourceType(collectionType);
-    // Evaluate the input once when creating the source, then detach nested
-    // mutable values. Page and seek closures share that captured snapshot;
-    // passing a live read expression cannot make later pages drift. The copy
-    // is beast v2: v1 writes neither a recursive type nor a function, and an
-    // entry may be either (a Plan's entries, #822).
-    const capture = East.function([StringType, collectionType], sourceType, ($, snapshotId, input) => {
-        const snapshot = $.const(East.Blob.encodeBeast(input, "v2").decodeBeast(collectionType, "v2"), collectionType);
-        return keyed ? keyedPagedOf(snapshotId, snapshot, pageLimit, pinned)
-            : arrayPagedOf(snapshotId, snapshot as ExprType<ArrayType<EastType>>, options, pinned);
-    });
-    return East.value(capture)(id, collectionExpr) as ExprType<StructType>;
-}
-
-/**
- * An in-memory source's lifecycle when it is pinned: its one snapshot is its
- * id. Built as real `East.function`s over the id, never spliced.
- *
- * @param id - The source's identity — its snapshot
- * @returns `revision` and `refresh`, at {@link PinnedSourceType}'s types
- */
-function fixedSnapshot(id: SubtypeExprOrValue<StringType>) {
-    const revision = East.function([], OptionType(StringType), ($) => {
-        const snapshot = $.const(id, StringType);
-        return some(snapshot);
-    });
-    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
-        const snapshot = $.const(id, StringType);
-        $.match(target, {
-            some: ($2, hash) => {
-                $2.if(hash.notEqual(snapshot), ($3) => {
-                    $3.error("Paged.pinned: an immutable snapshot — create a source with the requested snapshot id");
-                });
-            },
-            none: () => {},
-        });
-        return null;
-    });
-    return { revision, refresh };
-}
-
-/**
- * The window size a source actually serves for a requested `limit` — the
- * request itself, or `pageLimit` when that is smaller. Reified once as a real
- * East function (the `shared/reify` rule), so a page body CALLS it instead of
- * branching on host state. `none` ⇒ the source never trims.
- */
-function servedLimitFn(pageLimit: number | undefined): ExprType<FunctionType<[IntegerType], IntegerType>> {
-    const capValue = pageLimit === undefined ? none : some(BigInt(pageLimit));
-    return East.function([IntegerType], IntegerType, ($, limit) => {
-        const cap = $.const(capValue, OptionType(IntegerType));
-        return cap.match({
-            some: (_$, c) => limit.less(c).ifElse(() => limit, () => c),
-            none: (_$) => limit,
-        });
-    });
-}
-
-/**
- * The KEYED in-memory source — dict windows in canonical key order, with
- * `seek` derived from the keys themselves (a keyed collection needs no key
- * accessor: it already is one). `pinned` adds its {@link fixedSnapshot}.
- */
-function keyedPagedOf(
-    id: SubtypeExprOrValue<StringType>,
-    collection: ExprType<EastType>,
-    pageLimit: number | undefined,
-    pinned: boolean,
-): ExprType<StructType> {
-    const all = collection as unknown as ExprType<DictType<StringType, EastType>>;
-    const valueType: EastType = (Expr.type(all) as DictType<StringType, EastType>).value;
-    const dictType = DictType(StringType, valueType);
-    const entryType = StructType({ key: StringType, value: valueType });
-    const entriesType = ArrayType(entryType);
-    // Built OUTSIDE every block (an East macro inside one splices per use).
-    const keyOfEntry = East.function([entryType], StringType, (_$, e) => e.key);
-    const servedLimit = servedLimitFn(pageLimit);
-    const page = East.function([IntegerType, IntegerType], OptionType(dictType), ($, offset, limit) => {
-        const src = $.const(all, dictType);
-        const served = $.const(servedLimit);
-        // `toArray` walks the dictionary in key order, so the window a given
-        // offset serves is the window a keyed dataset would serve.
-        const entries = $.let(src.toArray(($2, v, k) => $2.const({ key: k, value: v }, entryType)), entriesType);
-        const n = $.let(entries.length(), IntegerType);
-        const start = $.let(offset.less(n).ifElse(() => offset, () => n), IntegerType);
-        const rawEnd = $.let(offset.add(served(limit)), IntegerType);
-        const end = $.let(rawEnd.less(n).ifElse(() => rawEnd, () => n), IntegerType);
-        // In-memory windows are never in flight; an exhausted offset yields
-        // the EMPTY window, which is how a walking reader terminates.
-        const win = $.let(entries.slice(start, end), entriesType);
-        return some(win.toDict((_$, e) => e.key, (_$, e) => e.value));
-    });
-    const total = East.function([], OptionType(IntegerType), ($) => {
-        const src = $.const(all, dictType);
-        return some(src.size());
-    });
-    // Key order ⇒ the first entry at-or-after the query starts the matching
-    // run, and the run is contiguous, so counting the entries that still carry
-    // the prefix counts exactly the matches. Both ranges are real
-    // `East.function`s built OUTSIDE every block, then CALLED per arm.
-    const prefixRange = East.function([entriesType, StringType], SeekRangeType, ($, entries, p) => {
-        const by = $.const(keyOfEntry);
-        const first = $.let(entries.findSortedFirst(p, by), IntegerType);
-        const tail = $.let(entries.slice(first, entries.length()), entriesType);
-        const matched = $.let(tail.filter((_$, e) => e.key.startsWith(p)), entriesType);
-        const count = $.let(matched.length(), IntegerType);
-        return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-    });
-    const exactRange = East.function([entriesType, StringType], SeekRangeType, ($, entries, k) => {
-        const by = $.const(keyOfEntry);
-        const first = $.let(entries.findSortedFirst(k, by), IntegerType);
-        const tail = $.let(entries.slice(first, entries.length()), entriesType);
-        const matched = $.let(tail.filter((_$, e) => East.equal(e.key, k)), entriesType);
-        const count = $.let(matched.length(), IntegerType);
-        return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-    });
-    // A half-open bound. These keys are Strings, which flatten to ONE leaf, so
-    // only the first literal of each side applies; an empty side is open.
-    const boundedRange = East.function([entriesType, ArrayType(StringType), ArrayType(StringType)], SeekRangeType,
-        ($, entries, from, to) => {
-            const by = $.const(keyOfEntry);
-            const n = $.let(entries.length(), IntegerType);
-            const first = $.let(0n, IntegerType);
-            $.if(from.length().greater(0n), ($2) => {
-                $2.assign(first, entries.findSortedFirst(from.get(0n).parse(StringType), by));
-            });
-            const last = $.let(n, IntegerType);
-            $.if(to.length().greater(0n), ($2) => {
-                $2.assign(last, entries.findSortedFirst(to.get(0n).parse(StringType), by));
-            });
-            const count = $.let(0n, IntegerType);
-            $.if(last.greater(first), ($2) => {
-                $2.assign(count, last.subtract(first));
-            });
-            return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-        });
-    const find = East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
-        const src = $.const(all, dictType);
-        const entries = $.let(src.toArray(($2, v, k) => $2.const({ key: k, value: v }, entryType)), entriesType);
-        const prefixOf = $.const(prefixRange);
-        const exactOf = $.const(exactRange);
-        const boundedOf = $.const(boundedRange);
-        // In-memory sources are never in flight, so every arm resolves to
-        // `some` immediately — `none` is reserved for a fetch in progress.
-        return query.match({
-            prefix: ($2, p) => $2.const(some(prefixOf(entries, p)), OptionType(SeekRangeType)),
-            range: ($2, r) => $2.const(some(boundedOf(entries, r.from, r.to)), OptionType(SeekRangeType)),
-            // The whole-key `.east` literal of a String key is its quoted text.
-            key: ($2, literal) => $2.const(some(exactOf(entries, literal.parse(StringType))), OptionType(SeekRangeType)),
-            // Leading FIELDS address a struct key; these keys are Strings, so a
-            // leading-field query can only match when it names none of them —
-            // then it is just its prefix.
-            fields: ($2, f) => {
-                const empty = $2.const({ found: false, row: 0n, count: 0n }, SeekRangeType);
-                const range = $2.let(f.values.length().equal(0n).ifElse(
-                    () => f.prefix.match({
-                        some: ($3, p) => $3.const(prefixOf(entries, p), SeekRangeType),
-                        none: ($3) => $3.const(prefixOf(entries, ""), SeekRangeType),
-                    }),
-                    () => empty,
-                ), SeekRangeType);
-                return $2.const(some(range), OptionType(SeekRangeType));
-            },
-        });
-    });
-    const seek = some(find);
-    const members = { id, page, total, seek };
-    return (pinned
-        ? East.value({ ...members, ...fixedSnapshot(id) }, PinnedSourceType(dictType))
-        : East.value(members, PagedSourceType(dictType))) as unknown as ExprType<StructType>;
-}
-
-/** The POSITIONAL in-memory source — array windows in stream order.
- *  `pinned` adds its {@link fixedSnapshot}. */
-function arrayPagedOf(
-    id: SubtypeExprOrValue<StringType>,
-    rows: ExprType<ArrayType<EastType>>,
-    options: PagedOfOptions<EastType> | undefined,
-    pinned: boolean,
-): ExprType<StructType> {
-    const all = rows;
-    const rowType: EastType = (Expr.type(all) as ArrayType<EastType>).value;
-    const rowsType = ArrayType(rowType);
-    // Built OUTSIDE every block: constructing East IR inside one is an
-    // authoring-time macro. Inside, each body binds it once with `$.const`.
-    const keyOf = options?.key;
-    const byFn = keyOf === undefined
-        ? undefined
-        : East.function([rowType], StringType, (_$, r) => keyOf(r));
-    const servedLimit = servedLimitFn(options?.pageLimit);
-    const page = East.function([IntegerType, IntegerType], OptionType(rowsType), ($, offset, limit) => {
-        const src = $.const(all, rowsType);
-        const served = $.const(servedLimit);
-        const n = $.let(src.length(), IntegerType);
-        const start = $.let(offset.less(n).ifElse(() => offset, () => n), IntegerType);
-        const rawEnd = $.let(offset.add(served(limit)), IntegerType);
-        const end = $.let(rawEnd.less(n).ifElse(() => rawEnd, () => n), IntegerType);
-        // In-memory windows are never in flight; an exhausted offset yields
-        // the EMPTY window, which is how a walking reader terminates.
-        const win = $.let(src.slice(start, end), rowsType);
-        return some(win);
-    });
-    const total = East.function([], OptionType(IntegerType), ($) => {
-        const src = $.const(all, rowsType);
-        return some(src.length());
-    });
-    // Sorted by key ⇒ the first row at-or-after the query starts the matching
-    // run, and the run is contiguous, so counting the rows that still carry the
-    // prefix counts exactly the matches. Built as real `East.function`s outside
-    // every block, then CALLED per query arm.
-    const prefixRange = byFn === undefined ? undefined
-        : East.function([rowsType, StringType], SeekRangeType, ($, rows, p) => {
-            const by = $.const(byFn);
-            const first = $.let(rows.findSortedFirst(p, by), IntegerType);
-            const tail = $.let(rows.slice(first, rows.length()), rowsType);
-            const matched = $.let(tail.filter((_$, r) => by(r).startsWith(p)), rowsType);
-            const count = $.let(matched.length(), IntegerType);
-            return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-        });
-    const exactRange = byFn === undefined ? undefined
-        : East.function([rowsType, StringType], SeekRangeType, ($, rows, k) => {
-            const by = $.const(byFn);
-            const first = $.let(rows.findSortedFirst(k, by), IntegerType);
-            const tail = $.let(rows.slice(first, rows.length()), rowsType);
-            const matched = $.let(tail.filter((_$, r) => East.equal(by(r), k)), rowsType);
-            const count = $.let(matched.length(), IntegerType);
-            return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-        });
-    // A half-open bound; the key accessor yields a String, which flattens to
-    // ONE leaf, so only the first literal of each side applies.
-    const boundedRange = byFn === undefined ? undefined
-        : East.function([rowsType, ArrayType(StringType), ArrayType(StringType)], SeekRangeType,
-            ($, rows, from, to) => {
-                const by = $.const(byFn);
-                const n = $.let(rows.length(), IntegerType);
-                const first = $.let(0n, IntegerType);
-                $.if(from.length().greater(0n), ($2) => {
-                    $2.assign(first, rows.findSortedFirst(from.get(0n).parse(StringType), by));
-                });
-                const last = $.let(n, IntegerType);
-                $.if(to.length().greater(0n), ($2) => {
-                    $2.assign(last, rows.findSortedFirst(to.get(0n).parse(StringType), by));
-                });
-                const count = $.let(0n, IntegerType);
-                $.if(last.greater(first), ($2) => {
-                    $2.assign(count, last.subtract(first));
-                });
-                return $.let({ found: count.greater(0n), row: first, count }, SeekRangeType);
-            });
-    const seek = prefixRange === undefined || exactRange === undefined || boundedRange === undefined
-        ? East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))))
-        : some(East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
-                const src = $.const(all, rowsType);
-                const prefixOf = $.const(prefixRange);
-                const exactOf = $.const(exactRange);
-                const boundedOf = $.const(boundedRange);
-                return query.match({
-                    prefix: ($2, p) => $2.const(some(prefixOf(src, p)), OptionType(SeekRangeType)),
-                    range: ($2, r) => $2.const(some(boundedOf(src, r.from, r.to)), OptionType(SeekRangeType)),
-                    key: ($2, literal) => $2.const(some(exactOf(src, literal.parse(StringType))), OptionType(SeekRangeType)),
-                    fields: ($2, f) => {
-                        const empty = $2.const({ found: false, row: 0n, count: 0n }, SeekRangeType);
-                        const range = $2.let(f.values.length().equal(0n).ifElse(
-                            () => f.prefix.match({
-                                some: ($3, p) => $3.const(prefixOf(src, p), SeekRangeType),
-                                none: ($3) => $3.const(prefixOf(src, ""), SeekRangeType),
-                            }),
-                            () => empty,
-                        ), SeekRangeType);
-                        return $2.const(some(range), OptionType(SeekRangeType));
-                    },
-                });
-        }));
-    // Two-step cast (the `Data.bindPaged` idiom): the members are built
-    // against the row type recovered from the expression, which TS sees as the
-    // erased `EastType` rather than the caller's `R`. The East-side type —
-    // `PagedSourceType(rowsType)`, or `PinnedSourceType(rowsType)` — is what
-    // actually types the value.
-    const members = { id, page, total, seek };
-    return (pinned
-        ? East.value({ ...members, ...fixedSnapshot(id) }, PinnedSourceType(rowsType))
-        : East.value(members, PagedSourceType(rowsType))) as unknown as ExprType<StructType>;
-}
-
-/**
- * The `Paged` namespace — building a {@link PagedSourceType} or a
- * {@link PinnedSourceType} without a server.
- *
- * @remarks
- * The contract itself is what components consume; this namespace is the
- * in-memory producer. Production sources come from the platform that owns the
- * data (`Data.bindPaged` in `@elaraai/e3-ui`).
+ * Paged data is BOUND: a component's paged `data` comes from the platform
+ * that owns the data — `Data.bindPaged` in `@elaraai/e3-ui`, whose handle is a
+ * {@link PinnedSourceType} — and east-ui produces none. These are the types
+ * that producer meets, for annotating a `$.let` / `$.const` that holds a
+ * handle, or a component prop that takes one; a component recognises a source
+ * by them ({@link resolveRowSource}).
  */
 export const Paged = {
-    /** Build an in-memory paged source over a collection already in hand. */
-    of: createPagedOf,
-    /** Build an in-memory PINNED source — `of`, naming its one snapshot, for a fixture a view edits or follows. */
-    pinned: createPagedPinned,
     /** East types — the contract, for `$.const` / `$.let` annotations. */
     Types: {
-        /** A windowed row source over a collection type. */
+        /**
+         * A windowed row source over a collection type that names no
+         * snapshot — the shape that predates `revision` / `refresh`.
+         *
+         * @remarks See {@link PagedSourceType} for its fields.
+         * @property id - The source's comparable identity
+         * @property page - `(offset, limit)` → that window, `none` while in flight
+         * @property total - The element count, once known
+         * @property seek - Key search, `none` when the source is not key-ordered
+         */
         Source: PagedSourceType,
-        /** A windowed row source that names its snapshot, over a collection type. */
+        /**
+         * The contract — a windowed row source that names its snapshot, over a
+         * collection type: what `Data.bindPaged` returns.
+         *
+         * @remarks See {@link PinnedSourceType} for its fields.
+         * @property id - The logical source's identity
+         * @property page - `(offset, limit)` → that window at the current revision
+         * @property total - The element count at the current revision
+         * @property seek - Key search at the current revision
+         * @property revision - The snapshot the source serves
+         * @property refresh - Move the source to a snapshot, or to its current one
+         */
         PinnedSource: PinnedSourceType,
-        /** Where a key query landed in a source's row order. */
+        /**
+         * Where a key query landed in a source's row order.
+         *
+         * @remarks See {@link SeekRangeType}.
+         * @property found - Whether any row matched
+         * @property row - The first matched row, or the insertion row on a miss
+         * @property count - The number of matched rows
+         */
         SeekRange: SeekRangeType,
-        /** A key query — exact literal, String prefix, leading struct fields, or a range. */
+        /**
+         * A key query — exact literal, String prefix, leading struct fields, or
+         * a range.
+         *
+         * @remarks See {@link SeekQueryType}.
+         * @property key - A whole-key `.east` literal
+         * @property prefix - A String prefix
+         * @property fields - Exact leading struct-key fields, then an optional prefix
+         * @property range - A half-open bound on the key's flattened fields
+         */
         SeekQuery: SeekQueryType,
-        /** How a component's rows arrive (inline / paged / pinned), at a collection type. */
+        /**
+         * How a component's rows arrive, at a collection type.
+         *
+         * @remarks See {@link RowSourceType}.
+         * @property inline - The whole collection, already in hand
+         * @property paged - A {@link PagedSourceType}
+         * @property pinned - A {@link PinnedSourceType}
+         */
         RowSource: RowSourceType,
     },
 } as const;

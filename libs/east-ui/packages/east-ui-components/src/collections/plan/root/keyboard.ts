@@ -21,10 +21,11 @@
  * An unloaded run is ONE grid item (its row count is unknowable — see
  * `window-ledger.ts`), so stepping onto it cannot land on a row that is not
  * there yet. The move asks the source for the window next to the run, lands
- * on the band (or, when the demand already took the band away — its windows
- * now in flight — stays where it was), and leaves an INTENT: once the rows
- * land, focus moves on to the row the key was headed for. Home and End onto a
- * band do the same for the source's first and last rows.
+ * on the band — which stands for its windows while they are in flight (#876)
+ * — and leaves an INTENT: once the rows land, focus moves on to the row the
+ * key was headed for. Home and End onto a band do the same for the source's
+ * first and last rows. A source that reports no total has no bands: there
+ * the move waits on the item it started from while a window loads.
  *
  * # Widgets
  *
@@ -261,12 +262,12 @@ export interface PlanNavEdges {
 
 /**
  * Where a pending band move stands against the grid now. A demanded window
- * can be IN FLIGHT without a band standing for it, so an item missing past
- * the move's start is not the end of the source: the move waits while a
- * window loads, and for Home / End until the source's own first / last
- * element is resident. It resolves on a row — or a failed window, which has
- * its own Retry — and is cancelled once the item it started from is gone, or
- * nothing more can arrive.
+ * can be IN FLIGHT without a band standing for it — a source that reports no
+ * total has no bands — so an item missing past the move's start is not the
+ * end of the source: the move waits while a window loads, and for Home / End
+ * until the source's own first / last element is resident. It resolves on a
+ * row — or a failed window, which has its own Retry — and is cancelled once
+ * the item it started from is gone, or nothing more can arrive.
  *
  * @param items - The grid's items now
  * @param intent - The pending move

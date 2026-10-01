@@ -13,16 +13,24 @@
  * root input changes. If inputs changed, affected tasks are invalidated
  * and re-executed. Version vector consistency checks defer tasks whose
  * inputs have conflicting provenance (diamond dependency protection).
+ *
+ * It runs wherever its host does: a run's tasks go to the runner its start
+ * names, or else to its host's ({@link LocalOrchestratorHost}), and a split
+ * task's own execution is recorded under the owner its host names. The root
+ * entry of `@elaraai/e3-core` exports it with this process as its host
+ * (`execution/local-orchestrator.ts`): tasks run locally, owned by this
+ * process.
  */
 
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
-import type { DataflowRun, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector } from '@elaraai/e3-types';
-import { WorkspaceRecordType, decodeTaskObject } from '@elaraai/e3-types';
+import type {
+  DataflowRun, ExecutionOwner, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector,
+} from '@elaraai/e3-types';
+import { WorkspaceRecordType, decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
-import { taskExecute, taskExecuteUnit, type ExecutionResult } from '../../execution/LocalTaskRunner.js';
+import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
-import { processOwner } from '../../execution/processHelpers.js';
 import { WorkspaceLockError, DataflowAbortedError, DataflowError } from '../../errors.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
@@ -237,6 +245,54 @@ interface RunningExecution {
 }
 
 /**
+ * What a {@link LocalOrchestrator} takes from the host it runs in: the runner
+ * a run's tasks go to when its start names none, and the owner a split task's
+ * own execution is recorded under when its start names none.
+ *
+ * @remarks
+ * The root entry of `@elaraai/e3-core` gives its `LocalOrchestrator` this
+ * process as its host: tasks run on this machine (`taskExecute`,
+ * `taskExecuteUnit`), and this process owns a split task's execution. A host
+ * with no processes of its own to run tasks in — a browser, say — gives
+ * neither, and each run names its runner.
+ */
+export interface LocalOrchestratorHost {
+  /** Runs a task, or one unit of a split task, when a run's start names no
+   *  runner: on this host, reporting the execution as the execution cache
+   *  records it. */
+  readonly runner?: {
+    /**
+     * Executes a task.
+     *
+     * @param storage - Storage backend
+     * @param repo - Repository identifier
+     * @param taskHash - Hash of the task object
+     * @param inputHashes - The task's input hashes
+     * @param options - The run's options for the task
+     * @returns The task's execution
+     */
+    execute(storage: StorageBackend, repo: string, taskHash: string, inputHashes: string[], options: TaskExecuteOptions): Promise<ExecutionResult>;
+    /**
+     * Executes one unit of a split task.
+     *
+     * @param storage - Storage backend
+     * @param repo - Repository identifier
+     * @param taskHash - Hash of the task object
+     * @param unit - The unit
+     * @param options - The run's options for the unit
+     * @returns The unit's execution
+     */
+    executeUnit(storage: StorageBackend, repo: string, taskHash: string, unit: SplitUnit, options: TaskExecuteOptions): Promise<ExecutionResult>;
+  };
+  /**
+   * The owner a split task's own execution is recorded under when a run's
+   * start names none (see {@link OrchestratorStartOptions.owner}). Absent, it
+   * is recorded under none.
+   */
+  owner?(): Promise<ExecutionOwner | null>;
+}
+
+/**
  * Local orchestrator for in-process dataflow execution.
  *
  * @remarks
@@ -246,6 +302,8 @@ interface RunningExecution {
  * - Persists state through the provided state store
  * - Reactive: detects input changes after each task, invalidates and
  *   re-executes affected tasks until fixpoint
+ * - Runs a run's tasks on the runner its start names, or else on its host's
+ *   ({@link LocalOrchestratorHost})
  */
 export class LocalOrchestrator implements DataflowOrchestrator {
   private executions = new Map<string, RunningExecution>();
@@ -255,8 +313,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    *
    * @param stateStore - Optional state store for persistence.
    *   If not provided, state is only kept in memory.
+   * @param host - The runner a run's tasks go to when its start names none,
+   *   and the owner of a split task's own execution. Without a runner, every
+   *   run's start must name one.
    */
-  constructor(private readonly stateStore?: ExecutionStateStore) {}
+  constructor(
+    private readonly stateStore?: ExecutionStateStore,
+    private readonly host: LocalOrchestratorHost = {},
+  ) {}
 
   async start(
     storage: StorageBackend,
@@ -265,6 +329,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     options: OrchestratorStartOptions = {}
   ): Promise<ExecutionHandle> {
     checkWidth(options.width);
+    this.checkRunner(options);
 
     // Acquire locks if not provided externally.
     // Dual-lock model:
@@ -349,6 +414,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       throw new DataflowError('Cannot resume: orchestrator has no state store');
     }
     checkWidth(options.width);
+    this.checkRunner(options);
 
     // Same dual-lock model as start()
     const externalLock = !!options.lock;
@@ -1321,7 +1387,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             : undefined,
         },
         taskState?.plan.type === 'some' ? taskState.plan.value : null,
-        options.owner === undefined ? await processOwner() : options.owner
+        options.owner === undefined ? await this.hostOwner() : options.owner
       );
       if (!(split instanceof SplitTask)) {
         await this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, outcomeOf(split, startTime));
@@ -1454,7 +1520,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
    */
   private async readSplitTask(storage: StorageBackend, repo: string, taskHash: string): Promise<TaskObject | null> {
     try {
-      const task = decodeTaskObject(Buffer.from(await storage.objects.read(repo, taskHash)));
+      const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
       return isSplitTask(task) ? task : null;
     } catch {
       return null;
@@ -1462,7 +1528,36 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Execute one unit of a split task, through the run's runner or locally:
+   * Refuses a run that names no runner when the host gives none: nothing
+   * would run its tasks. Checked before the run takes a lock.
+   *
+   * @throws {DataflowError} When neither the run nor the host names a runner.
+   */
+  private checkRunner(options: OrchestratorStartOptions): void {
+    if (options.runner === undefined && this.host.runner === undefined) {
+      throw new DataflowError(
+        'this LocalOrchestrator has no runner of its own: a run names the runner its tasks run on (options.runner), ' +
+        'or the orchestrator is the root entry\'s, which runs them on this machine'
+      );
+    }
+  }
+
+  /** The host's runner, which runs a task or a unit when the run names no
+   *  runner: every run that names none has one ({@link checkRunner}). */
+  private hostRunner(): NonNullable<LocalOrchestratorHost['runner']> {
+    const runner = this.host.runner;
+    if (runner === undefined) throw new DataflowError('this LocalOrchestrator has no runner of its own, and the run named none');
+    return runner;
+  }
+
+  /** The owner a split task's own execution is recorded under when the run
+   *  names none: the host's, or none. */
+  private hostOwner(): Promise<ExecutionOwner | null> {
+    return this.host.owner === undefined ? Promise.resolve(null) : this.host.owner();
+  }
+
+  /**
+   * Execute one unit of a split task, through the run's runner or the host's:
    * its wait for room is kept, under the key it is tracked by, while it lasts,
    * and a requeue is recorded as an event of the run, naming its place.
    */
@@ -1503,7 +1598,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       },
     };
     if (!options.runner) {
-      return taskExecuteUnit(storage, repo, taskHash, unit, execOptions);
+      return this.hostRunner().executeUnit(storage, repo, taskHash, unit, execOptions);
     }
     const startTime = Date.now();
     const result = await options.runner.executeUnit(storage, taskHash, unit, execOptions);
@@ -1555,7 +1650,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       },
     };
 
-    // Use provided runner if available, otherwise call taskExecute directly
+    // Use provided runner if available, otherwise the host's
     if (options.runner) {
       const result = await options.runner.execute(storage, prepared.taskHash, prepared.inputHashes, execOptions);
       return {
@@ -1570,7 +1665,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
       };
     } else {
-      const result = await taskExecute(storage, repo, prepared.taskHash, prepared.inputHashes, execOptions);
+      const result = await this.hostRunner().execute(storage, repo, prepared.taskHash, prepared.inputHashes, execOptions);
       return {
         state: result.state,
         cached: result.cached,
@@ -1638,9 +1733,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     repo: string,
     packageHash: string
   ): Promise<Structure> {
-    const { decodePackageObject } = await import('@elaraai/e3-types');
     const pkgData = await storage.objects.read(repo, packageHash);
-    const pkgObject = decodePackageObject(Buffer.from(pkgData));
+    const pkgObject = decodePackageObject(pkgData);
     return pkgObject.data.structure;
   }
 
