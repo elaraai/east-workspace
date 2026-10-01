@@ -273,7 +273,7 @@ const hold = await locks.acquire('main', 'exclusive', { wait: true, timeout: 30_
 await hold?.release();
 ```
 
-Each adapter's implementations answer alike. A records transaction's work awaits only its own operations, because IndexedDB commits a transaction as soon as it has nothing to do. Every implementation refuses work that awaits anything else. Locks are queued as Web Locks queue them. An open that would upgrade an IndexedDB database, or a deletion, that another connection holds up is refused, naming why, once that connection has not closed in five seconds (`blockedMs`), rather than waited on for ever; one closing as it was asked, its last transactions finishing, lets it through.
+Each adapter's implementations answer alike. A records transaction's work awaits only its own operations, because IndexedDB commits a transaction as soon as it has nothing to do. Every implementation refuses work that awaits anything else. Locks are queued as Web Locks queue them. A file is read in slices of its adapter's read size, each 1 MiB (`FILE_READ_CHUNK`) but the last, unless the adapter is made with another (`readChunk`), whatever chunks a stream of the file would come in. An open that would upgrade an IndexedDB database, or a deletion, that another connection holds up is refused, naming why, once that connection has not closed in five seconds (`blockedMs`), rather than waited on for ever; one closing as it was asked, its last transactions finishing, lets it through.
 
 The adapters need a secure context (`https:`, or `http://localhost`). They have been tested in Chromium.
 

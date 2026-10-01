@@ -34,6 +34,7 @@ import {
   compareKeys,
   copyBytes,
   isUnder,
+  readChunkOf,
   type BlobInfo,
   type BlobKey,
   type BlobStat,
@@ -42,6 +43,7 @@ import {
   type ByteSource,
   type FileStat,
   type FilesAdapter,
+  type FilesOptions,
   type LockHold,
   type LockMode,
   type LockRequest,
@@ -717,9 +719,6 @@ interface HeldFile {
   lastModified: number;
 }
 
-/** How many bytes a read yields at a time. */
-const READ_CHUNK = 64 * 1024;
-
 /**
  * The names of a path of memory or OPFS files: an absolute path of
  * `/`-separated names, none of them empty, `.` or `..`; `/` alone is the root.
@@ -746,13 +745,24 @@ export function pathNames(path: string): string[] {
  * @remarks
  * The root directory, `/`, is there from the start; every other directory is
  * made by {@link mkdir}. What a page opened with `persist: false` names by
- * path lives here.
+ * path lives here. A read yields a file in slices of the adapter's read size.
  */
 export class MemoryFiles implements FilesAdapter {
   /** The directories, by path: the root among them */
   private readonly dirs = new Set<string>(['/']);
   /** The files, by path */
   private readonly files = new Map<string, HeldFile>();
+  /** How many bytes a read yields at a time */
+  private readonly readChunk: number;
+
+  /**
+   * @param options - How many bytes a read yields at a time
+   * @throws {RangeError} When the read size is not a whole number of bytes
+   *   greater than zero
+   */
+  constructor(options: FilesOptions = {}) {
+    this.readChunk = readChunkOf(options);
+  }
 
   stat(path: string): Promise<FileStat | null> {
     return attempt(() => {
@@ -769,8 +779,8 @@ export class MemoryFiles implements FilesAdapter {
     pathNames(path);
     const file = this.files.get(path);
     if (file === undefined) throw new FileNotFoundError(path);
-    for (let offset = 0; offset < file.data.length; offset += READ_CHUNK) {
-      yield file.data.slice(offset, offset + READ_CHUNK);
+    for (let offset = 0; offset < file.data.length; offset += this.readChunk) {
+      yield file.data.slice(offset, offset + this.readChunk);
     }
   }
 

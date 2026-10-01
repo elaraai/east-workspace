@@ -17,10 +17,7 @@
 import { mkdir, open, rename, stat, unlink, type FileHandle } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
-import { FileNotFoundError, chunksOf, type ByteSource, type FileStat, type FilesAdapter } from './adapters.js';
-
-/** How many bytes a read yields at a time. */
-const READ_CHUNK = 64 * 1024;
+import { FileNotFoundError, chunksOf, readChunkOf, type ByteSource, type FileStat, type FilesAdapter, type FilesOptions } from './adapters.js';
 
 /** Whether a failed file operation found nothing where it looked. */
 function isAbsent(err: unknown): boolean {
@@ -34,7 +31,9 @@ function isAbsent(err: unknown): boolean {
  * @remarks
  * A write stages its file beside the destination, `<path>.<uuid>.partial`, and
  * renames it into place once it is whole, so a reader sees the file before the
- * write or after it, and a write that fails leaves the file as it was.
+ * write or after it, and a write that fails leaves the file as it was. A read
+ * yields a file in slices of the adapter's read size, each filled whole but
+ * the last.
  *
  * @example
  * ```ts
@@ -44,6 +43,18 @@ function isAbsent(err: unknown): boolean {
  * ```
  */
 export class NodeFiles implements FilesAdapter {
+  /** How many bytes a read yields at a time */
+  private readonly readChunk: number;
+
+  /**
+   * @param options - How many bytes a read yields at a time
+   * @throws {RangeError} When the read size is not a whole number of bytes
+   *   greater than zero
+   */
+  constructor(options: FilesOptions = {}) {
+    this.readChunk = readChunkOf(options);
+  }
+
   async stat(file: string): Promise<FileStat | null> {
     try {
       const info = await stat(file);
@@ -64,12 +75,20 @@ export class NodeFiles implements FilesAdapter {
       throw err;
     }
     try {
-      const buffer = new Uint8Array(READ_CHUNK);
+      const buffer = new Uint8Array(this.readChunk);
       for (;;) {
-        const { bytesRead } = await handle.read(buffer, 0, READ_CHUNK, null);
-        if (bytesRead === 0) return;
-        // A copy: the next read reuses the buffer.
-        yield buffer.slice(0, bytesRead);
+        // A slice is filled whole but where the file ends: a read may answer
+        // with less than it was asked for.
+        let filled = 0;
+        while (filled < buffer.length) {
+          const { bytesRead } = await handle.read(buffer, filled, buffer.length - filled, null);
+          if (bytesRead === 0) break;
+          filled += bytesRead;
+        }
+        if (filled === 0) return;
+        // A copy: the next slice reuses the buffer.
+        yield buffer.slice(0, filled);
+        if (filled < buffer.length) return;
       }
     } finally {
       await handle.close();

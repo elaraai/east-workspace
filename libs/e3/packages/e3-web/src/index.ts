@@ -66,6 +66,7 @@ export { WebStateStore } from './storage/WebStateStore.js';
 
 export {
   AdapterClosedError,
+  FILE_READ_CHUNK,
   FileNotFoundError,
   RecordsTransactionError,
   compareKeys,
@@ -78,6 +79,7 @@ export {
   type ByteSource,
   type FileStat,
   type FilesAdapter,
+  type FilesOptions,
   type LockHold,
   type LockMode,
   type LockRequest,

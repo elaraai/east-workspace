@@ -125,10 +125,22 @@ export interface LocksSetup {
 }
 
 /**
+ * The read size every files setup makes its adapter with: 100,000 bytes.
+ *
+ * @remarks
+ * No browser's stream of a file chunks by it. Chromium hands an OPFS file's
+ * stream over in multiples of 64 KiB, or whole, as its reads find it, so the
+ * 300,000 bytes of the contract's large file come back in three chunks of no
+ * more than 100,000 bytes from an adapter that slices them, and never from one
+ * that yields what the stream yields.
+ */
+export const CONTRACT_READ_CHUNK = 100_000;
+
+/**
  * What a files case runs over: an adapter, and an empty directory of its own.
  */
 export interface FilesSetup {
-  /** The adapter */
+  /** The adapter, made with the read size {@link CONTRACT_READ_CHUNK} */
   readonly files: FilesAdapter;
   /** A directory that is there, empty, for the case's files */
   readonly dir: string;
@@ -193,8 +205,8 @@ async function putAll(records: RecordsAdapter, keys: readonly RecordKey[]): Prom
   });
 }
 
-/** Reads a file whole, and how many chunks it came in. */
-async function readAll(files: FilesAdapter, path: string): Promise<{ data: Uint8Array; chunks: number }> {
+/** Reads a file whole, and the size of each chunk it came in. */
+async function readAll(files: FilesAdapter, path: string): Promise<{ data: Uint8Array; chunks: number[] }> {
   const parts: Uint8Array[] = [];
   for await (const chunk of files.read(path)) parts.push(chunk);
   const data = new Uint8Array(parts.reduce((size, part) => size + part.length, 0));
@@ -203,7 +215,7 @@ async function readAll(files: FilesAdapter, path: string): Promise<{ data: Uint8
     data.set(part, offset);
     offset += part.length;
   }
-  return { data, chunks: parts.length };
+  return { data, chunks: parts.map((part) => part.length) };
 }
 
 // =============================================================================
@@ -775,7 +787,7 @@ export const locksContract: readonly AdapterCase<LocksSetup>[] = [
  */
 export const filesContract: readonly AdapterCase<FilesSetup>[] = [
   {
-    name: 'writes a file whole, and reads it back a chunk at a time, with its size',
+    name: 'writes a file whole, and reads it back in slices of its read size, with its size',
     run: async ({ files, dir, join }) => {
       const file = join(dir, 'delivery');
       equal(await files.write(file, bytes('a delivery')), 10);
@@ -783,11 +795,14 @@ export const filesContract: readonly AdapterCase<FilesSetup>[] = [
       equal((await files.stat(file))?.size, 10);
       const large = new Uint8Array(300_000).map((_, i) => i % 251);
       equal(await files.write(file, (async function* () {
-        for (let offset = 0; offset < large.length; offset += 100_000) yield large.subarray(offset, offset + 100_000);
+        for (let offset = 0; offset < large.length; offset += 75_000) yield large.subarray(offset, offset + 75_000);
       })()), 300_000);
       const back = await readAll(files, file);
       deepEqual(back.data, large);
-      ok(back.chunks > 1, `a large file is read in chunks, not whole: ${back.chunks}`);
+      equal(back.chunks.length, Math.ceil(large.length / CONTRACT_READ_CHUNK),
+        `a large file is read in the slices its read size gives: ${render(back.chunks)}`);
+      ok(back.chunks.every((size) => size <= CONTRACT_READ_CHUNK),
+        `no chunk is larger than the read size, ${CONTRACT_READ_CHUNK} bytes: ${render(back.chunks)}`);
     },
   },
   {

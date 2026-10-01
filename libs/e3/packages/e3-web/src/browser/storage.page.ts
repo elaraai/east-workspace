@@ -21,6 +21,7 @@ import { MemoryBlobs, MemoryFiles, MemoryLockSpace, MemoryRecordStore, openMemor
 import { OpfsBlobs, OpfsFiles, opfsDirectory } from '../storage/opfs.js';
 import { openWebLocks, sessionLockName, type WebLocks } from '../storage/web-locks.js';
 import {
+  CONTRACT_READ_CHUNK,
   blobsContract,
   caseNamed,
   filesContract,
@@ -113,12 +114,12 @@ const joinPath = (dir: string, name: string): string => `${dir}/${name}`;
 
 const filesSetups: Record<string, AdapterSetup<FilesSetup>> = {
   opfs: async (cleanup) => {
-    const files = new OpfsFiles(await scratchDirectory(cleanup));
+    const files = new OpfsFiles(await scratchDirectory(cleanup), { readChunk: CONTRACT_READ_CHUNK });
     await files.mkdir('/scratch');
     return { files, dir: '/scratch', join: joinPath };
   },
   memory: async () => {
-    const files = new MemoryFiles();
+    const files = new MemoryFiles({ readChunk: CONTRACT_READ_CHUNK });
     await files.mkdir('/scratch');
     return { files, dir: '/scratch', join: joinPath };
   },

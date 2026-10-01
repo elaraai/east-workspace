@@ -28,6 +28,7 @@ import {
   checkRange,
   chunksOf,
   compareKeys,
+  readChunkOf,
   type BlobInfo,
   type BlobKey,
   type BlobStat,
@@ -36,6 +37,7 @@ import {
   type ByteSource,
   type FileStat,
   type FilesAdapter,
+  type FilesOptions,
 } from './adapters.js';
 import { pathNames } from './memory.js';
 
@@ -413,7 +415,10 @@ async function sweepStaging(
  *
  * @remarks
  * A path's names are escaped as blob keys' parts are. A write stages its file
- * in the root's `.staging`, and moves it into place once it is whole.
+ * in the root's `.staging`, and moves it into place once it is whole. A read
+ * yields the file as it was when the read began, in slices of the adapter's
+ * read size, never in the chunks a stream of it hands over: those are the
+ * browser's choice, and as large as the whole file.
  *
  * @example
  * ```ts
@@ -423,18 +428,29 @@ async function sweepStaging(
  * ```
  */
 export class OpfsFiles implements FilesAdapter {
+  /** How many bytes a read yields at a time */
+  private readonly readChunk: number;
+
   /**
    * @param root - The directory paths start at
+   * @param options - How many bytes a read yields at a time
+   * @throws {RangeError} When the read size is not a whole number of bytes
+   *   greater than zero
    */
-  constructor(private readonly root: FileSystemDirectoryHandle) {}
+  constructor(private readonly root: FileSystemDirectoryHandle, options: FilesOptions = {}) {
+    this.readChunk = readChunkOf(options);
+  }
 
   /**
    * Opens files at the origin's OPFS root.
    *
+   * @param options - How many bytes a read yields at a time
    * @returns The adapter
+   * @throws {RangeError} When the read size is not a whole number of bytes
+   *   greater than zero
    */
-  static async open(): Promise<OpfsFiles> {
-    return new OpfsFiles(await navigator.storage.getDirectory());
+  static async open(options: FilesOptions = {}): Promise<OpfsFiles> {
+    return new OpfsFiles(await navigator.storage.getDirectory(), options);
   }
 
   /** The directory a path's file is in, or `null` when it is not there. */
@@ -463,22 +479,11 @@ export class OpfsFiles implements FilesAdapter {
       if (isNamed(err, 'NotFoundError')) throw new FileNotFoundError(path);
       throw err;
     }
-    const reader = file.stream().getReader();
-    let finished = false;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-          finished = true;
-          return;
-        }
-        yield value;
-      }
-    } finally {
-      // A reader that stopped early lets the file go now, not when it is
-      // collected.
-      if (!finished) await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
+    // The file as it was when the read began, a slice of the adapter's at a
+    // time: a stream of it hands it over in chunks of the browser's choosing,
+    // the whole file among them.
+    for (let offset = 0; offset < file.size; offset += this.readChunk) {
+      yield new Uint8Array(await file.slice(offset, offset + this.readChunk).arrayBuffer());
     }
   }
 

@@ -454,6 +454,40 @@ export interface LocksAdapter {
 // =============================================================================
 
 /**
+ * How many bytes a files adapter's read yields at a time, unless the adapter
+ * is made with another size: 1 MiB.
+ */
+export const FILE_READ_CHUNK = 1024 * 1024;
+
+/**
+ * How a files adapter reads.
+ */
+export interface FilesOptions {
+  /**
+   * How many bytes a read yields at a time: every chunk holds this many but
+   * the last, which holds what is left. {@link FILE_READ_CHUNK} unless given.
+   */
+  readonly readChunk?: number;
+}
+
+/**
+ * A files adapter's read size, checked: a whole number of bytes greater than
+ * zero.
+ *
+ * @param options - How the adapter reads
+ * @returns The size its reads yield at a time
+ * @throws {RangeError} When the size given is not a whole number of bytes
+ *   greater than zero
+ */
+export function readChunkOf(options: FilesOptions): number {
+  const readChunk = options.readChunk ?? FILE_READ_CHUNK;
+  if (!(Number.isSafeInteger(readChunk) && readChunk > 0)) {
+    throw new RangeError(`a files adapter's read size is a whole number of bytes greater than zero, not ${readChunk}`);
+  }
+  return readChunk;
+}
+
+/**
  * What a file's size and age are.
  */
 export interface FileStat {
@@ -482,7 +516,9 @@ export interface FilesAdapter {
   stat(path: string): Promise<FileStat | null>;
 
   /**
-   * Reads a file a chunk at a time, never whole.
+   * Reads a file a chunk at a time, never whole: in slices of the adapter's
+   * read size ({@link FilesOptions.readChunk}), every one but the last that
+   * size, however the file system would hand the file over.
    *
    * @param path - The file's path
    * @returns The file's bytes, in order, a chunk at a time
