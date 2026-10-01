@@ -665,11 +665,12 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const ctx = await withSlow(t);
         const opts = await ctx.opts();
 
-        // Nothing is running to cancel: the server says so
+        // Nothing is running to cancel: the server says so, as the request
+        // meeting the workspace's state rather than a fault of its own
         await assert.rejects(dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts), (err: unknown) => {
           assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
-          assert.strictEqual(err.code, 'internal');
-          assert.match((err.details as { message?: string } | undefined)?.message ?? '', /No active execution/);
+          assert.strictEqual(err.code, 'dataflow_error');
+          assert.strictEqual((err.details as { message?: string } | undefined)?.message, 'No active execution for this workspace');
           return true;
         });
       });

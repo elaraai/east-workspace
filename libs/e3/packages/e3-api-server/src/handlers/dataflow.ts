@@ -514,7 +514,9 @@ export function getDataflowBudget(budget: RunnerBudget | undefined): Response {
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
  * @param workspace - The workspace
- * @returns The response: null once the run is cancelled, or why it is not
+ * @returns The response: null once the run is cancelled; `dataflow_error`
+ *   when no run is running, the request meeting the workspace's state rather
+ *   than a fault of the server's; or why else it is not
  */
 export async function cancelDataflow(
   stateStore: ExecutionStateStore,
@@ -525,7 +527,7 @@ export async function cancelDataflow(
   try {
     const state = await stateStore.readLatest(repoPath, workspace);
     if (state === null || state.status !== 'running') {
-      return sendError(NullType, variant('internal', {
+      return sendError(NullType, variant('dataflow_error', {
         message: 'No active execution for this workspace',
       }));
     }

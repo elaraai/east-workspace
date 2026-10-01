@@ -16,7 +16,7 @@ import e3 from '@elaraai/e3';
 import {
   E3_RELEASE, EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
 } from '@elaraai/e3-types';
-import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
+import type { LockOperation, TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
   workspaceList,
   workspaceCreate,
@@ -28,8 +28,10 @@ import { workspaceDeploy, workspaceExport } from './workspace-files.js';
 import { packageResolve, packageRead } from './packages.js';
 import { packageImport } from './package-files.js';
 import {
+  WorkspaceLockError,
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
+  lockStateToHolderInfo,
 } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -50,6 +52,31 @@ describe('workspaces', () => {
     removeTestRepo(testRepo);
     removeTempDir(tempDir);
   });
+
+  /**
+   * Holds a workspace's lock exclusively for an operation, as another
+   * operation of this process's would, while `refused` runs, and asserts the
+   * refusal names the holder as `lockStateToHolderInfo` gives it: the process
+   * that holds the lock, and since when.
+   */
+  async function assertRefusalNamesHolder(ws: string, operation: LockOperation, refused: () => Promise<unknown>): Promise<void> {
+    const held = await storage.locks.acquire(testRepo, ws, operation);
+    assert.ok(held !== null, 'the workspace is free to hold');
+    try {
+      const state = await storage.locks.getState(testRepo, ws);
+      assert.ok(state !== null, 'the lock records its holder');
+      const holder = lockStateToHolderInfo(state);
+      assert.strictEqual(holder.pid, process.pid, 'this process holds the lock');
+      await assert.rejects(refused(), (err: unknown) => {
+        assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
+        assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
+        assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
+        return true;
+      });
+    } finally {
+      await held.release();
+    }
+  }
 
   describe('workspaceCreate', () => {
     it('creates workspace file', async () => {
@@ -115,6 +142,13 @@ describe('workspaces', () => {
 
       const wsFile = join(testRepo, 'workspaces', 'wsremove.beast2');
       assert.ok(!existsSync(wsFile));
+    });
+
+    it('names the holder of the workspace\'s lock when a deploy holds it, as lockStateToHolderInfo gives it', async () => {
+      await workspaceCreate(storage, testRepo, 'held');
+
+      await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceRemove(storage, testRepo, 'held'));
+      assert.ok(existsSync(join(testRepo, 'workspaces', 'held.beast2')), 'the workspace is still there');
     });
   });
 
@@ -213,6 +247,17 @@ describe('workspaces', () => {
       const { name, version } = await workspaceGetPackage(storage, testRepo, 'preexisting');
       assert.strictEqual(name, 'deploy-existing');
       assert.strictEqual(version, '1.0.0');
+    });
+
+    it('names the holder of the workspace\'s lock when an export holds it, as lockStateToHolderInfo gives it', async () => {
+      const pkg = e3.package('deploy-held', '1.0.0', e3.input('deploy_note', StringType, variant('value', 'kept')));
+      const zipPath = join(tempDir, 'deploy-held.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceCreate(storage, testRepo, 'held');
+
+      await assertRefusalNamesHolder('held', variant('export', null), () => workspaceDeploy(storage, testRepo, 'held', 'deploy-held', '1.0.0'));
+      assert.strictEqual(await workspaceGetState(storage, testRepo, 'held'), null, 'nothing was deployed');
     });
   });
 
@@ -491,6 +536,18 @@ describe('workspaces', () => {
         async () => await workspaceExport(storage, testRepo, 'empty', exportZip),
         WorkspaceNotDeployedError
       );
+    });
+
+    it('names the holder of the workspace\'s lock when a deploy holds it, as lockStateToHolderInfo gives it', async () => {
+      const pkg = e3.package('export-held', '1.0.0', e3.input('export_note', StringType, variant('value', 'kept')));
+      const importZip = join(tempDir, 'export-held.zip');
+      await e3.export(pkg, importZip);
+      await packageImport(storage, testRepo, importZip);
+      await workspaceDeploy(storage, testRepo, 'held', 'export-held', '1.0.0');
+      const exportZip = join(tempDir, 'export-held-out.zip');
+
+      await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceExport(storage, testRepo, 'held', exportZip));
+      assert.ok(!existsSync(exportZip), 'no zip was written');
     });
   });
 });

@@ -48,7 +48,7 @@ import { openDatasetObject, readManifest } from './dataset-open.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
-import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
+import { DatasetRefConflictError, WorkspaceLockError, lockStateToHolderInfo } from './errors.js';
 import { touchReachable } from './gc-graph.js';
 import { withRunningWork } from './running-work.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
@@ -207,7 +207,7 @@ async function withSharedWorkspaceLock<T>(
     lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
     if (!lock) {
       const state = await storage.locks.getState(repo, ws);
-      throw new WorkspaceLockError(ws, state ? { acquiredAt: state.acquiredAt.toISOString(), operation: state.operation.type } : undefined);
+      throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {

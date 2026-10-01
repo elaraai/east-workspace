@@ -43,6 +43,7 @@ import {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  lockStateToHolderInfo,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
@@ -179,10 +180,7 @@ export async function workspaceRemove(
     lock = await storage.locks.acquire(repo, name, variant('removal', null));
     if (!lock) {
       const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
@@ -565,10 +563,7 @@ export async function workspaceDeployWith(
     lock = await storage.locks.acquire(repo, name, variant('deployment', null));
     if (!lock) {
       const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
@@ -1078,10 +1073,7 @@ async function exportWorkspace(
     lock = await storage.locks.acquire(repo, name, variant('export', null));
     if (!lock) {
       const state = await storage.locks.getState(repo, name);
-      throw new WorkspaceLockError(name, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(name, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {

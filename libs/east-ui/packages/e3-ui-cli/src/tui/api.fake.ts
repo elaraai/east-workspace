@@ -738,7 +738,7 @@ export class FakeApi implements Api {
         return this.call(`dataflowCancel ${ws}`, () => {
             const w = this.ws(ws);
             const state = w.execution;
-            if (state === null || state === undefined || state.status !== 'running') throw new ApiError('internal', { message: 'No active execution' });
+            if (state === null || state === undefined || state.status !== 'running') throw new ApiError('dataflow_error', { message: 'No active execution for this workspace' });
             this.dispose();
             state.status = 'aborted';
             state.completedAt = new Date().toISOString();

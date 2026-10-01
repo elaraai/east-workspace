@@ -24,7 +24,7 @@ import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndex
 import { summarizeDelta } from './record-apply.js';
 import { repoGc } from './gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
-import { WorkspaceLockError } from './errors.js';
+import { WorkspaceLockError, lockStateToHolderInfo } from './errors.js';
 import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
@@ -506,6 +506,28 @@ describe('records', () => {
     }
     // Once released, the mutation commits — proving it was the lock, not another failure.
     assert.strictEqual((await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'x' })).kind, 'committed');
+  });
+
+  it('a mutation fenced out names the holder of the workspace\'s lock, as lockStateToHolderInfo gives it', async () => {
+    const held = await storage.locks.acquire(repo, ws, variant('deployment', null)); // default exclusive
+    assert.ok(held !== null, 'the workspace is free to hold');
+    try {
+      const state = await storage.locks.getState(repo, ws);
+      assert.ok(state !== null, 'the lock records its holder');
+      const holder = lockStateToHolderInfo(state);
+      assert.strictEqual(holder.pid, process.pid, 'this process holds the lock');
+      await assert.rejects(
+        recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'x' }),
+        (err: unknown) => {
+          assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
+          assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
+          assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
+          return true;
+        },
+      );
+    } finally {
+      await held.release();
+    }
   });
 
   it('a sweep is refused while a record write is in flight', async () => {

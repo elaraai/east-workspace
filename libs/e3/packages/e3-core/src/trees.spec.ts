@@ -17,7 +17,7 @@ import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, worksp
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { WorkspaceNotFoundError, WorkspaceNotDeployedError } from './errors.js';
+import { WorkspaceLockError, WorkspaceNotFoundError, WorkspaceNotDeployedError, lockStateToHolderInfo } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -679,6 +679,34 @@ describe('trees', () => {
         ], 'value', StringType),
         WorkspaceNotDeployedError
       );
+    });
+
+    it('names the holder of the workspace\'s lock when a deploy holds it, as lockStateToHolderInfo gives it', async () => {
+      const pkg = e3.package('ws-set-held', '1.0.0', e3.input('lock_note', StringType, variant('value', 'before')));
+      const zipPath = join(tempDir, 'ws-set-held.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'myws', 'ws-set-held', '1.0.0');
+      const path = [variant('field', 'inputs'), variant('field', 'lock_note')];
+
+      // A deploy holds the workspace exclusively, as one in this process would.
+      const held = await storage.locks.acquire(testRepo, 'myws', variant('deployment', null));
+      assert.ok(held !== null, 'the workspace is free to hold');
+      try {
+        const state = await storage.locks.getState(testRepo, 'myws');
+        assert.ok(state !== null, 'the lock records its holder');
+        const holder = lockStateToHolderInfo(state);
+        assert.strictEqual(holder.pid, process.pid, 'this process holds the lock');
+        await assert.rejects(workspaceSetDataset(storage, testRepo, 'myws', path, 'during', StringType), (err: unknown) => {
+          assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
+          assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
+          assert.strictEqual(err.message, `Workspace 'myws' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
+          return true;
+        });
+      } finally {
+        await held.release();
+      }
+      assert.strictEqual(await workspaceGetDataset(storage, testRepo, 'myws', path), 'before', 'nothing was written');
     });
   });
 

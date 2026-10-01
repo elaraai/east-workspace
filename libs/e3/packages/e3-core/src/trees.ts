@@ -42,6 +42,7 @@ import {
   WorkspaceLockError,
   DatasetRefConflictError,
   DatasetTypeMismatchError,
+  lockStateToHolderInfo,
 } from './errors.js';
 
 // Bounded retries when a concurrent writer wins the per-path CAS. e3 set is a
@@ -399,10 +400,7 @@ export async function withDatasetWriteLock<T>(
     lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
     if (!lock) {
       const state = await storage.locks.getState(repo, ws);
-      throw new WorkspaceLockError(ws, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
+      throw new WorkspaceLockError(ws, state ? lockStateToHolderInfo(state) : undefined);
     }
   }
   try {
