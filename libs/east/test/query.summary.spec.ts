@@ -5,7 +5,7 @@
 
 /* Summaries (#922 K3): summaryProgram(T) checks to SummaryType for every
  * fixture type, and again after every stage of the query editor's saved
- * queries, written as their canonical jq (`Query Editor Spec.md` §8.1). Its
+ * queries, written as their canonical jq (`Query Editor Spec.md` §4.7). Its
  * outputs over the fixture are tested where queries run (`query.spec.ts`). */
 
 import { describe, test } from "node:test";

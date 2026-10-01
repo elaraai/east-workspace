@@ -1506,7 +1506,7 @@ function callStructFits(got: EastType, want: EastType): boolean {
 }
 for (const [name, output] of [["signature", StringType], ["source", StringType], ["calls", ArrayType(StringType)], ["captures", ArrayType(StringType)]] as const) {
   entries.push([name, {
-    status: "tooling", arities: [0], east: `the host platform function jq_${name} (#931)`,
+    status: "tooling", arities: [0], east: `the host platform function jq_${name}`,
     typing: ctx => onInput(ctx, "a function value", t => t.type === "Function" || t.type === "AsyncFunction" ? one(output) : undefined),
   }]);
 }

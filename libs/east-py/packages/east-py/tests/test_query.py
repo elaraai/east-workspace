@@ -140,7 +140,7 @@ def test_every_case_printed_differently_is_in_the_corpus() -> None:
 
 # ─── The query editor's default query (E2) ───────────────────────────────
 
-#: ``Query Editor Spec.md`` §8.1: the default query, as the editor prints it.
+#: ``Query Editor Spec.md`` §4.7: the default query, as the editor prints it.
 DEFAULT_QUERY = "\n".join([
     ".customers as $customers",
     "| .orders",

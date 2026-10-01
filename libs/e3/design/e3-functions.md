@@ -508,9 +508,9 @@ server's cwd / configured runner dir (one-shot has no repo path).
 ### 6.1 `oneShotExecute` — one-shot in e3-core (#1031)
 
 A one-shot runs in e3-core, through `StorageBackend` and `TaskRunner` only, so
-every backend shares it: a server's route calls it, and so does a caller with
-no server, such as `e3 query` over a local repository
-(`packages/e3-core/src/execution/oneShot.ts`):
+every backend shares it: a server's route calls it, which is how the query
+builder in e3-ui runs a query, and so can a caller in process over a local
+repository (`packages/e3-core/src/execution/oneShot.ts`):
 
 ```ts
 export type OneShotGrant = 'any' | 'platform_free' | 'none';

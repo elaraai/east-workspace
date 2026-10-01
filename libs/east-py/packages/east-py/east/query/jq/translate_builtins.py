@@ -2482,7 +2482,7 @@ for _name, _output in (("signature", StringType), ("source", StringType), ("call
                        ("captures", ArrayType(StringType))):
     def _tooling(t: Translator, c: CallSite, name: str = _name, output: EastType = _output) -> None:
         f = t.open(_input(t, c))
-        # A host platform function the tooling provides (#931).
+        # A platform function the host gives (``libs/east/devdocs/QUERY.md`` §15.9).
         c.emit(c.block, A("Platform", output, t.loc(c.path), name=f"jq_{name}", type_parameters=[f.type], arguments=[f],
                           is_async=False, optional=False))
     rule(_name, _tooling)

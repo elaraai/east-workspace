@@ -264,7 +264,7 @@ describe("the round-trip law (P1)", () => {
 });
 
 describe("the pipeline layout (P2)", () => {
-  // `Query Editor Spec.md` §8.1: the mock's default query, as the editor prints it.
+  // `Query Editor Spec.md` §4.7: the mock's default query, as the editor prints it.
   const DEFAULT_QUERY = [
     ".customers as $customers",
     "| .orders",

@@ -193,7 +193,7 @@ describe("every corpus case's call of the Query builtin prints as the East.jq th
 
 // ─── The query editor's default query (E2) ───────────────────────────────
 
-/** `Query Editor Spec.md` §8.1: the default query, as the editor prints it. */
+/** `Query Editor Spec.md` §4.7: the default query, as the editor prints it. */
 const DEFAULT_QUERY = [
   ".customers as $customers",
   "| .orders",

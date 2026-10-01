@@ -1807,7 +1807,7 @@ for (const [name, output] of [["signature", "String"], ["source", "String"], ["c
   rule(name, (t, c) => {
     const f = t.open(input(t, c));
     const type = output === "String" ? StringType : ArrayType(StringType);
-    // A host platform function the tooling provides (#931).
+    // A platform function the host gives (`devdocs/QUERY.md` §15.9).
     c.emit(c.$, t.mk({
       ast_type: "Platform", type, loc_id: t.loc(c.path), name: `jq_${name}`, type_parameters: [t.type(f)],
       arguments: [t.ast(f)], async: false, optional: false,
