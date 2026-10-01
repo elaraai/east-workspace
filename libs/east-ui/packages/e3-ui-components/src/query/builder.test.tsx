@@ -66,10 +66,11 @@ const commits = () => committed(harness);
 // ─── The shell, through its carrier ─────────────────────────────────────────
 
 describe("<Query.Builder> — the shell (#935)", () => {
-    test("the one toolbar holds the history item; the pane its Query, Datasets and Library tabs; the results and the status line under them", async () => {
+    test("the one toolbar holds the result's items and the history item; the pane its Query, Datasets and Library tabs; the results and the status line under them", async () => {
         const { container } = await mountBuilder();
         const builder = container.querySelector<HTMLElement>("[data-query-builder]")!;
-        expect([...builder.querySelectorAll("[data-toolbar-item]")].map(el => el.getAttribute("data-toolbar-item"))).toEqual(["view", "history", "copy", "save", "run"]);
+        expect([...builder.querySelectorAll("[data-toolbar-item]")].map(el => el.getAttribute("data-toolbar-item")))
+            .toEqual(["view", "result-view", "download", "history", "copy", "save", "run"]);
         expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Query", "Datasets", "Library"]);
         expect(screen.getAllByRole("tab")[0]!.getAttribute("aria-selected")).toBe("true");
         expect(builder.querySelector("[data-query-results]")).not.toBeNull();

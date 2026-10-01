@@ -19,8 +19,9 @@
  * the `status` recipe. This recipe adds what those have not: the layout, the
  * dashed and danger states (by data attributes), and the joiner column that
  * lines conditions up. Its toolbar row is the shared `toolbar`'s, its pane
- * the `dock`'s, its history item the `editHistory`'s; the jq view and the
- * results are their own recipes' (`jqEditor`, `queryResults`).
+ * the `dock`'s, its history item the `editHistory`'s, Download ▾ the `menu`'s;
+ * the jq view and the results are their own recipes' (`jqEditor`,
+ * `queryResults`).
  *
  * @packageDocumentation
  */
@@ -42,7 +43,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "toolbar", "body", "tab", "results", "status",
         // The toolbar's own items.
-        "viewIcon", "copy",
+        "viewIcon", "copy", "menuLabel", "menuMeta",
         // The Query tab.
         "notices", "steps", "empty", "source", "sourceIcon", "sourceText", "sourceTitle", "sourceKind",
         "shape", "shapeRule", "shapeText", "shapeExtra", "insert",
@@ -130,6 +131,17 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         /* Copy jq: its check, for a moment after it copies. */
         copy: {
             "&[data-copied]": { color: "fg.success" },
+        },
+        /* Download ▾'s entries: the format, and what it is beside it. */
+        menuLabel: {
+            flex: "1",
+        },
+        menuMeta: {
+            marginInlineStart: "{spacing.4}",
+            fontFamily: "mono",
+            fontSize: "11px",
+            fontWeight: "medium",
+            color: "fg.subtle",
         },
 
         /* ── The Query tab ───────────────────────────────────────────────── */

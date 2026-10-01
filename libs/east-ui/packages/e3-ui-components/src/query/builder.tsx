@@ -22,17 +22,20 @@
  *   in the one toolbar undoes, redoes and discards, and Apply — the builder's
  *   Save — commits the query as one patch on the record, once it is finished
  *   and checks;
- * - **the layout**: the one toolbar (#936: Visual · jq, the history item,
- *   Copy jq, Save… and Run); the pane, a `DockPane` with the tabs Query,
- *   Datasets and Library, its open tab and its collapse the builder's to
- *   drive; the results beside it; and the status line under both.
+ * - **the layout**: the one toolbar (#936: Visual · jq, the result's Table ·
+ *   Tree and Download ▾, the history item, Copy jq, Save… and Run); the pane,
+ *   a `DockPane` with the tabs Query, Datasets and Library, its open tab and
+ *   its collapse the builder's to drive; the results beside it; and the
+ *   status line under both.
  *
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
  * slots' autocomplete hanging inside the builder; Save… names and describes it
- * in the save popover, and saves it through the session's Apply. ⌘/Ctrl ⏎
- * anywhere in the builder runs it. The jq view's editor (#937), the results
- * (#938), and the Datasets and Library tabs (#939) fill the rest. The builder
- * fills its host and draws no border around itself.
+ * in the save popover, and saves it through the session's Apply. Run, ⌘/Ctrl ⏎
+ * anywhere in the builder, and opening a saved query run it (#938, `run.ts`):
+ * the results show what came back, a fresh visual run's counts its shape
+ * lines, and each run that answers joins this viewer's recent queries. The
+ * Datasets and Library tabs (#939) fill the rest. The builder fills its host
+ * and draws no border around itself.
  *
  * @packageDocumentation
  */
@@ -48,14 +51,17 @@ import {
 } from "@elaraai/east-ui-components";
 import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
-import { useQueryCall, useQueryRoot, useQueryRun, useQuerySummaries } from "./hooks.js";
+import { useQueryCall, useQueryRoot, useQuerySummaries, useRecentQueries } from "./hooks.js";
+import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
-import type { QueryRoot } from "./one-shot.js";
+import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { useOpenQuery, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
+import { QueryResults, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
+import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
-import { entriesQuery, queryEntries, savedOffers, type QueryEntry, type SavedQueries } from "./session.js";
+import { entriesQuery, queryEntries, queryProgram, savedOffers, type QueryEntry, type SavedQueries } from "./session.js";
 import { QueryStatusLine, type QuerySaveLine } from "./status-line.js";
 import { queryToolbarItems } from "./toolbar.js";
 import { useQueryEditor } from "./use-query-editor.js";
@@ -149,8 +155,8 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
         return <EmptyStateView icon={{ prefix: "fas", name: "magnifying-glass" }} title={m.queryGone({ name })} description={m.queryGoneHint()} />;
     }
     return (
-        <QueryBuilderView session={session} entries={session.entries} record={record} root={root}
-            writeOpen={writeOpen} words={words} storageKey={storageKey} />
+        <QueryBuilderView session={session} entries={session.entries} record={record} root={root} open={open}
+            writeOpen={writeOpen} words={words} storageKey={storageKey} recentKey={keys.recent} />
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
@@ -164,20 +170,23 @@ interface QueryBuilderViewProps {
     readonly record: SavedQueries;
     /** The root. */
     readonly root: QueryRoot;
+    /** The open query. */
+    readonly open: QueryOpen;
     /** Opens another query. */
     readonly writeOpen: (next: QueryOpen) => void;
     /** The words. */
     readonly words: QueryWords;
     /** The structural storage key. */
     readonly storageKey: string;
+    /** This viewer's recent runs' storage key. */
+    readonly recentKey: string;
 }
 
 /** The builder over a query it can edit: the toolbar, the pane, the results and the status line. */
-function QueryBuilderView({ session: state, entries, record, root, writeOpen, words, storageKey }: QueryBuilderViewProps) {
+function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, words, storageKey, recentKey }: QueryBuilderViewProps) {
     const ps = usePartStyles(words);
     const { styles } = ps;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
-    const resultStyles = useSlotRecipe({ key: "queryResults" })() as Styles;
     const editingWords = useQueryEditingWords();
     const m = words.messages;
     const { session, sourceId, onAction, naming, setNaming, base } = state;
@@ -208,22 +217,62 @@ function QueryBuilderView({ session: state, entries, record, root, writeOpen, wo
 
     // ── Runs and summaries: one-shot calls ──────────────────────────────
     const call = useQueryCall();
-    const { state: run, run: runProgram } = useQueryRun(root, call);
+    // Each run that answers is one of this viewer's recent queries: its checked query, its name and what it read.
+    const { remember } = useRecentQueries(recentKey);
+    const onRan = useCallback((result: QueryResult, plan: RunPlan) => {
+        if (result.query.type !== "some") return;
+        remember({
+            name: plan.name, description: plan.description, query: result.query.value,
+            root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
+        });
+    }, [remember]);
+    const { state: run, run: start } = useQueryRun(root, call, onRan);
     const summaries = useQuerySummaries(root, call);
     const saved = useMemo(() => savedOffers(record, root), [record, root]);
     const onOpenSaved = useCallback((name: string) => writeOpen(variant("saved", name)), [writeOpen]);
+    // A fresh run of the steps counts their shape lines: fresh while the steps print as the program it ran.
+    const steps = useMemo(() => {
+        const { header, query } = entriesQuery(entries);
+        return canonicalProgram(queryProgram(header, query, root.type));
+    }, [entries, root]);
+    const counts = run.status === "done" && run.output?.counts !== undefined && run.plan.canonical === steps ? run.output.counts : undefined;
 
     // ── Editing the open query ──────────────────────────────────────────
     const editor = useQueryEditor({
         entries, current: state.current, gesture: state.gesture, version: state.version, root, words, summaries, saved, onOpenSaved, onShowQuery,
-        bounds, sourceId,
+        bounds, sourceId, counts,
     });
     const { leaveJq } = editor;
     // A run takes the jq as typed: left first, one gesture.
     const onRun = useCallback(() => {
         leaveJq();
-        runProgram(editor.program);
-    }, [leaveJq, runProgram, editor.program]);
+        start(planRun(editor, root));
+    }, [leaveJq, start, editor, root]);
+    // Opening a saved query runs it; starting a new one does not.
+    const ranFor = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (ranFor.current === sourceId) return;
+        ranFor.current = sourceId;
+        if (open.type === "saved") onRun();
+    }, [sourceId, open, onRun]);
+
+    // ── The result: fresh or stale, how it shows, and its downloads ─────
+    const now = useMemo(() => canonicalProgram(editor.program), [editor.program]);
+    const output = run.status === "done" ? run.output : undefined;
+    const stale = run.status === "done" && run.plan.canonical !== now;
+    const picked = output === undefined ? undefined : pickedView(output);
+    const [chosen, setChosen] = useState<{ n: number; view: ResultView } | undefined>(undefined);
+    const [noted, setNoted] = useState<{ n: number; text: string } | undefined>(undefined);
+    const n = run.status === "idle" ? 0 : run.n;
+    // The view chosen and the note last until the next run.
+    const view = chosen !== undefined && chosen.n === n ? chosen.view : picked;
+    const note = noted !== undefined && noted.n === n ? noted.text : undefined;
+    const onView = useCallback((next: ResultView) => setChosen({ n, view: next }), [n]);
+    const onDownload = useCallback((format: DownloadFormat) => {
+        if (run.status !== "done" || run.output === undefined) return;
+        const text = downloadResult(run, format, editor.header.name, words);
+        if (text !== undefined) setNoted({ n, text });
+    }, [run, n, editor.header.name, words]);
 
     // ── The history item, and the keys ──────────────────────────────────
     const onIssue = useCallback((issue: EditIssue) => {
@@ -314,6 +363,7 @@ function QueryBuilderView({ session: state, entries, record, root, writeOpen, wo
         saving: naming,
         running: run.status === "running",
         onRun,
+        results: resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, onDownload, words, styles, seg }),
         words,
         styles,
         seg,
@@ -349,10 +399,8 @@ function QueryBuilderView({ session: state, entries, record, root, writeOpen, wo
                     onTabChange={onTabChange}
                 />
                 <Box css={styles.results} data-query-results="">
-                    <Box css={resultStyles.root}>
-                        <Box css={resultStyles.body} />
-                        <Box css={resultStyles.footer} />
-                    </Box>
+                    <QueryResults state={run} stale={stale} view={view ?? "table"} note={note} onDismissNote={() => setNoted(undefined)}
+                        onRunAgain={onRun} words={words} storageKey={storageKey} />
                 </Box>
             </Box>
             <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />
