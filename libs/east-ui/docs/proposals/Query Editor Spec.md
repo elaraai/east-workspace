@@ -1,11 +1,11 @@
 # Query Builder — the design of record
 
-> **Status: Proposed** · e3-ui · companion to [`Query Editor Spec.html`](./Query%20Editor%20Spec.html),
+> **Status: As built** (#875, PR #943) · e3-ui · companion to [`Query Editor Spec.html`](./Query%20Editor%20Spec.html),
 > the mock of record ([resting render](./Query%20Editor%20Spec.png)): 01 the query editor and 02 the query
 > library; append `?theme=dark` for dark. The mock shows the design; **Studio's patterns decide how it is
 > built** ([`Studio Spec.md`](./Studio%20Spec.md)). Where the product departs from the mock, §9 says what it
-> does instead and what is lost. On behaviour and API, this document is the design, and each part names the
-> child of #875 that builds it.
+> does instead and what is lost. On behaviour and API, this document is the design as built, and each part
+> names the child of #875 that built it.
 
 Operators build **typed jq queries** over the datasets a page binds — as visual steps in plain words, or as
 jq — see them checked as they edit, and run them to read the result. A solution declares **one record** of
@@ -651,7 +651,8 @@ Studio's page library with queries where pages are:
   SKU · Pump parts cost ("Total cost, part count and dearest part in the PUMP-A bill of materials.") · Demand
   at $10–$12, NSW ("Modelled demand in NSW at prices from $10 to $12, in $0.50 steps."); the rest describe
   themselves. Recent: Cancelled orders · Orders shipped in 2026 · Gold customers or big orders. They are the
-  showcase's fixture (#940).
+  showcase's fixture (#940) but for Recent: recent runs are each viewer's own, kept in their browser, so the
+  mock's three are not seeded, and the showcase's Recent fills as its viewer runs queries.
 
 ---
 
@@ -683,8 +684,12 @@ carrier over a record in memory; the responsive specs
 
 ## 8 · Visual verification
 
-The flagship example is rendered in the showcase beside the mock at 1240 px, in light and dark. Layout is
-checked by DOM measurement in the responsive specs, never by reading screenshots (#940).
+The examples render in the east-ui showcase (`#e3/query/query/…`), each run answered in the browser over
+the fixture, and in the e3-ui showcase's `query` package (`make start-query`), deployed to e3. Their layout
+is measured in a real browser at the mock's 1240 px, in light and dark, by DOM measurement and never by
+reading screenshots (#940): `query-builder.spec.ts` — the toolbar and its fold, the pane, its rail and the
+bands that line up, the Query tab's parts, the states by their tokens, the save popover — and
+`query-library.spec.ts` — the toolbar, the pane, the gallery and its wireframes, the list.
 
 ---
 
