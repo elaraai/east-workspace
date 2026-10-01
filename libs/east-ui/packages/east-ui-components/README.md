@@ -52,6 +52,16 @@ function App() {
 }
 ```
 
+## Brand fonts
+
+The theme sets text in DM Sans, Inter Tight and JetBrains Mono. An app registers them once, in its entry module:
+
+```tsx
+import "@elaraai/east-ui-components/fonts";
+```
+
+The entry imports the self-hosted `@fontsource-variable/*` stylesheets — the three families upright, and JetBrains Mono italic for the muted "no data" value. The app's bundler emits them with their `.woff2` files, in a dev server and in a production build, and nothing is fetched from a CDN. The fonts are a separate entry so that importing the components never needs a CSS loader, which Node test runners lack.
+
 ## State Management
 
 East UI Components provides hooks for managing state in East applications:

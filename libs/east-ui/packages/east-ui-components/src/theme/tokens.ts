@@ -17,9 +17,10 @@ import { defineTokens } from "@chakra-ui/react";
 /* ─── Fonts ────────────────────────────────────────────────────────────── */
 
 /* Variable-font names ("X Variable") come first — those are the names
- * registered by the `@fontsource-variable/*` packages imported for side
- * effects in `theme/index.ts`. Non-variable family names follow as
- * fallback for any environment that loads the static .woff2 separately. */
+ * registered by the `@fontsource-variable/*` stylesheets that the
+ * `@elaraai/east-ui-components/fonts` entry (`src/fonts.ts`) imports for side
+ * effects. Non-variable family names follow as fallback for any environment
+ * that loads the static .woff2 separately. */
 export const FONT_BRAND =
     '"DM Sans Variable", "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif';
 export const FONT_BODY =

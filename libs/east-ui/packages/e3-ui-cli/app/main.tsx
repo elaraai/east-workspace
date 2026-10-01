@@ -20,14 +20,8 @@
  * @packageDocumentation
  */
 
-// Self-hosted brand fonts. Imported DIRECTLY from `@fontsource` rather than via
-// `@elaraai/east-ui-components/fonts`: that barrel's `@fontsource` CSS imports do
-// not survive a production (Rollup) bundle through the dist boundary — the woff2
-// are copied but the `@font-face` rules are dropped — so the brand fonts must be
-// the app's own direct dependencies. Keep these in sync with east-ui-components/src/fonts.ts.
-import '@fontsource-variable/dm-sans';
-import '@fontsource-variable/inter-tight';
-import '@fontsource-variable/jetbrains-mono';
+// Self-hosted brand fonts, registered as every app registers them.
+import '@elaraai/east-ui-components/fonts';
 // Side-effect import: the east-ui + e3-ui platform implementations / renderers
 // (registered at module load).
 import '@elaraai/e3-ui-components';
