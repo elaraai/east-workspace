@@ -21,6 +21,12 @@ import { executionPath } from './localHelpers.js';
  */
 export class LocalLogStore implements LogStore {
   private logPath(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr'): string {
+    // The stream names a file of the execution's directory, so a name that is
+    // not one of its two — a caller's unchecked `../…` — is refused here, where
+    // it would become a path, rather than read or written wherever it leads.
+    if (stream !== 'stdout' && stream !== 'stderr') {
+      throw new Error(`A log's stream is stdout or stderr, not ${JSON.stringify(stream)}`);
+    }
     return path.join(executionPath(repo, taskHash, inputsHash, executionId), `${stream}.txt`);
   }
 
