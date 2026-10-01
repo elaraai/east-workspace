@@ -1,0 +1,99 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x710" subtitle="Marker by tone and state · cluster with count · hex area · line styles — drawn on the land colour" name="Map" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.canvas { display: grid; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 12px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.g10 { display: grid; grid-template-columns: repeat(10, 56px); column-gap: 6px; }
+.g7 { display: grid; grid-template-columns: repeat(7, 80px); column-gap: 8px; }
+.g5 { display: grid; grid-template-columns: repeat(5, 112px); column-gap: 14px; }
+.cell { display: grid; justify-items: center; align-content: start; gap: 8px; text-align: center; }
+.slot { height: 40px; display: flex; align-items: center; justify-content: center; }
+.mk { position: relative; width: 8px; height: 8px; border: 2px solid var(--paper); border-radius: var(--r-full); background: var(--brand); }
+.mk.ink { background: var(--ink-3); }
+.mk.muted { background: var(--ink-5); }
+.mk.pos { background: var(--pos); }
+.mk.warn { background: var(--warn); }
+.mk.neg { background: var(--neg); }
+.mk.sel::before { content: ""; position: absolute; inset: -3px; border: 1px solid var(--ink); border-radius: var(--r-full); }
+.mk.stale { background: var(--paper); border: 2px dashed var(--brand); }
+.live::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-full); background: inherit; animation: east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite; }
+@keyframes east-pulse { 0% { transform: scale(1); opacity: 0.6; } 25%, 100% { transform: scale(2.5); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live::after { animation: none; opacity: 0; } }
+.mi { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--brand); border-radius: var(--r-full); background: var(--paper); font-size: 14px; color: var(--ink-2); }
+.cl { box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid var(--brand); border-radius: var(--r-full); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; font-feature-settings: "tnum" 1; color: var(--ink); }
+.s24 { width: 24px; height: 24px; }
+.s32 { width: 32px; height: 32px; }
+.s40 { width: 40px; height: 40px; }
+.cl.neg { border-color: var(--neg); }
+.cl.hov { background: var(--paper-2); }
+.hx { stroke-width: 1; }
+.hx.area { fill: var(--brand-tint); fill-opacity: 0.7; stroke: var(--brand); }
+.hx.pos { fill: color-mix(in oklch, var(--pos) 6%, transparent); stroke: var(--pos); }
+.hx.warn { fill: color-mix(in oklch, var(--warn) 6%, transparent); stroke: var(--warn); }
+.hx.neg { fill: color-mix(in oklch, var(--neg) 6%, transparent); stroke: var(--neg); }
+.hx.lat { fill: none; stroke: var(--rule); }
+.hx.plan { fill: none; stroke: var(--brand-d); stroke-dasharray: 4 4; }
+.hx.sel { stroke: var(--ink); stroke-width: 2; }
+.ln { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ln.plan { stroke: var(--brand-d); stroke-dasharray: 4 4; }
+.ln.sel { stroke: var(--ink); stroke-width: 2; }
+.ln.bnd { stroke: var(--ink-4); stroke-width: 1; }
+.ln.lim { stroke: var(--neg); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="canvas">
+<div class="sec">
+<div class="k">Marker · tone and state</div>
+<div class="g10">
+<div class="cell"><span class="slot"><span class="mk"></span></span><span class="cap">brand</span></div>
+<div class="cell"><span class="slot"><span class="mk ink"></span></span><span class="cap">ink</span></div>
+<div class="cell"><span class="slot"><span class="mk muted"></span></span><span class="cap">muted</span></div>
+<div class="cell"><span class="slot"><span class="mk pos"></span></span><span class="cap">success</span></div>
+<div class="cell"><span class="slot"><span class="mk warn"></span></span><span class="cap">warning</span></div>
+<div class="cell"><span class="slot"><span class="mk neg"></span></span><span class="cap">danger</span></div>
+<div class="cell"><span class="slot"><span class="mk sel"></span></span><span class="cap">selected</span></div>
+<div class="cell"><span class="slot"><span class="mk live"></span></span><span class="cap">live</span></div>
+<div class="cell"><span class="slot"><span class="mk stale"></span></span><span class="cap">stale</span></div>
+<div class="cell"><span class="slot"><span class="mi"><i class="fa-solid fa-warehouse" aria-label="Distribution centre"></i></span></span><span class="cap">icon</span></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Cluster · count of members</div>
+<div class="g7">
+<div class="cell"><span class="slot"><span class="cl s24">7</span></span><span class="cap"><span class="f">2–9</span> · <span class="f">24</span></span></div>
+<div class="cell"><span class="slot"><span class="cl s32">42</span></span><span class="cap"><span class="f">10–99</span> · <span class="f">32</span></span></div>
+<div class="cell"><span class="slot"><span class="cl s40">128</span></span><span class="cap"><span class="f">100+</span> · <span class="f">40</span></span></div>
+<div class="cell"><span class="slot"><span class="cl s32 neg">12</span></span><span class="cap"><span class="f">worst member</span> <span class="f">tone wins</span></span></div>
+<div class="cell"><span class="slot"><span class="cl s32 hov">42</span></span><span class="cap"><span class="f">hover</span> · <span class="f">--paper-2</span></span></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Hex area · H3 cell, lattice 12</div>
+<div class="g7">
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx area" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">area · brand</span> <span class="f">tint 0.7</span></span></div>
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx pos" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">success</span> <span class="f">6% wash</span></span></div>
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx warn" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">warning</span> <span class="f">6% wash</span></span></div>
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx neg" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">danger</span> <span class="f">6% wash</span></span></div>
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx lat" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">lattice</span> <span class="f">no data</span></span></div>
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx plan" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">planned</span> <span class="f">dashed</span></span></div>
+<div class="cell"><span class="slot"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><polygon class="hx warn sel" points="12,1.5 21.1,6.8 21.1,17.3 12,22.5 2.9,17.3 2.9,6.8"></polygon></svg></span><span class="cap"><span class="f">selected</span> <span class="f">2px --ink</span></span></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Line</div>
+<div class="g5">
+<div class="cell"><span class="slot"><svg width="112" height="24" viewBox="0 0 112 24" aria-hidden="true"><path class="ln" d="M8 12H104"></path></svg></span><span class="cap"><span class="f">observed</span> · <span class="f">solid --ink-3 1.5</span></span></div>
+<div class="cell"><span class="slot"><svg width="112" height="24" viewBox="0 0 112 24" aria-hidden="true"><path class="ln plan" d="M8 12H104"></path></svg></span><span class="cap"><span class="f">planned</span> · <span class="f">dashed --brand-d 1.5</span></span></div>
+<div class="cell"><span class="slot"><svg width="112" height="24" viewBox="0 0 112 24" aria-hidden="true"><path class="ln sel" d="M8 12H104"></path></svg></span><span class="cap"><span class="f">selected</span> · <span class="f">2px --ink</span></span></div>
+<div class="cell"><span class="slot"><svg width="112" height="24" viewBox="0 0 112 24" aria-hidden="true"><path class="ln bnd" d="M8 12H104"></path></svg></span><span class="cap"><span class="f">boundary</span> · <span class="f">1px --ink-4</span></span></div>
+<div class="cell"><span class="slot"><svg width="112" height="24" viewBox="0 0 112 24" aria-hidden="true"><path class="ln lim" d="M8 12H104"></path></svg></span><span class="cap"><span class="f">limit</span> · <span class="f">dashed --neg 1.2</span></span></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Map&gt; · markers · areas and hexes · lines · tone brand | ink | muted | success | warning | danger</b> · <span class="f">tones → --brand, --ink-3, --ink-5, --pos, --warn, --neg</span> · <span class="f">marker: 8px dot + 2px --paper ring</span> · <span class="f">selected: 1px --ink ring outside it</span> · <span class="f">live: the status-dot pulse</span> · <span class="f">stale: hollow, 2px dashed ring</span> · <span class="f">icon marker: 24 --paper disc, 2px tone ring, 14px icon --ink-2</span> · <span class="f">cluster: --paper disc, 2px ring in its worst member's tone</span> · <span class="f">count mono 10.5/600 --ink</span> · <span class="f">24 / 32 / 40 for 2–9 / 10–99 / 100+</span> · <span class="f">hover --paper-2, click zooms in</span> · <span class="f">hex drawn 1.5 inside its lattice so neighbours keep a gutter</span> · <span class="f">area --brand-tint at 0.7 + 1px --brand</span> · <span class="f">tone 6% wash + 1px base</span> · <span class="f">lattice 1px --rule, click-through</span> · <span class="f">planned dashed --brand-d</span> · <span class="f">selected 2px --ink</span> · <span class="f">line observed solid --ink-3 1.5</span> · <span class="f">planned dashed --brand-d 1.5, 4/4</span> · <span class="f">selected 2px --ink</span> · <span class="f">boundary 1px --ink-4</span> · <span class="f">limit dashed --neg 1.2</span> · <span class="f">no animated dash, no raw colours</span></div>
+</body></html>

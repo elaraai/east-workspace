@@ -1,0 +1,58 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x490" subtitle="2–4 options · md 32 in a toolbar, sm 24 in a 36px band · rest, hover, active, focus, disabled" name="SegmentGroup" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.canvas { display: grid; gap: 20px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 8px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.states { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; justify-items: start; align-items: center; column-gap: 20px; row-gap: 4px; }
+.seg { flex: none; display: inline-flex; height: 32px; box-sizing: border-box; border: 1px solid var(--rule-strong); border-radius: var(--r-md); background: var(--paper); }
+.seg .o { position: relative; display: inline-flex; align-items: center; padding: 0 12px; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.seg .o + .o { border-left: 1px solid var(--rule-strong); }
+.seg .o:first-child { border-radius: calc(var(--r-md) - 1px) 0 0 calc(var(--r-md) - 1px); }
+.seg .o:last-child { border-radius: 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0; }
+.seg .o:only-child { border-radius: calc(var(--r-md) - 1px); }
+.seg .o.hover { background: var(--paper-2); color: var(--ink-2); }
+.seg .o.on { background: var(--brand-tint); color: var(--brand-dd); }
+.seg .o.focus { z-index: 1; box-shadow: var(--shadow-focus); }
+.seg .o.dis { color: var(--ink-5); }
+.seg.sm { height: 24px; }
+.seg.sm .o { padding: 0 8px; font-size: var(--fs-label-md); }
+.line { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.bd { padding: 20px; }
+.txt { font-size: var(--fs-body); line-height: 1.5; color: var(--ink-2); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="canvas">
+<div class="sec">
+<div class="k">md · 32 · a toolbar's view mode</div>
+<div class="line"><span class="seg" role="radiogroup" aria-label="View"><span class="o on" role="radio" aria-checked="true">Table</span><span class="o" role="radio" aria-checked="false">Grouped</span><span class="o" role="radio" aria-checked="false">Tree</span></span><span class="seg" role="radiogroup" aria-label="Layout"><span class="o" role="radio" aria-checked="false">Grid</span><span class="o on" role="radio" aria-checked="true">List</span></span></div>
+</div>
+<div class="sec">
+<div class="k">States · one option</div>
+<div class="states">
+<span class="seg"><span class="o">Table</span></span><span class="seg"><span class="o hover">Table</span></span><span class="seg"><span class="o on">Table</span></span><span class="seg"><span class="o focus">Table</span></span><span class="seg"><span class="o dis" aria-disabled="true">Tree</span></span>
+<span class="cap">rest</span><span class="cap">hover</span><span class="cap">active</span><span class="cap">focus</span><span class="cap">disabled</span>
+</div>
+<div class="cap"><span class="f">rest --ink-4</span> · <span class="f">hover --paper-2, --ink-2</span> · <span class="f">active --brand-tint, --brand-dd</span> · <span class="f">focus --shadow-focus</span> · <span class="f">disabled --ink-5</span></div>
+</div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="lbl">Fill rate by site · run #42</span><span class="seg sm" role="radiogroup" aria-label="Horizon"><span class="o" role="radio" aria-checked="false">7d</span><span class="o on" role="radio" aria-checked="true">14d</span><span class="o" role="radio" aria-checked="false">28d</span></span></div>
+<div class="bd"><div class="txt">Fill rate holds above <span class="num">95%</span> at four of five sites over the next <span class="num">14</span> days.</div></div>
+</div>
+<div class="cap"><span class="f">sm · 24 · in a 36px band: the horizon in a frame's eyebrow</span> · <span class="f">options pad 0 8, mono 10.5</span> · <span class="f">applies at once, no Apply</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;SegmentGroup&gt; · size md | sm</b> · <span class="f">a view-state toggle: 2–4 options, never inside a form</span> · <span class="f">md 32, sm 24</span> · <span class="f">--paper, 1px --rule-strong, --r-md</span> · <span class="f">options split by 1px --rule-strong</span> · <span class="f">mono 600 / 0.16em caps, 11 (sm 10.5), pad 0 12 (sm 0 8)</span> · <span class="f">rest --ink-4</span> · <span class="f">hover --paper-2 --ink-2</span> · <span class="f">active --brand-tint --brand-dd</span> · <span class="f">focus --shadow-focus</span> · <span class="f">disabled --ink-5</span> · <span class="f">← → move and choose</span> · <span class="f">--dur-fast</span></div>
+</body></html>

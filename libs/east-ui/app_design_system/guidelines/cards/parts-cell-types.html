@@ -1,0 +1,85 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x800" subtitle="Numeric, identifier, text, Status, delta, chip, avatar + name, link and the empty value — alignment, ink and overflow of each" name="Cell types" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.tr, .strip { display: grid; align-items: stretch; }
+.tr { height: 36px; box-sizing: border-box; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > *, .strip > * { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child, .strip > :first-child { padding-left: 20px; }
+.tr > :last-child, .strip > :last-child { padding-right: 20px; }
+.strip { padding: 0 1px; }
+.strip > * { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.04em; color: var(--ink-2); }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.tr.hover { background: var(--paper-2); }
+.r { justify-content: flex-end; }
+.ca { grid-template-columns: minmax(0, 1fr) 120px 156px 136px; }
+.cb2 { grid-template-columns: minmax(0, 1fr) 156px 104px 104px; }
+.cc { grid-template-columns: minmax(0, 1fr) 96px 136px 88px 96px 96px; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.id { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.ell { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nd { white-space: nowrap; font-family: var(--font-mono); font-style: italic; font-weight: 400; color: var(--ink-4); }
+.lk { height: 20px; display: inline-flex; align-items: center; border-radius: var(--r-sm); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--brand-d); white-space: nowrap; }
+.lk.hover { color: var(--brand-dd); text-decoration: underline; text-underline-offset: 2px; }
+.lk.focus { box-shadow: var(--shadow-focus); }
+.av { width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--rule-strong); border-radius: var(--r-full); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-transform: uppercase; color: var(--ink-2); }
+.av.none { border-style: dashed; background: transparent; }
+.un { color: var(--ink-4); }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { width: 8px; height: 8px; flex: none; box-sizing: border-box; border-radius: var(--r-full); }
+.d.pos { background: var(--pos); }
+.d.warn { background: var(--warn); }
+.d.neg { background: var(--neg); }
+.d.stale { border: 1px dashed var(--ink-4); }
+.dp { height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; border-radius: var(--r-sm); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 600; line-height: 1; white-space: nowrap; }
+.dp.pos { background: color-mix(in oklch, var(--pos) 6%, transparent); color: var(--pos-text); }
+.dp.neg { background: color-mix(in oklch, var(--neg) 6%, transparent); color: var(--neg-text); }
+.dp.flat { background: var(--paper-3); color: var(--ink-3); }
+.chip { height: 22px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.chip.hover { background: var(--paper-2); }
+.chip.on { background: var(--brand-tint); border-color: var(--brand-d); color: var(--brand-dd); }
+.tag { height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--paper-3); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-3); white-space: nowrap; }
+.ct { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; background: var(--paper-3); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; font-feature-settings: "tnum" 1; line-height: 1; color: var(--ink-2); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="strip ca"><span>link</span><span>identifier</span><span>avatar + name</span><span>status</span></div>
+<div class="frame">
+<div class="tr th ca"><span>Site</span><span>Roster</span><span>Lead</span><span>Status</span></div>
+<div class="tr ca"><span><span class="lk">DC-North</span></span><span class="id">RST-0412</span><span><span class="av">JM</span>Jo Marsh</span><span><span class="status"><span class="d pos"></span>Committed</span></span></div>
+<div class="tr ca hover"><span><span class="lk hover">DC-East</span></span><span class="id">RST-0413</span><span><span class="av">PN</span>Priya Nair</span><span><span class="status"><span class="d warn"></span>Pending</span></span></div>
+<div class="tr ca"><span><span class="lk focus">DC-South</span></span><span class="id">RST-0415</span><span><span class="av none" role="img" aria-label="Unassigned"></span><span class="un">Unassigned</span></span><span><span class="status"><span class="d stale"></span>Stale</span></span></div>
+<div class="tr ca"><span><span class="lk">DC-West</span></span><span class="id">RST-0418</span><span><span class="av">TO</span>Tom Okafor</span><span><span class="status"><span class="d neg"></span>Failed</span></span></div>
+</div>
+<div class="cap"><span class="f">link · the Button card's link role: 12.5/500 --brand-d</span> · <span class="f">hover --brand-dd + underline</span> · <span class="f">focus ring outside</span> · <span class="f">bare to an entity, → only when onward</span> · <span class="f">identifier · mono 13/500 --ink, left, never truncated</span> · <span class="f">avatar 24 + name 13, gap 8</span> · <span class="f">unassigned: dashed ring, --ink-4</span> · <span class="f">status · dot + word, left</span></div>
+</div>
+<div class="item">
+<div class="strip cb2"><span>text</span><span>chip</span><span class="r">numeric</span><span class="r">delta</span></div>
+<div class="frame">
+<div class="tr th cb2"><span>Note</span><span>Cohort</span><span class="r">Staffed-hrs</span><span class="r">Δ vs plan</span></div>
+<div class="tr cb2"><span><span class="ell">Promo week adds night cover</span></span><span><span class="chip">Promo week</span></span><span class="r n">1,482</span><span class="r"><span class="dp pos"><span>▲</span><span>+4.2%</span></span></span></div>
+<div class="tr cb2"><span><span class="ell">Lead swap waits on union sign-off at DC-East before the week 32 publish</span></span><span><span class="chip on">Night shift</span></span><span class="r n">214</span><span class="r"><span class="dp neg"><span>▼</span><span>−3.8%</span></span></span></div>
+<div class="tr cb2"><span><span class="ell">Cover restored by overtime</span></span><span><span class="chip hover">Promo week</span><span class="ct" aria-label="1 more cohort">+1</span></span><span class="r n">12,006</span><span class="r"><span class="dp flat"><span>→</span><span>0.0%</span></span></span></div>
+<div class="tr cb2"><span><span class="ell">WMS upgrade 06:00–09:00</span></span><span><span class="tag">Union site</span></span><span class="r n">988</span><span class="r"><span class="dp pos"><span>▲</span><span>+0.6%</span></span></span></div>
+</div>
+<div class="cap"><span class="f">text · Inter Tight 13 --ink, one line, ellipsis</span> · <span class="f">chip · 22, filters the collection on click</span> · <span class="f">active when its value is in the rail</span> · <span class="f">hover --paper-2</span> · <span class="f">overflow +N as a Count</span> · <span class="f">a read-only fact is a Tag</span> · <span class="f">numeric · mono 13/500 tnum, right, unit in the header</span> · <span class="f">delta · DeltaPill, right, basis in the header</span></div>
+</div>
+<div class="item">
+<div class="strip cc"><span>text</span><span>identifier</span><span>avatar + name</span><span>status</span><span class="r">numeric</span><span class="r">delta</span></div>
+<div class="frame">
+<div class="tr th cc"><span>Note</span><span>Roster</span><span>Lead</span><span>Status</span><span class="r">Staffed-hrs</span><span class="r">Δ vs plan</span></div>
+<div class="tr cc"><span class="nd">no data</span><span class="nd">no data</span><span><span class="av none" role="img" aria-label="Unassigned"></span><span class="un">Unassigned</span></span><span class="nd">no data</span><span class="r nd">no data</span><span class="r nd">no data</span></div>
+</div>
+<div class="cap"><span class="f">empty value · "no data", mono italic 400 --ink-4, in the column's alignment</span> · <span class="f">never blank, never a dash</span> · <span class="f">a value that can't exist yet names why</span> · <span class="f">a missing person is the unassigned Avatar</span> · <span class="f">the only italic</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Table&gt; cell · &lt;Numeric&gt; · &lt;Status&gt; · &lt;MetricChip&gt; (DeltaPill) · &lt;ChipRail&gt; chip · &lt;Tag&gt; · &lt;Avatar&gt; · &lt;Button&gt; link</b> · <span class="f">every cell one line, content centred in the row</span> · <span class="f">right: numeric and delta, header too · left: everything else</span> · <span class="f">numeric and identifier mono 13/500 tnum --ink</span> · <span class="f">text 13 --ink, ellipsis</span> · <span class="f">Status dot 8 + word 10.5/600</span> · <span class="f">DeltaPill 20, -text on a 6% wash</span> · <span class="f">chip 22, gap 8, overflow Count</span> · <span class="f">avatar 24, gap 8</span> · <span class="f">link 12.5/500 --brand-d</span> · <span class="f">no data mono italic --ink-4</span> · <span class="f">each part as its own card draws it</span></div>
+</body></html>

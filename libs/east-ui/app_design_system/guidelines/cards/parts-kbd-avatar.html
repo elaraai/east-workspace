@@ -1,0 +1,85 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x660" subtitle="Kbd key caps and combos · the East shortcut set · Kbd in a Tooltip · Avatar 20 / 24 / 32, initials, group overflow" name="Kbd & Avatar" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 216px; gap: 32px; align-items: start; }
+.col { display: grid; gap: 20px; align-content: start; min-width: 0; }
+.item { display: grid; gap: 4px; align-content: start; justify-items: start; min-width: 0; }
+.item.full { justify-items: stretch; }
+.line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.line.wide { gap: 16px; }
+.kbd { height: 20px; min-width: 20px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper-2); font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; vertical-align: middle; }
+.kbd.inv { background: transparent; border-color: color-mix(in oklch, var(--fg-inverse) 40%, transparent); color: var(--fg-inverse); }
+.tip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-inverse); color: var(--fg-inverse); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-family: var(--font-mono); font-size: var(--fs-label-lg); line-height: 1.5; white-space: nowrap; }
+.combo { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--ink-4); white-space: nowrap; }
+.map { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: repeat(5, auto); grid-auto-flow: column; column-gap: 24px; align-content: start; }
+.mr { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--rule); }
+.act { white-space: nowrap; font-size: var(--fs-body-sm); color: var(--ink-2); }
+.txt { font-size: var(--fs-body); line-height: 1.5; color: var(--ink-2); white-space: nowrap; }
+.sizes { display: flex; align-items: flex-end; gap: 16px; }
+.sz { display: grid; gap: 4px; justify-items: center; }
+.av { width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--rule-strong); border-radius: var(--r-full); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-transform: uppercase; color: var(--ink-2); }
+.av.s20 { width: 20px; height: 20px; font-size: var(--fs-label-xs); }
+.av.s32 { width: 32px; height: 32px; font-size: var(--fs-label-lg); }
+.av.more { background: var(--paper); color: var(--ink-3); letter-spacing: 0; }
+.av.none { border-style: dashed; background: transparent; }
+.grp { display: flex; align-items: center; gap: 4px; }
+.who { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); color: var(--ink); white-space: nowrap; }
+.who .un { color: var(--ink-4); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 16px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="cols">
+<div class="col">
+<div class="item">
+<div class="line"><span class="kbd">⏎</span><span class="kbd">⌫</span><span class="kbd">esc</span><span class="kbd">⌘</span><span class="kbd">⌥</span><span class="kbd">⇧</span><span class="kbd">/</span><span class="kbd">g</span><span class="kbd">G</span></div>
+<div class="cap"><span class="f">key cap · 20 tall, min 20 wide, pad 0 4</span> · <span class="f">--paper-2, 1px --rule-strong, --r-sm</span> · <span class="f">mono 11/500 --ink-2</span> · <span class="f">case kept: g and G are different keys</span></div>
+</div>
+<div class="item">
+<div class="line wide"><span class="combo"><span class="kbd">⌘</span><span class="kbd">k</span></span><span class="combo"><span class="kbd">⌘</span><span class="kbd">/</span></span><span class="combo"><span class="kbd">⌥</span>+ drag</span><span class="combo"><span class="kbd">⇧</span>+ click</span><span class="combo"><span class="kbd">j</span>/<span class="kbd">k</span></span></div>
+<div class="cap"><span class="f">chord · caps 4 apart, no plus</span> · <span class="f">with a pointer · "+ drag" in mono --ink-4</span> · <span class="f">alternatives · "/" between</span></div>
+</div>
+<div class="item full">
+<div class="map">
+<div class="mr"><span class="combo"><span class="kbd">⏎</span></span><span class="act">Apply, commit</span></div>
+<div class="mr"><span class="combo"><span class="kbd">⌫</span></span><span class="act">Clear selection</span></div>
+<div class="mr"><span class="combo"><span class="kbd">esc</span></span><span class="act">Discard dirty</span></div>
+<div class="mr"><span class="combo"><span class="kbd">⌥</span>+ drag</span><span class="act">Duplicate</span></div>
+<div class="mr"><span class="combo"><span class="kbd">⌘</span><span class="kbd">/</span></span><span class="act">Search</span></div>
+<div class="mr"><span class="combo"><span class="kbd">⌘</span><span class="kbd">k</span></span><span class="act">Command palette</span></div>
+<div class="mr"><span class="combo"><span class="kbd">j</span>/<span class="kbd">k</span></span><span class="act">Queue next / prev</span></div>
+<div class="mr"><span class="combo"><span class="kbd">[</span>/<span class="kbd">]</span></span><span class="act">Page prev / next</span></div>
+<div class="mr"><span class="combo"><span class="kbd">g</span>/<span class="kbd">G</span></span><span class="act">First / last page</span></div>
+</div>
+<div class="cap"><span class="f">the East shortcut set</span> · <span class="f">no key toggles the sidebar — its chevron does</span></div>
+</div>
+<div class="item">
+<div class="txt">Press <span class="kbd">⏎</span> to apply or <span class="kbd">esc</span> to discard.</div>
+<div class="cap"><span class="f">inline · on the text's line, vertically centred</span></div>
+</div>
+<div class="item">
+<div class="tip" role="tooltip"><span>Search rosters</span><span class="combo"><span class="kbd inv">⌘</span><span class="kbd inv">/</span></span></div>
+<div class="cap"><span class="f">on --bg-inverse · inside a Tooltip</span> · <span class="f">no fill, 1px --fg-inverse at 40%, --fg-inverse text</span> · <span class="f">caps 8 after the text</span></div>
+</div>
+</div>
+<div class="col">
+<div class="item">
+<div class="sizes"><span class="sz"><span class="av s20">JM</span><span class="cap">20</span></span><span class="sz"><span class="av">JM</span><span class="cap">24</span></span><span class="sz"><span class="av s32">JM</span><span class="cap">32</span></span></div>
+<div class="cap"><span class="f">20 compact lists</span> · <span class="f">24 rows, default</span> · <span class="f">32 popovers, journal heads</span> · <span class="f">initials mono 600, 9.5 / 10 / 11</span></div>
+</div>
+<div class="item">
+<div class="grp"><span class="av">JM</span><span class="av">PN</span><span class="av">TO</span><span class="av more" aria-label="4 more">+4</span></div>
+<div class="cap"><span class="f">group · 3 shown + overflow count</span> · <span class="f">4 apart, never overlapped</span> · <span class="f">overflow --paper, --ink-3</span></div>
+</div>
+<div class="item">
+<div class="who"><span class="av">JM</span>Jo Marsh</div>
+<div class="who"><span class="av none" role="img" aria-label="Unassigned"></span><span class="un">Unassigned</span></div>
+<div class="cap"><span class="f">with a name · 13 --ink, gap 8</span> · <span class="f">unassigned: dashed ring</span></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Kbd&gt; · &lt;Hotkey&gt; · &lt;Avatar&gt; · &lt;AvatarGroup&gt;</b> · <span class="f">every key shown is a Kbd: running text, the search hint, menus, tooltips</span> · <span class="f">kbd 20 tall, min 20, pad 0 4</span> · <span class="f">--paper-2, 1px --rule-strong, --r-sm</span> · <span class="f">mono 11/500 --ink-2, case kept</span> · <span class="f">chord caps 4 apart</span> · <span class="f">"+" and "/" in --ink-4</span> · <span class="f">on --bg-inverse: no fill, 1px color-mix(--fg-inverse 40%), --fg-inverse</span> · <span class="f">avatar --r-full, 20 / 24 / 32</span> · <span class="f">--paper-3, 1px --rule-strong</span> · <span class="f">initials mono 600 --ink-2, 9.5 / 10 / 11</span> · <span class="f">initials only: no photo, no colour per person</span> · <span class="f">group gap 4, +N overflow on --paper</span> · <span class="f">unassigned 1px dashed</span></div>
+</body></html>

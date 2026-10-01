@@ -1,0 +1,112 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x860" subtitle="Typed values and their alignment · rest, hover, selected, editing, dirty, invalid, linked, proposed · cell and range selection · fill handle and fill preview" name="Sheet cell" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.canvas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.sg { position: relative; display: grid; gap: 1px; background: var(--rule); }
+.typed { grid-template-columns: 32px 104px 80px 80px 88px 64px 88px 64px 48px; }
+.mini { grid-template-columns: 24px 56px 56px 56px; }
+.gh { height: 24px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 0 8px; background: var(--paper); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.gh.l { justify-content: flex-start; }
+.gh.r { justify-content: flex-end; }
+.gh.n { height: auto; letter-spacing: 0; font-weight: 500; }
+.gh.on { background: var(--paper-3); color: var(--ink-2); }
+.sc { position: relative; height: 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; padding: 0 8px; background: var(--paper); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.sc.tx { justify-content: flex-start; font-family: var(--font-body); font-feature-settings: normal; }
+.sc.id { justify-content: flex-start; }
+.sc.en { justify-content: space-between; font-family: var(--font-body); font-feature-settings: normal; }
+.sc.bo { justify-content: center; }
+.ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.car { font-family: var(--font-mono); font-size: var(--fs-body); line-height: 1; color: var(--ink-4); }
+.cb { width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--paper); }
+.cb.on { background: var(--brand-d); border-color: var(--brand-d); }
+.cb.on::after { content: ""; width: 4px; height: 8px; box-sizing: border-box; border: solid var(--paper); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.sc.hover { background: var(--paper-2); }
+.sc.sel { background: var(--paper-3); }
+.sc.act { box-shadow: var(--shadow-focus-inset); }
+.sc.edit { background: var(--paper); box-shadow: var(--shadow-focus-inset); }
+.caret { flex: none; width: 1px; height: 16px; background: var(--ink); }
+.ev { display: inline-flex; align-items: center; gap: 1px; }
+.sc.dirty { background: var(--brand-tint); color: var(--brand-dd); }
+.sc.bad { justify-content: space-between; background: color-mix(in oklch, var(--neg) 6%, transparent); color: var(--neg-text); }
+.sc.bad::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--neg); }
+.sc.bad i { font-size: 14px; color: var(--neg); }
+.sc.lnk { justify-content: space-between; }
+.sc.lnk i { font-size: 14px; color: var(--ink-4); }
+.sc.prop { color: var(--brand-d); }
+.sc.prop::after { content: ""; position: absolute; inset: 0; border: 1px dashed var(--brand-d); }
+.sc.pre { color: var(--ink-3); }
+.cells { display: grid; grid-template-columns: repeat(4, 120px); justify-content: start; column-gap: 16px; row-gap: 4px; }
+.cells .sc { outline: 1px solid var(--rule); outline-offset: -1px; }
+.cells .sc.bad, .cells .sc.prop { outline: 0; }
+.selx { position: absolute; z-index: 2; box-sizing: border-box; border: 1px solid var(--ink); pointer-events: none; }
+.selx.fill { border-style: dashed; }
+.sc > .selx, .sc > .fh { flex: none; }
+.fh { position: absolute; z-index: 3; width: 8px; height: 8px; box-sizing: border-box; background: var(--ink); border: 1px solid var(--paper); }
+.three { display: grid; grid-template-columns: repeat(3, 197px); gap: 16px; justify-content: start; }
+.three .cap .f { white-space: normal; }
+.sp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame"><div class="sg typed">
+<span class="gh"></span><span class="gh l">Task</span><span class="gh l">Roster</span><span class="gh l">Shift</span><span class="gh r">Start</span><span class="gh r">Hours</span><span class="gh r">Cost</span><span class="gh r">Fill</span><span class="gh">OT</span>
+<span class="gh n">1</span><span class="sc tx"><span class="ell">Night-shift cover</span></span><span class="sc id">ROS-2041</span><span class="sc en">Night<span class="car">▾</span></span><span class="sc">Aug 06</span><span class="sc">42</span><span class="sc">$3,780</span><span class="sc">71.4%</span><span class="sc bo"><span class="cb on" role="checkbox" aria-checked="true" aria-label="Overtime"></span></span>
+<span class="gh n">2</span><span class="sc tx"><span class="ell">Pick-face replen</span></span><span class="sc id">ROS-2044</span><span class="sc en">Day<span class="car">▾</span></span><span class="sc">Aug 07</span><span class="sc">18</span><span class="sc">$1,530</span><span class="sc">88.0%</span><span class="sc bo"><span class="cb" role="checkbox" aria-checked="false" aria-label="Overtime"></span></span>
+<span class="gh n">3</span><span class="sc tx"><span class="ell">Dock 4 inspection</span></span><span class="sc id">ROS-2063</span><span class="sc en">Swing<span class="car">▾</span></span><span class="sc">Aug 10</span><span class="sc">6</span><span class="sc">$540</span><span class="sc">100.0%</span><span class="sc bo"><span class="cb" role="checkbox" aria-checked="false" aria-label="Overtime"></span></span>
+</div></div>
+<div class="cap"><span class="f">text Inter Tight 13, left, ellipsis</span> · <span class="f">identifier mono 13 / 500, left</span> · <span class="f">enum text + ▾ --ink-4</span> · <span class="f">date, number, currency, percent mono tabular, right</span> · <span class="f">boolean Checkbox 14, centred</span> · <span class="f">header 24, mono 10 / 600 / 0.16em, aligned with its column</span> · <span class="f">row index gutter 32, mono 10 / 500</span></div>
+</div>
+<div class="item">
+<div class="canvas">
+<div class="cells">
+<span class="sc">1,240</span><span class="sc hover">1,240</span><span class="sc sel act">1,240<i class="selx" style="inset: 0;"></i><i class="fh" style="right: -4px; bottom: -4px;"></i></span><span class="sc edit"><span class="ev">1,240<i class="caret"></i></span></span>
+<span class="cap">rest</span><span class="cap">hover</span><span class="cap">selected, active</span><span class="cap">editing</span>
+<span class="sc dirty">1,380</span><span class="sc bad"><i class="fa-solid fa-circle-exclamation" aria-label="Invalid"></i>−40</span><span class="sc lnk"><i class="fa-solid fa-link" aria-label="Linked"></i>1,240</span><span class="sc prop">1,310</span>
+<span class="cap">dirty</span><span class="cap">invalid</span><span class="cap">linked</span><span class="cap">proposed</span>
+</div>
+</div>
+<div class="cap"><span class="f">hover --paper-2</span> · <span class="f">selected --paper-3; the active cell adds --shadow-focus-inset</span> · <span class="f">editing: --paper, inset ring, 1px --ink caret, alignment kept</span> · <span class="f">dirty --brand-tint, value --brand-dd</span> · <span class="f">invalid 6% --neg wash, 1px --neg inset</span> · <span class="f">circle-exclamation --neg, value --neg-text</span> · <span class="f">the message opens on focus</span> · <span class="f">linked: fa-link --ink-4 leading, edit at the source</span> · <span class="f">proposed: 1px dashed --brand-d inset, value --brand-d until accepted, then dirty</span></div>
+</div>
+<div class="item">
+<div class="three">
+<div class="sp"><div class="frame"><div class="sg mini">
+<span class="gh"></span><span class="gh">A</span><span class="gh on">B</span><span class="gh">C</span>
+<span class="gh n">1</span><span class="sc">42</span><span class="sc">40</span><span class="sc">38</span>
+<span class="gh n on">2</span><span class="sc">18</span><span class="sc sel act">16</span><span class="sc">20</span>
+<span class="gh n">3</span><span class="sc">6</span><span class="sc">8</span><span class="sc">6</span>
+<span class="gh n">4</span><span class="sc">24</span><span class="sc">24</span><span class="sc">22</span>
+<span class="gh n">5</span><span class="sc">30</span><span class="sc">32</span><span class="sc">28</span>
+<i class="selx" style="left: 81px; top: 57px; width: 58px; height: 34px;"></i><i class="fh" style="left: 134px; top: 86px;"></i>
+</div></div><div class="cap"><span class="f">cell · B2 active</span> · <span class="f">1px --ink edge, fill handle at its corner</span></div></div>
+<div class="sp"><div class="frame"><div class="sg mini">
+<span class="gh"></span><span class="gh on">A</span><span class="gh on">B</span><span class="gh">C</span>
+<span class="gh n">1</span><span class="sc">42</span><span class="sc">40</span><span class="sc">38</span>
+<span class="gh n on">2</span><span class="sc sel act">18</span><span class="sc sel">16</span><span class="sc">20</span>
+<span class="gh n on">3</span><span class="sc sel">6</span><span class="sc sel">8</span><span class="sc">6</span>
+<span class="gh n">4</span><span class="sc">24</span><span class="sc">24</span><span class="sc">22</span>
+<span class="gh n">5</span><span class="sc">30</span><span class="sc">32</span><span class="sc">28</span>
+<i class="selx" style="left: 24px; top: 57px; width: 115px; height: 67px;"></i><i class="fh" style="left: 134px; top: 119px;"></i>
+</div></div><div class="cap"><span class="f">range · A2:B3, anchor A2 keeps the ring</span> · <span class="f">cells --paper-3, one --ink edge</span></div></div>
+<div class="sp"><div class="frame"><div class="sg mini">
+<span class="gh"></span><span class="gh">A</span><span class="gh on">B</span><span class="gh">C</span>
+<span class="gh n on">1</span><span class="sc">42</span><span class="sc sel act">40</span><span class="sc">38</span>
+<span class="gh n on">2</span><span class="sc">18</span><span class="sc sel">44</span><span class="sc">20</span>
+<span class="gh n">3</span><span class="sc">6</span><span class="sc pre">48</span><span class="sc">6</span>
+<span class="gh n">4</span><span class="sc">24</span><span class="sc pre">52</span><span class="sc">22</span>
+<span class="gh n">5</span><span class="sc">30</span><span class="sc">32</span><span class="sc">28</span>
+<i class="selx" style="left: 81px; top: 24px; width: 58px; height: 67px;"></i><i class="selx fill" style="left: 81px; top: 90px; width: 58px; height: 67px;"></i><i class="fh" style="left: 134px; top: 152px;"></i>
+</div></div><div class="cap"><span class="f">filling · dragging the handle</span> · <span class="f">extent 1px dashed --ink, preview values --ink-3</span></div></div>
+</div>
+<div class="cap"><span class="f">selection edge 1px --ink over the gridlines</span> · <span class="f">fill handle 8 × 8 square, --ink with a 1px --paper edge, on the bottom-right corner</span> · <span class="f">headers of selected rows and columns --paper-3, --ink-2</span> · <span class="f">released fills land as dirty</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Sheet&gt; cell · type text | id | enum | date | number | currency | percent | boolean</b> · <span class="f">one size: 32 tall, the Input's box, pad 0 8, 1px --rule grid</span> · <span class="f">header 24, gutter 32</span> · <span class="f">values mono 13 / 500 tabular, text Inter Tight 13</span> · <span class="f">hover --paper-2 · selected --paper-3 · active --shadow-focus-inset</span> · <span class="f">dirty --brand-tint + --brand-dd</span> · <span class="f">invalid 6% --neg + 1px --neg + --neg-text</span> · <span class="f">linked fa-link 14 --ink-4</span> · <span class="f">proposed 1px dashed --brand-d + --brand-d</span> · <span class="f">selection edge 1px --ink</span> · <span class="f">fill handle 8, --ink, 1px --paper</span> · <span class="f">fill extent 1px dashed --ink, preview --ink-3</span> · <span class="f">an unentered cell is empty; a null reads "no data"</span></div>
+</body></html>

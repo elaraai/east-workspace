@@ -1,22 +1,36 @@
-<!-- @dsCard group="Colors" viewport="700x170" subtitle="Ink, paper, rules — the only text/surface/border colors" name="Semantic ink & paper" -->
+<!-- @dsCard group="Colors" viewport="700x360" subtitle="Ink, paper, rules — readable text is --ink-4 or darker on every paper and --brand-tint; --ink-5 is disabled and muted marks only" name="Semantic ink & paper" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { background: var(--paper); margin: 0; padding: 14px 18px; }
-.g { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
-.sw { border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; font-family: var(--font-mono); }
-.sw .t { height: 34px; } .sw .m { padding: 4px 6px; font-size: 9px; line-height: 1.35; }
-.sw .n { color: var(--ink); font-weight: 600; display: block; } .sw .u { color: var(--ink-4); }
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.g { display: grid; gap: 8px; }
+.g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.g6 { grid-template-columns: repeat(6, minmax(0, 1fr)); padding-top: 12px; }
+.sw { border: 1px solid var(--rule); border-radius: var(--r-sm); overflow: hidden; font-family: var(--font-mono); }
+.sw .t { height: 32px; }
+.sw .m { padding: 4px 8px 8px; font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.02em; }
+.sw .n { display: block; font-weight: 600; color: var(--ink); }
+.sw .u { display: block; color: var(--ink-4); }
+.sw .r { display: block; color: var(--ink-3); }
+.inv { display: flex; align-items: center; justify-content: center; background: var(--bg-inverse); color: var(--fg-inverse); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
-<div class="g">
-  <div class="sw"><div class="t" style="background:var(--ink)"></div><div class="m"><span class="n">--ink</span><span class="u">text</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--ink-2)"></div><div class="m"><span class="n">--ink-2</span><span class="u">strong 2°</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--ink-3)"></div><div class="m"><span class="n">--ink-3</span><span class="u">secondary</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--ink-4)"></div><div class="m"><span class="n">--ink-4</span><span class="u">labels</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--ink-5)"></div><div class="m"><span class="n">--ink-5</span><span class="u">faint</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--paper);border-bottom:1px solid var(--rule)"></div><div class="m"><span class="n">--paper</span><span class="u">card</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--paper-2)"></div><div class="m"><span class="n">--paper-2</span><span class="u">page/band</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--paper-3)"></div><div class="m"><span class="n">--paper-3</span><span class="u">well</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--rule)"></div><div class="m"><span class="n">--rule</span><span class="u">divider</span></div></div>
-  <div class="sw"><div class="t" style="background:var(--rule-strong)"></div><div class="m"><span class="n">--rule-strong</span><span class="u">edge</span></div></div>
+<div class="g g5">
+<div class="sw"><div class="t" style="background:var(--ink)"></div><div class="m"><span class="n">--ink</span><span class="u">text, headings</span><span class="r">L 17.4/16.7/15.9</span><span class="r">D 14.2/11.9/10.1</span></div></div>
+<div class="sw"><div class="t" style="background:var(--ink-2)"></div><div class="m"><span class="n">--ink-2</span><span class="u">strong secondary</span><span class="r">L 9.4/8.9/8.5</span><span class="r">D 10.8/9.1/7.7</span></div></div>
+<div class="sw"><div class="t" style="background:var(--ink-3)"></div><div class="m"><span class="n">--ink-3</span><span class="u">secondary, ledes</span><span class="r">L 6.8/6.5/6.2</span><span class="r">D 8.4/7.1/6.0</span></div></div>
+<div class="sw"><div class="t" style="background:var(--ink-4)"></div><div class="m"><span class="n">--ink-4</span><span class="u">labels, captions</span><span class="r">L 5.2/4.9/4.7</span><span class="r">D 6.5/5.5/4.6</span></div></div>
+<div class="sw"><div class="t" style="background:var(--ink-5)"></div><div class="m"><span class="n">--ink-5</span><span class="u">disabled, muted marks</span><span class="r">L 2.3/2.2/2.1</span><span class="r">D 2.3/1.9/1.6</span></div></div>
 </div>
+<div class="g g6">
+<div class="sw"><div class="t" style="background:var(--paper);border-bottom:1px solid var(--rule)"></div><div class="m"><span class="n">--paper</span><span class="u">frames, rows</span></div></div>
+<div class="sw"><div class="t" style="background:var(--paper-2)"></div><div class="m"><span class="n">--paper-2</span><span class="u">page, bands, hover</span></div></div>
+<div class="sw"><div class="t" style="background:var(--paper-3)"></div><div class="m"><span class="n">--paper-3</span><span class="u">wells, selected</span></div></div>
+<div class="sw"><div class="t" style="background:var(--rule)"></div><div class="m"><span class="n">--rule</span><span class="u">inside dividers</span></div></div>
+<div class="sw"><div class="t" style="background:var(--rule-strong)"></div><div class="m"><span class="n">--rule-strong</span><span class="u">edges, inputs</span></div></div>
+<div class="sw"><div class="t inv">Aa</div><div class="m"><span class="n">--bg-inverse</span><span class="n">--fg-inverse</span><span class="u">Stamp, Tooltip</span></div></div>
+</div>
+<div class="ann"><b>&lt;Text&gt; · &lt;Card&gt; · &lt;Separator&gt;</b> · <span class="f">contrast on --paper / --paper-2 / --paper-3, light (L) and dark (D)</span> · <span class="f">readable text is --ink-4 or darker: ≥ 4.5:1 on all three papers and on --brand-tint</span> · <span class="f">--ink-4 on --brand-tint 4.7 light, 5.3 dark</span> · <span class="f">both themes</span> · <span class="f">--ink-5 only for disabled text and icons and muted marks: the muted tone, the 3rd stacked-column segment</span> · <span class="f">hover steps one paper down</span> · <span class="f">--paper-3 on a row = selected</span> · <span class="f">the inverse pair is for the Stamp and Tooltip only</span></div>
 </body></html>

@@ -1,0 +1,480 @@
+{
+  "projectId": "bc5a010e-0550-42aa-b63b-0ef50ccf74e8",
+  "downloadedAt": "2026-10-01T22:57:08+00:00",
+  "files": [
+    {
+      "path": ".thumbnail",
+      "bytes": 9500,
+      "sha256": "5c408f86ea24946fcb91f7e262d9eb3f6c08cefb3f58d3da58352a8d29092572",
+      "contentType": "text/plain"
+    },
+    {
+      "path": "README.md",
+      "bytes": 16213,
+      "sha256": "94d78103b1e7a936e1c9214ee438188528214d9ee731346b00d5184aafe996ff",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "SKILL.md",
+      "bytes": 907,
+      "sha256": "eaf2b8010b8e6657156f7aa0870118a56fbcd8e9c5af566e9a91aec207151431",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "_adherence.oxlintrc.json",
+      "bytes": 7254,
+      "sha256": "64f66b04d6156d24d5ead2a8f2d104b5445d14f941b586b8861f8171f161abed",
+      "contentType": "application/json"
+    },
+    {
+      "path": "_ds_bundle.css",
+      "bytes": 2619,
+      "sha256": "41e563caf0655e379e524b8322259955560f16e46ed983a1cf82fe819170f71b",
+      "contentType": "text/css"
+    },
+    {
+      "path": "_ds_bundle.js",
+      "bytes": 324,
+      "sha256": "74e2bda5d2b01669e0e881d81e0c2f2507faf3fb115acfeb568e997bb12bd5ec",
+      "contentType": "application/javascript"
+    },
+    {
+      "path": "_ds_manifest.json",
+      "bytes": 34530,
+      "sha256": "5fdb84e042e456c97ee6de2b30758e1ba396e13ad49ce97713f4826f15412ac0",
+      "contentType": "application/json"
+    },
+    {
+      "path": "guidelines/cards/app-appbar-densities.html",
+      "bytes": 5333,
+      "sha256": "1977c704f434e008b5c3464882f8dd3243bb64fc8ca97b68dce28b917d83672d",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/app-commit-bar.html",
+      "bytes": 3810,
+      "sha256": "0519cb330ca9bda9dc33c582003ae3a35d1773bbfabda2a461802969df62e029",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/app-frame-roles.html",
+      "bytes": 5613,
+      "sha256": "54999e8c917ed3bcfc2ab54e3bda8e931c795a1f79070c063776557e005e857e",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/app-main-layouts.html",
+      "bytes": 2826,
+      "sha256": "aba5d4d57f7f659da02f90469e1c74c82ca2ec4f8c8f7f60b5b2c0d711354eeb",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/app-mobile.html",
+      "bytes": 7717,
+      "sha256": "2fc788e91cfb62f3ad648e894068f9982a4f9d87e8cae736918420e993bed740",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/app-shell.html",
+      "bytes": 2394,
+      "sha256": "96b141f498f9326a53f92caa294f77b18dd3b0d5c14cf2c489383c1c51216785",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/colors-brand.html",
+      "bytes": 6056,
+      "sha256": "eb03d96cb5b5557d1d27437da0c78ad69384d58631318b3c665ddac97e17e05d",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/colors-dark.html",
+      "bytes": 3897,
+      "sha256": "2109d9950fbbdc8aa4e0d3fac496027773a34120ea6f8a8475ca267fbe53a9c9",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/colors-ink-paper.html",
+      "bytes": 4514,
+      "sha256": "0461e3dab7ca5b1908eb048e4a95726bc8d5846d8967f2be854562fb986e1909",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/colors-valence.html",
+      "bytes": 6372,
+      "sha256": "a9ba6d53b9b2a37525fa06cf729aad6419ad3c964fae1837582766cf1613d1a9",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/convention-structure.html",
+      "bytes": 4544,
+      "sha256": "0930d81221b8284f005b500398ef0dd8debf8f29cf27e021a9002eec3e66660c",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/foundations-spacing.html",
+      "bytes": 4798,
+      "sha256": "07f4c5ecf765fb23af7a5d532ba3cd65049d992349bd7f07e727f60f431f48ba",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-banner.html",
+      "bytes": 9847,
+      "sha256": "72f52f8d6ef357f3ce906295d1bca0e5cbcaf543158692c0ed4c1c2b21c2efe0",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-board-column.html",
+      "bytes": 11393,
+      "sha256": "926964ac0e3c5e19db7f2a10079fd28860ccd0d4e9e4a54930f84b5c1b73c658",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-button.html",
+      "bytes": 12519,
+      "sha256": "051f26deea00671f7167f4030081c7564821283b46e83f770c25b4796500e1d1",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-cell-types.html",
+      "bytes": 11311,
+      "sha256": "1c175ebb93dff0b60916b1d9b267dca2c9751858591d6b9eab525ba72b29ee57",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-checkbox.html",
+      "bytes": 7629,
+      "sha256": "c120a548cf85bc1e2d67636940c04ee8972a3dba3183ace4b6a528be74101a71",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-collection-toolbar.html",
+      "bytes": 8964,
+      "sha256": "2bf1b453ff6286f385694c2ca5440a257a7166efbebf4c8ed720ba776eb804e9",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-compact-list-row.html",
+      "bytes": 14045,
+      "sha256": "ab8a3b441c8023b62d5bcef80b433cf9dfdf0bf24c4f9f1d43170d008f6f1a7f",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-deltapill-status.html",
+      "bytes": 8759,
+      "sha256": "ffae95e895542cad83a527449f8cc1b5453734bd41e28c71403850ea20220c8c",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-edge-routing.html",
+      "bytes": 7030,
+      "sha256": "3673f50bd1fa9841e84cb3f80c2c7f8f1b13a547fc6f99666418f1d1eaffba2d",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-edge.html",
+      "bytes": 8167,
+      "sha256": "211b3174eea216f6fb6389e5f90159037ab4564edd42e94d05ce1c84dae4f19d",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-empty-state.html",
+      "bytes": 5929,
+      "sha256": "167d99d9f43f4a9ac7be61558cce803bb9fe8dc59c79ee97452494ad4d85b82c",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-eyebrow-label.html",
+      "bytes": 6750,
+      "sha256": "86bf987e40d5d5ed782d9e1b6081c6ba44a2af0a35dff9a8f3244f402c453435",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-graph-node-ports.html",
+      "bytes": 7957,
+      "sha256": "5949d138e2dc2e791eb87f31958e5135d7c461b5a6eadba6efce7f3df2a66958",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-graph-node-zone.html",
+      "bytes": 7695,
+      "sha256": "2fd8c79441fa4b7127970fd1492680eb7e46ff319420a1a233f0144703675ffd",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-graph-node.html",
+      "bytes": 10880,
+      "sha256": "a17ae7f82c0e76c8dc9e60ad76a723a1f7e5bb1ffefd04b757ca8eefaa624e6a",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-header-cell.html",
+      "bytes": 11616,
+      "sha256": "ec95416daeda3abeab937261e9c81ba36188c255d149ca3447976ffb2f74c659",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-heat-cell.html",
+      "bytes": 13278,
+      "sha256": "8d77559f908fd00aa1e6b8ebf18467ef101475c92cd7219e60f075fe5a63e28c",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-history-bar.html",
+      "bytes": 17671,
+      "sha256": "fbe5c754b1e15f9d06845cb10af49eda34867c13af7123787c5b9c1aea237b44",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-horizon-brush.html",
+      "bytes": 16064,
+      "sha256": "962263b91f0de62982040e4f4cfcab635be420b1358aecced716ac6039649491",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-input-search.html",
+      "bytes": 7494,
+      "sha256": "86839b5c0760133d01e03a230371a2ff31ee54d7578041d899d0fc5d0e2f92ea",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-item-card.html",
+      "bytes": 17330,
+      "sha256": "5935ec28a00fbf1009f93b2bb34da3c1c80a2fc6d2a996d3689b1646ec1cb091",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-kbd-avatar.html",
+      "bytes": 9186,
+      "sha256": "a4b3962dea39b8ae3c4f2006778ba55e7a454048126d9f1ef28c622b7640c490",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-map-overlay.html",
+      "bytes": 12839,
+      "sha256": "b71db04535e2a6eb57ca805f83ce6932b3f612c307545e1894c34555d6333a79",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-map.html",
+      "bytes": 11502,
+      "sha256": "02cd31e428ef62cfb6dcad2276b15b45c7f501cdaa452b7327efd1b8ac6aaf8f",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-menu.html",
+      "bytes": 10853,
+      "sha256": "fe2590ddcef9b348f3b76ad8d0dd86d48e09f3e578b5d981ecb878eea33d2b1f",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-numeric.html",
+      "bytes": 7678,
+      "sha256": "6f4ac3bbffe1205462426122f51d4582073e8002e6100914e553b66b2fcf1c7b",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-pagination.html",
+      "bytes": 15694,
+      "sha256": "1c4e3d9802487ad4aa3527e2a317a320315b64bd9d0180a248f29362d915b22c",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-pick-panel.html",
+      "bytes": 12987,
+      "sha256": "9ccb1da8964fb76a1c3fde2033ac64e8fffc588ff3e7fac3f9949fca227fbfc6",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-popover.html",
+      "bytes": 9803,
+      "sha256": "bf5e4abb8da7121785b7b5ba0d14e4bc9b85b784297cfd368afd0c98bbaffe59",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-progress.html",
+      "bytes": 9083,
+      "sha256": "3234023d43d5c452d9a76ca34fffcf0e1f83717ec6de2bbe8d6bbca96c43ca22",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-row-states.html",
+      "bytes": 14067,
+      "sha256": "95407cfe406218b65c11f5813e3cd0b90e7a918988b483ed620e7b0e25763036",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-row.html",
+      "bytes": 16327,
+      "sha256": "da83b54044c2a3f9038b3e1699a644782ce583682d47a15cf094ef23cd016cb2",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-run-bar.html",
+      "bytes": 10961,
+      "sha256": "3754f9929a33b1a57186dbec055e840a4e06a511b62933863646cb0c11acd1c6",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-segment-group.html",
+      "bytes": 6118,
+      "sha256": "7f3981970ed68a47dffc84fb2621ed13d85ba3004c089c4e936c0613145090a4",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-sheet-cell.html",
+      "bytes": 13301,
+      "sha256": "3b7632e8484d678753027df94ac7a1d16653fdde99114429c44e0b24241e193f",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-skeleton.html",
+      "bytes": 6569,
+      "sha256": "a2b02ba96f568ad7db45009008f4d631feb0843d942bea6c11d70d6f8baabdd9",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-slice-affordances.html",
+      "bytes": 32982,
+      "sha256": "840921a943dfcf3b5596fd584ad69fba3f9dfa305c5e168bd70f5b561866bb16",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-slice-edit.html",
+      "bytes": 31746,
+      "sha256": "568172acd8c4a1afc2438cbc33db647acab1879e4a91c4999fd30760068bbc77",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-slice-summary-legend.html",
+      "bytes": 15965,
+      "sha256": "c3ec693a3c3961f2ca0e0d6d96bb1aad611789a6b9533407f8cb83e799d22e9a",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-summary-rows.html",
+      "bytes": 10812,
+      "sha256": "49277b51cefd4ad2fe604ba121bfaf343654e0f4a966a45911b34d7e70e52926",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-tag-chip.html",
+      "bytes": 7801,
+      "sha256": "8fdff54482698be8f161db59ce0f54e2a23bc61803a5f6818096c9d3a27356b8",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-time-axis-header.html",
+      "bytes": 8003,
+      "sha256": "84be6a855b048caaa5670e75623446e1adbb36c3ce01e190050dc904fb8a16c8",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-toolbar.html",
+      "bytes": 29966,
+      "sha256": "96fbf1c68332405d37b5e470ad193c935ce4002352350eb1e8ebb46ee5beff4a",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-tooltip.html",
+      "bytes": 7884,
+      "sha256": "9117b35e679cf0cc9f61514b1099c1c3f1dff8a352cd9f512ca194d3ae32f2f5",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/parts-tree-row.html",
+      "bytes": 12928,
+      "sha256": "612b2adab56c1790f6df66c29991716bd1de6cd178e4f7b090610882a72cf6a6",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/slice-parts.css",
+      "bytes": 17277,
+      "sha256": "35e1bb275c55d166ed49dc9aa713c6a3537a527f741ae2aa5c92ff542f0fe6a8",
+      "contentType": "text/css"
+    },
+    {
+      "path": "guidelines/cards/type-families.html",
+      "bytes": 3147,
+      "sha256": "650a1e4e37b95238b4d8b30f1106842ba837e1ca457bd1298007a5a756910f7f",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/type-numerals.html",
+      "bytes": 2377,
+      "sha256": "dc9bacfb0677ec5f629241d9eb87a82f3a1c8a6b026e70b9ad31f78ccfe1c801",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/cards/type-scale.html",
+      "bytes": 5151,
+      "sha256": "cb543db4fa32ea0bc183354c192c022cfe4ece3b634d16dd97be2546f0575c27",
+      "contentType": "text/html"
+    },
+    {
+      "path": "guidelines/guidelines/app-layout.md",
+      "bytes": 13604,
+      "sha256": "192a3ef68f2f891476c6b6f14867f3d496856b34811930bba74c2c1162ad6cab",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "guidelines/guidelines/base-components.md",
+      "bytes": 46681,
+      "sha256": "806c57e932ec8e4a7b0999d67e6d62569682f4414f1cb67c9aac1c506fc96959",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "guidelines/guidelines/charts.md",
+      "bytes": 5332,
+      "sha256": "61e6aba8a05d4e9407571e4ca11d1910c5503816fe8000bd95db77d87bbb27da",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "guidelines/guidelines/component-review.md",
+      "bytes": 6868,
+      "sha256": "e1a586bf83dd77c113289771d6864258502927b9eac2034ec2feed209f327731",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "guidelines/guidelines/component-rules.md",
+      "bytes": 9654,
+      "sha256": "3e500002350ca8c5c1ec9244952f96ca6db79328c8855c4689173f5564045c3f",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "guidelines/index.md",
+      "bytes": 1212,
+      "sha256": "08e37b3f1921e038c813f3db9c6f870270655c346ff34de9024bf5e0c0cee63b",
+      "contentType": "text/markdown"
+    },
+    {
+      "path": "styles.css",
+      "bytes": 125,
+      "sha256": "d5653d6db09b0d11e0079faaeba5b1a2ca42e5f4c32c8b6b0aacc602152efde8",
+      "contentType": "text/css"
+    },
+    {
+      "path": "thumbnail.html",
+      "bytes": 833,
+      "sha256": "991b70738f3dcfb4dd9400f11322a16b582ef67e76b7bcd5c611c7259d1d8e7e",
+      "contentType": "text/html"
+    },
+    {
+      "path": "tokens/colors.css",
+      "bytes": 6950,
+      "sha256": "17dd0b42feed3f060366ffadc9e5ac39fe4bcb48c822607023e1d49703798363",
+      "contentType": "text/css"
+    },
+    {
+      "path": "tokens/layout.css",
+      "bytes": 2497,
+      "sha256": "af54aba7341d34bc080c1192dfd9f0d070e48164fa372dc437383c5fb1d6a6db",
+      "contentType": "text/css"
+    },
+    {
+      "path": "tokens/typography.css",
+      "bytes": 2552,
+      "sha256": "f124b3d6253a0db7fb4a0020be2196ea01410b6f98cede62a292468ee8469954",
+      "contentType": "text/css"
+    }
+  ]
+}

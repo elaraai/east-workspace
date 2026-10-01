@@ -1,0 +1,65 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x530" subtitle="Ports — open, connected, connect target, disabled · labels inside a state and outside an item" name="Graph node · ports & label" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.canvas { display: grid; gap: 24px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.sec { display: grid; gap: 12px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.g4 { display: grid; grid-template-columns: repeat(4, 144px); gap: 20px 12px; }
+.it { display: grid; gap: 8px; align-content: start; }
+.flow { position: relative; width: 618px; height: 64px; }
+.flow svg { position: absolute; inset: 0; overflow: visible; }
+.e { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ah { fill: var(--ink-3); }
+.n { position: absolute; top: 8px; width: 144px; height: 56px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 12px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.n.static { position: relative; top: 0; }
+.nl { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-body); font-weight: 500; line-height: 1.25; color: var(--ink); }
+.nl .t { white-space: nowrap; }
+.nl .t.clip { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nm { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); line-height: 1.4; color: var(--ink-4); }
+.p { position: absolute; width: 8px; height: 8px; box-sizing: border-box; background: var(--ink-4); border: 1px solid var(--ink-4); }
+.p.open { background: var(--paper); }
+.p.act { background: var(--brand-tint); border-color: var(--brand-d); }
+.p.off { background: var(--paper); border-color: var(--ink-5); }
+.pl { position: absolute; right: 12px; transform: translateY(-50%); font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1; color: var(--ink-4); }
+.ps { display: flex; align-items: flex-start; gap: 8px; }
+.ps .p { position: relative; flex: none; margin-top: 3px; }
+.gl { position: relative; width: 32px; height: 32px; box-sizing: border-box; flex: none; display: flex; align-items: center; justify-content: center; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); font-size: 14px; color: var(--ink-3); }
+.right { display: flex; align-items: center; gap: 8px; }
+.below { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.lb { display: grid; }
+.below .lb { justify-items: center; }
+.sl { white-space: nowrap; font-size: var(--fs-body-sm); font-weight: 500; line-height: 1.3; color: var(--ink); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="canvas">
+<div class="sec">
+<div class="k">Ports · 8 × 8 · centred on the edge · LR</div>
+<div class="flow">
+<svg width="618" height="64" viewBox="0 0 618 64" aria-hidden="true"><path class="e" d="M148 36H209"></path><path class="ah" d="M216 36l-8-4v8z"></path><path class="e" d="M408 28H463"></path><path class="ah" d="M470 28l-8-4v8z"></path></svg>
+<div class="n" style="left:0"><span class="nl"><span class="t">Pick · zone A</span></span><span class="nm">1,180 u/h · 91%</span><span class="p" style="right:-5px;top:23px"></span></div>
+<div class="n" style="left:220px;width:184px"><span class="nl"><span class="t">Quality check</span></span><span class="nm">pass rate 96.8%</span><span class="p" style="left:-5px;top:23px"></span><span class="p" style="right:-5px;top:15px"></span><span class="pl" style="top:19px">pass</span><span class="p open" style="right:-5px;top:31px"></span><span class="pl" style="top:35px">rework</span></div>
+<div class="n" style="left:474px;top:0"><span class="nl"><span class="t">Pack</span></span><span class="nm">1,210 u/h · 88%</span><span class="p" style="left:-5px;top:23px"></span></div>
+</div>
+<div class="g4">
+<div class="ps"><span class="p open"></span><span class="cap"><span class="f">open</span> · <span class="f">--paper, 1px --ink-4</span> · <span class="f">connect mode only</span></span></div>
+<div class="ps"><span class="p"></span><span class="cap"><span class="f">connected</span> · <span class="f">--ink-4</span> · <span class="f">link ends on it</span></span></div>
+<div class="ps"><span class="p act"></span><span class="cap"><span class="f">connect target</span> · <span class="f">--brand-tint</span> · <span class="f">1px --brand-d</span></span></div>
+<div class="ps"><span class="p off"></span><span class="cap"><span class="f">disabled</span> · <span class="f">--paper, 1px --ink-5</span> · <span class="f">refuses links</span></span></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Label</div>
+<div class="g4">
+<div class="it"><div class="n static"><span class="nl"><span class="t clip">Replenishment · aisle 14–22</span></span><span class="nm">640 u/h · util 72%</span></div><div class="cap"><span class="f">inside a state</span> · <span class="f">one line, ellipsis</span> · <span class="f">full name in the HoverCard</span></div></div>
+<div class="it"><div class="right"><span class="gl"><i class="fa-solid fa-warehouse" aria-label="Distribution centre"></i></span><span class="lb"><span class="sl">DC-North</span><span class="nm">cap 1,200 · 92%</span></span></div><div class="cap"><span class="f">outside an item · right</span> · <span class="f">gap 8, centred on the item</span> · <span class="f">default</span></div></div>
+<div class="it"><div class="below"><span class="gl"><i class="fa-solid fa-warehouse" aria-label="Distribution centre"></i></span><span class="lb"><span class="sl">DC-East</span><span class="nm">cap 1,450</span></span></div><div class="cap"><span class="f">outside an item · below</span> · <span class="f">gap 8, centred</span> · <span class="f">when right is crowded</span></div></div>
+<div class="it"><div class="right"><span class="gl"><i class="fa-solid fa-industry" aria-label="Plant"></i></span><span class="lb"><span class="sl">Plant 2</span><span class="nm">line 4 of 6</span></span></div><div class="cap"><span class="f">label 12.5/500 --ink</span> · <span class="f">sublabel mono 10</span> · <span class="f">kind or capacity</span></div></div>
+</div>
+</div>
+</div>
+<div class="ann"><b>&lt;Flowchart&gt; · &lt;Schematic&gt; — ports and labels</b> · <span class="f">port 8 × 8, square, centred on the edge line, half outside</span> · <span class="f">LR: in left, out right · TD: in top, out bottom</span> · <span class="f">several ports sit 16 apart, centred on the edge</span> · <span class="f">open --paper + 1px --ink-4, drawn only in connect mode</span> · <span class="f">connected --ink-4</span> · <span class="f">connect target --brand-tint + 1px --brand-d (the active control)</span> · <span class="f">disabled 1px --ink-5</span> · <span class="f">port label mono 9.5 --ink-4, inside, 4 from the port</span> · <span class="f">a link ends on the port's outer face, arrowhead 8 × 8 in the link's colour</span> · <span class="f">state label inside: 13/500 --ink, one line, ellipsis</span> · <span class="f">item label outside: right or below, gap 8, never over a link or halo</span></div>
+</body></html>

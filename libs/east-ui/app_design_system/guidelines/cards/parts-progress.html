@@ -1,0 +1,67 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x740" subtitle="6px bar on --paper-3, always with a mono percent — queued, running, complete, failed, outline, indeterminate, in a row" name="Progress" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; gap: 16px; }
+.canvas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 32px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.item { display: grid; gap: 4px; align-content: start; }
+.pg { display: grid; gap: 8px; }
+.ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 16px; }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; color: var(--ink-4); }
+.meta { font-family: var(--font-mono); font-size: var(--fs-label-sm); white-space: nowrap; color: var(--ink-4); }
+.meta.ng { color: var(--neg-text); }
+.bar { display: flex; align-items: center; gap: 8px; height: 16px; }
+.tk { flex: 1; min-width: 0; height: 6px; box-sizing: border-box; background: var(--paper-3); }
+.tk.ol { background: transparent; border: 1px solid var(--rule-strong); }
+.fl { display: block; height: 100%; background: var(--brand-d); }
+.fl.pos { background: var(--pos); }
+.fl.neg { background: var(--neg); }
+.pc { min-width: 32px; text-align: right; font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 600; font-feature-settings: "tnum" 1; color: var(--ink); }
+.pc.q { color: var(--ink-4); }
+.pc.ng { color: var(--neg-text); }
+.band { padding: 8px 12px; background: var(--paper-2); border-radius: var(--r-md); }
+.st { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { position: relative; width: 8px; height: 8px; flex: none; border-radius: var(--r-full); background: var(--brand); }
+.d.pos { background: var(--pos); }
+.d.neg { background: var(--neg); }
+.d.q { background: var(--ink-4); }
+.live::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-full); background: inherit; animation: east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite; }
+@keyframes east-pulse { 0% { transform: scale(1); opacity: 0.6; } 25%, 100% { transform: scale(2.5); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live::after { animation: none; opacity: 0; } }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.eb .lbl { color: var(--ink); }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: 72px minmax(0, 1fr) 120px 160px 88px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.m { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.nd { white-space: nowrap; font-family: var(--font-mono); font-style: italic; font-weight: 400; color: var(--ink-4); }
+.rt { text-align: right; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="canvas">
+<div class="item"><div class="pg"><div class="ph"><span class="lbl">Solve · run #44</span><span class="meta">queued · 2 ahead</span></div><div class="bar"><span class="tk"></span><span class="pc q">0%</span></div></div><div class="cap"><span class="f">queued</span> · <span class="f">track only</span> · <span class="f">percent --ink-4</span></div></div>
+<div class="item"><div class="pg"><div class="ph"><span class="lbl">Solve · run #43</span><span class="meta">step 3 of 5 · 2m 14s</span></div><div class="bar"><span class="tk"><span class="fl" style="width:42%"></span></span><span class="pc">42%</span></div></div><div class="cap"><span class="f">running</span> · <span class="f">tone brand</span> · <span class="f">--brand-d on --paper-3</span></div></div>
+<div class="item"><div class="pg"><div class="ph"><span class="lbl">Solve · run #42</span><span class="meta">done in 4m 02s</span></div><div class="bar"><span class="tk"><span class="fl pos" style="width:100%"></span></span><span class="pc">100%</span></div></div><div class="cap"><span class="f">complete</span> · <span class="f">tone pos</span> · <span class="f">--pos</span></div></div>
+<div class="item"><div class="pg"><div class="ph"><span class="lbl">Solve · run #41</span><span class="meta ng">failed at solve · 09:14</span></div><div class="bar"><span class="tk"><span class="fl neg" style="width:64%"></span></span><span class="pc ng">64%</span></div></div><div class="cap"><span class="f">failed</span> · <span class="f">tone neg</span> · <span class="f">bar stops where it failed</span> · <span class="f">--neg-text</span></div></div>
+<div class="item"><div class="pg band"><div class="ph"><span class="lbl">Import · roster history</span><span class="meta">1.2 of 2.9 GB</span></div><div class="bar"><span class="tk ol"><span class="fl" style="width:42%"></span></span><span class="pc">42%</span></div></div><div class="cap"><span class="f">variant outline</span> · <span class="f">1px --rule-strong track</span> · <span class="f">on --paper-2 bands</span></div></div>
+<div class="item"><div class="pg"><div class="ph"><span class="lbl">Refresh · sources</span><span class="meta">elapsed 0m 38s</span></div><div class="bar"><span class="st"><span class="d live"></span>Running</span></div></div><div class="cap"><span class="f">indeterminate</span> · <span class="f">no bar — a bar never loops</span> · <span class="f">Status with the pulse + elapsed</span></div></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="lbl">Runs · last 24h</span><span class="meta">staffing-v3.2.1</span></div>
+<div class="tr th"><span>Run</span><span>Stage</span><span>Status</span><span>Progress</span><span class="rt">Start</span></div>
+<div class="tr"><span class="m">#44</span><span>Solve</span><span class="st"><span class="d q"></span>Queued</span><span class="bar"><span class="tk"></span><span class="pc q">0%</span></span><span class="rt nd">not started</span></div>
+<div class="tr"><span class="m">#43</span><span>Solve</span><span class="st"><span class="d live"></span>Running</span><span class="bar"><span class="tk"><span class="fl" style="width:42%"></span></span><span class="pc">42%</span></span><span class="m rt">09:31</span></div>
+<div class="tr"><span class="m">#42</span><span>Publish</span><span class="st"><span class="d pos"></span>Complete</span><span class="bar"><span class="tk"><span class="fl pos" style="width:100%"></span></span><span class="pc">100%</span></span><span class="m rt">09:10</span></div>
+<div class="tr"><span class="m">#41</span><span>Solve</span><span class="st"><span class="d neg"></span>Failed</span><span class="bar"><span class="tk"><span class="fl neg" style="width:64%"></span></span><span class="pc ng">64%</span></span><span class="m rt">09:02</span></div>
+</div>
+<div class="cap"><span class="f">in a row</span> · <span class="f">bar 120 + percent 32, gap 8</span> · <span class="f">rows keep the collection's height</span> · <span class="f">a queued run's start reads "not started"</span> · <span class="f">Status beside it carries the word</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Progress&gt; · variant subtle | outline · tone brand | pos | neg</b> · <span class="f">bar 6px, square-ended: --r-sm on 6px would be pill-shaped</span> · <span class="f">subtle track --paper-3; outline track 1px --rule-strong</span> · <span class="f">fill --brand-d running, --pos complete, --neg failed</span> · <span class="f">percent always: mono 11/600 --ink, tabular, right-aligned in 32, gap 8</span> · <span class="f">label mono 10/600 caps --ink-4 above, meta mono 10 --ink-4 right</span> · <span class="f">width eases over --dur-base --ease-out as values arrive; nothing loops</span> · <span class="f">unknown length: no bar, the Status pulse + elapsed time</span></div>
+</body></html>

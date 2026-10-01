@@ -1,0 +1,64 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x900" subtitle="Stale, partial, guardrail, error, info — in flow, next to what each describes; never a toast" name="Banner" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; gap: 16px; }
+.canvas { display: grid; gap: 12px; padding: 20px; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); }
+.item { display: grid; gap: 4px; }
+.k { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.bn { min-height: 36px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--paper-2); border: 1px dashed var(--rule-strong); border-radius: var(--r-md); }
+.bm { width: 14px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.bm .d { width: 8px; height: 8px; box-sizing: border-box; border-radius: var(--r-full); background: var(--ink-4); }
+.bm .d.stale { background: transparent; border: 1px dashed var(--ink-4); }
+.bw { flex: none; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.bt { flex: 1; min-width: 0; font-size: var(--fs-body); line-height: 20px; color: var(--ink); }
+.ba { flex: none; display: flex; align-items: center; gap: 8px; }
+.bn.guard { background: color-mix(in oklch, var(--warn) 6%, transparent); border: 1px solid var(--warn); }
+.bn.guard .bm { color: var(--warn); }
+.bn.guard .bw { color: var(--warn-text); }
+.bn.err { background: color-mix(in oklch, var(--neg) 6%, transparent); border: 1px solid var(--neg); }
+.bn.err .bm { color: var(--neg); }
+.bn.err .bw { color: var(--neg-text); }
+.bn.info { background: color-mix(in oklch, var(--info) 6%, transparent); border: 1px solid var(--info); }
+.bn.info .bm .d { background: var(--info); }
+.bn.info .bw { color: var(--info-text); }
+.bn.band { border-width: 0 0 1px; border-radius: 0; padding: 8px 20px; }
+.lk { white-space: nowrap; font-size: var(--fs-body-sm); font-weight: 500; color: var(--brand-d); }
+.btn { height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); white-space: nowrap; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.meta { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 200px 96px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.st { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); white-space: nowrap; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; text-align: right; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="canvas">
+<div class="item"><div class="bn"><span class="bm"><span class="d stale"></span></span><span class="bw">Stale</span><span class="bt">Figures are from run <span class="num">#41</span>, <span class="num">3h 12m</span> old · freshness bound <span class="num">1h</span>.</span><span class="ba"><span class="btn">Refresh</span></span></div><div class="cap"><span class="f">stale</span> · <span class="f">--paper-2</span> · <span class="f">1px dashed --rule-strong</span> · <span class="f">Status stale dot: dashed ring</span> · <span class="f">word --ink-3</span> · <span class="f">48 with a button</span></div></div>
+<div class="item"><div class="bn"><span class="bm"><span class="d"></span></span><span class="bw">Partial</span><span class="bt"><span class="num">3</span> of <span class="num">5</span> sites reporting · DC-West and DC-Central silent since <span class="num">06:00</span>.</span><span class="ba"><span class="lk">View sources →</span></span></div><div class="cap"><span class="f">partial</span> · <span class="f">same dashed edge as stale</span> · <span class="f">neutral --ink-4 dot</span> · <span class="f">36 with a link</span></div></div>
+<div class="item"><div class="bn guard"><span class="bm"><i class="fa-solid fa-triangle-exclamation" aria-label="Guardrail"></i></span><span class="bw">Guardrail</span><span class="bt"><span class="num">3</span> shifts fall below minimum cover of <span class="num">4</span> on Thursday.</span><span class="ba"><span class="lk">Review shifts →</span></span></div><div class="cap"><span class="f">guardrail</span> · <span class="f">6% --warn wash</span> · <span class="f">1px --warn</span> · <span class="f">triangle-exclamation --warn</span> · <span class="f">word --warn-text</span></div></div>
+<div class="item"><div class="bn err"><span class="bm"><i class="fa-solid fa-circle-exclamation" aria-label="Error"></i></span><span class="bw">Error</span><span class="bt">Run <span class="num">#43</span> failed at solve · the committed plan from run <span class="num">#42</span> stays in force.</span><span class="ba"><span class="lk">Open run #43 →</span></span></div><div class="cap"><span class="f">error</span> · <span class="f">6% --neg wash</span> · <span class="f">1px --neg</span> · <span class="f">circle-exclamation --neg</span> · <span class="f">word --neg-text</span></div></div>
+<div class="item"><div class="bn info"><span class="bm"><span class="d"></span></span><span class="bw">Info</span><span class="bt">Plan revised <span class="num">14m</span> ago by run <span class="num">#42</span> · <span class="num">6</span> values changed.</span><span class="ba"><span class="lk">Show changes →</span></span></div><div class="cap"><span class="f">info</span> · <span class="f">6% --info wash</span> · <span class="f">1px --info</span> · <span class="f">8px --info dot — info has no coloured icon</span> · <span class="f">word --info-text</span></div></div>
+</div>
+<div class="item">
+<div class="k">In flow · a band under the eyebrow qualifies the whole frame</div>
+<div class="frame">
+<div class="eb"><span class="lbl">Fill rate by site · run #42</span><span class="meta">14m ago</span></div>
+<div class="bn band"><span class="bm"><span class="d"></span></span><span class="bw">Partial</span><span class="bt"><span class="num">3</span> of <span class="num">5</span> sites reporting · DC-West and DC-Central silent since <span class="num">06:00</span>.</span><span class="ba"><span class="lk">View sources →</span></span></div>
+<div class="tr th"><span>Site</span><span>Reported</span><span style="text-align:right">Fill rate</span></div>
+<div class="tr"><span>DC-North</span><span class="st">09:12</span><span class="n">96.4%</span></div>
+<div class="tr"><span>DC-East</span><span class="st">09:10</span><span class="n">94.1%</span></div>
+<div class="tr"><span>DC-South</span><span class="st">09:11</span><span class="n">97.8%</span></div>
+</div>
+<div class="cap"><span class="f">band: edge to edge, radius 0, pad 8/20 so the word sits on the frame's padding edge, bottom rule only</span> · <span class="f">in the body, a banner sits directly above the part it qualifies, gap 8</span> · <span class="f">a fieldset's guardrail sits above the fieldset</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Banner&gt; · status stale | guard | error | info · variant subtle</b> · <span class="f">stale and partial both map to status stale</span> · <span class="f">min 36, 48 with a button</span> · <span class="f">pad 8/12, gap 8, --r-md</span> · <span class="f">mark column 14: triangle-exclamation --warn, circle-exclamation --neg, otherwise the 8px Status dot</span> · <span class="f">word mono 10/600/0.12em caps in the -text step</span> · <span class="f">message Inter Tight 13 --ink, the consequence in plain terms</span> · <span class="f">actions right: a Link with →, or one Default button</span> · <span class="f">dashed = stale or partial data; solid edge + 6% wash for guardrail, error, info</span> · <span class="f">in over --dur-base --ease-out</span> · <span class="f">stays while its condition holds: no auto-dismiss, never a toast, never a modal</span> · <span class="f">variant solid not used</span> · <span class="f">a field's own error stays in its help slot</span></div>
+</body></html>

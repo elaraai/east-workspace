@@ -1,0 +1,96 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x1320" subtitle="Title, meta line, chips, metric, Status and Avatar · default, hover, selected, focus, dirty, overflow, dragging, drop target, sparse · grid and list layouts" name="Item card" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 12px; align-items: start; }
+.sp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.ic { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto; min-width: 0; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.bd { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; padding: 12px; min-width: 0; }
+.hd { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.tt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: 600; letter-spacing: -0.01em; line-height: 20px; color: var(--ink); }
+.mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; line-height: 16px; color: var(--ink-4); }
+.chips { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.mx { height: 20px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mv { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.v { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.u { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.ft { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-top: 1px solid var(--rule); }
+.ic.hover { background: var(--paper-2); }
+.ic.sel { background: var(--paper-3); border-color: var(--ink); }
+.ic.focus { box-shadow: var(--shadow-focus); }
+.ic.dirty { background: var(--brand-tint); }
+.ic.dirty .v { color: var(--brand-dd); }
+.ic.drag { border-color: var(--brand-d); cursor: grabbing; }
+.ic.drop { border-style: dashed; border-color: var(--brand-d); }
+.chip { height: 22px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.ct { height: 16px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; line-height: 1; color: var(--ink-2); }
+.dp { height: 20px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; border-radius: var(--r-sm); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 600; line-height: 1; white-space: nowrap; }
+.dp.pos { background: color-mix(in oklch, var(--pos) 6%, transparent); color: var(--pos-text); }
+.dp.neg { background: color-mix(in oklch, var(--neg) 6%, transparent); color: var(--neg-text); }
+.was { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); color: var(--ink-3); white-space: nowrap; }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { width: 8px; height: 8px; flex: none; box-sizing: border-box; border-radius: var(--r-full); }
+.d.pos { background: var(--pos); }
+.d.warn { background: var(--warn); }
+.d.neg { background: var(--neg); }
+.d.neu { background: var(--ink-4); }
+.av { width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--rule-strong); border-radius: var(--r-full); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-transform: uppercase; color: var(--ink-2); }
+.av.none { border-style: dashed; background: transparent; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.gl { display: grid; grid-template-columns: repeat(auto-fill, minmax(192px, 1fr)); gap: 12px; padding: 20px; align-items: stretch; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 128px 112px 104px 56px; align-items: stretch; background: var(--paper); border-top: 1px solid var(--rule); }
+.tr:first-child { border-top: 0; }
+.tr > * { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.tr.sel { background: var(--paper-3); }
+.r { justify-content: flex-end; }
+.rt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.tr .mt { flex: 1 1 0; }
+.nd { white-space: nowrap; font-family: var(--font-mono); font-style: italic; font-weight: 400; color: var(--ink-4); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.g3 .cap .f { white-space: normal; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="g3">
+<div class="sp"><div class="ic"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">default · --paper, 1px --rule-strong</span></div></div>
+<div class="sp"><div class="ic hover"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">hover · --paper-2, one paper step</span> · <span class="f">no lift, no shadow</span></div></div>
+<div class="sp"><div class="ic sel"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">selected · --paper-3, 1px --ink</span> · <span class="f">unchanged on hover</span></div></div>
+<div class="sp"><div class="ic focus"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">focus · --shadow-focus, outside</span> · <span class="f">the card is one control</span></div></div>
+<div class="sp"><div class="ic dirty"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">48</span><span class="u">h</span></span><span class="was">was 42</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">dirty · --brand-tint</span> · <span class="f">edited value --brand-dd + "was" --ink-3</span> · <span class="f">meta and unit keep --ink-4: it holds on the tint</span></div></div>
+<div class="sp"><div class="ic"><div class="bd"><div class="hd"><div class="tt">Weekend pick-face replenishment across DC-East and DC-South</div><div class="mt">ROS-2057 · due Aug 12 · 3 sites · owner K. Reyes</div></div><div class="chips"><span class="chip">DC-East</span><span class="chip">DC-South</span><span class="ct">+2</span></div><div class="mx"><span class="mv"><span class="v">1,240</span><span class="u">u</span></span><span class="dp neg">▼ 38</span></div></div><div class="ft"><span class="status"><span class="d neg"></span>Blocked</span><span class="av">KR</span></div></div><div class="cap"><span class="f">overflow · title clamps at 2 lines</span> · <span class="f">meta ellipsis</span> · <span class="f">chips past the width fold into a count</span></div></div>
+<div class="sp"><div class="ic drag"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">dragging · 1px --brand-d, --paper</span> · <span class="f">no lift, tilt or shadow</span> · <span class="f">its origin becomes the drop slot</span></div></div>
+<div class="sp"><div class="ic drop"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div><div class="cap"><span class="f">drop target · 1px dashed --brand-d</span> · <span class="f">the card that accepts the carried item</span></div></div>
+<div class="sp"><div class="ic"><div class="bd"><div class="hd"><div class="tt">Dock 4 inspection</div><div class="mt">ROS-2063 · no due date</div></div></div><div class="ft"><span class="status"><span class="d neu"></span>Draft</span><span class="av none" aria-label="Unassigned"></span></div></div><div class="cap"><span class="f">sparse · empty slots collapse</span> · <span class="f">title, meta and footer always stay</span> · <span class="f">unassigned avatar dashed</span></div></div>
+</div>
+</div>
+<div class="item">
+<div class="frame"><div class="eb"><span class="lbl">Open items</span><span class="meta">3 items · grid</span></div>
+<div class="gl">
+<div class="ic sel"><div class="bd"><div class="hd"><div class="tt">Night-shift cover</div><div class="mt">ROS-2041 · due Aug 05</div></div><div class="chips"><span class="chip">DC-North</span><span class="chip">Night</span></div><div class="mx"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div></div><div class="ft"><span class="status"><span class="d warn"></span>Pending</span><span class="av">MK</span></div></div>
+<div class="ic"><div class="bd"><div class="hd"><div class="tt">Pick-face replen</div><div class="mt">ROS-2044 · due Aug 07</div></div><div class="chips"><span class="chip">DC-East</span><span class="chip">Day</span></div><div class="mx"><span class="mv"><span class="v">18</span><span class="u">h</span></span><span class="dp neg">▼ 2</span></div></div><div class="ft"><span class="status"><span class="d pos"></span>Committed</span><span class="av">JL</span></div></div>
+<div class="ic"><div class="bd"><div class="hd"><div class="tt">Dock 4 inspection</div><div class="mt">ROS-2063 · no due date</div></div></div><div class="ft"><span class="status"><span class="d neu"></span>Draft</span><span class="av none" aria-label="Unassigned"></span></div></div>
+</div></div>
+<div class="cap"><span class="f">grid layout · auto-fill minmax(192, 1fr), gap 12, pad 20</span> · <span class="f">a row stretches to its tallest card; the footer pins to the bottom</span></div>
+</div>
+<div class="item">
+<div class="frame"><div class="eb"><span class="lbl">Open items</span><span class="meta">3 items · list</span></div>
+<div>
+<div class="tr sel"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr"><div><span class="rt">Pick-face replen</span><span class="mt">ROS-2044 · due Aug 07</span></div><div><span class="chip">DC-East</span><span class="ct">+1</span></div><div><span class="status"><span class="d pos"></span>Committed</span></div><div class="r"><span class="mv"><span class="v">18</span><span class="u">h</span></span><span class="dp neg">▼ 2</span></div><div class="r"><span class="av">JL</span></div></div>
+<div class="tr"><div><span class="rt">Dock 4 inspection</span><span class="mt">ROS-2063 · no due date</span></div><div></div><div><span class="status"><span class="d neu"></span>Draft</span></div><div class="r"><span class="nd">no data</span></div><div class="r"><span class="av none" aria-label="Unassigned"></span></div></div>
+</div></div>
+<div class="cap"><span class="f">list layout · the same item as a Compact list row</span> · <span class="f">slots keep their order: title + meta, chips, Status, metric, Avatar</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Board&gt; · &lt;Deck&gt; · &lt;Library&gt; · &lt;Roster&gt; item · layout grid | list</b> · <span class="f">--paper, 1px --rule-strong, --r-md: a part inside a Frame</span> · <span class="f">body pad 12, gap 8; title to meta gap 4</span> · <span class="f">title DM Sans 15 / 600, −0.01em, lh 20, 2 lines</span> · <span class="f">meta mono 9.5, 0.04em, --ink-4, 1 line</span> · <span class="f">chips comfortable 22, gap 8, overflow count 16</span> · <span class="f">metric mono 13 / 600 + unit 10.5 / 500 --ink-4 + DeltaPill 20</span> · <span class="f">footer 36, 1px --rule top, pad 0 12: Status left, Avatar 24 right</span> · <span class="f">hover --paper-2</span> · <span class="f">selected --paper-3 + 1px --ink</span> · <span class="f">focus --shadow-focus</span> · <span class="f">dirty --brand-tint, value --brand-dd, no DeltaPill</span> · <span class="f">dragging 1px --brand-d</span> · <span class="f">drop target 1px dashed --brand-d</span> · <span class="f">grid min 192, gap 12</span></div>
+</body></html>

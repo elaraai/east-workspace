@@ -1,19 +1,23 @@
-<!-- @dsCard group="Type" viewport="700x170" subtitle="Every numeral is mono tabular — no exceptions" name="Numerals" -->
+<!-- @dsCard group="Type" viewport="700x210" subtitle="Every numeral is mono tabular — large numbers 26px / 600" name="Numerals" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { background: var(--paper); margin: 0; padding: 14px 18px; }
-.rail { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
-.cell { padding: 12px 16px; border-right: 1px solid var(--rule); }
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.cell { padding: 20px; display: grid; gap: 8px; border-right: 1px solid var(--rule); }
 .cell:last-child { border-right: 0; }
-.lbl { font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 6px; }
-.val { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--ink); line-height: 1; letter-spacing: -0.015em; font-feature-settings: "tnum" 1; }
-.sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-4); margin-top: 6px; }
-.note { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); margin-top: 10px; letter-spacing: 0.04em; }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.val { display: flex; align-items: baseline; gap: 4px; color: var(--ink); }
+.unit { font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.sub { font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="rail">
-  <div class="cell"><div class="lbl">Expected margin</div><div class="val">$4.82M</div><div class="sub" style="color:var(--pos)">▲ +$312k vs current</div></div>
-  <div class="cell"><div class="lbl">Fill rate</div><div class="val">96.4%</div><div class="sub">target ≥ 95%</div></div>
-  <div class="cell"><div class="lbl">Horizon</div><div class="val">14 d</div><div class="sub">Jul 22 – Aug 05</div></div>
+<div class="cell"><div class="lbl">Expected margin</div><div class="val"><span class="num-lg">$4.82M</span></div><div class="sub" style="color:var(--pos-text)">▲ +$312k vs current</div></div>
+<div class="cell"><div class="lbl">Fill rate</div><div class="val"><span class="num-lg">96.4%</span></div><div class="sub">target ≥ 95%</div></div>
+<div class="cell"><div class="lbl">Horizon</div><div class="val"><span class="num-lg">14</span><span class="unit">days</span></div><div class="sub">Jul 22 – Aug 05</div></div>
 </div>
-<div class="note">data-rail cells: mono label 9.5px caps · mono value 22px · mono sub 10.5px</div>
+<div class="ann"><b>&lt;Stat&gt;</b> · <span class="f">large numbers mono, tabular, 26px / 600 (--fs-num, .num-lg)</span> · <span class="f">label 10px 600 caps</span> · <span class="f">unit suffix and sub 10.5px</span> · <span class="f">cell pad 20</span> · <span class="f">gap 8</span> · <span class="f">signed deltas ▲/▼ with a true minus (−)</span> · <span class="f">every digit mono with tnum: cells, counts, ticks, dates, running text</span></div>
 </body></html>

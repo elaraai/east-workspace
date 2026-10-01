@@ -1,0 +1,112 @@
+<!-- @dsCard group="Parts · Toolbar & slice" viewport="700x1780" subtitle="The brush strip · rail density 28 with its axis · the Plan's horizon band 38 over its 48 time axis · bars, the window band, handles, the now line · every gesture · keyboard · loading · touch · improvements marked (proposed)" name="Horizon brush" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css">
+<style>
+.trk{position:relative;box-sizing:border-box;display:flex;align-items:flex-end;padding:5px 0 4px;min-width:0}
+.trk.r28{height:28px}.trk.r18{height:18px;border-bottom:1px solid var(--rule)}.trk.h32{height:32px}.trk.t44{height:44px}
+.trk .b{position:relative;flex:1;min-width:0;margin:0 1px;border-radius:1px 1px 0 0;background:color-mix(in oklch,var(--brand-d) 42%,transparent)}
+.trk .b.o{background:color-mix(in oklch,var(--ink-3) 20%,transparent)}
+.trk .wd{position:absolute;top:0;bottom:0;background:var(--brand-tint);opacity:0.7;pointer-events:none}
+.trk .wf{position:absolute;top:0;bottom:0;box-shadow:var(--shadow-focus-inset);pointer-events:none;z-index:2}
+.trk .hz{position:absolute;top:0;bottom:0;width:12px;transform:translateX(-50%);display:flex;justify-content:center;z-index:1}
+.trk.t44 .hz{width:24px}
+.trk .hz.show{outline:1px dashed var(--ink-4);outline-offset:-1px}
+.trk .hb2{width:5px;margin:4px 0;border-radius:2px;background:var(--brand-d)}
+.trk .hb2.fo{box-shadow:var(--shadow-focus)}
+.trk .now{position:absolute;top:0;bottom:0;width:1px;background:var(--brand-d);z-index:1}
+.trk .cur{position:absolute;top:50%;transform:translate(-50%,-50%);font-size:12px;color:var(--ink);z-index:3}
+.ax{display:flex;justify-content:space-between;margin-top:4px;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;line-height:1;font-feature-settings:"tnum" 1;color:var(--ink-4)}
+.rstk{display:grid;gap:8px;padding:12px;min-width:0}
+.hzb{display:grid;grid-template-columns:128px minmax(0,1fr);border-bottom:1px solid var(--rule)}
+.hzb .gut{display:flex;align-items:center;padding-left:20px;border-right:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap}
+.hzb .plot{position:relative;min-width:0}
+.lens{position:relative;height:6px}
+.lens svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.rul{display:grid;grid-template-columns:128px minmax(0,1fr);border-bottom:1px solid var(--rule)}
+.rul .gut{border-right:1px solid var(--rule)}
+.rul .tiers{display:grid;grid-template-rows:24px 23px;min-width:0}
+.rul .t1{display:flex;align-items:center;padding-left:12px;border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap}
+.rul .tk{display:grid;grid-template-columns:repeat(12,minmax(0,1fr))}
+.rul .tk span{display:flex;align-items:center;justify-content:center;border-left:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;font-feature-settings:"tnum" 1;color:var(--ink-4)}
+.rul .tk span:first-child{border-left:0}
+.lane{display:grid;grid-template-columns:128px minmax(0,1fr);height:36px;border-bottom:1px solid var(--rule)}
+.lane>span:first-child{display:flex;align-items:center;padding-left:20px;border-right:1px solid var(--rule);font-size:var(--fs-body);color:var(--ink)}
+.gs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}
+.gsi{display:grid;gap:4px;min-width:0}
+.gsi .slice{padding:8px 12px 6px}
+.lbs{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.4;letter-spacing:0.04em;color:var(--ink-4)}
+.lbs b{font-weight:600;color:var(--ink-2)}
+.keys{display:inline-flex;align-items:center;gap:4px}
+.kc{height:20px;min-width:20px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:var(--paper-2);border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;line-height:1;color:var(--ink-2)}
+.kl{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.kl>span{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:var(--fs-label-xs);color:var(--ink-4)}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Rail density · Slice.Rail with brush</div>
+<div class="slice"><div class="rstk">
+<div class="line"><span class="af"><span class="fi" title="Range"><i class="fa-solid fa-calendar" aria-hidden="true"></i></span><span class="ch br" role="button">Jun 29 – Sep 20<span class="me">84d</span><i class="fa-solid fa-chevron-down cr" aria-hidden="true"></i></span></span><span class="af"><span class="fi" title="Filter"><i class="fa-solid fa-filter" aria-hidden="true"></i></span><span class="ch cp da" role="button"><i class="fa-solid fa-plus pl" aria-hidden="true"></i>Filter</span></span></div>
+<div><div class="trk r28" data-n="32" data-w="0.40,0.78" data-seed="1"></div><div class="ax"><span>Mar 30</span><span>May 26</span><span>Jul 23</span><span>Sep 20</span></div></div>
+</div></div>
+<div class="gs">
+<div class="gsi"><div class="slice"><div class="trk r18" data-n="0" data-w="0.40,0.78"></div><div class="ax"><span>Mar 30</span><span>May 26</span><span>Jul 23</span><span>Sep 20</span></div></div><div class="lbs"><b>count:false</b> · 18 and a 1px --rule baseline, no bars</div></div>
+<div class="gsi"><div class="slice" aria-busy="true"><div class="trk r18" data-n="0" data-w="0.40,0.78"></div><div class="ax"><span>Mar 30</span><span>May 26</span><span>Jul 23</span><span>Sep 20</span></div></div><div class="lbs"><b>loading</b> · the 18 baseline form until the counts land; the window and its gestures stay live (proposed)</div></div>
+</div>
+<div class="cap"><span class="f">under the rail's row, <b>8 apart</b>; the axis <b>4</b> below the track (proposed)</span> · <span class="f">track 28, bars up to 19, 32 buckets by default</span> · <span class="f"><b>axis: the chart's, mono 10/500 --ink-4</b> (proposed)</span> · <span class="f">four labels (min, ⅓, ⅔, max) in the field's format; axis:false hides it</span> · <span class="f">no now line, no caption</span></div>
+</div>
+<div class="sec">
+<div class="k">Horizon density · the Plan's 38 band</div>
+<div class="slice">
+<div class="hzb"><span class="gut">Horizon · 26 wk</span><div class="plot"><div class="trk h32" data-n="26" data-w="0.1538,0.6154" data-now="0.2885" data-seed="2"></div><div class="lens"><svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><line x1="15.38" y1="0" x2="0" y2="6" style="stroke:var(--rule-strong)" stroke-width="1" vector-effect="non-scaling-stroke"></line><line x1="61.54" y1="0" x2="100" y2="6" style="stroke:var(--rule-strong)" stroke-width="1" vector-effect="non-scaling-stroke"></line></svg></div></div></div>
+<div class="rul"><span class="gut"></span><div class="tiers"><span class="t1">Jul – Oct 2026</span><div class="tk"><span>W31</span><span>W32</span><span>W33</span><span>W34</span><span>W35</span><span>W36</span><span>W37</span><span>W38</span><span>W39</span><span>W40</span><span>W41</span><span>W42</span></div></div></div>
+<div class="lane"><span>Press 1</span><span></span></div>
+<div class="lane" style="border-bottom:0"><span>Press 2</span><span></span></div>
+</div>
+<div class="cap"><span class="f">only with brush listed and a range field on the Plan's axis; never on an ordinal axis, never in the narrow row</span> · <span class="f">band 38 = strip 32 (bars up to 23) + lens 6</span> · <span class="f">gutter caption mono 10/600/<b>0.1em</b> caps --ink-4, <b>pad 20</b>, on the lane names' edge, hairline right (proposed)</span> · <span class="f">units HR · D · WK · MO · Q · YR, or STEPS on a number axis</span> · <span class="f">the caption counts whole periods of the horizon, not of the window</span> · <span class="f">one bar per whole period, 1–64</span> · <span class="f">lens: two 1px --rule-strong lines from the window's edges to the plot's</span> · <span class="f"><b>now: the Plan's nowLine, 1px --brand-d</b> (proposed)</span> · <span class="f"><b>beneath: the Plan's time axis, 48</b> (context 24 + ticks 24), not a 28 ruler; lanes 36, names at 20 (proposed)</span></div>
+</div>
+<div class="sec">
+<div class="k">Bars, the window, handles</div>
+<div class="canvas">
+<div class="gsi"><div class="trk r28" data-n="32" data-w="0.25,0.62" data-seed="3" data-zones="1"></div><div class="lbs">in the window: --brand-d at 42% · outside: --ink-3 at 20% · <b>the window: a --brand-tint band at 0.7</b>, the chart's band, and no masks outside it (proposed) · handles 5, r 2, --brand-d, inset 4 top and bottom, each centred in a <b>12</b> ew-resize zone, dashed here (proposed)</div></div>
+<div class="gsi"><div class="trk r28" data-n="32" data-seed="4" data-zero="6,7,19"></div><div class="lbs">no range: every bar in, no band, no handles · one bar per bucket, 1px each side, top corners rounded · at least 2 tall above zero; an empty bucket keeps its place at 0 · counts ignore the range, so the histogram never collapses under its own window</div></div>
+</div>
+<div class="cap"><span class="f">why the band: an --ink wash over the outside dims it on white but lifts it in dark, so the unselected span read as the lit one</span> · <span class="f">--brand-tint marks the active span in both themes</span></div>
+</div>
+<div class="sec">
+<div class="k">Gestures</div>
+<div class="gs">
+<div class="gsi"><div class="lbs"><b>resize</b> · press within 6 of an edge</div><div class="slice"><div class="trk r28" data-n="32" data-w="0.30,0.66" data-seed="1" data-cur="0.66,arrows-left-right"></div></div><div class="lbs">cursor ew-resize · past the other edge the two swap · a window left under 5 clears</div></div>
+<div class="gsi"><div class="lbs"><b>move</b> · press inside the window</div><div class="slice"><div class="trk r28" data-n="32" data-w="0.42,0.78" data-seed="1" data-cur="0.6,hand-back-fist"></div></div><div class="lbs">cursor grabbing · the width is kept</div></div>
+<div class="gsi"><div class="lbs"><b>draw</b> · press elsewhere and drag</div><div class="slice"><div class="trk r28" data-n="32" data-w="0.08,0.30" data-seed="1" data-cur="0.30,crosshairs"></div></div><div class="lbs">cursor crosshair · the window in hand has the same band and handles</div></div>
+<div class="gsi"><div class="lbs"><b>release under 5 of travel</b></div><div class="slice"><div class="trk r28" data-n="32" data-seed="1" data-cur="0.12,crosshairs"></div></div><div class="lbs">on empty track: clears the range · on the window: nothing</div></div>
+<div class="gsi"><div class="lbs"><b>Plan · snapped</b> · moves and resizes apply at each step</div><div class="slice"><div class="trk h32" data-n="26" data-w="0.2308,0.6923" data-now="0.2885" data-seed="2" data-cur="0.6923,arrows-left-right"></div></div><div class="lbs">the window snaps to whole periods, at least one · a new draw applies on release</div></div>
+<div class="gsi"><div class="lbs"><b>preset range</b> · 90d</div><div class="slice"><div class="trk r28" data-n="32" data-seed="1"></div></div><div class="lbs">a datetimePreset has no bounds to draw: no band, no handles</div></div>
+</div>
+<div class="cap"><span class="f">cursors while dragging: grabbing (move) · crosshair (draw) · ew-resize (resize)</span> · <span class="f">there is no grab state</span> · <span class="f">the Chart's brush is the chart's own, on its x axis, not this strip</span> · <span class="f">every write goes straight to the slice's range</span></div>
+</div>
+<div class="sec">
+<div class="k">Keyboard · the handles are sliders (proposed)</div>
+<div class="gs">
+<div class="gsi"><div class="slice"><div class="trk r28" data-n="32" data-w="0.30,0.66" data-seed="1" data-fo="1"></div></div><div class="lbs"><b>a handle focused</b> · role slider, aria-valuetext its date · --shadow-focus on the handle</div></div>
+<div class="gsi"><div class="slice"><div class="trk r28" data-n="32" data-w="0.30,0.66" data-seed="1" data-wf="1"></div></div><div class="lbs"><b>the window focused</b> · the third stop, between the two handles · the inset ring</div></div>
+</div>
+<div class="kl"><span><span class="keys"><span class="kc">←</span><span class="kc">→</span></span>one bucket; one period on the Plan</span><span><span class="keys"><span class="kc">⇧</span><span class="kc">←</span></span>ten</span><span><span class="keys"><span class="kc">Home</span></span>/<span class="keys"><span class="kc">End</span></span>the track's ends</span><span><span class="keys"><span class="kc">Esc</span></span>clears the range</span></div>
+<div class="cap"><span class="f">tab order: start handle, window, end handle</span> · <span class="f">on the window, ← → move both edges and keep the width</span> · <span class="f">each step writes the range at once, as a drag does</span></div>
+</div>
+<div class="sec">
+<div class="k">Touch · a coarse pointer (proposed)</div>
+<div class="slice" style="padding:8px 12px 6px"><div class="trk t44" data-n="32" data-w="0.30,0.66" data-seed="1" data-zones="1"></div></div>
+<div class="cap"><span class="f">both tracks 44</span> · <span class="f">handle zones 24, dashed here</span> · <span class="f">a press within 12 of an edge resizes</span> · <span class="f">bars scale with the track</span></div>
+</div>
+</div>
+<div class="ann"><b>brushStrip recipe · Slice.Rail brush (rail density) · &lt;Plan&gt; HorizonBrush (horizon density)</b> · <span class="f">track pad 5 top, 4 bottom, cursor crosshair</span> · <span class="f">bars flex 1, 1px margins, radius 1 1 0 0</span> · <span class="f">in --brand-d 42% · out --ink-3 20%</span> · <span class="f">window: --brand-tint band at 0.7, no masks (proposed)</span> · <span class="f">handle 5, r 2, --brand-d, zone 12 (proposed)</span> · <span class="f">now 1px --brand-d, the nowLine (proposed)</span> · <span class="f">rail 28 / 18 · axis mono 10/500 --ink-4, 4 below (proposed)</span> · <span class="f">rail stack 8 apart (proposed)</span> · <span class="f">horizon 38 = 32 + 6 lens, gutter caption mono 10/600/0.1em at pad 20, so it fits the 128 gutter (proposed)</span> · <span class="f">the 48 time axis beneath (proposed)</span> · <span class="f">handles are sliders, the window a third stop (proposed)</span> · <span class="f">loading: the baseline form (proposed)</span> · <span class="f">coarse pointer: tracks 44, zones 24 (proposed)</span></div>
+<script>
+(()=>{const H=[.28,.35,.31,.44,.52,.47,.6,.72,.66,.58,.81,.9,.76,.69,.84,1,.93,.8,.71,.77,.63,.55,.68,.74,.59,.48,.52,.41,.37,.45,.33,.29];
+document.querySelectorAll('.trk').forEach(t=>{const n=+t.dataset.n||0,seed=+t.dataset.seed||1,w=t.dataset.w?t.dataset.w.split(',').map(Number):null,zero=(t.dataset.zero||'').split(',').filter(Boolean).map(Number);
+let h='';if(w)h+=`<span class="wd" style="left:${w[0]*100}%;width:${(w[1]-w[0])*100}%"></span>`;
+for(let i=0;i<n;i++){const v=zero.includes(i)?0:H[(i*seed+seed*3)%H.length];const c=w?((i+0.5)/n>=w[0]&&(i+0.5)/n<=w[1]?'':' o'):'';h+=`<span class="b${c}" style="height:${v===0?0:Math.max(2,Math.round(v*100))}%"></span>`;}
+if(w){const z=t.dataset.zones?' show':'',fo=t.dataset.fo?' fo':'';h+=`<span class="hz${z}" style="left:${w[0]*100}%"><span class="hb2${fo}"></span></span><span class="hz${z}" style="left:${w[1]*100}%"><span class="hb2"></span></span>`;if(t.dataset.wf)h+=`<span class="wf" style="left:${w[0]*100}%;width:${(w[1]-w[0])*100}%"></span>`;}
+if(t.dataset.now)h+=`<span class="now" style="left:${t.dataset.now*100}%"></span>`;
+if(t.dataset.cur){const [x,ic]=t.dataset.cur.split(',');h+=`<i class="fa-solid fa-${ic} cur" style="left:${x*100}%" aria-hidden="true"></i>`;}
+t.innerHTML=h;});})();
+</script>
+</body></html>

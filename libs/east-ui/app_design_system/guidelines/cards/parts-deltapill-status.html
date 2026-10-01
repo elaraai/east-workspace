@@ -1,0 +1,77 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x620" subtitle="DeltaPill up / down / flat on a 6% wash · Status dot + word for every valence · the live pulse" name="DeltaPill & Status" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+@keyframes east-pulse { 0% { transform: scale(1); opacity: 0.6; } 25%, 100% { transform: scale(2.5); opacity: 0; } }
+.wrap { display: grid; gap: 20px; }
+.item { display: grid; gap: 4px; align-content: start; justify-items: start; min-width: 0; }
+.item.full { justify-items: stretch; }
+.g4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.dp { height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; border-radius: var(--r-sm); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 600; line-height: 1; white-space: nowrap; }
+.dp.pos { background: color-mix(in oklch, var(--pos) 6%, transparent); color: var(--pos-text); }
+.dp.neg { background: color-mix(in oklch, var(--neg) 6%, transparent); color: var(--neg-text); }
+.dp.flat { background: var(--paper-3); color: var(--ink-3); }
+.tr.sel { background: var(--paper-3); }
+.tr.sel .dp.flat { background: var(--paper); }
+.sg { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); column-gap: 8px; row-gap: 8px; align-items: center; }
+.sg .all { grid-column: 1 / -1; }
+.sg .s3 { grid-column: span 3; }
+.st { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.st.pos { color: var(--pos-text); }
+.st.warn { color: var(--warn-text); }
+.st.neg { color: var(--neg-text); }
+.st.info { color: var(--info-text); }
+.d { position: relative; width: 8px; height: 8px; flex: none; box-sizing: border-box; border-radius: var(--r-full); }
+.d.pos { background: var(--pos); }
+.d.warn { background: var(--warn); }
+.d.neg { background: var(--neg); }
+.d.info { background: var(--info); }
+.d.neu { background: var(--ink-4); }
+.d.stale { border: 1px dashed var(--ink-4); }
+.d.live { background: var(--brand); }
+.d.live::after { content: ""; position: absolute; inset: 0; border-radius: var(--r-full); background: var(--brand); animation: east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite; }
+@media (prefers-reduced-motion: reduce) { .d.live::after { animation: none; opacity: 0; } }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 160px 80px 96px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.th .r { text-align: right; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; text-align: right; }
+.dc { display: flex; justify-content: flex-end; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="g4">
+<div class="item"><span class="dp pos"><span>▲</span><span>+4.2%</span></span><span class="cap"><span class="f">up · good</span> · <span class="f">--pos-text</span> · <span class="f">6% --pos wash</span></span></div>
+<div class="item"><span class="dp neg"><span>▼</span><span>−$18k</span></span><span class="cap"><span class="f">down · bad</span> · <span class="f">--neg-text</span> · <span class="f">6% --neg wash</span></span></div>
+<div class="item"><span class="dp flat"><span>→</span><span>0.0%</span></span><span class="cap"><span class="f">flat · no valence</span> · <span class="f">--ink-3</span> · <span class="f">--paper-3</span></span></div>
+<div class="item"><span class="dp neg"><span>▲</span><span>+6.1%</span></span><span class="cap"><span class="f">up · bad (a cost)</span> · <span class="f">colour is valence</span> · <span class="f">glyph is direction</span></span></div>
+</div>
+<div class="item full">
+<div class="sg">
+<span class="cap">pos</span><span class="cap">warn</span><span class="cap">neg</span><span class="cap">info</span><span class="cap">neutral</span><span class="cap">stale</span><span class="cap">live</span>
+<span class="st"><span class="d pos"></span>Committed</span><span class="st"><span class="d warn"></span>Pending</span><span class="st"><span class="d neg"></span>Failed</span><span class="st"><span class="d info"></span>Revised</span><span class="st"><span class="d neu"></span>Draft</span><span class="st"><span class="d stale"></span>Stale</span><span class="st"><span class="d live"></span>Running</span>
+<span class="cap all"><span class="f">default · the dot in the base colour, the word --ink-3</span> · <span class="f">dot 8, --r-full, gap 8</span> · <span class="f">word 10.5/600/0.1em, uppercase by CSS</span></span>
+<span class="st pos"><span class="d pos"></span>Committed</span><span class="st warn"><span class="d warn"></span>Pending</span><span class="st neg"><span class="d neg"></span>Failed</span><span class="st info"><span class="d info"></span>Revised</span><span class="cap s3">neutral, stale and live have no text step</span>
+<span class="cap all"><span class="f">valence word · the word takes the -text step, ≥ 4.5:1 on every paper</span> · <span class="f">stale: a dashed ring, no fill</span> · <span class="f">live: a --brand ring pulses out over --dur-slow, every 1440ms — the only loop</span></span>
+</div>
+</div>
+<div class="item full">
+<div class="frame">
+<div class="eb"><span class="lbl">Throughput by site · run #42</span><span class="st"><span class="d live"></span>Running</span></div>
+<div class="tr th"><span>Site</span><span>Status</span><span class="r">Units</span><span class="r">Δ vs plan</span></div>
+<div class="tr"><span>DC-North</span><span class="st"><span class="d pos"></span>Committed</span><span class="n">1,482</span><span class="dc"><span class="dp pos"><span>▲</span><span>+4.2%</span></span></span></div>
+<div class="tr"><span>DC-East</span><span class="st"><span class="d warn"></span>Pending</span><span class="n">1,106</span><span class="dc"><span class="dp neg"><span>▼</span><span>−3.8%</span></span></span></div>
+<div class="tr sel"><span>DC-South</span><span class="st"><span class="d stale"></span>Stale</span><span class="n">988</span><span class="dc"><span class="dp flat"><span>→</span><span>0.0%</span></span></span></div>
+</div>
+<div class="cap"><span class="f">in context · Status right of the eyebrow and in a status column</span> · <span class="f">DeltaPill right-aligned in its column, its basis in the header</span> · <span class="f">selected row: every pill holds, the -text steps clear 4.5:1 on their wash over --paper-3 and --brand-tint</span> · <span class="f">flat turns --paper</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Status&gt; · &lt;MetricChip&gt; (DeltaPill) · tone positive | negative | neutral</b> · <span class="f">DeltaPill 20, pad 0 4, gap 4, 10.5 / 600, --r-sm</span> · <span class="f">-text step on a 6% valence wash</span> · <span class="f">colour follows valence</span> · <span class="f">flat (neutral) --ink-3 on --paper-3, --paper on a selected row</span> · <span class="f">Status dot 8 + word 10.5 / 600 / 0.1em, gap 8</span> · <span class="f">word --ink-3 or its -text step</span> · <span class="f">neutral --ink-4</span> · <span class="f">stale dashed ring</span> · <span class="f">live: echo 8 → 20, 0.6 → 0 over --dur-slow, every 4 × --dur-slow, --ease-out, the only loop</span></div>
+</body></html>

@@ -1,41 +1,66 @@
-<!-- @dsCard group="App layout" viewport="700x300" subtitle="One definition, four breakpoints — 1080 rail→tabs · 768 sidebar locks · 560 overlay + 1-col" name="Mobile shell" -->
+<!-- @dsCard group="App layout" viewport="700x690" subtitle="One definition, four breakpoints — drawn at 1:1 on a 430px phone" name="Mobile shell" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
-.wrap { display: flex; gap: 18px; align-items: flex-start; max-width: 620px; }
-.phone { width: 168px; flex: none; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px; overflow: hidden; }
-.pbar { height: 26px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--rule); }
-.pbar .crumb { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; color: var(--ink-3); }
-.pbar .div { width: 1px; height: 9px; background: var(--rule-strong); margin: 0 6px; }
-.pbar .title { font-family: var(--font-brand); font-size: 9.5px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
-.pbody { padding: 6px; display: grid; gap: 5px; background: var(--paper-2); }
-.pframe { background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; height: 34px; }
-.ptabs { display: flex; gap: 0; border-top: 1px solid var(--rule); background: var(--paper); }
-.ptabs span { flex: 1; text-align: center; padding: 5px 0; font-family: var(--font-mono); font-size: 7px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
-.ptabs span.on { color: var(--ink); border-bottom: 2px solid var(--ink); }
-.pcommit { display: flex; align-items: center; gap: 5px; padding: 5px 8px; background: var(--brand-tint); border-top: 1px solid var(--brand-d); }
-.pcommit .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand-d); }
-.pcommit .t { font-family: var(--font-mono); font-size: 7px; font-weight: 600; color: var(--brand-dd); }
-.pcommit .b { margin-left: auto; font-family: var(--font-body); font-size: 7.5px; font-weight: 600; padding: 2px 6px; border-radius: 3px; background: var(--brand-d); color: var(--paper); }
-.ladder { flex: 1; }
-.ladder .row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
-.ladder .bp { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; font-feature-settings: "tnum" 1; color: var(--ink); flex: none; width: 52px; }
-.ladder .what { font-size: 11px; line-height: 1.45; color: var(--ink-2); }
-.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 8px 0 0; letter-spacing: 0.04em; }
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: 432px minmax(0, 1fr); gap: 20px; align-items: start; }
+.phone { width: 432px; height: 580px; box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid var(--rule-strong); background: var(--paper-2); overflow: hidden; }
+.pbar { height: 44px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 20px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+.crumb { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 500; letter-spacing: 0.06em; color: var(--ink-3); }
+.div { width: 1px; height: 14px; background: var(--rule-strong); }
+.ptitle { white-space: nowrap; font-family: var(--font-brand); font-size: var(--fs-title-sm); font-weight: 700; letter-spacing: -0.01em; line-height: 1; color: var(--ink); }
+.main { flex: 1; min-height: 0; overflow: hidden; padding: 32px 24px 0; display: grid; gap: 16px; align-content: start; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.eb .lbl { color: var(--ink); }
+.bd { padding: 20px; font-size: var(--fs-body); line-height: 1.5; color: var(--ink-2); }
+.stat { padding: 20px; display: grid; gap: 8px; }
+.stat .lbl { color: var(--ink-4); }
+.val { font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--ink-4); }
+.val .up { font-weight: 600; color: var(--pos-text); }
+.tabs { height: 44px; flex: none; box-sizing: border-box; display: flex; background: var(--paper); border-top: 1px solid var(--rule); }
+.tabs span { flex: 1; display: flex; align-items: center; justify-content: center; box-sizing: border-box; border-bottom: 2px solid transparent; font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.tabs span.on { color: var(--ink); border-bottom-color: var(--ink); }
+.commit { height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--brand-tint); border-top: 1px solid var(--brand-d); }
+.left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.dot { width: 8px; height: 8px; flex: none; border-radius: var(--r-full); background: var(--brand-d); }
+.sumk { min-width: 0; display: grid; gap: 2px; }
+.sum { font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 500; letter-spacing: 0.04em; color: var(--brand-dd); white-space: nowrap; }
+.sum b { font-weight: 600; }
+.keys { font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--brand-d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acts { display: flex; gap: 8px; flex: none; }
+.btn { height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); }
+.btn.override { border-color: var(--ink-3); color: var(--ink-2); font-weight: 600; }
+.btn.primary { background: var(--brand-d); border-color: var(--brand-d); color: var(--paper); font-weight: 600; }
+.ladder { display: grid; }
+.row { display: grid; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.row:first-child { padding-top: 0; }
+.row:last-child { border-bottom: 0; }
+.bp { font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; color: var(--ink); }
+.what { font-size: var(--fs-body-sm); line-height: 1.45; color: var(--ink-2); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="wrap">
-  <div class="phone">
-    <div class="pbar"><span class="crumb">/Roster</span><span class="div"></span><span class="title">Week 3</span></div>
-    <div class="pbody"><div class="pframe"></div><div class="pframe"></div><div class="pframe" style="height:22px"></div></div>
-    <div class="ptabs"><span class="on">Evidence</span><span>Refs</span><span>Journal</span></div>
-    <div class="pcommit"><span class="dot"></span><span class="t">4 PENDING</span><span class="b">Apply</span></div>
-  </div>
-  <div class="ladder">
-    <div class="row"><span class="bp">&lt;1080</span><span class="what">Rail → tab strip (topmost frame is the open tab) — never disappears.</span></div>
-    <div class="row"><span class="bp">&lt;768</span><span class="what">Sidebar locks to the 56px icon rail; breadcrumb collapses to parent link.</span></div>
-    <div class="row"><span class="bp">≤560</span><span class="what">Sidebar becomes an overlay sheet; Main is one column, frames full-width.</span></div>
-    <div class="row" style="border-bottom:none"><span class="bp">bar</span><span class="what">Condensed 44px app bar; commit bar edge-to-edge; chip rails at large density.</span></div>
-  </div>
+<div class="phone">
+<div class="pbar"><span class="crumb">Rosters</span><span class="div"></span><span class="ptitle">DC-North</span></div>
+<div class="main">
+<div class="frame stat"><div class="lbl">Fill rate · week 3</div><div><span class="num-lg">96.4%</span></div><div class="val"><span class="up">▲ +1.2 pts</span> · vs plan</div></div>
+<div class="frame"><div class="eb"><span class="lbl">Coverage gaps · run #42</span><span class="meta">14m ago</span></div><div class="bd"><span class="num">3</span> shifts fall below minimum cover on Thursday.</div></div>
+<div class="frame"><div class="eb"><span class="lbl">Open shifts · run #42</span><span class="meta">14m ago</span></div><div class="bd"><span class="num">11</span> shifts open across the week; <span class="num">4</span> need a qualified lead.</div></div>
 </div>
-<div class="ann">same tokens, same anatomy, narrower — fluid widths min(ideal, 100%) · auto-fit grids reflow to 1 col · rail-on-mobile is the one legal Drawer</div>
+<div class="tabs"><span class="on">Evidence</span><span>Refs</span><span>Journal</span></div>
+<div class="commit"><span class="left"><span class="dot"></span><span class="sumk"><span class="sum"><b>4 changes</b> pending</span><span class="keys">sla.target · +3</span></span></span><span class="acts"><span class="btn override">Override</span><span class="btn">Modify</span><span class="btn primary">Apply</span></span></div>
+</div>
+<div class="ladder">
+<div class="row"><span class="bp">&lt;1280</span><span class="what">Main grid drops from <span class="num">6</span> to <span class="num">4</span> columns (<span class="num">3</span> ≥768, <span class="num">2</span> ≥560, <span class="num">1</span> below).</span></div>
+<div class="row"><span class="bp">&lt;1080</span><span class="what">The rail becomes a tab strip; the topmost frame is the open tab. It never disappears.</span></div>
+<div class="row"><span class="bp">&lt;768</span><span class="what">The sidebar locks collapsed at <span class="num">56px</span>; the breadcrumb shows the parent only; the right cluster wraps.</span></div>
+<div class="row"><span class="bp">≤560</span><span class="what">The sidebar is an overlay sheet and Main is one column. A rail tab opens its frame in the Drawer.</span></div>
+<div class="row"><span class="bp">mobile</span><span class="what">Condensed <span class="num">44px</span> bar · Commit bar edge-to-edge, radius <span class="num">0</span> · chip rails at large (<span class="num">34px</span>) · rows stay <span class="num">36px</span>.</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;App&gt; · &lt;Tabs&gt; · &lt;Drawer&gt; · &lt;ActionBar&gt;</b> · <span class="f">drawn at 1:1, 430px screen</span> · <span class="f">condensed bar 44, pad 0/20, parent crumb only</span> · <span class="f">Main pad 32/24, frames full-width, gap 16, frame pad 20</span> · <span class="f">rail tab strip 44, mono 11</span> · <span class="f">commit bar 56, pad 12/24, edge-to-edge, radius 0, 1px --brand-d top rule</span> · <span class="f">same tokens, same anatomy, narrower</span></div>
 </body></html>

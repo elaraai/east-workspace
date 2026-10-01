@@ -1,0 +1,105 @@
+<!-- @dsCard group="Parts · Graphs, maps, feedback & overlays" viewport="700x600" subtitle="A map in its Frame — basemap tokens, marks in place, the overlay card on the selection, the legend under the map" name="Map · legend & overlay card" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.map { position: relative; height: 280px; overflow: hidden; background: var(--paper-3); }
+.map svg { position: absolute; inset: 0; }
+.land { fill: var(--paper); stroke: var(--rule-strong); stroke-width: 1; }
+.hx { stroke-width: 1; }
+.hx.pos { fill: color-mix(in oklch, var(--pos) 6%, transparent); stroke: var(--pos); }
+.hx.warn { fill: color-mix(in oklch, var(--warn) 6%, transparent); stroke: var(--warn); }
+.hx.neg { fill: color-mix(in oklch, var(--neg) 6%, transparent); stroke: var(--neg); }
+.hx.lat { fill: none; stroke: var(--rule); }
+.ln { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.ln.plan { stroke: var(--brand-d); stroke-dasharray: 4 4; }
+.mk { position: absolute; width: 8px; height: 8px; border: 2px solid var(--paper); border-radius: var(--r-full); background: var(--brand); }
+.mk.warn { background: var(--warn); }
+.mk.neg { background: var(--neg); }
+.mk.sel::before { content: ""; position: absolute; inset: -3px; border: 1px solid var(--ink); border-radius: var(--r-full); }
+.cl { position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid var(--brand); border-radius: var(--r-full); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; font-feature-settings: "tnum" 1; color: var(--ink); }
+.cl.warn { border-color: var(--warn); }
+.s24 { width: 24px; height: 24px; }
+.s32 { width: 32px; height: 32px; }
+.ml { position: absolute; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 12px; white-space: nowrap; color: var(--ink-3); }
+.ml.sel { font-weight: 600; color: var(--ink); }
+.attr { position: absolute; left: 12px; bottom: 8px; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ov { position: absolute; top: 12px; right: 12px; width: 280px; box-sizing: border-box; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-md); }
+.os { display: grid; gap: 4px; padding: 12px; }
+.os + .os { border-top: 1px solid var(--rule); }
+.oh { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.st { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.st .d { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--warn); }
+.kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: baseline; }
+.vc { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.kk { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); white-space: nowrap; }
+.vv { font-family: var(--font-mono); font-size: var(--fs-body); font-weight: 500; font-feature-settings: "tnum" 1; color: var(--ink); }
+.vs { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); white-space: nowrap; }
+.link { font-size: var(--fs-body-sm); font-weight: 500; color: var(--brand-d); }
+.lg { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 20px; border-top: 1px solid var(--rule); }
+.le { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.sw { width: 14px; height: 14px; flex: none; display: flex; align-items: center; justify-content: center; }
+.sw .mk { position: relative; }
+.sw .ring { width: 8px; height: 8px; border: 2px solid var(--brand); border-radius: var(--r-full); background: var(--paper); }
+.lt { font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; color: var(--ink); }
+.lr { font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 500; font-feature-settings: "tnum" 1; color: var(--ink-4); }
+.eye { font-size: 14px; color: var(--brand-d); }
+.le.off .lt, .le.off .eye { color: var(--ink-4); }
+.le.off .sw { opacity: 0.45; }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="frame">
+<div class="eb"><span class="lbl">Linehaul network · run #42</span><span class="meta">14m ago</span></div>
+<div class="map">
+<svg width="658" height="280" viewBox="0 0 658 280" aria-label="South-east Australia: five distribution centres, four store clusters, lanes and Riverina coverage">
+<path class="land" d="M-4.0 -4.0L321.4 -4.0L322.0 -2.1L322.5 10.1L321.2 23.5L330.3 41.9L329.2 61.2L325.9 71.4L320.7 91.2L321.1 104.0L317.3 120.1L308.8 140.7L294.7 151.9L287.6 169.7L281.2 181.2L275.5 201.4L268.1 213.1L263.3 230.9L260.8 247.4L261.8 255.0L250.8 263.4L229.3 264.3L211.5 274.3L202.7 283.8L202.5 284.0L176.0 284.0L175.2 283.5L163.5 279.1L166.4 266.4L155.9 271.0L143.7 284.0L127.2 284.0L122.6 282.1L111.6 278.2L100.6 276.5L82.1 269.4L69.7 254.5L66.1 236.2L61.7 224.2L52.2 214.5L33.7 211.7L40.0 200.3L35.4 182.9L26.0 199.1L8.9 203.4L19.0 190.4L21.9 177.0L29.3 165.7L27.8 148.7L12.2 168.3L0.1 176.2L-4.0 186.7Z"></path>
+<polygon class="hx lat" points="159.2,172.5 168.3,177.8 168.3,188.3 159.2,193.5 150.1,188.3 150.1,177.8"></polygon>
+<polygon class="hx pos" points="180.0,172.5 189.1,177.8 189.1,188.3 180.0,193.5 170.9,188.3 170.9,177.8"></polygon>
+<polygon class="hx pos" points="200.8,172.5 209.9,177.8 209.9,188.3 200.8,193.5 191.7,188.3 191.7,177.8"></polygon>
+<polygon class="hx warn" points="169.6,190.5 178.7,195.8 178.7,206.3 169.6,211.5 160.5,206.3 160.5,195.8"></polygon>
+<polygon class="hx warn" points="190.4,190.5 199.5,195.8 199.5,206.3 190.4,211.5 181.3,206.3 181.3,195.8"></polygon>
+<polygon class="hx pos" points="211.2,190.5 220.3,195.8 220.3,206.3 211.2,211.5 202.1,206.3 202.1,195.8"></polygon>
+<polygon class="hx neg" points="180.0,208.5 189.1,213.8 189.1,224.3 180.0,229.5 170.9,224.3 170.9,213.8"></polygon>
+<polygon class="hx warn" points="200.8,208.5 209.9,213.8 209.9,224.3 200.8,229.5 191.7,224.3 191.7,213.8"></polygon>
+<path class="ln" d="M320 28L285 171L165 264.3L42.9 195.6M285 171L226.9 154.2"></path>
+<path class="ln plan" d="M226.9 154.2L320 28"></path>
+</svg>
+<span class="cl s24" style="left:310px;top:78px">8</span>
+<span class="cl s24 warn" style="left:268px;top:96px">9</span>
+<span class="cl s32" style="left:229px;top:188px">42</span>
+<span class="cl s24" style="left:99px;top:166px">6</span>
+<span class="mk warn sel" style="left:314px;top:22px"></span>
+<span class="mk" style="left:279px;top:165px"></span>
+<span class="mk" style="left:159px;top:258px"></span>
+<span class="mk" style="left:37px;top:190px"></span>
+<span class="mk neg" style="left:221px;top:148px"></span>
+<span class="ml sel" style="left:306px;top:22px;transform:translateX(-100%)">DC-North</span>
+<span class="ml" style="left:299px;top:165px">DC-East</span>
+<span class="ml" style="left:179px;top:258px">DC-South</span>
+<span class="ml" style="left:43px;top:206px;transform:translateX(-50%)">DC-West</span>
+<span class="ml" style="left:213px;top:148px;transform:translateX(-100%)">DC-Central</span>
+<span class="attr">Natural Earth 1:110m · Mercator</span>
+<div class="ov">
+<div class="os"><div class="oh"><span class="lbl">DC-North · depot</span><span class="st"><span class="d"></span>At risk</span></div><span class="vs">Brisbane, QLD · 3 docks</span></div>
+<div class="os"><div class="kv"><span class="kk">Fill rate</span><span class="vc"><span class="vv">88.0%</span><span class="vs">target ≥ 95%</span></span><span class="kk">Utilisation</span><span class="vc"><span class="vv">92%</span><span class="vs">▲ +3 pts wow</span></span><span class="kk">Lanes in</span><span class="vc"><span class="vv">2</span><span class="vs">+1 planned</span></span></div></div>
+<div class="os"><span class="link">Open DC-North →</span></div>
+</div>
+</div>
+<div class="lg">
+<span class="le"><span class="sw"><span class="mk"></span></span><span class="lt">DC</span><span class="lr">5</span><i class="fa-solid fa-eye eye" aria-label="Hide DC"></i></span>
+<span class="le"><span class="sw"><span class="ring"></span></span><span class="lt">Stores</span><span class="lr">65</span><i class="fa-solid fa-eye eye" aria-label="Hide stores"></i></span>
+<span class="le"><span class="sw"><svg width="14" height="3" viewBox="0 0 14 3" aria-hidden="true"><path class="ln" style="stroke-width:3" d="M0 1.5H14"></path></svg></span><span class="lt">Lane</span><span class="lr">4</span><i class="fa-solid fa-eye eye" aria-label="Hide lanes"></i></span>
+<span class="le"><span class="sw"><svg width="14" height="3" viewBox="0 0 14 3" aria-hidden="true"><path class="ln plan" style="stroke-width:3" d="M0 1.5H14"></path></svg></span><span class="lt">Planned lane</span><span class="lr">1</span><i class="fa-solid fa-eye eye" aria-label="Hide planned lanes"></i></span>
+<span class="le"><span class="sw"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><polygon class="hx pos" points="7,0.5 12.6,3.8 12.6,10.3 7,13.5 1.4,10.3 1.4,3.8"></polygon></svg></span><span class="lt">Covered</span><span class="lr">≥ 95%</span><i class="fa-solid fa-eye eye" aria-label="Hide covered"></i></span>
+<span class="le"><span class="sw"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><polygon class="hx warn" points="7,0.5 12.6,3.8 12.6,10.3 7,13.5 1.4,10.3 1.4,3.8"></polygon></svg></span><span class="lt">At risk</span><span class="lr">85–95%</span><i class="fa-solid fa-eye eye" aria-label="Hide at risk"></i></span>
+<span class="le"><span class="sw"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><polygon class="hx neg" points="7,0.5 12.6,3.8 12.6,10.3 7,13.5 1.4,10.3 1.4,3.8"></polygon></svg></span><span class="lt">Gap</span><span class="lr">&lt; 85%</span><i class="fa-solid fa-eye eye" aria-label="Hide gap"></i></span>
+<span class="le off"><span class="sw"><svg width="14" height="3" viewBox="0 0 14 3" aria-hidden="true"><path class="ln" style="stroke:var(--ink-4);stroke-width:3;stroke-dasharray:4 4" d="M0 1.5H14"></path></svg></span><span class="lt">Boundary</span><span class="lr">hidden</span><i class="fa-solid fa-eye-slash eye" aria-label="Show boundary"></i></span>
+</div>
+</div>
+<div class="ann"><b>&lt;Map&gt; · overlay · legend</b> · <span class="f">the map runs edge to edge in the Frame body, 280 tall</span> · <span class="f">basemap: land --paper, water --paper-3, coast 1px --rule-strong</span> · <span class="f">tiles in production: positron in light, darkMatter in dark — never voyager</span> · <span class="f">labels mono 10/500 --ink-3, 8 from the mark, no halo; the selection's label 600 --ink</span> · <span class="f">overlay card: --paper, 1px --rule-strong, --r-md, no shadow</span> · <span class="f">280 wide (Popover sm), 12 in from the top-end corner</span> · <span class="f">sections pad 12, split by 1px --rule</span> · <span class="f">body is the Key/value part: key column 96, values mono 13 --ink, comparison mono 10 --ink-4</span> · <span class="f">it shows the selection; esc or a click on empty map clears it</span> · <span class="f">legend full width under the map, pad 12/20, gap 8/20</span> · <span class="f">14 swatch · label mono 10.5/600 --ink · range mono 10.5/500 --ink-4</span> · <span class="f">eye --brand-d; the entry is the toggle</span> · <span class="f">hidden: --ink-4, swatch at 0.45</span> · <span class="f">attribution mono 9.5 --ink-4, bottom-start</span></div>
+</body></html>

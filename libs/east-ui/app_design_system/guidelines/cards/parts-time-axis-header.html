@@ -1,0 +1,82 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x690" subtitle="Context tier over tick tier · hour, day, week and month resolution · non-working shading through the lanes · now line and current-period flag" name="Time axis header" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.tl { width: 650px; box-sizing: border-box; display: grid; grid-template-columns: 128px 520px; }
+.cn { border-right: 1px solid var(--rule); }
+.cn > div { box-sizing: border-box; display: flex; align-items: center; padding: 0 12px 0 20px; }
+.cn .u, .cn .l, .up, .lo { height: 24px; box-sizing: border-box; border-bottom: 1px solid var(--rule); }
+.cn .ln { height: 36px; font-size: var(--fs-body); color: var(--ink); white-space: nowrap; }
+.hk { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.ax { position: relative; overflow: hidden; }
+.up, .lo { position: relative; display: flex; }
+.up { z-index: 1; }
+.lo { z-index: 3; }
+.up > span { flex: none; box-sizing: border-box; display: flex; align-items: center; min-width: 0; padding: 0 12px; border-right: 1px solid var(--rule); overflow: hidden; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.lo > span { flex: none; width: 40px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-right: 1px solid var(--rule); white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 500; color: var(--ink-4); }
+.lo > span.cur b { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); background: var(--brand-d); font-weight: 600; line-height: 1; color: var(--paper); }
+.lane { height: 36px; }
+.d48 .lo > span { width: 48px; }
+.sh { position: absolute; top: 24px; bottom: 0; z-index: 0; background: var(--paper-2); }
+.mj { position: absolute; top: 48px; bottom: 0; z-index: 1; width: 1px; background: var(--rule); }
+.now { position: absolute; top: 24px; bottom: 0; z-index: 2; width: 1px; background: var(--brand-d); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame tl">
+<div class="cn"><div class="u"><span class="hk">Hour</span></div><div class="l"><span class="hk">Site</span></div><div class="ln">DC-North</div></div>
+<div class="ax">
+<div class="up"><span style="width: 440px;">Thu 06 Aug</span><span style="width: 80px;">Fri 07</span></div>
+<div class="lo"><span>13</span><span>14</span><span class="cur"><b>15:40</b></span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>00</span><span>01</span></div>
+<div class="lane"></div>
+<i class="sh" style="left: 360px; width: 160px;"></i><i class="mj" style="left: 440px;"></i><i class="now" style="left: 106px;"></i>
+</div>
+</div>
+<div class="cap"><span class="f">hour · 40 per hour under a day tier</span> · <span class="f">two-digit hours; the current hour carries the time</span> · <span class="f">non-working 22–06 --paper-2</span></div>
+</div>
+<div class="item">
+<div class="frame tl">
+<div class="cn"><div class="u"><span class="hk">Day</span></div><div class="l"><span class="hk">Site</span></div><div class="ln">DC-North</div></div>
+<div class="ax d48">
+<div class="up"><span style="width: 336px;">W32 · Aug 03</span><span style="width: 184px;">W33 · Aug 10</span></div>
+<div class="lo"><span>Mo 03</span><span>Tu 04</span><span>We 05</span><span class="cur"><b>Th 06</b></span><span>Fr 07</span><span>Sa 08</span><span>Su 09</span><span>Mo 10</span><span>Tu 11</span><span>We 12</span><span>Th 13</span></div>
+<div class="lane"></div>
+<i class="sh" style="left: 240px; width: 96px;"></i><i class="mj" style="left: 336px;"></i><i class="now" style="left: 175px;"></i>
+</div>
+</div>
+<div class="cap"><span class="f">day · 48 per day under an ISO-week tier, so "Mo 03" clears its rules</span> · <span class="f">weekend --paper-2 from the tick tier through every lane</span> · <span class="f">the current day is the flag</span></div>
+</div>
+<div class="item">
+<div class="frame tl">
+<div class="cn"><div class="u"><span class="hk">Week</span></div><div class="l"><span class="hk">Site</span></div><div class="ln">DC-North</div></div>
+<div class="ax">
+<div class="up"><span style="width: 120px;">Jul 2026</span><span style="width: 160px;">Aug</span><span style="width: 160px;">Sep</span><span style="width: 80px;">Oct</span></div>
+<div class="lo"><span>W29</span><span>W30</span><span>W31</span><span class="cur"><b>W32</b></span><span>W33</span><span>W34</span><span>W35</span><span>W36</span><span>W37</span><span>W38</span><span>W39</span><span>W40</span><span>W41</span></div>
+<div class="lane"></div>
+<i class="mj" style="left: 120px;"></i><i class="mj" style="left: 280px;"></i><i class="mj" style="left: 440px;"></i><i class="now" style="left: 141px;"></i>
+</div>
+</div>
+<div class="cap"><span class="f">week · 40 per week under month</span> · <span class="f">a week belongs to the month of its Thursday</span> · <span class="f">weekends fall inside a cell: no shading</span></div>
+</div>
+<div class="item">
+<div class="frame tl">
+<div class="cn"><div class="u"><span class="hk">Month</span></div><div class="l"><span class="hk">Site</span></div><div class="ln">DC-North</div></div>
+<div class="ax">
+<div class="up"><span style="width: 280px;">2026</span><span style="width: 240px;">2027</span></div>
+<div class="lo"><span>Jun</span><span>Jul</span><span class="cur"><b>Aug</b></span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span></div>
+<div class="lane"></div>
+<i class="mj" style="left: 280px;"></i><i class="now" style="left: 87px;"></i>
+</div>
+</div>
+<div class="cap"><span class="f">month · 40 per month under year</span> · <span class="f">context boundaries run through the lanes as 1px --rule; tick rules stay in the header</span> · <span class="f">now: 1px --brand-d at the instant, under the flag</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Plan&gt; · ruler · rulerTick · nowLine · nowChip · resolution hour | day | week | month</b> · <span class="f">header 48: context tier 24 + tick tier 24, 1px --rule under each</span> · <span class="f">context mono 10 / 600 / 0.16em uppercase --ink-4, pad 0 12, sticky-left, clips</span> · <span class="f">tick mono 10 / 500 tabular --ink-4, centred</span> · <span class="f">tick 40 for hour, week, month; 48 for day</span> · <span class="f">lane column 128, first cell pad 20</span> · <span class="f">non-working --paper-2 from the tick tier down</span> · <span class="f">context boundary 1px --rule through lanes</span> · <span class="f">now 1px --brand-d from the tick tier down</span> · <span class="f">flag 16, pad 0 4, --r-sm, --brand-d, --paper mono 600, above the line</span></div>
+</body></html>

@@ -1,0 +1,252 @@
+<!-- @dsCard group="Parts · Toolbar & slice" viewport="700x4440" subtitle="SliceEditPopover: head, body, flush body, foot, md 320 / lg 360, arrow, closing · the sectioned editor · Add filter and the predicate builder · value hints, help and error · Edit · Split by · N active filters · Save as cohort · cohorts · Range · improvements marked (proposed)" name="Slice edit" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css">
+<style>
+.pr{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:20px;align-items:start}
+.pr2{display:grid;grid-template-columns:repeat(2,minmax(0,320px));gap:20px;align-items:start}
+.pw{position:relative;padding-top:6px}
+.notes{display:grid;gap:8px;align-content:start;padding-top:6px}
+.nt{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.5;letter-spacing:0.04em;color:var(--ink-4)}
+.nt b{font-weight:600;color:var(--ink-2)}
+.trg{display:flex;align-items:center;gap:4px;padding:0 0 10px 0}
+.lbl2{font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.ops{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px 12px;align-items:start}
+.op{height:20px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 8px;background:var(--paper-3);border:1px solid var(--rule);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--ink-2);white-space:nowrap}
+.vc{display:grid;grid-template-columns:128px minmax(0,1fr);gap:12px 16px;align-items:center}
+.crow{display:grid;grid-template-columns:32px minmax(0,1fr);gap:8px;align-items:center;font-family:var(--font-mono);font-size:var(--fs-label-lg)}
+.conj{font-size:var(--fs-label-xs);letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);text-align:right}
+.cbox{height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 3px 0 8px;background:var(--paper-2);border:1px solid var(--rule);border-radius:var(--r-sm);color:var(--ink-3);white-space:nowrap;min-width:0}
+.cbox .cf{color:var(--brand-dd);font-weight:600}.cbox .co{color:var(--ink-4)}.cbox .cv{color:var(--ink);font-weight:600}
+.cbox .bt{margin-left:auto}
+.meta{font-family:var(--font-mono);font-size:var(--fs-label-md);line-height:1.5;color:var(--ink-3)}
+.rsl{display:grid;gap:4px;border-top:1px solid var(--rule);padding-top:8px}
+.mrow{min-height:32px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 4px 0 12px;border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-lg);color:var(--ink)}
+.mrow:last-child{border-bottom:0}
+.mrow>span:first-child{flex:1;min-width:0}
+.ffld{display:grid;gap:4px}
+.disc{display:flex;flex-direction:column;border-top:1px solid var(--rule);padding-top:8px;gap:8px;width:100%}
+.disc .dft{display:flex;justify-content:flex-end;gap:8px}
+.wide{width:560px;max-width:100%;box-sizing:border-box;padding:12px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.ftr{display:grid;gap:4px}
+.two{display:grid;grid-template-columns:1fr;gap:8px}
+.sub{display:flex;justify-content:flex-end}
+.fromf{font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;color:var(--brand-d)}
+.fromf .n{font-family:var(--font-mono);font-feature-settings:"tnum" 1}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Shell · SliceEditPopover</div>
+<div class="pr">
+<div>
+<div class="trg"><span class="fi"><i class="fa-solid fa-calendar" aria-hidden="true"></i></span><span class="ch br op" id="t1" role="button" aria-expanded="true">Jun 29 – Sep 20<span class="me">84d · vs prev period</span><i class="fa-solid fa-chevron-down cr" aria-hidden="true"></i></span></div>
+<div class="pop sm" id="p1" role="dialog" aria-label="Time range"><span class="arw" id="a1" style="left:120px"></span>
+<div class="hd"><span>Time range</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd">
+<div class="line"><span class="ch" role="button">All</span><span class="ch" role="button">Today</span><span class="ch" role="button">7d</span><span class="ch" role="button">30d</span><span class="ch" role="button">90d</span><span class="ch" role="button">YTD</span><span class="ch br" role="button">Custom…</span></div>
+<div class="two"><div class="ftr"><span class="ecap">From</span><span class="fld m"><span class="v">29/06/2026</span><i class="fa-solid fa-calendar dn" aria-hidden="true"></i></span></div><div class="ftr"><span class="ecap">To</span><span class="fld m"><span class="v">20/09/2026</span><i class="fa-solid fa-calendar dn" aria-hidden="true"></i></span></div></div>
+<div class="esec"><span class="ecap">Compare with</span><div class="ebody"><span class="ch" role="radio" aria-checked="false">None</span><span class="ch br" role="radio" aria-checked="true">Previous period</span><span class="ch" role="radio" aria-checked="false">Previous year</span></div></div>
+<div class="rsl"><span class="meta">Resolves to Jun 29 – Sep 20, 2026</span><span class="meta">Compared with Apr 6 – Jun 28, 2026</span></div>
+</div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Done</span></span></div>
+</div>
+</div>
+<div class="notes">
+<div class="nt"><b>content</b> · --paper, 1px --rule-strong, --r-md, no shadow · <b>md 320 · lg 360</b>, the Popover's widths (proposed) · never wider than the viewport less 12 each side (proposed)</div>
+<div class="nt"><b>arrow</b> · 12 wide, 6 deep, its tip 4 from the trigger · the popover centred under it, shifted to stay in view</div>
+<div class="nt"><b>head</b> · pad 8 8 8 12, hairline --rule below (proposed) · mono 10.5/600/0.04em --ink, sentence case · <b>× the ghost icon button sm 24</b>, --ink-3, hover --paper-3 + --ink (proposed)</div>
+<div class="nt"><b>body</b> · pad 12, gap 12 (proposed) · at most 50vh, then it scrolls · head and foot stay</div>
+<div class="nt"><b>flush body</b> · no pad, no gap, for lists: rows edge to edge with their own 12 inset</div>
+<div class="nt"><b>foot</b> · pad 8 12 (proposed), hairline above, --paper-2 · left: an onward Link, Inter Tight 12.5 --brand-d (proposed) · right: the actions, gap 8, Default sm 24 · <b>every commit sits here</b> (proposed)</div>
+<div class="nt"><b>closing</b> · ×, esc, a click outside (not inside a select or combobox list), or a foot button · focus returns to the trigger, which holds data-state=open: --paper-3, caret up (proposed)</div>
+<div class="nt"><b>compare</b> · only on a datetime range, only where the host draws a comparison (proposed) · None clears it: no Clear compare (proposed) · the resolve line adds Compared with … (proposed)</div>
+</div>
+</div>
+</div>
+<div class="sec">
+<div class="k">The sectioned editor · every folded trigger opens it · editor density</div>
+<div class="pr">
+<div class="pw"><div class="pop lg" role="dialog" aria-label="Narrowing"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Narrowing · <span class="ac">6 active</span></span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd">
+<div class="esec"><span class="ecap">Filter</span><div class="ebody"><span class="ch br op" role="button" aria-expanded="true">hours ≥ 8<span class="x">×</span></span><span class="ch br" role="button">site in DC-North, DC-East<span class="x">×</span></span><span class="ch br" role="button">note is not empty<span class="x">×</span></span><span class="ch cp da" role="button"><i class="fa-solid fa-plus pl" aria-hidden="true"></i>Add filter</span>
+<div class="disc"><span class="ecap">Edit · hours</span><div class="stk"><div class="ctrls"><span class="fld m" style="width:96px;flex:none"><span class="v">≥</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m" style="flex:1"><span class="v r">8</span></span></div></div><div class="dft"><span class="bt" role="button">Cancel</span><span class="bt" role="button">Apply</span></div></div>
+</div></div>
+<div class="esec"><span class="ecap">Split</span><div class="ebody"><span class="ch br" role="button">Site<span class="x">×</span></span></div></div>
+<div class="esec"><span class="ecap">Cohort</span><div class="ebody"><span class="ch" role="button"><span class="dt"></span>Night crew<span class="me">· 412</span><span class="pen"><i class="fa-solid fa-pen" aria-hidden="true"></i></span></span><span class="runcap">Region</span><span class="ch br" role="button"><span class="dt on"></span>North<span class="me">· 1.2K</span><span class="pen"><i class="fa-solid fa-pen" aria-hidden="true"></i></span></span><span class="ch" role="button"><span class="dt"></span>South<span class="me">· 980</span><span class="pen"><i class="fa-solid fa-pen" aria-hidden="true"></i></span></span><span class="ch cp da" role="button"><i class="fa-solid fa-plus pl" aria-hidden="true"></i>Cohort</span></div></div>
+<div class="esec"><span class="ecap">Search</span><span class="srch"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="q">nights</span><span class="x" role="button" aria-label="Clear search">×</span></span></div>
+<div class="esec"><span class="ecap">Range</span><div class="ebody"><span class="ch br" role="button">Jun 29 – Sep 20<span class="me">84d</span><i class="fa-solid fa-chevron-down cr" aria-hidden="true"></i></span></div></div>
+</div>
+<div class="ft"><span class="lk" role="button">Save as cohort →</span><span class="acts"><span class="bt" role="button">Done</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>lg 360</b> (proposed) · head "Narrowing · N active", N 600 --brand-dd</div>
+<div class="nt"><b>N counts the narrowings in its own sections</b>: each filter, each active cohort, the search, the range; never the breakdown, a split (proposed) · on a one-cluster host it equals Slice.Summary's K</div>
+<div class="nt"><b>one section per family of the cluster</b>, in listed order, however far it has folded · 12 apart</div>
+<div class="nt">section: <b>caption mono 10/600/0.14em</b> caps --ink-4, so the head outranks it (proposed), 8 above its control · FILTER · SPLIT · COHORT · PRESETS · SEARCH · RANGE</div>
+<div class="nt">the control area wraps, gap 8 (proposed) · <b>nothing folds</b>: every clause chip shows, no +N more · search is the Search Input 32 (proposed)</div>
+<div class="nt"><b>no popover on a popover</b>: a nested editor opens as an inline disclosure under its trigger · hairline above, 8 of space, the popover's label as the caption, fields 32, <b>its own foot: Cancel · Apply</b>, no border, no × (proposed)</div>
+<div class="nt">foot: <b>Save as cohort →</b> while a filter is set and the cluster manages cohorts (proposed) · Done</div>
+</div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Add filter · the predicate builder, stacked in the popover</div>
+<div class="pr">
+<div class="pw"><div class="pop lg" role="dialog" aria-label="Add filter"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Add filter</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd"><div class="stk"><div class="ctrls"><span class="fld m" style="flex:1.3"><span class="v">hours</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m" style="width:100px;flex:none"><span class="v">≥</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span></div><span class="fld m fo"><span class="v r">8<span class="tcar" style="margin-left:1px"></span></span></span></div></div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Cancel</span><span class="bt" role="button">Add</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>lg 360</b> · opened by + FILTER</div>
+<div class="nt">under 480 wide it stacks: field and operator selects on one line · the value full width · the hint · <b>fields 32, the Input's box</b> (proposed)</div>
+<div class="nt"><b>the submit sits in the foot: Cancel · Add</b>, in place of a body Add and a foot Done (proposed) · Add appends the clause and closes · a duplicate clause is ignored</div>
+<div class="nt">selects mono 13 (field ids) · a numeric value right-aligned · focus --shadow-focus</div>
+</div>
+</div>
+<div class="wide"><div class="brow"><span class="fld m"><span class="v">hours</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m"><span class="v">≥</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m"><span class="v r">8</span></span></div></div>
+<div class="cap"><span class="f">480 and wider: one grid row</span> · <span class="f">minmax(0,1.3fr) minmax(100px,max-content) minmax(80px,1fr), gap 8</span> · <span class="f">the hint spans the row beneath</span> · <span class="f">Add stays in the foot (proposed)</span></div>
+</div>
+<div class="sec">
+<div class="k">Operators by kind, in order</div>
+<div class="canvas"><div class="ops">
+<span class="lbl2">string</span><div class="line" style="gap:4px"><span class="op">contains</span><span class="op">=</span><span class="op">≠</span><span class="op">in</span><span class="op">not in</span><span class="op">~</span><span class="op">starts with</span><span class="op">ends with</span><span class="op">is empty</span><span class="op">is not empty</span></div>
+<span class="lbl2">integer</span><div class="line" style="gap:4px"><span class="op">=</span><span class="op">≠</span><span class="op">&gt;</span><span class="op">≥</span><span class="op">&lt;</span><span class="op">≤</span><span class="op">in</span></div>
+<span class="lbl2">float</span><div class="line" style="gap:4px"><span class="op">&gt;</span><span class="op">≥</span><span class="op">&lt;</span><span class="op">≤</span></div>
+<span class="lbl2">datetime</span><div class="line" style="gap:4px"><span class="op">before</span><span class="op">after</span><span class="op">between</span></div>
+<span class="lbl2">boolean</span><div class="line" style="gap:4px"><span class="op">is</span></div>
+</div></div>
+</div>
+<div class="sec">
+<div class="k">Value controls · each hint: help while input is missing, error while it's invalid</div>
+<div class="canvas"><div class="vc">
+<span class="nt">typed · hours ≥</span><div class="line"><span class="fld m" style="width:160px"><span class="v r">8</span></span></div>
+<span class="nt">tags · qty in</span><div class="line"><span class="fld tags" style="width:280px"><span class="ch br">10<span class="x">×</span></span><span class="ch br">20<span class="x">×</span></span><span class="ch br">30<span class="x">×</span></span><span class="ph">a, b, c</span></span></div>
+<span class="nt">two dates · start between</span><div class="line"><span class="rng"><span class="fld m" style="width:136px"><span class="v">29/06/2026</span><i class="fa-solid fa-calendar dn" aria-hidden="true"></i></span><span class="j">–</span><span class="fld m" style="width:136px"><span class="v">20/09/2026</span><i class="fa-solid fa-calendar dn" aria-hidden="true"></i></span></span></div>
+<span class="nt">select · lead is</span><div class="line"><span class="fld m" style="width:120px"><span class="v">true</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span></div>
+<span class="nt">none · note is empty</span><div class="line"><span class="nt">no value control</span></div>
+<span class="nt">help · missing</span><div class="stk" style="width:280px"><span class="fld m"><span class="v ph"></span></span><span class="hint">Enter a value.</span></div>
+<span class="nt">help · missing</span><div class="stk" style="width:280px"><span class="fld tags"><span class="ph">a, b, c</span></span><span class="hint">Enter at least one value.</span></div>
+<span class="nt">error · invalid</span><div class="stk" style="width:280px"><span class="fld tags inv"><span class="ch br">2.5<span class="x">×</span></span></span><span class="hint er">Enter at least one whole number.</span></div>
+<span class="nt">error · invalid</span><div class="stk" style="width:280px"><span class="rng"><span class="fld m inv" style="width:128px"><span class="v">20/09/2026</span></span><span class="j">–</span><span class="fld m inv" style="width:128px"><span class="v">29/06/2026</span></span></span><span class="hint er">Start must not exceed end.</span></div>
+<span class="nt">the foot meanwhile</span><div class="line"><span class="bt" role="button">Cancel</span><span class="bt dis" role="button" aria-disabled="true">Add</span></div>
+</div></div>
+<div class="cap"><span class="f">most operators: a typed input; a datetime takes a date only</span> · <span class="f">in / not in: a tags input with suggestions, <b>values as the 22 brand chip</b> (proposed)</span> · <span class="f">between: two dates joined by –, wrapping when short of room</span> · <span class="f">boolean: a true / false select</span> · <span class="f">is empty / is not empty: none</span> · <span class="f">hint mono 10 --ink-3 while input is missing</span> · <span class="f"><b>invalid input is the Field's error</b>: 1px --neg edge, the hint in --neg-text (proposed)</span> · <span class="f">the foot's submit is disabled while a hint shows</span></div>
+</div>
+<div class="sec">
+<div class="k">Edit · {fieldId} · Split by</div>
+<div class="pr2">
+<div class="pw"><div class="pop sm" role="dialog" aria-label="Edit hours"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Edit · <span class="ac">hours</span></span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd"><div class="stk"><div class="ctrls"><span class="fld m" style="width:96px;flex:none"><span class="v">≥</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m" style="flex:1"><span class="v r">10</span></span></div></div></div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Cancel</span><span class="bt" role="button">Apply</span></span></div>
+</div></div>
+<div class="pw"><div class="pop sm" role="dialog" aria-label="Split by"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Split by</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd fl" role="menu" style="padding:4px 0"><span class="mi hv" role="menuitemradio" aria-checked="false">Site</span><span class="mi" role="menuitemradio" aria-checked="false">Role</span><span class="mi fo" role="menuitemradio" aria-checked="false">Region</span><span class="mi" role="menuitemradio" aria-checked="false">Shift type</span></div>
+</div></div>
+</div>
+<div class="cap"><span class="f">Edit · md 320, from a clause chip; the field id 600 --brand-dd in the head</span> · <span class="f"><b>the body opens on the operator</b>: the head names the field, so no locked --brand-dd label (proposed)</span> · <span class="f"><b>foot Cancel · Apply</b> (proposed)</span> · <span class="f">Split by · md 320, from + DIMENSION</span> · <span class="f"><b>a flush list of Menu items</b>: 32, pad 0 12, Inter Tight 12.5 --ink, hover --paper-2, focus inset, the current dimension checked --brand-d (proposed)</span> · <span class="f">a pick applies and closes, so no foot (proposed)</span></div>
+</div>
+<div class="sec">
+<div class="k">{N} active filters · and its Save as cohort state</div>
+<div class="pr">
+<div class="pw"><div class="pop lg" role="dialog" aria-label="3 active filters"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>3 active filters</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd fl"><div class="mrow"><span>hours ≥ 8</span><span class="bt ib gh" role="button" aria-label="Remove hours ≥ 8"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div><div class="mrow"><span>site in DC-North, DC-East</span><span class="bt ib gh hv" role="button" aria-label="Remove site in DC-North, DC-East"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div><div class="mrow"><span>note is not empty</span><span class="bt ib gh" role="button" aria-label="Remove note is not empty"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div></div>
+<div class="ft"><span class="lk" role="button">Save as cohort →</span><span class="acts"><span class="bt" role="button">Clear all</span><span class="bt" role="button">Done</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>lg 360</b> · opened by +N more</div>
+<div class="nt">a flush list: rows 32, pad 0 4 0 12, mono 11, hairlines between (proposed) · <b>× the ghost icon button sm 24</b>, hover --paper-3 + --ink (proposed)</div>
+<div class="nt">foot left: <b>Save as cohort →, from one filter</b> (proposed; two or more today)</div>
+<div class="nt">foot right: Clear all (filters, active cohorts, range, search) · Done</div>
+</div>
+</div>
+<div class="pr">
+<div class="pw"><div class="pop lg" role="dialog" aria-label="Save as cohort"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Save as cohort</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd"><div class="ffld"><span class="fld fo"><span class="v ph">Cohort name</span></span><span class="hint">Give the cohort a name to save it.</span></div></div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Cancel</span><span class="bt dis" role="button" aria-disabled="true">Save</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>the same popover</b>, after Save as cohort →</div>
+<div class="nt">Save stays disabled until the cohort has a name</div>
+<div class="nt">saving turns the filters into a standalone cohort and switches it on</div>
+<div class="nt"><b>saving</b>: past --dur-base Save takes the Button's loading form, Cancel waits (proposed)</div>
+<div class="line"><span class="bt dis" role="button" aria-disabled="true">Cancel</span><span class="bt" role="button" aria-busy="true"><span class="ld"></span>Save</span></div>
+</div>
+</div>
+</div>
+<div class="sec">
+<div class="k">New cohort · Edit cohort · {name}</div>
+<div class="pr">
+<div class="pw"><div class="pop lg" role="dialog" aria-label="New cohort"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>New cohort</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd">
+<span class="fld"><span class="v ph">Cohort name</span></span>
+<span class="fld"><span class="v ph">Family (optional)</span></span>
+<span class="fromf" role="button">Start from the <span class="n">2</span> current filters →</span>
+<div class="crow"><span class="conj">When</span><span class="cbox"><span class="cf">site</span><span class="co">in</span><span class="cv">DC-North, DC-East</span><span class="bt ib gh" role="button" aria-label="Remove clause"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></span></div>
+<div class="stk"><div class="ctrls"><span class="fld m" style="flex:1.3"><span class="v">role</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m" style="width:96px;flex:none"><span class="v">=</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span></div><span class="fld m"><span class="v">lead</span></span><div class="sub"><span class="bt md" role="button">Add</span></div></div>
+<span class="hint">Give the cohort a name.</span>
+</div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Cancel</span><span class="bt dis" role="button" aria-disabled="true">Apply</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>lg 360</b> · opened by + COHORT</div>
+<div class="nt">top to bottom: Cohort name (new only) · Family (optional) · <b>Start from the N current filters →</b>, while filters are set: it copies them in as clauses, and Apply moves them out of the filter into the cohort (proposed) · the clauses · the builder · the hints</div>
+<div class="nt">clause rows: WHEN / AND in a 32 column, mono 9.5/0.16em --ink-4 · each clause a box: <b>32</b>, --paper-2, 1px --rule, --r-sm, mono 11 · field --brand-dd 600, operator --ink-4, value --ink 600 · <b>× the ghost icon button sm 24</b> (proposed)</div>
+<div class="nt">the builder's Add stays in the body, where it adds a clause to the draft: <b>md 32</b>, beside 32 fields (proposed)</div>
+<div class="nt">hints: Give the cohort a name. · Add at least one clause.</div>
+<div class="nt">Apply stays disabled until the draft is valid; it saves and switches the cohort on</div>
+</div>
+</div>
+<div class="pr">
+<div class="pw"><div class="pop lg" role="dialog" aria-label="Edit cohort Late"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Edit cohort · <span class="ac">Late</span></span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd">
+<span class="fld"><span class="v">status</span></span>
+<div class="crow"><span class="conj">When</span><span class="cbox"><span class="cf">late_min</span><span class="co">≥</span><span class="cv">15</span><span class="bt ib gh" role="button" aria-label="Remove clause"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></span></div>
+<div class="crow"><span class="conj">And</span><span class="cbox"><span class="cf">start</span><span class="co">after</span><span class="cv">Jul 1, 2026</span><span class="bt ib gh" role="button" aria-label="Remove clause"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></span></div>
+<div class="stk"><div class="ctrls"><span class="fld m" style="flex:1.3"><span class="v ph">Field</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span><span class="fld m" style="width:96px;flex:none"><span class="v ph">Operator</span><i class="fa-solid fa-chevron-down dn cv" aria-hidden="true"></i></span></div><span class="fld m"><span class="v ph"></span></span><div class="sub"><span class="bt md dis" role="button" aria-disabled="true">Add</span></div></div>
+<div class="meta">created by m.chen · last edited Sep 24, 2026 · re-evaluated 14m ago</div>
+</div>
+<div class="ft"><span class="bt" role="button" aria-haspopup="dialog">Remove cohort…</span><span class="acts"><span class="bt" role="button">Cancel</span><span class="bt" role="button">Apply</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>lg 360</b> · opened by a cohort chip's pencil</div>
+<div class="nt">no name field · the meta line mono 10.5 --ink-3, its date in the slice's form (proposed)</div>
+<div class="nt">foot left: <b>Remove cohort…, a Default sm 24</b> that opens the Dialog: Can't be undone · Remove cohort "Late"? · Cancel + Remove cohort; no --neg-text link (proposed) · right: Cancel · Apply</div>
+<div class="nt"><b>families</b>: a typed family sets the cohort's group; left blank, the cohort is standalone</div>
+<div class="nt"><b>OR within a family, AND across families</b>, standalone cohorts and the rest of the narrowing</div>
+</div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Range · on a numeric field · and what applies when</div>
+<div class="pr">
+<div class="pw"><div class="pop sm" role="dialog" aria-label="Range"><span class="arw" style="left:40px"></span>
+<div class="hd"><span>Range</span><span class="cls" role="button" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></span></div>
+<div class="bd">
+<div class="line"><span class="ch" role="button">All</span><span class="ch br" role="button">Custom…</span></div>
+<div class="two"><div class="ftr"><span class="ecap">From</span><span class="fld m"><span class="v r">1</span></span></div><div class="ftr"><span class="ecap">To</span><span class="fld m"><span class="v r">8</span></span></div></div>
+<div class="rsl"><span class="meta">Resolves to 1–8</span></div>
+</div>
+<div class="ft"><span class="acts"><span class="bt" role="button">Done</span></span></div>
+</div></div>
+<div class="notes">
+<div class="nt"><b>Time range</b> on a datetime field, <b>Range</b> on a numeric one · md 320, from the range chip</div>
+<div class="nt">presets: All · Today · 7d · 30d · 90d · YTD · dashed Custom…, <b>the rail chip, mono 11</b>, brand when active (proposed) · Today reads Last day when the data ends before now · a numeric field has All only</div>
+<div class="nt">Custom: FROM / TO captions over the inputs, stacked · <b>COMPARE WITH: None</b> · Previous period · Previous year, not "— none" (proposed) · <b>no compare on a numeric range</b> (proposed)</div>
+<div class="nt">the resolve lines under a hairline, mono 10.5 --ink-3 · foot: Done</div>
+<div class="nt"><b>applies at once</b>: range presets, Custom, FROM / TO, compare, resolution, the breakdown pick, search typing, a clause ×, Clear all, cohort toggles, legend facets, the brush</div>
+<div class="nt"><b>waits for its button</b>: Add, Apply, Save</div>
+</div>
+</div>
+</div>
+</div>
+<div class="ann"><b>SliceEditPopover (sliceEdit) · the rail's sectioned editor (sliceFrame railSections) · clauseBuilder · predicate builder</b> · <span class="f">--paper, 1px --rule-strong, --r-md, no shadow</span> · <span class="f">md 320 · lg 360 (proposed) · arrow 12</span> · <span class="f">head pad 8 8 8 12, mono 10.5/600/0.04em, × ghost sm 24 (proposed)</span> · <span class="f">body pad 12, gap 12, max 50vh (proposed) · flush 0</span> · <span class="f">foot pad 8 12, --paper-2, Link left, actions right (proposed)</span> · <span class="f">actions Default sm 24, never a Primary</span> · <span class="f">section captions mono 10/600/0.14em (proposed)</span> · <span class="f">fields 32, the Input; body submits md 32 (proposed)</span> · <span class="f">one action row per editor, in its foot (proposed)</span> · <span class="f">invalid hints: the Field's error (proposed)</span> · <span class="f">presets mono 11; None (proposed)</span> · <span class="f">Split by: Menu items (proposed)</span> · <span class="f">Remove cohort… opens the Dialog (proposed)</span> · <span class="f">N active: narrowings, never the breakdown (proposed)</span> · <span class="f">compare: datetime only, where drawn; in the chip and the resolve line (proposed)</span> · <span class="f">Save as cohort from one filter; also in the sectioned editor and New cohort (proposed)</span> · <span class="f">saving: the Button's loading form (proposed)</span> · <span class="f">builder stacked under 480, one grid row from 480</span> · <span class="f">nested editors are inline disclosures</span> · <span class="f">Clear all leaves breakdown, visibility, compare and resolution alone</span></div>
+<script>
+(()=>{const f=()=>{const t=document.getElementById('t1'),p=document.getElementById('p1'),a=document.getElementById('a1');if(!t||!p)return;const tr=t.getBoundingClientRect(),pr=p.getBoundingClientRect();a.style.left=Math.max(12,Math.min(tr.left+tr.width/2-pr.left-6,pr.width-24))+'px';};f();document.fonts&&document.fonts.ready.then(f);window.addEventListener('load',f);})();
+</script>
+</body></html>

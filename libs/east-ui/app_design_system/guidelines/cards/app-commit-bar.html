@@ -1,25 +1,34 @@
-<!-- @dsCard group="App layout" viewport="700x190" subtitle="Sticky bottom · visible only when dirty · Override / Modify / Apply" name="Commit bar" -->
+<!-- @dsCard group="App layout" viewport="700x270" subtitle="Sticky bottom · only when dirty · Override / Modify / Apply · no shadow" name="Commit bar" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { margin: 0; padding: 14px 18px; background: var(--paper-2); }
-.wrap { display: grid; gap: 10px; max-width: 620px; }
-.bar { display: flex; align-items: center; gap: 14px; padding: 11px 18px; background: var(--brand-tint); border: 1px solid var(--brand-d); border-radius: 8px; }
-.dot { width: 8px; height: 8px; background: var(--brand-d); border-radius: 50%; flex: none; }
-.sum { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--brand-dd); }
-.keys { font-family: var(--font-mono); font-size: 10.5px; color: var(--brand-d); }
-.acts { margin-left: auto; display: flex; gap: 8px; }
-.btn { font-family: var(--font-body); font-size: 12px; font-weight: 500; padding: 5px 11px; border-radius: 6px; border: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink); }
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; gap: 12px; }
+.item { display: grid; gap: 4px; }
+.bar { height: 56px; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: var(--brand-tint); border: 1px solid var(--brand-d); border-radius: var(--r-lg); }
+.left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.dot { width: 8px; height: 8px; flex: none; background: var(--brand-d); border-radius: var(--r-full); }
+.sum { font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 500; letter-spacing: 0.04em; color: var(--brand-dd); white-space: nowrap; }
+.sum b { font-weight: 600; }
+.keys { font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--brand-d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acts { display: flex; gap: 8px; flex: none; }
+.btn { height: 32px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 12px; border-radius: var(--r-md); border: 1px solid var(--rule-strong); background: var(--paper); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 500; color: var(--ink); }
 .btn.override { border-color: var(--ink-3); color: var(--ink-2); font-weight: 600; }
 .btn.primary { background: var(--brand-d); border-color: var(--brand-d); color: var(--paper); font-weight: 600; }
-.clean { display: flex; align-items: center; padding: 8px 18px; border: 1px dashed var(--rule-strong); border-radius: 8px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
-.ann { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-4); padding: 2px 2px 0; letter-spacing: 0.04em; }
+.clean { height: 56px; box-sizing: border-box; display: flex; align-items: center; padding: 0 24px; border: 1px dashed var(--rule-strong); border-radius: var(--r-lg); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="wrap">
-  <div class="bar">
-    <span class="dot"></span><span class="sum">4 changes pending</span><span class="keys">shift.max_consec · sla.target · +2</span>
-    <span class="acts"><button class="btn override">Override</button><button class="btn">Modify</button><button class="btn primary">Apply</button></span>
-  </div>
-  <div class="clean">Hidden until a field becomes dirty</div>
-  <div class="ann">sticky bottom · 56px · floats 16px with shadow-md · in over --dur-base, out instantly · cluster order is fixed: Override → Modify → Apply</div>
+<div class="item">
+<div class="bar"><span class="left"><span class="dot"></span><span class="sum"><b>4 changes</b> pending</span><span class="keys">shift.max_consec · +3</span></span><span class="acts"><span class="btn override">Override</span><span class="btn">Modify</span><span class="btn primary">Apply</span></span></div>
+<div class="cap"><span class="f">dirty</span> · <span class="f">56px</span> · <span class="f">pad 12/24</span> · <span class="f">buttons 32</span> · <span class="f">floats 16px above the viewport floor</span></div>
 </div>
+<div class="item">
+<div class="clean">Hidden until a field becomes dirty</div>
+<div class="cap"><span class="f">clean</span> · <span class="f">nothing renders — the slot is drawn dashed here only</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;ActionBar&gt;</b> · <span class="f">sticky bottom</span> · <span class="f">56px</span> · <span class="f">pad 12/24</span> · <span class="f">--brand-tint</span> · <span class="f">1px --brand-d</span> · <span class="f">--r-lg floating, radius 0 edge-to-edge</span> · <span class="f">no shadow</span> · <span class="f">in over --dur-base with --ease-out, out instantly on apply/discard</span> · <span class="f">Override → Modify → Apply, fixed order</span> · <span class="f">Primary --brand-d with --paper text</span> · <span class="f">no other actions</span></div>
 </body></html>

@@ -1,24 +1,51 @@
-<!-- @dsCard group="Colors" viewport="700x160" subtitle="Muted valence — color on text/dots only, washes ≤8%" name="Valence" -->
+<!-- @dsCard group="Colors" viewport="700x350" subtitle="Muted valence — marks hold 3:1; set as text, the -text step holds 4.5:1; washes 6%" name="Valence" -->
 <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
 <style>
-body { background: var(--paper); margin: 0; padding: 14px 18px; }
-.row { display: flex; gap: 6px; margin-bottom: 12px; }
-.sem { flex: 1; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; font-family: var(--font-mono); }
-.sem .t { height: 28px; } .sem .m { padding: 4px 6px; font-size: 9px; line-height: 1.35; }
-.sem .n { color: var(--ink); font-weight: 600; display: block; } .sem .u { color: var(--ink-4); }
-.use { display: flex; gap: 18px; align-items: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; }
-.use .d { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.sem { border: 1px solid var(--rule); border-radius: var(--r-sm); overflow: hidden; font-family: var(--font-mono); }
+.sem .t { height: 28px; }
+.sem .w { height: 32px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); font-size: var(--fs-label-lg); font-weight: 600; white-space: nowrap; }
+.sem .w .k { font-size: var(--fs-label-xs); font-weight: 500; color: var(--ink-4); }
+.sem .m { padding: 4px 8px 8px; display: grid; font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.02em; }
+.sem .n { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sem .n .q { font-weight: 400; color: var(--ink-4); }
+.sem .u { color: var(--ink-4); }
+.use { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; padding-top: 12px; font-family: var(--font-mono); font-size: var(--fs-label-lg); font-weight: 600; }
+.use span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.use .d { width: 8px; height: 8px; border-radius: var(--r-full); }
+.use .cap { font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.on { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding-top: 12px; }
+.bg { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--r-sm); }
+.bg.p3 { background: var(--paper-3); }
+.bg.tint { background: var(--brand-tint); }
+.bg .k { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.w6 { height: 20px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 600; white-space: nowrap; }
+.w6.pos { background: color-mix(in oklch, var(--pos) 6%, transparent); color: var(--pos-text); }
+.w6.neg { background: color-mix(in oklch, var(--neg) 6%, transparent); color: var(--neg-text); }
+.w6.warn { background: color-mix(in oklch, var(--warn) 6%, transparent); color: var(--warn-text); }
+.w6.info { background: color-mix(in oklch, var(--info) 6%, transparent); color: var(--info-text); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
 </style></head><body>
 <div class="row">
-  <div class="sem"><div class="t" style="background:var(--pos)"></div><div class="m"><span class="n">--pos</span><span class="u">good / up</span></div></div>
-  <div class="sem"><div class="t" style="background:var(--neg)"></div><div class="m"><span class="n">--neg</span><span class="u">bad / down</span></div></div>
-  <div class="sem"><div class="t" style="background:var(--warn)"></div><div class="m"><span class="n">--warn</span><span class="u">caution</span></div></div>
-  <div class="sem"><div class="t" style="background:var(--info)"></div><div class="m"><span class="n">--info</span><span class="u">neutral note</span></div></div>
+<div class="sem"><div class="t" style="background:var(--pos)"></div><div class="w" style="background:color-mix(in oklch, var(--pos) 6%, transparent);color:var(--pos-text)">▲ +4.2%<span class="k">6% wash</span></div><div class="m"><span class="n">--pos <span class="q">marks</span></span><span class="n">--pos-text <span class="q">text</span></span><span class="u">good, up</span></div></div>
+<div class="sem"><div class="t" style="background:var(--neg)"></div><div class="w" style="background:color-mix(in oklch, var(--neg) 6%, transparent);color:var(--neg-text)">▼ −$18k<span class="k">6% wash</span></div><div class="m"><span class="n">--neg <span class="q">marks</span></span><span class="n">--neg-text <span class="q">text</span></span><span class="u">bad, down</span></div></div>
+<div class="sem"><div class="t" style="background:var(--warn)"></div><div class="w" style="background:color-mix(in oklch, var(--warn) 6%, transparent);color:var(--warn-text)">92% cap<span class="k">6% wash</span></div><div class="m"><span class="n">--warn <span class="q">marks</span></span><span class="n">--warn-text <span class="q">text</span></span><span class="u">caution</span></div></div>
+<div class="sem"><div class="t" style="background:var(--info)"></div><div class="w" style="background:color-mix(in oklch, var(--info) 6%, transparent);color:var(--info-text)">3 notes<span class="k">6% wash</span></div><div class="m"><span class="n">--info <span class="q">marks</span></span><span class="n">--info-text <span class="q">text</span></span><span class="u">neutral note, own hue</span></div></div>
 </div>
 <div class="use">
-  <span style="color:var(--pos)"><span class="d" style="background:var(--pos)"></span>+4.2%</span>
-  <span style="color:var(--neg)"><span class="d" style="background:var(--neg)"></span>−$18k</span>
-  <span style="color:var(--warn)"><span class="d" style="background:var(--warn)"></span>PENDING</span>
-  <span style="color:var(--ink-4); font-weight:500; font-size:10.5px">never saturated fills · never tinted badges</span>
+<span style="color:var(--pos-text)"><span class="d" style="background:var(--pos)"></span>+4.2%</span>
+<span style="color:var(--neg-text)"><span class="d" style="background:var(--neg)"></span>−$18k</span>
+<span style="color:var(--warn-text)"><span class="d" style="background:var(--warn)"></span>PENDING</span>
+<span style="color:var(--info-text)"><span class="d" style="background:var(--info)"></span>REVISED</span>
+<span class="cap">dot = the mark colour · word = its text step</span>
 </div>
+<div class="on">
+<div class="bg p3"><span class="w6 pos">▲ +4.2%</span><span class="w6 neg">▼ −$18k</span><span class="w6 warn">92% cap</span><span class="w6 info">3 notes</span><span class="k">on --paper-3 · selected</span></div>
+<div class="bg tint"><span class="w6 pos">▲ +4.2%</span><span class="w6 neg">▼ −$18k</span><span class="w6 warn">92% cap</span><span class="w6 info">3 notes</span><span class="k">on --brand-tint · dirty</span></div>
+</div>
+<div class="ann"><b>&lt;Status&gt; · &lt;Banner&gt;</b> · <span class="f">dots, marks and washes use the base: ≥ 3:1 on every paper</span> · <span class="f">valence set as text uses its -text step: ≥ 4.5:1 on --paper, --paper-2, --paper-3 and --brand-tint</span> · <span class="f">and on its own wash over each, in both themes</span> · <span class="f">so a DeltaPill holds in a selected or dirty row</span> · <span class="f">washes are 6%: color-mix(in oklch, var(--pos) 6%, transparent)</span> · <span class="f">never a saturated fill, never a tinted badge</span> · <span class="f">--info is its own blue, never --brand-d</span> · <span class="f">in a destructive flow --neg-text marks only the menu item</span></div>
 </body></html>

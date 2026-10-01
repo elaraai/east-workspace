@@ -1,0 +1,82 @@
+<!-- @dsCard group="Parts · Actions & data voice" viewport="700x710" subtitle="Every numeral mono tabular · unit suffix · large Stat 26 / 600 · true minus · muted no data" name="Numeric" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+html, body { background: var(--paper); }
+body { margin: 0; padding: 16px 20px; }
+.wrap { display: grid; gap: 20px; }
+.item { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.stat { padding: 20px; display: grid; gap: 8px; }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+.big { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; color: var(--ink); }
+.unit { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.val { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-md); color: var(--ink-4); }
+.val .dn { font-weight: 600; color: var(--neg-text); }
+.nd { white-space: nowrap; font-family: var(--font-mono); font-style: italic; font-weight: 400; color: var(--ink-4); }
+.big .nd { font-size: var(--fs-body-lg); line-height: var(--fs-num); }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 200px 88px 72px 72px; column-gap: 24px; align-items: center; padding: 0 20px; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.th { border-top: 0; }
+.th span { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.th .r { text-align: right; }
+.st { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; text-align: right; }
+.n.nd { font-weight: 400; }
+.txt { font-size: var(--fs-body); line-height: 1.5; color: var(--ink-2); }
+.kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: baseline; }
+.v { min-width: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-body); font-weight: 500; line-height: 1.5; color: var(--ink); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="g3">
+<div class="item">
+<div class="frame stat"><div class="lbl">Demand · SE region</div><div class="big"><span class="num-lg">214</span><span class="unit">staffed-hrs</span></div><div class="val">next 14 days · conf 0.78</div></div>
+<div class="cap"><span class="f">large · 26/600, lh 1</span> · <span class="f">unit suffix 10.5/500 --ink-4</span> · <span class="f">gap 4, on the baseline</span></div>
+</div>
+<div class="item">
+<div class="frame stat"><div class="lbl">Net margin change</div><div class="big"><span class="num-lg">−$18k</span></div><div class="val"><span class="dn">▼ −3.1%</span> vs current</div></div>
+<div class="cap"><span class="f">negative · true minus (U+2212)</span> · <span class="f">the number stays --ink</span> · <span class="f">valence lives in the line below</span></div>
+</div>
+<div class="item">
+<div class="frame stat"><div class="lbl">Forecast error</div><div class="big"><span class="nd">no data</span></div><div class="val">DC-West · feed stale 3d ago</div></div>
+<div class="cap"><span class="f">no data · mono italic 14 --ink-4</span> · <span class="f">holds the 26px line</span> · <span class="f">the only italic</span></div>
+</div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th"><span>Site</span><span>State</span><span class="r">Staffed-hrs</span><span class="r">Fill rate</span><span class="r">Balance</span></div>
+<div class="tr"><span>DC-North</span><span class="st">tabular · right-aligned</span><span class="n">1,482</span><span class="n">96.4%</span><span class="n">24</span></div>
+<div class="tr"><span>DC-East</span><span class="st">negative · true minus</span><span class="n">214</span><span class="n">94.1%</span><span class="n">−12</span></div>
+<div class="tr"><span>DC-South</span><span class="st">thousands · comma</span><span class="n">12,006</span><span class="n">97.8%</span><span class="n">0</span></div>
+<div class="tr"><span>DC-West</span><span class="st">no data · italic --ink-4</span><span class="n">860</span><span class="n nd">no data</span><span class="n nd">no data</span></div>
+</div>
+<div class="cap"><span class="f">in a cell · mono 13/500, tnum</span> · <span class="f">numeric columns right-aligned, header too</span> · <span class="f">the unit lives in the header</span> · <span class="f">no data replaces the value, never a blank or a dash</span> · <span class="f">a value that can't exist yet names why: not started</span></div>
+</div>
+<div class="item">
+<div class="txt">SE region demand runs <span class="num">14%</span> above plan from week <span class="num">3</span>; the recommendation adds <span class="num">214</span> staffed-hrs by Thursday.</div>
+<div class="cap"><span class="f">in running text · numerals mono 500 tnum at the text's size</span> · <span class="f">words stay Inter Tight</span></div>
+</div>
+<div class="item">
+<div class="two">
+<div class="kv">
+<span class="lbl">Quantity</span><span class="v">214<span class="unit">staffed-hrs</span></span>
+<span class="lbl">Currency</span><span class="v">$4.82M · $1,482,096</span>
+<span class="lbl">Percent</span><span class="v">96.4% · +1.2 pts</span>
+<span class="lbl">Signed</span><span class="v">▲ +4.2% · −$18k</span>
+</div>
+<div class="kv">
+<span class="lbl">Confidence</span><span class="v">conf 0.78</span>
+<span class="lbl">Date · time</span><span class="v">2026-07-22 09:14</span>
+<span class="lbl">Range</span><span class="v">Jul 22 – Aug 05</span>
+<span class="lbl">Freshness</span><span class="v">14m ago · run #42</span>
+</div>
+</div>
+<div class="cap"><span class="f">formats · signed deltas carry ▲/▼ and a true minus</span> · <span class="f">$, %, k and M attach to the number</span> · <span class="f">word units are a suffix</span> · <span class="f">ISO dates in data, short ranges in captions</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Numeric&gt; · &lt;Stat&gt;</b> · <span class="f">every numeral mono, "tnum" 1, 500 (.num)</span> · <span class="f">large 26 / 600, lh 1 (.num-lg)</span> · <span class="f">unit suffix 10.5 / 500 --ink-4, gap 4</span> · <span class="f">true minus −</span> · <span class="f">thousands comma</span> · <span class="f">cells right-aligned</span> · <span class="f">numbers stay --ink</span> · <span class="f">absent: "no data" or the reason, mono italic 400 --ink-4 — 13 in cells, 14 in a Stat, 10 in a heat cell</span></div>
+</body></html>

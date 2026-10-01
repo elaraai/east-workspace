@@ -1,0 +1,88 @@
+<!-- @dsCard group="Parts · Items, time & grids" viewport="700x690" subtitle="The item's list layout on the Row part · rest, hover, selected, focus, dirty, dragging, drop slot, drop target · multi-select column · compact 32 and condensed 28" name="Compact list row" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.st { display: grid; grid-template-columns: 76px minmax(0, 1fr); column-gap: 8px; align-items: start; }
+.lb { display: grid; grid-template-columns: minmax(0, 1fr); padding-top: 1px; }
+.lb > span { height: 36px; display: flex; align-items: center; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.lb > .h32 { height: 32px; }
+.lb > .h28 { height: 28px; }
+.frame { min-width: 0; background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.tr { height: 36px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) 120px 92px 84px 56px; align-items: stretch; background: var(--paper); border-top: 1px solid var(--rule); }
+.tr:first-child { border-top: 0; }
+.tr > * { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.ms .tr { grid-template-columns: 46px minmax(0, 1fr) 120px 92px 84px 56px; }
+.ms .tr > :first-child { padding-right: 12px; }
+.tr.hover { background: var(--paper-2); }
+.tr.sel { background: var(--paper-3); }
+.tr.focus { box-shadow: var(--shadow-focus-inset); }
+.tr.dirty { background: var(--brand-tint); }
+.tr.dirty .v { color: var(--brand-dd); }
+.tr.drag { outline: 1px solid var(--brand-d); outline-offset: -1px; cursor: grabbing; }
+.tr.drop { outline: 1px dashed var(--brand-d); outline-offset: -1px; }
+.tr.slot { display: flex; align-items: center; padding: 0 20px; background: var(--paper); outline: 1px dashed var(--brand-d); outline-offset: -1px; }
+.tr.c32 { height: 32px; }
+.tr.c28 { height: 28px; }
+.r { justify-content: flex-end; }
+.rt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.mt { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.mv { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.v { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.u { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 500; color: var(--ink-4); }
+.was { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); color: var(--ink-3); white-space: nowrap; }
+.chip { height: 22px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); background: var(--paper); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 500; line-height: 1; color: var(--ink-2); white-space: nowrap; }
+.ct { height: 16px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; line-height: 1; color: var(--ink-2); }
+.c32 .chip, .c28 .chip { height: 15px; padding: 0 4px; font-size: var(--fs-label-xs); }
+.c32 .ct, .c28 .ct { height: 15px; font-size: var(--fs-label-xs); }
+.dp { height: 20px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; padding: 0 4px; border-radius: var(--r-sm); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-md); font-weight: 600; line-height: 1; white-space: nowrap; }
+.dp.pos { background: color-mix(in oklch, var(--pos) 6%, transparent); color: var(--pos-text); }
+.status { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--fs-label-md); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.d { width: 8px; height: 8px; flex: none; border-radius: var(--r-full); }
+.d.warn { background: var(--warn); }
+.av { width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--rule-strong); border-radius: var(--r-full); background: var(--paper-3); font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.04em; line-height: 1; text-transform: uppercase; color: var(--ink-2); }
+.c32 .av, .c28 .av { width: 20px; height: 20px; font-size: var(--fs-label-xs); }
+.cb { width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--paper); }
+.cb.on { background: var(--brand-d); border-color: var(--brand-d); }
+.cb.on::after { content: ""; width: 4px; height: 8px; box-sizing: border-box; border: solid var(--paper); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.hint { font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); white-space: nowrap; }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="st">
+<div class="lb"><span>rest</span><span>hover</span><span>selected</span><span>focus</span><span>dirty</span><span>dragging</span><span>drop slot</span><span>drop target</span></div>
+<div class="frame">
+<div class="tr"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr hover"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr sel"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr focus"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr dirty"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">48</span><span class="u">h</span></span><span class="was">was 42</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr drag"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr slot"><span class="hint">Moves to position 3 of 12</span></div>
+<div class="tr drop"><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+</div>
+</div>
+<div class="cap"><span class="f">36, rule included, ruled top-only</span> · <span class="f">hover --paper-2</span> · <span class="f">selected --paper-3, unchanged on hover</span> · <span class="f">focus --shadow-focus-inset</span> · <span class="f">dirty --brand-tint, holds over hover and select</span> · <span class="f">dragging 1px --brand-d inset</span> · <span class="f">drop slot: dashed placeholder at the landing index, mono hint --ink-4</span> · <span class="f">drop target: 1px dashed --brand-d inset</span> · <span class="f">meta yields width before the title</span></div>
+</div>
+<div class="item">
+<div class="st">
+<div class="lb"><span>checked</span><span>unchecked</span><span class="h32">compact 32</span><span class="h28">condensed 28</span></div>
+<div class="frame ms">
+<div class="tr sel"><div><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select Night-shift cover"></span></div><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr"><div><span class="cb" role="checkbox" aria-checked="false" aria-label="Select Night-shift cover"></span></div><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr c32"><div><span class="cb" role="checkbox" aria-checked="false" aria-label="Select Night-shift cover"></span></div><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+<div class="tr c28"><div><span class="cb" role="checkbox" aria-checked="false" aria-label="Select Night-shift cover"></span></div><div><span class="rt">Night-shift cover</span><span class="mt">ROS-2041 · due Aug 05</span></div><div><span class="chip">DC-North</span><span class="ct">+1</span></div><div><span class="status"><span class="d warn"></span>Pending</span></div><div class="r"><span class="mv"><span class="v">42</span><span class="u">h</span></span><span class="dp pos">▲ 6</span></div><div class="r"><span class="av">MK</span></div></div>
+</div>
+</div>
+<div class="cap"><span class="f">multi-select · checkbox column 46: 20 + 14 + 12, checked rows --paper-3</span> · <span class="f">compact 32 and condensed 28: chip 15, count 15, avatar 20</span> · <span class="f">one density per collection</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Board&gt; · &lt;Deck&gt; · &lt;Library&gt; · &lt;Roster&gt; item · layout list · density comfortable | compact | condensed</b> · <span class="f">Row part: 36 / 32 / 28, rule included</span> · <span class="f">cells pad 0 12, first and last take the Frame's 20</span> · <span class="f">slots title + meta · chips 120 · Status 92 · metric 84 right · Avatar 56 right</span> · <span class="f">title Inter Tight 13 / 500 --ink</span> · <span class="f">meta mono 9.5, gap 8, ellipsis</span> · <span class="f">one chip + count</span> · <span class="f">metric mono 13 / 600 + DeltaPill 20</span> · <span class="f">empty metric "no data" mono italic --ink-4</span> · <span class="f">states as the Item card, drawn inset</span> · <span class="f">focus --shadow-focus-inset</span> · <span class="f">dragging and drop target 1px outline, offset −1</span></div>
+</body></html>

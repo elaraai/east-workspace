@@ -1,0 +1,72 @@
+<!-- @dsCard group="Parts · Tables, lists & trees" viewport="700x880" subtitle="groupHead with Count and aggregates · expanded, collapsed, hover, focus · footer, the total row · group selection" name="Summary rows" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+body { margin: 0; padding: 16px 20px; background: var(--paper-2); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; min-width: 0; }
+.frame { background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--r-lg); overflow: hidden; }
+.eb { height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 20px; background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lbl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.meta { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-xs); letter-spacing: 0.04em; color: var(--ink-4); }
+.tr { height: 36px; box-sizing: border-box; display: grid; align-items: stretch; border-top: 1px solid var(--rule); font-size: var(--fs-body); color: var(--ink); }
+.tr > * { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; white-space: nowrap; }
+.tr > :first-child { padding-left: 20px; }
+.tr > :last-child { padding-right: 20px; }
+.th { border-top: 0; }
+.th > * { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-4); }
+.ga { grid-template-columns: minmax(0, 1fr) 160px 80px 104px 104px; }
+.gb { grid-template-columns: 46px minmax(0, 1fr) 176px 80px 104px; }
+.r { justify-content: flex-end; }
+.n { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: 500; }
+.sc { font-family: var(--font-mono); font-size: var(--fs-label-sm); color: var(--ink-4); }
+.tr.hover { background: var(--paper-2); }
+.tr.sel { background: var(--paper-3); }
+.tr.focus { box-shadow: var(--shadow-focus-inset); }
+.gh .n { font-weight: 600; }
+.chev { width: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease-in-out); }
+.chev.open { transform: rotate(90deg); }
+.gl { white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+.ct { height: 16px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 4px; background: var(--paper-3); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: 600; font-feature-settings: "tnum" 1; line-height: 1; color: var(--ink-2); }
+.tr.sel .ct { background: var(--paper); }
+.tot { background: var(--paper-2); }
+.tot .n { font-weight: 600; }
+.fn { font-family: var(--font-mono); font-size: var(--fs-label-xs); font-weight: 400; letter-spacing: 0.04em; color: var(--ink-4); }
+.cb { position: relative; width: 14px; height: 14px; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rule-strong); border-radius: 3px; background: var(--paper); }
+.cb.on { background: var(--brand-d); border-color: var(--brand-d); }
+.cb.on::after { content: ""; width: 4px; height: 8px; box-sizing: border-box; border: solid var(--paper); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+.cb.mix::after { content: ""; width: 8px; height: 2px; background: var(--ink-4); }
+.cap { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.5; letter-spacing: 0.04em; color: var(--ink-4); }
+.ann { font-family: var(--font-mono); font-size: var(--fs-label-xs); line-height: 1.6; letter-spacing: 0.04em; color: var(--ink-4); padding-top: 12px; }
+.ann .f, .cap .f { white-space: nowrap; }
+.ann b { font-weight: 600; color: var(--ink-2); }
+</style></head><body>
+<div class="wrap">
+<div class="item">
+<div class="frame">
+<div class="eb"><span class="lbl">Rosters by site · run #42</span><span class="meta">grouped by site · 9 rosters</span></div>
+<div class="tr th ga"><span>Roster</span><span>State · fill</span><span class="r">Shifts</span><span class="r">Fill rate</span><span class="r">Staffed-hrs</span></div>
+<div class="tr ga gh" aria-expanded="true"><span><span class="chev open"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="gl">DC-North</span><span class="ct" aria-label="3 rosters">3</span></span><span class="sc">group · expanded</span><span class="r n">110</span><span class="r n">94.5%</span><span class="r n">3,262</span></div>
+<div class="tr ga"><span>Week 31 · days</span><span class="sc">row</span><span class="r n">42</span><span class="r n">96.4%</span><span class="r n">1,482</span></div>
+<div class="tr ga"><span>Week 31 · nights</span><span class="sc">row</span><span class="r n">28</span><span class="r n">91.2%</span><span class="r n">880</span></div>
+<div class="tr ga"><span>Week 32 · days</span><span class="sc">row</span><span class="r n">40</span><span class="r n">94.8%</span><span class="r n">900</span></div>
+<div class="tr ga gh hover" aria-expanded="false"><span><span class="chev"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="gl">DC-East</span><span class="ct" aria-label="4 rosters">4</span></span><span class="sc">group · collapsed · hover</span><span class="r n">148</span><span class="r n">93.0%</span><span class="r n">4,104</span></div>
+<div class="tr ga gh focus" aria-expanded="false"><span><span class="chev"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="gl">DC-South</span><span class="ct" aria-label="2 rosters">2</span></span><span class="sc">group · collapsed · focus</span><span class="r n">71</span><span class="r n">97.8%</span><span class="r n">1,988</span></div>
+<div class="tr ga tot"><span><span class="gl">Total</span><span class="meta">3 sites · 9 rosters</span></span><span class="sc">total · --paper-2 band</span><span class="r n"><span class="fn">sum</span>329</span><span class="r n"><span class="fn">mean</span>94.5%</span><span class="r n"><span class="fn">sum</span>9,354</span></div>
+</div>
+<div class="cap"><span class="f">groupHead · a row on --paper: chevron 16 --ink-3, key mono 10/600/0.14em caps --ink, Count, gap 8</span> · <span class="f">its aggregates mono 600 in their columns, the total row's functions</span> · <span class="f">hover --paper-2, focus inset ring</span> · <span class="f">collapsed: chevron right, rows hidden, Count and aggregates stay</span> · <span class="f">click, ⏎ or → / ← toggles, --dur-fast --ease-in-out</span> · <span class="f">rows stay on the frame edge, no indent</span></div>
+<div class="cap"><span class="f">footer · the total row, --paper-2 band, top 1px --rule, never hovers or selects</span> · <span class="f">label "Total" + meta naming what it spans</span> · <span class="f">function mono 9.5 --ink-4 before each value: sum, mean (weighted), min, max</span> · <span class="f">value mono 13/600 --ink</span> · <span class="f">last in the body; sticks to the bottom of a scrolling body, above the footer band</span></div>
+</div>
+<div class="item">
+<div class="frame">
+<div class="tr th gb"><span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Select all rosters"></span></span><span>Roster</span><span>State · fill</span><span class="r">Shifts</span><span class="r">Fill rate</span></div>
+<div class="tr gb gh" aria-expanded="true"><span><span class="cb mix" role="checkbox" aria-checked="mixed" aria-label="Select DC-North rosters"></span></span><span><span class="chev open"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="gl">DC-North</span><span class="ct">3</span></span><span class="sc">group · some selected</span><span class="r n">110</span><span class="r n">94.5%</span></div>
+<div class="tr gb sel"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select week 31 days"></span></span><span>Week 31 · days</span><span class="sc">row · selected</span><span class="r n">42</span><span class="r n">96.4%</span></div>
+<div class="tr gb"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 31 nights"></span></span><span>Week 31 · nights</span><span class="sc">row</span><span class="r n">28</span><span class="r n">91.2%</span></div>
+<div class="tr gb"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select week 32 days"></span></span><span>Week 32 · days</span><span class="sc">row</span><span class="r n">40</span><span class="r n">94.8%</span></div>
+<div class="tr gb gh sel" aria-expanded="false"><span><span class="cb on" role="checkbox" aria-checked="true" aria-label="Select DC-East rosters"></span></span><span><span class="chev"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></span><span class="gl">DC-East</span><span class="ct">4</span></span><span class="sc">group · all selected</span><span class="r n">148</span><span class="r n">93.0%</span></div>
+</div>
+<div class="cap"><span class="f">multi-select · the group header carries the checkbox column</span> · <span class="f">some selected: indeterminate</span> · <span class="f">all selected: checked, header --paper-3, its Count on --paper</span> · <span class="f">checking a group selects every row in it, collapsed or not</span></div>
+</div>
+</div>
+<div class="ann"><b>&lt;Table&gt; · groupHead (groupHeadCell, groupHeadAggregate) · footer, the total row</b> · <span class="f">both at the row height, rule included</span> · <span class="f">group header on --paper, hover --paper-2, focus --shadow-focus-inset</span> · <span class="f">chevron fa-angle-right 14 in 16, --ink-3, 90° open</span> · <span class="f">key mono 10/600/0.14em caps --ink</span> · <span class="f">Count 16, --paper-3, --r-sm, mono 10/600 --ink-2</span> · <span class="f">gap 8</span> · <span class="f">aggregates mono 13/600 tnum, right, in their columns</span> · <span class="f">total --paper-2, 1px --rule top, non-interactive</span> · <span class="f">function word mono 9.5 --ink-4, gap 8</span> · <span class="f">a group opens and closes over --dur-fast --ease-in-out</span> · <span class="f">no nesting: a second grouping level is a Tree</span></div>
+</body></html>
