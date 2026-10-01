@@ -24,7 +24,7 @@
 
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import type {
-  DataflowRun, ExecutionOwner, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector,
+  DataflowRun, ExecutionOwner, StageUnit, TaskExecutionRecord, Structure, TaskObject, UnitWait, VersionVector, WorkspaceState,
 } from '@elaraai/e3-types';
 import { WorkspaceRecordType, decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
@@ -211,6 +211,9 @@ interface RunningExecution {
   abortController: AbortController;
   /** Set when a yield checkpoint has been taken — suppresses further persists */
   yielded: boolean;
+  /** Set as the run's end is recorded — completed, failed or cancelled:
+   *  nothing the run persists after it is written */
+  ended: boolean;
   /**
    * Yield result, resolved into completionPromise from the loop's `finally`
    * (after locks are released) so a caller awaiting wait() can resume()
@@ -538,6 +541,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       aborted: false,
       abortController: new AbortController(),
       yielded: false,
+      ended: false,
       runningTasks: new Map(),
       splits: new Map(),
       waiting: new Map(),
@@ -679,11 +683,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     // already resolves from the finally for the same reason.
     let completionResult: FinalizeResult | undefined;
 
+    // The workspace's deployed state, which the run's record names: read
+    // first, and kept for however the run ends.
+    let wsState: WorkspaceState | null = null;
+
     try {
       // Read workspace state for DataflowRun recording
       const wsData = await storage.refs.workspaceRead(repo, state.workspace);
       const wsRecord = wsData === null ? null : decodeBeast2For(WorkspaceRecordType)(wsData);
-      const wsState = wsRecord?.type === 'some' ? wsRecord.value : null;
+      wsState = wsRecord?.type === 'some' ? wsRecord.value : null;
 
       // Cache structure for the entire execution (immutable during execution)
       const structure = wsState ? await this.readStructure(storage, repo, wsState.packageHash) : null;
@@ -903,11 +911,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // pieces just planned, or its next stage — ends cancelled, as its
       // units in flight would have.
       if (checkAborted()) {
-        for (const [taskName, run] of [...execution.splits]) {
-          const cancelled = await run.split.cancel();
-          await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(cancelled, run.startTime));
-          execution.splits.delete(taskName);
-        }
+        await this.cancelSplits(storage, repo, execution);
       }
 
       // Wait for any remaining tasks
@@ -940,32 +944,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Check for abort one final time
       if (checkAborted()) {
         stepCancel(state, 'Execution was aborted');
+        execution.ended = true;
         if (this.stateStore) {
           await this.stateStore.update(state);
         }
 
         // Write cancelled DataflowRun record
         if (wsState) {
-          const cancelledRun: DataflowRun = {
-            runId: state.id,
-            workspaceName: state.workspace,
-            packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
-            startedAt: state.startedAt,
-            completedAt: some(new Date()),
-            status: variant('cancelled', {}),
-            inputVersions: new Map(state.inputSnapshot),
-            outputVersions: some(this.buildOutputVersions(state)),
-            taskExecutions: new Map(execution.taskExecutions),
-            summary: {
-              total: BigInt(state.tasks.size),
-              completed: state.executed + state.cached,
-              cached: state.cached,
-              failed: state.failed,
-              skipped: state.skipped,
-              reexecuted: state.reexecuted,
-            },
-          };
-          await storage.refs.dataflowRunWrite(repo, state.workspace, cancelledRun);
+          await storage.refs.dataflowRunWrite(repo, state.workspace, this.endedRun(state, wsState, execution, variant('cancelled', {})));
         }
 
         // Build partial results for abort error
@@ -975,6 +961,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // Finalize (event added by step function)
       const { result } = stepFinalize(state);
+      execution.ended = true;
       if (this.stateStore) {
         await this.stateStore.update(state);
       }
@@ -998,26 +985,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           finalStatus = variant('completed', {});
         }
 
-        const finalRun: DataflowRun = {
-          runId: state.id,
-          workspaceName: state.workspace,
-          packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
-          startedAt: state.startedAt,
-          completedAt: some(new Date()),
-          status: finalStatus,
-          inputVersions: new Map(state.inputSnapshot),
-          outputVersions: some(this.buildOutputVersions(state)),
-          taskExecutions: new Map(execution.taskExecutions),
-          summary: {
-            total: BigInt(state.tasks.size),
-            completed: state.executed + state.cached,
-            cached: state.cached,
-            failed: state.failed,
-            skipped: state.skipped,
-            reexecuted: state.reexecuted,
-          },
-        };
-        await storage.refs.dataflowRunWrite(repo, state.workspace, finalRun);
+        await storage.refs.dataflowRunWrite(repo, state.workspace, this.endedRun(state, wsState, execution, finalStatus));
 
         // Update workspace state with currentRunId on success
         if (result.success) {
@@ -1036,16 +1004,34 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // completionResult declaration above.
       completionResult = result;
     } catch (err) {
+      // A run that was cancelled has recorded its end already, and ends here
+      // by rejecting: its abort is what wait() answers.
+      if (err instanceof DataflowAbortedError) throw err;
+
       // An unexpected error escaped the execution loop (e.g. a task has an
       // unassigned input). The success-path finalization above is skipped, so
       // without this the run's persisted status stays 'running' forever — any
       // client polling it (e.g. a remote `dataflow run` over the API) then hangs
       // until timeout instead of seeing the failure. Persist a terminal 'failed'
       // status so pollers observe the error promptly.
+      //
+      // What the loop launched is stopped and settled first, as a cancel
+      // stops it, while the run still holds its locks: a completion landing
+      // after the terminal record would write the run's state back to
+      // 'running', and its task's output ref with the locks let go.
+      await this.stopLaunched(storage, repo, execution);
+      execution.ended = true;
       const failMsg = err instanceof Error ? err.message : String(err);
       if (this.stateStore) {
         await this.stateStore
           .updateStatus(repo, state.workspace, state.id, 'failed', { error: failMsg })
+          .catch(() => { /* best effort — don't mask the original error */ });
+      }
+      // And so does its record, which would otherwise read 'running' for good.
+      if (wsState !== null) {
+        const failedTask = [...state.tasks.entries()].find(([, ts]) => ts.status === 'failed')?.[0] ?? 'unknown';
+        await storage.refs
+          .dataflowRunWrite(repo, state.workspace, this.endedRun(state, wsState, execution, variant('failed', { failedTask, error: failMsg })))
           .catch(() => { /* best effort — don't mask the original error */ });
       }
       throw err;
@@ -1074,6 +1060,36 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         execution.resolveCompletion(completionResult);
       }
     }
+  }
+
+  /**
+   * Ends every split task in progress cancelled, as its units in flight
+   * would have: one the run stopped before its units could start — its pieces
+   * just planned, or its next stage.
+   */
+  private async cancelSplits(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
+    for (const [taskName, run] of [...execution.splits]) {
+      const cancelled = await run.split.cancel();
+      await this.completeTask(storage, repo, execution, taskName, run.prepared, run.launchVV, outcomeOf(cancelled, run.startTime));
+      execution.splits.delete(taskName);
+    }
+  }
+
+  /**
+   * Stops what the loop launched, as a cancel does, and waits for it to
+   * settle: the run's abort reaches every task and unit in flight, each one's
+   * completion lands, and a split task left between stages ends cancelled.
+   * Nothing the loop launched still runs, or completes, once this returns.
+   *
+   * @remarks
+   * For a loop that threw: its own error is the run's, so what fails here
+   * fails quietly. Each in-flight task and unit already turns its own failure
+   * into the task's.
+   */
+  private async stopLaunched(storage: StorageBackend, repo: string, execution: RunningExecution): Promise<void> {
+    execution.abortController.abort();
+    await Promise.allSettled(execution.runningTasks.values());
+    await this.cancelSplits(storage, repo, execution).catch(() => { /* the loop's error is the run's */ });
   }
 
   /**
@@ -1709,6 +1725,38 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
+   * The record of a run that has ended, as it ended: when, the inputs it
+   * started from and the outputs it left, the execution each task used, and
+   * its summary.
+   */
+  private endedRun(
+    state: DataflowExecutionState,
+    wsState: WorkspaceState,
+    execution: RunningExecution,
+    status: DataflowRun['status'],
+  ): DataflowRun {
+    return {
+      runId: state.id,
+      workspaceName: state.workspace,
+      packageRef: `${wsState.packageName}@${wsState.packageVersion}`,
+      startedAt: state.startedAt,
+      completedAt: some(new Date()),
+      status,
+      inputVersions: new Map(state.inputSnapshot),
+      outputVersions: some(this.buildOutputVersions(state)),
+      taskExecutions: new Map(execution.taskExecutions),
+      summary: {
+        total: BigInt(state.tasks.size),
+        completed: state.executed + state.cached,
+        cached: state.cached,
+        failed: state.failed,
+        skipped: state.skipped,
+        reexecuted: state.reexecuted,
+      },
+    };
+  }
+
+  /**
    * Build output versions map from completed task states.
    */
   private buildOutputVersions(state: DataflowExecutionState): Map<string, string> {
@@ -1739,14 +1787,17 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Persist state, skipping the write when execution has been aborted
-   * and the state doesn't yet reflect cancellation (defense-in-depth).
+   * Persist state, skipping the write once the run's end is recorded, and
+   * when execution has been aborted and the state doesn't yet reflect
+   * cancellation (defense-in-depth).
    */
   private async persistState(
     execution: RunningExecution,
     state: DataflowExecutionState
   ): Promise<void> {
     if (!this.stateStore) return;
+    // The run's end is the last word, however it ended.
+    if (execution.ended) return;
     if (execution.aborted && state.status !== 'cancelled') return;
     // After a yield checkpoint the checkpoint write is the last word —
     // late-settling completion handlers must not overwrite it.
