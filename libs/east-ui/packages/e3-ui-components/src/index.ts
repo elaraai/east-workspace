@@ -20,6 +20,7 @@ import './decision/journal.js';           // → implementUIComponent(DecisionJo
 import './studio/builder.js';             // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
+import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -55,6 +56,33 @@ export {
     type StudioMessages,
     type StudioMessagesProviderProps,
 } from './studio/messages.js';
+
+// The query builder (#875) — its renderer registers itself against its
+// extension on import — the builder's words, how it makes a one-shot call, and
+// the query's one-shot call itself, which a host can make without the builder.
+export { EastChakraQueryBuilder, type EastChakraQueryBuilderProps, type QueryFocus, type QueryTab } from './query/builder.js';
+export {
+    QueryMessagesProvider,
+    useQueryMessages,
+    useQueryWords,
+    type QueryMessagesProviderProps,
+} from './query/words.js';
+export { queryMessages, type QueryMessages } from './query/model/messages.js';
+export {
+    QueryCallProvider,
+    useQueryCall,
+    type QueryCall,
+    type QueryCallProviderProps,
+} from './query/hooks.js';
+export {
+    prepareQuery,
+    queryResultOf,
+    queryRoot,
+    type PreparedQuery,
+    type QueryOptions,
+    type QueryRoot,
+    type QueryRootEntry,
+} from './query/one-shot.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

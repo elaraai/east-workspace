@@ -143,6 +143,9 @@ import { studioBuilderSlotRecipe } from "./slot-recipes/studioBuilder.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
+import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
+import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
+import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 
@@ -269,6 +272,9 @@ const config = defineConfig({
             studioInspector: studioInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
+            queryBuilder:    queryBuilderSlotRecipe,
+            queryResults:    queryResultsSlotRecipe,
+            jqEditor:        jqEditorSlotRecipe,
             stepper:         stepperSlotRecipe,
             toolbar:         toolbarSlotRecipe,
         },

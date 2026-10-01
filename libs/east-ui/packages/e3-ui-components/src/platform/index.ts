@@ -94,7 +94,10 @@ export {
     pagedRevisionKey,
     pagedWindowKey,
     pagedTotalKey,
+    pagedSourceOf,
     type PagedApi,
+    type PagedSelector,
+    type PagedSource,
     type PagedWindow,
 } from "./paged-runtime.js";
 

@@ -7,7 +7,7 @@ export {
   QueryMultiplicityType, QueryV1Type, QueryType, QueryCallType,
   QuerySpanType, QueryEditType, QueryFixType, QueryErrorType,
 } from "./types.js";
-export { QueryError, evaluateJq, type EvaluateJqOptions, type QueryDiagnostic } from "./evaluate.js";
+export { QueryError, evaluateJq, runtimeErrorAt, type EvaluateJqOptions, type QueryDiagnostic } from "./evaluate.js";
 export { translateJq, TranslationError, type JqTranslation, type TranslateJqOptions } from "./jq/translate.js";
 export { lexJq, type JqToken, type JqTokenKind } from "./jq/lex.js";
 export { parseJq, type ParsedJq } from "./jq/parse.js";

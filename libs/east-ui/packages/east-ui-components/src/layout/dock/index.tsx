@@ -87,6 +87,10 @@ export interface DockPaneProps {
     defaultCollapsed?: boolean | undefined;
     /** Told each time the pane collapses or expands. */
     onCollapsedChange?: ((collapsed: boolean) => unknown) | undefined;
+    /** The open tab's key, driven by the host; omitted, the pane keeps its own, persisted by its storage key. */
+    tab?: string | undefined;
+    /** Told each time a tab is opened from the pane — a click, an arrow key, Home or End — with its key. */
+    onTabChange?: ((key: string) => unknown) | undefined;
     /** The axis it collapses along; `horizontal` by default. */
     orientation?: "horizontal" | "vertical" | undefined;
     /** The edge it pins to; `start` by default. */
@@ -130,9 +134,11 @@ export interface DockPaneProps {
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
  * else toggled by the controls and optionally persisted (keyed by the storage
- * key). Every body is kept mounted (hidden) while the pane is collapsed, and
- * every tab's while another is open, so a child's scroll / drag / search state
- * survives; `lazy` defers first mount.
+ * key). The open tab follows it too: seeded from `tab` and synced when `tab`
+ * drives it, else kept by the storage key; either way a tab opened from the
+ * pane is reported through `onTabChange`. Every body is kept mounted (hidden)
+ * while the pane is collapsed, and every tab's while another is open, so a
+ * child's scroll / drag / search state survives; `lazy` defers first mount.
  *
  * @param props - The pane's tabs or body, and its options ({@link DockPaneProps})
  * @returns The pane
@@ -190,14 +196,26 @@ export function DockPane(props: DockPaneProps) {
 
     const handleToggle = useCallback(() => { setCollapsedState(!collapsed); }, [collapsed, setCollapsedState]);
 
-    // The open tab, kept by the structural storage key; the first when none is.
+    // The open tab: driven by the host's `tab`, else kept by the structural
+    // storage key; the first when none is.
     const tabsProp = props.tabs;
     const tabs = useMemo(() => tabsProp ?? [], [tabsProp]);
+    const tabProp = props.tab;
+    const onTabChangeFn = props.onTabChange;
     const { state: tabState, setState: setTabState } = usePersistedState<{ key: string | undefined }>(
         `${storageKey}.dock.tab`,
         { key: tabs[0]?.key },
     );
-    const openTab = tabs.find(tab => tab.key === tabState.key) ?? tabs[0];
+    // Interactive-state: local state seeded from `tab`; a host-driven `tab` pushes into it.
+    const [drivenTab, setDrivenTab] = useState<string | undefined>(tabProp);
+    useEffect(() => { if (tabProp !== undefined) setDrivenTab(tabProp); }, [tabProp]);
+    const openKey = tabProp !== undefined ? drivenTab : tabState.key;
+    const openTab = tabs.find(tab => tab.key === openKey) ?? tabs[0];
+    const openTabKey = useCallback((key: string) => {
+        if (tabProp !== undefined) setDrivenTab(key);
+        else setTabState({ key });
+        if (onTabChangeFn) queueMicrotask(() => onTabChangeFn(key));
+    }, [tabProp, setTabState, onTabChangeFn]);
     const ids = useId();
     const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const onTabKeyDown = useCallback((event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -209,9 +227,9 @@ export function DockPane(props: DockPaneProps) {
                         : undefined;
         if (next === undefined) return;
         event.preventDefault();
-        setTabState({ key: tabs[next]!.key });
+        openTabKey(tabs[next]!.key);
         tabRefs.current[next]?.focus();
-    }, [tabs, setTabState]);
+    }, [tabs, openTabKey]);
 
     const styles = useSlotRecipe({ key: "dock" })();
 
@@ -315,7 +333,7 @@ export function DockPane(props: DockPaneProps) {
                                     tabIndex={open ? 0 : -1}
                                     css={styles.tab}
                                     {...(open ? { "data-selected": "" } : {})}
-                                    onClick={() => setTabState({ key: tab.key })}
+                                    onClick={() => openTabKey(tab.key)}
                                     onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => onTabKeyDown(event, index)}
                                 >
                                     {tab.label}

@@ -133,9 +133,11 @@ returns the carrier's `Root`, and the tag `optionsTag(create…)`. `datasets` is
 so only bound sources can be queried, and a builder handed none is refused when the surface is built. A
 surface's `ui()` manifest follows from the payload: the record and its patch, and each bound source.
 
-`QueryInternal` holds the East behind them: the patch a save commits, a refused write in words
+`QueryInternal` holds the East behind them: the patch a save commits (`save`, by name: an insert, an update
+of the open query's entry, or a rename's delete and insert in one patch), a refused write in words
 (`nameWriteRefusal`, as Studio's), the library's rows and counts, and whether a saved query's root is bound
-on this surface — and if not, why not.
+on this surface — and if not, why not (`rootBound`: `bound`, `missing` a name, or bound `elsewhere`, which
+the renderer words as "Reads {name}, which isn't here" and "Reads {path}, not this builder's {name}").
 
 ### The renderers (`@elaraai/e3-ui-components`)
 
@@ -150,13 +152,23 @@ e3-api-client's `oneShotExecute`.
   - its **pane**, a `DockPane` before the results with the tabs **Query**, **Datasets** and **Library**
     (§4.2), as Studio's palette is a `DockPane` with Components and Pages;
   - its **results** after the pane (§4.11), and its **status line** under both (§4.12).
-- **The editing session** is one per open query, as Studio's is one per open page. Its entries are the open
-  query's steps, each drafted whole (#933's step type in `EditingDraftFieldType`, as Studio drafts a cell),
-  and its header — the name and the description — as one entry more. Its snapshot is the saved query's
-  header and steps; a new query's is its header alone. Apply (`onApply`) prints the steps as canonical jq,
-  checks the program, and commits the query as one patch through the record's patch write
-  (`QueryInternal.save`). Its readiness is the checker's: a problem is an `invalid` issue and an unfinished
-  step an `incomplete` one, so Apply waits for both, and the history item's issues button goes to each.
+- **The editing session** is one per open query, as Studio's is one per open page (`useQuerySession`). Its
+  entries are the open query's steps, each drafted whole (#933's step type in `EditingDraftFieldType`, as
+  Studio drafts a cell), and its header as one entry more: the name, the description, the data source the
+  steps start from, and the program as jq when it is not steps (one that does not start from a data source).
+  Its snapshot is the saved query's header and steps, parsed once per saved entry, since a parse gives fresh
+  ids; a new query's is its header alone. Apply (`onApply`) prints the steps as canonical jq, prepares the
+  program over the root (`prepareQuery`), and commits the query as one patch through the record's patch
+  write (`QueryInternal.save`). The entries it applied become the snapshot of the query it saved, so the
+  session acknowledges its own commit, and a save under a new name opens that query once it has. Its
+  readiness is the checker's: a problem is an `invalid` issue and an unfinished step an `incomplete` one, so
+  Apply waits for both, and the history item's issues button goes to each.
+- **The root** is each bound data source as a root field, in the order given: a `Data.bind` source's path, a
+  record's `[records, name]`, and a `Data.bindPaged` source's path as the paged runtime that built its handle
+  holds it — the handle's `id` joins the path's segments with dots, which cannot be read back exactly. A
+  paged source read through one of a record's indexes is refused: its rows are the index's.
+- **A one-shot call** — a run's or a summary's — goes through `useQueryCall`: a host's `QueryCallProvider`,
+  else e3-api-client's `oneShotExecute` against the `E3Provider`'s server and workspace.
 - **The open query** is the UI store's, under the builder's key (`queryKeys(id).query`), as Studio's open
   page is (`builderKeys(id).page`). The Library tab, `<Query.Library>` and a drop write it; the builder reads
   it. It begins as a new query on the first bound data source.
@@ -548,7 +560,8 @@ Studio's page library with queries where pages are:
   Studio's does. A query whose root is not bound here is marked with the reason and does not open (§4.10).
 - **Empty** (the `emptyState` recipe): "No queries match “{text}”" — Check the spelling · Clear the filter to
   search every query; "No queries yet" — Save a query in the builder.
-- Recent are this viewer's runs, the builder's (`usePersistedState`, under the builder's key).
+- Recent are this viewer's runs, the builder's (`usePersistedState`, under the builder's key, each run kept as
+  East text).
 
 ---
 

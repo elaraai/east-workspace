@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import {
   ArrayType, BlobType, DictType, EastError, EastIR, East, Expr, FloatType, FunctionType, IRType, IntegerType, NeverType, NullType, OptionType, QueryCallType, RecursiveType,
   SortedMap, StringType, StructType, SummaryLeafType, SummaryType, checkJq, compareFor, constValueOf, equalFor, evaluateJq, none, printFor, printJq, QueryError, some,
-  summaryProgram, toSource, translateJq, variant,
+  QueryErrorType, QuerySpanType, runtimeErrorAt, summaryProgram, toSource, translateJq, variant,
   type ArrayExpr, type EastType, type IR, type ValueTypeOf,
 } from "../src/index.js";
 import { canonicalDifference, canonicalIR } from "../src/codegen/canonical.js";
@@ -333,6 +333,26 @@ describe("errors (E4)", () => {
       assert.equal(e.message, "jq 1:8: runtime: Division by zero");
       return true;
     });
+  });
+
+  test("runtimeErrorAt places an error a run reported at the jq node that raised it, as evaluateJq does", () => {
+    const checked = checkJq("[.[] | 10 / .]", ArrayType(IntegerType));
+    const raised = (() => {
+      try {
+        evaluateJq(checked, [5n, 0n]);
+      } catch (e) {
+        if (e instanceof QueryError) return e.diagnostics;
+      }
+      throw new Error("the query raises no error");
+    })();
+    // The run names line 1, column 8, where `10 / .` and the literal `10` start: the literal cannot raise.
+    const placed = runtimeErrorAt(checked, "Division by zero", { line: 1, column: 8 });
+    assert.ok(equalFor(ArrayType(QueryErrorType))([placed], raised), printFor(QueryErrorType)(placed));
+    // No node starts at column 5, a space: an empty span there. An error that names no place in the jq is on no span.
+    const between = runtimeErrorAt(checked, "Division by zero", { line: 1, column: 5 });
+    assert.ok(equalFor(OptionType(QuerySpanType))(between.span, some({ column: 5n, length: 0n, line: 1n, offset: 4n })));
+    assert.equal(runtimeErrorAt(checked, "out of memory").span.type, "none");
+    assert.equal(runtimeErrorAt(checked, "out of memory").message, "runtime: out of memory");
   });
 
   test("East.jq throws QueryError with checkJq's message for a query that does not check", () => {
