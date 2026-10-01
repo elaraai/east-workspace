@@ -98,28 +98,34 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       assert.equal(latest?.status, 'running');
     });
 
-    it('updates a run\'s state whole, but never a cancelled run\'s back from cancelled', async (t) => {
+    it('updates a run\'s state whole, but never takes a run back from how it ended: completed, failed or cancelled', async (t) => {
       const { store, repo } = await setup(t);
-      const id = uuidv7();
-      const state: DataflowExecutionState = {
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
-        graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
-        status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
-        taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
-      };
-      await store.create(state);
-      await store.update({ ...state, executed: 2n, cached: 1n });
-      assert.equal((await store.read(repo, 'ws', id))?.executed, 2n);
+      for (const ended of ['completed', 'failed', 'cancelled'] as const) {
+        const id = uuidv7();
+        const state: DataflowExecutionState = {
+          release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+          graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
+          status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
+          taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
+        };
+        await store.create(state);
+        await store.update({ ...state, executed: 2n, cached: 1n });
+        assert.equal((await store.read(repo, 'ws', id))?.executed, 2n);
 
-      await store.updateStatus(repo, 'ws', id, 'cancelled', { error: 'Execution was cancelled' });
-      // A run's loop may persist what it had in memory after a cancel has
-      // landed: the run stays cancelled.
-      await store.update({ ...state, executed: 3n });
-      const cancelled = await store.read(repo, 'ws', id);
-      assert.equal(cancelled?.status, 'cancelled');
-      assert.equal(cancelled?.executed, 2n);
-      await store.update({ ...state, status: 'cancelled', executed: 4n });
-      assert.equal((await store.read(repo, 'ws', id))?.executed, 4n, 'a cancelled state replaces a cancelled one');
+        await store.updateStatus(repo, 'ws', id, ended, { error: `the run ${ended}` });
+        // A run's loop may persist what it had in memory after its end has
+        // landed, and a cancel may land after a run has ended: the run stays
+        // as it ended.
+        await store.update({ ...state, executed: 3n });
+        for (const other of (['running', 'completed', 'failed', 'cancelled'] as const).filter((status) => status !== ended)) {
+          await store.updateStatus(repo, 'ws', id, other);
+        }
+        const read = await store.read(repo, 'ws', id);
+        assert.equal(read?.status, ended, `a ${ended} run stays ${ended}`);
+        assert.equal(read?.executed, 2n, `a ${ended} run keeps the state it ended with`);
+        await store.update({ ...state, status: ended, executed: 4n });
+        assert.equal((await store.read(repo, 'ws', id))?.executed, 4n, `a ${ended} state replaces a ${ended} one`);
+      }
     });
 
     it('sets a run\'s status, ending it unless it is running, with its error and its summary', async (t) => {

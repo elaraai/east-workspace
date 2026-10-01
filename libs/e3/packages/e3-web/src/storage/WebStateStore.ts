@@ -104,11 +104,11 @@ function withStatus(
  *
  * @remarks
  * Every change reads the state and writes it back in one transaction, so two
- * tabs changing one run lose neither's change. A run cancelled stays
- * cancelled: a state that is not, written over one that is, is dropped, since
- * a run's loop may persist what it had in memory after a cancel has landed. A
- * workspace's removal, and its repository's, delete its runs' states with its
- * other records.
+ * tabs changing one run lose neither's change. A run that has ended stays as
+ * it ended — completed, failed or cancelled: a state of another status,
+ * written over it, is dropped, since a run's loop may persist what it had in
+ * memory after its end has landed. A workspace's removal, and its
+ * repository's, delete its runs' states with its other records.
  *
  * @example
  * ```ts
@@ -190,8 +190,8 @@ export class WebStateStore implements ExecutionStateStore {
 
   /**
    * Changes a run's state in one transaction: reads it, and writes what
-   * `next` makes of it, unless that would take a cancelled run back from
-   * cancelled.
+   * `next` makes of it, unless that would take a run that has ended —
+   * completed, failed or cancelled — back from how it ended.
    *
    * @throws {Error} When the store holds no such run, or `next` throws
    */
@@ -206,7 +206,7 @@ export class WebStateStore implements ExecutionStateStore {
       const current = await readState(tx, key);
       if (current === null) throw notFound(repo, workspace, id);
       const changed = next(current);
-      if (current.status === 'cancelled' && changed.status !== 'cancelled') return;
+      if (current.status !== 'running' && changed.status !== current.status) return;
       tx.put(key, encodeState(changed));
     });
   }
