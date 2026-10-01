@@ -197,25 +197,29 @@ e3-api-client's `oneShotExecute`.
 
 One row, the shared `Toolbar`, folding on its ladder as Studio's toolbars do:
 
-- **Start:** **Visual · jq** (`SegmentGroup`; `diagram-project` · `code`), as Studio's canvas toolbar holds
-  Desktop · Tablet. Picking one opens the Query tab and expands the pane.
-- **End:** **Table · Tree** and **Download ▾** for the result (§4.11; disabled without one); the **history
+- **Visual · jq** is not the toolbar's: it is the Query tab's, at the top of its body (§4.2); and **Table ·
+  Tree** and **Download ▾** are the results', in their band (§4.11).
+- **End:** the **history
   item** (`historyToolbarItem`: its status line, its issues, Undo, Redo, Discard and Apply — worded **Save**
   in the builder's words); **Copy jq**; **Save…** (§4.13); and **Run**, the one primary button, with its
   shortcut in a `Kbd` (⌘⏎) and "Running" with a spinner while a run goes.
 
 ### 4.2 The pane
 
-A `DockPane` (`side="start"`, `surface="shell"`), as Studio's palette: `min(480px, 52%)` wide, and
-`min(640px, 52%)` while the Query tab shows jq. Collapsed, it is the 44 px rail, as the palette's is: the
-pane's icon (`diagram-project`), its name, "Query", and the step count as its badge. The tabs:
+A `DockPane` (`side="start"`, `surface="shell"`), as Studio's palette: `min(480px, 52%)` wide, whichever
+view the Query tab shows, so the pane never jumps as Visual · jq switches. Collapsed, it is the 44 px rail, as
+the palette's is: the pane's icon (`diagram-project`), its name, "Query", and the step count as its badge. The
+tabs:
 
-- **Query** — the steps (§4.3–§4.7), or the jq (§4.8).
+- **Query** — under its band, **Visual · jq** (`SegmentGroup`; `diagram-project` · `code`, folding to its
+  icons), where a `Library`'s band holds its search box: the band is the Library's own, the shared toolbar's
+  row, so the Query tab and the Datasets and Library tabs start alike. Under it, the steps (§4.3–§4.7), or
+  the jq (§4.8).
 - **Datasets** — the bound data sources (§4.9).
 - **Library** — the saved and recent queries (§4.10).
 
 Unlike Studio's palette, this pane holds the thing being edited, so the builder opens its tabs: opening or
-starting a query and picking Visual · jq open the Query tab, and ⌘/ opens Datasets. `DockPane`'s open tab
+starting a query opens the Query tab, and ⌘/ opens Datasets. `DockPane`'s open tab
 becomes the host's to drive — `tab` and `onTabChange`, as its `collapsed` and `onCollapsedChange` already
 are (#935); a pane that passes neither keeps its own, as today.
 
@@ -475,6 +479,9 @@ A `Library` of the saved queries, as Studio's Pages tab is a `Library` of the pr
 
 Beside the pane, the result of the last run:
 
+- **The band** at the top, as tall as the pane's tab row, so the two line up across the builder — the band a
+  `Library` holds its search box in, the shared toolbar's row: **Table · Tree** and **Download ▾** for the
+  result, disabled without one, folding to their icons.
 - **Idle**, never run: the `emptyState` recipe — "Run the query to see results", "Checks run as you edit;
   nothing reads data yet.", "Press Run or ⌘⏎ to read the datasets the query uses."
 - **Running**: "Reading customers and orders" — the data sources the run reads, in the order the query first
@@ -483,9 +490,12 @@ Beside the pane, the result of the last run:
   tabular mono, missing values "—", nested values summarised: "3 lines") or **a Value tree** (east-ui's
   ValueTree, read-only). Rows open as a Table and one value as a tree; Table · Tree in the toolbar overrides it
   until the next run.
-- **Stale**: when the program changes after a run, a `BannerView` (stale) — "The query changed after this
-  run." with **Run again** ⌘⏎ — and the body dashed; shape lines stop counting.
-- **Failed**: a `BannerView` (error) — "Not run — the checker found problems", "Not run" (a runtime error, a
+- **The strips** run edge to edge at the top of the results, each over a rule, as the mock draws them:
+- **Stale**: when the program changes after a run, a strip on the subtle surface over a dashed rule — its
+  **Stale** tag (mono capitals), "The query changed after this run." and **Run again** ⌘⏎ in the brand ink —
+  and the body dashed; shape lines stop counting.
+- **Failed**: a strip in the danger tint, its icon before the title and its message under it — "Not run — the
+  checker found problems", "Not run" (a runtime error, a
   dataset with no value yet, or a call the server refused), "Stopped after {s} s" (narrow the query, or ask for
   fewer rows), "The result is too large" ({bytes} over the limit), "Not run — the query calls a function this
   server can't run" (it needs {functions}), "Couldn't reach the server" — each over its message.
@@ -496,7 +506,7 @@ Beside the pane, the result of the last run:
   data source it read, with its hash. The fields, then what it read, give way as the results narrow.
 - **Download ▾**, a menu: CSV ("table": East CSV, one row per output, a nested value as the words the Table
   shows) and BEAST2 ("typed": the result with its type, self-describing), named after the query
-  ("top-shipped-orders-2026.csv"), and a note after each.
+  ("top-shipped-orders-2026.csv"), and a note after each: a strip in the info tint, dismissible.
 
 **A run** (Run or ⌘⏎) checks and translates the query in the browser and runs it on e3 as a one-shot call
 over its root (#935's `prepareQuery`, sent with e3-api-client's `oneShotExecute`), with the call's limits; a
@@ -657,8 +667,8 @@ The mock is a designer's prototype; Studio's patterns are how the product is bui
 | Mock | Product | Lost |
 |---|---|---|
 | A 1 px border and a 10 px radius around each component | No border; the host frames it | Nothing |
-| The control rail: Saved ▾, Copy jq, Save, Run | The one toolbar: Visual · jq, Table · Tree, Download ▾, the history item, Copy jq, Save…, Run | The toolbar's quick menu of recent and saved queries — the Library tab holds them |
-| Visual \| jq and the dataset search in the pane's tab row | Visual · jq in the toolbar, as Studio's Desktop · Tablet; the search is the Datasets tab's own `Library` search | The ⌘/ hint inside the field (⌘/ still works); a row of height in the Datasets tab |
+| The control rail: Saved ▾, Copy jq, Save, Run | The one toolbar: the history item, Copy jq, Save…, Run; Table · Tree and Download ▾ head the results, in a band as tall as the pane's tab row, as the mock draws them (a ruling of 2026-10-01) | The toolbar's quick menu of recent and saved queries — the Library tab holds them |
+| Visual \| jq and the dataset search in the pane's tab row | Visual · jq at the top of the Query tab's body, in the band where a `Library` holds its search box (a ruling of 2026-10-01; it was in the toolbar, as Studio's Desktop · Tablet); the search is the Datasets tab's own `Library` search | The ⌘/ hint inside the field (⌘/ still works); a row of height in the Datasets tab |
 | The results' own control rail: count, fields, run, Table / Tree, Download | The controls in the builder's toolbar; the read-outs in the results' footer | The count beside the view switch |
 | Notices with Undo, after opening, starting or applying | A notice that says what happened; undo is the editing session's; opening keeps the other query's drafts | One-click undo of an open — the Library tab reopens the other query |
 | Datasets that expand in place: description, fields, reference, Query | `Library` items, as Studio's palette cards: icon, name, size and hash, Source or Looked up; a click starts a query on it | A dataset's fields in plain words before a query starts — the autocomplete shows them once one does; the full reference; the prose description — a binding carries none |

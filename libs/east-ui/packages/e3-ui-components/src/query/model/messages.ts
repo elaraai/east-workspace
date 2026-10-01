@@ -558,6 +558,8 @@ export interface QueryMessages {
     jqCompletionKeys: () => string;
 
     // ── Runs and results (#938) ──────────────────────────────────────────
+    /** The results' band, for a screen reader. */
+    resultControls: () => string;
     /** The Table · Tree switch's name. */
     resultViewLabel: () => string;
     /** A view of the result. */
@@ -572,7 +574,9 @@ export interface QueryMessages {
     downloadFormatMeta: (p: { format: "csv" | "beast2" }) => string;
     /** The note after a download — `Downloaded top-shipped-orders-2026.csv — 10 orders, one row per output.` */
     downloaded: (p: { format: "csv" | "beast2"; file: string; count: string }) => string;
-    /** The stale banner. */
+    /** The stale strip's tag, before its words. */
+    staleTag: () => string;
+    /** The stale strip. */
     staleResult: () => string;
     /** Its run again. */
     runAgain: () => string;
@@ -1089,6 +1093,7 @@ export const queryMessages: QueryMessages = {
     jqCompletionLine: ({ label, detail }) => (detail === "" ? label : `${label} · ${detail}`),
     jqCompletionKeys: () => "↑↓ · ⏎ · esc",
 
+    resultControls: () => "Result controls",
     resultViewLabel: () => "Result view",
     resultView: ({ view }) => (view === "table" ? "Table" : "Tree"),
     resultViewPicked: ({ view }) => (view === "table" ? "Table · picked for many rows" : "Tree · picked for one value"),
@@ -1098,6 +1103,7 @@ export const queryMessages: QueryMessages = {
     downloaded: ({ format, file, count }) => (format === "csv"
         ? `Downloaded ${file} — ${count}, one row per output.`
         : `Downloaded ${file} — the result as the run returned it, with its type.`),
+    staleTag: () => "Stale",
     staleResult: () => "The query changed after this run.",
     runAgain: () => "Run again",
     notRunProblems: () => "Not run — the checker found problems",

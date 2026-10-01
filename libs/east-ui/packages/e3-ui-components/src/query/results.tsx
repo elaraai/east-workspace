@@ -7,10 +7,15 @@
  * The results (#938) — beside the pane, the last run's result
  * (`Query Editor Spec.md` §4.11):
  *
- * - **the banners**, in flow at the top: the stale banner — "The query
- *   changed after this run.", with Run again and its keys — while the query
- *   differs from the one the result is of; a run that gave no result, worded
- *   by how it ended; and the note after a download;
+ * - **the band**, at the top, as tall as the pane's tab row, so the two line
+ *   up across the builder: the result's controls ({@link resultToolbarItems}),
+ *   Table · Tree and Download ▾ with CSV and BEAST2, on the shared toolbar's
+ *   row — the band a `Library` holds its search box in;
+ * - **the strips**, in flow at the top, edge to edge, each over a rule: the
+ *   stale strip — its "Stale" tag, "The query changed after this run.", and
+ *   Run again with its keys — while the query differs from the one the result
+ *   is of; a run that gave no result, worded by how it ended; and the note
+ *   after a download, dismissible;
  * - **the body**: before any run, the empty state; while a run goes, the data
  *   sources it reads over skeleton rows; a result as a Table (east-ui's Table
  *   renderer, over `results-table.ts`'s rows) or as a Value tree (east-ui's
@@ -22,19 +27,16 @@
  *   duration, its East type on hover; and each data source it read, with its
  *   hash. Its parts give way as the results narrow.
  *
- * The toolbar holds the result's controls ({@link resultToolbarItems}): Table ·
- * Tree, and Download ▾ with CSV and BEAST2.
- *
  * @packageDocumentation
  */
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Box, Button, Kbd, Menu as ChakraMenu, Portal, Skeleton, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, CloseButton, Menu as ChakraMenu, Portal, Skeleton, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCaretDown, faDownload, faSitemap, faTableList } from "@fortawesome/free-solid-svg-icons";
+import { faCaretDown, faCircleExclamation, faCircleInfo, faDownload, faSitemap, faTableList } from "@fortawesome/free-solid-svg-icons";
 import { describeJqType, fromEastTypeValue, none, some } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
-import { BannerView, EastChakraTable, EastChakraValueTree, EmptyStateView, type ToolbarItem, type ValueTreeValue } from "@elaraai/east-ui-components";
+import { EastChakraTable, EastChakraValueTree, EmptyStateView, Toolbar, type ToolbarItem, type ValueTreeValue } from "@elaraai/east-ui-components";
 import { countWords, fieldLabels, shapeWords, type QueryWords } from "./model/words.js";
 import { Tip, type Styles } from "./parts.js";
 import { resultTable } from "./results-table.js";
@@ -47,7 +49,7 @@ export type ResultView = "table" | "tree";
 /** A download's format. */
 export type DownloadFormat = "csv" | "beast2";
 
-/** The fold order of the result's items, among the toolbar's: the menu to its icon first, then the switch to its icons (`toolbar.tsx`'s ranks run 10, 20, 40). */
+/** The fold order of the result's controls in their band: the menu to its icon first, then the switch to its icons. */
 const RANK_DOWNLOAD = 25;
 const RANK_VIEW = 30;
 
@@ -199,6 +201,8 @@ export interface QueryResultsProps {
     readonly words: QueryWords;
     /** The builder's storage key: the result's renderers keep their state under it. */
     readonly storageKey: string;
+    /** The result's controls, for the band ({@link resultToolbarItems}). */
+    readonly controls: readonly ToolbarItem[];
 }
 
 /**
@@ -207,9 +211,11 @@ export interface QueryResultsProps {
  * @param props - The run, whether it is stale, the view, the note and the words ({@link QueryResultsProps})
  * @returns The results
  */
-export const QueryResults = memo(function QueryResults({ state, stale, view, note, onDismissNote, onRunAgain, words, storageKey }: QueryResultsProps) {
+export const QueryResults = memo(function QueryResults({ state, stale, view, note, onDismissNote, onRunAgain, words, storageKey, controls }: QueryResultsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
+    // The band a Library draws over its cards: as tall as the pane's tab row, which it lines up with.
+    const band = useSlotRecipe({ key: "library" })() as Styles;
     const live = useSlotRecipe({ key: "status" })({ status: "brand", size: "sm", live: true }) as Styles;
     const rootRef = useRef<HTMLDivElement>(null);
     const [width, setWidth] = useState<"wide" | "narrow" | "tight">("wide");
@@ -272,16 +278,35 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, not
 
     return (
         <Box ref={rootRef} css={styles.root} data-query-results-view={output === undefined ? undefined : view} data-width={width}>
+            <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
+                <Toolbar items={controls} />
+            </Box>
             <Box css={styles.banners}>
                 {stale && output !== undefined && (
-                    <BannerView status="stale" title={m.staleResult()} actions={
-                        <Button size="xs" variant="ghost" data-query-run-again="" onClick={onRunAgain}>
-                            {m.runAgain()}<Kbd>{m.runKeys()}</Kbd>
+                    <Box css={styles.strip} data-tone="stale" role="status">
+                        <Box as="span" css={styles.stripTag}>{m.staleTag()}</Box>
+                        <Box as="span" css={styles.stripText}>{m.staleResult()}</Box>
+                        <Button size="xs" variant="ghost" colorPalette="brand" css={styles.stripAction} data-query-run-again="" onClick={onRunAgain}>
+                            {m.runAgain()}<Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>
                         </Button>
-                    } />
+                    </Box>
                 )}
-                {failure !== undefined && <BannerView status="error" title={failure.title} description={failure.message === "" ? undefined : failure.message} />}
-                {note !== undefined && <BannerView status="info" title={note} dismissible onDismiss={onDismissNote} />}
+                {failure !== undefined && (
+                    <Box css={styles.strip} data-tone="error" role="alert">
+                        <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleExclamation} /></Box>
+                        <Box css={styles.stripBody}>
+                            <Box as="span" css={styles.stripTitle}>{failure.title}</Box>
+                            {failure.message !== "" && <Box as="span">{failure.message}</Box>}
+                        </Box>
+                    </Box>
+                )}
+                {note !== undefined && (
+                    <Box css={styles.strip} data-tone="note" role="status">
+                        <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleInfo} /></Box>
+                        <Box as="span" css={styles.stripText}>{note}</Box>
+                        <CloseButton size="2xs" css={styles.stripAction} onClick={onDismissNote} />
+                    </Box>
+                )}
             </Box>
             <Box css={styles.body} data-stale={stale && output !== undefined ? "" : undefined}>{body}</Box>
             <Box css={styles.footer} data-query-results-footer="">
@@ -318,9 +343,10 @@ export interface ResultToolbarOptions {
 }
 
 /**
- * The result's toolbar items (`Query Editor Spec.md` §4.1): **Table · Tree**,
- * the `seg` strip, folding to its icons; and **Download ▾**, a menu of CSV and
- * BEAST2, folding to its icon. Both are off without a result.
+ * The result's controls, the items of the results' band (`Query Editor
+ * Spec.md` §4.11): **Table · Tree**, the `seg` strip, folding to its icons;
+ * and **Download ▾**, a menu of CSV and BEAST2, folding to its icon. Both are
+ * off without a result.
  *
  * @param options - The view, the picked view, the downloads and the words ({@link ResultToolbarOptions})
  * @returns The items, in their order along the row

@@ -86,13 +86,14 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             display: "flex",
             flexDirection: "row",
         },
-        /* A tab of the pane: its panel's whole height; its parts scroll. */
+        /* A tab of the pane: its panel's whole height, on the panel tint the cards stand out on; its parts scroll. */
         tab: {
             height: "100%",
             minHeight: "0",
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",
+            background: "bg.panel",
         },
         /* The results beside the pane. */
         results: {

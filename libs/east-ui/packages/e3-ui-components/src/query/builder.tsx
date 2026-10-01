@@ -22,11 +22,12 @@
  *   in the one toolbar undoes, redoes and discards, and Apply — the builder's
  *   Save — commits the query as one patch on the record, once it is finished
  *   and checks;
- * - **the layout**: the one toolbar (#936: Visual · jq, the result's Table ·
- *   Tree and Download ▾, the history item, Copy jq, Save… and Run); the pane,
- *   a `DockPane` with the tabs Query, Datasets and Library, its open tab and
- *   its collapse the builder's to drive; the results beside it; and the
- *   status line under both.
+ * - **the layout**: the one toolbar (#936: the history item, Copy jq, Save…
+ *   and Run); the pane, a `DockPane` with the tabs Query — Visual · jq at the
+ *   top of its body — Datasets and Library, its open tab and its collapse the
+ *   builder's to drive; the results beside it, Table · Tree and Download ▾ in
+ *   their band, which lines up with the pane's tab row; and the status line
+ *   under both.
  *
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
  * slots' autocomplete hanging inside the builder; Save… names and describes it
@@ -357,19 +358,16 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
 
     // ── The layout ──────────────────────────────────────────────────────
     const toolbar = queryToolbarItems({
-        view: editor.view,
-        onView: editor.setView,
         history: historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction }),
         copyText: () => editor.program,
         save: savePopover,
         saving: naming,
         running: run.status === "running",
         onRun,
-        results: resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, onDownload, words, styles, seg }),
         words,
         styles,
-        seg,
     });
+    const controls = resultToolbarItems({ view: output === undefined ? undefined : view, picked, onView, onDownload, words, styles, seg });
     const tabs = (["query", "datasets", "library"] as const).map((key) => ({
         key,
         label: m.tab({ tab: key }),
@@ -392,7 +390,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                     badge={words.formatters.number(editor.query.steps.length)}
                     side="start"
                     surface="shell"
-                    expandedSize={editor.view === "jq" ? "min(640px, 52%)" : "min(480px, 52%)"}
+                    // One width whichever view the Query tab shows: the pane never jumps as Visual · jq switches.
+                    expandedSize="min(480px, 52%)"
                     railSize="44px"
                     collapsed={pane.collapsed}
                     onCollapsedChange={onCollapsedChange}
@@ -402,7 +401,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                 />
                 <Box css={styles.results} data-query-results="">
                     <QueryResults state={run} stale={stale} view={view ?? "table"} note={note} onDismissNote={() => setNoted(undefined)}
-                        onRunAgain={onRun} words={words} storageKey={storageKey} />
+                        onRunAgain={onRun} words={words} storageKey={storageKey} controls={controls} />
                 </Box>
             </Box>
             <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />
