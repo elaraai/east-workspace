@@ -397,6 +397,10 @@ jobs:
       - name: Build east-node
         working-directory: libs/east-node
         run: make build
+      - name: Build east-web
+        # e3-web, which e3 builds, runs East programs on east-web-std.
+        working-directory: libs/east-web
+        run: make build
       - name: Build e3
         working-directory: libs/e3
         run: make build

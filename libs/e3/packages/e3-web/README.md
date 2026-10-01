@@ -2,7 +2,7 @@
 
 e3 running entirely in a browser: a repository kept in the page's own storage, with no server. This package is e3's third backend, beside the local one and e3-cloud. It keeps e3's records in IndexedDB, its objects in the origin private file system (OPFS), and its locks with Web Locks.
 
-It is being built in steps. This release holds e3's storage backend for the browser, `WebStorage`, and `WebStateStore`, where a dataflow run keeps its state. Both run over four storage adapters. A runner that runs tasks in the page comes in a later release.
+It is being built in steps. This release holds e3's storage backend for the browser, `WebStorage`, and `WebStateStore`, where a dataflow run keeps its state, both over four storage adapters; and e3's runner for the browser, `WebTaskRunner`, which runs every East program on a pool of Web Workers. The e3 that runs a repository in the page comes in a later release.
 
 ## Installation
 
@@ -43,6 +43,53 @@ How the backend keeps things:
 - **Logs** are a record per append, keyed by the byte of the log it starts at. A read cuts its window from the few records it covers, however many appends the log took.
 - **Locks** are Web Locks, held by the tab's session. A lock's holder is a `process` holder with pid 0 and the session's id as its `bootId`. `isHolderAlive` asks Web Locks whether that session is alive. Two tabs take locks as two processes over one local repository do, and a closed tab's locks are free.
 - **gc** runs over it as over any backend: holding the repository still, or beside running work, in steps. Its `gcSweepBackend` removes what a tab closed mid-write left.
+
+## The runner
+
+`WebTaskRunner` implements e3-core's `TaskRunner`. It runs every unit — a task, a piece or a merge of a split task, a function call, an intake — on a worker of a `UnitPool`, with East's `executeUnit`, the code east-node's `exec` runs. The pool starts its workers from the app's factory: Web Workers whose script calls `serveUnits()` from `@elaraai/e3-web/units`.
+
+```typescript
+// e3.worker.ts — where e3 runs: the storage, and a runner over a pool of unit workers
+import { openWebStorage, UnitPool, WebTaskRunner } from '@elaraai/e3-web';
+
+const storage = await openWebStorage();
+const pool = new UnitPool({
+  units: () => new Worker(new URL('./unit.worker.js', import.meta.url), { type: 'module' }),
+});
+const runner = new WebTaskRunner({ repo: 'default', pool, locks: storage.adapters.locks });
+const result = await runner.execute(storage, taskHash, inputHashes);
+```
+
+```typescript
+// unit.worker.ts — where East programs run
+import { serveUnits } from '@elaraai/e3-web/units';
+import { PricingPlatform } from './pricing-platform.js';
+
+// east-node-std's platform functions, answered by east-web-std's, and an app's own package
+serveUnits({ platforms: { '@acme/pricing': PricingPlatform } });
+```
+
+| What it runs | What it does |
+|---|---|
+| A task, or a unit of a split task | Runs it on a worker, its inputs read from the store and handed over whole. It records the execution as the local runner does: its owner (the tab's session), `running`, and then `success`, `failed` (exit code 1), `error` or `cancelled` |
+| A split task (`e3.partition`) | Runs its pieces and merges through e3-core's engine, as many at once as the pool is wide. A relaunch is served from the execution cache |
+| What a unit's console writes | Appends it to the execution's logs, as it writes it. A failure ends stderr as east-node's `exec` writes it: `Error: <message>`, then its `  at file:line:col` lines |
+| A function call (`runDetached`) | Answers its value inline, and writes nothing durable. Past `timeoutMs` its worker is terminated and replaced; past `maxResultBytes` it is `too_large`; each log keeps its last `maxLogBytes` |
+| An intake | Takes a run of a delivery's segments in, read from the store by ranges. A delivery with no index is taken in whole, up to `wholeIntakeLimit` |
+| An aborted run | Terminates its worker, which the pool replaces, and records the execution `cancelled` |
+| A custom task, or a task on the custom runtime | Records it `error`: "a browser runs no commands" |
+| A platform package its worker does not serve | Fails the unit, naming the package |
+| A platform function no package provides (FileSystem, Env) | Fails the unit, naming the function |
+
+An execution recorded `running` can still finish while the session of the tab that owns it lives: its Web Lock is held. Memory is not measured, so no record names a peak, and the pool's width is the only budget.
+
+| Option | Default | Effect |
+|---|---|---|
+| `UnitPool` `units` | — | Starts a unit worker |
+| `UnitPool` `width` | `navigator.hardwareConcurrency` | The most units that run at once |
+| `UnitPool` `connect` | none | Makes the port each worker is handed as it starts: the services the host serves its units, which a platform package given as a function reaches |
+| `UnitPool` `startTimeoutMs` | 60 000 | How long a worker may take to start serving units |
+| `WebTaskRunner` `wholeIntakeLimit` | 256 MiB | The largest delivery one intake unit takes in whole |
 
 ## The storage adapters
 
@@ -93,6 +140,8 @@ Every contract suite a storage backend runs passes over `WebStorage` and `WebSta
 - another tab sees who holds a workspace's lock while its holder lives, and can take the lock once the holder's tab has closed;
 - a repository opened with `persist: false` is gone after a reload;
 - a page whose OPFS cannot move a file is refused a persisted storage, which names the missing API and creates nothing.
+
+`WebTaskRunner`'s cases run in Node over workers in the test's own thread (`inProcessUnits`), and in Chromium over Web Workers, IndexedDB, OPFS and Web Locks. They run tasks of every output kind, a split task through its pieces and merges, failing, cancelled and refused tasks, function calls within their limits and past each, a one-shot, a split call, a record mutation, an intake, and the liveness of executions other tabs own. In Chromium, a call whose program never yields its thread is ended by terminating its worker. The tasks the cases run are a package written with e3's SDK, which the specs export in Node and hand to the page as data: the SDK is a dev dependency, and nothing a browser bundles reaches it.
 
 The Chromium specs launch the executable `E3_UI_CHROMIUM_PATH` names, when it is set. Otherwise they launch Playwright's managed Chromium:
 

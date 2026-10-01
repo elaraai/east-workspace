@@ -4,16 +4,36 @@
  */
 
 /**
- * e3 in a browser: its storage over IndexedDB, OPFS and Web Locks.
+ * e3 in a browser: its storage over IndexedDB, OPFS and Web Locks, and its
+ * runner over a pool of Web Workers.
  *
  * `openWebStorage` opens e3's storage backend in a page — `WebStorage`, over
  * the four adapters below — and `WebStateStore` keeps a dataflow run's state
- * beside it. This entry reaches nothing of Node, so a page or a worker
- * bundles it. The files adapter over the machine's files is
+ * beside it. `WebTaskRunner` runs a repository's units on the workers of a
+ * `UnitPool`: Web Workers whose script calls `serveUnits()` from
+ * `@elaraai/e3-web/units`, or, for a test in Node, workers in this thread
+ * (`inProcessUnits`). This entry reaches nothing of Node, so a page or a
+ * worker bundles it. The files adapter over the machine's files is
  * `@elaraai/e3-web/node`.
  *
  * @packageDocumentation
  */
+
+export {
+  DEFAULT_WHOLE_INTAKE_LIMIT,
+  NO_COMMANDS,
+  WEB_RUNNER,
+  WebTaskRunner,
+  type WebTaskRunnerOptions,
+} from './execution/WebTaskRunner.js';
+
+export { UnitPool, type UnitPoolOptions, type UnitRun, type UnitRunOptions } from './execution/pool.js';
+
+export { inProcessUnits, type InProcessUnitsOptions } from './execution/in-process.js';
+
+export type { HostMessage, UnitFile, UnitWorker, WorkerMessage } from './execution/protocol.js';
+
+export type { UnitPlatformContext, UnitPlatformPackage, UnitPlatforms } from './execution/unit-server.js';
 
 export {
   WEB_REPOSITORY_UPGRADES,

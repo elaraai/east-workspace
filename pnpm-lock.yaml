@@ -332,7 +332,13 @@ importers:
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east
+      '@elaraai/east-web-std':
+        specifier: workspace:*
+        version: link:../../../east-web/packages/east-web-std
     devDependencies:
+      '@elaraai/e3':
+        specifier: workspace:*
+        version: link:../e3
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

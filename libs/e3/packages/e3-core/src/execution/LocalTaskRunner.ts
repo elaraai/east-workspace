@@ -16,8 +16,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { none, some, variant } from '@elaraai/east';
-import { type ExecutionStatus, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
+import type { TaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -25,6 +24,7 @@ import type {
   DetachedResult, DetachedRunOptions, DetachedSpec, ExecutionLiveness, IntakeOptions, IntakeResult, IntakeSpec, MergeParts,
   RunningExecution, SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult, UnitRequeue,
 } from './interfaces.js';
+import { ExecutionAttempt, readTaskObject, toTaskResult } from './attempt.js';
 import { probeExecutionCache as probeCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './cache.js';
 import { runIntake } from './intake.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
@@ -181,30 +181,6 @@ export class LocalTaskRunner implements TaskRunner {
   }
 }
 
-/** An execution's result, as a {@link TaskRunner} reports it. */
-function toTaskResult(result: ExecutionResult): TaskResult {
-  const taskResult: TaskResult = {
-    state: result.state,
-    cached: result.cached,
-    executionId: result.executionId,
-  };
-  if (result.cancelled) {
-    taskResult.cancelled = true;
-  }
-  if (result.peakBytes !== undefined) {
-    taskResult.peakBytes = result.peakBytes;
-  }
-  if (result.state === 'success' && result.outputHash) {
-    taskResult.outputHash = result.outputHash;
-  } else if (result.state === 'failed') {
-    taskResult.exitCode = result.exitCode ?? undefined;
-    taskResult.error = result.error ?? undefined;
-  } else if (result.state === 'error') {
-    taskResult.error = result.error ?? undefined;
-  }
-  return taskResult;
-}
-
 /**
  * Execute a single task.
  *
@@ -298,43 +274,6 @@ export async function taskExecuteUnit(
   const task = await readTaskObject(storage, repo, taskHash, unit.inputs, ids, !unit.own);
   if (!('body' in task)) return task;
   return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge, 'unit', !unit.own);
-}
-
-/** Reads and decodes a task object; or, when it does not read, records the
- *  execution `error`, naming why, and whether it is a unit, and returns its
- *  result. */
-async function readTaskObject(
-  storage: StorageBackend,
-  repo: string,
-  taskHash: string,
-  inputHashes: string[],
-  ids: ExecutionIds,
-  unit: boolean,
-): Promise<TaskObject | ExecutionResult> {
-  try {
-    return decodeTaskObject(Buffer.from(await storage.objects.read(repo, taskHash)));
-  } catch (err) {
-    const message = `Failed to read task object: ${err}`;
-    await storage.refs.executionWrite(repo, taskHash, ids.inHash, ids.executionId, variant('error', {
-      executionId: ids.executionId,
-      inputHashes,
-      startedAt: new Date(ids.startTime),
-      completedAt: new Date(),
-      message,
-      unit,
-    }));
-    return {
-      inputsHash: ids.inHash,
-      executionId: ids.executionId,
-      cached: false,
-      state: 'error',
-      outputHash: null,
-      exitCode: null,
-      duration: Date.now() - ids.startTime,
-      error: message,
-      cancelled: false,
-    };
-  }
 }
 
 /**
@@ -528,34 +467,16 @@ export async function taskExecuteBody(
   kind: GrantKind = 'task',
   isUnit: boolean = kind === 'unit',
 ): Promise<ExecutionResult> {
-  const { inHash, executionId, startTime } = ids;
+  const { inHash, executionId } = ids;
   // What spawns: a stock runner's `exec`, for an East body on a stock runtime;
   // otherwise the author's own command.
   const stock = task.body.type === 'east' && task.runner.type !== 'custom';
+  // The attempt's records, as every runner writes them.
+  const attempt = new ExecutionAttempt(storage, repo, taskHash, inputHashes, ids, isUnit);
 
   /** Records an error e3 met before the runner ran. */
-  const errorResult = async (message: string, exitCode: number | null = null): Promise<ExecutionResult> => {
-    const status: ExecutionStatus = variant('error', {
-      executionId,
-      inputHashes,
-      startedAt: new Date(startTime),
-      completedAt: new Date(),
-      message,
-      unit: isUnit,
-    });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-    return {
-      inputsHash: inHash,
-      executionId,
-      cached: false,
-      state: 'error',
-      outputHash: null,
-      exitCode,
-      duration: Date.now() - startTime,
-      error: message,
-      cancelled: false,
-    };
-  };
+  const errorResult = (message: string, exitCode: number | null = null): Promise<ExecutionResult> =>
+    attempt.recordError(message, exitCode);
 
   // Step 4: Create scratch directory inside the repository (or under
   // E3_SCRATCH_DIR), named after the execution attempt and this process — its
@@ -644,29 +565,8 @@ export async function taskExecuteBody(
      *  has removed the scratch directory, so a record that cannot be written
      *  would be an unhandled rejection — which ends the process — rather than
      *  this execution's failure. */
-    const stoppedResult = async (outcome: 'cancelled' | 'error' | 'failed', cause: string): Promise<ExecutionResult> => {
-      try {
-        await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${cause}\n`);
-      } catch (err) {
-        console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      const stopped = { executionId, inputHashes, startedAt: new Date(startTime), completedAt: new Date(), unit: isUnit };
-      const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', stopped)
-        : outcome === 'error' ? variant('error', { ...stopped, message: cause })
-        : variant('failed', { ...stopped, exitCode: -1n, peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)) });
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-      return {
-        inputsHash: inHash,
-        executionId,
-        cached: false,
-        state: outcome === 'failed' ? 'failed' : 'error',
-        outputHash: null,
-        exitCode: outcome === 'failed' ? -1 : null,
-        duration: Date.now() - startTime,
-        error: outcome === 'failed' ? `e3: ${cause}` : cause,
-        cancelled: outcome === 'cancelled',
-      };
-    };
+    const stoppedResult = (outcome: 'cancelled' | 'error' | 'failed', cause: string): Promise<ExecutionResult> =>
+      attempt.recordStopped(outcome, cause, peakBytes);
 
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
@@ -680,10 +580,10 @@ export async function taskExecuteBody(
      *  when it did not end well — `null` when it did, and what to run again
      *  with when the guard or the attempt's cap stopped it. A unit ends well
      *  only when its runner recorded an `ok` result. */
-    const spawnRunner = async (argv: string[], staged: StagedUnit | null, attempt: Attempt): Promise<ExecutionResult | Requeue | null> => {
-      const { grant, cgroup, cap, reservation } = attempt;
-      const result = await runCommand(storage, repo, taskHash, inHash, executionId, cgroup === null ? argv : cgroups!.enter(cgroup, argv),
-        inputHashes, isUnit, bootId, scratchDir, options, envBins, stock,
+    const spawnRunner = async (argv: string[], staged: StagedUnit | null, held: Attempt): Promise<ExecutionResult | Requeue | null> => {
+      const { grant, cgroup, cap, reservation } = held;
+      const result = await runCommand(attempt, cgroup === null ? argv : cgroups!.enter(cgroup, argv),
+        bootId, scratchDir, options, envBins, stock,
         (pid, stop) => grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) }));
       grant?.unwatch();
       const recorded = staged === null ? null : await readUnitResult(staged);
@@ -729,28 +629,7 @@ export async function taskExecuteBody(
       if (result.exitCode === null && result.signal !== null) {
         return await stoppedResult('failed', `runner killed by ${result.signal}`);
       }
-      const status: ExecutionStatus = variant('failed', {
-        executionId,
-        inputHashes,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        exitCode: BigInt(result.exitCode ?? -1),
-        peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
-        unit: isUnit,
-      });
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-      return {
-        inputsHash: inHash,
-        executionId,
-        cached: false,
-        state: 'failed',
-        outputHash: null,
-        exitCode: result.exitCode,
-        duration: Date.now() - startTime,
-        error: result.error,
-        cancelled: false,
-        ...(peakBytes !== undefined && { peakBytes }),
-      };
+      return await attempt.recordFailed(result.exitCode, result.error, peakBytes);
     };
 
     // Step 7.5: the process's budget. The runner spawns only once this
@@ -795,11 +674,11 @@ export async function taskExecuteBody(
         if (cgroups !== null) {
           cgroup = await cgroups.create(`unit-${executionId.replaceAll('-', '')}-${attempts}`, cap).catch(() => null);
         }
-        const attempt: Attempt = { grant, cgroup, cap: cgroup === null ? null : cap, reservation };
-        ended = await spawnRunner(args, unit, attempt);
+        const held: Attempt = { grant, cgroup, cap: cgroup === null ? null : cap, reservation };
+        ended = await spawnRunner(args, unit, held);
         if (ended === null && unit !== null) {
           const merge = await stageOutputMerge(unit);
-          if (merge !== null) ended = await spawnRunner(unitArgv(unit.runner, merge, options.verbose), merge, attempt);
+          if (merge !== null) ended = await spawnRunner(unitArgv(unit.runner, merge, options.verbose), merge, held);
         }
       } finally {
         grant?.release();
@@ -836,29 +715,7 @@ export async function taskExecuteBody(
     } catch (err) {
       return await errorResult(`Failed to read output: ${err}`, 0);
     }
-    const status: ExecutionStatus = variant('success', {
-      executionId,
-      inputHashes,
-      outputHash,
-      startedAt: new Date(startTime),
-      completedAt: new Date(),
-      peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
-      plan: none,
-      unit: isUnit,
-    });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-    return {
-      inputsHash: inHash,
-      executionId,
-      cached: false,
-      state: 'success',
-      outputHash,
-      exitCode: 0,
-      duration: Date.now() - startTime,
-      error: null,
-      cancelled: false,
-      ...(peakBytes !== undefined && { peakBytes }),
-    };
+    return await attempt.recordSuccess(outputHash, peakBytes);
   } finally {
     // Nothing more is asked for once the runners have exited.
     await fetcher?.stop();
@@ -871,72 +728,24 @@ export async function taskExecuteBody(
   }
 }
 
-/** One stream's appends to an execution's log. */
-interface LogAppender {
-  /** Queues a chunk; resolves once the append that holds it has settled. */
-  push(data: string): Promise<void>;
-  /** Resolves once every queued chunk has been appended. */
-  idle(): Promise<void>;
-}
-
-/**
- * Appends one stream's output to an execution's log with at most one append
- * in flight: the chunks that arrive while an append runs are queued, and the
- * next append writes them all at once.
- *
- * @param append - Appends data to the stream's log
- * @param stream - The stream, for the warning a failed append prints
- * @returns The appender
- */
-function createLogAppender(append: (data: string) => Promise<void>, stream: 'stdout' | 'stderr'): LogAppender {
-  let queue: { data: string; settle: () => void }[] = [];
-  let draining: Promise<void> | null = null;
-  const drain = async (): Promise<void> => {
-    while (queue.length > 0) {
-      const batch = queue;
-      queue = [];
-      try {
-        await append(batch.map((chunk) => chunk.data).join(''));
-      } catch (err) {
-        console.warn(`Failed to append ${stream} log: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      for (const chunk of batch) chunk.settle();
-    }
-    draining = null;
-  };
-  return {
-    push: (data) => new Promise<void>((resolve) => {
-      queue.push({ data, settle: resolve });
-      draining ??= drain();
-    }),
-    idle: () => draining ?? Promise.resolve(),
-  };
-}
-
 /**
  * Run a command and capture output.
  *
  * Composes the persistence-free `spawnAndCapture` (processExec.ts) with the
- * tracked path's storage writes: `storage.logs.append` for both streams and
- * the `running` execution status (with pid) once the child has spawned.
+ * tracked path's storage writes, the attempt's (`attempt.ts`): its log's
+ * appends for both streams, and its owner and its `running` status (with pid)
+ * once the child has spawned.
  *
  * Each stream's appends run one at a time and the chunks that queue behind one
  * are coalesced; a chunk counts as pending until its append settles, so a
  * runner that writes faster than the log is appended blocks on its pipe.
  *
  * `onRunner` is given the runner's pid and the stop an abort makes as soon as
- * it has spawned, for the budget's guard to watch it by. `unit` is what the
- * execution's records say it is.
+ * it has spawned, for the budget's guard to watch it by.
  */
 async function runCommand(
-  storage: StorageBackend,
-  repo: string,
-  taskHash: string,
-  inHash: string,
-  executionId: string,
+  attempt: ExecutionAttempt,
   args: string[],
-  inputHashes: string[],
-  unit: boolean,
   bootId: string,
   scratchDir: string,
   options: ExecuteOptions,
@@ -944,10 +753,8 @@ async function runCommand(
   stdinLifeline = false,
   onRunner?: (pid: number, stop: () => void) => void,
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null; stoppedByE3: boolean; timedOut: boolean; error: string | null }> {
-  const stdoutLog = createLogAppender(
-    (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', data), 'stdout');
-  const stderrLog = createLogAppender(
-    (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', data), 'stderr');
+  const stdoutLog = attempt.log('stdout');
+  const stderrLog = attempt.log('stderr');
 
   let result: Awaited<ReturnType<typeof spawnAndCapture>>;
   try {
@@ -960,7 +767,7 @@ async function runCommand(
       // repo and process.cwd() — the nearest .bin often lacks the runner
       // (it's hoisted to the workspace root).
       extraBins,
-      searchDirs: [path.dirname(repo), process.cwd()],
+      searchDirs: [path.dirname(attempt.repo), process.cwd()],
       extraEnv: options.extraEnv,
       // Tee stdout - use storage.logs.append for log persistence
       onStdout: (str) => {
@@ -990,30 +797,9 @@ async function runCommand(
         // the two leaves no `running` record at all. One whose owner cannot be
         // recorded is recorded `error` before the spawn fails.
         const owner = options.owner === undefined ? await processOwner() : options.owner;
-        try {
-          if (owner !== null) await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, owner);
-        } catch (err) {
-          await storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('error', {
-            executionId,
-            inputHashes,
-            startedAt,
-            completedAt: new Date(),
-            message: `Failed to record the execution's owner: ${err instanceof Error ? err.message : String(err)}`,
-            unit,
-          }));
-          throw err;
-        }
+        await attempt.recordOwner(owner, startedAt);
         const pidStartTime = await getPidStartTime(pid ?? -1);
-        const status: ExecutionStatus = variant('running', {
-          executionId,
-          inputHashes,
-          startedAt,
-          pid: BigInt(pid ?? -1),
-          pidStartTime: BigInt(pidStartTime ?? -1),
-          bootId,
-          unit,
-        });
-        await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+        await attempt.recordRunning({ pid: BigInt(pid ?? -1), pidStartTime: BigInt(pidStartTime ?? -1), bootId }, startedAt);
       },
     });
   } finally {

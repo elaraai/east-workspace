@@ -316,12 +316,14 @@ export {
 } from './dataset-adopt.js';
 
 // A stored delivered collection taken in by intake units on the runners, in
-// pieces
+// pieces, and a piece of one as the blob of its own an intake unit reads
 export {
   intakeDelivery,
+  deliveryPiece,
   type DeliveryIntake,
   type DeliveryIntakeOptions,
   type DeliveryIntakeProgress,
+  type DeliveryPiece,
 } from './delivery-intake.js';
 
 // Dataset refs (reactive dataflow)
@@ -379,6 +381,40 @@ export {
   type ExecutionResult,
 } from './execution/cache.js';
 
+// An execution attempt's records, as every runner writes them
+export {
+  ExecutionAttempt,
+  readTaskObject,
+  toTaskResult,
+  type AttemptRunner,
+  type LogAppender,
+} from './execution/attempt.js';
+
+// The units a task runs as, wherever they run, and where each one's output is
+export {
+  UNIT_FILE,
+  UNIT_RESULT_FILE,
+  UNIT_OUTPUT_DIR,
+  OUTPUT_MERGE_FILE,
+  OUTPUT_MERGE_RESULT,
+  OUTPUT_MERGE_DIR,
+  INTAKE_TYPE_FILE,
+  INTAKE_OUTPUT_FILE,
+  runUnitOf,
+  mergeUnitOf,
+  callUnitOf,
+  intakeUnitOf,
+  emitsRuns,
+  outputRunsOf,
+  outputMergeUnitOf,
+  unitOutputOf,
+  emittedCollectionType,
+  type StockRunner,
+  type UnitForm,
+  type UnitStage,
+  type UnitOutputPlace,
+} from './execution/unit-forms.js';
+
 // The engine: a task split into pieces, as the stages its units run in, and
 // the driver that runs a task on its own
 export {
@@ -392,12 +428,14 @@ export {
   type UnitExecutor,
 } from './execution/engine.js';
 
-// The pieces of a split task
+// The pieces of a split task, and where a host reads the piece size a test
+// sets
 export {
   PIECE_SIZES,
   pieceSizes,
   pieceBoundaries,
   planPieces,
+  readTestPieceBytesFrom,
   type PieceSizes,
   type SplitPoint,
   type PiecePlan,

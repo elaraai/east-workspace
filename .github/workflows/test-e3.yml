@@ -7,6 +7,7 @@ on:
       - "libs/e3/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-web/**"
       - "libs/east-py/**"
       - "libs/east-c/**"
       - ".github/workflows/test-e3.yml"
@@ -16,6 +17,7 @@ on:
       - "libs/e3/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-web/**"
       - "libs/east-py/**"
       - "libs/east-c/**"
       - ".github/workflows/test-e3.yml"
@@ -94,6 +96,11 @@ jobs:
 
       - name: Build east-node (dependency)
         working-directory: libs/east-node
+        run: make build
+
+      # e3-web's unit workers run East programs on east-web-std.
+      - name: Build east-web (dependency)
+        working-directory: libs/east-web
         run: make build
 
       - name: Build scaffold-core (environment e2e dependency)

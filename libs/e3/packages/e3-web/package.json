@@ -10,6 +10,10 @@
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
     },
+    "./units": {
+      "types": "./dist/src/units.d.ts",
+      "default": "./dist/src/units.js"
+    },
     "./node": {
       "types": "./dist/src/node.d.ts",
       "default": "./dist/src/node.js"
@@ -47,12 +51,14 @@
   },
   "dependencies": {
     "@elaraai/e3-core": "workspace:*",
-    "@elaraai/e3-types": "workspace:*"
+    "@elaraai/e3-types": "workspace:*",
+    "@elaraai/east-web-std": "workspace:*"
   },
   "peerDependencies": {
     "@elaraai/east": "workspace:*"
   },
   "devDependencies": {
+    "@elaraai/e3": "workspace:*",
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.47.0",

@@ -46,6 +46,7 @@ import {
   readBeast2ExtentsRanged,
   segmentKeyTypeOf,
   segmentRuleFor,
+  spliceBeast2Tail,
   type Beast2RangedExtents,
   type EastTypeValue,
 } from '@elaraai/east';
@@ -297,6 +298,119 @@ export async function rememberedManifest(
   // objects went first. One found whole is re-referenced whole.
   if (!await touchReachable(storage, repo, [hash])) return null;
   return { hash, manifest };
+}
+
+/** How many bytes of a stored delivery a piece's blob reads at once. */
+const PIECE_READ_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A run of a stored delivery's segments, as the blob of its own an intake unit
+ * of the run reads.
+ */
+export interface DeliveryPiece {
+  /**
+   * The blob's bytes, in order: the delivery's header, the run's frames as
+   * they are stored, and a terminator, index and footer for them. The frames
+   * are read from the store by ranges as the bytes are taken, so the store
+   * serves the piece no byte of the delivery's other segments.
+   */
+  readonly bytes: AsyncIterable<Uint8Array>;
+  /** The run, as the blob numbers its segments: all of them. */
+  readonly segments: { readonly from: number; readonly to: number };
+  /**
+   * A refusal of the blob, naming its segments and offsets as the delivery
+   * numbers them.
+   *
+   * @param refusal - The refusal, in the words every runner uses
+   * @returns The refusal of the delivery
+   */
+  inDelivery(refusal: string): string;
+}
+
+/**
+ * Segments `[from, to)` of a delivery the store holds, as a blob of their own:
+ * the delivery's header, the run's frames as they are stored, and a
+ * terminator, index and footer for them.
+ *
+ * @remarks
+ * What an intake of the run reads of the delivery, and all that is read of it,
+ * by ranges: its footer and index, its header, and then the run. A host where
+ * placing an object is a download stages a piece of a large delivery so,
+ * rather than the delivery whole.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The delivery's object
+ * @param segments - The run, by the delivery's index
+ * @returns The run's blob; or `null` when the delivery has no index that
+ *   parses, the run is not a range of its segments, or they alias one another,
+ *   so the runner is given the whole delivery and refuses it in its own words
+ * @throws {ObjectNotFoundError} When the store holds no such object.
+ * @throws {Error} When the store fails a read of the delivery, as it failed —
+ *   a throttle stays a throttle, which a caller that runs the intake in rounds
+ *   retries, rather than staging the whole delivery for one piece — and, as
+ *   the bytes are taken, when the object ends inside the segments its index
+ *   names.
+ */
+export async function deliveryPiece(
+  storage: StorageBackend,
+  repo: string,
+  hash: string,
+  segments: { readonly from: number; readonly to: number },
+): Promise<DeliveryPiece | null> {
+  const { size } = await storage.objects.stat(repo, hash);
+  const store: { failure: { err: unknown } | null } = { failure: null };
+  let extents: Beast2RangedExtents;
+  try {
+    // A probe of the footer alone, so the read that follows is the index: a
+    // run that does not hold the last segments reads none of their bytes.
+    extents = await readBeast2ExtentsRanged(
+      {
+        size,
+        read: async (offset, length) => {
+          try {
+            return await storage.objects.readRange(repo, hash, offset, length);
+          } catch (err) {
+            store.failure = { err };
+            throw err;
+          }
+        },
+      },
+      { tailProbeBytes: 16 },
+    );
+  } catch {
+    // The store's failure is its own; extents that do not parse are the
+    // delivery's, which the runner refuses in its own words, given it whole.
+    if (store.failure !== null) throw store.failure.err;
+    return null;
+  }
+  const count = extents.offsets.length;
+  const { from, to } = segments;
+  if (!extents.selfContained || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > count) return null;
+  const start = extents.offsets[from]!;
+  const end = to < count ? extents.offsets[to]! : extents.segmentsEnd;
+  // The run moves back to follow the header directly.
+  const shift = start - extents.prefixEnd;
+  const table = extents.offsets.slice(from, to).map((offset, i) => ({ offset: offset - shift, count: extents.counts[from + i]! }));
+  async function* bytes(): AsyncGenerator<Uint8Array> {
+    yield extents.head;
+    for (let at = start; at < end; at += PIECE_READ_BYTES) {
+      const length = Math.min(PIECE_READ_BYTES, end - at);
+      const read = await storage.objects.readRange(repo, hash, at, length);
+      if (read.length !== length) throw new Error(`object ${hash} ends at ${at + read.length}, inside the segments its index names`);
+      yield read;
+    }
+    yield spliceBeast2Tail(table, extents.prefixEnd + end - start);
+  }
+  return {
+    bytes: bytes(),
+    segments: { from: 0, to: to - from },
+    inDelivery: (refusal) => refusal.replace(
+      /\bsegment (\d+) of the delivery(?:, at offset (\d+))?/g,
+      (_match, n: string, offset: string | undefined) =>
+        `segment ${Number(n) + from} of the delivery${offset === undefined ? '' : `, at offset ${Number(offset) + shift}`}`,
+    ),
+  };
 }
 
 /** The memo key a piece of a delivery is remembered under: a SHA-256, as the

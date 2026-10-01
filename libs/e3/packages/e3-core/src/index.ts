@@ -264,12 +264,15 @@ export {
 } from './dataset-adopt.js';
 
 // A delivered collection taken in by intake units on the runners, in pieces:
-// one the store holds, or a file on this machine
+// one the store holds, or a file on this machine; and a piece of one the store
+// holds, as the blob of its own an intake unit reads
 export { intakeDelivery } from './delivery-intake-file.js';
 export {
+  deliveryPiece,
   type DeliveryIntake,
   type DeliveryIntakeOptions,
   type DeliveryIntakeProgress,
+  type DeliveryPiece,
 } from './delivery-intake.js';
 
 // Tree and dataset operations (high-level, by path)

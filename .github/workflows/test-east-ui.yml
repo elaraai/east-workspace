@@ -7,6 +7,7 @@ on:
       - "libs/east-ui/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-web/**"
       - "libs/e3/**"
       # The East rules gate these packages' lint (#963): a rule change runs it.
       - "libs/east-diagnostics/**"
@@ -18,6 +19,7 @@ on:
       - "libs/east-ui/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-web/**"
       - "libs/e3/**"
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
@@ -53,6 +55,11 @@ jobs:
 
       - name: Build east-node (dependency)
         working-directory: libs/east-node
+        run: make build
+
+      # e3-web, which e3 builds, runs East programs on east-web-std.
+      - name: Build east-web (dependency)
+        working-directory: libs/east-web
         run: make build
 
       - name: Build e3 (dependency)
@@ -123,6 +130,11 @@ jobs:
 
       - name: Build east-node (dependency)
         working-directory: libs/east-node
+        run: make build
+
+      # e3-web, which e3 builds, runs East programs on east-web-std.
+      - name: Build east-web (dependency)
+        working-directory: libs/east-web
         run: make build
 
       - name: Build e3 (dependency)
