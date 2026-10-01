@@ -177,6 +177,16 @@ jobs:
           for _ in $(seq 1 30); do [ -S "/run/user/$(id -u)/bus" ] && break; sleep 1; done
           XDG_RUNTIME_DIR="/run/user/$(id -u)" systemd-run --user --scope -p Delegate=yes -q -- true
 
+      # e3-web's browser specs run in Chromium, in the package tests: the build
+      # Playwright manages, which a bare headless launch finds in its cache —
+      # the headless shell alone, as e3-ui-cli's install-browser installs it,
+      # with the system libraries it needs on Linux. A spec that cannot launch
+      # it fails rather than skips.
+      - name: Install Chromium (e3-web's browser specs)
+        if: matrix.shard == 'packages'
+        working-directory: libs/e3/packages/e3-web
+        run: pnpm exec playwright-core install --only-shell ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
+
       - name: Lint
         if: matrix.shard == 'packages'
         working-directory: libs/e3

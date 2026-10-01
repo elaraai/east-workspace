@@ -22,6 +22,7 @@ const NPM_PKGS = [
   'libs/e3/packages/e3-cli/package.json',
   'libs/e3/packages/e3-api-server/package.json',
   'libs/e3/packages/e3-api-tests/package.json',
+  'libs/e3/packages/e3-web/package.json',
   'libs/east-ui/packages/east-ui/package.json',
   'libs/east-ui/packages/east-ui-components/package.json',
   'libs/east-ui/packages/e3-ui/package.json',

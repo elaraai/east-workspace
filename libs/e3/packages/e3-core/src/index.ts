@@ -29,6 +29,10 @@
 export * from './storage/index.js';
 export * from './execution/index.js';
 
+// How a log store cuts a window of a log, as every one does: at the longest
+// prefix of its bytes that holds whole characters
+export { completeUtf8Length } from './storage/utf8.js';
+
 // =============================================================================
 // Repository Operations (filesystem-based)
 // =============================================================================
@@ -86,6 +90,10 @@ export {
   type MarkReachableOptions,
   type SweepBatchResult,
 } from './gc.js';
+
+// The roots gc marks from, read through a backend's ref stores: what a
+// `RepoStore` serves its gc root scans from
+export { packageRoots, workspaceRoots, executionRoots } from './gc-roots.js';
 
 // The history gc keeps: which runs and executions, and the deletion of the rest
 export {
