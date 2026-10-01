@@ -377,19 +377,22 @@ first. The fixture's default query prints:
 | Step | Canonical jq |
 |---|---|
 | (prologue) | `.{ds} as ${ds}` for each data source a finished Look up reads, then `.{source}` |
-| Keep rows where | `map(<select(case) per narrowing condition> \| select(<the rest, joined by and / or>))`; groups parenthesised with their own joiner |
+| Keep rows where | `map(<select(case) per narrowing condition> \| select(<the rest, joined by and / or>))`; a group in parentheses where jq's grammar needs them — an any group inside all, `a and (b or c)`, but not an all group inside any, `a or b and c` |
 | — conditions | `p == v`, `!=`, `>=`, `<=`, `>`, `<`; `(p \| contains("v"))`; `(p \| startswith("v"))`; `p == null` / `!= null`; `p == true` / `false`; `(p \| year) == 2026`; `(p \| strftime("%Y-%m")) == "2026-03"`; `p >= "2026-03-01"` / `<`; `(p \| length) >= n`; `any(p[]; <inner>)`; a payload field `.F.value.P`, a case `.F.type` |
 | Look up | `map(. + {f: $ds[<key>].f, …})` |
-| Group and total | `group_by(<by>)\n\| map({<by name>: .[0]<by>, <name>: <total>, …})`; totals `length`, `(map(f) \| add)`, `(map(f) \| add / length)`, `min`, `max`, `(map(f) \| unique \| length)`; all rows together `{<name>: <total>, …}` |
+| Group and total | `group_by(<by>)\n\| map({<by name>: .[0]<by>, <name>: <total>, …})`; totals `length`, `map(f) \| add`, `map(f) \| add / length`, `map(f) \| min`, `map(f) \| max`, `map(f) \| unique \| length` — an object's value takes no parentheses; all rows together `{<name>: <total>, …}` |
 | Sort | a number, descending: `sort_by(-f)`; otherwise `sort_by(f)`, with `\n\| reverse` for descending |
 | Keep the first · Count | `.[:n]` · `length` |
 | Show only fields | `map({a, b: .x.y})` |
 | Fill in missing | `map(f //= v)` |
 | Open each list | `[.[] \| . as ${noun} \| f[] \| . + {{noun}_id: ${noun}.id}]`, or `[.[] \| f[]]` |
-| Take part of a date | `map(. + {name: (f \| year)})`; `strftime("%Y-%m")`, `strftime("%A")` |
+| Take part of a date | `map(. + {name: f \| year})`; `strftime("%Y-%m")`, `strftime("%A")` |
 | List every part | `[recurse(.<children>[]) \| {<scalar fields>}]` |
 | Try the model | `[range(from; to + step/2; step) as $p \| {p: $p, name: call(.; {p: $p, k: "fixed", …})}]` |
 | jq step | its text, trimmed |
+
+A group's key reads its first row, `.[0]<by>`, which the checker types as an option: after Group and total
+the key is optional (`customer_id: Option<String>`).
 
 Unfinished steps are left out. **Parsing back** works on #875's AST, not text: every canonical form becomes
 its step again, groups, inner conditions and narrowing included; anything else becomes a jq step, and

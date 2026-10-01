@@ -93,6 +93,26 @@ export {
     type StudioLibraryOptions,
 } from './studio/index.js';
 
+// The query builder (#875): its East types — a query as the steps the builder edits.
+export {
+    Query,
+    QueryAggregateFunctionType,
+    QueryAggregateType,
+    QueryComparisonType,
+    QueryConditionType,
+    QueryDatePartType,
+    QueryGroupByType,
+    QueryMatchType,
+    QueryPickFieldType,
+    QuerySortDirectionType,
+    QueryStepInputType,
+    QueryStepType,
+    QueryStepValueType,
+    QueryStepsType,
+    type QueryNamespace,
+    type QueryTypes,
+} from './query/index.js';
+
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';
 export {
