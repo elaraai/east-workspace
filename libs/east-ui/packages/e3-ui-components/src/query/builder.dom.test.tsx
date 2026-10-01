@@ -377,7 +377,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
 
 describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
     /** The jq view's text field. */
-    const jqField = () => screen.getByRole("textbox", { name: "The query as jq" }) as HTMLTextAreaElement;
+    const jqField = () => screen.getByRole("textbox", { name: "jq query" }) as HTMLTextAreaElement;
     /** Types the jq, and leaves it. */
     async function typeJq(text: string) {
         await act(async () => { fireEvent.change(jqField(), { target: { value: text } }); });

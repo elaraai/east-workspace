@@ -538,6 +538,24 @@ export interface QueryMessages {
     saveConfirm: () => string;
     /** The save popover's cancel. */
     cancel: () => string;
+
+    // ── The jq view (#937) ───────────────────────────────────────────────
+    /** The problems panel's check — `2 problems · 1 warning`, `1 warning`, `Checks clean`; notes are not counted. */
+    jqCheck: (p: { problems: string; n: number; warnings: string; w: number }) => string;
+    /** The problems panel's hint, after the check. */
+    jqHint: () => string;
+    /** The problems' list, for a screen reader. */
+    jqProblemsLabel: () => string;
+    /** A problem's code as the panel shows it: the checker's, its underscores as spaces; a note's, `note`. */
+    jqProblemCode: (p: { code: string; note: boolean }) => string;
+    /** Where a problem starts — `L3:9`. */
+    jqProblemAt: (p: { line: string; column: string }) => string;
+    /** The completions' list, for a screen reader. */
+    jqCompletionsLabel: () => string;
+    /** The footer's line for a completion with no doc — `total · Float`. */
+    jqCompletionLine: (p: { label: string; detail: string }) => string;
+    /** The completions' keys, in the footer. */
+    jqCompletionKeys: () => string;
 }
 
 const STEP_TITLE: Readonly<Record<Exclude<StepKind, "drill">, string>> = {
@@ -943,7 +961,7 @@ export const queryMessages: QueryMessages = {
     jqPartsStay: ({ count, n }) => (n === 1
         ? `${count} part of the jq doesn't match a visual step, so it stays as jq.`
         : `${count} parts of the jq don't match a visual step, so they stay as jq.`),
-    jqLabel: () => "The query as jq",
+    jqLabel: () => "jq query",
     setGesture: ({ what }) => `Set ${what}`,
     addStepGesture: ({ step }) => `Add ${step}`,
     removeStepGesture: ({ n }) => `Remove step ${n}`,
@@ -975,4 +993,17 @@ export const queryMessages: QueryMessages = {
     restoreGenerated: () => "Use generated",
     saveConfirm: () => "Save",
     cancel: () => "Cancel",
+
+    jqCheck: ({ problems, n, warnings, w }) => {
+        const warned = `${warnings} ${w === 1 ? "warning" : "warnings"}`;
+        if (n > 0) return `${problems} ${n === 1 ? "problem" : "problems"}${w > 0 ? ` · ${warned}` : ""}`;
+        return w > 0 ? warned : "Checks clean";
+    },
+    jqHint: () => "ctrl space · suggestions",
+    jqProblemsLabel: () => "Problems",
+    jqProblemCode: ({ code, note }) => (note ? "note" : code.replace(/_/g, " ")),
+    jqProblemAt: ({ line, column }) => `L${line}:${column}`,
+    jqCompletionsLabel: () => "Completions",
+    jqCompletionLine: ({ label, detail }) => (detail === "" ? label : `${label} · ${detail}`),
+    jqCompletionKeys: () => "↑↓ · ⏎ · esc",
 };

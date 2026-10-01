@@ -215,9 +215,15 @@ function QueryBuilderView({ session: state, entries, record, root, writeOpen, wo
 
     // ── Editing the open query ──────────────────────────────────────────
     const editor = useQueryEditor({
-        entries, gesture: state.gesture, version: state.version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId,
+        entries, current: state.current, gesture: state.gesture, version: state.version, root, words, summaries, saved, onOpenSaved, onShowQuery,
+        bounds, sourceId,
     });
-    const onRun = useCallback(() => runProgram(editor.program), [runProgram, editor.program]);
+    const { leaveJq } = editor;
+    // A run takes the jq as typed: left first, one gesture.
+    const onRun = useCallback(() => {
+        leaveJq();
+        runProgram(editor.program);
+    }, [leaveJq, runProgram, editor.program]);
 
     // ── The history item, and the keys ──────────────────────────────────
     const onIssue = useCallback((issue: EditIssue) => {
@@ -255,7 +261,6 @@ function QueryBuilderView({ session: state, entries, record, root, writeOpen, wo
     }, [record, base]);
     const generated = useMemo(() => (editor.checked === undefined ? "" : describeQuery(editor.query, editor.checked, words)),
         [editor.query, editor.checked, words]);
-    const { leaveJq } = editor;
     const { current, gesture } = state;
     const onSave = useCallback(async (name: string, description: option<string>): Promise<string | undefined> => {
         // The jq as typed first, then the name and the description: one gesture each, on the drafts as they stand.

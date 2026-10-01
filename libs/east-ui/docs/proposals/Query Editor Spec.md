@@ -424,18 +424,26 @@ it is finished."), then the editor filling the tab (the `jqEditor` slot recipe):
   numbers in the second ink, pipes and operators in the fourth, an unreadable character in the danger tone.
   Problems underline their range: wavy danger for an error, wavy warning, dotted for a note.
 - **Completions** after a word character, `.`, `"` or `$`, and on Ctrl Space: the data sources at the root,
-  a path's fields with their types, a variant's `type` and `value`, a narrowed case's fields (others marked
-  "only when .F.type == "c""), case names, the data's values, a lookup table's keys, bound variables, and the
-  builtins with their signatures (#922's `completeJq`). ⏎ or Tab accept; Esc closes.
-- **The problems panel**: "{n} problems · {m} warnings" or "Checks clean", then one row per problem — its
-  code, "L{line}:{column}", the checker's message, and its fixes that are text edits. A row's click selects
-  its range.
-- ⌘⏎ runs; Tab inserts two spaces. Leaving the view parses the jq back into steps (§4.7) as one gesture.
+  in plain words ("list of orders"), a path's fields with their types, a variant's `type` and `value`, a
+  narrowed case's fields (others marked "only when .F.type == "c""), case names, bound variables, and the
+  builtins with their signatures (#922's `completeJq`). Inside `== "`, the data's values, from the summary the
+  builder holds of the rows at that stage — the one a value slot fetched (§4.5); the jq view fetches none, so
+  with none held it offers none, and a lookup table's keys (`$customers["`) are not offered. A value is
+  inserted escaped as the string's text. Each item is its glyph (`.f`, `cs`, `"v`, `[k]`, `fn`, `$`, `ds`),
+  its label and its detail; the footer, the active item's doc and the keys. ↓ ↑ move and wrap; ⏎ or Tab take
+  one, from the start of its word to the end of the word under the caret, a closing quote not doubled; Esc
+  closes. They close too when the caret moves, on blur, and on ⌘⏎.
+- **The problems panel**: "{n} problems · {m} warnings", "{m} warnings" or "Checks clean" (the `status`
+  recipe's dot and word), and "ctrl space · suggestions"; then one row per problem — its code, "L{line}:{column}",
+  the checker's message — and a note on each part of the jq that stays a jq step in the visual view, dotted in
+  the code. A row's click selects its range and tints it. The checker's fixes are its buttons: each applies
+  its text edits, puts the caret after them, and is a gesture of its own.
+- ⌘⏎ runs the jq as typed, recorded first; Tab inserts two spaces.
 
-The jq typed and left is one gesture too, while the view stays: steps where it parses into them, else the
-program as jq, which the visual view cannot show — a query whose program is not steps opens in the jq view, its
-note saying why. #936 builds the view as a plain text field, mono and unwrapped, in the `jqEditor` recipe's
-`input` slot; the gutter, the highlighting, the completions and the problems panel are #937's.
+The text is the editor's while it is typed, with the browser's own undo, and every change is checked again.
+Leaving the editor — to visual, or out of it — and Run record it as one gesture of the session: steps where it
+parses into them, else the program as jq, which the visual view cannot show (the header's jq, #936) — a query
+whose program is not steps opens in the jq view, its note saying why.
 
 ### 4.9 The Datasets tab
 
@@ -671,3 +679,6 @@ The mock is a designer's prototype; Studio's patterns are how the product is bui
 | Ask Elara, proposals, the Preview bar, result cards | Not built here — the chat epic (#883) | All of it, for now |
 | Hover text in `title` attributes | `Tooltip` for definitions; `aria-label`s on controls | Nothing |
 | 26, 24 and 22 px in-row buttons | The design system's sizes | Nothing |
+| The jq view's completions 380 px wide | 360, the design system's widest popover | Nothing |
+| The jq problems panel's word in its tone | The `status` recipe's dot and word, as the status line's | The word's colour; the dot keeps the tone |
+| The jq view's values and a lookup table's keys read from the page's data | Values from a summary the builder holds, never fetched from the jq view; no keys | Values before a value slot has fetched its summary; the keys |
