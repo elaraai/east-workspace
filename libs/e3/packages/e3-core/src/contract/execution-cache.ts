@@ -109,8 +109,7 @@ export function executionCacheTests(setup: BackendSetup): void {
       const served = await probeExecutionCache(storage, repo, taskHash, inHash, liveness(true).alive);
       assert.deepEqual([served?.executionId, served?.outputHash, served?.cached, served?.peakBytes], [succeeded, 'c'.repeat(64), true, 1024]);
 
-      // A later millisecond, so the failed attempt's id sorts after the success's.
-      await new Promise((resolve) => setTimeout(resolve, 2));
+      // Minted after the success's, so its id sorts after it.
       const failed = uuidv7();
       await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', {
         executionId: failed, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,

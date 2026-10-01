@@ -26,10 +26,10 @@ const HASH = 'c'.repeat(64);
 const OTHER_HASH = 'd'.repeat(64);
 const AT = new Date('2026-09-28T00:00:00.000Z');
 
-/** Two UUIDv7s, the second sorting after the first. */
-async function twoIds(): Promise<[string, string]> {
+/** Two UUIDv7s minted one after the other, the second sorting after the
+ *  first. */
+function twoIds(): [string, string] {
   const first = uuidv7();
-  await new Promise((resolve) => setTimeout(resolve, 2));
   return [first, uuidv7()];
 }
 
@@ -93,7 +93,7 @@ export function refStoreTests(setup: BackendSetup): void {
     it('keeps every attempt at an execution, the latest sorting last', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.executionGetLatest(repo, TASK, INPUTS), null);
-      const [first, second] = await twoIds();
+      const [first, second] = twoIds();
       const failed: ExecutionStatus = variant('failed', {
         executionId: first, inputHashes: [HASH], startedAt: AT, completedAt: AT, exitCode: 1n, peakBytes: none, unit: false,
       });
@@ -181,7 +181,7 @@ export function refStoreTests(setup: BackendSetup): void {
     it('keeps a workspace\'s runs by id, the latest sorting last, until each is deleted', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.dataflowRunGetLatest(repo, 'ws'), null);
-      const [first, second] = await twoIds();
+      const [first, second] = twoIds();
       const earlier: DataflowRun = {
         runId: first,
         workspaceName: 'ws',
