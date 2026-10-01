@@ -26,8 +26,9 @@
  *   and Run); the pane, a `DockPane` with the tabs Query — Visual · jq at the
  *   top of its body — Datasets and Library, its open tab and its collapse the
  *   builder's to drive; the results beside it, Table · Tree and Download ▾ in
- *   their band, which lines up with the pane's tab row; and the status line
- *   under both.
+ *   their band, which lines up with the pane's tab row; the result's strips
+ *   under the toolbar, the builder's full width; and the status line under
+ *   both.
  *
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
  * slots' autocomplete hanging inside the builder; Save… names and describes it
@@ -59,7 +60,7 @@ import type { QueryResult, QueryRoot } from "./one-shot.js";
 import { useOpenQuery, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
-import { QueryResults, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
+import { QueryResults, ResultStrips, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
 import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
 import { entriesQuery, queryEntries, queryProgram, savedOffers, type QueryEntry, type SavedQueries } from "./session.js";
@@ -271,6 +272,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const view = chosen !== undefined && chosen.n === n ? chosen.view : picked;
     const note = noted !== undefined && noted.n === n ? noted.text : undefined;
     const onView = useCallback((next: ResultView) => setChosen({ n, view: next }), [n]);
+    const onDismissNote = useCallback(() => setNoted(undefined), []);
     const onDownload = useCallback((format: DownloadFormat) => {
         if (run.status !== "done" || run.output === undefined) return;
         const text = downloadResult(run, format, editor.header.name, words);
@@ -382,6 +384,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             <Box css={styles.toolbar} data-slot="toolbar">
                 <Toolbar items={toolbar} />
             </Box>
+            {/* The result's strips: under the toolbar, the builder's full width. */}
+            <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />
             <Box css={styles.body}>
                 <DockPane
                     storageKey={`${storageKey}.pane`}
@@ -400,8 +404,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                     onTabChange={onTabChange}
                 />
                 <Box css={styles.results} data-query-results="">
-                    <QueryResults state={run} stale={stale} view={view ?? "table"} note={note} onDismissNote={() => setNoted(undefined)}
-                        onRunAgain={onRun} words={words} storageKey={storageKey} controls={controls} />
+                    <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} />
                 </Box>
             </Box>
             <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />
