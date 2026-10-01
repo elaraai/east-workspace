@@ -5,7 +5,7 @@ description: "e3 + UI bridge — build interactive, reactive decision surfaces a
 
 ## Detailed skill scope
 
-e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome.
+e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch).
 
 # e3-ui — e3 + UI Bridge
 
@@ -123,6 +123,12 @@ Task → What do you need?
     │   ├─ The queue (triage → understand → judge → apply) → <DecisionQueue handle={handle} …/>
     │   ├─ The resolved read-back (Decide↔Trust seam)       → <DecisionJournal handle={handle} />
     │   └─ Scope the queue (author-owned, Table pattern)    → Slice.bind over Decision.Types.Decision, rows = handle.queue()
+    │
+    ├─ Render deployed surfaces in a React app (@elaraai/e3-ui-components)
+    │   ├─ Which e3, and how requests reach it → <E3Provider config={{ apiUrl, repo, workspace, token, fetch }}>
+    │   ├─ The bindings' adapters              → <ReactiveDatasetProvider> inside it
+    │   ├─ A deployed ui() task, by name       → <UITaskPreview task="…" />
+    │   └─ e3 running in the page, no server   → apiUrl and fetch from e3-web's createWebE3
     │
     └─ Let a user ask "did X change Y?" against a dataset and trust the answer
         └─ <Experiment data configs … />   (generic over the row; runs e3.functions)
@@ -643,6 +649,51 @@ export const opsConsole = ui("ops_console", [], East.function([], UIComponentTyp
 - The page draws no border around itself; a solution places it in a layout of
   its own.
 
+## Rendering surfaces in an app — `<E3Provider>`
+
+A deployed `ui()` task renders in a React app through
+`@elaraai/e3-ui-components`. `<E3Provider config>` says which e3 the app talks
+to, and how its requests reach it. `<ReactiveDatasetProvider>`, inside it,
+installs the adapters `Data.bind`, `Data.bindPaged`, `Func.bind` and
+`Record.bind` resolve through, for the config's workspace, and renders its
+children once they are in. `<UITaskPreview task>` fetches a `ui()` task's
+output and renders it, preloading what its manifest reads and polling it.
+
+| `E3Config` | Meaning |
+|---|---|
+| `apiUrl` | **required** — the e3 API's base URL |
+| `repo` | the repository; `"default"` when omitted |
+| `workspace` | the workspace the bindings read and write |
+| `token` | a bearer token, or `null`; every request reads it afresh, so it may rotate |
+| `fetch` | the `fetch` every request goes through (`RequestOptions.fetch`), the global one when omitted. A host that answers e3's API itself gives its own: an e3 running in the page. It may change, as the token may |
+
+`E3Provider` also takes a `queryClient`, to share a TanStack Query cache with
+the app; it makes its own otherwise.
+
+Over an e3 running in the page (e3-web: the **e3** skill), `apiUrl` and
+`fetch` are the ones `createWebE3` gives, and no request reaches the network:
+
+```tsx
+// main.tsx — a deployed ui() task, every request it makes answered in the page
+import { createRoot } from 'react-dom/client';
+import { ChakraProvider } from '@chakra-ui/react';
+import { system } from '@elaraai/east-ui-components';
+import { E3Provider, ReactiveDatasetProvider, UITaskPreview } from '@elaraai/e3-ui-components';
+import { createWebE3 } from '@elaraai/e3-web';
+
+const e3 = await createWebE3(new Worker(new URL('./e3.worker.ts', import.meta.url), { type: 'module' }));
+
+createRoot(document.getElementById('root')!).render(
+  <ChakraProvider value={system}>
+    <E3Provider config={{ apiUrl: e3.apiUrl, repo: 'default', workspace: 'main', fetch: e3.fetch }}>
+      <ReactiveDatasetProvider>
+        <UITaskPreview task="dashboard" />
+      </ReactiveDatasetProvider>
+    </E3Provider>
+  </ChakraProvider>,
+);
+```
+
 ## Key Patterns
 
 ### Staged commit / discard
@@ -717,7 +768,7 @@ Tested examples live in `test/*.examples.tsx`:
 ## Related skills
 
 - **e3** — workspaces, tasks, `e3.input`, dataflow execution (the engine `ui()`
-  builds on).
+  builds on), and e3-web, which runs e3 in the page.
 - **east-ui** — the JSX component library (`<Reactive>`, `<Slider>`, `<Stat>`, …)
   that `ui()` renders.
 - **east** — the language used inside `East.function` bodies.

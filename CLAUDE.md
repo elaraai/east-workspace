@@ -58,9 +58,10 @@ All libraries live under `libs/`:
 libs/
 ├── east/                # Core language — @elaraai/east
 ├── east-node/           # Node.js platform — east-node-std, east-node-io, east-node-cli
+├── east-web/            # Browser platform — east-web-std (east-node-std's API, for a page's workers)
 ├── east-c/              # C runtime (CMake)
 ├── east-py/             # Python runtime + datascience + I/O (uv workspace)
-├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-api-tests
+├── e3/                  # Execution engine — e3-types, e3, e3-core, e3-api-client, e3-cli, e3-api-server, e3-api-tests, e3-web (e3 in a browser)
 ├── east-ui/             # UI components — east-ui, east-ui-components, e3-ui, e3-ui-components, e3-ui-cli, showcases, east-ui-extension (VS Code extension)
 └── east-claude-plugin/  # Claude Code plugin — skills (symlinked from libs), hooks, MCP search server, project scaffold + install scripts
 ```
@@ -186,10 +187,11 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
 - [`docs/conventions/E3_BACKEND_SEAMS.md`](docs/conventions/E3_BACKEND_SEAMS.md)
   — every e3 mechanism goes through the interfaces a backend implements
   (`StorageBackend`, `TaskRunner`, `ExecutionStateStore`, `TransferBackend`,
-  the route factories' seams), so e3-cloud implements its own and shares the
-  logic, routes and tests; shared logic never lives under `storage/local/`; a
-  store's tests are a contract suite every backend runs, a route's are
-  e3-api-tests.
+  the route factories' seams), so e3-cloud and e3-web implement their own and
+  share the logic, routes and tests; shared logic never lives under
+  `storage/local/`, and the portable entries it is reached through reach
+  nothing of Node; a store's tests are a contract suite every backend runs,
+  a route's are e3-api-tests.
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
 - [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)
@@ -215,10 +217,11 @@ pnpm topologically orders workspace scripts automatically. For reference:
 
 1. **east** — core, no `@elaraai` deps
 2. **east-node** — depends on east
-3. **east-c** — no `@elaraai` deps
-4. **east-py** — east-py-datascience depends on east, east-node-std
-5. **e3** — depends on east, east-node-std
-6. **east-ui** — depends on east, east-node-std, e3-*
+3. **east-web** — depends on east
+4. **east-c** — no `@elaraai` deps
+5. **east-py** — east-py-datascience depends on east, east-node-std
+6. **e3** — depends on east, east-node-std, east-web-std (e3-web)
+7. **east-ui** — depends on east, east-node-std, e3-*
 
 ## Standards
 

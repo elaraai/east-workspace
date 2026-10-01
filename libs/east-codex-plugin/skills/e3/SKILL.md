@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -75,7 +75,8 @@ What do you need?
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client
     ├─ A local repository        → @elaraai/e3-core
-    └─ Serve repositories        → e3-api-server --repos <dir>, or createServer()
+    ├─ Serve repositories        → e3-api-server --repos <dir>, or createServer()
+    └─ e3 in a browser, no server → @elaraai/e3-web: serveUnits, serveE3, createWebE3 ("Running e3 in a browser")
 ```
 
 ## Authoring a package
@@ -589,9 +590,13 @@ releases and which of them to upgrade.
 ## Driving e3 from code
 
 **`@elaraai/e3-api-client`** talks to a server over HTTP. Every call is
-`(url, repo, …, options)`, `options` being `{ token: string | null, retry? }`
-(`e3 auth token <server>` prints a token). Dataset paths are `TreePath`s — an
-input definition's `.path`, for one.
+`(url, repo, …, options)`, `options` being
+`{ token: string | null, retry?, verbose?, fetch? }` (`e3 auth token <server>`
+prints a token); `fetch` is the `fetch` every request of the call goes
+through, the global one unless given — an in-page e3's `e3.fetch` (below).
+Dataset paths are `TreePath`s — an input definition's `.path`, for one. A
+request a workspace's lock refuses throws `ApiError` `workspace_locked`,
+naming the holder: its pid, boot id, command and when it took the lock.
 
 | Area | Functions |
 |---|---|
@@ -599,7 +604,7 @@ input definition's `.path`, for one.
 | Packages | `packageList(url, repo, opts)`, `packageGet(url, repo, name, version, opts)`, `packageImport(url, repo, zipBytes, opts)`, `packageExport(url, repo, name, version, opts)` → zip bytes, `packageRemove` |
 | Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
 | Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream(url, repo, ws, path, { size, hash, slice }, opts, { onCommitProgress? })` — a file of any size, the server's commit saying how far it has taken it in, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
-| Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`), `dataflowCancel`, `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList`, `taskLogs(url, repo, ws, task, { stream?, offset?, limit? }, opts)` |
+| Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`), `dataflowCancel` — with nothing running, `dataflow_error` ("No active execution for this workspace"), `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList`, `taskLogs(url, repo, ws, task, { stream?, offset?, limit? }, opts)` |
 | Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)` — the function runs on its own runner for any caller (`runner: none`); a runner the call names is never `custom`, and loads a platform package the function's does not only for an elevated caller; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)`; `oneShotExecute` — a reader runs a platform-free one (stock runner, `platforms: []`, no platform call), and its result names the datasets it read (`inputs`); `splitCall(url, repo, ws, { bodyIr, args, output, then, runner, limits }, opts, { onProgress? })` — a program over a dataset's pieces, as a job it polls, under the same rule (or `splitCallLaunch`, `splitCallStatus` and `splitCallExplain`) |
 | Records | `workspaceRecordDescribe`, `workspaceRecordMutate(url, repo, ws, record, mutation, { args, actor, limits }, opts, idempotencyKey?)`, `workspaceRecordHistory(url, repo, ws, record, limit, opts, from?)`, `workspaceRecordCompact` |
 | From East | `Platform` and the `platform_*` functions (`platform_dataset_get`, `platform_dataflow_execute`, …): the same calls as platform functions, for an East program that drives a server |
@@ -628,6 +633,97 @@ auth login` (`--token-expiry`, `--refresh-token-expiry`), or an external JWT
 issuer (`--auth-key`, `--auth-issuer`, `--auth-audience`). In code,
 `createServer({ reposDir | singleRepoPath, port, host, … })` starts one, and its
 route factories mount on another host.
+
+## Running e3 in a browser — `@elaraai/e3-web`
+
+e3-web runs e3 entirely in a page, with no server: a repository kept in the
+browser's own storage (records in IndexedDB, objects in OPFS, locks through
+Web Locks), every East program on a pool of Web Workers, and e3's whole API
+answered in the page by e3-api-server's own routes. An app is three scripts:
+
+```typescript
+// unit.worker.ts — where East programs run: east-web-std answers for east-node-std's
+// platform functions, and e3's own (e3-api-client's Platform) reach the e3 worker
+import { serveUnits } from '@elaraai/e3-web/units';
+serveUnits();
+```
+
+```typescript
+// e3.worker.ts — e3 itself: its storage, orchestrator, runner and API
+import { serveE3 } from '@elaraai/e3-web/worker';
+serveE3({
+  units: () => new Worker(new URL('./unit.worker.ts', import.meta.url), { type: 'module' }),
+});
+```
+
+```typescript
+// main.ts — the page: e3-api-client's calls, every one answered by the e3 worker
+import { createWebE3 } from '@elaraai/e3-web';
+import {
+  dataflowExecute, packageImport, repoCreate, repoList, workspaceCreate, workspaceDeploy,
+} from '@elaraai/e3-api-client';
+
+const e3 = await createWebE3(new Worker(new URL('./e3.worker.ts', import.meta.url), { type: 'module' }));
+const opts = { token: null, fetch: e3.fetch };
+
+// The first visit makes the repository; later visits find it where they left it.
+if (!(await repoList(e3.apiUrl, opts)).includes('default')) {
+  await repoCreate(e3.apiUrl, 'default', opts);
+  // The package zip e3.export wrote at build time, served beside the page
+  const zip = new Uint8Array(await (await fetch('/sales-planning-1.0.0.zip')).arrayBuffer());
+  const { name, version } = await packageImport(e3.apiUrl, 'default', zip, opts);
+  await workspaceCreate(e3.apiUrl, 'default', 'main', opts);
+  await workspaceDeploy(e3.apiUrl, 'default', 'main', `${name}@${version}`, opts);
+  await dataflowExecute(e3.apiUrl, 'default', 'main', {}, opts);
+}
+```
+
+`e3.apiUrl` is `https://e3-web.invalid`, an origin reserved so that a request
+sent without `e3.fetch` fails rather than reaching the network, and
+`e3.fetch`, the global `fetch`'s signature, is answered by the e3 worker. Both
+go to e3-api-client (`RequestOptions.fetch`) and to e3-ui-components'
+`<E3Provider>` (`E3Config.fetch`: the **e3-ui** skill). An app's own platform
+package is served beside the standard ones:
+`serveUnits({ platforms: { '@acme/pricing': PricingPlatform } })`.
+
+| `serveE3` option | Default | Effect |
+|---|---|---|
+| `units` | — | starts a unit worker: a Web Worker whose script calls `serveUnits()` |
+| `persist` | `true` | `false` keeps repositories in memory, gone with the page |
+| `name` | `'e3'` | the storage's name: e3 workers of one name share their repositories, in one tab or several |
+| `identify` | none | each request's caller, `{ sub, email?, roles }`, from the request; a request to a repository whose caller it does not identify is answered 401. None: the page's one caller may do everything |
+| `access` | `oneShotAccessByRoles()` with `identify`, else `any` | the grant a caller holds for a one-shot, a split call, or a function call naming its own runner |
+| `wholeIntakeLimit` | 256 MiB | the largest delivery one intake unit takes in whole |
+
+What works is the API, as the local server answers it: every API suite of
+e3-api-tests passes against it in Chromium, as an admin and, in its reader
+cases, as a reader. Paged reads and key search, function calls, one-shot and
+split calls, record mutations, deploys that migrate records or build indexes,
+uploads, package import and export, gc, and dataflow runs — tasks in parallel
+up to the pool's width (the cores), split tasks in pieces, re-run reactively.
+A repository outlives a reload, and two tabs share an origin's repositories as
+two processes share a directory. A closed tab's locks are free; a run it left
+is taken as one whose process died, the next run served what finished from
+the cache; and a job or an upload's commit it left is recorded failed, never
+run again.
+
+What a browser cannot do — each fails naming it, never a partial answer:
+
+- **Commands.** A custom task, or a task on the `custom` runtime, is recorded
+  `error`: "a browser runs no commands".
+- **Platform functions with no browser meaning.** east-web-std has no
+  FileSystem, Env or large-JSON reader, and east-node-io and the python
+  packages have no browser equivalent: a unit calling one fails naming the
+  function, and one listing a package its worker does not serve fails naming
+  the package.
+- **Segments on demand.** A unit's inputs are staged whole into its worker:
+  waiting for a segment needs a cross-origin isolated page, which GitHub Pages
+  cannot give. Split a large input into pieces with `e3.partition`, which
+  bounds a unit's memory anywhere; a delivery that cannot be cut into pieces
+  is refused above `wholeIntakeLimit`, naming the fix.
+- **A memory budget.** Memory is not measured: the pool is as wide as the
+  cores, there is no `--memory`, and no record names a peak.
+- **The CLI.** `e3` drives e3 over HTTP, which an in-page e3 does not serve.
 
 ## A local repository
 
@@ -661,7 +757,9 @@ or an insertion re-runs only the pieces it reaches and the merges above them.
 
 - **east** — the language task bodies are written in.
 - **e3-ui** — UI tasks (`ui()`) and decision surfaces bound to workspace
-  datasets; **east-ui** — their components; **e3-ui-cli** — the terminal UI.
+  datasets, and rendering them in an app (`<E3Provider>`), over a server or an
+  e3 in the page; **east-ui** — their components; **e3-ui-cli** — the terminal
+  UI.
 - **e3-create** — scaffold a project (`npm create @elaraai/e3`);
   **east-project** — its build, deploy, run and test lifecycle.
 - **east-py** and **east-py-datascience** — python platform functions and ML

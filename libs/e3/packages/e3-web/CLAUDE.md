@@ -56,7 +56,8 @@ answers e3's whole API with e3-api-server's own routes; its unit workers
   in Node.
 - `src/storage/adapters.ts` — the four adapters the stores run over: records
   (keyed, ordered, transactional), blobs, locks (with a session per tab) and
-  files.
+  files, each read in slices of the adapter's own read size
+  (`FILE_READ_CHUNK`, 1 MiB, unless it is made with a `readChunk`).
 - Their implementations: `indexeddb.ts`, `opfs.ts` and `web-locks.ts` in a
   browser; `memory.ts` for Node's test pass and `persist: false`; and
   `node-files.ts`, Node only — it is the `@elaraai/e3-web/node` entry, and
@@ -119,12 +120,20 @@ answers e3's whole API with e3-api-server's own routes; its unit workers
 ## Tests
 
 `make test` runs every `dist/src/**/*.spec.js`, the Chromium specs among
-them. A Chromium spec never skips: when Chromium cannot launch, its `before`
-hook fails with the remediation. It launches `E3_UI_CHROMIUM_PATH` (or
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) when set, and Playwright's managed
-Chromium otherwise — installed by
-`pnpm --filter @elaraai/e3-web exec playwright-core install --only-shell chromium`,
-as e3's CI does.
+them. Run locally, it needs what e3's CI sets up before the package tests
+(`.github/workflows/test-e3.yml`, its packages shard):
+
+- Chromium: the executable `E3_UI_CHROMIUM_PATH` (or
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`) names, or Playwright's managed
+  headless shell, installed by
+  `pnpm --filter @elaraai/e3-web exec playwright-core install --only-shell chromium`;
+- east-node-std's compliance suite, exported by
+  `make -C libs/east-node test-export-std` (from the workspace root) to
+  `EAST_NODE_STD_IR`, or to `/tmp/east-node-std` when that is unset;
+- httpbin on `:8085`: the workspace root's `make services-up`.
+
+A Chromium spec never skips: when Chromium cannot launch, its `before`
+hook fails with the remediation.
 
 `e3-api.ts` runs every API suite of `@elaraai/e3-api-tests`
 (`apiTestSuites`) in Node, each request forwarded into `e3.page.ts`, with
@@ -146,11 +155,9 @@ served over a port closed by its page's word or by its page going.
 
 `compliance.spec.ts` runs east-node-std's exported compliance suite over
 east-web-std in Chromium: the Chromium leg of east-web-std's own
-`compliance.spec.ts`. It reads the export from `EAST_NODE_STD_IR`, or
-`/tmp/east-node-std`, where `make -C libs/east-node test-export-std` writes
-it, and fails naming that command when there is none. Its Fetch tests call
-httpbin on `:8085` (the workspace root's `make services-up`); e3's CI
-exports the suite and starts httpbin before the package tests.
+`compliance.spec.ts`. It reads the export named above, and fails naming the
+command that writes it when there is none; its Fetch tests call httpbin, and
+fail naming `make services-up` when it does not answer.
 
 ## See also
 

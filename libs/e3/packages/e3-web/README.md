@@ -50,7 +50,28 @@ if (!(await repoList(e3.apiUrl, opts)).includes('default')) {
 }
 ```
 
-e3-ui-components is given the same two things — `apiUrl` and `fetch` in its `E3Config` — and every `Data.bind`, `Data.bindPaged`, `Func.bind` and record handle is answered in the page.
+A page that renders e3-ui surfaces gives e3-ui-components the same two things, `apiUrl` and `fetch`, in its `E3Config`. `<ReactiveDatasetProvider>` installs the adapters `Data.bind`, `Data.bindPaged`, `Func.bind` and `Record.bind` resolve through, and `<UITaskPreview>` renders a deployed `ui()` task; every request they make goes through `e3.fetch`, and is answered in the page:
+
+```tsx
+// main.tsx — a deployed ui() task, every request it makes answered in the page
+import { createRoot } from 'react-dom/client';
+import { ChakraProvider } from '@chakra-ui/react';
+import { system } from '@elaraai/east-ui-components';
+import { E3Provider, ReactiveDatasetProvider, UITaskPreview } from '@elaraai/e3-ui-components';
+import { createWebE3 } from '@elaraai/e3-web';
+
+const e3 = await createWebE3(new Worker(new URL('./e3.worker.ts', import.meta.url), { type: 'module' }));
+
+createRoot(document.getElementById('root')!).render(
+  <ChakraProvider value={system}>
+    <E3Provider config={{ apiUrl: e3.apiUrl, repo: 'default', workspace: 'main', fetch: e3.fetch }}>
+      <ReactiveDatasetProvider>
+        <UITaskPreview task="dashboard" />
+      </ReactiveDatasetProvider>
+    </E3Provider>
+  </ChakraProvider>,
+);
+```
 
 ## The page: `createWebE3`
 
@@ -235,7 +256,7 @@ Each of these fails with a message naming it, and none is a partial answer:
 
 - **Commands.** Custom tasks and command bodies are recorded `error`: a browser runs no commands.
 - **Platform functions with no browser meaning.** east-web-std provides no FileSystem, Env or large-JSON reader, and east-node-io and everything Python have no browser equivalent. A unit calling one fails, naming the function.
-- **Segments on demand.** A unit's inputs are staged whole into its worker. A task over a large input splits it into pieces (`e3.partition`), as it bounds a unit's memory anywhere. An upload that cannot be cut into pieces is refused above `wholeIntakeLimit`, naming the fix.
+- **Segments on demand.** A unit's inputs are staged whole into its worker, and the unit's `fetch` is false. The runner protocol's `fetch` waits for a segment synchronously, which a browser worker can do only on a `SharedArrayBuffer`, and a page has one only when it is cross-origin isolated, which GitHub Pages cannot give. A task over a large input splits it into pieces (`e3.partition`), as it bounds a unit's memory anywhere. An upload that cannot be cut into pieces is refused above `wholeIntakeLimit`, naming the fix.
 - **Memory budget.** Memory is not measured: the pool is sized by cores, there is no memory budget, and records carry no peak memory.
 - **The CLI.** The e3 CLI drives e3 over HTTP, which an in-page e3 does not serve.
 
@@ -316,7 +337,7 @@ Every contract suite a storage backend runs passes over `WebStorage` and `WebSta
 
 `WebTaskRunner`'s cases run in Node over workers in the test's own thread (`inProcessUnits`), and in Chromium over Web Workers, IndexedDB, OPFS and Web Locks. They run tasks of every output kind, a split task through its pieces and merges, failing, cancelled and refused tasks, function calls within their limits and past each, a one-shot, a split call, a record mutation, an intake, and the liveness of executions other tabs own. In Chromium, a call whose program never yields its thread is ended by terminating its worker, and one whose worker closes itself fails, its place going to the next. The tasks the cases run are a package written with e3's SDK, which the specs export in Node and hand to the page as data: the SDK is a dev dependency, and nothing a browser bundles reaches it.
 
-In Chromium, east-node-std's compliance suite also passes over `@elaraai/east-web-std`, the browser's platform functions: every East test of its Console, Crypto, Fetch, Path, Random and Time modules. The spec reads the suite from `EAST_NODE_STD_IR`, or `/tmp/east-node-std`, where `make -C libs/east-node test-export-std` exports it, and its Fetch tests call httpbin on `:8085`.
+In Chromium, east-node-std's compliance suite also passes over `@elaraai/east-web-std`, the browser's platform functions: every East test of its Console, Crypto, Fetch, Path, Random and Time modules. The spec reads the suite from `EAST_NODE_STD_IR`, or `/tmp/east-node-std`, where `make -C libs/east-node test-export-std` exports it, and its Fetch tests call httpbin on `:8085`, which the workspace root's `make services-up` starts.
 
 The Chromium specs launch the executable `E3_UI_CHROMIUM_PATH` names, when it is set. Otherwise they launch Playwright's managed Chromium:
 
