@@ -15,8 +15,8 @@
  *
  * The root entry (`@elaraai/e3-core`) re-exports every one of these — the same
  * functions, classes and errors — and adds what needs this machine: local
- * storage, the local runner, the file state store, zips, and the forms of a
- * few operations that read files or run tasks here. Where the root has its own
+ * storage, the local runner, the file state store, and the forms of a few
+ * operations that read files or run tasks here. Where the root has its own
  * form of a name here, it is the one that does so:
  *
  * - `LocalOrchestrator` runs a run's tasks on the runner its start names, or
@@ -29,6 +29,11 @@
  * - `intakeDelivery` takes in a delivery the store holds; the root's also one
  *   that is a file on this machine.
  * - `workspaceDeploy` reads no `file` source; the root's reads them here.
+ * - `openZip`, `packageImport`, `packageZipOpen` and `handleProcessImport`
+ *   read a zip from a source read by ranges; the root's also read one that is
+ *   a file on this machine. `packageExport`, `workspaceExport` and
+ *   `handleProcessExport` write a zip to a WHATWG `WritableStream`; the
+ *   root's write one to a file on this machine, or to a Node stream.
  *
  * @packageDocumentation
  */
@@ -152,17 +157,41 @@ export { computeHash, isObjectHash } from './objects.js';
 // Packages and Workspaces
 // =============================================================================
 
-// Package operations over the store. A package's zip — its import and its
-// export — is read and written by the root entry.
+// Package operations over the store, and a package's zip: its import from a
+// zip read by ranges, a view of one, and its export to a stream
 export {
   packageRemove,
   packageList,
   packageGetLatestVersion,
   packageResolve,
   packageRead,
+  packageImport,
+  packageZipOpen,
+  packageExport,
+  packageZipCheckpointWithin,
+  type PackageImportResult,
+  type PackageImportOptions,
+  type PackageZip,
+  type PackageExportResult,
+  type PackageExportOptions,
 } from './packages.js';
 
-// Workspace operations. This entry's deploy reads no `file` source.
+// Zips read by ranges where they lie, and written to a stream an entry at a
+// time
+export {
+  ZipWriter,
+  ZipSourceError,
+  openZip,
+  iterateZipEntries,
+  type ZipSource,
+  type ZipEntry,
+  type ZipReader,
+  type ZipRecord,
+  type ZipWritten,
+} from './zip.js';
+
+// Workspace operations. This entry's deploy reads no `file` source, and its
+// export writes to a stream.
 export {
   workspaceList,
   workspaceCreate,
@@ -171,9 +200,12 @@ export {
   workspaceGetPackage,
   workspaceLockStatus,
   workspaceDeploy,
+  workspaceExport,
   type WorkspaceRemoveOptions,
   type WorkspaceDeployOptions,
   type DeploySourceProgress,
+  type WorkspaceExportResult,
+  type WorkspaceExportOptions,
 } from './workspaces.js';
 
 // What a deploy decides for each record and index, and its schema policy: the
@@ -603,11 +635,18 @@ export type {
   TransferBackend,
 } from './transfer/interfaces.js';
 
-// The jobs that read no zip: a deploy, gc, and a split call
+// The jobs: an import, whose zip is read by ranges where it lies, an export,
+// written to a stream, a deploy, gc, and a split call
 export {
+  handleProcessImport,
+  handleProcessExport,
   handleProcessDeploy,
   handleProcessGc,
   handleProcessSplitCall,
+  type ProcessImportDeps,
+  type ProcessImportInput,
+  type ProcessExportDeps,
+  type ProcessExportInput,
   type ProcessDeployDeps,
   type ProcessDeployInput,
   type ProcessGcDeps,

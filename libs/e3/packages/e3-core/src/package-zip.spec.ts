@@ -12,19 +12,21 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { ArrayType, IntegerType, StringType, StructType, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { ExportStoppedError, PackageInvalidError, RepositoryBusyError, WorkspaceLockError } from './errors.js';
 import { repoGc } from './gc.js';
-import { packageExport, packageImport, packageZipCheckpointWithin } from './package-files.js';
+import { packageExport, packageImport, packageZipCheckpointWithin, packageZipOpen } from './package-files.js';
 import { workspaceDeploy, workspaceExport } from './workspace-files.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import { InMemoryTransferBackend } from './transfer/InMemoryTransferBackend.js';
+import { packageExport as packageExportTo } from './packages.js';
+import { handleProcessExport as handleProcessExportTo } from './transfer/process.js';
 import { handleProcessExport, handleProcessImport } from './transfer/process-files.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
 import type { ZipSource } from './zip.js';
@@ -231,6 +233,35 @@ describe('package zips with no local file', () => {
     await assert.rejects(packageImport(await elsewhere(), 'r', throttling), (err: unknown) => err === throttled);
   });
 
+  it('refuses as an invalid package a zip with an entry its CRC-32 does not name, one cut short, and one whose directory does not read', async () => {
+    const bytes = Buffer.from(await exported());
+    const end = bytes.byteLength - 22;
+    // An object's second byte changed, as the test above changes it
+    const damaged = Buffer.from(bytes);
+    const nameEnd = damaged.indexOf(Buffer.from('.beast2'), damaged.indexOf(Buffer.from('objects/'))) + '.beast2'.length;
+    damaged[nameEnd + 1] = damaged[nameEnd + 1]! ^ 0xff;
+    // The directory placed where the zip's first entry is
+    const misplaced = Buffer.from(bytes);
+    misplaced.writeUInt32LE(0, end + 16);
+    const cases: Array<[string, Buffer, RegExp]> = [
+      ['an entry its CRC-32 does not name', damaged, /^the zip's entry objects\/[0-9a-f/]+\.beast2 is damaged: its bytes' CRC-32 is [0-9a-f]{8}, and the zip names [0-9a-f]{8}$/],
+      ['a zip cut short', bytes.subarray(0, bytes.byteLength - 100), /^the zip has no end record: it is not a zip, or it is cut short$/],
+      ['a directory that does not read', misplaced, /^the zip's directory has no entry at 0, where its entry 1 of \d+ would be$/],
+    ];
+    for (const [what, zip, reason] of cases) {
+      const refused = (err: unknown): boolean => err instanceof PackageInvalidError &&
+        err.message.startsWith('Invalid package: the zip does not read: ') && reason.test(err.message.slice('Invalid package: the zip does not read: '.length));
+      const target = await elsewhere();
+      await assert.rejects(packageImport(target, 'r', sourceOf(zip)), refused, `${what}, by ranges`);
+      assert.equal(await target.refs.packageResolve('r', 'tables', '1.0.0'), null, `${what}: no package is named`);
+      const file = join(dir, 'refused.zip');
+      writeFileSync(file, zip);
+      await assert.rejects(packageImport(await elsewhere(), 'r', file), refused, `${what}, from a file`);
+      // Opened, the zip reads no object until one is asked for.
+      if (zip !== damaged) await assert.rejects(packageZipOpen(sourceOf(zip)), refused, `${what}, opened`);
+    }
+  });
+
   it('stops an export at its signal between entries, and resumes it from its checkpoint to the zip it would have written', async () => {
     const whole = await exported();
     const stop = new AbortController();
@@ -265,6 +296,51 @@ describe('package zips with no local file', () => {
       /changed since the export started — export it again from the start/);
     await assert.rejects(packageExport(storage, repo, 'tables', '1.0.0', new Collector(), { resume: { ...checkpoint, release: '0.0.1' } }),
       /written by e3 0\.0\.1/);
+  });
+
+  it('stops an export to a WritableStream at its signal, leaving the stream open, and goes on into it, alone and as a job', async () => {
+    const whole = await exported();
+    /** A WHATWG stream that keeps what is written to it, and says when it closed. */
+    const collected = () => {
+      const chunks: Uint8Array[] = [];
+      const state = { closed: false, bytes: () => Buffer.concat(chunks) };
+      const stream = new WritableStream<Uint8Array>({
+        write: (chunk) => { chunks.push(chunk.slice()); },
+        close: () => { state.closed = true; },
+      });
+      return { stream, state };
+    };
+
+    const { stream, state } = collected();
+    const stop = new AbortController();
+    const stopped = await stoppedBy(packageExportTo(storage, repo, 'tables', '1.0.0', stream, {
+      signal: stop.signal,
+      onProgress: async ({ objectsProcessed }) => { if (objectsProcessed === 2) stop.abort(); },
+    }));
+    assert.equal(state.closed, false, 'a stopped export leaves the stream open');
+    assert.equal(stream.locked, false, 'and its owner\'s');
+    // Compared whole, not by a diff of every byte, which a failure would make
+    assert.ok(state.bytes().equals(whole.subarray(0, Number(stopped.checkpoint.bytes))), 'the stream holds the bytes the checkpoint counts');
+    const resumed = await packageExportTo(storage, repo, 'tables', '1.0.0', stream, { resume: stopped.checkpoint });
+    assert.equal(state.closed, true, 'the stream is closed once the zip is whole');
+    assert.ok(state.bytes().equals(whole), 'the zip an export never stopped writes');
+    assert.equal(resumed.bytes, whole.byteLength);
+
+    // As a job, handed over between calls into the same stream
+    const job = collected();
+    const backend = new InMemoryTransferBackend({ storage, getRepoPath: () => repo });
+    await backend.packageExport.create('job', {
+      repo, name: 'tables', version: '1.0.0', workspace: none, status: variant('processing', variant('pending', null)), createdAt: new Date(),
+    });
+    const halt = new AbortController();
+    halt.abort();
+    const handedOver = await stoppedBy(handleProcessExportTo({ storage, exportStore: backend.packageExport, signal: halt.signal }, { id: 'job', repo, zip: job.stream }));
+    assert.equal((await backend.packageExport.get('job'))?.status.type, 'processing', 'a call stopped hands the job over');
+    assert.equal(job.state.closed, false);
+    await handleProcessExportTo({ storage, exportStore: backend.packageExport }, { id: 'job', repo, zip: job.stream, resume: handedOver.checkpoint });
+    assert.ok(job.state.bytes().equals(whole), 'the job writes the zip an export never stopped writes');
+    assert.equal(job.state.closed, true);
+    assert.deepEqual((await backend.packageExport.get('job'))?.status, variant('completed', { size: BigInt(whole.byteLength) }));
   });
 
   it('keeps a stopped export to a file beside it, and resumes it there', async () => {

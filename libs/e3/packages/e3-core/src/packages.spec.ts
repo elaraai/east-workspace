@@ -9,9 +9,9 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { createWriteStream, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import yazl from 'yazl';
+import { fileURLToPath } from 'node:url';
 import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
@@ -27,10 +27,36 @@ import { computeHash } from './objects.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import {
-  createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, withRelease, writeZip, zipEqual,
+  createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, withRelease, writeZip, zipBytes, zipEqual,
 } from './test-helpers.js';
+import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
+import type { ZipSource } from './zip.js';
+
+/** Bytes read by ranges where they lie. */
+function sourceOf(bytes: Uint8Array): ZipSource {
+  return { size: bytes.byteLength, read: async (offset, length) => bytes.subarray(offset, offset + length) };
+}
+
+/** The compression method of each entry of a zip with no comment, as its
+ *  directory names it, read from its bytes. */
+function methodsOf(zip: Buffer): number[] {
+  const end = zip.byteLength - 22;
+  assert.strictEqual(zip.readUInt32LE(end), 0x06054b50, 'the zip ends with its end record');
+  const methods: number[] = [];
+  for (let at = zip.readUInt32LE(end + 16), i = 0; i < zip.readUInt16LE(end + 10); i++) {
+    assert.strictEqual(zip.readUInt32LE(at), 0x02014b50, `the directory's entry ${i}`);
+    methods.push(zip.readUInt16LE(at + 10));
+    at += 46 + zip.readUInt16LE(at + 28) + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+  }
+  return methods;
+}
+
+/** The zips the 1.0.84 release exported, and what it made of them, as
+ *  `test/generate-release-fixtures.mjs` wrote them with the released
+ *  packages. */
+const RELEASED = fileURLToPath(new URL('../../test/fixtures/release-1.0.84/', import.meta.url));
 
 /** Every file under a directory, by its path, with a hash of its bytes. */
 function filesUnder(dir: string): Map<string, string> {
@@ -137,14 +163,10 @@ describe('packages', () => {
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
       }));
-      const crafted = join(tempDir, 'crafted.zip');
-      const zip = new yazl.ZipFile();
-      for (const [name, bytes] of await readZipEntries(zipPath)) zip.addBuffer(bytes, name);
-      zip.addBuffer(Buffer.from(status), `executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`);
-      await new Promise<void>((resolve, reject) => {
-        zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
-        zip.end();
-      });
+      const crafted = await writeZip(join(tempDir, 'crafted.zip'), [
+        ...await readZipEntries(zipPath),
+        [`executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`, Buffer.from(status)],
+      ]);
       await assert.rejects(packageImport(storage, testRepo, crafted), /is not a task hash/);
     });
 
@@ -160,15 +182,11 @@ describe('packages', () => {
         summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
       });
       const runId = '0190a0b0-6666-7000-8000-000000000000';
-      const crafted = join(tempDir, 'with-runs.zip');
-      const zip = new yazl.ZipFile();
-      for (const [name, bytes] of await readZipEntries(zipPath)) zip.addBuffer(bytes, name);
-      zip.addBuffer(Buffer.from(run(runId)), `dataflows/main/${runId}.beast2`);
-      zip.addBuffer(Buffer.from(run('not-a-run-id')), 'dataflows/main/not-a-run-id.beast2');
-      await new Promise<void>((resolve, reject) => {
-        zip.outputStream.pipe(createWriteStream(crafted)).on('close', resolve).on('error', reject);
-        zip.end();
-      });
+      const crafted = await writeZip(join(tempDir, 'with-runs.zip'), [
+        ...await readZipEntries(zipPath),
+        [`dataflows/main/${runId}.beast2`, Buffer.from(run(runId))],
+        ['dataflows/main/not-a-run-id.beast2', Buffer.from(run('not-a-run-id'))],
+      ]);
 
       const result = await packageImport(storage, testRepo, crafted);
       assert.strictEqual(result.name, 'runs');
@@ -179,16 +197,8 @@ describe('packages', () => {
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
       const zipPath = join(tempDir, 'current.zip');
       await e3.export(e3.package('older', '1.0.0') as any, zipPath);
-      const older = join(tempDir, 'older.zip');
-      const zip = new yazl.ZipFile();
-      for (const [name, bytes] of await readZipEntries(zipPath)) {
-        if (name === 'packages/older/1.0.0.beast2') zip.addBuffer(Buffer.from(`${decodeBeast2For(StringType)(bytes)}\n`), 'packages/older/1.0.0');
-        else zip.addBuffer(bytes, name);
-      }
-      await new Promise<void>((resolve, reject) => {
-        zip.outputStream.pipe(createWriteStream(older)).on('close', resolve).on('error', reject);
-        zip.end();
-      });
+      const older = await writeZip(join(tempDir, 'older.zip'), [...await readZipEntries(zipPath)].map(([name, bytes]): [string, Buffer] =>
+        name === 'packages/older/1.0.0.beast2' ? ['packages/older/1.0.0', Buffer.from(`${decodeBeast2For(StringType)(bytes)}\n`)] : [name, bytes]));
       await assert.rejects(packageImport(storage, testRepo, older), (err: unknown) =>
         err instanceof PackageInvalidError && err.message === 'Invalid package: an older e3 exported it — export it again with the current one');
       assert.deepStrictEqual(await packageList(storage, testRepo), []);
@@ -231,6 +241,64 @@ describe('packages', () => {
       const unnamed = await writeZip(join(tempDir, 'unnamed.zip'), withRelease(await readZipEntries(zipPath), 'latest'));
       await assert.rejects(packageImport(storage, testRepo, unnamed), (err: unknown) =>
         err instanceof PackageInvalidError && /^Invalid package: "latest" is not a release/.test(err.message));
+    });
+
+    it('imports a zip e3.export writes, its entries deflated, to the objects its entries name', async () => {
+      const zipPath = join(tempDir, 'deflated.zip');
+      await e3.export(e3.package('deflated', '1.0.0',
+        e3.input('words', StringType, variant('value', 'the same few words, again and again; '.repeat(200))),
+        e3.input('counts', DictType(StringType, IntegerType), variant('value', new Map([['a', 1n], ['b', 2n]])))), zipPath);
+      const methods = methodsOf(readFileSync(zipPath));
+      assert.ok(methods.length > 3 && methods.every((method) => method === 8), `the SDK deflates every entry: ${methods.join(', ')}`);
+
+      const result = await packageImport(storage, testRepo, zipPath);
+      const objects = [...await readZipEntries(zipPath)].filter(([name]) => name.startsWith('objects/'));
+      assert.strictEqual(result.objectCount, objects.length);
+      for (const [name, bytes] of objects) {
+        const hash = name.slice('objects/'.length).replace('/', '').replace(/\.beast2$/, '');
+        assert.strictEqual(computeHash(bytes), hash, `${name} inflates to the bytes its name hashes`);
+        assert.ok(Buffer.from(await storage.objects.read(testRepo, hash)).equals(bytes), `${name} is in the store`);
+      }
+    });
+  });
+
+  describe('zips an earlier release exported', () => {
+    /** What the release made of its zips. */
+    const release = JSON.parse(readFileSync(join(RELEASED, 'release.json'), 'utf8')) as {
+      release: string;
+      name: string;
+      version: string;
+      packageHash: string;
+      objectCount: number;
+      objects: string[];
+      zips: Record<string, number>;
+    };
+    const imported = { name: release.name, version: release.version, packageHash: release.packageHash, objectCount: release.objectCount };
+
+    for (const [zip, how, method] of [['sdk.zip', 'the SDK\'s e3.export, deflated', 8], ['core.zip', 'e3-core\'s packageExport, stored', 0]] as const) {
+      it(`imports the zip ${release.release} wrote by ${how}, from a file and by ranges, to the objects that release took in`, async () => {
+        const bytes = readFileSync(join(RELEASED, zip));
+        assert.strictEqual(bytes.byteLength, release.zips[zip]);
+        assert.deepStrictEqual([...new Set(methodsOf(bytes))], [method], `its entries are ${how.split(', ')[1]}`);
+
+        assert.deepStrictEqual(await packageImport(storage, testRepo, join(RELEASED, zip)), imported);
+        assert.deepStrictEqual((await storage.objects.list(testRepo)).sort(), release.objects);
+        assert.strictEqual(await packageResolve(storage, testRepo, release.name, release.version), release.packageHash);
+
+        const elsewhere = new InMemoryStorage();
+        await elsewhere.repos.create('r');
+        assert.deepStrictEqual(await packageImport(elsewhere, 'r', sourceOf(bytes)), imported);
+        assert.deepStrictEqual((await elsewhere.objects.list('r')).sort(), release.objects);
+        for (const hash of release.objects) {
+          assert.strictEqual(computeHash(await elsewhere.objects.read('r', hash)), hash, `object ${hash} is the bytes its hash names`);
+        }
+      });
+    }
+
+    it(`writes, for the entries ${release.release}'s zip writer wrote, the bytes it wrote`, async () => {
+      const zip = readFileSync(join(RELEASED, 'core.zip'));
+      const entries = await readZipEntries(join(RELEASED, 'core.zip'));
+      assert.ok((await zipBytes(entries)).equals(zip), 'the zip is the one the release wrote');
     });
   });
 
@@ -287,18 +355,11 @@ describe('packages', () => {
       const entries = await readZipEntries(zipPath);
       const ref = 'packages/refused/1.0.0.beast2';
       const packageHash = decodeBeast2For(StringType)(entries.get(ref)!);
-      const rewritten = async (file: string, entryOf: (name: string, bytes: Buffer) => [string, Buffer] | null): Promise<string> => {
-        const zip = new yazl.ZipFile();
-        for (const [name, bytes] of entries) {
+      const rewritten = (file: string, entryOf: (name: string, bytes: Buffer) => [string, Buffer] | null): Promise<string> =>
+        writeZip(join(tempDir, file), [...entries].flatMap(([name, bytes]) => {
           const entry = entryOf(name, bytes);
-          if (entry !== null) zip.addBuffer(entry[1], entry[0]);
-        }
-        await new Promise<void>((resolve, reject) => {
-          zip.outputStream.pipe(createWriteStream(join(tempDir, file))).on('close', resolve).on('error', reject);
-          zip.end();
-        });
-        return join(tempDir, file);
-      };
+          return entry === null ? [] : [entry];
+        }));
 
       const refless = await rewritten('refless.zip', (name, bytes) => name === ref ? null : [name, bytes]);
       await assert.rejects(packageZipOpen(refless), (err: unknown) =>

@@ -50,9 +50,7 @@
     "@elaraai/e3": "workspace:*",
     "@elaraai/e3-types": "workspace:*",
     "cross-spawn": "^7.0.6",
-    "tar-stream": "^3.1.7",
-    "yauzl": "^3.2.0",
-    "yazl": "^2.5.1"
+    "tar-stream": "^3.1.7"
   },
   "peerDependencies": {
     "@elaraai/east": "workspace:*"
@@ -62,8 +60,6 @@
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.0.0",
     "@types/tar-stream": "^3.1.4",
-    "@types/yauzl": "^2.10.3",
-    "@types/yazl": "^2.4.5",
     "@typescript-eslint/eslint-plugin": "^8.47.0",
     "@typescript-eslint/parser": "^8.47.0",
     "eslint": "^9.0.0",

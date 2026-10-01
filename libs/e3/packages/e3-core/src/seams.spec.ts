@@ -159,7 +159,10 @@ describe('the portable entry', () => {
       return existsSync(path) ? readFileSync(path, 'utf8') : null;
     });
     assert.deepEqual(faults, [], 'these reach beyond the portable modules: move what needs Node to a module of the root entry');
-    for (const carried of ['dataflow/orchestrator/LocalOrchestrator.ts', 'execution/engine.ts', 'execution/cache.ts', 'store-collection.ts', 'workspaces.ts', 'gc.ts']) {
+    for (const carried of [
+      'dataflow/orchestrator/LocalOrchestrator.ts', 'execution/engine.ts', 'execution/cache.ts', 'store-collection.ts', 'workspaces.ts', 'gc.ts',
+      'zip.ts', 'packages.ts', 'transfer/process.ts',
+    ]) {
       assert.ok(modules.includes(carried), `the walk reached ${carried}`);
     }
   });

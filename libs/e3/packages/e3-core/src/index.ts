@@ -12,10 +12,13 @@
  *
  * This root entry is the portable entry (`@elaraai/e3-core/portable`,
  * `portable.ts`) — the same functions, classes and errors — and what needs
- * this machine: local storage, the local runner, the file state store, zips,
- * and the forms of a few operations that read files or run tasks here
+ * this machine: local storage, the local runner, the file state store, and the
+ * forms of a few operations that read files or run tasks here
  * (`LocalOrchestrator`, `probeExecutionCache`, `executeSplitTask`,
- * `storeCollection`, `intakeDelivery`, `workspaceDeploy`).
+ * `storeCollection`, `intakeDelivery`, `workspaceDeploy`), or read a zip from
+ * a file here, or write one to a file or a Node stream (`openZip`,
+ * `packageImport`, `packageZipOpen`, `packageExport`, `workspaceExport`,
+ * `handleProcessImport`, `handleProcessExport`).
  */
 
 // =============================================================================
@@ -123,14 +126,15 @@ export {
   packageStagingPath,
 } from './storage/local/localHelpers.js';
 
-// Package operations: a zip read and written on this machine, and the store's
+// Package operations: a zip read from a file on this machine or a source, and
+// written to a file or a Node stream; and the store's
 export {
   packageImport,
   packageZipOpen,
   packageExport,
-  packageZipCheckpointWithin,
 } from './package-files.js';
 export {
+  packageZipCheckpointWithin,
   packageRemove,
   packageList,
   packageGetLatestVersion,
@@ -143,14 +147,16 @@ export {
   type PackageExportOptions,
 } from './packages.js';
 
-// Zips read by ranges where they lie, and written a stream an entry at a time
+// Zips read by ranges where they lie — a file on this machine among them — and
+// written to a stream an entry at a time
+export { openZip } from './package-files.js';
 export {
   ZipWriter,
   ZipSourceError,
-  openZip,
   iterateZipEntries,
   type ZipSource,
   type ZipEntry,
+  type ZipReader,
   type ZipRecord,
   type ZipWritten,
 } from './zip.js';

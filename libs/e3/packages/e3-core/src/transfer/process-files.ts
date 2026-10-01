@@ -4,92 +4,29 @@
  */
 
 /**
- * Shared processing handlers for package import and export: a job whose zip
- * is a file or a stream.
+ * The package import and export jobs of the root entry, whose zip may be a
+ * file on this machine or a Node stream.
  *
- * These are cloud-agnostic handlers that perform the actual work of each job.
- * Used by both the local InMemoryTransferBackend and cloud backends
- * (e.g. AWS Lambda/Step Functions). The handlers of the jobs that read no zip
- * — deploy, gc and split calls — are `process.ts`'s.
+ * Every backend's job reads its zip from a source read by ranges and writes it
+ * to a WHATWG stream (`process.ts`); these are the same jobs, given a file — a
+ * zip staged on the machine that runs the job, removed once the job ends — or
+ * a Node stream, such as a multipart upload.
  */
 
 import { stat, unlink } from 'node:fs/promises';
 import type { Writable } from 'node:stream';
-import { variant } from '@elaraai/east';
 
-import { ExportStoppedError } from '../errors.js';
-import { packageExport, packageImport } from '../package-files.js';
+import { openZip, packageExport } from '../package-files.js';
 import { workspaceExport } from '../workspace-files.js';
-import type { LockHandle, StorageBackend } from '../storage/interfaces.js';
 import type { ZipSource } from '../zip.js';
-import type { PackageExportStore, PackageImportStore } from './interfaces.js';
+import { handleProcessExportWith, handleProcessImportWith, type ProcessExportDeps, type ProcessImportDeps } from './process.js';
 import type { PackageZipCheckpoint } from './types.js';
 
-// =============================================================================
-// Throttled progress callback
-// =============================================================================
-
-/**
- * Creates a progress callback that throttles updates to at most once per interval.
- *
- * @param fn - The function to call with throttled updates
- * @param intervalMs - Minimum interval between calls in milliseconds
- * @returns A throttled version of the progress callback
- */
-function throttledProgress(
-  fn: (progress: { objectsProcessed: number }) => Promise<void>,
-  intervalMs = 1000,
-) {
-  let lastCall = 0;
-  let pending: { objectsProcessed: number } | null = null;
-
-  const throttled = async (progress: { objectsProcessed: number }) => {
-    const now = Date.now();
-    if (now - lastCall >= intervalMs) {
-      lastCall = now;
-      pending = null;
-      await fn(progress);
-    } else {
-      pending = progress;
-    }
-  };
-
-  throttled.flush = async () => {
-    if (pending) {
-      await fn(pending);
-      pending = null;
-    }
-  };
-
-  return throttled;
-}
+export type { ProcessExportDeps, ProcessImportDeps } from './process.js';
 
 // =============================================================================
 // Process Export
 // =============================================================================
-
-/** Dependencies for handleProcessExport. */
-export interface ProcessExportDeps {
-  storage: StorageBackend;
-  exportStore: PackageExportStore;
-  /**
-   * The workspace lock, when the caller holds it, for a workspace's export.
-   * The export takes none of its own and leaves this one held, so a caller
-   * that runs one job over several calls holds the workspace from the first
-   * to the last: nothing changes it in between, and so the export's resume is
-   * never refused for a workspace that changed. A package's export takes no
-   * lock, and leaves it alone.
-   */
-  lock?: LockHandle;
-  /**
-   * Aborted when the caller stops this call to run the job again, as compute
-   * with a time limit does before a large export has finished. The export
-   * stops once the entry it is writing is written, and the call throws an
-   * {@link ExportStoppedError} whose checkpoint the next call resumes from,
-   * with the job left `processing`.
-   */
-  signal?: AbortSignal;
-}
 
 /** Input for handleProcessExport. */
 export interface ProcessExportInput {
@@ -110,6 +47,11 @@ export interface ProcessExportInput {
  * export (based on the `workspace` field), runs the appropriate export
  * function, and updates the status to completed or failed.
  *
+ * @remarks
+ * A file is written by way of `<path>.partial`, renamed once the zip is whole,
+ * before the job is recorded completed, and removed when the job fails. A
+ * stream is ended once the zip is whole.
+ *
  * @param deps - Storage backend, export store, and the caller's workspace lock
  *   and the signal that stops the call
  * @param input - Job ID, repository path, where the zip is written, and the
@@ -123,51 +65,18 @@ export async function handleProcessExport(
   deps: ProcessExportDeps,
   input: ProcessExportInput,
 ): Promise<void> {
-  const { storage, exportStore, lock, signal } = deps;
-  const { id, repo, zip, resume } = input;
-
-  const record = await exportStore.get(id);
-  if (!record) throw new Error(`Export record ${id} not found`);
-
-  const onProgress = throttledProgress(async ({ objectsProcessed }) => {
-    await exportStore.updateStatus(id,
-      variant('processing', variant('exporting', { objectsProcessed: BigInt(objectsProcessed) })));
+  const { storage } = deps;
+  const { repo, zip } = input;
+  return handleProcessExportWith(deps, input, {
+    package: (name, version, options) => packageExport(storage, repo, name, version, zip, options),
+    workspace: (workspace, name, version, options) => workspaceExport(storage, repo, workspace, zip, name, version, options),
+    discard: typeof zip === 'string' ? () => unlink(zip).catch(() => {}) : undefined,
   });
-
-  try {
-    const result = record.workspace.type === 'some'
-      ? await workspaceExport(storage, repo, record.workspace.value, zip, record.name, record.version, { onProgress, lock, signal, resume })
-      : await packageExport(storage, repo, record.name, record.version, zip, { onProgress, signal, resume });
-    await onProgress.flush();
-    await exportStore.updateStatus(id, variant('completed', {
-      size: BigInt(result.bytes),
-    }));
-  } catch (err) {
-    // A call its caller stopped hands over, and the job goes on.
-    if (err instanceof ExportStoppedError) throw err;
-    if (typeof zip === 'string') await unlink(zip).catch(() => {});
-    const message = err instanceof Error ? err.message : String(err);
-    await exportStore.updateStatus(id, variant('failed', { message }));
-    throw err;
-  }
 }
 
 // =============================================================================
 // Process Import
 // =============================================================================
-
-/** Dependencies for handleProcessImport. */
-export interface ProcessImportDeps {
-  storage: StorageBackend;
-  importStore: PackageImportStore;
-  /**
-   * Aborted when the caller stops this call to run the job again, as compute
-   * with a time limit does before a large import has finished. The import
-   * stops between entries, and the job is left `processing` with its zip where
-   * it lies: the next call reads only the objects the store does not hold.
-   */
-  signal?: AbortSignal;
-}
 
 /** Input for handleProcessImport. */
 export interface ProcessImportInput {
@@ -196,47 +105,8 @@ export async function handleProcessImport(
   deps: ProcessImportDeps,
   input: ProcessImportInput,
 ): Promise<void> {
-  const { storage, importStore, signal } = deps;
-  const { id, repo, zip } = input;
-
-  const record = await importStore.get(id);
-  if (!record) throw new Error(`Import record ${id} not found`);
-
-  // Verify the zip's size matches
-  const size = typeof zip === 'string' ? (await stat(zip)).size : zip.size;
-  if (BigInt(size) !== record.size) {
-    const message = `size mismatch: expected ${record.size}, got ${size}`;
-    await importStore.updateStatus(id, variant('failed', { message }));
-    if (typeof zip === 'string') await unlink(zip).catch(() => {});
-    throw new Error(message);
-  }
-
-  let handedOver = false;
-  try {
-    const onProgress = throttledProgress(async ({ objectsProcessed }) => {
-      await importStore.updateStatus(id,
-        variant('processing', variant('importing', { objectsProcessed: BigInt(objectsProcessed) })));
-    });
-
-    const result = await packageImport(storage, repo, zip, { onProgress, signal });
-
-    await onProgress.flush();
-    await importStore.updateStatus(id, variant('completed', {
-      name: result.name,
-      version: result.version,
-      packageHash: result.packageHash,
-      objectCount: BigInt(result.objectCount),
-    }));
-  } catch (err) {
-    // A call its caller stopped hands over: the job goes on, from the zip.
-    if (signal?.aborted === true) {
-      handedOver = true;
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    await importStore.updateStatus(id, variant('failed', { message }));
-    throw err;
-  } finally {
-    if (typeof zip === 'string' && !handedOver) await unlink(zip).catch(() => {});
-  }
+  const { zip } = input;
+  return handleProcessImportWith(deps, input, typeof zip === 'string'
+    ? { size: async () => (await stat(zip)).size, open: () => openZip(zip), discard: () => unlink(zip).catch(() => {}) }
+    : { size: () => Promise.resolve(zip.size), open: () => openZip(zip) });
 }

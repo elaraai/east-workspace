@@ -270,12 +270,6 @@ importers:
       tar-stream:
         specifier: ^3.1.7
         version: 3.1.8
-      yauzl:
-        specifier: ^3.2.0
-        version: 3.3.0
-      yazl:
-        specifier: ^2.5.1
-        version: 2.5.1
     devDependencies:
       '@elaraai/east-node-cli':
         specifier: workspace:*
@@ -289,12 +283,6 @@ importers:
       '@types/tar-stream':
         specifier: ^3.1.4
         version: 3.1.4
-      '@types/yauzl':
-        specifier: ^2.10.3
-        version: 2.10.3
-      '@types/yazl':
-        specifier: ^2.4.5
-        version: 2.4.6
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.47.0
         version: 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)

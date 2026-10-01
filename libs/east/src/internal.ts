@@ -48,6 +48,11 @@ export {
     type UnitFileFormat, type UnitInputOptions, type UnitInputsOptions,
 } from './runner_io.js';
 export { mergeUnitParts, loadUnitMergeFunction, type UnitMergeFunction, type UnitMergeOptions } from './runner_merge.js';
+// What e3 reads and writes its zips with, in every runtime: a deflated entry
+// inflated by Node's zlib where there is one and east's own inflate elsewhere,
+// and the CRC-32 each entry's bytes are named by, likewise
+export { inflateRawSync } from './serialization/beast2/v5/frames.js';
+export { crc32 } from './serialization/crc32.js';
 
 /**
  * Type helper for platform function definitions.

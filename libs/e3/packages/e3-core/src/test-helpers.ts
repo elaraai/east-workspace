@@ -9,18 +9,18 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { createWriteStream, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import yauzl from 'yauzl';
-import yazl from 'yazl';
 import {
   StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
   readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry } from '@elaraai/e3-types';
+import { openZip } from './package-files.js';
 import { repoInit } from './storage/local/repository.js';
 import type { StorageBackend } from './storage/interfaces.js';
+import { ZipWriter } from './zip.js';
 
 // Re-export InMemoryStorage for test consumers
 export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -229,58 +229,57 @@ export function processTree(pid: number): number[] {
 }
 
 /**
- * Read all entries from a zip file
+ * Read all entries from a zip file, with e3's own reader: each entry's bytes
+ * inflated when the zip deflated them, and checked against their CRC-32.
+ *
  * @param zipPath Path to zip file
- * @returns Map of entry path to content buffer
+ * @returns Map of entry path to content buffer, in the zip's directory's
+ *   order; a directory's entry is left out
  */
 export async function readZipEntries(zipPath: string): Promise<Map<string, Buffer>> {
-  return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
-      if (err) return reject(err);
-      if (!zipfile) return reject(new Error('No zipfile'));
-
-      const entries = new Map<string, Buffer>();
-      zipfile.readEntry();
-
-      zipfile.on('entry', (entry) => {
-        if (/\/$/.test(entry.fileName)) {
-          // Directory entry, skip
-          zipfile.readEntry();
-        } else {
-          zipfile.openReadStream(entry, (err, readStream) => {
-            if (err) return reject(err);
-            if (!readStream) return reject(new Error('No read stream'));
-
-            const chunks: Buffer[] = [];
-            readStream.on('data', (chunk) => chunks.push(chunk));
-            readStream.on('end', () => {
-              entries.set(entry.fileName, Buffer.concat(chunks));
-              zipfile.readEntry();
-            });
-          });
-        }
-      });
-
-      zipfile.on('end', () => resolve(entries));
-      zipfile.on('error', reject);
-    });
-  });
+  const zip = await openZip(zipPath);
+  try {
+    const entries = new Map<string, Buffer>();
+    for await (const entry of zip.entries()) {
+      if (entry.fileName.endsWith('/')) continue;
+      const bytes = await entry.getData();
+      entries.set(entry.fileName, Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+    }
+    return entries;
+  } finally {
+    zip.close();
+  }
 }
 
 /**
- * Writes a zip of the given entries, in the given order.
+ * The bytes of a zip of the given entries, in the given order, as e3's
+ * {@link ZipWriter} writes it: each entry stored as it stands.
+ *
+ * @param entries - Each entry's path in the zip, and its bytes
+ * @returns The zip's bytes
+ */
+export async function zipBytes(entries: Iterable<readonly [string, Uint8Array]>): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  const zip = new ZipWriter(new WritableStream<Uint8Array>({
+    write(chunk) {
+      chunks.push(chunk);
+    },
+  }));
+  for (const [name, bytes] of entries) await zip.add(name, bytes);
+  await zip.finish();
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Writes a zip of the given entries, in the given order, as e3's
+ * {@link ZipWriter} writes it.
  *
  * @param zipPath - Where to write it
  * @param entries - Each entry's path in the zip, and its bytes
  * @returns The zip's path
  */
 export async function writeZip(zipPath: string, entries: Iterable<readonly [string, Buffer]>): Promise<string> {
-  const zip = new yazl.ZipFile();
-  for (const [name, bytes] of entries) zip.addBuffer(bytes, name);
-  await new Promise<void>((resolve, reject) => {
-    zip.outputStream.pipe(createWriteStream(zipPath)).on('close', resolve).on('error', reject);
-    zip.end();
-  });
+  writeFileSync(zipPath, await zipBytes(entries));
   return zipPath;
 }
 
