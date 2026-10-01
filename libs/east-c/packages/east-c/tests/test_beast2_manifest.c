@@ -420,10 +420,16 @@ static EAST_THREAD_ENTRY host_serve(void *arg)
             if (h->refusal) {
                 snprintf(placing, sizeof(placing), "%s.error", file);
                 if (stat(placing, &st) == 0) continue;
-                FILE *f = fopen(placing, "wb");
+                /* Written whole, as e3's host writes it: under a name of its
+                 * own, then renamed into place, so a reader that finds it
+                 * reads all of it. */
+                char partial[640];
+                snprintf(partial, sizeof(partial), "%s.partial", placing);
+                FILE *f = fopen(partial, "wb");
                 if (f) {
                     fputs(h->refusal, f);
-                    fclose(f);
+                    bool written = fclose(f) == 0;
+                    if (!written || rename(partial, placing) != 0) remove(partial);
                 }
                 continue;
             }

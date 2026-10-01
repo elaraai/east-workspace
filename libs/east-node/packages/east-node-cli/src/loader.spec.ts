@@ -351,7 +351,10 @@ describe('loadInputLazy — an input staged as a manifest over segment files', (
           if (placed.includes(segment) || existsSync(file)) continue;
           placed.push(segment);
           if (refusal !== undefined) {
-            writeFileSync(file + '.error', refusal);
+            // Written whole, as e3's host writes it: under a name of its own,
+            // then renamed into place, so a runner that finds it reads all of it.
+            writeFileSync(file + '.error.partial', refusal);
+            renameSync(file + '.error.partial', file + '.error');
           } else {
             copyFileSync(join(store, segment), file + '.placing');
             renameSync(file + '.placing', file);

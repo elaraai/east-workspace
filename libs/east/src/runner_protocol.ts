@@ -34,8 +34,11 @@
  * reads it, so a unit downloads what it reads: the unit says so (`fetch`). Its
  * runner then asks for a staged manifest's segment file it finds absent, by
  * creating `<segment file>.want` beside where it would be, and waits for the
- * host to place the file, whole, or to write `<segment file>.error`, holding
- * why it cannot, which the runner fails with. A unit that does not say so reads
+ * host to place the file or to write `<segment file>.error`, holding why it
+ * cannot, which the runner fails with. The host writes either whole — under a
+ * name of its own, renamed into place — since the runner reads each the moment
+ * it is there, and a file it finds half-written it reads as such. A unit that
+ * does not say so reads
  * an absent segment as the input's own error, at once. Such a unit and the
  * files beside it are a snapshot of the work only once its segments are there.
  */

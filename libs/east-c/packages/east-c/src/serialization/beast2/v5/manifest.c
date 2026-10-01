@@ -145,7 +145,8 @@ static bool file_exists(const char *path)
 /* Makes the segment file at `path` present when it is absent and the host
  * places segments as they are read (EAST_BEAST2_FETCH_SEGMENTS_ENV): creates
  * `<path>.want` beside where it would be, and waits for the host to place the
- * file, whole, or to write `<path>.error`, why it cannot. Without the switch
+ * file or to write `<path>.error`, why it cannot — each whole, renamed into
+ * place, since this reads either the moment it is there. Without the switch
  * an absent file is left for its open to fail, as ever. False with the
  * message posted when the host cannot place it, or the ask cannot be made. */
 static bool fetch_segment(const char *path)

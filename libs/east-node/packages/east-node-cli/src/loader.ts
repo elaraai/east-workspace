@@ -509,7 +509,8 @@ const FETCH_WAIT_MAX_MS = 50;
  * A staged manifest's segment file, present: asked of the host when it is
  * absent and the host places segments as they are read ({@link
  * FETCH_SEGMENTS_ENV} is `1`), by creating `<file>.want` and waiting for the
- * host to place the file, whole, or to write `<file>.error`, why it cannot.
+ * host to place the file or to write `<file>.error`, why it cannot — each
+ * whole, renamed into place, since this reads either the moment it is there.
  * Without the variable, an absent file is returned as it is, for its read to
  * fail as ever.
  *
