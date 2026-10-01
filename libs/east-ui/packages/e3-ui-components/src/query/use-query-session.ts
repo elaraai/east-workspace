@@ -66,6 +66,8 @@ export interface QuerySessionState {
     readonly available: boolean;
     /** Moves with every change of the session. */
     readonly version: number;
+    /** The query's entries as the drafts stand this moment — after a gesture in the same event, too. */
+    readonly current: () => readonly QueryEntry[] | undefined;
     /** Records a gesture: the entries it leaves, as one transaction. */
     readonly gesture: (next: readonly QueryEntry[], origin: Origin, label: string) => boolean;
     /** Runs a history item's action. */
@@ -165,10 +167,17 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
         setNaming(false);
     }, [sourceId]);
 
+    // A gesture is taken against the drafts as they stand when it is made, so
+    // two gestures in one event — the jq left, then the query named — compose.
+    const current = useCallback((): readonly QueryEntry[] | undefined => {
+        const drafted = available ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
+        return drafted ?? base?.entries;
+    }, [edit.session, available, base]);
     const gesture = useCallback((next: readonly QueryEntry[], origin: Origin, label: string): boolean => {
-        if (entries === undefined) return false;
-        return recordGesture(edit.session, original as (id: string) => EntryVersion<QueryEntry>, entries, next, origin, label);
-    }, [edit.session, original, entries]);
+        const now = current();
+        if (now === undefined) return false;
+        return recordGesture(edit.session, original as (id: string) => EntryVersion<QueryEntry>, now, next, origin, label);
+    }, [edit.session, original, current]);
 
     const onAction = useCallback((action: HistoryAction) => {
         const s = edit.session;
@@ -185,5 +194,5 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
         }
     }, [edit.session, open]);
 
-    return { session: edit.session, sourceId, base, entries, available, version, gesture, onAction, naming, setNaming };
+    return { session: edit.session, sourceId, base, entries, available, version, current, gesture, onAction, naming, setNaming };
 }

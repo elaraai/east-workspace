@@ -14,6 +14,10 @@
  * Also carries the field → operator → value control chrome (`control` slot)
  * shared by the predicate builder, so renderers never inline a `selectCss`.
  *
+ * And the form of the popover that names something new (e3-ui-components'
+ * `NamePopover`: a Studio page or template, a saved query): its fields, each
+ * with its hint under it, and a query's description under the name.
+ *
  * @packageDocumentation
  */
 
@@ -27,6 +31,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "clauseRow", "clauseConj", "clauseBox", "clauseField", "clauseOp", "clauseVal",
         "builderRow", "resolveLine", "moreRow", "moreRowEdit", "moreRowRemove",
         "chipToggle", "chipEdit", "hint", "hintError",
+        "form", "field", "textArea", "hintRow", "hintAction",
     ],
     base: {
         content: {
@@ -144,6 +149,44 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "{fontSizes.label.sm}",
             color: "fg.danger",
+        },
+
+        // --- the form that names something new (NamePopover) ---
+        // The form fills the body without a box of its own, so its fields
+        // keep the body's column and rhythm.
+        form: { display: "contents" },
+        // A field and the hint under it — a name and its help or its error,
+        // a description and its count — held tight.
+        field: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.1}",
+        },
+        // A multi-line field under the name (a query's description), on the
+        // `input` recipe's chrome: as tall as its rows, never resized by
+        // hand, and muted while it holds the text generated for it
+        // (`data-generated`) rather than the author's own.
+        textArea: {
+            resize: "none",
+            "&[data-generated]": { color: "fg.muted" },
+        },
+        // A hint with an action at its end — a description's count, and
+        // Use generated. The hint wraps; the action keeps its line.
+        hintRow: {
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: "{spacing.2}",
+        },
+        // The action, in the hint's type and the link's ink.
+        hintAction: {
+            flexShrink: "0",
+            fontFamily: "mono",
+            fontSize: "{fontSizes.2xs}",
+            whiteSpace: "nowrap",
+            color: "link",
+            cursor: "pointer",
+            _hover: { textDecoration: "underline", textUnderlineOffset: "2px" },
         },
 
         // --- predicate clause rows (cohort edit) ---

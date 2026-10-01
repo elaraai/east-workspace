@@ -21,6 +21,7 @@
  */
 
 import type { ComparisonKind, StepKind } from "../steps/values.js";
+import type { InputKind } from "./refs.js";
 
 /** What a slot asks for: each kind of slot a step card has. */
 export type SlotKind =
@@ -418,6 +419,76 @@ export interface QueryMessages {
     /** Try the model — `price from 10 to 12 every 0.5, region NSW`. */
     outlineModel: (p: { input: string; from: string; to: string; step: string; fixed: readonly string[] }) => string;
 
+    // ── The toolbar, the Query tab and the status line (#936) ────────────
+    /** The Visual · jq switch's name. */
+    viewLabel: () => string;
+    /** A view of the query. */
+    view: (p: { view: "visual" | "jq" }) => string;
+    /** Copy jq. */
+    copyJq: () => string;
+    /** Copy jq, just after it copied. */
+    copied: () => string;
+    /** The toolbar's Save…, which opens the save popover. */
+    saveAs: () => string;
+    /** Run. */
+    run: () => string;
+    /** Run, while a run goes. */
+    running: () => string;
+    /** Run's keys, in its `Kbd`. */
+    runKeys: () => string;
+    /** Run's tooltip. */
+    runTip: () => string;
+    /** The steps' list, for a screen reader. */
+    stepsLabel: () => string;
+    /** A step's place, before its title — `1`. */
+    stepNumber: (p: { n: string }) => string;
+    /** Move a step up. */
+    moveUp: () => string;
+    /** Move a step down. */
+    moveDown: () => string;
+    /** Take a step out. */
+    removeStep: () => string;
+    /** A shape line's Insert, in full. */
+    insertHere: () => string;
+    /** The check, clean. */
+    checksClean: () => string;
+    /** Steps left to finish — `2 to finish`. */
+    toFinish: (p: { count: string; n: number }) => string;
+    /** Problems that stop the query running — `1 problem`. */
+    problemCount: (p: { count: string; n: number }) => string;
+    /** Warnings, in the jq view — `2 warnings`. */
+    warningCount: (p: { count: string; n: number }) => string;
+    /** The shape's East type and multiplicity, on hover — `Array<Struct{…}> · one`. */
+    typeHover: (p: { type: string; multiplicity: string }) => string;
+    /** The fields of the rows the query gives, after its shape — `· order, customer, total`. */
+    givesFields: (p: { fields: readonly string[] }) => string;
+    /** The source's line under its title — `dev.orders · list of orders`. */
+    sourceLine: (p: { path: string; kind: string }) => string;
+    /** What an input of a step card edits, for a screen reader. */
+    inputLabel: (p: { input: InputKind }) => string;
+    /** The save state: saved just now, drafts not yet saved, or never saved. */
+    saveState: (p: { state: "saved" | "unsaved" | "new" }) => string;
+    /** The jq view's note: unfinished steps left out of the jq. */
+    unfinishedLeftOut: (p: { count: string; n: number }) => string;
+    /** The jq kept, because it does not parse. */
+    fixSyntaxFirst: () => string;
+    /** The notice after leaving the jq: parts of it that stay jq steps. */
+    jqPartsStay: (p: { count: string; n: number }) => string;
+    /** The jq view's text, for a screen reader. */
+    jqLabel: () => string;
+    /** A gesture's label in the history: a slot set — `Set status`. */
+    setGesture: (p: { what: string }) => string;
+    /** A step added — `Add Sort`. */
+    addStepGesture: (p: { step: string }) => string;
+    /** A step taken out — `Remove step 3`. */
+    removeStepGesture: (p: { n: string }) => string;
+    /** A step moved — `Move step 2 up`. */
+    moveStepGesture: (p: { n: string; up: boolean }) => string;
+    /** The jq edited and left. */
+    editJqGesture: () => string;
+    /** The query named, and described, as it saves. */
+    nameGesture: () => string;
+
     // ── The builder (#935) ───────────────────────────────────────────────
     /** The pane's name — its rail's label. */
     pane: () => string;
@@ -445,6 +516,28 @@ export interface QueryMessages {
     nameTaken: (p: { name: string }) => string;
     /** A save of a query another write changed since the edit began, and who changed the record last, when known. */
     savedChanged: (p: { name: string; by: string | undefined }) => string;
+
+    // ── Saving (#936) ────────────────────────────────────────────────────
+    /** The save popover's head, before the open query's name — `Save query`. */
+    saveQuery: () => string;
+    /** Its name field's placeholder, and its accessible name. */
+    queryName: () => string;
+    /** Under the name, while it is empty. */
+    queryNameMissing: () => string;
+    /** Under the name, while another saved query holds it — `Order count is taken`. */
+    queryNameHeld: (p: { name: string }) => string;
+    /** Its description field's placeholder, and its accessible name. */
+    descriptionPlaceholder: () => string;
+    /** Under the description, while it is the sentence generated from the steps. */
+    descriptionGenerated: () => string;
+    /** Under the description once it is edited: its length and the most it holds — `52/140 · shown under the name in the library`. */
+    descriptionCount: (p: { count: string; max: string; n: number }) => string;
+    /** Returns the description to the sentence generated from the steps. */
+    restoreGenerated: () => string;
+    /** The save popover's commit. */
+    saveConfirm: () => string;
+    /** The save popover's cancel. */
+    cancel: () => string;
 }
 
 const STEP_TITLE: Readonly<Record<Exclude<StepKind, "drill">, string>> = {
@@ -530,6 +623,11 @@ const PLACEHOLDER: Readonly<Record<SlotKind, string>> = {
     "part": "part", "date-field": "date",
     "fixed": "value",
     "add-step": "step",
+};
+
+const INPUT_LABEL: Readonly<Record<InputKind, string>> = {
+    "limit-n": "How many", "agg-as": "Total's name", "pick-as": "Field's name", "fill-value": "Value to use", "datepart-as": "Part's name",
+    "tab-from": "From", "tab-to": "To", "tab-step": "Every", "tab-as": "Result's name",
 };
 
 /** Whether a slot takes a value, typed or offered. */
@@ -814,6 +912,45 @@ export const queryMessages: QueryMessages = {
     outlineDatePart: ({ part, field, name }) => `the ${part} of ${field} as ${name}`,
     outlineModel: ({ input, from, to, step, fixed }) => `${input} from ${from} to ${to} every ${step}${fixed.map(f => `, ${f}`).join("")}`,
 
+    viewLabel: () => "View",
+    view: ({ view }) => (view === "visual" ? "Visual" : "jq"),
+    copyJq: () => "Copy jq",
+    copied: () => "Copied",
+    saveAs: () => "Save…",
+    run: () => "Run",
+    running: () => "Running",
+    runKeys: () => "⌘⏎",
+    runTip: () => "Run · ⌘⏎",
+    stepsLabel: () => "Steps",
+    stepNumber: ({ n }) => n,
+    moveUp: () => "Move up",
+    moveDown: () => "Move down",
+    removeStep: () => "Remove step",
+    insertHere: () => "Insert a step here",
+    checksClean: () => "Checks clean",
+    toFinish: ({ count }) => `${count} to finish`,
+    problemCount: ({ count, n }) => `${count} ${n === 1 ? "problem" : "problems"}`,
+    warningCount: ({ count, n }) => `${count} ${n === 1 ? "warning" : "warnings"}`,
+    typeHover: ({ type, multiplicity }) => `${type} · ${multiplicity}`,
+    givesFields: ({ fields }) => (fields.length === 0 ? "" : `· ${fields.join(", ")}`),
+    sourceLine: ({ path, kind }) => (kind === "" ? path : `${path} · ${kind}`),
+    inputLabel: ({ input }) => INPUT_LABEL[input],
+    saveState: ({ state }) => (state === "saved" ? "Saved" : state === "unsaved" ? "Unsaved changes" : "Not saved"),
+    unfinishedLeftOut: ({ count, n }) => (n === 1
+        ? `${count} unfinished step is left out of the jq until it is finished.`
+        : `${count} unfinished steps are left out of the jq until they are finished.`),
+    fixSyntaxFirst: () => "Fix the syntax problem first — the visual steps are built from the jq.",
+    jqPartsStay: ({ count, n }) => (n === 1
+        ? `${count} part of the jq doesn't match a visual step, so it stays as jq.`
+        : `${count} parts of the jq don't match a visual step, so they stay as jq.`),
+    jqLabel: () => "The query as jq",
+    setGesture: ({ what }) => `Set ${what}`,
+    addStepGesture: ({ step }) => `Add ${step}`,
+    removeStepGesture: ({ n }) => `Remove step ${n}`,
+    moveStepGesture: ({ n, up }) => `Move step ${n} ${up ? "up" : "down"}`,
+    editJqGesture: () => "Edit the jq",
+    nameGesture: () => "Name the query",
+
     pane: () => "Query",
     tab: ({ tab }) => (tab === "query" ? "Query" : tab === "datasets" ? "Datasets" : "Library"),
     untitled: ({ source }) => `Untitled ${source} query`,
@@ -827,4 +964,15 @@ export const queryMessages: QueryMessages = {
     rootElsewhere: ({ path, name }) => `Reads ${path}, not this builder's ${name}`,
     nameTaken: ({ name }) => `Another query took the name ${name} first — choose another.`,
     savedChanged: ({ name, by }) => `${name} changed since this edit began${by === undefined ? "" : ` — last changed by ${by}`}. Discard your changes to see it, or save under another name.`,
+
+    saveQuery: () => "Save query",
+    queryName: () => "Query name",
+    queryNameMissing: () => "Give the query a name to save it.",
+    queryNameHeld: ({ name }) => `${name} is taken`,
+    descriptionPlaceholder: () => "What the query answers, in one sentence",
+    descriptionGenerated: () => "Generated from the steps · edit to write your own",
+    descriptionCount: ({ count, max }) => `${count}/${max} · shown under the name in the library`,
+    restoreGenerated: () => "Use generated",
+    saveConfirm: () => "Save",
+    cancel: () => "Cancel",
 };

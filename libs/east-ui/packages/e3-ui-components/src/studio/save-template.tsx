@@ -12,7 +12,8 @@
  * button is disabled: a template is not saved again.
  *
  * Its button is the `button` recipe's outline, as its neighbours in the
- * toolbar are; its popover is the Studio's {@link NamePopover}.
+ * toolbar are; its popover is the shared {@link NamePopover}, in the Studio's
+ * words.
  *
  * @packageDocumentation
  */
@@ -22,8 +23,8 @@ import { Box, Button as ChakraButton, useSlotRecipe, type SystemStyleObject } fr
 import { type ValueTypeOf } from "@elaraai/east";
 import { StudioSaveTemplatePayloadType } from "@elaraai/e3-ui/internal";
 
+import { NamePopover } from "../shared/name-popover.js";
 import { useStudioMessages } from "./messages.js";
-import { NamePopover } from "./name-popover.js";
 
 /** Save as template, as the builder draws it. */
 type StudioSaveTemplateValue = ValueTypeOf<typeof StudioSaveTemplatePayloadType>;
@@ -60,7 +61,9 @@ export const StudioSaveTemplate = memo(function StudioSaveTemplate({ value }: St
             initial={m.templateNameFor({ page: value.title })}
             taken={value.taken}
             missing={m.templateNameMissing()}
+            nameTaken={(name) => m.nameTaken({ name })}
             confirm={m.saveTemplate()}
+            cancel={m.cancel()}
             onConfirm={async (name) => {
                 const refused = await onSave(name);
                 return refused.type === "some" ? refused.value : undefined;
