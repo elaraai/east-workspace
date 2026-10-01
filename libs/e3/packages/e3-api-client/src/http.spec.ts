@@ -222,6 +222,24 @@ describe('fetchWithRetry: Retry-After wiring', () => {
     assert.equal(m.calls, 2);
     assert.equal(waited, 50, 'the Retry-After (50ms) drove the delay');
   });
+
+  it('waits a Retry-After past the backoff cap by default: the repository gate\'s 5 s', async (t) => {
+    // e3-api-server's gate answers 503 `repository_upgrade_pending` with
+    // `Retry-After: 5` while an upgrade waits. The default policy's own backoff
+    // is capped at 2 s; the server's hint is waited for as it asks.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+    const m = mockFetch([() => status(503, { 'retry-after': '5' }), ok]);
+    const retrying = fetchWithRetry(URL, { method: 'GET' }, { idempotent: true });
+    await settle();
+    t.mock.timers.tick(4_999);
+    await settle();
+    assert.equal(m.calls, 1, 'not asked again before the server said');
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(m.calls, 2, 'asked again once the server said');
+    assert.equal((await retrying).status, 200);
+  });
 });
 
 // ===========================================================================
@@ -406,10 +424,11 @@ describe('parseRetryAfter', () => {
 });
 
 describe('computeBackoffMs', () => {
-  const cfg = { attempts: 4, baseDelayMs: 100, maxDelayMs: 2000 };
-  it('honours a Retry-After hint, capped at maxDelayMs', () => {
+  const cfg = { attempts: 4, baseDelayMs: 100, maxDelayMs: 2000, maxRetryAfterMs: 30_000 };
+  it('honours a Retry-After hint past the backoff cap, up to maxRetryAfterMs', () => {
     assert.equal(computeBackoffMs(0, cfg, 1500), 1500);
-    assert.equal(computeBackoffMs(0, cfg, 5000), 2000); // capped
+    assert.equal(computeBackoffMs(0, cfg, 5000), 5000); // past maxDelayMs, as the server asked
+    assert.equal(computeBackoffMs(0, cfg, 60_000), 30_000); // capped at maxRetryAfterMs
   });
   it('applies full jitter within [0, exponential ceiling]', () => {
     // attempt 2 → ceiling = min(2000, 100·2^2) = 400.

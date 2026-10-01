@@ -36,8 +36,17 @@ export interface RetryOptions {
   attempts?: number;
   /** Base delay for exponential backoff, in milliseconds (default 100). */
   baseDelayMs?: number;
-  /** Upper bound on any single backoff delay, in milliseconds (default 2000). */
+  /** Upper bound on any single backoff delay the client picks itself, in
+   *  milliseconds (default 2000). A server's `Retry-After` is bounded by
+   *  {@link maxRetryAfterMs} instead. */
   maxDelayMs?: number;
+  /**
+   * Upper bound on a server's `Retry-After` hint, in milliseconds (default
+   * 30000). A server that asks for longer than the client's own backoff is
+   * waited for as it asks, up to this: e3-api-server's repository gate asks
+   * for 5 s while an upgrade it owes waits.
+   */
+  maxRetryAfterMs?: number;
 }
 
 /**
@@ -173,6 +182,7 @@ const DEFAULT_RETRY: Required<RetryOptions> = {
   attempts: 4,
   baseDelayMs: 100,
   maxDelayMs: 2000,
+  maxRetryAfterMs: 30_000,
 };
 
 /** Merge caller overrides onto {@link DEFAULT_RETRY}, clamping to sane bounds. */
@@ -181,6 +191,7 @@ function resolveRetry(retry?: RetryOptions): Required<RetryOptions> {
     attempts: Math.max(1, Math.trunc(retry?.attempts ?? DEFAULT_RETRY.attempts)),
     baseDelayMs: Math.max(0, retry?.baseDelayMs ?? DEFAULT_RETRY.baseDelayMs),
     maxDelayMs: Math.max(0, retry?.maxDelayMs ?? DEFAULT_RETRY.maxDelayMs),
+    maxRetryAfterMs: Math.max(0, retry?.maxRetryAfterMs ?? DEFAULT_RETRY.maxRetryAfterMs),
   };
 }
 
@@ -259,8 +270,9 @@ export function parseRetryAfter(value: string | null, nowMs: number): number | u
 }
 
 /**
- * Compute the delay before the next attempt. A server `Retry-After` hint wins
- * (capped at `maxDelayMs`); otherwise exponential backoff with full jitter — a
+ * Compute the delay before the next attempt. A server `Retry-After` hint wins,
+ * waited for as the server asks up to `maxRetryAfterMs` — however far past the
+ * client's own backoff cap; otherwise exponential backoff with full jitter — a
  * uniform random point in `[0, min(maxDelayMs, baseDelayMs · 2^attempt)]` — which
  * spreads retries so concurrent clients don't lock-step a cold upstream.
  *
@@ -276,7 +288,7 @@ export function computeBackoffMs(
   retryAfterMs: number | undefined,
   rng: () => number = Math.random,
 ): number {
-  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, cfg.maxDelayMs);
+  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, cfg.maxRetryAfterMs);
   const ceiling = Math.min(cfg.maxDelayMs, cfg.baseDelayMs * 2 ** attempt);
   return rng() * ceiling;
 }
