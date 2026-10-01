@@ -17,22 +17,29 @@
  * the most it reached fits; the rest of each stage reserves the stage's peak,
  * so they run one at a time. The runners' memory is sampled from outside
  * throughout, on the platforms the guard runs on.
+ *
+ * A piece reaches its peak only as it finishes, so two pieces that run freely
+ * are past the budget together for about a quarter second, the guard's
+ * interval, and its samples can miss them. Each piece therefore waits at its
+ * peak while a hold file exists, and the test takes the file away once the
+ * guard has stopped one: the two stand past the budget together until the
+ * guard acts.
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import { DictType, East, IntegerType, SortedMap, compareFor, encodeBeast2For } from '@elaraai/east';
+import { FileSystem } from '@elaraai/east-node-std';
 import { LocalStorage, workspaceGetDatasetHash } from '@elaraai/e3-core';
-import { createTestDir, removeTestDir, runE3Command, spawnE3Command } from './helpers.js';
+import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 const RowsType = DictType(IntegerType, IntegerType);
 /** The integers each piece holds while it emits: a few hundred MiB of an
- *  east-node runner's heap, long enough for two pieces to be measured side by
- *  side. */
+ *  east-node runner's heap. */
 const HELD = 4_000_000n;
 /** Pieces of 16 to 256 stored bytes: a piece a segment, so each task runs as
  *  a few pieces. */
@@ -86,12 +93,16 @@ describe('the guard', { skip: process.platform === 'win32' ? 'the guard runs on 
   });
 
   it('completes a run whose budget its units outgrow, to the bytes a run with room writes, within the budget and one unit', async (t) => {
+    const hold = join(dir, 'hold');
     const rows = e3.input('rows', RowsType);
     const heavy = (name: string) => e3.streamTask(name, {
       inputs: [e3.partition(rows)],
       output: e3.output.dict(IntegerType, IntegerType),
     }, ($, rows, emit) => {
       const held = $.let(East.Array.generate(East.value(HELD), IntegerType, ($, i) => i.multiply(3n)));
+      // At its peak, the piece waits while the hold file exists.
+      const holdPath = $.const(hold);
+      $.while(FileSystem.exists(holdPath), (_$) => { });
       $.for(rows, ($, amount, key) => {
         $(emit(key, amount.add(held.size())));
       });
@@ -131,12 +142,19 @@ describe('the guard', { skip: process.platform === 'win32' ? 'the guard runs on 
     const outputs = await Promise.all(tasks.map(async (task) => (await workspaceGetDatasetHash(storage, repo, 'ws', task.output.path)).hash));
 
     // Under a budget of one and a half units at four jobs, sampled throughout.
+    // The first pieces wait at their peaks until the guard has stopped one; a
+    // guard that never does fails the run's assertions after a minute, rather
+    // than holding the pieces for ever.
     const budget = Math.floor(1.5 * peak);
+    writeFileSync(hold, '');
     const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--force', '--jobs', '4', '--memory', String(budget)], dir, { env: PIECES });
     let highest = 0;
     const sampler = setInterval(() => { highest = Math.max(highest, descendantsResident(run.pid)); }, 50);
+    const stopped = await waitFor(() => run.getStdout().includes('[REQUEUE]'), 60_000).then(() => true, () => false);
+    rmSync(hold);
     const pressed = await run.result.finally(() => clearInterval(sampler));
     assert.equal(pressed.exitCode, 0, `${pressed.stderr}\n${pressed.stdout}`);
+    assert.ok(stopped, `the guard stopped a first piece while the two held past the budget together:\n${pressed.stdout}`);
     t.diagnostic(`unit peak ${Math.round(peak / MiB)} MiB; budget ${Math.round(budget / MiB)} MiB; the runners peaked at ${Math.round(highest / MiB)} MiB together`);
 
     assert.deepEqual(
