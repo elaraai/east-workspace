@@ -116,9 +116,11 @@ describe('staging by link or kernel copy', () => {
     const { hash } = await store(4096, 0x44);
     const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash], { link: false });
 
-    const object = statSync(objectPath(testRepo, hash));
-    const input = statSync(staged!);
-    assert.notEqual(input.ino, object.ino, 'a custom runner gets a copy: it may mv or truncate its inputs');
+    // A file's identity, read whole: an NTFS file id is 64 bits, and as a
+    // number two ids past 2^53 can round to one.
+    const object = statSync(objectPath(testRepo, hash), { bigint: true });
+    const input = statSync(staged!, { bigint: true });
+    assert.ok(input.dev !== object.dev || input.ino !== object.ino, 'a custom runner gets a copy: it may mv or truncate its inputs');
     assert.deepEqual(readFileSync(staged!), readFileSync(objectPath(testRepo, hash)));
 
     // Proving the point: writing through the staged path leaves the object be.
