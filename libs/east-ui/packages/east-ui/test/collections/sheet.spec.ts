@@ -118,6 +118,87 @@ const RULE_ROWS = [
     { id: "r2", start: none, level: variant("time", null), started: none, status: "RELEASED", code: "", activity: "Machining", stations: { from: [], to: [] } },
 ];
 
+// ── Paged sources, built by hand to the row-source contract: paged data is
+// bound (`Data.bindPaged`), so no package produces one. Each serves its
+// fixture a window at a time, in the order a dataset's windows arrive in.
+const Jobs = ArrayType(JobType);
+const JOBS_PAGE = East.function([IntegerType, IntegerType], OptionType(Jobs), ($, offset, limit) => {
+    const all = $.const(JOBS, Jobs);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const JOBS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(JOBS, Jobs);
+    return some(all.size());
+});
+// The jobs sit in id order, so a whole id, or a prefix of one, is a single run
+// of rows; the struct-key shapes do not apply to a String id.
+const JOBS_SEEK = East.function([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange), ($, query) => {
+    const all = $.const(JOBS, Jobs);
+    const ids = $.let(all.map((_$, j) => j.id));
+    const range = $.let(none, OptionType(Paged.Types.SeekRange));
+    $.match(query, {
+        key: ($2, literal) => {
+            const id = $2.let(literal.parse(StringType));
+            const count = $2.let(ids.filter((_$, k) => k.equal(id)).size());
+            $2.assign(range, some({ found: count.greater(0n), row: ids.filter((_$, k) => k.less(id)).size(), count }));
+        },
+        prefix: ($2, prefix) => {
+            const count = $2.let(ids.filter((_$, k) => k.startsWith(prefix)).size());
+            $2.assign(range, some({ found: count.greater(0n), row: ids.filter((_$, k) => k.less(prefix)).size(), count }));
+        },
+        fields: ($2) => { $2.error("the jobs are keyed by a String id: seek a whole id or a prefix"); },
+        range: ($2) => { $2.error("the jobs are keyed by a String id: seek a whole id or a prefix"); },
+    });
+    return range;
+});
+// The fixture never moves: it serves one snapshot, and a refresh leaves it there.
+const JOBS_REVISION = East.function([], OptionType(StringType), () => some("jobs-1"));
+const JOBS_REFRESH = East.function([OptionType(StringType)], NullType, () => null);
+const JOBS_SOURCE = { id: "jobs", page: JOBS_PAGE, total: JOBS_TOTAL, seek: some(JOBS_SEEK) };
+const PINNED_JOBS_SOURCE = {
+    id: "jobs", page: JOBS_PAGE, total: JOBS_TOTAL, seek: some(JOBS_SEEK), revision: JOBS_REVISION, refresh: JOBS_REFRESH,
+};
+
+// Keyed by job number — the keys sort as text, so "J10" comes before "J2".
+const KeyedJobType = StructType({ start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), count: IntegerType, owner: StringType });
+const KeyedJobs = DictType(StringType, KeyedJobType);
+const KEYED_JOBS = new Map([
+    ["J10", { start: none, task: "Machining", qty: none, count: 1n, owner: "planner" }],
+    ["J2",  { start: none, task: "Painting", qty: none, count: 1n, owner: "planner" }],
+]);
+const KEYED_JOBS_PAGE = East.function([IntegerType, IntegerType], OptionType(KeyedJobs), ($, offset, limit) => {
+    const all = $.const(KEYED_JOBS, KeyedJobs);
+    const keys = $.let(all.toArray((_$, _v, k) => k));
+    const n = $.let(keys.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.getKeys(keys.slice(start, end).toSet()));
+});
+const KEYED_JOBS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(KEYED_JOBS, KeyedJobs);
+    return some(all.size());
+});
+const KEYED_JOBS_SOURCE = { id: "keyed", page: KEYED_JOBS_PAGE, total: KEYED_JOBS_TOTAL, seek: none };
+
+// The plans keyed by their id — a key-ordered source of groups.
+const Plans = ArrayType(PlanType);
+const KeyedPlans = DictType(StringType, PlanType);
+const KEYED_PLANS_PAGE = East.function([IntegerType, IntegerType], OptionType(KeyedPlans), ($, offset, limit) => {
+    const all = $.const(PLANS, Plans);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end).toDict((_$, p) => p.id));
+});
+const KEYED_PLANS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(PLANS, Plans);
+    return some(all.size());
+});
+const KEYED_PLANS_SOURCE = { id: "plans", page: KEYED_PLANS_PAGE, total: KEYED_PLANS_TOTAL, seek: none };
+
 describeEast("Sheet", (test) => {
     Assert.examples(test, {
         sheetBasic: ex.sheetBasic,
@@ -129,7 +210,6 @@ describeEast("Sheet", (test) => {
         sheetGrouped: ex.sheetGrouped,
         sheetReadiness: ex.sheetReadiness,
         sheetInsertion: ex.sheetInsertion,
-        sheetPaged: ex.sheetPaged,
         sheetSubRows: ex.sheetSubRows,
         sheetRules: ex.sheetRules,
         sheetRegisters: ex.sheetRegisters,
@@ -194,8 +274,7 @@ describeEast("Sheet", (test) => {
     });
 
     test("the paged arm projects a window exactly as the inline arm projects the whole collection", $ => {
-        const rows = $.const(JOBS, ArrayType(JobType));
-        const source = $.const(Paged.of("jobs", rows, { key: r => r.id }));
+        const source = $.const(JOBS_SOURCE, Paged.Types.Source(Jobs));
         const sheet = $.let(Sheet.Root(source, {
             task: Sheet.column.text(JobType, { header: "Task" }),
         }, { id: "id" }));
@@ -210,13 +289,9 @@ describeEast("Sheet", (test) => {
     });
 
     test("a keyed paged source needs no id — the key is the row id", $ => {
-        const keyed = $.const(new Map([
-            ["J10", { start: none, task: "Machining", qty: none, count: 1n, owner: "planner" }],
-            ["J2",  { start: none, task: "Painting", qty: none, count: 1n, owner: "planner" }],
-        ]), DictType(StringType, StructType({ start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), count: IntegerType, owner: StringType })));
-        const source = $.const(Paged.of("keyed", keyed));
+        const source = $.const(KEYED_JOBS_SOURCE, Paged.Types.Source(KeyedJobs));
         const sheet = $.let(Sheet.Root(source, {
-            task: Sheet.column.text(StructType({ start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), count: IntegerType, owner: StringType }), { header: "Task" }),
+            task: Sheet.column.text(KeyedJobType, { header: "Task" }),
         }));
         const win = $.let(sheet.unwrap().unwrap("Sheet").rows.unwrap("paged").page(0n, 10n).unwrap("some"));
         // Canonical key order — the order a keyed dataset's windows arrive in.
@@ -898,13 +973,13 @@ describe("Sheet refusals", () => {
         assert.throws(() => Sheet.Root(keyed as never, { task: Sheet.column.text(LineType) } as never, { id: "id", group: Sheet.group(KeyedPlanType, "lines" as never, { title: "name" }) } as never), /Array of row structs/);
     });
     hostTest("onUpdate on a paged source is refused", () => {
-        assert.throws(() => Sheet.Root(Paged.of("p", rows, { key: r => r.id }), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /onUpdate/);
+        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /onUpdate/);
     });
     hostTest("editing paged rows needs a pinned source — one that names the snapshot a batch is checked against", () => {
         const onApply = East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
-        assert.throws(() => Sheet.Root(Paged.of("p", rows, { key: r => r.id }), { task: Sheet.column.text(JobType) }, { id: "id", onApply }),
+        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply }),
             /Sheet: editing paged rows needs a pinned source/);
-        assert.doesNotThrow(() => Sheet.Root(Paged.pinned("p", rows, { key: r => r.id }), { task: Sheet.column.text(JobType) }, { id: "id", onApply }));
+        assert.doesNotThrow(() => Sheet.Root(East.value(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply }));
     });
     hostTest("an undeclared register is refused", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.reference(JobType, "sites") }, { id: "id" }), /register "sites"/);
@@ -1012,15 +1087,15 @@ describe("Sheet structure declarations", () => {
         });
     }
     hostTest("refuses top-level movement on a key-ordered flat source", () => {
-        assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root(Paged.of("keyed-edits", $.const(new Map([["a", JOBS[0]!]]), DictType(StringType, JobType))), {
-            task: Sheet.column.text(JobType),
+        assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root($.const(KEYED_JOBS_SOURCE, Paged.Types.Source(KeyedJobs)), {
+            task: Sheet.column.text(KeyedJobType),
         }, { edits: { moveRows: "within" } })), /edits.moveRows cannot reorder a flat key-ordered source/);
     });
     hostTest("refuses group movement on a key-ordered source while retaining child ordering", () => {
-        assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root(Paged.of("keyed-group-edits", $.const(new Map([["p1", PLANS[0]!]]), DictType(StringType, PlanType))), {
+        assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root($.const(KEYED_PLANS_SOURCE, Paged.Types.Source(KeyedPlans)), {
             task: Sheet.column.text(LineType),
         }, { group: Sheet.group(PlanType, "lines", { title: "name" }), edits: { moveGroups: true } })), /edits.moveGroups cannot reorder a key-ordered source/);
-        const value = East.function([], UIComponentType, ($) => Sheet.Root(Paged.of("keyed-child-edits", $.const(new Map([["p1", PLANS[0]!]]), DictType(StringType, PlanType))), {
+        const value = East.function([], UIComponentType, ($) => Sheet.Root($.const(KEYED_PLANS_SOURCE, Paged.Types.Source(KeyedPlans)), {
             task: Sheet.column.text(LineType),
         }, { group: Sheet.group(PlanType, "lines", { title: "name" }), edits: { moveRows: "within" } })).toIR().compile([])();
         assert.equal(value.type, "Sheet");

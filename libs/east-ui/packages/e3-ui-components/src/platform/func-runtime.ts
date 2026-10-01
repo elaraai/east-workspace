@@ -62,7 +62,7 @@ import { TrackedChannelStore } from "./tracked-channel.js";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through. Tests stub it;
-// the showcase harness swaps in an in-memory implementation.
+// the snapshot harness swaps in an in-memory implementation.
 // =============================================================================
 
 /** Request shape for {@link FunctionApi.call} — beast2-encoded positional
@@ -253,7 +253,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
     // ----- wiring ----------------------------------------------------------
 
     /** Install the API adapter + workspace — called by the React provider
-     *  (or a test/showcase harness) before any handle is used. */
+     *  (or a test, or the snapshot harness) before any handle is used. */
     initialize(api: FunctionApi, workspace: string): void {
         this.api = api;
         this.workspace = workspace;
@@ -514,7 +514,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
 export const defaultFuncRuntime = new FuncRuntime();
 
 /** Install the function API adapter + workspace — called by the React
- *  provider on mount (or by a test/showcase harness). */
+ *  provider on mount (or by a test, or the snapshot harness). */
 export function initializeFunctionApi(api: FunctionApi, workspace: string): void {
     defaultFuncRuntime.initialize(api, workspace);
 }
@@ -549,7 +549,7 @@ export function createScopedFuncPlatform(functions: readonly string[]): Platform
 }
 
 // =============================================================================
-// In-memory FunctionApi — offline harnesses (showcase, snapshots, tests)
+// In-memory FunctionApi — offline harnesses (the snapshot harness, tests)
 // register deterministic implementations keyed by name; `call` round-trips
 // arguments and results through the same beast2 codecs a real server uses.
 // =============================================================================
@@ -569,7 +569,7 @@ export interface InMemoryFunctionDef {
 
 /**
  * Build an offline {@link FunctionApi} from local implementations — the
- * showcase/snapshot harnesses' stand-in for a deployed package.
+ * snapshot harness's stand-in for a deployed package.
  */
 export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): FunctionApi {
     const defs = functions.map(def => ({

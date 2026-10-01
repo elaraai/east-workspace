@@ -18,6 +18,23 @@ const Row = StructType({ id: StringType, row: StringType, span: IntegerType, hei
 const Rows = ArrayType(Row);
 const Handle = StructType({ read: FunctionType([], Rows), write: FunctionType([Rows], NullType) });
 
+// A paged source of tiles, built by hand to the row-source contract — paged
+// data is bound (`Data.bindPaged`), so no package produces one.
+const Tiles = ArrayType(Tile);
+const TILES = [{ id: "a", row: "top", span: 12n, height: none }];
+const TILES_PAGE = East.function([IntegerType, IntegerType], OptionType(Tiles), ($, offset, limit) => {
+    const all = $.const(TILES, Tiles);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const TILES_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(TILES, Tiles);
+    return some(all.size());
+});
+const TILES_SOURCE = { id: "tiles", page: TILES_PAGE, total: TILES_TOTAL, seek: none };
+
 describeEast("SnapGrid", (test) => {
     Assert.examples(test, {
         snapGridPage: ex.snapGridPage,
@@ -99,7 +116,7 @@ describeEast("SnapGrid", (test) => {
 
     test("refuses a paged source — a page's tiles are held whole", _ => {
         assert.throws(() => East.function([], UIComponentType, $ => {
-            const source = $.const(Paged.of("tiles", [{ id: "a", row: "top", span: 12n, height: none }] as never));
+            const source = $.const(TILES_SOURCE, Paged.Types.Source(Tiles));
             return SnapGrid.Root(source as never, {
                 cell: (t: ExprType<typeof Tile>) => SnapGrid.cell({ key: t.id, row: t.row, span: t.span, content: Text.Root(t.id) }),
             } as never);

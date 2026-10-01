@@ -28,9 +28,10 @@ import {
     type ExprType,
 } from '@elaraai/east';
 import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-types';
-// The row-source contract is east-ui's (#567): a paged handle IS a
-// `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
-// take it without either package importing the other's data layer.
+// The row-source contract is east-ui's (#567): a paged handle IS its
+// `PinnedSourceType` — the same fields, in the same order, at the same types —
+// so Plan / Table / Sheet recognise it by its East type without either package
+// importing the other's data layer. Paged data is bound: this is its producer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
 
@@ -421,9 +422,10 @@ export interface BindPagedIndexOptions<T extends EastType, IK extends EastType, 
  * @remarks
  * As with `BoundValue`, `T` rides **structurally** in the handle's method
  * signatures, so a component requiring `PagedValue<ArrayType<OpsRow>>` rejects
- * a handle bound to any other type at compile time. Components that consume a
- * paged source structurally (east-ui's `Plan`, which must never import e3-ui)
- * match on the `page` / `total` fields alone.
+ * a handle bound to any other type at compile time. Components recognise a
+ * paged source by its East type (east-ui's `resolveRowSource`, which must
+ * never import e3-ui): this handle is east-ui's `PinnedSourceType` over `T`,
+ * the row-source contract, so they build the arm that follows its revision.
  *
  * @typeParam T - The East type of the bound dataset value (a collection type).
  */

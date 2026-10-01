@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "node --import tsx --test-reporter=spec --test 'tests/e3-package/*.spec.ts'",
     "test:responsive": "playwright test"
   },
   "dependencies": {
@@ -22,9 +23,11 @@
     "@elaraai/east-ui": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",
     "@elaraai/e3": "workspace:*",
+    "@elaraai/e3-api-client": "workspace:*",
     "@elaraai/e3-types": "workspace:*",
     "@elaraai/e3-ui": "workspace:*",
     "@elaraai/e3-ui-components": "workspace:*",
+    "@elaraai/e3-web": "workspace:*",
     "@emotion/react": "^11.14.0",
     "@tanstack/react-virtual": "^3.13.0",
     "react": "^19.0.0",
@@ -32,6 +35,7 @@
     "react-router-dom": "^7.1.0"
   },
   "devDependencies": {
+    "@elaraai/e3-core": "workspace:*",
     "@types/node": "^22.18.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

@@ -59,7 +59,24 @@ const PLANS = [
     { id: "p1", name: "Line 2 week 8", lines: [{ task: "Cut", qty: 1n }, { task: "Weld", qty: 2n }] },
     { id: "p2", name: "Line 3 week 8", lines: [{ task: "Paint", qty: 3n }] },
 ];
-const PAGED_TOTAL = 1_000n;
+
+// A paged source of a thousand jobs, `J10000` … `J10999`, built by hand to the
+// row-source contract — paged data is bound (`Data.bindPaged`), so no package
+// produces one: a window of the jobs at a time.
+const Jobs = ArrayType(JobType);
+const PAGED_JOBS = Array.from({ length: 1_000 }, (_x, i) => ({ id: `J${i + 10_000}`, activity: `Task ${i}` }));
+const PAGED_PAGE = East.function([IntegerType, IntegerType], OptionType(Jobs), ($, offset, limit) => {
+    const all = $.const(PAGED_JOBS, Jobs);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const PAGED_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(PAGED_JOBS, Jobs);
+    return some(all.size());
+});
+const PAGED_SOURCE = { id: "sheet_i18n_paged", page: PAGED_PAGE, total: PAGED_TOTAL, seek: none };
 
 /** An editable flat sheet: a text, a date and an integer column over a bound State, insertion and removal on. */
 const EDITABLE = East.function([], UIComponentType, ($) => {
@@ -91,11 +108,9 @@ const GROUPED = East.function([], UIComponentType, ($) => {
     }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
-/** A keyed paged source of a thousand rows, in a bounded frame: its first windows land, the rest wait. */
+/** A paged source of a thousand rows, in a bounded frame: its first windows land, the rest wait. */
 const PAGED = East.function([], UIComponentType, ($) => {
-    const total = $.const(PAGED_TOTAL);
-    const rows = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({ id: East.str`J${i.add(10000n)}`, activity: East.str`Task ${i}` }, JobType)), ArrayType(JobType));
-    const source = $.const(Paged.of("sheet_i18n_paged", rows, { key: (r) => r.id }));
+    const source = $.const(PAGED_SOURCE, Paged.Types.Source(Jobs));
     return Sheet.Root(source, { activity: Sheet.column.text(JobType, { header: "Activity" }) }, { id: "id", style: { height: "400px" } });
 }).toIR().compile(getRegisteredPlatformImplementations());
 

@@ -179,6 +179,24 @@ value you can diff or stage.
 | `.revision()` | `Option<String>` — the snapshot every window and search is read from: the dataset's content hash (a record's state hash through an index); `none` while it is found or while the dataset has no value |
 | `.refresh(target)` | move the source: `some(hash)` to that snapshot, `none` to the dataset's current one; returns at once |
 
+`Data.bindPaged` is how paged data reaches a component. Pass the handle as a
+`<Plan>`, `<Table>` or `<Sheet>`'s `data`: the component recognises it by its
+East type (east-ui's `Paged.Types.PinnedSource`) and pages it, and nothing else
+produces a paged source — a collection already in hand is local data, passed
+inline. The def is an `e3.input`, an `e3.record`, or an `e3.task`, whose output
+it binds. A dataset too large to hold whole is made where data is made — a task
+that generates or loads its rows — never written into the package as an
+input's value:
+
+```tsx
+// Package side: the rows come from a task, from a small authored count.
+// const units = e3.task('units', [unitCountInput], generateUnits);   // Dict<String, UnitRow>
+<Reactive>{$ => {
+    const paged = $.let(Data.bindPaged(units));
+    return <Plan axis={axis} data={paged} series={series} />;
+}}</Reactive>
+```
+
 Every window, total and search belongs to ONE snapshot, so rows from two
 snapshots never sit side by side. The source follows its dataset: when a
 dataflow run or another user's write changes it, the source moves to the new
@@ -674,7 +692,10 @@ A value that is data prints bare: every digit, never grouped, with the locale's 
 ## Examples
 
 Tested examples live in `test/*.examples.tsx`:
-- `data.examples.tsx` — `Data.bind` read/write/has, staged vs direct.
+- `data.examples.tsx` — `Data.bind` read/write/has, staged vs direct;
+  `Data.bindPaged` under a Plan, a Table and a Sheet — the large ones over
+  rows an `e3.task` generates — a snapshot's revision, and a record read
+  through its index.
 - `func.examples.tsx` — `Func.bind` call/status/cancel, shared channels.
 - `diff.examples.tsx` — reviewing pending changes with `<Diff>`.
 - `ontology.examples.tsx` — graph/ontology editing with `<Ontology>`.

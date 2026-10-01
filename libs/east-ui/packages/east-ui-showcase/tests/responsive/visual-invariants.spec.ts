@@ -393,21 +393,26 @@ test.describe("Visual invariants — the Plan", () => {
 /** Every Table example — each draws its headers' pin / sort controls. */
 const TABLES = [
     "tableBasic", "tableRichColumns", "tableFrozen", "tableGroupedColumns", "tablePnl",
-    "tableNumberFormats", "tableTree", "tableTreePaged", "tableVariants", "tablePaginated",
+    "tableNumberFormats", "tableTree", "dataBindPagedTable", "tableVariants", "tablePaginated",
     "tableExpandable", "tableReview",
 ];
 
 /** The Table examples whose rows nest (#954) — each with parents and subtotals. */
-const NESTED_TABLES = ["tablePnl", "tableNumberFormats", "tableTree", "tableTreePaged"];
+const NESTED_TABLES = ["tablePnl", "tableNumberFormats", "tableTree", "dataBindPagedTable"];
+
+/** The examples file a Table example lives in, when it is not the Table's own:
+ *  the paged tree is bound, so it is e3-ui's (#849). */
+const TABLE_FILES: Readonly<Record<string, string>> = { dataBindPagedTable: "e3/bind/data/data" };
 
 /** One nesting level's indent (#954): the Plan's gutter step (#949) — a 14px caret and its 6px gap. */
 const TREE_STEP = 20;
 
 /** A Table example's entry, at rest with its first header cell in view. */
 async function openTable(page: Page, name: string): Promise<Locator> {
-    await page.goto(`/#collections/table/${name}`);
+    const file = TABLE_FILES[name] ?? "collections/table";
+    await page.goto(`/#${file}/${name}`);
     await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#collections/table/${name}"]`) });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded();
     await expect(entry.locator("th").first()).toBeVisible({ timeout: 20_000 });
     await settled(page);

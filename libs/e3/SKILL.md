@@ -97,6 +97,13 @@ const count = e3.input('count', IntegerType);
 const table = e3.input('table', ArrayType(RowType), variant('file', './deliveries/TABLE.beast2'));
 ```
 
+An inline value is a small constant written in the source. Rows computed on
+the host as the package is built — a `Map` filled in a loop, a generated
+array — would ride the package as a snapshot, so a dataset that is generated
+or large is made where data is made: a task's output (an `e3.task` over a
+small authored count, as e3-ui's paged examples generate their rows), a
+`file` source, or a record.
+
 A `file` source:
 - is checked against the declared type at `e3.export` (drift is a build error
   naming the input and the first differing field) and again at deploy, before

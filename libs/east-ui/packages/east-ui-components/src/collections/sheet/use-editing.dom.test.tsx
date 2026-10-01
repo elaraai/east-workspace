@@ -7,7 +7,7 @@
 import { afterEach, expect, test } from "vitest";
 import { useMemo } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, Paged, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateImpl, initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
@@ -16,7 +16,26 @@ import type { SheetCellValue, SheetEditValue, SheetRootValue, SheetRowValue } fr
 
 afterEach(cleanup);
 const Row = StructType({ id: StringType, qty: IntegerType, hidden: ArrayType(StringType) });
+const Rows = ArrayType(Row);
 const rows = [{ id: "a", qty: 1n, hidden: ["keep"] }, { id: "b", qty: 2n, hidden: [] }];
+
+// A pinned source over the rows, built by hand to the row-source contract —
+// paged data is bound (`Data.bindPaged`), so no package produces one. It serves
+// one snapshot that never moves; the deletion test answers its own reads.
+const ROWS_PAGE = East.function([IntegerType, IntegerType], OptionType(Rows), ($, offset, limit) => {
+    const all = $.const(rows, Rows);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const ROWS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(rows, Rows);
+    return some(all.size());
+});
+const ROWS_REVISION = East.function([], OptionType(StringType), () => some("r0"));
+const ROWS_REFRESH = East.function([OptionType(StringType)], NullType, () => null);
+const PINNED_ROWS = { id: "delete-source", page: ROWS_PAGE, total: ROWS_TOTAL, seek: none, revision: ROWS_REVISION, refresh: ROWS_REFRESH };
 const renderView = East.function([], UIComponentType, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "sheet-live-test", rows));
     return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write });
@@ -136,7 +155,7 @@ test("paged deletion retires only after its exact committed revision and a loade
     let revision = "r0";
     let loaded = true;
     const compile = East.function([], UIComponentType, ($) => {
-        const source = $.const(Paged.pinned("delete-source", East.value(rows, ArrayType(Row))));
+        const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
         return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])) });
     }).toIR().compile([]);
     const result = compile();

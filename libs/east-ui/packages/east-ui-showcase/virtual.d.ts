@@ -71,3 +71,14 @@ declare module "virtual:example-sources" {
      */
     export const codeExamples: CodeExample[];
 }
+
+declare module "virtual:e3-showcase-package" {
+    /**
+     * Where the showcase's e3 package is served (#849): the zip the build
+     * emitted, named by its content, or the dev server's `/e3-showcase.zip`
+     * (`scripts/vite-plugin-e3-showcase.ts`). The e3 the page runs imports it
+     * as it starts.
+     */
+    const url: string;
+    export default url;
+}

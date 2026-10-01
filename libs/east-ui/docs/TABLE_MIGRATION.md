@@ -45,7 +45,7 @@ there would serialize into every declaration that names the component.
 | `groupBy={[r => r.section, { value: r => r.category, collapsed: true }]}` over flat rows | nest the DATA and declare `tree={{ children, collapsed? }}`. A `RecursiveType` row nests by its own field — `RecursiveType((self) => StructType({ …, lines: ArrayType(self) }))` with `tree={{ children: (r) => r.lines }}` — and flat rows nest by a lookup, the data holding only the top-level rows: `tree={{ children: (r) => all.filter((_$, c) => c.parent.equal(r.id)) }}`. `children` returns more rows of the data's own element type; another type is refused at build, naming the expected one. A group becomes a parent row that carries its label in its own cells. | `tablePnl`, `tableNumberFormats`, `tableTree` |
 | `groupBy` level `collapsed: true` | `tree={{ collapsed: true }}` (every parent), or `tree={{ collapsed: (r) => … }}` per row | `tablePnl`, `tableTree` |
 | `aggregateRender: fn(Cell) → UIComponent` | the column's `render`: a parent's cell in an `aggregate` column carries its subtotal as `ctx.cellValue`, so one render draws every row's cell. A `count` prints itself (a whole number, in no column's format), and no render sees it | `tablePnl` |
-| `groupBy` refused on a paged source | a paged source nests like inline data: it pages its top-level entries, each carrying its subtree | `tableTreePaged` |
+| `groupBy` refused on a paged source | a paged source nests like inline data: it pages its top-level entries, each carrying its subtree | `dataBindPagedTable` (e3-ui) |
 
 Until `toTree` (#948) lands, grouping flat rows is a data step before the
 table — a lookup as above, or rows reshaped into a recursive type.
@@ -84,7 +84,7 @@ change, and the plain toggle overwrote the range; the range now stands.
 |---|---|
 | `tablePnl` (flat lines under `groupBy`) | `tablePnl` — the P&L as nested data, subtotals through one currency `render` |
 | — | `tableTree` — a four-deep bill of materials: a Currency-formatted `sum`, a leaf `count`, a collapsed assembly |
-| — | `tableTreePaged` — the same tree over a paged source, one top-level assembly per window |
+| — | `dataBindPagedTable` (e3-ui) — a bill of materials over a bound dataset, one top-level assembly per window (`tableTreePaged` until #849 made paged data bound-only) |
 | `tableNumberFormats` (a `groupBy` over regions) | `tableNumberFormats` — the regions as parent rows: a Currency `sum`, a Percent `mean`, a bare `sum`, a year's `max` and a line `count`, each printed by #874's rules |
 
 ## The Matrix (#955)

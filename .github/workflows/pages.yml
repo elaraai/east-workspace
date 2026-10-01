@@ -7,6 +7,13 @@ on:
       - "libs/east-ui/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      # The showcase runs e3 in its page (#849): it bundles e3-web, whose units
+      # run East programs on east-web-std.
+      - "libs/east-web/**"
+      - "libs/e3/**"
+      # Its Code Reference shows east-py-datascience's examples
+      # (`scripts/example-roots.ts`).
+      - "libs/east-py/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -46,7 +53,9 @@ jobs:
         working-directory: libs/east-node
         run: make build
 
-      # e3-web, which e3 builds, runs East programs on east-web-std.
+      # e3-web, which e3 builds, runs East programs on east-web-std. The
+      # showcase bundles both: its e3 worker is e3-web's, and its unit workers
+      # run east-web-std (#849).
       - name: Build east-web (dependency)
         working-directory: libs/east-web
         run: make build

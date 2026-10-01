@@ -19,7 +19,7 @@ import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, NullType, StringType, StructType,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
     none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
@@ -48,6 +48,24 @@ const UNITS = new Map(Array.from({ length: 12 }, (_, i) => [
     `u${String(i).padStart(2, "0")}`,
     { start: W27, end: W39, tonnes: (i + 1) * 5 },
 ] as const));
+
+/** The units as a paged source, built by hand to the row-source contract —
+ *  paged data is bound (`Data.bindPaged`), so no package produces one: a window
+ *  of the units at a time, in key order. */
+const Units = DictType(StringType, UnitRow);
+const UNITS_PAGE = East.function([IntegerType, IntegerType], OptionType(Units), ($, offset, limit) => {
+    const all = $.const(UNITS, Units);
+    const keys = $.let(all.toArray((_$, _v, k) => k));
+    const n = $.let(keys.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.getKeys(keys.slice(start, end).toSet()));
+});
+const UNITS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(UNITS, Units);
+    return some(all.size());
+});
+const UNITS_SOURCE = { id: "units", page: UNITS_PAGE, total: UNITS_TOTAL, seek: none };
 
 /** Counts every call of the expand resolver — observed through a platform
  *  function inside its body, so the closure stays a real East function. */
@@ -81,8 +99,7 @@ const inlineCanvas = East.compile(East.function([StringType], UIComponentType, (
 /** A PAGED canvas whose one series keeps the units heavier than `threshold`
  *  — the threshold is captured by the series, and so by the derived `page`. */
 const pagedCanvas = East.compile(East.function([FloatType], UIComponentType, ($, threshold) => {
-    const units = $.const(UNITS, DictType(StringType, UnitRow));
-    const source = $.const(Paged.of("units", units));
+    const source = $.const(UNITS_SOURCE, Paged.Types.Source(Units));
     const series = $.const([
         Plan.series.span(UnitRow, {
             key: "units", title: "Units",

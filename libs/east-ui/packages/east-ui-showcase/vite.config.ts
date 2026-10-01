@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { exampleSourcesPlugin } from './scripts/vite-plugin-example-sources';
+import { e3ShowcasePlugin } from './scripts/vite-plugin-e3-showcase';
 
 export default defineConfig(({ command }) => {
   /* Dev server (`command === 'serve'`) resolves the renderer from its
@@ -21,30 +22,27 @@ export default defineConfig(({ command }) => {
         e3TestDir: path.resolve(__dirname, '../e3-ui/test'),
         rootDir: __dirname,
       }),
-      /* The e3 dataset cache (`main.tsx#seedE3DatasetCache`) is seeded ONCE per
-       * document load: each example's `e3.input` default is beast2-encoded against
-       * that input's East *type* at seed time. Editing an `e3-ui` IR type (e.g.
-       * adding a `Config` field) or an e3 example input changes that type — but the
-       * seed never re-runs on a hot update, so React Fast Refresh hot-swaps the
-       * renderer (now decoding against the NEW type) over bytes the cache still holds
-       * encoded against the OLD one. The mismatch surfaces as a decode failure
-       * ("Buffer underflow reading varint at offset N"). `e3-ui` is pure IR (no React
-       * component to Fast-Refresh), so force a full reload for its source + the e3
-       * example files — the seed then re-runs in lockstep with the types. The React
+      /* The showcase's e3 package (#849): every e3-ui example module's e3
+       * definitions, exported with the real SDK — served at
+       * `/e3-showcase.zip` by the dev server, and emitted by the build named
+       * by its content (`assets/e3-showcase-<hash>.zip`), the bundle carrying
+       * its URL (`virtual:e3-showcase-package`) — which the e3 the page runs
+       * (`showcase-e3.ts`) imports as it starts. The page imports it once, so
+       * an e3-ui change reaches it through the zip built again and a reload:
+       * the plugin reloads the page when e3-ui's `dist/` or `test/` changes
+       * (an example module reloads rather than updating in place). The React
        * renderer (`e3-ui-components`) keeps Fast Refresh. */
-      {
-        name: 'showcase:e3-seed-full-reload',
-        apply: 'serve',
-        handleHotUpdate({ file, server }) {
-          const p = file.replace(/\\/g, '/');
-          if (/\/e3-ui\/src\/.+\.tsx?$/.test(p) || /\/e3-ui\/test\/.+\.examples\.tsx?$/.test(p)) {
-            server.ws.send({ type: 'full-reload' });
-            return [];
-          }
-          return undefined;
-        },
-      },
+      e3ShowcasePlugin({
+        rootDir: __dirname,
+        e3UiDir: path.resolve(__dirname, '../e3-ui'),
+      }),
     ],
+    /* The e3 worker (`e3.worker.ts`) starts unit workers of its own
+     * (`unit.worker.ts`): a worker that starts workers is bundled as an ES
+     * module. */
+    worker: {
+      format: 'es' as const,
+    },
     base: '/',
     define: {
       'process.env': {},
@@ -52,11 +50,14 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: [
-        /* The e3 example files `import * as e3 from '@elaraai/e3'` only to
-         * call `e3.input(...)`. The full `@elaraai/e3` entry pulls in yazl
-         * (→ node stream/events/util), which breaks in the browser — alias
-         * to the snapshot harness's browser-safe shim in dev AND build.
-         * Anchored ($) so `@elaraai/e3-ui` / `@elaraai/e3-types` pass. */
+        /* The e3 example files import `@elaraai/e3` only to declare what
+         * they bind (`e3.input`, `e3.task`, `e3.function`, `e3.record`, …).
+         * The full `@elaraai/e3` entry pulls in yazl (→ node
+         * stream/events/util), which breaks in the browser — alias to the
+         * snapshot harness's browser-safe shim in dev AND build. The package
+         * the page's e3 deploys is made with the real SDK, in node
+         * (`scripts/e3-showcase-package.ts`). Anchored ($) so
+         * `@elaraai/e3-ui` / `@elaraai/e3-types` / `@elaraai/e3-web` pass. */
         {
           find: /^@elaraai\/e3$/,
           replacement: path.resolve(__dirname, '../e3-ui-components/snapshot/e3-shim.ts'),
@@ -146,6 +147,10 @@ export default defineConfig(({ command }) => {
         '@elaraai/e3-ui', '@elaraai/e3-ui/internal',
         'react-dom/client', '@chakra-ui/react',
         '@xyflow/react', 'cytoscape', 'cytoscape-cose-bilkent',
+        // The e3 worker's router (#849), which the dev server would otherwise
+        // find only once an e3 example starts the worker — and then reload the
+        // page under it to optimize it.
+        '@elaraai/e3-web > hono',
       ],
     },
     server: {

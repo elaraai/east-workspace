@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { ArrayType, DictType, East, IntegerType, StringType, StructType, some, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Paged, Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { initializeStore, StateImpl } from "../../platform/state-runtime.js";
@@ -133,14 +133,35 @@ test("inserting while another editor is open commits that edit first without los
 });
 
 
+// A keyed source, built by hand to the row-source contract — paged data is
+// bound (`Data.bindPaged`), so no package produces one. Its rows come a window
+// at a time in key order, at one snapshot that never moves.
+const RowsByKey = DictType(StringType, Row);
+const KEYED = new Map([
+    ["a", { id: "a", task: "First", qty: 1n, hidden: "keep a" }],
+    ["z", { id: "z", task: "Last", qty: 2n, hidden: "keep z" }],
+]);
+const KEYED_PAGE = East.function([IntegerType, IntegerType], OptionType(RowsByKey), ($, offset, limit) => {
+    const all = $.const(KEYED, RowsByKey);
+    const keys = $.let(all.toArray((_$, _v, k) => k));
+    const n = $.let(keys.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.getKeys(keys.slice(start, end).toSet()));
+});
+const KEYED_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(KEYED, RowsByKey);
+    return some(all.size());
+});
+const KEYED_REVISION = East.function([], OptionType(StringType), () => some("keyed-insertion"));
+const KEYED_REFRESH = East.function([OptionType(StringType)], NullType, () => null);
+const KEYED_SOURCE = { id: "keyed-insertion", page: KEYED_PAGE, total: KEYED_TOTAL, seek: none, revision: KEYED_REVISION, refresh: KEYED_REFRESH };
+
 test("a keyed source offers Add row, uses canonical key order and emits no ordered placement", async () => {
     const view = East.function([], UIComponentType, ($) => {
-        const data = $.const(new Map([
-            ["a", { id: "a", task: "First", qty: 1n, hidden: "keep a" }],
-            ["z", { id: "z", task: "Last", qty: 2n, hidden: "keep z" }],
-        ]), DictType(StringType, Row));
         // Pinned: an edited paged source names the snapshot its batches are checked against.
-        return Sheet.Root(Paged.pinned("keyed-insertion", data), { task: Sheet.column.text(Row) }, {
+        const data = $.const(KEYED_SOURCE, Paged.Types.PinnedSource(RowsByKey));
+        return Sheet.Root(data, { task: Sheet.column.text(Row) }, {
             newRowId: East.function([], StringType, () => "0-new"),
         });
     }).toIR().compile(StateImpl);

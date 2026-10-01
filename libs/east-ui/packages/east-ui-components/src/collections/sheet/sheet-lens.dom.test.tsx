@@ -18,7 +18,7 @@ import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, East, FloatType, OptionType, StringType, StructType,
+    ArrayType, East, FloatType, IntegerType, OptionType, StringType, StructType,
     none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
@@ -101,16 +101,74 @@ function buildLensSheet(): SheetRootValue {
     return value.value;
 }
 
-/** A keyed paged source of `n` rows whose ids sort as they stream, so `seek` addresses real positions. */
-function buildKeyed(n: number): SheetRootValue {
-    const count = BigInt(n);
-    const sourceId = `sheet_lens_keyed_${n}`;
+// A keyed paged source, built by hand to the row-source contract — paged data
+// is bound (`Data.bindPaged`), so no package produces one. 1,000 rows whose ids
+// sort as they stream, `J10000` … `J10999`, so `seek` addresses real positions.
+const Jobs = ArrayType(JobType);
+const KEYED_ROWS: ValueTypeOf<typeof JobType>[] = Array.from({ length: 1_000 }, (_x, i) => ({
+    id: `J${i + 10_000}`, activity: `Task ${i}`, notes: "", stations: { from: [], to: [] }, qty: none,
+}));
+const KEYED_IDS = KEYED_ROWS.map((r) => r.id);
+const KEYED_PAGE = East.function([IntegerType, IntegerType], OptionType(Jobs), ($, offset, limit) => {
+    const all = $.const(KEYED_ROWS, Jobs);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const KEYED_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(KEYED_ROWS, Jobs);
+    return some(all.size());
+});
+/**
+ * Where a key query lands among the ids. Their order makes every query's
+ * matches ONE contiguous run — `[lo, hi)` — so a hit is its first row and a
+ * count, and a miss carries the row it would sit at. The ids are Strings:
+ * leading struct fields name none of theirs, so `fields` matches only as its
+ * prefix, and a range bounds on its first literal.
+ */
+const KEYED_SEEK = East.function([Paged.Types.SeekQuery], OptionType(Paged.Types.SeekRange), ($, query) => {
+    const ids = $.const(KEYED_IDS, ArrayType(StringType));
+    const lo = $.let(0n);
+    const hi = $.let(0n);
+    $.match(query, {
+        key: ($2, literal) => {
+            const k = $2.let(literal.parse(StringType));
+            $2.assign(lo, ids.filter((_$, x) => x.less(k)).size());
+            $2.assign(hi, ids.filter((_$, x) => x.lessEqual(k)).size());
+        },
+        prefix: ($2, p) => {
+            $2.assign(lo, ids.filter((_$, x) => x.less(p)).size());
+            $2.assign(hi, lo.add(ids.filter((_$, x) => x.startsWith(p)).size()));
+        },
+        fields: ($2, f) => {
+            $2.if(f.values.size().equal(0n), ($3) => {
+                const p = $3.let(f.prefix.unwrap("some", () => ""));
+                $3.assign(lo, ids.filter((_$, x) => x.less(p)).size());
+                $3.assign(hi, lo.add(ids.filter((_$, x) => x.startsWith(p)).size()));
+            });
+        },
+        range: ($2, r) => {
+            $2.if(r.from.size().greater(0n), ($3) => {
+                const from = $3.let(r.from.get(0n).parse(StringType));
+                $3.assign(lo, ids.filter((_$, x) => x.less(from)).size());
+            });
+            $2.assign(hi, ids.size());
+            $2.if(r.to.size().greater(0n), ($3) => {
+                const to = $3.let(r.to.get(0n).parse(StringType));
+                $3.assign(hi, ids.filter((_$, x) => x.less(to)).size());
+            });
+            $2.if(hi.less(lo), ($3) => { $3.assign(hi, lo); });
+        },
+    });
+    return some({ found: hi.greater(lo), row: lo, count: hi.subtract(lo) });
+});
+const KEYED_SOURCE = { id: "sheet_lens_keyed_1000", page: KEYED_PAGE, total: KEYED_TOTAL, seek: some(KEYED_SEEK) };
+
+/** A paged sheet over the keyed source. */
+function buildKeyed(): SheetRootValue {
     const program = East.function([], UIComponentType, ($) => {
-        const total = $.const(count);
-        const rows = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
-            id: East.str`J${i.add(10000n)}`, activity: East.str`Task ${i}`, notes: "", stations: { from: [], to: [] }, qty: none,
-        }, JobType)), ArrayType(JobType));
-        const source = $.const(Paged.of(sourceId, rows, { key: (r) => r.id }));
+        const source = $.const(KEYED_SOURCE, Paged.Types.Source(Jobs));
         return Sheet.Root(source, {
             activity: Sheet.column.text(JobType, { header: "Activity" }),
         }, { id: "id", blanks: 2 });
@@ -287,7 +345,7 @@ describe("the paged arm's key search (§3.13)", () => {
         const restoreRows = measureRowsAsDrawn();
         const restore = emulateWindowScroll();
         try {
-            const { container } = mount(buildKeyed(1_000));
+            const { container } = mount(buildKeyed());
             await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
             const search = container.querySelector('[data-part="dataset-key-search"]')!;
             expect(search).toBeTruthy();

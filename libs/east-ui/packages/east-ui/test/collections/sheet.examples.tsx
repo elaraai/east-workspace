@@ -8,15 +8,16 @@ import {
     example, none, some, variant,
 } from "@elaraai/east";
 import {
-    Badge, Box, Configurator, Format, HStack, Input, Paged, Reactive, SegmentGroup, Sheet, Slice, State, Status, Style, Switch, Text, UIComponentType, VStack,
+    Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Sheet, Slice, State, Status, Style, Switch, Text, UIComponentType, VStack,
 } from "@elaraai/east-ui";
 
 // ============================================================================
 // The Sheet corpus — the five slots of EXAMPLES_AUTHORING.md §8 (Sheet Spec.md §8 P1):
 // `sheetBasic` · `sheetVariants` (THE configurator) · `sheetPlan` (the flagship)
 // · the behavioural isolates `sheetCopilot` / `sheetLens` / `sheetWriteBack` /
-// `sheetGrouped` / `sheetPaged` / `sheetReadiness` / `sheetInsertion` /
-// `sheetSubRows` / `sheetRules` / `sheetRegisters` / `sheetLoose` · `sheetStress`. Every example is self-contained — types,
+// `sheetGrouped` / `sheetReadiness` / `sheetInsertion` /
+// `sheetSubRows` / `sheetRules` / `sheetRegisters` / `sheetLoose` · `sheetStress`. The paged
+// sheet is bound — `dataBindPagedSheet` in @elaraai/e3-ui. Every example is self-contained — types,
 // fixtures and constructors inside the body, bulk data derived East-side —
 // and the fixtures are the prototype's synthetic registers and rows: a
 // discrete manufacturing plant (machines on lines, work orders moving parts
@@ -917,47 +918,6 @@ export const sheetGrouped = example({
                         style={{ height: "440px" }}
                     />
                     <Text.MonoLabel>{East.str`SAVED · ${applied.length()} packages · ${applied.map((_$, p) => p.jobs.length()).sum()} tasks`}</Text.MonoLabel>
-                </VStack>
-            );
-        }}</Reactive>
-    )),
-    inputs: [],
-});
-
-/**
- * The paged arm (§3.13) — the same tag over a windowed source: windows land
- * as the planner scrolls, the footer carries the transport line, the blank
- * tail appears once the source is exhausted, search is a key search over
- * `seek`, and the immutable snapshot is read-only. A mutable source needs an authoritative onApply callback.
- */
-export const sheetPaged = example({
-    keywords: ["Sheet", "Root", "paged", "Paged", "of", "window", "page", "seek", "key search", "transport", "partial", "exhausted", "onPatch", "journal", "row-source", "Reactive", "State"],
-    description: "A paged sheet — the same tag over a Paged.of source keyed by id: windows land on scroll, the footer counts elements, key search seeks the source, and its immutable snapshot stays read-only",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
-            // Six hundred rows behind a source that windows them — keyed by id,
-            // which sorts as the sheet reads, so `seek` addresses real rows.
-            const rows = $.const(East.Array.generate(600n, JobType, (_$, i) => ({
-                id: East.str`J${i.add(1000n)}`,
-                start: some(East.value(new Date("2026-01-05T00:00:00Z"), DateTimeType).addDays(i)),
-                task: i.remainder(3n).equal(0n).ifElse((_$2) => "Machining", (_$2) => i.remainder(3n).equal(1n).ifElse((_$3) => "Painting", (_$3) => "Packaging")),
-                qty: some(i.multiply(15n).toFloat().add(180.0)),
-            })), ArrayType(JobType));
-            const source = $.const(Paged.of("sheet_paged_jobs", rows, { key: r => r.id }));   // Data.bindPaged(planInput) in e3-ui
-            return (
-                <VStack gap="3" align="stretch">
-                    <Sheet
-                        data={source}
-                        id="id"
-                        columns={{
-                            start: Sheet.column.date(JobType, { header: "Start", width: "96px" }),
-                            task:  Sheet.column.text(JobType, { header: "Task", width: "180px" }),
-                            qty:   Sheet.column.quantity(JobType, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
-                        }}
-                        style={{ height: "420px" }}
-                    />
-                    <Text.MonoLabel>Immutable snapshot · key search and paging</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>

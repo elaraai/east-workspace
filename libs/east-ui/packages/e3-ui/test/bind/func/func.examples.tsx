@@ -10,9 +10,10 @@ import e3 from "@elaraai/e3";
 
 // The package-side function definitions. `Func.bind` takes the def itself —
 // name, parameter types and return type all come from it, so the binding
-// can never drift from the deployed signature.
-const forecastFn = e3.function("forecast", East.function([IntegerType, FloatType], FloatType, (_$, _periods, growth) => growth));
-const rebalanceFn = e3.function("rebalance", East.function([FloatType], FloatType, (_$, target) => target));
+// can never drift from the deployed signature. Exported, as every e3 def an
+// example binds is: the package these examples deploy in carries them.
+export const forecastFn = e3.function("forecast", East.function([IntegerType, FloatType], FloatType, (_$, _periods, growth) => growth));
+export const rebalanceFn = e3.function("rebalance", East.function([FloatType], FloatType, (_$, target) => target));
 
 export const funcBindCall = example({
     keywords: ["Func", "bind", "call", "Reactive", "Button", "pending", "read", "RPC", "FunctionDef"],

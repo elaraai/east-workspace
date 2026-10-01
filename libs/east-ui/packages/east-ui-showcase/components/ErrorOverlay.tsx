@@ -19,7 +19,10 @@
  *
  * Both render {@link ErrorAlert} — the same Chakra `Alert` the component
  * library uses, with a one-click "Copy details" button so the full
- * message + stack can be pasted straight into a bug report.
+ * message + stack can be pasted straight into a bug report. The alert says
+ * what it is (`data-showcase-error`), which is what the responsive suite
+ * finds it by: Chakra's `Alert` carries no attribute of its own to tell it
+ * from any other alert on a page.
  *
  * @packageDocumentation
  */
@@ -52,7 +55,7 @@ export function ErrorAlert({ error, onDismiss }: { error: CaughtError; onDismiss
     };
     return (
         <Box maxW="920px" mx="auto" my="8" px="4">
-            <Alert.Root status="error" variant="subtle" borderRadius="md" alignItems="flex-start">
+            <Alert.Root status="error" variant="subtle" borderRadius="md" alignItems="flex-start" data-showcase-error="">
                 <Alert.Indicator />
                 <Alert.Content gap="3" width="full" minW={0}>
                     <Alert.Title fontSize="sm">{error.title}</Alert.Title>

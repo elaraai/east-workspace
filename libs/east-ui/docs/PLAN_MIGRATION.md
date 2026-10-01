@@ -32,10 +32,11 @@ reserved; stored `UIComponentType` values re-emit.
 `paged` arm of a `Plan`, `Table` or `Sheet`'s rows — gains
 `revision: () → Option<String>` and `refresh: (Option<String>) → Null` after
 `seek`. A paged value serialized before #821 does not decode against it;
-re-emit. Authoring is unaffected: `Data.bindPaged` and `Paged.of` produce
-both fields, and a hand-written `{ id, page, total, seek }` source still
-builds — `buildRowSource` gives it `revision = none` and a `refresh` that
-raises.
+re-emit. Authoring is unaffected: `Data.bindPaged` produces both fields, and
+a source of the shape before them — `{ id, page, total, seek }`, which a UI
+exported then carries — still builds, as the `paged` arm, which names no
+snapshot. (`Paged.of`, the in-memory producer, is gone since #849 — see
+[Paged data is bound-only (#849)](#paged-data-is-bound-only-849).)
 
 **#822 breaks the Plan wire again**, and its authoring API with it — the
 rows become an ordered stream with typed ids, and hierarchy comes only from
@@ -80,6 +81,11 @@ its elements move, and every series writer takes the item a cross-row move
 carries. See [Moves and resizes (#825)](#moves-and-resizes-825) below. Stored
 `UIComponentType` values re-emit; a series that declares no move changes no
 line.
+
+**#849 makes paged data bound-only**: `Paged.of`, `PagedOfOptions` and
+`Paged.pinned` are gone, and a component recognises a paged source by its
+East type. The wire does not change. See
+[Paged data is bound-only (#849)](#paged-data-is-bound-only-849) below.
 
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
@@ -542,6 +548,64 @@ Plan.series.span(Machine, {
 - The shared drag layer (#608) takes a payload-aware drop cell:
   `useDropCell`'s options gain `accepts(payload)`, and `resolveCoord`,
   `onHover` and `name` receive the payload.
+
+## Paged data is bound-only (#849)
+
+Before #849, `Paged.of` was the one paged producer that was not a platform
+bind. It windowed a collection already in hand, so the paged examples showed a
+producer no application uses, and a component took any struct with `page` and
+`total` as a paged source by those names. Now a component's `data` is local or
+bound:
+
+- **Local** — a collection value or expression, or a whole-value `Data.bind` /
+  `State.bind` handle: the inline arm.
+- **Bound** — a paged source from the platform that owns the data, e3-ui's
+  `Data.bindPaged`: the `pinned` arm.
+
+The wire does not change.
+
+### Recognised by its type
+
+`resolveRowSource` (east-ui `contracts/source.ts`) recognises a windowed
+source through East's subtype relation, at the collection `C` its `page`
+serves:
+
+- a subtype of `Paged.Types.PinnedSource(C)` — `{ id, page, total, seek,
+  revision, refresh }`, the contract `Data.bindPaged` returns — builds the
+  `pinned` arm;
+- a subtype of `Paged.Types.Source(C)` — `{ id, page, total, seek }`, the
+  handle a UI exported before `revision` / `refresh` — builds the `paged` arm,
+  which names no snapshot.
+
+A struct with `page` and `total` that is neither — a field at another type,
+one missing, out of order or extra — is refused at build, naming the
+contract's fields, on the Plan, the Table and the Sheet alike.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `Paged.of(id, collection, options?)` and `PagedOfOptions`, from `@elaraai/east-ui` and `/internal` | bind the dataset: `Data.bindPaged(def)` over an `e3.input`, an `e3.record` or an `e3.task`. A large dataset is a task's output, generated or loaded where data is made. A collection already in hand is local data: pass it inline | `dataBindPagedPlan`, `dataBindPagedBlocks` (e3-ui) |
+| `Paged.pinned(id, collection)` | `Data.bindPaged`, whose revision is the dataset's content hash | `dataBindPagedRevision` (e3-ui) |
+| `Paged.of`'s `pageLimit`, which served short windows | none: a component's derived `page` re-requests what a trimmed window left out, as before | — |
+| a struct read by its field names, `buildRowSource` giving it an id of its own and `seek: none` | a struct of the contract's type, or of the shape before `revision` / `refresh` | — |
+
+No package exports a replacement. A spec that needs a paged source builds one
+by hand at module scope: an East struct of `Paged.Types.PinnedSource(C)` (or
+`Paged.Types.Source(C)`) over a fixture collection, its `page`, `total` and
+`seek` module-scope East functions.
+
+### Example map
+
+| Removed example | Bound replacement (e3-ui `bind/data/data`) |
+|---|---|
+| `pagedSourceCanvas` | `dataBindPagedPlan` |
+| `pagedSourceBlocks` | `dataBindPagedBlocks` — 3,000 units an `e3.task` generates from a count |
+| `pagedTableSource`, `tableTreePaged` | `dataBindPagedTable` |
+| `indexWindowQueue` | `dataBindPagedIndex` |
+| `pagedSnapshotRevision` | `dataBindPagedRevision` |
+| `sheetPaged` | `dataBindPagedSheet` — 600 jobs an `e3.task` generates; its `onApply` over a paged source is `recordSheetApply` (e3-ui `bind/record/record`) |
+| `pagedSourceTrimmed`, `pagedSourceWindows` | none: they showed `Paged.of`'s own options. What they showed of the components — whole windows read through a trimmed source, walked, evicted and sought — stays covered by `paged-trim.dom.test.tsx` and e3's page tests |
 
 ## Extracted contracts (do this first when migrating imports)
 

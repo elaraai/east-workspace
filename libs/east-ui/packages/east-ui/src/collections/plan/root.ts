@@ -567,9 +567,9 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     }
     if (resolved.kind !== "inline" && !resolved.pinned && input.onApply !== undefined) {
         throw new Error(
-            "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle, " +
-            "Paged.pinned): a batch is checked against the revision it began at, and the drafts retire once the source " +
-            "reads back at the revision it committed");
+            "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle): " +
+            "a batch is checked against the revision it began at, and the drafts retire once the source reads back at " +
+            "the revision it committed");
     }
 
     // An entry's id is its key's text — the first segment of its rows' paths:
@@ -727,11 +727,9 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
         : undefined;
     const authorApply = input.onApply === undefined ? undefined : checkedEditingCallback("Plan", input.onApply, [batchType], EditingApplyResultType,
         "onApply", true, "over Editing.Types.ChangeSet(R, K) — this canvas's entry and key types — returning Editing.Types.ApplyResult");
-    const sourceFields = resolved.kind === "paged" ? (Expr.type(resolved.source as unknown as Expr) as StructType).fields : {};
+    // A paged source is one of the contract's shapes, both of which carry `id`.
     const sourceId: ExprType<StringType> = resolved.kind === "paged"
-        ? (sourceFields["id"] !== undefined
-            ? (resolved.source as unknown as ExprType<StructType<{ id: StringType }>>).id
-            : East.value("", StringType))
+        ? (resolved.source as unknown as ExprType<StructType<{ id: StringType }>>).id
         : reader !== undefined ? East.print(East.Blob.encodeBeast(reader, "v2"))
             : authorApply !== undefined ? East.print(East.Blob.encodeBeast(authorApply, "v2"))
                 : East.value("readonly-inline", StringType);
