@@ -505,11 +505,22 @@ describe("S2: checkSteps places each diagnostic on its step, condition and slot"
         ]);
     });
 
-    test("a step that needs rows, on one value: remove it", () => {
-        const q = query("orders", [count(), sort("total", "asc")]);
-        const d = problems(q).find(x => x.stepId === q.steps[1]!.value.id)!;
-        assert.equal(d.severity, "error");
-        assert.ok(d.fixes.some(f => f.kind === "removeStep"), `${d.code}: ${d.message}`);
+    test("a step that needs rows, on one value: the checker's error, and remove it", () => {
+        // Each in the checker's own code: map and sort_by need an array, a slice something to index, .[] something to iterate.
+        const steps: readonly (readonly [Step, string])[] = [
+            [sort("total", "asc"), "type_mismatch"],
+            [filter("all", [cond("total", "ge", num(1))]), "type_mismatch"],
+            [limit(5), "not_indexable"],
+            [drill("lines"), "not_iterable"],
+        ];
+        for (const [step, code] of steps) {
+            const q = query("orders", [count(), step]);
+            const d = problems(q).find(x => x.stepId === step.value.id)!;
+            assert.deepEqual([d.severity, d.code], ["error", code], d.message);
+            const remove = d.fixes.find(f => f.kind === "removeStep");
+            assert.ok(remove !== undefined, `${d.code}: ${d.message}`);
+            assertFixed(q, remove);
+        }
     });
 
     test("an unknown data source is the source's", () => {
@@ -532,6 +543,99 @@ describe("S2: checkSteps places each diagnostic on its step, condition and slot"
         const q = query("orders", [pick([pickField("id", "x"), pickField("total", "x")]), fill("x", num(0))]);
         const found = problems(q).map(d => [d.severity, d.code, d.stepId]);
         assert.deepEqual(found, [["warning", "duplicate_key", q.steps[0]!.value.id], ["warning", "never_missing", q.steps[1]!.value.id]]);
+        const grouped = groupBy("customer_id", [agg("count", undefined, "customer_id")]);
+        assert.deepEqual(problems(query("orders", [grouped])).map(d => [d.severity, d.code, d.stepId]), [["warning", "duplicate_key", grouped.value.id]],
+            "a total named as the field grouped by");
+    });
+
+    test("an inner condition, a group and a filter left empty are incomplete", () => {
+        const noInner = cond("lines", "anyWhere");
+        const emptyGroup = group("all", []);
+        const q = query("orders", [filter("any", [noInner, emptyGroup]), filter("all", [])]);
+        assert.deepEqual(problems(q).map(d => [d.code, d.stepId, d.condId ?? "", d.slot ?? ""]), [
+            ["incomplete", q.steps[0]!.value.id, noInner.value.id, "inner"],
+            ["incomplete", q.steps[0]!.value.id, emptyGroup.value.id, ""],
+            ["incomplete", q.steps[1]!.value.id, "", ""],
+        ]);
+    });
+
+    test("a field of the wrong kind for its step: one problem, on the slot that holds it", () => {
+        const steps: readonly (readonly [Step, string])[] = [
+            [sort("lines", "asc"), "field"],
+            [groupBy("lines", [agg("count", undefined, "n")]), "by"],
+            [drill("total"), "field"],
+            [datepart("customer_id", "year", "year"), "field"],
+        ];
+        for (const [step, slot] of steps) {
+            assert.deepEqual(problems(query("orders", [step])).map(d => [d.code, d.stepId, d.slot]), [["type_mismatch", step.value.id, slot]], step.type);
+        }
+        const most = agg("max", "lines", "most");
+        assert.deepEqual(problems(query("orders", [groupBy("customer_id", [most])])).map(d => [d.code, d.slot, d.id]), [["type_mismatch", "agg-field", most.id]]);
+    });
+
+    test("a comparison its field's kind does not take: one problem, on the comparison", () => {
+        const c = cond("total", "contains", text("1"));
+        assert.deepEqual(problems(query("orders", [filter("all", [c])])).map(d => [d.code, d.condId, d.slot]), [["type_mismatch", c.value.id, "cmp"]]);
+    });
+
+    test("a value its comparison cannot use: on the value", () => {
+        const values: readonly (readonly [string, Condition])[] = [
+            ["a number that is not one", cond("total", "ge", text("abc"))],
+            ["a whole number against a fraction", cond("id", "eq", num(1.5))],
+            ["a year that is not a number", cond("status.shipped.date", "inYear", text("next year"))],
+            ["a date that is not one", cond("status.shipped.date", "onOrAfter", text("2026-13-01"))],
+        ];
+        for (const [name, c] of values) {
+            const q = query("orders", [filter("all", [cond("status", "eq", text("shipped")), c])]);
+            assert.deepEqual(problems(q).map(d => [d.code, d.condId, d.slot]), [["type_mismatch", c.value.id, "value"]], name);
+        }
+    });
+
+    test("Look up: a data source that is not a Dict, a key of another kind, a field its rows lack, a data source not bound", () => {
+        for (const dataset of ["orders", "forecast", "model"]) {
+            const step = lookup(dataset, "customer_id", ["total"]);
+            assert.deepEqual(problems(query("orders", [step])).map(d => [d.code, d.stepId, d.slot]), [["not_indexable", step.value.id, "dataset"]], dataset);
+        }
+        const byId = lookup("customers", "id", ["name"]);
+        assert.deepEqual(problems(query("orders", [byId])).map(d => [d.code, d.slot]), [["type_mismatch", "key"]]);
+        const misspelt = lookup("customers", "customer_id", ["nme"]);
+        const q = query("orders", [misspelt]);
+        const [d, ...rest] = problems(q);
+        assert.deepEqual([d?.code, d?.slot, d?.id, rest.length], ["unknown_field", "fields", "nme", 0]);
+        const fixed = assertFixed(q, d!.fixes[0]!);
+        assert.deepEqual(fixed.steps[0]!.type === "lookup" ? fixed.steps[0]!.value.fields : [], ["name"]);
+        const unbound = lookup("custs", "customer_id", ["name"]);
+        assert.deepEqual(problems(query("orders", [unbound])).map(x => [x.code, x.stepId, x.slot]), [["unknown_field", unbound.value.id, "dataset"]]);
+    });
+
+    test("List every part with no tree, Try the model with no calculation, and the model's range", () => {
+        const noTree = walk("lines");
+        assert.deepEqual(problems(query("orders", [noTree])).map(d => [d.code, d.stepId, d.slot]), [["type_mismatch", noTree.value.id, "via"]]);
+        const noModel = tabulate("price", 10, 12, 0.5, [], "demand");
+        assert.deepEqual(problems(query("orders", [noModel])).map(d => [d.code, d.stepId, d.slot ?? ""]), [["type_mismatch", noModel.value.id, ""]]);
+        const empty = tabulate("price", 12, 10, 0.5, [["region", text("NSW")]], "demand");
+        assert.deepEqual(problems(query("model", [empty])).map(d => [d.severity, d.code, d.slot]), [["error", "type_mismatch", "range"]]);
+        const long = tabulate("price", 0, 2000, 1, [["region", text("NSW")]], "demand");
+        assert.deepEqual(problems(query("model", [long])).map(d => [d.severity, d.code, d.slot, d.context["rows"]]), [["warning", "too_many_rows", "range", "2001"]]);
+        assert.deepEqual(problems(query("model", [tabulate("price", 1, 1000, 1, [["region", text("NSW")]], "demand")])), [], "a thousand rows are returned whole");
+    });
+
+    test("a jq step keeps the checker's words on its text: a syntax error, an excluded builtin, rows given more than once", () => {
+        const broken = jq("map(");
+        const [syntax] = problems(query("orders", [broken]));
+        assert.deepEqual([syntax?.code, syntax?.stepId, syntax?.slot, syntax?.fixes.map(f => f.kind)], ["syntax", broken.value.id, "text", ["editJq"]]);
+        // The checker's fix closes the bracket; what is left to write is the author's.
+        const closed = applyFix(query("orders", [broken]), syntax!.fixes[0]!, ROOT);
+        assert.equal(closed.steps[0]!.type === "jq" ? closed.steps[0]!.value.text : "", "map()");
+        const excluded = jq("map(debug)");
+        assert.deepEqual(problems(query("orders", [excluded])).map(d => [d.code, d.stepId, d.slot]), [["unsupported", excluded.value.id, "text"]]);
+        const twice = jq("map(select(.lines[] | .qty > 1))");
+        const q = query("orders", [twice]);
+        const [d] = problems(q);
+        assert.deepEqual([d?.severity, d?.code, d?.slot], ["warning", "duplicate_outputs", "text"]);
+        const fixed = assertFixed(q, d!.fixes[0]!);
+        assert.equal(fixed.steps[0]!.type === "jq" ? fixed.steps[0]!.value.text : "", "map(select(any(.lines[]; .qty > 1)))");
+        assert.deepEqual(problems(fixed), []);
     });
 });
 

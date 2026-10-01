@@ -14,12 +14,13 @@
  */
 
 import {
-    BooleanType, FloatType, printFor, variant,
+    BooleanType, FloatType, plainKind, printFor, variant,
     type EastType, type QueryErrorType, type ValueTypeOf, type option,
 } from "@elaraai/east";
+import { DEFAULT_MAX_ROWS } from "./count.js";
 import { comparisonsFor, fieldByRef, fieldsOf, type FieldKind, type StepField } from "./fields.js";
 import { itemShape, layOutSteps, type ConditionRange, type SlotRange, type StepLayout, type StepSlot } from "./print.js";
-import type { Shape } from "./shape.js";
+import { unwrapRecursive, type Shape } from "./shape.js";
 import { needsValue, type Condition, type Step, type StepQuery, type StepValue } from "./values.js";
 
 /** A diagnostic of the checker, as the query wire types hold it. */
@@ -63,7 +64,7 @@ export interface StepDiagnostic {
     readonly id?: string;
     /** An error stops the query running; a warning does not; a note says what a jq step is. */
     readonly severity: "error" | "warning" | "note";
-    /** The checker's code; `incomplete` for a slot not filled in; `custom` for a jq step. */
+    /** The checker's code; `incomplete` for a slot not filled in; `custom` for a jq step; `too_many_rows` for a range a run cuts off. */
     readonly code: string;
     /** The checker's sentence, or the steps' own, in jq's words. */
     readonly message: string;
@@ -71,7 +72,9 @@ export interface StepDiagnostic {
      * What the builder's plain words need: `field` (the field's ref), `kind`,
      * `name` and, for a payload's field, `parent`, `case` and `leaf`; `value`
      * the condition's value; `suggestion` the checker's first; `what` what an
-     * unfinished slot needs; `cmp` and `fn` the comparison and the total.
+     * unfinished slot needs; `cmp` and `fn` the comparison and the total;
+     * `dataset` a Look up's data source, with its `kind`; `rows` and `max` a
+     * range's rows and the most a run returns.
      */
     readonly context: Readonly<Record<string, string>>;
     /** Its fixes, best first. */
@@ -131,6 +134,19 @@ const GROUP_KINDS: readonly FieldKind[] = ["text", "int", "num", "date", "case",
 /** An option's value, or `undefined`. */
 function valueOf<T>(o: option<T>): T | undefined {
     return o.type === "some" ? o.value : undefined;
+}
+
+/** The type of a data source of the root, or `undefined` when the root has none of that name. */
+function datasetType(root: EastType, name: string): EastType | undefined {
+    const struct = unwrapRecursive(root);
+    if (struct.type !== "Struct") return undefined;
+    const fields = struct.fields as Record<string, EastType>;
+    return Object.hasOwn(fields, name) ? fields[name] : undefined;
+}
+
+/** How many rows `range(from; to + step / 2; step)` gives. */
+function rangeRows(from: number, to: number, step: number): number {
+    return Math.ceil((to - from) / step + 0.5);
 }
 
 /** A value as East prints it, for the words: text as written. */
@@ -204,18 +220,28 @@ function checkCondition(stepId: string, condition: Condition, shape: Shape, out:
 }
 
 /** Checks what a step needs that the checker cannot see. */
-function checkStep(step: Step, before: Shape, out: StepDiagnostic[]): void {
+function checkStep(step: Step, before: Shape, root: EastType, out: StepDiagnostic[]): void {
     const id = step.value.id;
     switch (step.type) {
         case "filter":
             if (step.value.conds.length === 0) out.push(incomplete(id, "a condition"));
             for (const c of step.value.conds) checkCondition(id, c, before, out);
             return;
-        case "lookup":
-            if (step.value.dataset.type === "none") out.push(incomplete(id, "a dataset to look up in", { slot: "dataset" }));
-            if (step.value.key.type === "none") out.push(incomplete(id, "a field to find by", { slot: "key" }));
-            if (step.value.fields.length === 0) out.push(incomplete(id, "a field to bring in", { slot: "fields" }));
+        case "lookup": {
+            const { dataset, key, fields } = step.value;
+            if (dataset.type === "none") out.push(incomplete(id, "a dataset to look up in", { slot: "dataset" }));
+            else {
+                // A Look up finds a row of a Dict by its key: a data source of any other type has no rows to find, whatever the key.
+                const table = datasetType(root, dataset.value);
+                if (table !== undefined && unwrapRecursive(table).type !== "Dict") {
+                    out.push(own(id, "error", "not_indexable", `not_indexable: $${dataset.value} is not a Dict, so a Look up cannot find a row of it by key.`,
+                        { slot: "dataset" }, { dataset: dataset.value, kind: plainKind(table) }));
+                }
+            }
+            if (key.type === "none") out.push(incomplete(id, "a field to find by", { slot: "key" }));
+            if (fields.length === 0) out.push(incomplete(id, "a field to bring in", { slot: "fields" }));
             return;
+        }
         case "group": {
             const { by, aggs } = step.value;
             if (by.type === "none") out.push(incomplete(id, "what to group by", { slot: "by" }));
@@ -267,7 +293,8 @@ function checkStep(step: Step, before: Shape, out: StepDiagnostic[]): void {
             else {
                 const field = fieldByRef(before, ref);
                 if (field !== undefined && !rule.kinds.includes(field.kind)) {
-                    out.push(own(id, "error", "type_mismatch", `type_mismatch: ${rule.form} takes a ${rule.what}, not ${field.kind}.`, { slot: "field" }, { ...fieldContext(field, ref), what: rule.what }));
+                    const form = step.type === "datepart" && step.value.part.type === "year" ? "year" : rule.form;
+                    out.push(own(id, "error", "type_mismatch", `type_mismatch: ${form} takes a ${rule.what}, not ${field.kind}.`, { slot: "field" }, { ...fieldContext(field, ref), what: rule.what }));
                 }
             }
             if (step.type === "datepart" && step.value.as.trim() === "") out.push(incomplete(id, "a name for the part", { slot: "as" }));
@@ -281,8 +308,18 @@ function checkStep(step: Step, before: Shape, out: StepDiagnostic[]): void {
             if (over.trim() === "") out.push(incomplete(id, "the input to try", { slot: "over" }));
             if (as.trim() === "") out.push(incomplete(id, "a name for the result", { slot: "as" }));
             if ([from, to, by].some(x => x.type === "text" && x.value.trim() === "")) out.push(incomplete(id, "the range", { slot: "range" }));
-            else if (from.type === "number" && to.type === "number" && by.type === "number" && !(by.value > 0 && to.value >= from.value)) {
-                out.push(own(id, "error", "type_mismatch", `type_mismatch: range(${printFloat(from.value)}; ${printFloat(to.value)}; ${printFloat(by.value)}) yields nothing.`, { slot: "range" }));
+            else if (from.type === "number" && to.type === "number" && by.type === "number") {
+                const range = `range(${printFloat(from.value)}; ${printFloat(to.value)}; ${printFloat(by.value)})`;
+                if (!(by.value > 0 && to.value >= from.value)) {
+                    out.push(own(id, "error", "type_mismatch", `type_mismatch: ${range} yields nothing.`, { slot: "range" }));
+                } else {
+                    // A run returns its first rows, so a longer range is cut off.
+                    const rows = rangeRows(from.value, to.value, by.value);
+                    if (rows > DEFAULT_MAX_ROWS) {
+                        out.push(own(id, "warning", "too_many_rows", `too_many_rows: ${range} gives ${rows} rows; a run returns the first ${DEFAULT_MAX_ROWS}.`,
+                            { slot: "range" }, { rows: `${rows}`, max: `${DEFAULT_MAX_ROWS}` }));
+                    }
+                }
             }
             return;
         }
@@ -302,6 +339,11 @@ function inRange(range: { readonly from: number; readonly to: number }, at: numb
 /** Whether a part's range holds an offset. */
 function inPart(part: readonly [number, number] | undefined, at: number): boolean {
     return part !== undefined && at >= part[0] && at <= part[1];
+}
+
+/** Whether a span covers a part's range whole. */
+function covers(from: number, to: number, part: readonly [number, number] | undefined): boolean {
+    return part !== undefined && from <= part[0] && to >= part[1];
 }
 
 /** The innermost of some ranges that holds an offset. */
@@ -367,7 +409,8 @@ function place(d: JqDiagnostic, layout: StepLayout): StepDiagnostic {
     const base = { severity: d.severity.type === "warning" ? "warning" as const : "error" as const, code: d.code, message: d.message };
     if (d.span.type === "none") return { stepId: "", ...base, context: {}, fixes: [] };
     const from = Number(d.span.value.offset);
-    const named = text.slice(from, from + Number(d.span.value.length));
+    const to = from + Number(d.span.value.length);
+    const named = text.slice(from, to);
     const context: Record<string, string> = { name: named.replace(/^\./, ""), ...(d.suggestions[0] === undefined ? {} : { suggestion: d.suggestions[0] }) };
 
     const stepRange = layout.printed.steps.find(r => inRange(r, from));
@@ -395,9 +438,12 @@ function place(d: JqDiagnostic, layout: StepLayout): StepDiagnostic {
 
     const cond: ConditionRange | undefined = innermost(layout.printed.conds.filter(c => c.stepId === stepId), from);
     const slotRange: SlotRange | undefined = cond === undefined ? innermost(layout.printed.slots.filter(s => s.stepId === stepId), from) : undefined;
-    // A value is inside its condition's read, so it is looked for first.
+    // A value is inside its condition's read, so it is looked for first. A problem
+    // with the whole comparison is its value's: the steps chose the field, and
+    // a comparison its kind takes.
+    const onValue = inPart(cond?.parts.value, from) || covers(from, to, cond?.parts.value);
     const where: Where = cond !== undefined
-        ? { condId: cond.condId, ...(inPart(cond.parts.value, from) ? { slot: "value" as const } : inPart(cond.parts.field, from) ? { slot: "field" as const } : {}) }
+        ? { condId: cond.condId, ...(onValue ? { slot: "value" as const } : inPart(cond.parts.field, from) ? { slot: "field" as const } : {}) }
         : slotRange !== undefined ? { slot: slotRange.slot, ...(slotRange.id === undefined ? {} : { id: slotRange.id }) } : {};
 
     // The field it is about, in the rows it reads.
@@ -456,13 +502,26 @@ function place(d: JqDiagnostic, layout: StepLayout): StepDiagnostic {
  * An unfinished slot is an `incomplete` warning, since an unfinished step is
  * not in the program. The checker's diagnostics keep their code and message,
  * placed by span on the step, condition and slot they came from; each jq
- * step gets a `custom` note.
+ * step gets a `custom` note. Where the steps find a problem themselves — a
+ * field of the wrong kind in a slot, a comparison the field's kind does not
+ * take, a Look up in a data source that is not a Dict — what the checker
+ * finds in that slot, that condition or that step follows from it and is
+ * left out, so one problem is reported once.
  */
 export function checkSteps(query: StepQuery, root: EastType): CheckedSteps {
     const layout = layOutSteps(query, root);
     const diagnostics: StepDiagnostic[] = [];
-    for (const laid of layout.steps) checkStep(laid.step, laid.before, diagnostics);
-    for (const d of layout.check.diagnostics) diagnostics.push(place(d, layout));
+    for (const laid of layout.steps) checkStep(laid.step, laid.before, root, diagnostics);
+    const causes = diagnostics.filter(d => d.severity === "error");
+    const follows = (placed: StepDiagnostic): boolean => causes.some(c => c.stepId === placed.stepId && (
+        c.code === "not_indexable"
+        || (c.condId !== undefined
+            ? c.condId === placed.condId && (c.slot === "cmp" || c.slot === placed.slot)
+            : placed.condId === undefined && c.slot !== undefined && c.slot === placed.slot && c.id === placed.id)));
+    for (const d of layout.check.diagnostics) {
+        const placed = place(d, layout);
+        if (!follows(placed)) diagnostics.push(placed);
+    }
     for (const laid of layout.steps) {
         if (laid.step.type === "jq" && laid.printed) {
             diagnostics.push(own(laid.step.value.id, "note", "custom", "custom: not a visual step; it stays as jq in the visual editor.", { slot: "text" }));
