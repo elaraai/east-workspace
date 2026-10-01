@@ -16,6 +16,7 @@ import * as os from 'os';
 import { variant, encodeBeast2For, none } from '@elaraai/east';
 import { LockStateType, type LockState } from '@elaraai/e3-types';
 import {
+  LocalLockService,
   acquireWorkspaceLock,
   getWorkspaceLockHolder,
   isLockHolderAlive,
@@ -151,6 +152,35 @@ describe('LocalLockService', () => {
       assert.deepStrictEqual(met, ['open', 'mkdir']);
     });
 
+    it('makes its resource\'s directory again when macOS reports a create in it, just removed, as EINVAL', async () => {
+      // A release removes the directory once its last lock has gone; a create
+      // in it a moment later fails ENOENT on Linux and EINVAL on macOS, as a
+      // probe on GitHub's macOS runners found for two shared acquirers side by
+      // side. The exclusive and the shared acquirer below each meet it once.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const writeFile = fsPromises.writeFile;
+      const raced = new Set<string>();
+      const mocked = mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array | string) => {
+        const dir = path.dirname(file);
+        if ((path.basename(dir) === 'ws-gone' || path.basename(dir) === 'ws-gone-shared') && !raced.has(dir)) {
+          raced.add(dir);
+          throw Object.assign(new Error(`EINVAL: invalid argument, open '${file}'`), { code: 'EINVAL', syscall: 'open', path: file });
+        }
+        return writeFile(file, data);
+      });
+      syncBuiltinESMExports();
+      try {
+        const exclusive = await acquireWorkspaceLock(repoPath, 'ws-gone', variant('deployment', null));
+        await exclusive.release();
+        const shared = await acquireWorkspaceLock(repoPath, 'ws-gone-shared', variant('dataset_write', null), { mode: 'shared' });
+        await shared.release();
+      } finally {
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+      assert.strictEqual(raced.size, 2);
+    });
+
     it('still fails a create refused every time, once its waits are spent', async () => {
       // A permission error looks the same as a removal in progress, so it
       // surfaces after the waits, never hangs.
@@ -261,6 +291,38 @@ describe('LocalLockService', () => {
 
       await lock1.release();
       await lock2.release();
+    });
+  });
+
+  describe('LocalLockService.acquire', () => {
+    it('gives null for a lock another holder has, and throws any other error as it is', async () => {
+      const service = new LocalLockService();
+      const held = await service.acquire(repoPath, 'svc-held', variant('dataflow', null));
+      assert.ok(held !== null);
+      try {
+        assert.strictEqual(await service.acquire(repoPath, 'svc-held', variant('dataflow', null)), null, 'held elsewhere');
+      } finally {
+        await held.release();
+      }
+      // A filesystem error is no holder: it is thrown, never reported as the
+      // lock being held elsewhere, which once named "a garbage collection or an
+      // upgrade" for a create macOS refused.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const writeFile = fsPromises.writeFile;
+      const mocked = mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array | string) => {
+        if (path.basename(path.dirname(file)) === 'svc-full') {
+          throw Object.assign(new Error(`ENOSPC: no space left on device, open '${file}'`), { code: 'ENOSPC', syscall: 'open', path: file });
+        }
+        return writeFile(file, data);
+      });
+      syncBuiltinESMExports();
+      try {
+        await assert.rejects(service.acquire(repoPath, 'svc-full', variant('dataflow', null), { mode: 'shared' }), { code: 'ENOSPC' });
+      } finally {
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+      await assert.rejects(service.acquire(repoPath, '../elsewhere', variant('dataflow', null)), InvalidNameError);
     });
   });
 
