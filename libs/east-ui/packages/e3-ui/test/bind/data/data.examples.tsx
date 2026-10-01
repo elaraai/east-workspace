@@ -565,7 +565,7 @@ export const BomPart = RecursiveType((self) => StructType({
 
 /** Two top-level assemblies, four deep: a bicycle (frame set, drivetrain, a
  *  wheel set of two wheels) and a tool kit. */
-export const bomInput = e3.input('bom', ArrayType(BomPart), variant('value', [
+export const bomInput = e3.input('bom_rows', ArrayType(BomPart), variant('value', [
     { part: "Bicycle", sku: "BK-100", qty: 1n, cost: 0.0, parts: [
         { part: "Frame set", sku: "FS-10", qty: 1n, cost: 0.0, parts: [
             { part: "Frame", sku: "FR-1", qty: 1n, cost: 420.0, parts: [] },
@@ -601,7 +601,7 @@ export const dataBindPagedTable = example({
         "total", "subtotal", "aggregate", "count", "sum", "positional", "Array", "stream order", "sort",
         "partial", "row-source", "contract", "bill of materials", "#954", "#576",
     ],
-    description: "A Table over a BOUND dataset — `Data.bindPaged(bom)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table",
+    description: "A Table over a BOUND dataset — `Data.bindPaged(bom_rows)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const bom = $.let(Data.bindPaged(bomInput));

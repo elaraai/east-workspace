@@ -22,8 +22,13 @@ its cause, in the example's place (`data-e3-start="failed"`), with a Retry
 that starts e3 again. What loaded before renders at once, so a row the doc
 list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
+The query builder's one-shot calls are answered in the browser (#940):
+`main.tsx` runs each over the e3 example modules' `e3.input` defaults
+(`createInMemoryQueryCall` through a `QueryCallProvider`).
 `vite.config.ts` aliases `@elaraai/e3` to the e3-ui-components snapshot
-harness's browser-safe shim: the examples only declare what they bind. In
+harness's browser-safe shim: the examples only declare what they bind.
+`@elaraai/e3-ui` is pre-bundled once when the dev server starts, so a change
+to e3-ui's source needs `make showcase` again (it runs `vite --force`). In
 dev, `@elaraai/e3-ui` (bare *and* `/internal`) and
 `@elaraai/east-ui-components` (bare, `/fonts`, `/platform`) must all
 resolve to source together — a split resolves East's reference-based

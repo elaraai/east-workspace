@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1242,
-    "totalFiles": 202,
+    "totalEntries": 1246,
+    "totalFiles": 203,
     "packages": {
       "east": 568,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 380,
-      "e3-ui": 51,
+      "e3-ui": 55,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -42402,7 +42402,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
       "suite": "",
-      "test": "A Table over a BOUND dataset — `Data.bindPaged(bom)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table",
+      "test": "A Table over a BOUND dataset — `Data.bindPaged(bom_rows)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table",
       "keywords": [
         "Data",
         "bindPaged",
@@ -42439,7 +42439,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// A Table over a BOUND dataset — `Data.bindPaged(bom)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bom = $.let(Data.bindPaged(bomInput));\n            return (\n                <Table\n                    variant=\"line\"\n                    data={bom}\n                    columns={{\n                        part: { header: \"Part\", width: \"240px\" },\n                        sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                        qty: { header: \"Qty\" },\n                        cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                    }}\n                    tree={{ children: (p) => p.parts }}\n                />\n            );\n        }}</Reactive>\n    ))"
+      "source": "// A Table over a BOUND dataset — `Data.bindPaged(bom_rows)` hands the Table its windows exactly as a Plan takes them, and the difference is only the collection: a Table's windows are ARRAYS that concatenate in stream order. The bill of materials nests in the data (`tree.children`), and a window holds whole top-level assemblies with their subtrees, so every subtotal — the cost in the column's currency format, the SKU column's count of leaf parts — is exact over what has loaded, exactly as inline. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix would look like a sort of the whole table\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const bom = $.let(Data.bindPaged(bomInput));\n            return (\n                <Table\n                    variant=\"line\"\n                    data={bom}\n                    columns={{\n                        part: { header: \"Part\", width: \"240px\" },\n                        sku: { header: \"SKU · parts\", aggregate: \"count\" },\n                        qty: { header: \"Qty\" },\n                        cost: { header: \"Cost\", format: Format.Currency({ currency: \"EUR\" }), aggregate: \"sum\" },\n                    }}\n                    tree={{ children: (p) => p.parts }}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:data.examples.tsx:dataBindPagedSheet",
@@ -43478,6 +43478,126 @@
         "tsx"
       ],
       "source": "// Ontology editor + Diff panel — pending node/link patch surfaces in Diff card\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Reactive>{$ => {\n                const view = $.let(Data.bind(supplyChainOntologyInput));\n                return (\n                    <Card>\n                        <VStack gap=\"4\" align=\"stretch\">\n                            <Text textStyle=\"heading-md\">Fulfilment ontology</Text>\n                            <Text>Edit nodes and links above; review the pending patch below before applying.</Text>\n                            <Ontology value={view} />\n                            <Diff bindings={[view.binding]} hideUnchanged={some(true)} />\n                        </VStack>\n                    </Card>\n                );\n            }}</Reactive>\n        );\n    })"
+    },
+    {
+      "id": "e3-ui:query.examples.tsx:queryBuilder",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/query/query.examples.tsx",
+      "suite": "",
+      "test": "The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it",
+      "keywords": [
+        "Query",
+        "Query.Builder",
+        "query builder",
+        "jq",
+        "steps",
+        "saved queries",
+        "run",
+        "results",
+        "Table",
+        "Value tree",
+        "Download",
+        "CSV",
+        "Record.bind",
+        "patch",
+        "e3.record",
+        "e3.mutation.patch",
+        "Data.bind",
+        "datasets",
+        "one-shot"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The query builder over the shared fixture's datasets and the saved queries record, open on Top shipped orders, 2026: one toolbar — Visual · jq, Table · Tree, Download, the history item, Copy jq, Save… and Run — the pane's Query tab with its five steps and their counted shape lines, and the ten orders it gives as a Table beside it\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const saved = $.let(Record.bind(queries, [queriesPatch]));\n            const orderRows = $.let(Data.bind(orders));\n            const customerRows = $.let(Data.bind(customers));\n            const weekly = $.let(Data.bind(forecast));\n            const demand = $.let(Data.bind(model));\n            const parts = $.let(Data.bind(bom));\n            return (\n                <Box height=\"760px\">\n                    <Query.Builder queries={saved} query=\"Top shipped orders, 2026\" id=\"top\"\n                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:query.examples.tsx:queryBuilderBom",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/query/query.examples.tsx",
+      "suite": "",
+      "test": "The same builder open on Pump parts cost: every part of the PUMP-A bill of materials, walked, then totalled — its cost, its part count and its dearest part, one value shown as a Value tree",
+      "keywords": [
+        "Query",
+        "Query.Builder",
+        "tree",
+        "recursive",
+        "bill of materials",
+        "List every part in the tree",
+        "Group and total",
+        "Value tree"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The same builder open on Pump parts cost: every part of the PUMP-A bill of materials, walked, then totalled — its cost, its part count and its dearest part, one value shown as a Value tree\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const saved = $.let(Record.bind(queries, [queriesPatch]));\n            const orderRows = $.let(Data.bind(orders));\n            const customerRows = $.let(Data.bind(customers));\n            const weekly = $.let(Data.bind(forecast));\n            const demand = $.let(Data.bind(model));\n            const parts = $.let(Data.bind(bom));\n            return (\n                <Box height=\"640px\">\n                    <Query.Builder queries={saved} query=\"Pump parts cost\" id=\"bom\"\n                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:query.examples.tsx:queryBuilderModel",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/query/query.examples.tsx",
+      "suite": "",
+      "test": "The same builder open on Demand at $10–$12, NSW: the demand model, an East function in the data, tried at each price from $10 to $12 in $0.50 steps, one row per price",
+      "keywords": [
+        "Query",
+        "Query.Builder",
+        "model",
+        "function",
+        "Try the model over a range",
+        "call",
+        "what if"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The same builder open on Demand at $10–$12, NSW: the demand model, an East function in the data, tried at each price from $10 to $12 in $0.50 steps, one row per price\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const saved = $.let(Record.bind(queries, [queriesPatch]));\n            const orderRows = $.let(Data.bind(orders));\n            const customerRows = $.let(Data.bind(customers));\n            const weekly = $.let(Data.bind(forecast));\n            const demand = $.let(Data.bind(model));\n            const parts = $.let(Data.bind(bom));\n            return (\n                <Box height=\"640px\">\n                    <Query.Builder queries={saved} query=\"Demand at $10–$12, NSW\" id=\"model\"\n                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:query.examples.tsx:queryBuilderEmpty",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/query/query.examples.tsx",
+      "suite": "",
+      "test": "A builder over a record with no saved queries: a new query on orders, its Query tab asking for a first step, and nothing run yet",
+      "keywords": [
+        "Query",
+        "Query.Builder",
+        "new query",
+        "empty",
+        "Add a step",
+        "Quick add"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Reactive, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Data, Query, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A builder over a record with no saved queries: a new query on orders, its Query tab asking for a first step, and nothing run yet\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const saved = $.let(Record.bind(queriesEmpty, [queriesEmptyPatch]));\n            const orderRows = $.let(Data.bind(orders));\n            const customerRows = $.let(Data.bind(customers));\n            return (\n                <Box height=\"560px\">\n                    <Query.Builder queries={saved} id=\"empty\" datasets={{ orders: orderRows, customers: customerRows }} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:component.examples.tsx:studioComponent",

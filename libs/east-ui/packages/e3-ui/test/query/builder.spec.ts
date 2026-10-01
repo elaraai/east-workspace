@@ -152,19 +152,19 @@ function payloadOf(build: (handles: { queries: ReturnType<typeof boundQueries.ca
 }
 
 describe("<Query.Builder> (#935)", () => {
-    test("the tag builds the QueryBuilder carrier, holding the bound record, the data sources in the order given and its name", () => {
+    test("the tag builds the QueryBuilder carrier, holding the bound record, the data sources in the order given, the query it opens first and its name", () => {
         const payload = payloadOf(({ queries, orders, customers, regions }) =>
-            Query.Builder({ queries, datasets: { orders, customers, regions }, id: "ops" }));
+            Query.Builder({ queries, datasets: { orders, customers, regions }, query: "Big orders", id: "ops" }));
         assert.ok(sources(payload.datasets, [
             { name: "orders", source: variant("paged", ".inputs.orders"), type: toEastTypeValue(OrdersType) },
             { name: "customers", source: variant("value", CUSTOMERS), type: toEastTypeValue(CustomersType) },
             { name: "regions", source: variant("record", "regions"), type: toEastTypeValue(RegionsType) },
         ]), "each binding's descriptor, read off the handle, and its value's type");
-        assert.deepEqual(payload.id, some("ops"));
+        assert.deepEqual([payload.query, payload.id], [some("Big orders"), some("ops")]);
         assert.ok(records(payload.queries.read(), saved(BIG_ORDERS)), "the bound record's read");
 
         const unnamed = payloadOf(({ queries, customers }) => Query.Builder({ queries, datasets: { customers } }));
-        assert.deepEqual(unnamed.id, none, "an id not given is none");
+        assert.deepEqual([unnamed.query, unnamed.id], [none, none], "a query and an id not given are none");
     });
 
     test("M2, M3: only bound sources can be queried — a name a query can't read as a root field, and a builder handed none, are refused when the surface is built", () => {

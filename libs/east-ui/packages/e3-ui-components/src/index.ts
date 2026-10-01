@@ -58,8 +58,9 @@ export {
 } from './studio/messages.js';
 
 // The query builder (#875) — its renderer registers itself against its
-// extension on import — the builder's words, how it makes a one-shot call, and
-// the query's one-shot call itself, which a host can make without the builder.
+// extension on import — the builder's words, how it makes a one-shot call (and
+// a call answered in memory, where there is no server), and the query's
+// one-shot call itself, which a host can make without the builder.
 export { EastChakraQueryBuilder, type EastChakraQueryBuilderProps, type QueryFocus, type QueryTab } from './query/builder.js';
 export {
     QueryMessagesProvider,
@@ -74,6 +75,7 @@ export {
     type QueryCall,
     type QueryCallProviderProps,
 } from './query/hooks.js';
+export { createInMemoryQueryCall, type InMemoryDataset } from './query/in-memory-call.js';
 export {
     prepareQuery,
     queryResultOf,
