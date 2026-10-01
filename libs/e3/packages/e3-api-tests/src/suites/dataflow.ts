@@ -52,7 +52,22 @@ import {
 } from '../fixtures.js';
 import { assertDataflowSucceeded, describeDataflowResult } from '../assertions.js';
 import { waitFor } from '../cli.js';
-import type { RequestOptions } from '@elaraai/e3-api-client';
+import type { ExecutionStateOptions, LogOptions, RequestOptions } from '@elaraai/e3-api-client';
+
+/**
+ * Asserts a call is refused `bad_request`, with the message the server gives.
+ *
+ * @param call - The refused call
+ * @param message - The server's message, whole
+ */
+async function rejectsBadRequest(call: Promise<unknown>, message: string): Promise<void> {
+  await assert.rejects(call, (err: unknown) => {
+    assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+    assert.strictEqual(err.code, 'bad_request');
+    assert.strictEqual(err.details, message);
+    return true;
+  });
+}
 
 /** Helper: import package, create workspace, deploy */
 function withDeployed(
@@ -1026,6 +1041,54 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(tail.offset, 14n);
         assert.strictEqual(tail.size, 7n);
         assert.strictEqual(tail.complete, true);
+
+        // A window of no bytes is a window: it reports the log's size, which
+        // is how e3's CLI learns it
+        const probe = await read({ offset: 0, limit: 0 });
+        assert.strictEqual(probe.data, '');
+        assert.strictEqual(probe.size, 0n);
+        assert.strictEqual(probe.totalSize, total);
+      });
+
+      it('refuses a malformed window or stream with bad_request, before it reads a log', async (t) => {
+        const ctx = await withLogPag(t);
+        const opts = await ctx.opts();
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', { force: true }, opts));
+
+        // Through the client, which sends a number as it prints
+        const windows: [LogOptions, string][] = [
+          [{ offset: NaN }, 'offset must be a non-negative integer, got "NaN"'],
+          [{ offset: -1 }, 'offset must be a non-negative integer, got "-1"'],
+          [{ offset: 1.5 }, 'offset must be a non-negative integer, got "1.5"'],
+          [{ limit: NaN }, 'limit must be a non-negative integer, got "NaN"'],
+          [{ limit: -1 }, 'limit must be a non-negative integer, got "-1"'],
+        ];
+        for (const [window, message] of windows) {
+          await rejectsBadRequest(
+            taskLogs(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'log', { stream: 'stdout', ...window }, opts),
+            message,
+          );
+        }
+
+        // As a request spells them: a word; a number past those a number holds
+        // exactly; a stream other than the two a log has, a way out of the
+        // execution among them; and a window for a task there is no log of,
+        // refused before the server looks for one
+        const logs = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/logpag-ws/dataflow/logs`;
+        const headers: Record<string, string> = opts.token ? { 'Authorization': `Bearer ${opts.token}` } : {};
+        const requests: [string, string][] = [
+          ['log?offset=abc', 'offset must be a non-negative integer, got "abc"'],
+          ['log?limit=abc', 'limit must be a non-negative integer, got "abc"'],
+          ['log?offset=99999999999999999999', 'offset must be at most 9007199254740991, got "99999999999999999999"'],
+          ['log?stream=stdin', 'stream must be stdout or stderr, got "stdin"'],
+          [`log?stream=${encodeURIComponent('../../stdout')}`, 'stream must be stdout or stderr, got "../../stdout"'],
+          ['no_such_task?offset=-1', 'offset must be a non-negative integer, got "-1"'],
+        ];
+        for (const [request, message] of requests) {
+          const response = await ctx.fetch(`${logs}/${request}`, { headers });
+          assert.strictEqual(response.status, 400, request);
+          assert.deepStrictEqual(await response.json(), { error: { type: 'bad_request', message } }, request);
+        }
       });
     });
 
@@ -1060,6 +1123,28 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const event1Key = `${event1.type}:${'value' in event1 ? (event1.value as { task: string }).task : ''}`;
         const event2Key = `${event2.type}:${'value' in event2 ? (event2.value as { task: string }).task : ''}`;
         assert.notStrictEqual(event1Key, event2Key, 'Paginated events should be different');
+      });
+
+      it('refuses a malformed window of events with bad_request; a window of none carries the run\'s state and its count', async (t) => {
+        const ctx = await withEvtPag(t);
+        const opts = await ctx.opts();
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts));
+
+        // Each was served a window before, of every event or of none
+        const windows: [ExecutionStateOptions, string][] = [
+          [{ offset: NaN }, 'offset must be a non-negative integer, got "NaN"'],
+          [{ offset: -1 }, 'offset must be a non-negative integer, got "-1"'],
+          [{ limit: NaN }, 'limit must be a non-negative integer, got "NaN"'],
+          [{ limit: 1.5 }, 'limit must be a non-negative integer, got "1.5"'],
+        ];
+        for (const [window, message] of windows) {
+          await rejectsBadRequest(dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', window, opts), message);
+        }
+
+        const none = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { limit: 0 }, opts);
+        assert.strictEqual(none.status.type, 'completed');
+        assert.strictEqual(none.events.length, 0);
+        assert.ok(none.totalEvents >= 3n, `Expected at least 3 total events, got ${none.totalEvents}`);
       });
     });
   });

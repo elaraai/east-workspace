@@ -24,6 +24,7 @@ import type { Identity } from '../identity.js';
 import { MutationCallRequestType, MutationResultType, RecordSignatureType } from '../types.js';
 import { callMutationSync, getRecordHistory, describeRecord, compactRecord } from '../handlers/records.js';
 import type { GetRunner } from './functions.js';
+import { wholeQuery } from './query.js';
 
 /** Roles allowed to compact a record's history (drops the prior chain). */
 const COMPACT_ROLES = ['admin', 'owner'];
@@ -55,11 +56,12 @@ export function createWorkspaceRecordRoutes(
   // GET /:rec/history?from=<hash>&limit=N — commit chain, newest first
   app.get('/:rec/history', async (c) => {
     const repoPath = getRepoPath(c.req.param('repo')!);
-    const limitRaw = c.req.query('limit');
-    const parsed = limitRaw !== undefined ? Number(limitRaw) : NaN;
-    const limit = Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    // A limit of 0, or a malformed one, is refused rather than read as none:
+    // the whole chain is what an absent limit asks for.
+    const window = wholeQuery(c, { limit: 1 });
+    if (window instanceof Response) return window;
     const from = c.req.query('from') || undefined;
-    return getRecordHistory(storage, repoPath, c.req.param('ws')!, c.req.param('rec')!, limit, from);
+    return getRecordHistory(storage, repoPath, c.req.param('ws')!, c.req.param('rec')!, window.limit, from);
   });
 
   // POST /:rec/mutations/:mut — apply a mutation synchronously (200 MutationResult)
