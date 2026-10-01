@@ -490,7 +490,8 @@ Beside the pane, the result of the last run:
   tabular mono, missing values "—", nested values summarised: "3 lines") or **a Value tree** (east-ui's
   ValueTree, read-only). Rows open as a Table and one value as a tree; Table · Tree in the toolbar overrides it
   until the next run.
-- **The strips** run edge to edge at the top of the results, each over a rule, as the mock draws them:
+- **The strips** run under the builder's toolbar, its full width — across the pane and the results — edge to
+  edge, each over a rule, as the mock draws them:
 - **Stale**: when the program changes after a run, a strip on the subtle surface over a dashed rule — its
   **Stale** tag (mono capitals), "The query changed after this run." and **Run again** ⌘⏎ in the brand ink —
   and the body dashed; shape lines stop counting.

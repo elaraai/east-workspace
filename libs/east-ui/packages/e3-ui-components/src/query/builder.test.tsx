@@ -75,8 +75,9 @@ describe("<Query.Builder> — the shell (#935)", () => {
         expect(screen.getAllByRole("tab")[0]!.getAttribute("aria-selected")).toBe("true");
         expect(builder.querySelector("[data-query-results]")).not.toBeNull();
         expect(builder.querySelector("[data-query-status]")).not.toBeNull();
-        expect([...builder.children].map(el => el.getAttribute("data-slot") ?? (el.hasAttribute("data-query-status") ? "status" : "body")))
-            .toEqual(["toolbar", "body", "status"]);
+        const part = (el: Element) => el.getAttribute("data-slot")
+            ?? (el.hasAttribute("data-query-strips") ? "strips" : el.hasAttribute("data-query-status") ? "status" : "body");
+        expect([...builder.children].map(part)).toEqual(["toolbar", "strips", "body", "status"]);
     }, 30_000);
 
     test("it draws no border around itself: its recipe's root has none, so a host frames it or places it bare", () => {

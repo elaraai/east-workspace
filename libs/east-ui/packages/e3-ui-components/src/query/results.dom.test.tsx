@@ -65,8 +65,8 @@ function footer() {
     const text = (sel: string) => el.querySelector(sel)?.textContent ?? "";
     return { count: text("[data-query-result-count]"), fields: text("[data-query-result-fields]"), run: text("[data-query-result-run]"), reads: text("[data-query-result-reads]") };
 }
-/** The banners at the top of the results: each title, and the words under it. */
-const banners = () => [...results().querySelectorAll<HTMLElement>("[role=alert], [role=status]")].map((b) => b.textContent ?? "");
+/** The result's strips under the builder's toolbar: each one's words. */
+const banners = () => [...document.querySelectorAll<HTMLElement>("[data-query-strips] [role=alert], [data-query-strips] [role=status]")].map((b) => b.textContent ?? "");
 /** The shape lines' words, in order. */
 const shapes = () => [...document.querySelectorAll<HTMLElement>("[data-query-shape-text]")].map((el) => el.textContent);
 /** How the result shows: `table`, `tree`, or none. */

@@ -7,7 +7,8 @@
  * Query results slot recipe (#935, #938) — the region beside the query
  * builder's pane where a run's result shows (`Query Editor Spec.md` §4.11):
  *
- * - `banners`: the strips, in flow at the top, edge to edge, each over a rule —
+ * - `banners`: the strips, which the builder draws under its toolbar, its full
+ *   width, edge to edge, each over a rule —
  *   a `strip` of `data-tone` stale (its `stripTag`, its `stripText` and Run
  *   again's `stripAction` with its `stripKeys`), error (its `stripIcon`, then
  *   a `stripBody` of its `stripTitle` and its message) or note (its icon, its

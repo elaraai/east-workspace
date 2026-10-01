@@ -11,11 +11,11 @@
  *   up across the builder: the result's controls ({@link resultToolbarItems}),
  *   Table · Tree and Download ▾ with CSV and BEAST2, on the shared toolbar's
  *   row — the band a `Library` holds its search box in;
- * - **the strips**, in flow at the top, edge to edge, each over a rule: the
- *   stale strip — its "Stale" tag, "The query changed after this run.", and
- *   Run again with its keys — while the query differs from the one the result
- *   is of; a run that gave no result, worded by how it ended; and the note
- *   after a download, dismissible;
+ * - **the strips** ({@link ResultStrips}), which the builder draws under its
+ *   toolbar, its full width: the stale strip — its "Stale" tag, "The query
+ *   changed after this run.", and Run again with its keys — while the query
+ *   differs from the one the result is of; a run that gave no result, worded by
+ *   how it ended; and the note after a download, dismissible;
  * - **the body**: before any run, the empty state; while a run goes, the data
  *   sources it reads over skeleton rows; a result as a Table (east-ui's Table
  *   renderer, over `results-table.ts`'s rows) or as a Value tree (east-ui's
@@ -191,12 +191,6 @@ export interface QueryResultsProps {
     readonly stale: boolean;
     /** How the result shows. */
     readonly view: ResultView;
-    /** The note after a download, until it is dismissed or the next run. */
-    readonly note: string | undefined;
-    /** Dismisses the note. */
-    readonly onDismissNote: () => void;
-    /** Runs the query again. */
-    readonly onRunAgain: () => void;
     /** The words. */
     readonly words: QueryWords;
     /** The builder's storage key: the result's renderers keep their state under it. */
@@ -208,10 +202,10 @@ export interface QueryResultsProps {
 /**
  * Renders the results — see the module docs.
  *
- * @param props - The run, whether it is stale, the view, the note and the words ({@link QueryResultsProps})
+ * @param props - The run, whether it is stale, the view, the words and the result's controls ({@link QueryResultsProps})
  * @returns The results
  */
-export const QueryResults = memo(function QueryResults({ state, stale, view, note, onDismissNote, onRunAgain, words, storageKey, controls }: QueryResultsProps) {
+export const QueryResults = memo(function QueryResults({ state, stale, view, words, storageKey, controls }: QueryResultsProps) {
     const m = words.messages;
     const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
     // The band a Library draws over its cards: as tall as the pane's tab row, which it lines up with.
@@ -231,7 +225,6 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, not
     }, []);
 
     const output = state.status === "done" ? state.output : undefined;
-    const failure = runFailure(state, words);
     const footer = resultFooter(state, words);
     const n = state.status === "idle" ? 0 : state.n;
     const table = useMemo(() => (output === undefined || view !== "table" ? undefined : resultTable({ type: output.type, value: output.value }, words)), [output, view, words]);
@@ -281,33 +274,6 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, not
             <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
                 <Toolbar items={controls} />
             </Box>
-            <Box css={styles.banners}>
-                {stale && output !== undefined && (
-                    <Box css={styles.strip} data-tone="stale" role="status">
-                        <Box as="span" css={styles.stripTag}>{m.staleTag()}</Box>
-                        <Box as="span" css={styles.stripText}>{m.staleResult()}</Box>
-                        <Button size="xs" variant="ghost" colorPalette="brand" css={styles.stripAction} data-query-run-again="" onClick={onRunAgain}>
-                            {m.runAgain()}<Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>
-                        </Button>
-                    </Box>
-                )}
-                {failure !== undefined && (
-                    <Box css={styles.strip} data-tone="error" role="alert">
-                        <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleExclamation} /></Box>
-                        <Box css={styles.stripBody}>
-                            <Box as="span" css={styles.stripTitle}>{failure.title}</Box>
-                            {failure.message !== "" && <Box as="span">{failure.message}</Box>}
-                        </Box>
-                    </Box>
-                )}
-                {note !== undefined && (
-                    <Box css={styles.strip} data-tone="note" role="status">
-                        <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleInfo} /></Box>
-                        <Box as="span" css={styles.stripText}>{note}</Box>
-                        <CloseButton size="2xs" css={styles.stripAction} onClick={onDismissNote} />
-                    </Box>
-                )}
-            </Box>
             <Box css={styles.body} data-stale={stale && output !== undefined ? "" : undefined}>{body}</Box>
             <Box css={styles.footer} data-query-results-footer="">
                 <Box as="span" css={styles.footerCount} data-query-result-count="">{footer.count}</Box>
@@ -320,6 +286,68 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, not
                 )}
                 {footer.reads !== "" && <Box as="span" css={styles.footerReads} data-query-result-reads="">{footer.reads}</Box>}
             </Box>
+        </Box>
+    );
+});
+
+/** Props of {@link ResultStrips}. */
+export interface ResultStripsProps {
+    /** The run. */
+    readonly state: RunState;
+    /** Whether the query changed after the run that gave the result. */
+    readonly stale: boolean;
+    /** The note after a download, until it is dismissed or the next run. */
+    readonly note: string | undefined;
+    /** Dismisses the note. */
+    readonly onDismissNote: () => void;
+    /** Runs the query again. */
+    readonly onRunAgain: () => void;
+    /** The words. */
+    readonly words: QueryWords;
+}
+
+/**
+ * The result's strips (`Query Editor Spec.md` §4.11): under the builder's
+ * toolbar, the builder's full width, edge to edge, each over a rule — the
+ * stale strip while the query differs from the one the result is of; a run
+ * that gave no result, worded by how it ended; and the note after a download,
+ * dismissible. None, and the strips take no room.
+ *
+ * @param props - The run, whether it is stale, the note and the words ({@link ResultStripsProps})
+ * @returns The strips
+ */
+export const ResultStrips = memo(function ResultStrips({ state, stale, note, onDismissNote, onRunAgain, words }: ResultStripsProps) {
+    const m = words.messages;
+    const styles = useSlotRecipe({ key: "queryResults" })() as Styles;
+    const output = state.status === "done" ? state.output : undefined;
+    const failure = runFailure(state, words);
+    return (
+        <Box css={styles.banners} data-query-strips="">
+            {stale && output !== undefined && (
+                <Box css={styles.strip} data-tone="stale" role="status">
+                    <Box as="span" css={styles.stripTag}>{m.staleTag()}</Box>
+                    <Box as="span" css={styles.stripText}>{m.staleResult()}</Box>
+                    <Button size="xs" variant="ghost" colorPalette="brand" css={styles.stripAction} data-query-run-again="" onClick={onRunAgain}>
+                        {m.runAgain()}<Box as="span" css={styles.stripKeys}>{m.runKeys()}</Box>
+                    </Button>
+                </Box>
+            )}
+            {failure !== undefined && (
+                <Box css={styles.strip} data-tone="error" role="alert">
+                    <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleExclamation} /></Box>
+                    <Box css={styles.stripBody}>
+                        <Box as="span" css={styles.stripTitle}>{failure.title}</Box>
+                        {failure.message !== "" && <Box as="span">{failure.message}</Box>}
+                    </Box>
+                </Box>
+            )}
+            {note !== undefined && (
+                <Box css={styles.strip} data-tone="note" role="status">
+                    <Box as="span" css={styles.stripIcon} aria-hidden><FontAwesomeIcon icon={faCircleInfo} /></Box>
+                    <Box as="span" css={styles.stripText}>{note}</Box>
+                    <CloseButton size="2xs" css={styles.stripAction} onClick={onDismissNote} />
+                </Box>
+            )}
         </Box>
     );
 });
