@@ -30,6 +30,9 @@
     "CLA.md"
   ],
   "sideEffects": [
+    "./dist/fonts.js",
+    "./dist/fonts.cjs",
+    "./src/fonts.ts",
     "./dist/platform/state-runtime.js",
     "./src/platform/state-runtime.ts",
     "./dist/platform/clipboard/index.js",
