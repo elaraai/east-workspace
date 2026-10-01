@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import type { Budget, DataflowOrchestrator, ExecutionStateStore, StorageBackend } from '@elaraai/e3-core';
+import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend } from '@elaraai/e3-core/portable';
 import {
   startDataflow,
   getDataflowStatus,
@@ -13,10 +13,13 @@ import {
   getDataflowExecution,
   getDataflowBudget,
   cancelDataflow,
+  type RunnerBudget,
 } from '../handlers/dataflow.js';
 import { decodeBody } from '../beast2.js';
 import { DataflowRequestType } from '../types.js';
 import type { GetRunner } from './functions.js';
+
+export type { RunnerBudget };
 
 /**
  * The seams the dataflow routes go through, which the host that mounts them
@@ -39,7 +42,7 @@ export interface DataflowSeams {
   width?: number;
   /** The budget the runner holds, which the poll and the budget route serve;
    *  absent for a host whose runners hold none */
-  budget?: Budget;
+  budget?: RunnerBudget;
 }
 
 /**

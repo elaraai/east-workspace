@@ -25,11 +25,11 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { oneShotExecute, workspaceGetPackage } from '@elaraai/e3-core';
-import type { ExecuteCeilings, OneShotGrant, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
+import { oneShotExecute, workspaceGetPackage } from '@elaraai/e3-core/portable';
+import type { ExecuteCeilings, OneShotGrant, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core/portable';
 import { decodeBody, sendError, sendSuccess } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import type { Identity } from '../middleware/auth.js';
+import type { Identity } from '../identity.js';
 import {
   FunctionCallRequestType,
   OneShotRequestType,

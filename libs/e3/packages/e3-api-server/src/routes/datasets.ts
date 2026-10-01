@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { urlPathToTreePath } from '@elaraai/e3-types';
-import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
 import {
   listDatasets,
   listDatasetsRecursive,

@@ -13,8 +13,8 @@ import {
   executionGetLatest,
   executionListIds,
   executionGet,
-} from '@elaraai/e3-core';
-import type { StorageBackend } from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
+import type { StorageBackend } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { TaskListItemType, TaskDetailsType, ExecutionListItemType, type ExecutionListItem } from '../types.js';

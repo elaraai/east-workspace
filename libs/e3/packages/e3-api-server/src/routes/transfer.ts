@@ -5,7 +5,6 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { randomUUID } from 'node:crypto';
 import { none, variant } from '@elaraai/east';
 import { E3_RELEASE, TRANSFER_PROTOCOL_VERSION, transferPartCount, urlPathToTreePath } from '@elaraai/e3-types';
 import {
@@ -14,7 +13,7 @@ import {
   type DatasetUpload,
   type StorageBackend,
   type TransferBackend,
-} from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -240,7 +239,7 @@ export function createTransferRoutes(
 
     // The upload's record, and its plan as parts, which the store makes ready
     // to stage
-    const transferId = randomUUID();
+    const transferId = globalThis.crypto.randomUUID();
     const transfer: DatasetUpload = { repo, workspace: ws, path: pathStr, hash, size };
     await uploads.create(transferId, transfer);
     const partBytes = await uploads.createParts(transferId, transfer);

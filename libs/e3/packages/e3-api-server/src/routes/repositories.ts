@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { ArrayType, StringType } from '@elaraai/east';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { StorageBackend } from '@elaraai/e3-core/portable';
 import { createRepository, listRepositories, removeRepository } from '../handlers/repository.js';
 import { sendSuccess } from '../beast2.js';
 

@@ -15,7 +15,7 @@
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
-import { RepositoryUpgradePendingError, repositoryOpen, type StorageBackend } from '@elaraai/e3-core';
+import { RepositoryUpgradePendingError, repositoryOpen, type StorageBackend } from '@elaraai/e3-core/portable';
 import { sendJsonError } from '../errors.js';
 
 /** How long, in seconds, a client is told to wait before it asks again of a

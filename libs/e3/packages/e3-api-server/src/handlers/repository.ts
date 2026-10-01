@@ -3,11 +3,10 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { randomUUID } from 'node:crypto';
 import { ArrayType, NullType, StringType, none, variant } from '@elaraai/east';
 import { RepositoryRecordType, type GcRequest } from '@elaraai/e3-types';
-import { RepoAlreadyExistsError, RepoNotFoundError, packageList, repositoryOpen, workspaceList } from '@elaraai/e3-core';
-import type { RepoGcStore, StorageBackend } from '@elaraai/e3-core';
+import { RepoAlreadyExistsError, RepoNotFoundError, packageList, repositoryOpen, workspaceList } from '@elaraai/e3-core/portable';
+import type { RepoGcStore, StorageBackend } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendSuccessWithStatus, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -172,7 +171,7 @@ export async function startGc(
   gcStore: RepoGcStore,
 ): Promise<Response> {
   try {
-    const executionId = randomUUID();
+    const executionId = globalThis.crypto.randomUUID();
     await gcStore.create(executionId, {
       repo,
       request,

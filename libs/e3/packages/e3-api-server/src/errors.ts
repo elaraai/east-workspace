@@ -23,7 +23,7 @@ import {
   DataflowError,
   DataflowAbortedError,
   PermissionDeniedError,
-} from '@elaraai/e3-core';
+} from '@elaraai/e3-core/portable';
 import type { Error } from './types.js';
 
 /**

@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
 import { getStatus, getRecord, startGc, getGcStatus } from '../handlers/repository.js';
 import { decodeBody } from '../beast2.js';
 import { GcRequestType } from '../types.js';

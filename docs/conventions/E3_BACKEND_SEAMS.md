@@ -201,6 +201,15 @@ form of such an operation where the portable one refuses a file or names no
 runner. `portable.spec.ts` runs a dataflow through the entry in a process that
 loads no Node module.
 
+The walk is `portable-graph.ts`'s, which e3-core's test entry exports, and
+e3-api-server's portable entry (`@elaraai/e3-api-server/portable`) is held to it
+too: every route factory, the handlers and the repository gate, whose modules
+import only one another, East, e3's types, e3-core's portable entry and Hono.
+Its root entry adds what needs Node: the local server's wiring (`server.ts`,
+`local-dataflow.ts`), its byte endpoints (`routes/data.ts`), which stage
+uploads and downloads as files — a host serves those URLs itself — and auth.
+Its `portable.spec.ts` mounts an app from the entry alone.
+
 ## Tests
 
 **A store's behaviour is a contract suite.** The suites live in e3-core's

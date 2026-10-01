@@ -28,6 +28,9 @@ export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 // The contract suites every storage backend runs over itself
 export * from './contract/index.js';
 
+// The walk a portable entry is held to: e3-core's own, and one built on it
+export { PORTABLE_PACKAGES, portableWalker, type PortableGraph, type PortableWalk } from './portable-graph.js';
+
 /**
  * Builds an encoder that writes a collection as a blob of `size`-element
  * segments, in canonical order.
