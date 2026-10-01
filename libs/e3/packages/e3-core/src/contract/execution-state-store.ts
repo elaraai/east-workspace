@@ -84,7 +84,6 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
     it('takes a later run for the workspace\'s latest', async (t) => {
       const { store, repo } = await setup(t);
       const first = uuidv7();
-      await new Promise((resolve) => setTimeout(resolve, 2));
       const second = uuidv7();
       const earlier: DataflowExecutionState = {
         release: E3_RELEASE, id: first, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
