@@ -566,6 +566,46 @@ describe("PagedRuntime — snapshots", () => {
         assert.deepEqual(callRevision(runtime), some(R1));
     });
 
+    test("a dataset its readers have all let go is no longer followed — and a read follows it again", async () => {
+        const g = gatedApi();
+        const runtime = await known(new PagedRuntime(), g.api);
+        /** One reader's run, as a view's: read under tracking, then subscribe
+         *  to what the read tracked. Returns what lets it all go. */
+        const read = (): (() => void) => {
+            runtime.enableTracking();
+            callPage(runtime, 0n, 2n);
+            const unsubs = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+            return () => { for (const unsub of unsubs) unsub(); };
+        };
+        let reader = read();
+        g.release([{ id: "a", v: 1.0 }], 1);
+        await settle();
+        assert.equal(g.watching, 1);
+
+        // A reader running again lets every key go before it subscribes again.
+        reader();
+        reader = read();
+        await settle();
+        assert.equal(g.watching, 1, "a reader re-subscribing keeps the dataset followed");
+
+        // The last reader goes: once that is done, nothing follows the dataset.
+        reader();
+        assert.equal(g.watching, 1, "not inside the task that let it go");
+        await settle();
+        assert.equal(g.watching, 0, "nothing reads it: nothing follows it");
+
+        // A read follows it again, and serves what its snapshot delivered.
+        reader = read();
+        assert.equal(g.watching, 1);
+        assert.equal(callPage(runtime, 0n, 2n).type, "some", "the landed window stayed");
+        assert.equal(g.calls.length, 1, "nothing fetched again");
+        // A dataset that moved meanwhile moves at the first report.
+        g.move(R2);
+        assert.equal(callPage(runtime, 0n, 2n).type, "none");
+        assert.equal(g.calls[1]!.hash, R2);
+        reader();
+    });
+
     test("a released handle is pinned, follows and fails like a pinned one", async () => {
         const g = gatedApi();
         const runtime = new TestPagedRuntime();

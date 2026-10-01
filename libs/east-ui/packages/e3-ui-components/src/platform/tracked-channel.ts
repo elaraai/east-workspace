@@ -92,6 +92,7 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
             subs.delete(callback);
             if (subs.size === 0 && this.keySubscribers.get(key) === subs) {
                 this.keySubscribers.delete(key);
+                this.unsubscribed(key);
             }
         };
     }
@@ -99,6 +100,22 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
     getKeyVersion(key: string): number {
         return this.keyVersions.get(key) ?? 0;
     }
+
+    /** Whether anything is subscribed to a channel. */
+    protected isSubscribed(key: string): boolean {
+        return this.keySubscribers.has(key);
+    }
+
+    /**
+     * Called as a channel's last subscriber leaves, synchronously — a
+     * subclass that holds something for the channel's readers can let it go.
+     * A reader re-subscribing drops its subscriptions first (a tracked read's
+     * run, React's), so what is let go should be let go only if the channel
+     * is still unsubscribed once that is done.
+     *
+     * @param _key - The channel
+     */
+    protected unsubscribed(_key: string): void {}
 
     protected notify(key: string): void {
         this.keyVersions.set(key, (this.keyVersions.get(key) ?? 0) + 1);
