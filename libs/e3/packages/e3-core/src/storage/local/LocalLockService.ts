@@ -45,11 +45,14 @@ const HARDLINK_UNSUPPORTED = new Set(['ENOSYS', 'EXDEV', 'EMLINK', 'EOPNOTSUPP']
 const LINK_MAX_ATTEMPTS = 25;
 const UNLINK_MAX_ATTEMPTS = 10;
 
-/** How often a lock file is written again while a release removes its
- *  resource's directory: the removal can land between the making and the
- *  write, and on Windows a directory being removed refuses both until it is
- *  gone. With the backoff between attempts, about two seconds. */
-const DIRECTORY_GONE_ATTEMPTS = 25;
+/** How often a lock file is written again when a release removed its
+ *  resource's directory in between: the window is a few instructions wide. */
+const DIRECTORY_GONE_ATTEMPTS = 5;
+
+/** How often the making and the write wait out a directory a release is still
+ *  removing, which Windows refuses until the removing call ends (one to three
+ *  waits on GitHub's Windows runners); bounded as a rename's retries are. */
+const DIRECTORY_REMOVING_ATTEMPTS = 25;
 
 /** The exclusive lock's file in its resource's directory. */
 const EXCLUSIVE = 'exclusive.beast2';
@@ -115,21 +118,26 @@ async function removeIfEmpty(dir: string): Promise<void> {
  * release removes a directory once its last lock has gone, which can land
  * between the making and the write, or inside the making: a recursive `mkdir`
  * that finds the directory there checks it with a `stat`, and fails `ENOENT`
- * when the release lands between the two. On Windows a directory being
- * removed refuses, until it is gone, to be made or to have anything made in
- * it: both fail `EPERM`, more often while another acquirer lists it. Either
- * way both are made again, a refusal waited out with the backoff of this
- * file's other transient errors.
+ * when the release lands between the two. Either way both are made again.
+ *
+ * On Windows the directory is "delete pending" while the call removing it
+ * runs: making it, or creating a file in it, fails `EPERM` rather than
+ * `ENOENT` until that call ends. So a transient error of the making or of the
+ * create is waited out, with backoff, and both are made again. Nothing else
+ * can meet a removal: once `write` has created its file the directory is not
+ * empty, so a rename after it keeps only its own retries.
  */
 async function writeInto<T>(dir: string, write: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
+  for (let gone = 0, removing = 0; ; ) {
     try {
       await fs.mkdir(dir, { recursive: true });
       return await write();
     } catch (err) {
-      const removing = (err as NodeJS.ErrnoException).code === 'ENOENT' || isTransientFsError(err);
-      if (!removing || attempt >= DIRECTORY_GONE_ATTEMPTS - 1) throw err;
-      await sleep(Math.min(2 ** attempt, 100));
+      const { code, syscall } = err as NodeJS.ErrnoException;
+      if (code === 'ENOENT' && ++gone < DIRECTORY_GONE_ATTEMPTS) continue;
+      const making = syscall === 'mkdir' || syscall === 'open';
+      if (!making || !isTransientFsError(err) || removing >= DIRECTORY_REMOVING_ATTEMPTS - 1) throw err;
+      await sleep(Math.min(2 ** removing++, 100));
     }
   }
 }

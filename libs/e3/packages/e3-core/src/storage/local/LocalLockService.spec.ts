@@ -151,6 +151,56 @@ describe('LocalLockService', () => {
       assert.deepStrictEqual(met, ['open', 'mkdir']);
     });
 
+    it('still fails a create refused every time, once its waits are spent', async () => {
+      // A permission error looks the same as a removal in progress, so it
+      // surfaces after the waits, never hangs.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const writeFile = fsPromises.writeFile;
+      let creates = 0;
+      const mocked = mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array | string) => {
+        if (path.basename(path.dirname(file)) === 'ws-denied') {
+          creates++;
+          throw Object.assign(new Error(`EPERM: operation not permitted, open '${file}'`), { code: 'EPERM', syscall: 'open', path: file });
+        }
+        return writeFile(file, data);
+      });
+      syncBuiltinESMExports();
+      try {
+        await assert.rejects(acquireWorkspaceLock(repoPath, 'ws-denied', variant('deployment', null)), { code: 'EPERM' });
+      } finally {
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+      assert.strictEqual(creates, 25);
+    });
+
+    it('leaves a refused rename to its own retries, never waiting it out again', async () => {
+      // A shared lock is written whole by a rename once its .partial is in the
+      // directory, which then cannot be removed: only the making and the create
+      // are waited out, so the rename's retries are not multiplied.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const rename = fsPromises.rename;
+      let renames = 0;
+      const mocked = mock.method(fsPromises, 'rename', async (from: string, to: string) => {
+        if (path.basename(path.dirname(to)) === 'ws-rename-refused') {
+          renames++;
+          throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: 'EPERM', syscall: 'rename', path: from, dest: to });
+        }
+        return rename(from, to);
+      });
+      syncBuiltinESMExports();
+      try {
+        await assert.rejects(
+          acquireWorkspaceLock(repoPath, 'ws-rename-refused', variant('dataset_write', null), { mode: 'shared' }),
+          { code: 'EPERM', syscall: 'rename' },
+        );
+      } finally {
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+      assert.strictEqual(renames, 25);
+    });
+
     it('counts only its own resource\'s shared holders, not those of a resource its name begins', async () => {
       const shared = await acquireWorkspaceLock(repoPath, 'a.b', variant('dataflow', null), { mode: 'shared' });
       try {
