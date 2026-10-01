@@ -60,7 +60,7 @@ export interface EvaluateJqOptions {
   inputType?: EastType;
   /** The input is an e3 root, a struct of datasets: each field the query reads is passed alone, so a lazy one stays lazy. */
   root?: boolean;
-  /** Allow the tooling-only builtins (#931). */
+  /** Allow the tooling-only builtins, whose platform functions `platform` gives (`devdocs/QUERY.md` §15.9). */
   tooling?: boolean;
   /** Platform functions, for function values in the input that need them. */
   platform?: PlatformFunction[];

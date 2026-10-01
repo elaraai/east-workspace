@@ -79,7 +79,7 @@ function brief(type: EastType): string {
  * - An option's value is read through it, as jq reads through `null`.
  * - A recursive type is described once; where it recurs the line says
  *   `(recursive: <path>)`, the path it was first described at.
- * - The text is stable: `e3 dataset describe` prints it and agents read it.
+ * - The text is stable, so agents and tests can read it.
  *
  * @example
  * ```ts

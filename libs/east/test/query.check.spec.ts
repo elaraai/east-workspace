@@ -271,7 +271,7 @@ describe("checkJq: narrowing (C2)", () => {
   });
 });
 
-/** The query editor's default query (`Query Editor Spec.md` §8.1), in the pipeline layout. */
+/** The query editor's default query (`Query Editor Spec.md` §4.7), in the pipeline layout. */
 const DEFAULT_QUERY = [
   ".customers as $customers",
   "| .orders",

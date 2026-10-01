@@ -2,8 +2,7 @@
 
 **Normative.** This document says what a query means. Where an implementation
 and this document disagree, the implementation is the bug. The design, its
-motivation and the plan are issue #875. Its children fill the section marked
-*to be written*: the e3 surfaces (#932).
+motivation and the plan are issue #875.
 
 A **query** is a jq 1.8 program run on an East value. Values and types are
 East's, and every departure from jq 1.8 is deliberate and listed in §13.
@@ -33,6 +32,7 @@ translation (§15.7), so no runtime reads query text or evaluates jq.
 | Constructs, paging on east-c (§16, §15.6) | `test/query.constructs.spec.ts`; `libs/east-c/packages/east-c/tests/test_query_paged.c` (#925) |
 | Performance (§16.4) | `test/query-bench/`, run by `make query-bench` (#925) |
 | The type matrix (§16.5) | `test/query-types/` and `test/query.types.spec.ts`, over `test/fixtures/query-types.json`, which `make query-types` writes (#987) |
+| This document's examples | `test/query.doc.spec.ts` (#932) |
 
 ## Contents
 
@@ -52,7 +52,7 @@ translation (§15.7), so no runtime reads query text or evaluates jq.
 14. Wire types
 15. Translation
 16. Conformance
-17. e3 surfaces
+17. Running a query
 18. Grammar and canonical text
 19. Completions, descriptions and summaries
 
@@ -64,7 +64,7 @@ Every example runs over the shared fixture, `queryFixture()` in
 `test/query.fixture.ts`. It is the data the query editor's mock shows
 (`libs/east-ui/docs/proposals/Query Editor Spec.html`, generated from seed
 875), with two extra datasets whose keys are not strings. Its root is
-`FixtureRoot`:
+`FixtureRoot`, and a query over it is checked as an e3 root (§15.6):
 
 | Field | Type |
 |---|---|
@@ -83,7 +83,11 @@ pending: Null, shipped: Struct{date: DateTime}}`. There are 40 orders, ids 1001
 to 1040: 23 shipped, 14 pending and 3 cancelled.
 
 Examples are written as a program, then `→` and the result as `.east` text,
-then the result's type and the multiplicity:
+then the result's type, as a diagnostic prints a type (§12), and the
+multiplicity. A query that does not check gives its diagnostic's message, and
+its first suggestion; a lint, its message and the program its fix makes.
+`test/query.doc.spec.ts` checks and runs every example, and holds it to what
+is written here:
 
 ```jq
 .byId[1035].customer_id
@@ -185,7 +189,7 @@ first(.orders[]) | .id, null
 ```jq
 first(.orders[]) | .id, .customer_id
 ```
-→ `ambiguous_output`: Integer and String have no common type. Suggestion:
+→ `ambiguous_output: Integer and String have no common type.` Suggestion:
 `{id, customer_id}`.
 
 **The multiplicity is the checker's.** A one query gives exactly one output.
@@ -204,7 +208,8 @@ before it runs, and refused.
 ```jq
 .orders[0].customer
 ```
-→ `unknown_field`. Suggestion: `.customer_id`.
+→ `unknown_field: .customer is not a field of Struct{customer_id: String, discount: Option<Float>, id: Integer, lines: Array<Struct{price: Float, qty: Integer, sku: String}>, status: Variant{cancelled, pending, shipped}, total: Float}. Did you mean .customer_id?`
+Suggestion: `.customer_id`.
 
 ```jq
 .orders[0].customer?
@@ -238,7 +243,7 @@ a field read, as in jq (`null | .a` is `null`), so `.orders[0].id` is
 ```jq
 .customers["C99"]
 ```
-→ `.none` · Option<Customer>, one
+→ `.none` · Option<Struct{name: String, region: String, tier: Variant{gold, standard}}>, one
 
 - On a `Dict<DateTime, V>`, an ISO-8601 string is a key: `.byDay["2026-09-01"]`
   is parsed when the query is checked (§7).
@@ -257,7 +262,7 @@ order. `keys` gives the keys in East's order, `has(k)` tests one, and
 ```jq
 .cells | to_entries | .[0]
 ```
-→ `.some (key=(region="NSW", week=1), value=1080.0)` · Option<Struct{key: Cell, value: Float}>, one
+→ `.some (key=(region="NSW", week=1), value=1080.0)` · Option<Struct{key: Struct{region: String, week: Integer}, value: Float}>, one
 
 **Slices** are half-open, and negative bounds count from the end.
 
@@ -479,7 +484,7 @@ the `shipped` case has a `date`, and the others give `null`)
 ```jq
 .orders[] | select(.status.type == "shiped")
 ```
-→ `unknown_case`: Status has no case `"shiped"`. Suggestion: `"shipped"`.
+→ `unknown_case: .status has no case "shiped". Did you mean "shipped"?` Suggestion: `"shipped"`.
 
 ```jq
 [.orders[] | select(.status.type == "cancelled") | .status.value.reason]
@@ -516,12 +521,13 @@ call(.model; {price: 10.0, region: "NSW"})
 - **Async functions** are `unsupported` in this version.
 - **Platform dependencies.** A function value runs in the runtime that runs
   the query, compiled against that runtime's platform when the value is
-  decoded. e3 answers a value whose IR needs platform functions it has not
-  loaded with `needs_platform` (§17).
+  decoded. A value whose IR calls a platform function the runtime has not
+  loaded fails, naming it (§17).
 - **Inspection is tooling.** `signature`, `source`, `calls` and `captures`
-  need the TypeScript IR printers. They are tooling-only builtins: `e3 query`
-  and host-side runs (`evaluateJq` with the tooling platform functions, #931)
-  offer them, and the checker rejects them everywhere else with `unsupported`.
+  need the TypeScript IR printers. They are tooling-only builtins: the checker
+  refuses them with `unsupported` unless the query is checked with `tooling`,
+  and then the translator makes them calls of platform functions a host gives
+  (§15.9), which no runtime provides yet (#875 §10.3).
 
 ---
 
@@ -566,8 +572,8 @@ changes `QueryType`.
 | `bsearch` | 1 | Array<T>, T → Integer | one | ArrayFindSortedFirst, with jq's −1 − insertion point when absent |
 | `builtins` | 0 | → Array<String> | one | the catalog's names, as a literal |
 | `call` | 1, 2, 3, 4, 5, 6, 7, 8 | `call(f; a…)`: Function([I…], O), arguments of I (Integer → Float) → O | one | a call of the function value |
-| `calls` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_calls (#931) (tooling-only, §9) |
-| `captures` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_captures (#931) (tooling-only, §9) |
+| `calls` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_calls (tooling-only, §9) |
+| `captures` | 0 | a function value → Array<String> (tooling) | one | the host platform function jq_captures (tooling-only, §9) |
 | `ceil` | 0 | a number → Integer | one | East.Float.roundCeil |
 | `combinations` | 0, 1 | Array<Array<T>> → Array<T>; `combinations(n)`: Array<T> → Array<T> | many | nested loops over the arrays |
 | `contains` | 1 | two strings, arrays, structs or dicts, or equal values → Boolean | one | StringContains for strings; loops of it for arrays, structs and dicts; Equal for other values |
@@ -656,12 +662,12 @@ changes `QueryType`.
 | `second` | 0 | DateTime → Integer | one | DateTimeGetSecond |
 | `select` | 1 | `select(f)` → its input, narrowed by what `f` proves | maybe; many when `f` is | a branch on jq's truthiness |
 | `@sh` | 0 | a scalar or an array of scalars → String | one | StringReplace of ' and ArrayStringJoin |
-| `signature` | 0 | a function value → String (tooling) | one | the host platform function jq_signature (#931) (tooling-only, §9) |
+| `signature` | 0 | a function value → String (tooling) | one | the host platform function jq_signature (tooling-only, §9) |
 | `sin` | 0 | a number → Float | one | FloatSin |
 | `skip` | 2 | `skip(n; f)` → f's outputs after the first n | as `f`'s | the outputs of f after the first n |
 | `sort` | 0 | Array<T> → Array<T> | one | ArraySort by the value (East's total order, §11) |
 | `sort_by` | 1 | `sort_by(f)`: Array<T>, f giving an ordered key → Array<T> | one | ArraySort by the key f gives |
-| `source` | 0 | a function value → String (tooling) | one | the host platform function jq_source (#931) (tooling-only, §9) |
+| `source` | 0 | a function value → String (tooling) | one | the host platform function jq_source (tooling-only, §9) |
 | `split` | 1, 2 | `split(s)`: String → Array<String> | one | StringSplit (a literal separator) |
 | `sqrt` | 0 | a number → Float | one | FloatSqrt |
 | `startswith` | 1 | String, String → Boolean | one | StringStartsWith |
@@ -836,7 +842,8 @@ are the same wherever the checker runs.
   ```jq
   [.orders[] | select(.lines[].sku == "BRK-100")]
   ```
-  → warning `duplicate_outputs`. Fix: `[.orders[] | select(any(.lines[]; .sku == "BRK-100"))]`.
+  → warning `duplicate_outputs: select(.lines[] | …) emits the row once per matching element. Use any(.lines[]; …).`
+  Fix: `[.orders[] | select(any(.lines[]; .sku == "BRK-100"))]`.
 
 - **`duplicate_key`**: an object sets the same key twice; the last wins.
 - **`never_missing`**: `//=` on a value that is never null changes nothing.
@@ -919,7 +926,7 @@ before a type is `an` before a vowel.
 | `unsupported` | unsupported: {name} is excluded — queries are deterministic and have no host access. |
 | `unsupported` | unsupported: {name} is not available in queries: {reason}. |
 | `unsupported` | unsupported: {name} is not available in queries yet. |
-| `unsupported` | unsupported: {name} needs the TypeScript IR printers; use it in e3 query. |
+| `unsupported` | unsupported: {name} is tooling: it needs the TypeScript IR printers, which queries do not have yet. |
 | `unsupported` | unsupported: reading the whole root loads every dataset — name them: .{a}, .{b}. |
 | `unsupported` | unsupported: reading the whole root loads every dataset — name them: .{a}, .{b}, .{c}, …. |
 | `unsupported` | unsupported: call cannot run an async function. |
@@ -1295,7 +1302,7 @@ runtime parses text:
 - a `strftime` or `strptime` format becomes a token array;
 - a regular expression is validated;
 - on an e3 root, `keys`, `keys_unsorted` and `has("name")` are answered from
-  its type (§17).
+  its type (§15.6).
 
 The rewritten tree prints (§18.4) as text that checks to it again: a DateTime
 literal prints as its RFC 3339 string, a token array as its format, and a
@@ -1550,10 +1557,12 @@ span of the node that raised it. Its message lists each error as
 
 - **`maxOutputs`.** With `maxOutputs = n`, a `many` query stops after `n + 1`
   outputs, so a caller can tell the result was cut short, and reads nothing
-  past them (#929).
+  past them.
 - **`tooling`.** `signature`, `source`, `calls` and `captures` become calls of
   the host platform functions `jq_signature`, `jq_source`, `jq_calls` and
-  `jq_captures`, given the function value's type (#931).
+  `jq_captures`, given the function value's type. A host gives them to the
+  compiled query (`evaluateJq`'s `platform`); no runtime provides them yet
+  (§9).
 - **`builtins`** gives `name/arity` for each arity of each builtin a query may
   call (with `tooling`, the tooling builtins too), in East's string order.
 - **Deterministic.** The same checked program and options give the same IR,
@@ -1797,12 +1806,28 @@ run on each of the shape's values: a **case**.
 
 ---
 
-## 17. e3 surfaces
+## 17. Running a query
 
-*To be written by #932*: `e3 query`, `e3 dataset describe` and
-`e3 dataset summarize`; the query route, its root, its limits and its
-permission; evaluation on a runner with the datasets passed by reference;
-`needs_platform`; and query plans on the engine (issue #875 §10).
+A query's translation is an ordinary East function, so whatever runs East
+runs a query: no runtime, and no server, has query code of its own.
+
+- **Its inputs.** Checked as an e3 root, a query's translation takes each
+  dataset it reads as a parameter of its own, so a lazy dataset stays lazy
+  (§15.6). A query that reads the whole root is refused, naming the datasets
+  to read instead (§12).
+- **Platform-free.** A translation calls East's builtins only, so it needs no
+  platform, unless a function value in its input calls a platform function
+  (§9) or the tooling builtins are translated (§15.9). In a runtime that has
+  not loaded it, that function fails the run, naming it.
+- **In e3,** a translation runs as any function does: as a one-shot call
+  (#1031), whose dataset arguments e3 pins by hash as the call starts and
+  hands the runner by reference, reading nothing itself. A platform-free call
+  runs for any caller who may read the workspace. The query builder in e3-ui
+  makes such a call from the datasets a page binds
+  (`libs/east-ui/docs/proposals/Query Editor Spec.md`); a query over a dataset
+  larger than one piece is to run as a split call on #797's engine (#941).
+- **Limits.** `maxOutputs` stops a `many` query one output past its limit
+  (§15.9); the caller sets the call's time and size limits.
 
 ---
 
@@ -1972,7 +1997,7 @@ line per path, indented by depth, with its type. A struct's fields are
 `.name`, an array's elements `[]`, a dict's values `[<K>]`; a variant's case
 is `.type`, listed as its names, and each case's payload is under `.value`,
 marked `(when case)`; a recursive type is described once and marked
-`(recursive: path)` where it recurs. `e3 dataset describe` prints it.
+`(recursive: path)` where it recurs.
 `plainKind` gives the words the query editor uses: `text`, `number`, `whole
 number`, `date`, `yes or no`, `one of`, `list`, `lookup table`, `record`,
 `calculation`, with `, sometimes missing` for an Option.
@@ -2008,7 +2033,7 @@ a row.
   lists.
 - **Composable.** `prefix + " | " + summaryProgram(typeAfterPrefix)`
   summarises the rows at any stage, which is how the query editor fills its
-  value slots (`Query Editor Spec.md` §6.4).
+  value slots (`Query Editor Spec.md` §4.5).
 - The program binds its rows once, and lists two prototype leaves first, one
   with every optional part and one with none, and then drops them: they give
   each part its `Option` type whatever the rows hold.

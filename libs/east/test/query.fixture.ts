@@ -9,10 +9,11 @@
  *
  * The generator follows the mock's own (`qe-engine.js` inside
  * `libs/east-ui/docs/proposals/Query Editor Spec.html`) draw for draw, and
- * `Query Editor Spec.md` §15 lists its constants. The query corpus, the
- * examples, the e3 tests, the editor's showcase and the agent benchmark read
- * it. `test/fixtures/query-fixture.beast2` holds its bytes, self-describing,
- * for east-c, east-py and e3, and `make query-corpus` rewrites that file.
+ * `Query Editor Spec.md` §6 lists its constants. The query corpus, the
+ * examples, `devdocs/QUERY.md`'s examples, the benchmark and the query
+ * builder's showcase read it. `test/fixtures/query-fixture.beast2` holds its
+ * bytes, self-describing, for east-c and east-py, and `make query-corpus`
+ * rewrites that file.
  */
 
 import {

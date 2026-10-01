@@ -310,7 +310,7 @@ class MESSAGES:
 
     @staticmethod
     def tooling(name: str) -> str:
-        return f"unsupported: {name} needs the TypeScript IR printers; use it in e3 query."
+        return f"unsupported: {name} is tooling: it needs the TypeScript IR printers, which queries do not have yet."
 
     @staticmethod
     def whole_root(names: Sequence[str]) -> str:

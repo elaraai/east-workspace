@@ -42,10 +42,10 @@ import { BUILTIN_RULES, FORMATS } from "./translate-builtins.js";
 export interface TranslateJqOptions {
   /**
    * Stop after this many outputs of a `many` query, and one more, so a caller
-   * can tell the result was cut short: e3's limit (#929).
+   * can tell the result was cut short: the caller's limit.
    */
   maxOutputs?: number;
-  /** Translate the tooling-only builtins, `signature`, `source`, `calls` and `captures`, to host platform calls (#931). */
+  /** Translate the tooling-only builtins, `signature`, `source`, `calls` and `captures`, to calls of platform functions the host gives. */
   tooling?: boolean;
 }
 

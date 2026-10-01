@@ -44,7 +44,7 @@ const EAST_NODE_STD = join(LIBS, "east-node/packages/east-node-std");
 const JQ = process.env["JQ"] ?? "jq";
 const DIR = join(tmpdir(), "east-query-bench");
 
-/** The query editor mock's default query (`Query Editor Spec.md` §8.1). */
+/** The query editor mock's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_QUERY = `.customers as $customers
 | .orders
 | map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
