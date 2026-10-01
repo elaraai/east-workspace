@@ -30,7 +30,7 @@ import {
   LockHolderVariantType, LockProgressType, LockStateType,
   type LockHolderVariant, type LockOperation, type LockProgress, type LockState,
 } from '@elaraai/e3-types';
-import { InvalidNameError, WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
+import { WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
 import type { LockHandle, LockService } from '../interfaces.js';
@@ -120,6 +120,11 @@ async function removeIfEmpty(dir: string): Promise<void> {
  * that finds the directory there checks it with a `stat`, and fails `ENOENT`
  * when the release lands between the two. Either way both are made again.
  *
+ * macOS reports a file created in a directory a release has just removed as
+ * `EINVAL`, not `ENOENT`: a probe of this lock service on GitHub's macOS
+ * runners met it a few times in each two thousand shared acquires, two side
+ * by side, and never on Linux or Windows. It is made again the same way.
+ *
  * On Windows the directory is "delete pending" while the call removing it
  * runs: making it, or creating a file in it, fails `EPERM` rather than
  * `ENOENT` until that call ends. So a transient error of the making or of the
@@ -134,8 +139,9 @@ async function writeInto<T>(dir: string, write: () => Promise<T>): Promise<T> {
       return await write();
     } catch (err) {
       const { code, syscall } = err as NodeJS.ErrnoException;
-      if (code === 'ENOENT' && ++gone < DIRECTORY_GONE_ATTEMPTS) continue;
       const making = syscall === 'mkdir' || syscall === 'open';
+      // The directory went while it was made or written into: POSIX says ENOENT, macOS EINVAL for the create.
+      if ((code === 'ENOENT' || (code === 'EINVAL' && making)) && ++gone < DIRECTORY_GONE_ATTEMPTS) continue;
       if (!making || !isTransientFsError(err) || removing >= DIRECTORY_REMOVING_ATTEMPTS - 1) throw err;
       await sleep(Math.min(2 ** removing++, 100));
     }
@@ -567,6 +573,16 @@ export async function getWorkspaceLockHolder(
 // =============================================================================
 
 export class LocalLockService implements LockService {
+  /**
+   * Acquires a lock on a resource.
+   *
+   * @remarks
+   * `null` means another holder has the resource in a mode this one cannot
+   * share, as {@link LockService.acquire} says. Anything else that keeps the
+   * lock from being taken — a filesystem error, a name no path can hold — is
+   * thrown as it is, never reported as a lock held elsewhere, which would name
+   * the wrong cause: a holder that does not exist.
+   */
   async acquire(
     repo: string,
     resource: string,
@@ -581,9 +597,8 @@ export class LocalLockService implements LockService {
       });
       return { resource, release: () => handle.release(), report: (progress) => handle.report(progress) };
     } catch (err) {
-      // A name no path can hold is the caller's error, never a held lock.
-      if (err instanceof InvalidNameError) throw err;
-      return null;
+      if (err instanceof WorkspaceLockError) return null;
+      throw err;
     }
   }
 
