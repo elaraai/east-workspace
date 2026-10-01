@@ -556,6 +556,88 @@ export interface QueryMessages {
     jqCompletionLine: (p: { label: string; detail: string }) => string;
     /** The completions' keys, in the footer. */
     jqCompletionKeys: () => string;
+
+    // ── Runs and results (#938) ──────────────────────────────────────────
+    /** The Table · Tree switch's name. */
+    resultViewLabel: () => string;
+    /** A view of the result. */
+    resultView: (p: { view: "table" | "tree" }) => string;
+    /** The view a run picked, on hover — `Table · picked for many rows`. */
+    resultViewPicked: (p: { view: "table" | "tree" }) => string;
+    /** Download ▾. */
+    download: () => string;
+    /** A download's format. */
+    downloadFormat: (p: { format: "csv" | "beast2" }) => string;
+    /** Beside a format in the menu — `table`, `typed`. */
+    downloadFormatMeta: (p: { format: "csv" | "beast2" }) => string;
+    /** The note after a download — `Downloaded top-shipped-orders-2026.csv — 10 orders, one row per output.` */
+    downloaded: (p: { format: "csv" | "beast2"; file: string; count: string }) => string;
+    /** The stale banner. */
+    staleResult: () => string;
+    /** Its run again. */
+    runAgain: () => string;
+    /** A run the checker refused. */
+    notRunProblems: () => string;
+    /** A run that raised an error, or that the server refused. */
+    notRun: () => string;
+    /** A run cut off by its time limit — `Stopped after 30 s`. */
+    stoppedAfter: (p: { seconds: string }) => string;
+    /** Under it. */
+    stoppedHint: () => string;
+    /** A result over the call's size limit. */
+    tooLarge: () => string;
+    /** Under it — `1.4 MB is over the 1 MB limit. Total or narrow the query.` */
+    tooLargeHint: (p: { bytes: string; limit: string }) => string;
+    /** A query that needs a platform function the server lacks. */
+    needsPlatform: () => string;
+    /** Under it — `It needs sales_lookup.` */
+    needsPlatformHint: (p: { functions: string }) => string;
+    /** A call that never reached the server. */
+    unreachable: () => string;
+    /** The results before any run. */
+    idleTitle: () => string;
+    /** Its first line. */
+    idleChecks: () => string;
+    /** Its second. */
+    idleRun: () => string;
+    /** While a run reads — `Reading orders, customers`. */
+    reading: (p: { sources: string }) => string;
+    /** The footer while a run goes. */
+    runningWord: () => string;
+    /** The footer after a run that gave no result. */
+    noResult: () => string;
+    /** The footer before any run. */
+    noResultYet: () => string;
+    /** Rows a run cut, of the rows the query gives — `Showing 1–1,000 of 4,210`. */
+    showing: (p: { shown: string; total: string }) => string;
+    /** Rows a run cut at the call's most, the total unknown — `1,000+`. */
+    atLeast: (p: { count: string }) => string;
+    /** A run's own line — `run #3 · 14:02:07 · 412 ms`. */
+    runLine: (p: { n: string; time: string; ms: string }) => string;
+    /** What a run read — `reads orders #4f2a1c8d · customers #9b07e3a4`. */
+    readsLine: (p: { sources: readonly { name: string; hash: string }[] }) => string;
+    /** Rows, when the query's rows have no name — `10 rows`. */
+    rowCount: (p: { count: string; n: number }) => string;
+    /** One value, when its shape has no words. */
+    oneValue: () => string;
+    /** A size — `1.4 MB`. */
+    byteSize: (p: { value: string; unit: "B" | "KB" | "MB" | "GB" }) => string;
+
+    // ── Results: the Table (#938) ────────────────────────────────────────
+    /** The header of a result's one column, when the result is not records. */
+    resultValue: () => string;
+    /** A missing value in a result's cell. */
+    resultMissing: () => string;
+    /** A list in a result's cell, by its size — `3 lines`, `1 line`; the noun already in the count's number. */
+    resultList: (p: { count: string; noun: string }) => string;
+    /** A lookup table in a result's cell, by its size — `1 entry`, `8 entries`. */
+    resultEntries: (p: { count: string; n: number }) => string;
+    /** A grid of numbers in a result's cell, by its shape — `3 × 4`. */
+    resultGrid: (p: { rows: string; cols: string }) => string;
+    /** The parts of a record or a case in a result's cell, joined — `shipped · Jun 1, 2026, 14:00`. */
+    resultJoin: (p: { parts: readonly string[] }) => string;
+    /** A calculation in a result's cell. */
+    resultFunction: () => string;
 }
 
 const STEP_TITLE: Readonly<Record<Exclude<StepKind, "drill">, string>> = {
@@ -1006,4 +1088,47 @@ export const queryMessages: QueryMessages = {
     jqCompletionsLabel: () => "Completions",
     jqCompletionLine: ({ label, detail }) => (detail === "" ? label : `${label} · ${detail}`),
     jqCompletionKeys: () => "↑↓ · ⏎ · esc",
+
+    resultViewLabel: () => "Result view",
+    resultView: ({ view }) => (view === "table" ? "Table" : "Tree"),
+    resultViewPicked: ({ view }) => (view === "table" ? "Table · picked for many rows" : "Tree · picked for one value"),
+    download: () => "Download",
+    downloadFormat: ({ format }) => (format === "csv" ? "CSV" : "BEAST2"),
+    downloadFormatMeta: ({ format }) => (format === "csv" ? "table" : "typed"),
+    downloaded: ({ format, file, count }) => (format === "csv"
+        ? `Downloaded ${file} — ${count}, one row per output.`
+        : `Downloaded ${file} — the result as the run returned it, with its type.`),
+    staleResult: () => "The query changed after this run.",
+    runAgain: () => "Run again",
+    notRunProblems: () => "Not run — the checker found problems",
+    notRun: () => "Not run",
+    stoppedAfter: ({ seconds }) => `Stopped after ${seconds} s`,
+    stoppedHint: () => "Narrow the query, or ask for fewer rows.",
+    tooLarge: () => "The result is too large",
+    tooLargeHint: ({ bytes, limit }) => `${bytes} is over the ${limit} limit. Total or narrow the query.`,
+    needsPlatform: () => "Not run — the query calls a function this server can't run",
+    needsPlatformHint: ({ functions }) => `It needs ${functions}.`,
+    unreachable: () => "Couldn't reach the server",
+    idleTitle: () => "Run the query to see results",
+    idleChecks: () => "Checks run as you edit; nothing reads data yet.",
+    idleRun: () => "Press Run or ⌘⏎ to read the datasets the query uses.",
+    reading: ({ sources }) => `Reading ${sources}`,
+    runningWord: () => "Running…",
+    noResult: () => "No result",
+    noResultYet: () => "No result yet",
+    showing: ({ shown, total }) => `Showing 1–${shown} of ${total}`,
+    atLeast: ({ count }) => `${count}+`,
+    runLine: ({ n, time, ms }) => `run #${n} · ${time} · ${ms} ms`,
+    readsLine: ({ sources }) => (sources.length === 0 ? "" : `reads ${sources.map(s => `${s.name} #${s.hash}`).join(" · ")}`),
+    rowCount: ({ count, n }) => `${count} ${n === 1 ? "row" : "rows"}`,
+    oneValue: () => "1 value",
+    byteSize: ({ value, unit }) => `${value} ${unit}`,
+
+    resultValue: () => "value",
+    resultMissing: () => "—",
+    resultList: ({ count, noun }) => `${count} ${noun}`,
+    resultEntries: ({ count, n }) => `${count} ${n === 1 ? "entry" : "entries"}`,
+    resultGrid: ({ rows, cols }) => `${rows} × ${cols}`,
+    resultJoin: ({ parts }) => parts.join(" · "),
+    resultFunction: () => "function",
 };

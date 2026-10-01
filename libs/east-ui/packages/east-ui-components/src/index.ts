@@ -476,8 +476,9 @@ export {
     // Clipboard implementation (auto-registers on import)
     ClipboardImpl,
 
-    // Download implementation (auto-registers on import)
+    // Download implementation (auto-registers on import), and its file save for a host's own downloads
     DownloadImpl,
+    downloadFile,
 
     // Share implementation (auto-registers on import)
     ShareImpl,

@@ -477,21 +477,26 @@ Beside the pane, the result of the last run:
 
 - **Idle**, never run: the `emptyState` recipe — "Run the query to see results", "Checks run as you edit;
   nothing reads data yet.", "Press Run or ⌘⏎ to read the datasets the query uses."
-- **Running**: "Reading orders, customers" over skeleton rows.
+- **Running**: "Reading customers and orders" — the data sources the run reads, in the order the query first
+  reads them — over skeleton rows.
 - **A Table** (east-ui's Table renderer over the rows: virtualised, sticky header, numbers right-aligned in
   tabular mono, missing values "—", nested values summarised: "3 lines") or **a Value tree** (east-ui's
   ValueTree, read-only). Rows open as a Table and one value as a tree; Table · Tree in the toolbar overrides it
   until the next run.
 - **Stale**: when the program changes after a run, a `BannerView` (stale) — "The query changed after this
   run." with **Run again** ⌘⏎ — and the body dashed; shape lines stop counting.
-- **Failed**: a `BannerView` (error) — "Not run — the checker found problems", "Stopped after {s} s" (narrow
-  the query, or ask for fewer rows), "The result is too large" ({bytes} over the limit), "Not run — the query
-  calls a function this server can't run" (it needs {functions}), "Couldn't reach the server".
+- **Failed**: a `BannerView` (error) — "Not run — the checker found problems", "Not run" (a runtime error, a
+  dataset with no value yet, or a call the server refused), "Stopped after {s} s" (narrow the query, or ask for
+  fewer rows), "The result is too large" ({bytes} over the limit), "Not run — the query calls a function this
+  server can't run" (it needs {functions}), "Couldn't reach the server" — each over its message.
 - **The footer** holds the result's read-outs, since the toolbar holds its controls: its count in words ("10
-  orders") and fields; "Showing 1–1 000 of 4 210"; the run's number, time and duration; and "reads orders
-  #4f2a1c8d · customers #9b07e3a4" — each data source it read, with its hash.
-- **Download ▾**, a menu: CSV (East CSV, one row per output) and BEAST2 (the result as the run returned it),
-  named after the query ("top-shipped-orders-2026.csv").
+  orders") and fields; "Showing 1–1,000 of 4,210" when a visual run returned fewer rows than it counted, "1,000+
+  rows" when a jq run was cut at the call's most outputs; the run's number, time (hours and minutes) and
+  duration, its East type and multiplicity on hover; and "reads customers #9b07e3a4 · orders #4f2a1c8d" — each
+  data source it read, with its hash. The fields, then what it read, give way as the results narrow.
+- **Download ▾**, a menu: CSV ("table": East CSV, one row per output, a nested value as the words the Table
+  shows) and BEAST2 ("typed": the result with its type, self-describing), named after the query
+  ("top-shipped-orders-2026.csv"), and a note after each.
 
 **A run** (Run or ⌘⏎) checks and translates the query in the browser and runs it on e3 as a one-shot call
 over its root (#935's `prepareQuery`, sent with e3-api-client's `oneShotExecute`), with the call's limits; a

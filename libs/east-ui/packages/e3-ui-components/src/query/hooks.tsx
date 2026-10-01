@@ -5,16 +5,14 @@
 
 /**
  * The query builder's hooks (#935) — what its surfaces use to resolve the
- * root, check, run and summarise a query, and to keep this viewer's recent
- * runs.
+ * root, make a one-shot call and summarise a query, and to keep this viewer's
+ * recent runs. A run is `run.ts`'s (#938).
  *
  * - **The root** (`useQueryRoot`): each bound data source as a root field —
  *   its name, its dataset's path and its value's type — in the order given.
  * - **The call** (`useQueryCall`): how a one-shot call is made — e3-api-client's
  *   `oneShotExecute` against the `E3Provider`'s server, or a host's own
  *   ({@link QueryCallProvider}).
- * - **A run** (`useQueryRun`): the query prepared in the browser and sent as
- *   one one-shot call; one run in flight, a new run abandoning the old.
  * - **Summaries** (`useQuerySummaries`): #934's summary programs, run the same
  *   way, kept by prefix and the hashes of what they read.
  * - **Recent runs** (`useRecentQueries`): this viewer's last ten, kept in the
@@ -23,7 +21,7 @@
  * @packageDocumentation
  */
 
-import { createContext, createElement, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import {
     ArrayType, SummaryType, decodeBeast2, equalFor, isValueOf, parseFor, printFor, variant,
     type ValueTypeOf,
@@ -36,7 +34,7 @@ import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { pagedSourceOf } from "../platform/paged-runtime.js";
 import { SUMMARY_LIMITS, SummaryCache, type Summary, type SummaryRequest } from "./model/summaries.js";
 import type { QueryWords } from "./model/words.js";
-import { prepareQuery, queryResultOf, queryRoot, type QueryResult, type QueryRoot, type QueryRootEntry } from "./one-shot.js";
+import { prepareQuery, queryResultOf, queryRoot, type QueryRoot, type QueryRootEntry } from "./one-shot.js";
 
 /** A data source the builder is handed. */
 export type DataSource = ValueTypeOf<typeof DataSourceType>;
@@ -152,65 +150,6 @@ export function useQueryCall(): QueryCall | undefined {
         const repo = config.repo ?? "default";
         return (request) => oneShotExecute(apiUrl, repo, workspace, request, { token: config.token ?? null });
     }, [provided, config]);
-}
-
-// ============================================================================
-// A run
-// ============================================================================
-
-/** Where a builder's run stands. */
-export type QueryRunState =
-    | { readonly status: "idle" }
-    | { readonly status: "running"; readonly program: string }
-    | { readonly status: "done"; readonly program: string; readonly result: QueryResult; readonly at: Date; readonly ms: number }
-    | { readonly status: "failed"; readonly program: string; readonly message: string };
-
-/**
- * Runs queries: each prepared in the browser and sent as one one-shot call.
- * One run is in flight at a time; a new run abandons the one before, whose
- * answer is dropped.
- *
- * @param root - The root, or why it cannot be queried
- * @param call - How a one-shot call is made
- * @param onRan - Told each answer, as the run's saved form, for the recent runs
- * @returns The run's state, and `run(program)`
- */
-export function useQueryRun(
-    root: QueryRoot | string, call: QueryCall | undefined, onRan?: (result: QueryResult) => void,
-): { state: QueryRunState; run: (program: string) => void } {
-    const [state, setState] = useState<QueryRunState>({ status: "idle" });
-    const seq = useRef(0);
-    const run = useCallback((program: string) => {
-        const mine = ++seq.current;
-        if (typeof root === "string") {
-            setState({ status: "failed", program, message: root });
-            return;
-        }
-        const prepared = prepareQuery(program, root);
-        if ("result" in prepared) {
-            setState({ status: "done", program, result: prepared.result, at: new Date(), ms: 0 });
-            return;
-        }
-        if (call === undefined) {
-            setState({ status: "failed", program, message: "no server" });
-            return;
-        }
-        setState({ status: "running", program });
-        const started = performance.now();
-        call(prepared.prepared.request).then(
-            (answer) => {
-                if (seq.current !== mine) return;
-                const result = queryResultOf(prepared.prepared, answer);
-                setState({ status: "done", program, result, at: new Date(), ms: performance.now() - started });
-                if (onRan !== undefined) queueMicrotask(() => onRan(result));
-            },
-            (err: unknown) => {
-                if (seq.current !== mine) return;
-                setState({ status: "failed", program, message: err instanceof Error ? err.message : String(err) });
-            },
-        );
-    }, [root, call, onRan]);
-    return { state, run };
 }
 
 // ============================================================================

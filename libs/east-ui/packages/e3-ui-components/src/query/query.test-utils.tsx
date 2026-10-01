@@ -18,8 +18,8 @@ import { join } from "node:path";
 import { act, fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    BooleanType, East, OptionType, PatchType, SortedMap, StringType, applyFor, checkJq, compareFor, decodeBeast2, decodeBeast2For,
-    encodeBeast2For, fromEastTypeValue, none, toEastTypeValue, variant,
+    BooleanType, East, EastError, OptionType, PatchType, SortedMap, StringType, applyFor, checkJq, compareFor, decodeBeast2, decodeBeast2For,
+    decodeEastIR, encodeBeast2For, equalFor, fromEastTypeValue, none, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
@@ -27,7 +27,7 @@ import { EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplem
 import {
     Query, RecordBindHandleType, bindPagedPinnedPlatformFn, bindPlatformFn, queryKeys, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
-import { TreePathType } from "@elaraai/e3-types";
+import { TreePathType, type ExecuteResult, type OneShotRequest } from "@elaraai/e3-types";
 import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
@@ -39,8 +39,11 @@ import type { SavedQuery } from "./session.js";
 // The builder is an extension: its renderer registers as it loads.
 import "./builder.js";
 
+// jsdom lacks the ResizeObserver the panes and the menus' positioners reach for, and the CSS.escape a menu finds its items with.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
 (globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
     matches: false, media: query, onchange: null,
     addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
@@ -226,4 +229,79 @@ export async function mountBuilder(call?: QueryCall): Promise<RenderResult> {
 /** The saved queries record, keyed by name. */
 export function savedRecord(queries: readonly SavedQuery[]): Saved {
     return new SortedMap(queries.map((q): [string, SavedQuery] => [q.name, q]), keys);
+}
+
+/** The hash e3 pins each of the page's datasets at. */
+export const HASHES: ReadonlyMap<string, string> = new Map([["orders", "4f2a1c8d".repeat(8)], ["customers", "9b07e3a4".repeat(8)]]);
+
+const samePath = equalFor(TreePathType);
+
+/** The page's dataset a call's argument names: its name and its value in the fixture. */
+function datasetAt(arg: OneShotRequest["args"][number]): { name: string; value: unknown } {
+    if (arg.type !== "dataset") throw new Error("a query's call has dataset arguments only");
+    const name = samePath(arg.value, ORDERS) ? "orders" : samePath(arg.value, CUSTOMERS) ? "customers" : undefined;
+    if (name === undefined) throw new Error("an argument names no dataset of the page");
+    return { name, value: (FIXTURE_VALUE as Readonly<Record<string, unknown>>)[name] };
+}
+
+/** A one-shot call answered here, and what it was asked. */
+export interface FixtureCall {
+    /** The call. */
+    readonly call: QueryCall;
+    /** Each request, in order. */
+    readonly requests: OneShotRequest[];
+    /** Each answer, in the order the requests were made. */
+    readonly answers: ExecuteResult[];
+    /** Answers the calls held so far, when the call holds its answers: in the order they were made, or the newest first, as a slow call answers last. */
+    readonly release: (options?: { newestFirst?: boolean }) => Promise<void>;
+}
+
+/**
+ * A one-shot call answered here, as e3 answers it: the request's body decoded
+ * from its bytes, compiled with no platform function, and run over the
+ * fixture's datasets its arguments name, each pinned at its hash; a body that
+ * raises an error fails as a runner's run does, its error on stderr.
+ *
+ * @param options - `hold`: answer only on `release()`, so a test sees a run going
+ * @returns the call, its requests and its answers, and `release`
+ */
+export function fixtureCall(options: { hold?: boolean } = {}): FixtureCall {
+    const requests: OneShotRequest[] = [];
+    const answers: ExecuteResult[] = [];
+    const held: (() => void)[] = [];
+    const answer = (request: OneShotRequest): ExecuteResult => {
+        const datasets = request.args.map(datasetAt);
+        const inputs = datasets.map(({ name }) => ({ path: name === "orders" ? ORDERS : CUSTOMERS, hash: HASHES.get(name)! }));
+        const body = decodeEastIR(request.bodyIr);
+        const type = fromEastTypeValue(body.ir.value.type);
+        if (type.type !== "Function") throw new Error("a call's body is a function");
+        const done = { stdout: "", stdoutTruncated: false, stderrTruncated: false, inputs };
+        try {
+            const value = body.compile([])(...datasets.map(d => d.value));
+            return { ...done, outcome: variant("success", { value: encodeBeast2For(type.output)(value) }), stderr: "" };
+        } catch (e) {
+            if (!(e instanceof EastError)) throw e;
+            return { ...done, outcome: variant("failed", { exitCode: 1n }), stderr: `Error: ${e.toString()}\n` };
+        }
+    };
+    return {
+        requests,
+        answers,
+        call: async (request) => {
+            requests.push(request);
+            const index = requests.length - 1;
+            if (options.hold === true) await new Promise<void>(resolve => { held.push(resolve); });
+            answers[index] = answer(request);
+            return answers[index];
+        },
+        release: async ({ newestFirst = false } = {}) => {
+            const answers = held.splice(0);
+            if (newestFirst) answers.reverse();
+            // Each answer settles before the next, so a later one never lands in the same render.
+            for (const resolve of answers) {
+                await act(async () => { resolve(); });
+                await settle();
+            }
+        },
+    };
 }

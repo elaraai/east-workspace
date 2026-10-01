@@ -314,7 +314,9 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
         await type(".orders | length");
         await key("Enter", { metaKey: true });
         await settle();
-        expect(offline.requests.map((r) => r.limits)).toEqual([some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none })]);
+        // Opening the query ran it (#938); ⌘⏎ runs it again: two calls, each with a run's limits.
+        const runLimits = some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none });
+        expect(offline.requests.map((r) => r.limits)).toEqual([runLimits, runLimits]);
         await press("Undo");
         expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
         area().setSelectionRange(0, 0);

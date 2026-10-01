@@ -146,12 +146,12 @@ const viewButton = (name: "Visual" | "jq") => within(screen.getByRole("group", {
 // ─── B1–B8 ───────────────────────────────────────────────────────────────────
 
 describe("<Query.Builder> — the toolbar, the pane, the Query tab and the status line (#936)", () => {
-    test("B1: the one toolbar — Visual · jq at its start; the history item, Copy jq, Save… and Run with its keys at its end", async () => {
+    test("B1: the one toolbar — Visual · jq at its start; Table · Tree, Download ▾, the history item, Copy jq, Save… and Run with its keys at its end", async () => {
         const { container } = await mountBuilder(offlineCall().call);
         await openQuery(variant("saved", TOP.name));
         const items = [...builderOf(container).querySelectorAll<HTMLElement>("[data-toolbar-item]")];
         expect(items.map((el) => [el.getAttribute("data-toolbar-item"), el.hasAttribute("data-toolbar-end")])).toEqual([
-            ["view", false], ["history", true], ["copy", false], ["save", false], ["run", false],
+            ["view", false], ["result-view", true], ["download", false], ["history", false], ["copy", false], ["save", false], ["run", false],
         ]);
         expect([viewButton("Visual").getAttribute("aria-pressed"), viewButton("jq").getAttribute("aria-pressed")]).toEqual(["true", "false"]);
         expect(screen.getByRole("button", { name: "Copy jq" }).textContent).toBe("Copy jq");
@@ -160,9 +160,9 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect([run.textContent, run.querySelector("kbd")?.textContent]).toEqual(["Run⌘⏎", "⌘⏎"]);
     }, 30_000);
 
-    test("B2: the toolbar folds on one ladder — Run's keys, then Copy jq to its icon, then Visual · jq to its icons, then the history item", async () => {
+    test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, Download to its icon, Table · Tree to its icons, Visual · jq to its icons, then the history item", async () => {
         const { container } = await mountBuilder(offlineCall().call);
-        expect(builderOf(container).querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 view>1 history>1");
+        expect(builderOf(container).querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 download>1 result-view>1 view>1 history>1");
     }, 30_000);
 
     test("B3: the pane — Query, Datasets and Library; collapsed, its rail counts the steps; Visual · jq opens the Query tab and expands it", async () => {
@@ -314,8 +314,11 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         await key("Tab");
         expect(rowsOf(cardsOf(container)[0]!)[0]).toEqual(["", "<total>", "<is at most>", "<1000>", "(Remove)"]);
         await openSlot(cardsOf(container)[0]!, "1000");
-        // A value slot reads the summary of its rows: one one-shot call, with a summary's limits.
-        expect(offline.requests.map((r) => r.limits)).toEqual([some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none })]);
+        // Opening the query ran it (#938); a value slot reads the summary of its rows: one one-shot call more, with a summary's limits.
+        expect(offline.requests.map((r) => r.limits)).toEqual([
+            some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
+            some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
+        ]);
         await act(async () => { fireEvent.change(filterOf(), { target: { value: "2,500" } }); });
         await settle();
         expect(offers()[0]).toBe("Use “2,500”");
@@ -325,6 +328,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         await act(async () => { fireEvent.keyDown(cardsOf(container)[0]!, { key: "Enter", metaKey: true }); });
         await settle();
         expect(offline.requests.map((r) => r.limits)).toEqual([
+            some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
         ]);

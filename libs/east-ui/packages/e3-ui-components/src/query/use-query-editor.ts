@@ -122,6 +122,8 @@ export interface QueryEditorOptions {
     readonly bounds: () => HTMLElement | null;
     /** Its session's source id: another query opened starts afresh. */
     readonly sourceId: string;
+    /** The rows a fresh run of the steps counted at each stage, by step id (#938): the shape lines count them. */
+    readonly counts?: ReadonlyMap<string, number> | undefined;
 }
 
 /** Editing the open query: what the surfaces draw, and what they do. */
@@ -200,13 +202,13 @@ function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | und
  * @returns What the surfaces draw, and what they do
  */
 export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
-    const { entries, current, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId } = options;
+    const { entries, current, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId, counts } = options;
     const m = words.messages;
     const { header, query } = useMemo(() => entriesQuery(entries), [entries]);
     const isJq = header.jq.type === "some";
     const checked = useMemo(() => (isJq ? undefined : checkSteps(query, root.type)), [isJq, query, root]);
-    const source = useMemo(() => (checked === undefined ? undefined : sourceCard(query, root.type, checked, words)), [checked, query, root, words]);
-    const cards = useMemo(() => (checked === undefined ? [] : cardsFor(query, root.type, checked, words)), [checked, query, root, words]);
+    const source = useMemo(() => (checked === undefined ? undefined : sourceCard(query, root.type, checked, words, counts)), [checked, query, root, words, counts]);
+    const cards = useMemo(() => (checked === undefined ? [] : cardsFor(query, root.type, checked, words, counts)), [checked, query, root, words, counts]);
     const quick = useMemo(() => (checked === undefined ? [] : quickAddOptions(checked.final, root.type, words)), [checked, root, words]);
     const held = useMemo(() => queryProgram(header, query, root.type), [header, query, root]);
 

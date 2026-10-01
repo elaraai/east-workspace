@@ -45,6 +45,19 @@ function triggerDownload(filename: string, mimeType: string, data: Uint8Array | 
 }
 
 /**
+ * Saves bytes or text as a file, in the browser, as the `Download` platform
+ * functions do — for a host renderer's own downloads, such as the query
+ * builder's result (#938). Outside a browser it does nothing.
+ *
+ * @param filename - The file's name
+ * @param mimeType - Its media type
+ * @param data - Its bytes, or its text
+ */
+export function downloadFile(filename: string, mimeType: string, data: Uint8Array | string): void {
+    triggerDownload(filename, mimeType, data);
+}
+
+/**
  * RFC-4180-style CSV cell quoting. Wraps the cell in double-quotes when it
  * contains a comma, double-quote, CR, or LF, and doubles any embedded
  * double-quotes.
