@@ -148,6 +148,7 @@ import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
 import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
+import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 
 const config = defineConfig({
     globalCss,
@@ -277,6 +278,7 @@ const config = defineConfig({
             jqEditor:        jqEditorSlotRecipe,
             stepper:         stepperSlotRecipe,
             toolbar:         toolbarSlotRecipe,
+            queryAutocomplete: queryAutocompleteSlotRecipe,
         },
     },
 });

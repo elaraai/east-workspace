@@ -11,7 +11,7 @@ import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
 // type-check under their own project, and the renderer's own rules below skip
 // them, as they always have.
 const EAST_HOST_VALUES = ['error', { only: hostValueRules }];
-const TESTS = ['**/*.test.ts', '**/*.test.tsx'];
+const TESTS = ['**/*.test.ts', '**/*.test.tsx', '**/*.test-utils.ts', '**/*.test-utils.tsx'];
 
 // One formatter for every component (#850): numbers and dates print through
 // @elaraai/east-ui-components' shared formatters — in the app's locale, dates in UTC. These

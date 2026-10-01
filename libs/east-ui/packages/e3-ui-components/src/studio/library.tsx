@@ -53,8 +53,8 @@ import {
     useTrackedEvaluation, type LibraryItemValue, type LibraryValue, type SnapGridLayoutCell, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 
+import { NamePopover } from "../shared/name-popover.js";
 import { useStudioMessages, type StudioMessages } from "./messages.js";
-import { NamePopover } from "./name-popover.js";
 import { useOpenPage, type StudioKey } from "./open-page.js";
 import { studioEast } from "./studio-east.js";
 
@@ -380,7 +380,9 @@ export const EastChakraStudioLibrary = memo(function EastChakraStudioLibrary({ v
             initial=""
             taken={taken}
             missing={m.pageNameMissing()}
+            nameTaken={(name) => m.nameTaken({ name })}
             confirm={m.createPage()}
+            cancel={m.cancel()}
             onConfirm={create}
         >
             <ChakraSelect.Root collection={picker} value={[template]} onValueChange={(d) => setTemplate(d.value[0] ?? BLANK)}>

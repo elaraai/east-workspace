@@ -221,7 +221,8 @@ are (#935); a pane that passes neither keeps its own, as today.
 
 A notice that says what just happened is a `BannerView` at the top of the Query tab — "Opened “Top shipped
 orders, 2026” from the query library.", "Started a new query on customers.", "2 parts of the jq don't match a
-visual step, so they stay as jq." — dismissible, with no undo of its own (§4.13).
+visual step, so they stay as jq." — dismissible, with no undo of its own (§4.13). The Query tab holds them and
+raises the jq's (#936); opening and starting a query raise theirs where they happen (#939, #1063).
 
 ### 4.3 The Query tab: the source, the steps and their shapes
 
@@ -431,6 +432,11 @@ it is finished."), then the editor filling the tab (the `jqEditor` slot recipe):
   its range.
 - ⌘⏎ runs; Tab inserts two spaces. Leaving the view parses the jq back into steps (§4.7) as one gesture.
 
+The jq typed and left is one gesture too, while the view stays: steps where it parses into them, else the
+program as jq, which the visual view cannot show — a query whose program is not steps opens in the jq view, its
+note saying why. #936 builds the view as a plain text field, mono and unwrapped, in the `jqEditor` recipe's
+`input` slot; the gutter, the highlighting, the completions and the problems panel are #937's.
+
 ### 4.9 The Datasets tab
 
 A `Library` of the bound data sources, as Studio's Components tab is a `Library` of the listed components:
@@ -496,13 +502,15 @@ Under the pane and the results, the `status` recipe's dots and words:
 
 ### 4.13 Saving, opening and starting
 
-- **Save…** opens the save popover, the Studio's `NamePopover` (the design system's `SliceEditPopover`), as
-  Save as template does:
+- **Save…** opens the save popover, the shared `NamePopover` (e3-ui-components `src/shared/name-popover.tsx`,
+  the design system's `SliceEditPopover`, which Studio's Save as template and New page use too), as Save as
+  template does:
   - "Save query · {name}"; the name field, offering the open query's name — a name another saved query
     holds is refused, the open query's own is not, and saving under it updates it;
   - under it the **description**: at most 140 characters, "What the query answers, in one sentence". While
     untouched it holds the sentence generated from the steps, muted, with "Generated from the steps · edit to
-    write your own"; once edited, "{n}/140 · shown under the name in the library" and **Use generated**;
+    write your own"; once edited, "{n}/140 · shown under the name in the library" and **Use generated**; cleared,
+    it is no description, and the generated sentence shows in its place;
   - Cancel and **Save**. Save records the name and description as one gesture and applies the session: one
     commit. A refusal — a stale entry, a name another write took first — shows in the popover.
 - **Apply** (the history item's Save) saves the open query as it stands. A query never saved opens the save
