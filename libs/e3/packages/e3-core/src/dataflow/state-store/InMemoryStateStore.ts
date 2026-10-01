@@ -90,12 +90,12 @@ export class InMemoryStateStore implements ExecutionStateStore {
       throw new Error(`Execution ${state.id} not found in ${key}`);
     }
 
-    // Guard: never overwrite 'cancelled' with a non-cancelled status
-    if (state.status !== 'cancelled') {
-      const current = wsStates.get(state.id)!;
-      if (current.status === 'cancelled') {
-        return;
-      }
+    // A run that has ended stays as it ended: completed, failed and cancelled
+    // are final, and a write of another status is dropped. A run's loop may
+    // persist what it had in memory after its end has landed.
+    const current = wsStates.get(state.id)!;
+    if (current.status !== 'running' && state.status !== current.status) {
+      return;
     }
 
     wsStates.set(state.id, this.cloneState(state));

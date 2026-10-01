@@ -5,11 +5,14 @@
 
 /**
  * The dataflow loop's contract suite over e3-core's own backends: a local
- * repository, and the in-memory backend.
+ * repository, with its runs' state in memory and in its workspace files as the
+ * local server keeps it, and the in-memory backend.
  */
 
 import { describe } from 'node:test';
+import { join } from 'node:path';
 import { dataflowTests } from './contract/index.js';
+import { FileStateStore } from './dataflow/state-store/FileStateStore.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/LocalBackend.js';
 import { createTestRepo, removeTestRepo } from './test-helpers.js';
@@ -19,6 +22,14 @@ describe('over a local repository', () => {
     const repo = createTestRepo();
     t.after(() => removeTestRepo(repo));
     return { storage: new LocalStorage(), repo };
+  });
+});
+
+describe('over a local repository, its runs\' state in its workspace files', () => {
+  dataflowTests(async (t) => {
+    const repo = createTestRepo();
+    t.after(() => removeTestRepo(repo));
+    return { storage: new LocalStorage(), repo, stateStore: new FileStateStore(join(repo, 'workspaces')) };
   });
 });
 

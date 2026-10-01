@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { East, IntegerType, decodeBeast2For, none, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { PackageObjectType } from '@elaraai/e3-types';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
@@ -204,6 +204,101 @@ export function dataflowTests(setup: BackendSetup): void {
       await assert.rejects(orchestrator.wait(handle), DataflowAbortedError);
       assert.equal((await stateStore.read(repo, 'ws', handle.id))?.status, 'cancelled');
       assert.equal((await storage.refs.dataflowRunGetLatest(repo, 'ws'))?.status.type, 'cancelled');
+    });
+
+    it('ends a run whose loop throws while a task runs only once that task has settled: failed for good, its record too, its locks held until then', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      // `first` runs while preparing `second`, whose input was never
+      // assigned, throws out of the loop.
+      const a = e3.input('a', IntegerType, variant('value', 1n));
+      const b = e3.input('b', IntegerType);
+      const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
+      const zip = join(scratch(t), 'late.zip');
+      await e3.export(e3.package('late', '1.0.0', a, b, e3.task('first', [a], add), e3.task('second', [b], add)), zip);
+      await packageImport(storage, repo, zip);
+      await workspaceCreate(storage, repo, 'ws');
+      await workspaceDeploy(storage, repo, 'ws', 'late', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+
+      // `first` runs until the run stops it, as a runner does once the run's
+      // signal aborts — or for two seconds, should nothing stop it.
+      const runner = new MockTaskRunner();
+      let lockedAtEnd: boolean | undefined;
+      runner.setResult(deployed.tasks.get('first')!, async () => {
+        const signal = runner.getCalls()[0]!.options!.signal!;
+        await Promise.race([
+          new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true })),
+          new Promise((resolve) => setTimeout(resolve, 2_000)),
+        ]);
+        lockedAtEnd = (await storage.locks.getState(repo, 'ws#dataflow')) !== null;
+        return { state: 'error', cached: false, error: 'cancelled: e3 stopped the runner because the run was aborted', cancelled: true };
+      });
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const handle = await orchestrator.start(storage, repo, 'ws', { runner });
+      await assert.rejects(orchestrator.wait(handle), { message: 'Task \'second\' has unassigned input' });
+
+      assert.equal(lockedAtEnd, true, 'the running task ended while the run still held its locks');
+      assert.equal(await storage.locks.getState(repo, 'ws#dataflow'), null, 'the run let its locks go once it had ended');
+      const ended = await stateStore.read(repo, 'ws', handle.id);
+      assert.equal(ended?.status, 'failed');
+      assert.deepEqual(ended?.error, some('Task \'second\' has unassigned input'));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal((await stateStore.read(repo, 'ws', handle.id))?.status, 'failed', 'nothing the run launched wrote its state back');
+      const run = await storage.refs.dataflowRunGet(repo, 'ws', handle.id);
+      assert.ok(run?.status.type === 'failed' && run.status.value.error === 'Task \'second\' has unassigned input',
+        'its record says it failed, and why');
+      await assert.rejects(orchestrator.cancel(handle), /not found/, 'as for any run that has ended, there is nothing to cancel');
+    });
+
+    it('ends a split task the loop left between stages cancelled when the loop throws, and the run failed', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      // Pieces of 16 to 256 stored bytes, so the input is cut into many.
+      const pieceBytes = process.env.E3_TEST_PIECE_BYTES;
+      process.env.E3_TEST_PIECE_BYTES = '64';
+      t.after(() => {
+        if (pieceBytes === undefined) delete process.env.E3_TEST_PIECE_BYTES;
+        else process.env.E3_TEST_PIECE_BYTES = pieceBytes;
+      });
+      // `total` is planned into pieces, then preparing `waits`, whose input was
+      // never assigned, throws out of the loop before a unit has launched.
+      const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
+        Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+      const total = e3.streamTask('total', {
+        inputs: [e3.partition(rows)],
+        output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, x, y) => x.add(y) }),
+      }, ($, rows, emit) => {
+        $.for(rows, ($, value) => {
+          $(emit(value));
+        });
+      });
+      const missing = e3.input('missing', IntegerType);
+      const waits = e3.task('waits', [missing], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
+      const zip = join(scratch(t), 'split.zip');
+      await e3.export(e3.package('split', '1.0.0', rows, total, missing, waits), zip);
+      await packageImport(storage, repo, zip);
+      await workspaceCreate(storage, repo, 'ws');
+      await workspaceDeploy(storage, repo, 'ws', 'split', '1.0.0');
+      const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+      const totalHash = deployed.tasks.get('total')!;
+      const runner = new MockTaskRunner();
+      runner.setUnitResult(totalHash, (unit) => ({ state: 'success', cached: false, outputHash: unit.merge === null ? 'piece' : 'sum' }));
+
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const handle = await orchestrator.start(storage, repo, 'ws', { runner });
+      await assert.rejects(orchestrator.wait(handle), { message: 'Task \'waits\' has unassigned input' });
+
+      assert.deepEqual(runner.getUnitCalls(), [], 'no unit launched');
+      const rowsRef = await storage.datasets.read(repo, 'ws', 'inputs/rows');
+      assert.ok(rowsRef?.type === 'value');
+      assert.equal((await storage.refs.executionGetLatest(repo, totalHash, inputsHash([rowsRef.value.hash])))?.type, 'cancelled',
+        'the split task\'s own execution ended cancelled, not left running');
+      const ended = await stateStore.read(repo, 'ws', handle.id);
+      assert.equal(ended?.status, 'failed');
+      assert.equal(ended?.tasks.get('total')?.status, 'pending', 'the task can run again');
     });
   });
 }
