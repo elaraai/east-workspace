@@ -36,15 +36,18 @@
  * anywhere in the builder, and opening a saved query run it (#938, `run.ts`):
  * the results show what came back, a fresh visual run's counts its shape
  * lines, and each run that answers joins this viewer's recent queries. The
- * Datasets and Library tabs (#939) fill the rest. The builder fills its host
- * and draws no border around itself.
+ * Datasets tab (#939) lists the data sources, and a click starts a new query
+ * on one; the Library tab lists this viewer's recent runs and the saved
+ * queries, and a click opens one, which runs. A query opened or started there
+ * arrives with its notice, and ⌘/Ctrl / opens the Datasets tab. The builder
+ * fills its host and draws no border around itself.
  *
  * @packageDocumentation
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, equivalentFor, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, DockPane, EmptyStateView, Toolbar, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, usePersistedState,
@@ -53,17 +56,22 @@ import {
 } from "@elaraai/east-ui-components";
 import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
+import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
+import { QueryDropTarget } from "./drops.js";
 import { useQueryCall, useQueryRoot, useQuerySummaries, useRecentQueries } from "./hooks.js";
 import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
 import type { QueryResult, QueryRoot } from "./one-shot.js";
-import { useOpenQuery, type QueryOpen } from "./open-query.js";
+import { LibraryTab } from "./library-tab.js";
+import { newQuery, querySourceId, useOpenQuery, type QueryOpen } from "./open-query.js";
 import { usePartStyles, type Styles } from "./parts.js";
 import { QueryTabPanel } from "./query-tab.js";
 import { QueryResults, ResultStrips, pickedView, resultToolbarItems, type DownloadFormat, type ResultView } from "./results.js";
 import { canonicalProgram, planRun, useQueryRun, type RunPlan } from "./run.js";
 import { QuerySavePopover } from "./save-popover.js";
-import { entriesQuery, queryEntries, queryProgram, savedOffers, type QueryEntry, type SavedQueries } from "./session.js";
+import {
+    entriesQuery, queryEntries, queryProgram, rootRefusal, savedEntries, savedOffers, type QueryEntry, type SavedQueries, type SavedQuery,
+} from "./session.js";
 import { QueryStatusLine, type QuerySaveLine } from "./status-line.js";
 import { queryToolbarItems } from "./toolbar.js";
 import { useQueryEditor } from "./use-query-editor.js";
@@ -144,7 +152,7 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     // The open query — the saved query the payload names, else a new query on the first data source, until another is opened.
     const firstSource = datasets[0]?.name ?? "";
     const opening = value.query.type === "some" ? value.query.value : undefined;
-    const first = useMemo((): QueryOpen => (opening !== undefined ? variant("saved", opening) : variant("new", { id: "first", source: firstSource })),
+    const first = useMemo((): QueryOpen => (opening !== undefined ? variant("saved", opening) : variant("new", { id: "first", source: firstSource, from: none })),
         [opening, firstSource]);
     const [open, writeOpen] = useOpenQuery(keys.query, first);
     const session = useQuerySession({ handle, record, root, open, writeOpen, storageKey: `${storageKey}.query`, words });
@@ -160,7 +168,7 @@ export const EastChakraQueryBuilder = memo(function EastChakraQueryBuilder({ val
     }
     return (
         <QueryBuilderView session={session} entries={session.entries} record={record} root={root} open={open}
-            writeOpen={writeOpen} words={words} storageKey={storageKey} recentKey={keys.recent} />
+            writeOpen={writeOpen} words={words} storageKey={storageKey} recentKey={keys.recent} id={id} />
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
 
@@ -184,10 +192,12 @@ interface QueryBuilderViewProps {
     readonly storageKey: string;
     /** This viewer's recent runs' storage key. */
     readonly recentKey: string;
+    /** The builder's id: its drop target's, and the query library's it takes cards from. */
+    readonly id: string | undefined;
 }
 
 /** The builder over a query it can edit: the toolbar, the pane, the results and the status line. */
-function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, words, storageKey, recentKey }: QueryBuilderViewProps) {
+function QueryBuilderView({ session: state, entries, record, root, open, writeOpen, words, storageKey, recentKey, id }: QueryBuilderViewProps) {
     const ps = usePartStyles(words);
     const { styles } = ps;
     const seg = useSlotRecipe({ key: "seg" })() as Styles;
@@ -221,19 +231,49 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
 
     // ── Runs and summaries: one-shot calls ──────────────────────────────
     const call = useQueryCall();
-    // Each run that answers is one of this viewer's recent queries: its checked query, its name and what it read.
-    const { remember } = useRecentQueries(recentKey);
+    // Each run that answers is one of this viewer's recent queries: the query's own program checked — a visual
+    // run sends the counting program, which is not the query — its name and what it read.
+    const { recent, remember } = useRecentQueries(recentKey);
     const onRan = useCallback((result: QueryResult, plan: RunPlan) => {
         if (result.query.type !== "some") return;
+        const own = checkJq(plan.canonical, root.type, { root: true }).query;
+        if (own === null) return;
         remember({
-            name: plan.name, description: plan.description, query: result.query.value,
+            name: plan.name, description: plan.description, query: own,
             root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
         });
-    }, [remember]);
+    }, [remember, root]);
     const { state: run, run: start } = useQueryRun(root, call, onRan);
     const summaries = useQuerySummaries(root, call);
     const saved = useMemo(() => savedOffers(record, root), [record, root]);
     const onOpenSaved = useCallback((name: string) => writeOpen(variant("saved", name)), [writeOpen]);
+
+    // ── Opening and starting queries from the Datasets and Library tabs (#939) ──
+    // The query opened arrives with its notice, shown when it opens.
+    const [arrival, setArrival] = useState<{ sourceId: string; text: string } | undefined>(undefined);
+    const arrive = useCallback((next: QueryOpen, text: string) => {
+        setArrival({ sourceId: querySourceId(next), text });
+        writeOpen(next);
+    }, [writeOpen]);
+    const onStart = useCallback((name: string) => arrive(newQuery(name), m.startedOn({ name })), [arrive, m]);
+    const onOpenFromLibrary = useCallback((name: string) => arrive(variant("saved", name), m.openedFromLibrary({ name })), [arrive, m]);
+    const onOpenRun = useCallback((run: SavedQuery) => {
+        const { header, query } = entriesQuery(savedEntries(run, root.type));
+        const source = header.jq.type === "none" ? query.source : run.root[0]?.name ?? root.entries[0]?.name ?? "";
+        arrive(newQuery(source, run), m.openedFromLibrary({ name: run.name }));
+    }, [arrive, root, m]);
+    // A query library's card dropped on the builder opens its query; one whose data sources aren't bound here is refused, with why.
+    const dropRefusal = useCallback((name: string): string | undefined => {
+        const query = record.get(name);
+        return query === undefined ? m.queryGone({ name }) : rootRefusal(query, root, words);
+    }, [record, root, words, m]);
+    const dropSteps = useCallback((name: string): number | undefined => {
+        const query = record.get(name);
+        if (query === undefined) return undefined;
+        const { header, query: steps } = entriesQuery(savedEntries(query, root.type));
+        return header.jq.type === "some" ? undefined : steps.steps.length;
+    }, [record, root]);
+    const onDrop = useCallback((name: string) => arrive(variant("saved", name), m.openedFromQueryLibrary({ name })), [arrive, m]);
     // A fresh run of the steps counts their shape lines: fresh while the steps print as the program it ran.
     const steps = useMemo(() => {
         const { header, query } = entriesQuery(entries);
@@ -244,7 +284,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     // ── Editing the open query ──────────────────────────────────────────
     const editor = useQueryEditor({
         entries, current: state.current, gesture: state.gesture, version: state.version, root, words, summaries, saved, onOpenSaved, onShowQuery,
-        bounds, sourceId, counts,
+        bounds, sourceId, counts, arrival,
     });
     const { leaveJq } = editor;
     // A run takes the jq as typed: left first, one gesture.
@@ -252,13 +292,28 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         leaveJq();
         start(planRun(editor, root));
     }, [leaveJq, start, editor, root]);
-    // Opening a saved query runs it; starting a new one does not.
+    // Opening a saved query runs it, and so does opening a recent run as a new query; starting a new one does not.
     const ranFor = useRef<string | undefined>(undefined);
     useEffect(() => {
         if (ranFor.current === sourceId) return;
         ranFor.current = sourceId;
-        if (open.type === "saved") onRun();
+        if (open.type === "saved" || open.value.from.type === "some") onRun();
     }, [sourceId, open, onRun]);
+
+    // What the open query reads, for the Datasets tab: its source and what it looks up, or, as jq, what it reads.
+    const reads = useMemo((): ReadonlyMap<string, SourceRole> => {
+        const roles = new Map<string, SourceRole>();
+        const { header, query } = editor;
+        if (header.jq.type === "some") {
+            for (const name of checkJq(header.jq.value, root.type, { root: true }).reads) roles.set(name, "source");
+            return roles;
+        }
+        roles.set(query.source, "source");
+        for (const step of query.steps) {
+            if (step.type === "lookup" && step.value.dataset.type === "some" && !roles.has(step.value.dataset.value)) roles.set(step.value.dataset.value, "lookedUp");
+        }
+        return roles;
+    }, [editor, root]);
 
     // ── The result: fresh or stale, how it shows, and its downloads ─────
     const now = useMemo(() => canonicalProgram(editor.program), [editor.program]);
@@ -298,12 +353,19 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             onRun();
             return;
         }
+        // ⌘/Ctrl / opens the Datasets tab, the pane expanded.
+        if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+            event.preventDefault();
+            setTab("datasets");
+            setPane({ collapsed: false });
+            return;
+        }
         if (inField(event.target)) return;
         const action = historyShortcut(event);
         if (action === undefined) return;
         event.preventDefault();
         onAction(action);
-    }, [onRun, onAction]);
+    }, [onRun, onAction, setPane]);
 
     // ── Saving ──────────────────────────────────────────────────────────
     const taken = useMemo(() => {
@@ -375,7 +437,15 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         label: m.tab({ tab: key }),
         body: key === "query"
             ? <QueryTabPanel editor={editor} ps={ps} workspace={workspace} focus={focus?.entry} />
-            : <Box css={styles.tab} data-query-tab={key} />,
+            : (
+                <Box css={styles.tab} data-query-tab={key}>
+                    {key === "datasets"
+                        // Each tab's library has an id of its own, under the builder's keys.
+                        ? <DatasetsTab root={root} reads={reads} onStart={onStart} id={`${recentKey}.datasets`} words={words} storageKey={`${storageKey}.datasets`} />
+                        : <LibraryTab record={record} recent={recent} root={root} open={open} onOpenSaved={onOpenFromLibrary} onOpenRun={onOpenRun}
+                            id={`${recentKey}.library`} ps={ps} storageKey={`${storageKey}.library`} />}
+                </Box>
+            ),
     }));
     const popover = editor.popover;
     return (
@@ -386,27 +456,29 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             </Box>
             {/* The result's strips: under the toolbar, the builder's full width. */}
             <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />
-            <Box css={styles.body}>
-                <DockPane
-                    storageKey={`${storageKey}.pane`}
-                    icon="diagram-project"
-                    label={m.pane()}
-                    badge={words.formatters.number(editor.query.steps.length)}
-                    side="start"
-                    surface="shell"
-                    // One width whichever view the Query tab shows: the pane never jumps as Visual · jq switches.
-                    expandedSize="min(480px, 52%)"
-                    railSize="44px"
-                    collapsed={pane.collapsed}
-                    onCollapsedChange={onCollapsedChange}
-                    tabs={tabs}
-                    tab={tab}
-                    onTabChange={onTabChange}
-                />
-                <Box css={styles.results} data-query-results="">
-                    <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} />
+            <QueryDropTarget id={id} refusal={dropRefusal} steps={dropSteps} onOpen={onDrop} words={words}>
+                <Box css={styles.body}>
+                    <DockPane
+                        storageKey={`${storageKey}.pane`}
+                        icon="diagram-project"
+                        label={m.pane()}
+                        badge={words.formatters.number(editor.query.steps.length)}
+                        side="start"
+                        surface="shell"
+                        // One width whichever view the Query tab shows: the pane never jumps as Visual · jq switches.
+                        expandedSize="min(480px, 52%)"
+                        railSize="44px"
+                        collapsed={pane.collapsed}
+                        onCollapsedChange={onCollapsedChange}
+                        tabs={tabs}
+                        tab={tab}
+                        onTabChange={onTabChange}
+                    />
+                    <Box css={styles.results} data-query-results="">
+                        <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} />
+                    </Box>
                 </Box>
-            </Box>
+            </QueryDropTarget>
             <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />
             {popover !== undefined && element !== null && (
                 <SlotAutocomplete key={popover.generation} anchor={popover.slot.anchor} bounds={element}

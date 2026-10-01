@@ -124,6 +124,13 @@ export interface QueryEditorOptions {
     readonly sourceId: string;
     /** The rows a fresh run of the steps counted at each stage, by step id (#938): the shape lines count them. */
     readonly counts?: ReadonlyMap<string, number> | undefined;
+    /**
+     * The notice a query arrives with when it opens (#939) — "Opened “Big
+     * orders” from the library.", "Started a new query on customers." — by its
+     * session's source id: shown when that query opens, in place of the last
+     * query's notices.
+     */
+    readonly arrival?: { readonly sourceId: string; readonly text: string } | undefined;
 }
 
 /** Editing the open query: what the surfaces draw, and what they do. */
@@ -202,7 +209,7 @@ function slotElement(bounds: HTMLElement | null, key: string): HTMLElement | und
  * @returns What the surfaces draw, and what they do
  */
 export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
-    const { entries, current, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId, counts } = options;
+    const { entries, current, gesture, version, root, words, summaries, saved, onOpenSaved, onShowQuery, bounds, sourceId, counts, arrival } = options;
     const m = words.messages;
     const { header, query } = useMemo(() => entriesQuery(entries), [entries]);
     const isJq = header.jq.type === "some";
@@ -245,14 +252,22 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         flushed.current = undefined;
         setJqText(held);
     }, [held]);
-    // Another query opened: its own view, its own notices.
+    // Another query opened: its own view, its own notices — the notice it arrives with, if any.
+    const arriving = useRef(arrival);
+    useEffect(() => { arriving.current = arrival; }, [arrival]);
     const shown = useRef(sourceId);
     useEffect(() => {
         if (shown.current === sourceId) return;
         shown.current = sourceId;
         setViewState("visual");
         setJqNote(undefined);
-        setNotices([]);
+        const notice = arriving.current;
+        if (notice !== undefined && notice.sourceId === sourceId) {
+            noticeId.current += 1;
+            setNotices([{ id: noticeId.current, text: notice.text }]);
+        } else {
+            setNotices([]);
+        }
     }, [sourceId]);
 
     /**

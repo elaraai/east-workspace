@@ -21,7 +21,7 @@ import { useCallback, useMemo } from "react";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    East, PatchType, QueryType, SortedMap, checkJq, encodeBeast2For, equalFor, some, variant,
+    East, PatchType, QueryType, SortedMap, checkJq, encodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Toolbar, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -66,7 +66,7 @@ const commits = () => committed(harness);
 // ─── The shell, through its carrier ─────────────────────────────────────────
 
 describe("<Query.Builder> — the shell (#935)", () => {
-    test("the one toolbar holds the result's items and the history item; the pane its Query, Datasets and Library tabs; the results and the status line under them", async () => {
+    test("the one toolbar holds the history item; the result's strips under it; the pane its Query, Datasets and Library tabs; the results and the status line", async () => {
         const { container } = await mountBuilder();
         const builder = container.querySelector<HTMLElement>("[data-query-builder]")!;
         expect([...builder.querySelector("[data-slot=toolbar]")!.querySelectorAll("[data-toolbar-item]")].map(el => el.getAttribute("data-toolbar-item")))
@@ -88,7 +88,7 @@ describe("<Query.Builder> — the shell (#935)", () => {
     test("it opens a new query on the first data source, and a saved query the query library opens, from the record it reads", async () => {
         const { container } = await mountBuilder();
         const builder = () => container.querySelector<HTMLElement>("[data-query-builder]")!;
-        expect(builder().getAttribute("data-query-open")).toBe(querySourceId(variant("new", { id: "first", source: "orders" })));
+        expect(builder().getAttribute("data-query-open")).toBe(querySourceId(variant("new", { id: "first", source: "orders", from: none })));
         // The pane's rail counts the open query's steps.
         const rail = () => builder().querySelector<HTMLElement>("[data-collapsed] [title=Query]")!.textContent;
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Query" })); });
@@ -122,7 +122,7 @@ function SessionHarness({ onState }: { onState: (state: QuerySessionState) => vo
     const read = useCallback(() => handle.read(), [handle]);
     const { result } = useTrackedEvaluation(read);
     const record = result.ok ? result.value : undefined;
-    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: "orders" }), []);
+    const first = useMemo((): QueryOpen => variant("new", { id: "first", source: "orders", from: none }), []);
     const [open, writeOpen] = useOpenQuery(queryKeys(undefined).query, first);
     const state = useQuerySession({ handle, record, root: ROOT, open, writeOpen, storageKey: "session-test", words });
     onState(state);

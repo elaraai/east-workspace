@@ -29,8 +29,8 @@ import {
 } from "@elaraai/e3-ui/internal";
 import { TreePathType, type ExecuteResult, type OneShotRequest } from "@elaraai/e3-types";
 import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type RecordApi,
+    E3Provider, ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
+    type DatasetApi, type E3Config, type RecordApi,
 } from "../platform/index.js";
 import { QueryCallProvider, type QueryCall } from "./hooks.js";
 import { createInMemoryQueryCall } from "./in-memory-call.js";
@@ -205,12 +205,14 @@ export function offlineCall(): { call: QueryCall; requests: Parameters<QueryCall
 
 /**
  * Mounts the builder as a surface mounts it: the record and two data sources
- * bound, with a host's one-shot call.
+ * bound, with a host's one-shot call — under an e3 server's config when one is
+ * given, whose dataset statuses the Datasets tab reads (#939).
  *
  * @param call - How a one-shot call is made
+ * @param options - `e3`: the server's config, for an `E3Provider` around the builder
  * @returns The rendered builder
  */
-export async function mountBuilder(call?: QueryCall): Promise<RenderResult> {
+export async function mountBuilder(call?: QueryCall, options: { e3?: E3Config } = {}): Promise<RenderResult> {
     const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const orders = $.let(bindPagedPinnedPlatformFn([OrdersType], ORDERS, East.value(none, OptionType(StringType)), East.value(false, BooleanType)));
         const customers = $.let(bindPlatformFn([CustomersType], CUSTOMERS, none, variant("direct", null)));
@@ -218,9 +220,10 @@ export async function mountBuilder(call?: QueryCall): Promise<RenderResult> {
         return Query.Builder({ queries: record as never, datasets: { orders: orders as never, customers: customers as never } });
     }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
     const builder = <EastChakraComponent value={program()} storageKey="query-builder" />;
+    const called = call === undefined ? builder : <QueryCallProvider call={call}>{builder}</QueryCallProvider>;
     const utils = render(
         <ChakraProvider value={system}>
-            {call === undefined ? builder : <QueryCallProvider call={call}>{builder}</QueryCallProvider>}
+            {options.e3 === undefined ? called : <E3Provider config={options.e3}>{called}</E3Provider>}
         </ChakraProvider>,
     );
     await settle();
