@@ -117,6 +117,7 @@ export {
     SavedQueryType,
     type QueriesHandle,
     type QueryBuilderOptions,
+    type QueryLibraryOptions,
     type QueryNamespace,
     type QueryTypes,
 } from './query/index.js';

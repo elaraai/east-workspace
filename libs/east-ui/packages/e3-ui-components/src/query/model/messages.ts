@@ -682,6 +682,55 @@ export interface QueryMessages {
     dropTargetName: () => string;
     /** The builder refusing a card, as the drag layer names it, with why — `the query builder (Reads customers, which isn't here) does not take Big orders.` */
     dropRefusedName: (p: { reason: string }) => string;
+
+    // ── The query library (#1063) ────────────────────────────────────────
+    /** Its search's placeholder — `Search 7 queries…`. */
+    librarySearch: (p: { count: string; n: number }) => string;
+    /** Its search's accessible name. */
+    librarySearchLabel: () => string;
+    /** Clears the search. */
+    clearSearch: () => string;
+    /** Sort, by the order it shows — `Sort · Recent`. */
+    librarySort: (p: { sort: "recent" | "name" }) => string;
+    /** An order in Sort's menu. */
+    librarySortOption: (p: { sort: "recent" | "name" }) => string;
+    /** The primary action — `New query on orders`. */
+    newQueryOn: (p: { source: string }) => string;
+    /** It, folded. */
+    newQuery: () => string;
+    /** The pane's caption. */
+    dataSources: () => string;
+    /** The pane's first row: every saved query. */
+    allQueries: () => string;
+    /** A card's action. */
+    openInBuilder: () => string;
+    /**
+     * A card's byline — `orders · 5 steps · up to 10 shipped orders · saved
+     * Tue`: what it starts from, its steps (none for a program that is not
+     * steps), what it gives or its problems, and when it was saved — or, for a
+     * recent run, ran.
+     */
+    libraryByline: (p: { source: string; steps: { count: string; n: number } | undefined; gives: string; when: string; run: boolean }) => string;
+    /** A wireframe's last line, for the steps it leaves out — `+2 more`. */
+    moreSteps: (p: { count: string; n: number }) => string;
+    /** A wireframe's line for a program that is not steps. */
+    jqProgram: () => string;
+    /** The gallery when nothing matches the search — `No queries match “sku”`. */
+    noMatch: (p: { text: string }) => string;
+    /** Under it. */
+    checkSpelling: () => string;
+    /** Under it, while the pane shows a data source or Recent. */
+    clearFilter: () => string;
+    /** Under it, while the pane shows every query. */
+    searchWhat: () => string;
+    /** No saved queries — on the data source shown, or at all. */
+    noQueries: () => string;
+    /** Under it. */
+    saveInBuilder: () => string;
+    /** No recent runs. */
+    noRecent: () => string;
+    /** Under it. */
+    runInBuilder: () => string;
 }
 
 const STEP_TITLE: Readonly<Record<Exclude<StepKind, "drill">, string>> = {
@@ -1197,4 +1246,31 @@ export const queryMessages: QueryMessages = {
     dropSteps: ({ count, n }) => `${count} ${n === 1 ? "step" : "steps"}.`,
     dropTargetName: () => "the query builder",
     dropRefusedName: ({ reason }) => `the query builder (${reason})`,
+
+    librarySearch: ({ count, n }) => `Search ${count} ${n === 1 ? "query" : "queries"}…`,
+    librarySearchLabel: () => "Search queries",
+    clearSearch: () => "Clear search",
+    librarySort: ({ sort }) => `Sort · ${sort === "recent" ? "Recent" : "Name"}`,
+    librarySortOption: ({ sort }) => (sort === "recent" ? "Recent" : "Name"),
+    newQueryOn: ({ source }) => `New query on ${source}`,
+    newQuery: () => "New query",
+    dataSources: () => "Data sources",
+    allQueries: () => "All queries",
+    openInBuilder: () => "Open in builder →",
+    libraryByline: ({ source, steps, gives, when, run }) => [
+        source,
+        steps === undefined ? "jq" : `${steps.count} ${steps.n === 1 ? "step" : "steps"}`,
+        gives.length === 0 ? gives : gives.charAt(0).toLowerCase() + gives.slice(1),
+        `${run ? "ran" : "saved"} ${when}`,
+    ].filter((part) => part !== "").join(" · "),
+    moreSteps: ({ count }) => `+${count} more`,
+    jqProgram: () => "jq",
+    noMatch: ({ text }) => `No queries match “${text}”`,
+    checkSpelling: () => "Check the spelling",
+    clearFilter: () => "Clear the filter to search every query",
+    searchWhat: () => "Search by query name, description or data source",
+    noQueries: () => "No queries yet",
+    saveInBuilder: () => "Save a query in the builder",
+    noRecent: () => "No recent runs",
+    runInBuilder: () => "Run a query in the builder to see it here",
 };

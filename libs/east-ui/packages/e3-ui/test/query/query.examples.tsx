@@ -351,3 +351,32 @@ export const queryBuilderEmpty = example({
     )),
     inputs: [],
 });
+
+// ============================================================================
+// The query library
+// ============================================================================
+
+export const queryLibrary = example({
+    keywords: [
+        "Query", "Query.Library", "query library", "saved queries", "gallery", "wireframe", "Open in builder", "New query",
+        "search", "sort", "grid", "list", "recent", "Record.bind", "Data.bind",
+    ],
+    description: "The query library over the same record and data sources: one toolbar — the search, Sort, Grid · List and \"+ New query on orders\" — beside the data sources with their counts of saved queries and this viewer's recent runs; the seven saved queries as a gallery, each card a wireframe of its steps with its name, its description and what it gives, and \"Open in builder →\", which opens the query in the builder that shares its id",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const saved = $.let(Record.bind(queries, [queriesPatch]));
+            const orderRows = $.let(Data.bind(orders));
+            const customerRows = $.let(Data.bind(customers));
+            const weekly = $.let(Data.bind(forecast));
+            const demand = $.let(Data.bind(model));
+            const parts = $.let(Data.bind(bom));
+            return (
+                <Box height="720px">
+                    <Query.Library queries={saved} id="top"
+                        datasets={{ orders: orderRows, customers: customerRows, forecast: weekly, model: demand, bom: parts }} />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
