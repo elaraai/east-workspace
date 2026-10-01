@@ -28,7 +28,9 @@ export {
     type ConditionRange, type LaidOutSegment, type LaidOutStep, type PrintedSteps, type SlotRange, type StepLayout, type StepRange, type StepSlot,
 } from "./print.js";
 export { defaultTotalName, parseSteps, type StepParseError } from "./parse.js";
-export { checkSteps, type CheckedStepStage, type CheckedSteps, type DiagnosticSlot, type StepDiagnostic, type StepFix } from "./check.js";
+export {
+    checkSteps, conditionIn, datasetType, type CheckedStepStage, type CheckedSteps, type DiagnosticSlot, type StepDiagnostic, type StepFix,
+} from "./check.js";
 export {
     addCondition, addGroup, applyFix, emptyCondition, insertStep, moveStep, newStep, removeCondition, removeStep, setConditionField,
     setConditionValue, setMatch, updateStep,

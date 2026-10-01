@@ -136,8 +136,14 @@ function valueOf<T>(o: option<T>): T | undefined {
     return o.type === "some" ? o.value : undefined;
 }
 
-/** The type of a data source of the root, or `undefined` when the root has none of that name. */
-function datasetType(root: EastType, name: string): EastType | undefined {
+/**
+ * The type of a data source of the root.
+ *
+ * @param root - the root's type: a struct of the data sources
+ * @param name - the data source's name
+ * @returns its type, or `undefined` when the root has none of that name
+ */
+export function datasetType(root: EastType, name: string): EastType | undefined {
     const struct = unwrapRecursive(root);
     if (struct.type !== "Struct") return undefined;
     const fields = struct.fields as Record<string, EastType>;
@@ -356,8 +362,13 @@ function innermost<R extends { readonly from: number; readonly to: number }>(ran
 /**
  * A condition of a filter by its id, with the rows it tests: the step's, or
  * a list's items for a condition inside has any where.
+ *
+ * @param conds - the filter's conditions
+ * @param id - the condition's id
+ * @param shape - the rows the filter takes
+ * @returns the condition and the rows it tests, or `undefined` when no condition has that id
  */
-function conditionIn(conds: readonly Condition[], id: string, shape: Shape): { condition: Condition; shape: Shape } | undefined {
+export function conditionIn(conds: readonly Condition[], id: string, shape: Shape): { condition: Condition; shape: Shape } | undefined {
     for (const c of conds) {
         if (c.value.id === id) return { condition: c, shape };
         if (c.type === "group") {
