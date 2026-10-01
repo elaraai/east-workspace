@@ -127,6 +127,20 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 const ui = (node: React.ReactElement) => render(<ChakraProvider value={system}>{node}</ChakraProvider>);
 afterEach(cleanup);
 
+/**
+ * Mounts a surface whose editor popover is open at mount (`editOpen`), and lets
+ * the popover settle before a test clicks in it. Zag starts the popover's
+ * machine in a microtask after its first layout, and the positioner is
+ * `pointer-events: none` until React renders the placement that start sets —
+ * in a task of its own, which can come after user-event's first `setTimeout(0)`,
+ * and user-event refuses a click through `pointer-events: none`. Mounting in
+ * `act` renders it first. (A popover a click opens is placed inside Zag's
+ * `flushSync`, so only one open at mount needs this.)
+ */
+async function uiOpen(node: React.ReactElement) {
+    return await act(async () => ui(node));
+}
+
 /** Drive an Ark `Select` (the shared ClauseBuilder controls): open the
  *  labelled trigger, pick the named option from the portalled list. */
 async function pickOption(user: ReturnType<typeof userEvent.setup>, triggerLabel: string, optionName: string) {
@@ -141,7 +155,7 @@ describe("Slice.Cohort — edits happen in the Slice.Edit popover (never inline)
             activeCohorts: new Set(["eu"]),
         });
         const value: any = { slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: some(true) };
-        ui(<EastChakraSliceCohort value={value} />);
+        await uiOpen(<EastChakraSliceCohort value={value} />);
 
         expect(screen.getByText(/region = EU/)).toBeTruthy();   // existing clause shown in the popover
 
@@ -177,7 +191,7 @@ describe("Slice.Cohort — edits happen in the Slice.Edit popover (never inline)
     test("new-cohort popover (no cohorts) authors a cohort via name + clause + Apply", async () => {
         const slice = fakeSlice();
         const value: any = { slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: some(true) };
-        ui(<EastChakraSliceCohort value={value} />);
+        await uiOpen(<EastChakraSliceCohort value={value} />);
 
         const user = userEvent.setup();
         fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Big EU" } });
@@ -194,13 +208,25 @@ describe("Slice.Cohort — edits happen in the Slice.Edit popover (never inline)
         expect(cohorts[0].filters.length).toBe(1);
         expect(cohorts[0].filters[0].value.op.value).toBe(30n);
     });
+
+    // The harness's own guarantee: uiOpen returns with the popover placed, so a
+    // click needs no task first. Mounted with plain `ui`, this click fails on
+    // the positioner's `pointer-events: none` every time.
+    test("a popover open at mount takes a click as soon as uiOpen returns", async () => {
+        const slice = fakeSlice();
+        const value: any = { slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: some(true) };
+        await uiOpen(<EastChakraSliceCohort value={value} />);
+        const user = userEvent.setup({ delay: null });
+        await pickOption(user, "Field", "Sessions");
+        expect(screen.getByLabelText("Field").textContent).toContain("Sessions");
+    });
 });
 
 describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)", () => {
     test("editOpen opens the builder; filling it and clicking Add appends a predicate", async () => {
         const slice = fakeSlice();
         const value: any = { slice, unit: some("events"), density: none, editOpen: some(true) };
-        ui(<EastChakraSliceFilter value={value} />);
+        await uiOpen(<EastChakraSliceFilter value={value} />);
 
         const user = userEvent.setup();
         await pickOption(user, "Field", "Sessions");
@@ -223,7 +249,7 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
     test("Add disables on empty value, closes the popover on success, and an identical re-add dedups (#164)", async () => {
         const slice = fakeSlice();
         const value: any = { slice, unit: none, density: none, editOpen: some(true) };
-        const first = ui(<EastChakraSliceFilter value={value} />);
+        const first = await uiOpen(<EastChakraSliceFilter value={value} />);
         const user = userEvent.setup();
 
         // Fresh builder: string `contains` with an empty value — disabled + hint.
@@ -245,7 +271,7 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         // than a trigger re-click — reopening through Zag's presence machine
         // is rAF-racy under jsdom) submits the identical clause: deduped.
         first.unmount();
-        ui(<EastChakraSliceFilter value={{ ...value, editOpen: some(true) }} />);
+        await uiOpen(<EastChakraSliceFilter value={{ ...value, editOpen: some(true) }} />);
         await buildSessionsGte20();
         expect(slice.read().filters.length).toBe(1);           // deduped, no second chip
     });
@@ -255,7 +281,7 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
     test("builder offers integer 'in'; tags parse to a bigint set with malformed entries dropped (#166)", async () => {
         const slice = fakeSlice();
         const value: any = { slice, unit: none, density: none, editOpen: some(true) };
-        ui(<EastChakraSliceFilter value={value} />);
+        await uiOpen(<EastChakraSliceFilter value={value} />);
 
         const user = userEvent.setup();
         await pickOption(user, "Field", "Sessions");
@@ -337,7 +363,7 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
     test("builder offers 'is empty' with no value control and Add appends an isEmpty predicate (#171)", async () => {
         const slice = fakeSlice();
         const value: any = { slice, unit: none, density: none, editOpen: some(true) };
-        ui(<EastChakraSliceFilter value={value} />);
+        await uiOpen(<EastChakraSliceFilter value={value} />);
 
         const user = userEvent.setup();
         expect(screen.queryByRole("textbox")).not.toBeNull();     // contains → string value control
@@ -451,9 +477,9 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
         expect(screen.queryByText("cohort")).toBeNull();
     });
 
-    test("Apply is disabled with a hint until the draft has a name and a clause (P1)", () => {
+    test("Apply is disabled with a hint until the draft has a name and a clause (P1)", async () => {
         const slice = fakeSlice();
-        ui(<EastChakraSliceCohort value={cohortValue(slice, { editOpen: some(true) })} />);
+        await uiOpen(<EastChakraSliceCohort value={cohortValue(slice, { editOpen: some(true) })} />);
 
         expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
         expect(screen.getByText("Give the cohort a name.")).toBeTruthy();
@@ -510,7 +536,7 @@ describe("Slice.Cohort — families (`group`): captioned runs of alternatives", 
 
     test("authoring in manage mode stores the typed family as group: some(...) and a blank one as none", async () => {
         const slice = fakeSlice();
-        ui(<EastChakraSliceCohort value={familyValue(slice, { mode: none, editOpen: some(true) })} />);
+        await uiOpen(<EastChakraSliceCohort value={familyValue(slice, { mode: none, editOpen: some(true) })} />);
         const user = userEvent.setup();
         fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Late" } });
         fireEvent.change(screen.getByLabelText("Cohort family"), { target: { value: "risk" } });
@@ -870,15 +896,15 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
         breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
     };
-    const mountRange = (key: string, seed: object = initial) => {
+    const mountRange = async (key: string, seed: object = initial) => {
         initializeStore(new UIStore());
         const handle: any = buildSliceHandle(key, cfg, seed, rows, none);
-        ui(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
+        await uiOpen(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
         return handle;
     };
 
     test("a preset click pins a window ending at the data's LAST day — rows actually match", async () => {
-        const handle = mountRange("range.anchor");
+        const handle = await mountRange("range.anchor");
         const user = userEvent.setup();
         await user.click(screen.getByText("7d"));
 
@@ -890,7 +916,7 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
     });
 
     test("the anchored 'Today' relabels to 'Last day'; All clears the range and shows the data extent", async () => {
-        const handle = mountRange("range.all", {
+        const handle = await mountRange("range.all", {
             ...initial,
             range: some(variant("datetime", { from: new Date("2025-03-01"), to: new Date("2025-03-10") })),
         });
@@ -913,10 +939,10 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         const last = new Date("2026-06-29T01:30:00Z");
         beforeEach(() => { vi.stubEnv("TZ", "America/Los_Angeles"); });
         afterEach(() => { vi.unstubAllEnvs(); });
-        const mountOver = (key: string, days: ReadonlyArray<Date>) => {
+        const mountOver = async (key: string, days: ReadonlyArray<Date>) => {
             initializeStore(new UIStore());
             const handle: any = buildSliceHandle(key, cfg, initial, days.map(day => ({ day })), none);
-            ui(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
+            await uiOpen(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
             return handle;
         };
 
@@ -925,7 +951,7 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         });
 
         test("'Last day' pins the data's last UTC day, and the pill and the resolve line name it", async () => {
-            const handle = mountOver("range.utc.day", [new Date("2026-06-28T23:00:00Z"), last]);
+            const handle = await mountOver("range.utc.day", [new Date("2026-06-28T23:00:00Z"), last]);
             await userEvent.setup().click(screen.getByText("Last day"));
             const { from, to } = handle.read().range.value.value as { from: Date; to: Date };
             expect(from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
@@ -938,7 +964,7 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
 
         test("'YTD' starts on 1 January UTC, while it is still the old year in Los Angeles", async () => {
             const newYear = new Date("2026-01-01T01:30:00Z");
-            const handle = mountOver("range.utc.ytd", [new Date("2025-12-31T23:00:00Z"), newYear]);
+            const handle = await mountOver("range.utc.ytd", [new Date("2025-12-31T23:00:00Z"), newYear]);
             await userEvent.setup().click(screen.getByText("YTD"));
             const { from } = handle.read().range.value.value as { from: Date; to: Date };
             expect(from.toISOString()).toBe("2026-01-01T00:00:00.000Z");
@@ -952,7 +978,7 @@ describe("Slice.Range — Custom pins the resolved window and exposes from/to in
     test("clicking Custom… pins the ACTIVE preset's resolved window — not a hardwired 30d", async () => {
         const slice = fakeSlice({ range: some(variant("datetimePreset", variant("last7d", null))) });
         const value: any = { slice, editOpen: some(true) };
-        ui(<EastChakraSliceRange value={value} />);
+        await uiOpen(<EastChakraSliceRange value={value} />);
 
         const user = userEvent.setup();
         await user.click(screen.getByText("Custom…"));
@@ -965,7 +991,7 @@ describe("Slice.Range — Custom pins the resolved window and exposes from/to in
         expect(days).toBe(7);   // last7d's resolved window, not 30
     });
 
-    test("an active custom range renders editable from/to date fields", () => {
+    test("an active custom range renders editable from/to date fields", async () => {
         const slice = fakeSlice({
             range: some(variant("datetime", {
                 from: new Date("2026-01-01T00:00:00Z"),
@@ -973,16 +999,16 @@ describe("Slice.Range — Custom pins the resolved window and exposes from/to in
             })),
         });
         const value: any = { slice, editOpen: some(true) };
-        ui(<EastChakraSliceRange value={value} />);
+        await uiOpen(<EastChakraSliceRange value={value} />);
 
         // Two react-aria date fields → month/day/year segments (spinbuttons).
         expect(screen.getAllByRole("spinbutton").length).toBeGreaterThanOrEqual(6);
     });
 
-    test("a preset range renders NO date fields (the editor is custom-only)", () => {
+    test("a preset range renders NO date fields (the editor is custom-only)", async () => {
         const slice = fakeSlice({ range: some(variant("datetimePreset", variant("last30d", null))) });
         const value: any = { slice, editOpen: some(true) };
-        ui(<EastChakraSliceRange value={value} />);
+        await uiOpen(<EastChakraSliceRange value={value} />);
         expect(screen.queryAllByRole("spinbutton").length).toBe(0);
     });
 });
@@ -1029,7 +1055,7 @@ describe("Slice.Filter against the REAL store — round-trip + reactivity (#170)
         initializeStore(new UIStore());
         const handle: any = buildSliceHandle("real.filter", realCfg, realInitial, rows, none);
         const value: any = { slice: handle, unit: some("events"), density: none, editOpen: some(true) };
-        ui(<EastChakraSliceFilter value={value} />);
+        await uiOpen(<EastChakraSliceFilter value={value} />);
         expect(screen.getByText(/SHOWING 3 OF 3 events/)).toBeTruthy();
 
         const user = userEvent.setup();
