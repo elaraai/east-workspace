@@ -110,7 +110,10 @@ export function evaluateJq(program: string | CheckJqResult, input: unknown, opti
   try {
     return compiled.run(...args);
   } catch (e) {
-    if (e instanceof EastError) throw new QueryError([runtimeDiagnostic(compiled.checked, e)]);
+    if (e instanceof EastError) {
+      const at = e.location.find((l: Location) => l.filename === "jq");
+      throw new QueryError([runtimeErrorAt(compiled.checked, e.eastMessage, at === undefined ? undefined : { line: Number(at.line), column: Number(at.column) })]);
+    }
     throw e;
   }
 }
@@ -143,15 +146,38 @@ function compile(program: string | CheckJqResult, options: EvaluateJqOptions): C
   return compiled;
 }
 
-/** A `runtime` diagnostic for an East error a query raised: at the jq node it names, when it names one. */
-function runtimeDiagnostic(checked: CheckJqResult, error: EastError): QueryDiagnostic {
+/**
+ * The `runtime` diagnostic for an error a query's run raised: its message, at
+ * the jq node that raised it.
+ *
+ * @param checked - what {@link checkJq} made of the query that ran
+ * @param message - the error's message, as the runtime raised it
+ * @param at - the 1-based line and column in the jq text the error names, when
+ *   it names one: a translation's IR carries each node's place in the jq, which
+ *   a runtime reports with the error (`at jq:2:26`)
+ * @returns the diagnostic: `runtime`, its message led by the code, and its span
+ *   the node that raised it — `none` when the error names no place in the jq
+ *
+ * @remarks
+ * The node that raised it is the innermost that starts at that line and
+ * column and can raise: a literal, `.` or a variable, which can start at the
+ * same place, cannot. When no node that can raise starts there, the span is
+ * empty, at that place. {@link evaluateJq} places the errors of the runs it
+ * makes so, and a host that runs a query elsewhere — as one-shot runs a
+ * translation — places what the runtime reported the same way.
+ *
+ * @example
+ * ```ts
+ * const checked = checkJq("[.[] | 10 / .]", ArrayType(IntegerType));
+ * runtimeErrorAt(checked, "Division by zero", { line: 1, column: 8 });
+ * // { code: "runtime", message: "runtime: Division by zero", span: some({ line: 1n, column: 8n, offset: 7n, length: 6n }), … }
+ * ```
+ */
+export function runtimeErrorAt(checked: CheckJqResult, message: string, at?: { readonly line: number; readonly column: number }): QueryDiagnostic {
   const text = checked.source.text;
-  const at = error.location.find((l: Location) => l.filename === "jq");
   let range: { from: number; to: number } | undefined;
   if (at !== undefined) {
-    // The node that raised it: the innermost that starts at that line and column and can raise
-    // (a literal, `.` or a variable, which can start at the same place, cannot).
-    const offset = offsetOf(text, Number(at.line), Number(at.column));
+    const offset = offsetOf(text, at.line, at.column);
     const kinds = checked.rewritten === null ? new Map<string, string>() : nodeKinds(checked.rewritten);
     for (const [path, span] of checked.source.spans) {
       if (span.from !== offset || LEAVES.has(kinds.get(path) ?? "")) continue;
@@ -159,7 +185,7 @@ function runtimeDiagnostic(checked: CheckJqResult, error: EastError): QueryDiagn
     }
     range ??= { from: offset, to: offset };
   }
-  return report(text, "runtime", range, `runtime: ${error.eastMessage}`);
+  return report(text, "runtime", range, `runtime: ${message}`);
 }
 
 /** The kinds of node that cannot raise an error. */

@@ -113,6 +113,14 @@ export interface PagedSelector {
     join: boolean;
 }
 
+/** What a paged handle serves: a dataset, and which of its rows. */
+export interface PagedSource {
+    /** The dataset's path. */
+    readonly path: TreePath;
+    /** The rows it serves: the dataset's own, or one of a record's indexes. */
+    readonly selector: PagedSelector;
+}
+
 /** The selector a bind with no index has. */
 const NO_INDEX: PagedSelector = { index: null, join: false };
 
@@ -461,6 +469,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         undefined,
         compareFor(EastTypeType),
     );
+
+    /** The source each handle serves, by the handle's `id` — what the id says,
+     *  kept as it was built rather than read back from its text. */
+    private readonly sources = new Map<string, PagedSource>();
 
     /** Loaded window keys in least-recently-READ order (a Map preserves
      *  insertion order; a read re-inserts). Bounds the decoded-window cache. */
@@ -966,6 +978,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         shape: "released" | "pinned",
     ): Record<string, unknown> {
         const id = `${datasetPathToString(path)}${selectorKey(selector)}`;
+        this.sources.set(id, { path, selector });
         const cacheKey = `${id}#${shape}`;
         let byPath = this.handleCache.get(sourceType);
         if (byPath) {
@@ -1032,6 +1045,18 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return handle;
     }
 
+    /**
+     * The source a handle this runtime built serves, by the handle's `id`: its
+     * dataset's path and the rows it reads — what a component holding only the
+     * handle needs to name the dataset, such as a query's root.
+     *
+     * @param id - A paged handle's `id`
+     * @returns Its source, or `undefined` when this runtime built no handle with that id
+     */
+    sourceOf(id: string): PagedSource | undefined {
+        return this.sources.get(id);
+    }
+
     // ----- platform building -------------------------------------------------
 
     /** Build the PlatformFunction behind `data_bind_paged` — the bind a UI
@@ -1070,6 +1095,18 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
 /** Process-global runtime backing the `PagedPlatform` export. */
 export const defaultPagedRuntime = new PagedRuntime();
+
+/**
+ * The source a paged handle serves, by the handle's `id`, from the runtime
+ * behind the registered and the scoped paged platforms.
+ *
+ * @param id - A paged handle's `id`
+ * @returns Its dataset's path and the rows it serves, or `undefined` when no
+ *   handle with that id has been bound
+ */
+export function pagedSourceOf(id: string): PagedSource | undefined {
+    return defaultPagedRuntime.sourceOf(id);
+}
 
 /** Install the paging API adapter + workspace — called by the React provider
  *  on mount (or by a test). */

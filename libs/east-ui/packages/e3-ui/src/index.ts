@@ -93,7 +93,8 @@ export {
     type StudioLibraryOptions,
 } from './studio/index.js';
 
-// The query builder (#875): its East types — a query as the steps the builder edits.
+// The query builder (#875): the component a solution mounts, the saved
+// queries record it declares, and a query as the steps the builder edits.
 export {
     Query,
     QueryAggregateFunctionType,
@@ -102,16 +103,24 @@ export {
     QueryConditionType,
     QueryDatePartType,
     QueryGroupByType,
+    QueryInputType,
     QueryMatchType,
     QueryPickFieldType,
+    QueryResultType,
+    QueryRootEntryType,
     QuerySortDirectionType,
     QueryStepInputType,
     QueryStepType,
     QueryStepValueType,
     QueryStepsType,
+    SavedQueriesType,
+    SavedQueryType,
+    type QueriesHandle,
+    type QueryBuilderOptions,
     type QueryNamespace,
     type QueryTypes,
 } from './query/index.js';
+export { DataSourceType, type BoundSource } from './bind/sources.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';

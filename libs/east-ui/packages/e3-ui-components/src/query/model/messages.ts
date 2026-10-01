@@ -8,9 +8,10 @@
  * the steps' titles, verbs and add-step entries; the comparisons; kinds,
  * shapes and counts; the parts of a step card; the autocomplete's labels,
  * groups and offers; a summary's words; the plain sentence for each problem
- * and fix (`Query Editor Spec.md` §4.6); and the generated description
- * (§4.13). What the AUTHOR wrote, and what the data holds — a field's name, a
- * case, a value, a saved query's name — is data, and never passes through it.
+ * and fix (`Query Editor Spec.md` §4.6); the generated description (§4.13);
+ * and the builder's own chrome (#935). What the AUTHOR wrote, and what the
+ * data holds — a field's name, a case, a value, a saved query's name — is
+ * data, and never passes through it.
  *
  * English is the default. The model's functions take the table as a
  * parameter, so a renderer passes its own; numbers arrive already formatted
@@ -416,6 +417,34 @@ export interface QueryMessages {
     outlineDatePart: (p: { part: string; field: string; name: string }) => string;
     /** Try the model — `price from 10 to 12 every 0.5, region NSW`. */
     outlineModel: (p: { input: string; from: string; to: string; step: string; fixed: readonly string[] }) => string;
+
+    // ── The builder (#935) ───────────────────────────────────────────────
+    /** The pane's name — its rail's label. */
+    pane: () => string;
+    /** A tab of the pane. */
+    tab: (p: { tab: "query" | "datasets" | "library" }) => string;
+    /** A new query's name — `Untitled orders query`. */
+    untitled: (p: { source: string }) => string;
+    /** The history item's Apply, in the builder's words. */
+    save: () => string;
+    /** The saved queries could not be read. */
+    savedUnreadable: (p: { message: string }) => string;
+    /** The open saved query is not in the record — its heading. */
+    queryGone: (p: { name: string }) => string;
+    /** Under it. */
+    queryGoneHint: () => string;
+    /** A paged data source read through one of a record's indexes. */
+    sourceThroughIndex: (p: { name: string; index: string }) => string;
+    /** A paged data source no handle on the page serves. */
+    sourceUnbound: (p: { name: string }) => string;
+    /** A saved query reads a data source not bound here — `Reads customers, which isn't here`. */
+    rootMissing: (p: { name: string }) => string;
+    /** One bound here at another path — `Reads .inputs.archive.orders, not this builder's orders`. */
+    rootElsewhere: (p: { path: string; name: string }) => string;
+    /** A save under a name another write took first. */
+    nameTaken: (p: { name: string }) => string;
+    /** A save of a query another write changed since the edit began, and who changed the record last, when known. */
+    savedChanged: (p: { name: string; by: string | undefined }) => string;
 }
 
 const STEP_TITLE: Readonly<Record<Exclude<StepKind, "drill">, string>> = {
@@ -784,4 +813,18 @@ export const queryMessages: QueryMessages = {
     outlineFill: ({ field, value }) => `${value} where ${field} is missing`,
     outlineDatePart: ({ part, field, name }) => `the ${part} of ${field} as ${name}`,
     outlineModel: ({ input, from, to, step, fixed }) => `${input} from ${from} to ${to} every ${step}${fixed.map(f => `, ${f}`).join("")}`,
+
+    pane: () => "Query",
+    tab: ({ tab }) => (tab === "query" ? "Query" : tab === "datasets" ? "Datasets" : "Library"),
+    untitled: ({ source }) => `Untitled ${source} query`,
+    save: () => "Save",
+    savedUnreadable: ({ message }) => `The saved queries couldn't be read: ${message}`,
+    queryGone: ({ name }) => `“${name}” isn't saved here`,
+    queryGoneHint: () => "It was renamed or removed. Open another from the Library tab, or start a new query from the Datasets tab.",
+    sourceThroughIndex: ({ name, index }) => `${capital(name)} reads through the index ${index}; bind the record itself to query it.`,
+    sourceUnbound: ({ name }) => `${capital(name)} isn't bound on this page yet.`,
+    rootMissing: ({ name }) => `Reads ${name}, which isn't here`,
+    rootElsewhere: ({ path, name }) => `Reads ${path}, not this builder's ${name}`,
+    nameTaken: ({ name }) => `Another query took the name ${name} first — choose another.`,
+    savedChanged: ({ name, by }) => `${name} changed since this edit began${by === undefined ? "" : ` — last changed by ${by}`}. Discard your changes to see it, or save under another name.`,
 };
