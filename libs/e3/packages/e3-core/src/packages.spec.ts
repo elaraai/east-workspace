@@ -20,10 +20,13 @@ import {
   packageList,
   packageResolve,
   packageRead,
+  packageZipOpenFrom,
 } from './packages.js';
-import { packageImport, packageZipOpen, packageExport } from './package-files.js';
+import { openZip, packageImport, packageZipOpen, packageExport } from './package-files.js';
 import { workspaceDeploy } from './workspace-files.js';
+import { repoGc } from './gc.js';
 import { computeHash } from './objects.js';
+import { computeHash as nodeComputeHash } from './objects-node.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import {
@@ -260,6 +263,29 @@ describe('packages', () => {
         assert.ok(Buffer.from(await storage.objects.read(testRepo, hash)).equals(bytes), `${name} is in the store`);
       }
     });
+
+    it('refuses an object its entry names by another\'s hash, and nothing names what it wrote, which gc sweeps', async () => {
+      const zipPath = join(tempDir, 'named.zip');
+      await e3.export(e3.package('misnamed', '1.0.0', e3.input('memo', StringType, variant('value', 'kept'))), zipPath);
+      const entries = await readZipEntries(zipPath);
+      const packageHash = decodeBeast2For(StringType)(entries.get('packages/misnamed/1.0.0.beast2')!);
+      // The package object's entry holds other bytes, under a CRC-32 of their
+      // own, so the zip reads: only their hash says they are not what it names.
+      const packageEntry = `objects/${packageHash.slice(0, 2)}/${packageHash.slice(2)}.beast2`;
+      const other = Buffer.from('another object');
+      const misnamed = await writeZip(join(tempDir, 'misnamed.zip'), [...entries].map(([name, bytes]): [string, Buffer] =>
+        name === packageEntry ? [name, other] : [name, bytes]));
+
+      await assert.rejects(packageImport(storage, testRepo, misnamed), (err: unknown) =>
+        err instanceof PackageInvalidError && err.message === `Invalid package: its object ${packageHash} holds the bytes of another`);
+      assert.deepStrictEqual(await packageList(storage, testRepo), [], 'no package ref names what it wrote');
+      assert.strictEqual(await storage.objects.exists(testRepo, packageHash), false, 'nothing is held under the hash its entry names');
+      // The store named the bytes by their own hash as it wrote them, and
+      // nothing names that: gc sweeps them, with all else the import wrote.
+      assert.strictEqual(await storage.objects.exists(testRepo, computeHash(other)), true, 'the bytes are held under their own hash');
+      await repoGc(storage, testRepo, { minAge: 0 });
+      assert.deepStrictEqual(await storage.objects.list(testRepo), [], 'gc swept every object the refused import wrote');
+    });
   });
 
   describe('zips an earlier release exported', () => {
@@ -382,6 +408,23 @@ describe('packages', () => {
       try {
         await assert.rejects(packageRead(zip.view(storage), testRepo, 'refused', '1.0.0'), (err: unknown) =>
           err instanceof PackageInvalidError && err.message === `Invalid package: its object ${packageHash} holds the bytes of another`);
+      } finally {
+        zip.close();
+      }
+    });
+
+    it('checks each object a view reads by the hash it is given', async () => {
+      const zipPath = join(tempDir, 'hashed.zip');
+      await e3.export(e3.package('hashed', '1.0.0'), zipPath);
+      const hashed: string[] = [];
+      const zip = await packageZipOpenFrom(() => openZip(zipPath), undefined, (data) => {
+        const hash = nodeComputeHash(data);
+        hashed.push(hash);
+        return hash;
+      });
+      try {
+        await packageRead(zip.view(storage), testRepo, 'hashed', '1.0.0');
+        assert.deepStrictEqual(hashed, [zip.packageHash], 'the package object, read through the view, checked by the hash given');
       } finally {
         zip.close();
       }

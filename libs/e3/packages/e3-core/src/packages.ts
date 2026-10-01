@@ -254,8 +254,10 @@ export async function packageRead(
  * part way wrote — are not read but re-referenced (`ObjectStore.touch`), as a
  * write of each would be, a batch at a time; the rest are read and written
  * {@link OBJECT_CONCURRENCY} at a time, each object larger than 8 MiB on its
- * own, and each checked against the hash its entry names it by. The executions
- * come next, and the package ref is written last, once all it names is in.
+ * own, and the name the store's write gives each is checked against the hash
+ * its entry names it by, so an object is hashed once, by its store. The
+ * executions come next, and the package ref is written last, once all it
+ * names is in.
  *
  * Nothing names what an import writes, or finds, until its package ref does,
  * so it holds the repository's running work ({@link withRunningWork}): gc
@@ -381,6 +383,8 @@ async function importZip(
     const importObject = async ({ fileName, getData }: ZipEntry): Promise<void> => {
       if (options?.signal?.aborted) throw importStopped();
       const hash = objectHashOf(fileName);
+      // The store's write names the object by its hash, the one time it is
+      // hashed, and that name is checked against its entry's.
       const written = await storage.objects.write(repo, await getData());
       if (hash !== null && written !== hash) throw new PackageInvalidError(`its object ${hash} holds the bytes of another`);
       objectCount++;
@@ -519,7 +523,9 @@ async function zipEntries(zipfile: ZipReader): Promise<ZipEntry[]> {
  * than it reads. A deploy's plan reads the package object, its record,
  * migration and index objects, and its initial values. A view places none of
  * the zip's objects in a file (`materialize`): the root entry's
- * `packageZipOpen`, which opens a zip on this machine too, does.
+ * `packageZipOpen`, which opens a zip on this machine too, does. Each object a
+ * view reads is checked against the hash its entry names it by: East's
+ * SHA-256 here, and Node's own, the same digest, through the root entry.
  *
  * @param zip - The zip's source
  * @returns The zip, open; the caller closes it
@@ -542,11 +548,15 @@ export async function packageZipOpen(zip: ZipSource): Promise<PackageZip> {
  * @param open - Opens the zip
  * @param place - Writes an object of the zip to a file on this machine, which
  *   a view's `materialize` asks for; without it, a view places none
+ * @param hashOf - The hash a view checks each object it reads by: the portable
+ *   {@link computeHash} unless given — the root entry gives Node's own, the
+ *   same digest natively
  * @internal
  */
 export async function packageZipOpenFrom(
   open: () => Promise<ZipReader>,
   place?: (destPath: string, data: Uint8Array) => Promise<void>,
+  hashOf: (data: Uint8Array) => string = computeHash,
 ): Promise<PackageZip> {
   const zipfile = await readingZip(open);
   const entries = new Map<string, ZipEntry>();
@@ -578,7 +588,7 @@ export async function packageZipOpenFrom(
     const entry = entries.get(hash);
     if (entry === undefined) return null;
     const data = await entry.getData();
-    if (computeHash(data) !== hash) throw new PackageInvalidError(`its object ${hash} holds the bytes of another`);
+    if (hashOf(data) !== hash) throw new PackageInvalidError(`its object ${hash} holds the bytes of another`);
     return data;
   };
 

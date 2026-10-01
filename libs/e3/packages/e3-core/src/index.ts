@@ -18,7 +18,8 @@
  * `storeCollection`, `intakeDelivery`, `workspaceDeploy`), or read a zip from
  * a file here, or write one to a file or a Node stream (`openZip`,
  * `packageImport`, `packageZipOpen`, `packageExport`, `workspaceExport`,
- * `handleProcessImport`, `handleProcessExport`).
+ * `handleProcessImport`, `handleProcessExport`); and `computeHash`, which is
+ * Node's own SHA-256 here, the portable entry's digest natively.
  */
 
 // =============================================================================
@@ -107,8 +108,10 @@ export {
   type HistoryResult,
 } from './history.js';
 
-// Object storage, and the form every store checks an object's hash has
-export { computeHash, isObjectHash } from './objects.js';
+// Object storage: an object's hash, by Node's own SHA-256 — the portable
+// entry's digest, natively — and the form every store checks one has
+export { computeHash } from './objects-node.js';
+export { isObjectHash } from './objects.js';
 
 // Local object storage functions (for backwards compatibility)
 export {

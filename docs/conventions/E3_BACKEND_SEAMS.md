@@ -23,7 +23,12 @@ rest: the logic, the routes and the tests.
   reach no Node module and name neither `Buffer` nor `process`. e3-core's
   `seams.spec.ts` walks its entry's imports transitively, and e3-api-server's
   `portable.spec.ts` its own, by the same walk (below). What needs Node is a
-  module of the root entry beside it.
+  module of the root entry beside it, and so is what Node does natively: the
+  root entry's `computeHash` is Node's own SHA-256 (`objects-node.ts`), with
+  the portable one's digest, for a backend on Node to name its writes by,
+  while shared modules keep the portable one. An object a store writes is
+  hashed by the store: an import checks each by the name its store's write
+  gives it.
 - **A store's tests are a contract suite every backend runs, and a route's
   are e3-api-tests**, which every server runs.
 

@@ -27,6 +27,7 @@ import { constants, createWriteStream } from 'fs';
 import { sha256File } from '@elaraai/e3';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import { ObjectNotFoundError, isNotFoundError } from '../../errors.js';
+import { computeHash } from '../../objects-node.js';
 import { clearUnreachableNote, objectPath } from './localHelpers.js';
 import type { ObjectStore } from '../interfaces.js';
 
@@ -141,9 +142,9 @@ export async function objectWrite(
   data: Uint8Array
 ): Promise<string> {
   const extension = '.beast2';
-  // Node's SHA-256, the digest `computeHash` gives, at the speed a store that
-  // writes every segment of every dataset needs.
-  const hash = crypto.createHash('sha256').update(data).digest('hex');
+  // Node's own SHA-256, the root entry's `computeHash`, at the speed a store
+  // that writes every segment of every dataset needs.
+  const hash = computeHash(data);
 
   // Split hash: first 2 chars as directory
   const dirName = hash.slice(0, 2);

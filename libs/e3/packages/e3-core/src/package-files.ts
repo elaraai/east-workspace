@@ -17,6 +17,7 @@
 import * as fs from 'node:fs/promises';
 import { Writable } from 'node:stream';
 import { ExportStoppedError } from './errors.js';
+import { computeHash } from './objects-node.js';
 import {
   packageExport as packageExportTo,
   packageImportFrom,
@@ -280,7 +281,9 @@ export async function packageImport(
  * an object when it is asked for one, so a caller holds no more of the zip
  * than it reads. A deploy's plan reads the package object, its record,
  * migration and index objects, and its initial values. A view places an
- * object of the zip in a file on this machine when asked to (`materialize`).
+ * object of the zip in a file on this machine when asked to (`materialize`),
+ * and checks each object it reads against the hash its entry names it by, with
+ * Node's own SHA-256.
  *
  * @param zip - The .zip package file's path, or its source
  * @returns The zip, open; the caller closes it
@@ -291,7 +294,7 @@ export async function packageImport(
  *   raised it, and a file that does not open.
  */
 export async function packageZipOpen(zip: string | ZipSource): Promise<PackageZip> {
-  return packageZipOpenFrom(() => openZip(zip), (destPath, data) => fs.writeFile(destPath, data));
+  return packageZipOpenFrom(() => openZip(zip), (destPath, data) => fs.writeFile(destPath, data), computeHash);
 }
 
 /**

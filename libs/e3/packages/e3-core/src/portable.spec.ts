@@ -8,8 +8,9 @@
  *
  * What it exports is the root entry's — the same functions, classes and errors
  * — but for the forms of a few operations that read files or run tasks on this
- * machine, which the root entry has its own of. Each of those refuses here what
- * only this machine can do. And a dataflow runs through it, a task split into
+ * machine, which the root entry has its own of, and the hash, which the root
+ * entry computes natively. Each of those operations refuses here what only
+ * this machine can do. And a dataflow runs through it, a task split into
  * pieces and a task after it, and a package's zip is imported and exported
  * through it, in a process with no Node module loaded, no `Buffer`, and no way
  * to reach Node's builtins: which modules the entry imports is
@@ -33,10 +34,12 @@ import { packageImport } from './package-files.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { createTempDir, removeTempDir } from './test-helpers.js';
 
-/** The names whose root form reads files or runs tasks on this machine. */
+/** The names whose root form reads files or runs tasks on this machine, or
+ *  hashes with Node's own SHA-256. */
 const ROOT_FORMS = [
   'LocalOrchestrator', 'probeExecutionCache', 'executeSplitTask', 'storeCollection', 'intakeDelivery', 'workspaceDeploy',
   'openZip', 'packageImport', 'packageZipOpen', 'handleProcessImport', 'packageExport', 'workspaceExport', 'handleProcessExport',
+  'computeHash',
 ];
 
 /** A fresh in-memory repository. */
@@ -207,11 +210,11 @@ const ROOT_CHILD = [
 ].join('\n');
 
 describe('the portable entry', () => {
-  it('exports the root entry\'s own functions, classes and errors, but for the forms that read files or run tasks on this machine', () => {
+  it('exports the root entry\'s own functions, classes and errors, but for the forms that read files, run tasks or hash natively on this machine', () => {
     const rooted = root as Record<string, unknown>;
     for (const [name, value] of Object.entries(portable)) {
       assert.ok(name in rooted, `${name} is the root entry's too`);
-      if (ROOT_FORMS.includes(name)) assert.notEqual(rooted[name], value, `${name}: the root entry's form reads files or runs tasks here`);
+      if (ROOT_FORMS.includes(name)) assert.notEqual(rooted[name], value, `${name}: the root entry's form reads files, runs tasks or hashes natively here`);
       else assert.equal(rooted[name], value, `${name} is the root entry's own`);
     }
     for (const name of ROOT_FORMS) assert.ok(name in portable, `${name} is the portable entry's too`);

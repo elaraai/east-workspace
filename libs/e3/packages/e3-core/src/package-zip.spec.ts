@@ -156,6 +156,44 @@ describe('package zips with no local file', () => {
     assert.equal(await target.objects.count('r'), imported.objectCount);
   });
 
+  it('takes each object in through one write of the store, whose name for it is what it checks, and reads none back', async () => {
+    const bytes = await exported();
+    const target = await elsewhere();
+    const objects = target.objects;
+    const write = objects.write.bind(objects);
+    const read = objects.read.bind(objects);
+    const readRange = objects.readRange.bind(objects);
+    const written: string[] = [];
+    const reads: string[] = [];
+    // The store's write is where an object is hashed: once, for each object.
+    objects.write = async (at: string, data: Uint8Array): Promise<string> => {
+      const hash = await write(at, data);
+      written.push(hash);
+      return hash;
+    };
+    objects.read = async (at: string, hash: string): Promise<Uint8Array> => {
+      reads.push(hash);
+      return read(at, hash);
+    };
+    objects.readRange = async (at: string, hash: string, offset: number, length: number): Promise<Uint8Array> => {
+      reads.push(hash);
+      return readRange(at, hash, offset, length);
+    };
+
+    const imported = await packageImport(target, 'r', sourceOf(bytes));
+    assert.ok(imported.objectCount > 3, `the zip holds a table's segments: ${imported.objectCount} objects`);
+    assert.equal(written.length, imported.objectCount, 'a write for each object the zip holds');
+    assert.equal(new Set(written).size, written.length, 'and none written twice');
+    assert.deepEqual(reads, [], 'none read back to be checked');
+
+    // Imported again, every object is held: re-referenced, and neither written
+    // nor read.
+    written.length = 0;
+    assert.deepEqual(await packageImport(target, 'r', sourceOf(bytes)), imported);
+    assert.deepEqual(written, []);
+    assert.deepEqual(reads, []);
+  });
+
   it('imports its objects side by side, and holds gc off until its package ref names them', async () => {
     const bytes = await exported();
     const target = await elsewhere();

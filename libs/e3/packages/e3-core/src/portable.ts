@@ -16,9 +16,11 @@
  * The root entry (`@elaraai/e3-core`) re-exports every one of these — the same
  * functions, classes and errors — and adds what needs this machine: local
  * storage, the local runner, the file state store, and the forms of a few
- * operations that read files or run tasks here. Where the root has its own
- * form of a name here, it is the one that does so:
+ * operations that read files or run tasks here, or hash natively. Where the
+ * root has its own form of a name here, it is the one that does so:
  *
+ * - `computeHash` is East's SHA-256; the root's is Node's own, which gives the
+ *   same digest natively.
  * - `LocalOrchestrator` runs a run's tasks on the runner its start names, or
  *   its host's; the root's is a subclass whose host is this process.
  * - `probeExecutionCache` and `executeSplitTask` take the judgement of whether
@@ -150,7 +152,8 @@ export {
   type HistoryResult,
 } from './history.js';
 
-// Object storage, and the form every store checks an object's hash has
+// Object storage: an object's hash, by East's SHA-256, and the form every
+// store checks one has
 export { computeHash, isObjectHash } from './objects.js';
 
 // =============================================================================
