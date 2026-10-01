@@ -602,7 +602,9 @@ EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest
 // when its unit's `fetch` says the host places segments as they are read — a
 // read of a segment file absent from `<path>.segments/` asks for it, by
 // creating `<segment file>.want`, and waits until the host places the file or
-// writes `<segment file>.error`, why it cannot, which the read fails with.
+// writes `<segment file>.error`, why it cannot, which the read fails with. The
+// host writes either whole, renamed into place: the read takes each the moment
+// it is there.
 #define EAST_BEAST2_FETCH_SEGMENTS_ENV "E3_FETCH_SEGMENTS"
 
 // The canonical writer of a collection as a manifest directory (the C mirror
