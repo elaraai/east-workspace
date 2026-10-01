@@ -179,7 +179,7 @@ describe("<Query.Builder> — counted shape lines and staleness (#938 R2, R3, R8
         await openQuery(variant("saved", BIG.name));
         expect(banners()).toEqual([]);
         await press("Keep the first", document.querySelector<HTMLElement>("[data-query-foot]")!);
-        expect(banners()).toEqual(["The query changed after this run.Run again⌘⏎"]);
+        expect(banners()).toEqual(["StaleThe query changed after this run.Run again⌘⏎"]);
         expect(results().querySelector("[data-stale]")).not.toBeNull();
         expect(shapes()).toEqual(["Many orders", "Many orders", "Up to 10 orders"]);
         // Its keys are part of its name, as the toolbar's Run's are.

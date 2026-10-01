@@ -146,13 +146,21 @@ const viewButton = (name: "Visual" | "jq") => within(screen.getByRole("group", {
 // ─── B1–B8 ───────────────────────────────────────────────────────────────────
 
 describe("<Query.Builder> — the toolbar, the pane, the Query tab and the status line (#936)", () => {
-    test("B1: the one toolbar — Visual · jq at its start; Table · Tree, Download ▾, the history item, Copy jq, Save… and Run with its keys at its end", async () => {
+    test("B1: the one toolbar — the history item, Copy jq, Save… and Run with its keys at its end; Visual · jq in the Query tab's band; Table · Tree and Download ▾ in the results'", async () => {
         const { container } = await mountBuilder(offlineCall().call);
         await openQuery(variant("saved", TOP.name));
-        const items = [...builderOf(container).querySelectorAll<HTMLElement>("[data-toolbar-item]")];
+        const items = [...builderOf(container).querySelector<HTMLElement>("[data-slot=toolbar]")!.querySelectorAll<HTMLElement>("[data-toolbar-item]")];
         expect(items.map((el) => [el.getAttribute("data-toolbar-item"), el.hasAttribute("data-toolbar-end")])).toEqual([
-            ["view", false], ["result-view", true], ["download", false], ["history", false], ["copy", false], ["save", false], ["run", false],
+            ["history", true], ["copy", false], ["save", false], ["run", false],
         ]);
+        // The result's controls head the results, in a band as tall as the pane's tab row.
+        const results = container.querySelector<HTMLElement>("[data-query-results] [data-query-results-bar]")!;
+        expect([results.getAttribute("role"), [...results.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))])
+            .toEqual(["toolbar", ["result-view", "download"]]);
+        // Visual · jq heads the Query tab's body, in the band a Library holds its search box in.
+        const band = container.querySelector<HTMLElement>("[data-query-tab=query] > [data-query-tab-bar]")!;
+        expect([band.parentElement!.firstElementChild === band, [...band.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))])
+            .toEqual([true, ["view"]]);
         expect([viewButton("Visual").getAttribute("aria-pressed"), viewButton("jq").getAttribute("aria-pressed")]).toEqual(["true", "false"]);
         expect(screen.getByRole("button", { name: "Copy jq" }).textContent).toBe("Copy jq");
         expect(container.querySelector("[data-query-save-open]")!.textContent).toBe("Save…");
@@ -160,12 +168,13 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         expect([run.textContent, run.querySelector("kbd")?.textContent]).toEqual(["Run⌘⏎", "⌘⏎"]);
     }, 30_000);
 
-    test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, Download to its icon, Table · Tree to its icons, Visual · jq to its icons, then the history item", async () => {
+    test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, then the history item; the results' band, Download to its icon, then Table · Tree to its icons", async () => {
         const { container } = await mountBuilder(offlineCall().call);
-        expect(builderOf(container).querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 download>1 result-view>1 view>1 history>1");
+        expect(builderOf(container).querySelector("[data-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
+        expect(container.querySelector("[data-query-results-bar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("download>1 result-view>1");
     }, 30_000);
 
-    test("B3: the pane — Query, Datasets and Library; collapsed, its rail counts the steps; Visual · jq opens the Query tab and expands it", async () => {
+    test("B3: the pane — Query, Datasets and Library; collapsed, its rail counts the steps; one width in either view", async () => {
         const { container } = await mountBuilder(offlineCall().call);
         await openQuery(variant("saved", TOP.name));
         expect(screen.getAllByRole("tab").map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([
@@ -174,16 +183,14 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Query" })); });
         await settle();
         expect(railOf(container).textContent).toBe("5Query");
-        // Picking a view, with another tab open and the pane collapsed, opens the Query tab and expands the pane.
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Expand Query" })); });
-        await act(async () => { fireEvent.click(screen.getByRole("tab", { name: "Datasets" })); });
-        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Query" })); });
         await settle();
+        // The pane keeps its width as Visual · jq switches: its size is its style, so its class stays.
+        const width = () => builderOf(container).querySelector<HTMLElement>("[data-side=start][data-surface=shell]")!.className;
+        const visual = width();
         await act(async () => { fireEvent.click(viewButton("jq")); });
         await settle();
-        expect(builderOf(container).querySelector("[data-collapsed]")).toBeNull();
-        expect(screen.getByRole("tab", { name: "Query" }).getAttribute("aria-selected")).toBe("true");
-        expect(container.querySelector("[data-query-tab=query]")!.getAttribute("data-mode")).toBe("jq");
+        expect([container.querySelector("[data-query-tab=query]")!.getAttribute("data-mode"), width()]).toEqual(["jq", visual]);
     }, 30_000);
 
     test("B4: the Query tab over the default query — the source, five cards with their numbers, titles and rows, the shape lines, and the foot", async () => {

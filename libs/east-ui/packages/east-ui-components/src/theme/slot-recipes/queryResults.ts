@@ -7,8 +7,11 @@
  * Query results slot recipe (#935, #938) — the region beside the query
  * builder's pane where a run's result shows (`Query Editor Spec.md` §4.11):
  *
- * - `banners`: the stale banner, a run's failure and the note after a
- *   download, in flow at the top;
+ * - `banners`: the strips, in flow at the top, edge to edge, each over a rule —
+ *   a `strip` of `data-tone` stale (its `stripTag`, its `stripText` and Run
+ *   again's `stripAction` with its `stripKeys`), error (its `stripIcon`, then
+ *   a `stripBody` of its `stripTitle` and its message) or note (its icon, its
+ *   text and its dismiss);
  * - `body`: the result — the Table or the Value tree filling it — or what
  *   stands in for one: `idle` (the empty state and its `idleList`) before any
  *   run, `running` (its `runningHead`, then `skeletonRow`s of
@@ -28,7 +31,8 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 export const queryResultsSlotRecipe = defineSlotRecipe({
     className: "elara-query-results",
     slots: [
-        "root", "banners", "body", "idle", "idleList", "running", "runningHead", "skeletonRow", "skeletonCell",
+        "root", "banners", "strip", "stripTag", "stripText", "stripIcon", "stripBody", "stripTitle", "stripKeys", "stripAction",
+        "body", "idle", "idleList", "running", "runningHead", "skeletonRow", "skeletonCell",
         "footer", "footerCount", "footerFields", "footerSpacer", "footerRun", "footerReads",
     ],
     base: {
@@ -43,11 +47,84 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
         banners: {
             display: "flex",
             flexDirection: "column",
-            gap: "{spacing.2}",
             flexShrink: "0",
-            paddingX: "{spacing.4}",
-            paddingTop: "{spacing.3}",
             "&:empty": { display: "none" },
+        },
+        /* A strip: edge to edge, over a rule; its tone by `data-tone`. */
+        strip: {
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            minHeight: "36px",
+            paddingY: "6px",
+            paddingInlineStart: "{spacing.4}",
+            paddingInlineEnd: "{spacing.3}",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
+            fontSize: "12.5px",
+            lineHeight: "1.45",
+            color: "fg.muted",
+            "&[data-tone=stale]": {
+                background: "bg.panel",
+                borderBottomStyle: "dashed",
+                borderBottomColor: "border.strong",
+            },
+            "&[data-tone=error]": {
+                alignItems: "flex-start",
+                paddingY: "10px",
+                background: "bg.danger.subtle",
+            },
+            "&[data-tone=note]": {
+                background: "bg.info.subtle",
+            },
+        },
+        /* The stale strip's tag: mono capitals before its words. */
+        stripTag: {
+            flex: "none",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "semibold",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
+        },
+        stripText: {
+            flex: "1",
+            minWidth: "0",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            "[data-tone=note] > &": { whiteSpace: "normal" },
+        },
+        stripIcon: {
+            display: "inline-flex",
+            flex: "none",
+            fontSize: "13px",
+            "[data-tone=error] > &": { color: "fg.danger", marginTop: "2px" },
+            "[data-tone=note] > &": { color: "fg.info", fontSize: "12px" },
+        },
+        stripBody: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2px",
+            minWidth: "0",
+        },
+        stripTitle: {
+            fontWeight: "semibold",
+            color: "fg",
+        },
+        /* Run again, and the note's dismiss: at the strip's end. */
+        stripAction: {
+            flex: "none",
+            gap: "6px",
+            fontWeight: "semibold",
+        },
+        /* Run again's keys, beside its word. */
+        stripKeys: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "medium",
+            color: "fg.subtle",
         },
         /* The result: a Table or a Value tree, or what stands in for one. */
         body: {
