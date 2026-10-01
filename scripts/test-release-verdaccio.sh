@@ -69,6 +69,7 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   log "Building TS packages"
   make -C libs/east build
   make -C libs/east-node build
+  make -C libs/east-web build
   make -C libs/e3 build
   pnpm --filter @elaraai/east-py-datascience run build
   NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
