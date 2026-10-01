@@ -17,7 +17,7 @@ import { Budget } from './budget.js';
 import type { MemorySampler } from './memory.js';
 import type { UnitRequeue } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
-import { uuidv7, uuidv7Timestamp } from '../uuid.js';
+import { uuidv7 } from '../uuid.js';
 import { inputsHash } from '../executions.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -362,10 +362,8 @@ describe('stopped executions', () => {
     }));
     assert.equal((await probeExecutionCache(storage, repo, taskHash, inHash))?.executionId, succeeded, 'the latest attempt, a success, is served');
 
-    // A later millisecond, so the failed attempt's id sorts after the
-    // success's: waited for by the clock the id reads, which a timer's delay
-    // does not promise to have moved
-    while (Date.now() <= uuidv7Timestamp(succeeded).getTime()) await new Promise((resolve) => setTimeout(resolve, 1));
+    // Minted after the success's, so its id sorts after it, in the same
+    // millisecond or a later one
     const failed = uuidv7();
     await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', {
       executionId: failed, inputHashes: [], startedAt: now, completedAt: now, exitCode: 1n, peakBytes: none, unit: false,
