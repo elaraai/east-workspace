@@ -25,6 +25,7 @@ translation (§15.7), so no runtime reads query text or evaluates jq.
 | Completions, descriptions, summaries (§19) | `src/query/jq/complete.ts`, `describe.ts`, `summary.ts` (#922) |
 | Translator (§15) | `src/query/jq/translate.ts`, each builtin's rule in `translate-builtins.ts` (#923) |
 | `East.jq`, `evaluateJq`, `QueryError` (§15) | `src/expr/query.ts`, `src/query/evaluate.ts` (#923) |
+| Splitting over a dataset's pieces (§17.1) | `src/query/jq/split.ts` (#941) |
 | The `Query` builtin (§15.7) | `src/builtins.ts`, `src/compile/builtins/query.ts`, `src/analyze.ts`; east-c `src/builtins/query.c`; printed by `src/codegen/printer.ts` (#1041) |
 | Corpus | `test/query.corpus.ts`, generating `test/fixtures/query-corpus.beast2` |
 | Shared fixture | `test/query.fixture.ts`, generating `test/fixtures/query-fixture.beast2` |
@@ -1825,9 +1826,81 @@ runs a query: no runtime, and no server, has query code of its own.
   runs for any caller who may read the workspace. The query builder in e3-ui
   makes such a call from the datasets a page binds
   (`libs/east-ui/docs/proposals/Query Editor Spec.md`); a query over a dataset
-  larger than one piece is to run as a split call on #797's engine (#941).
+  larger than one piece runs as a split call, which the builder plans with
+  `splitJq` (§17.1).
 - **Limits.** `maxOutputs` stops a `many` query one output past its limit
   (§15.9); the caller sets the call's time and size limits.
+
+### 17.1 Splitting a query over a dataset's pieces
+
+`splitJq(checked, { maxOutputs })` (`src/query/jq/split.ts`, #941) splits a
+query checked as an e3 root over the pieces of one dataset it reads, as an e3
+split call runs a program (`libs/e3/design/e3-data-architecture.md` §3.7):
+- each piece runs the query's row work over its piece, and emits into an
+  output kind;
+- e3 combines the pieces' outputs by that kind;
+- a final function runs the rest of the query once, over the combined result
+  and the inputs.
+
+The result is the translation's (`translateJq`), of its `resultType`. Floats
+added up in pieces may differ from the one unit's in their last bits, since
+the engine groups the additions.
+
+- **The row work** starts at the dataset: `.D`, `.D[]` or `[.D[] | f]`. It
+  goes on through `map(f)`, `[.[] | f]`, `flatten`, and every step of a
+  stream.
+- **Bindings before it** (`.C as $c | …`) reach every piece, and their
+  datasets, the split's `broadcast`, are read whole by each piece.
+- **How the rows combine** is decided by the step after the row work:
+
+| Step after the row work | Output kind | Combined by |
+|---|---|---|
+| totals: `length`, `add`, `min`, `max`, `min_by(f)`, `max_by(f)`, `first` and `.[0]`, `last` and `.[-1]`, `any`, `all` and `unique`, each perhaps after `map(g)`, in any expression of them (`{n: length, mean: (map(.total) \| add / length)}`) | `fold` | each total's parts, field by field: counted; added as `add` adds (numbers, strings, arrays and dicts, and the last of structs); the least, or the greatest (by a key, the first least and the last greatest, as `min_by` and `max_by` keep them); the first; the last; or; and; united |
+| `group_by(k) \| map(E)`, `k` giving one immutable value | `dict`, by `k` | `E`'s totals, field by field; each group's rows, concatenated, when `E` is not made of totals |
+| `unique` | `set` | united |
+| `unique_by(g)` | `dict`, by `g` | the first row of each key |
+| `reduce .[] as $x ({}; .[k] += v)`, or `= v`, or over `.D[]` | `dict`, by `k` | added with `+`, or the last kept |
+| anything else, after some row work | `array` | concatenated in input order |
+
+- **What runs once.** The final function makes the value the combined result
+  stands for: the totals finished and their expression generated over them,
+  the groups in key order (`group_by`'s order), the set's rows in order, or
+  the dict's values. It runs the rest of the pipeline on that value, then the
+  query's sink (§15.1), `maxOutputs` included. A query whose combined rows are
+  its result has no final function.
+- **The programs are the translator's.** Each is generated from the checked
+  program, a total's node standing for its finished value. So a piece
+  computes what the one unit computes on its rows, and a runtime error names
+  its place in the jq (§15.3). They are built without the locations of the
+  code that builds them, so a query's programs are the same bytes wherever,
+  and however often, they are built: e3 caches each unit on its program's
+  hash.
+- **One unit.** A query that does not split runs as one unit, and `splitJq`
+  says why:
+
+| Reason | When |
+|---|---|
+| `no_stream` | it reads no dataset row by row: a count (`.D \| length`), a key (`.D[k]`, `has(k)`), or a value whole |
+| `nested` | it reads a dataset's rows inside an expression, not as its pipeline |
+| `stops_early` | a stream, `first(…)` or `limit(…)`: one unit stops as soon as it has the outputs it keeps, and a caller caps a stream's |
+| `position` | a step takes rows by position (`.[a:b]`, `first`, `last`), with no row work before it |
+| `every_row` | a step needs every row at once (`sort_by`, `reverse`, …), with no row work before it |
+| `state` | `foreach`, or a builtin that reads the program's further inputs |
+| `calls` | the row work calls a function value, which may call a platform function the runner does not load (§9) |
+| `reads_again` | a binding before the stream reads the dataset it streams |
+| `key` | `group_by` or `unique_by` by a key that is not one immutable value |
+| `shape` | anything else: a `def` before the stream, or a binding of several values or patterns |
+
+- **Pruning.** Either way, `pruning` names the reads that skip what they don't
+  need:
+  - `count`: `.D | length` reads the index;
+  - `seek`: `.D[k]` or `.D | has(k)` reads one segment;
+  - `stop`: a stream that stops early reads only the segments it reaches.
+
+`test/query.split.spec.ts` runs every rule over the shared fixture cut into
+pieces and assembled as e3 assembles them, and holds the results to the
+translation's; it holds each rule's and each reason's explanation, and the
+programs' bytes, to what this section says.
 
 ---
 

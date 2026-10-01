@@ -15,14 +15,19 @@
  *   text and its dismiss);
  * - `body`: the result — the Table or the Value tree filling it — or what
  *   stands in for one: `idle` (the empty state and its `idleList`) before any
- *   run, `running` (its `runningHead`, then `skeletonRow`s of
+ *   run, `running` (its `runningHead` — the sources it reads, and a split
+ *   run's `runningProgress` at its end — then `skeletonRow`s of
  *   `skeletonCell`s, each `data-width` short, mid or long) while one goes.
  *   `data-stale`: the result is of another query than the one shown — its
  *   body is dashed;
  * - `footer`: the result's read-outs — `footerCount`, `footerFields`, a
- *   `footerSpacer`, the run's `footerRun` and what it read, `footerReads`.
- *   On the root, `data-width` narrow drops the fields and tight what the run
- *   read too.
+ *   `footerSpacer`, the plan's read-out `footerPlan` (a quiet button, #941),
+ *   the run's `footerRun` and what it read, `footerReads`. On the root,
+ *   `data-width` narrow drops the fields and tight what the run read too;
+ * - the plan's explanation, in the design system's popover the read-out
+ *   opens: `planLines`, each `planLine` a `planText` and the `planCode` it is
+ *   about; `data-kind` total sets a total under its combine, and path, the
+ *   verdict, in the ink.
  *
  * @packageDocumentation
  */
@@ -33,8 +38,9 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
     className: "elara-query-results",
     slots: [
         "root", "banners", "strip", "stripTag", "stripText", "stripIcon", "stripBody", "stripTitle", "stripKeys", "stripAction",
-        "body", "idle", "idleList", "running", "runningHead", "skeletonRow", "skeletonCell",
-        "footer", "footerCount", "footerFields", "footerSpacer", "footerRun", "footerReads",
+        "body", "idle", "idleList", "running", "runningHead", "runningProgress", "skeletonRow", "skeletonCell",
+        "footer", "footerCount", "footerFields", "footerSpacer", "footerPlan", "footerRun", "footerReads",
+        "planLines", "planLine", "planText", "planCode",
     ],
     base: {
         root: {
@@ -180,6 +186,11 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             color: "fg.subtle",
         },
+        /* A split run's progress: at the head's end, in the muted ink. */
+        runningProgress: {
+            marginInlineStart: "auto",
+            color: "fg.muted",
+        },
         skeletonRow: {
             display: "flex",
             alignItems: "center",
@@ -227,6 +238,26 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
         footerSpacer: {
             flex: "1",
         },
+        /* The plan's read-out: a quiet button in the footer's own type, which opens its explanation. */
+        footerPlan: {
+            flexShrink: "0",
+            display: "inline-flex",
+            alignItems: "center",
+            height: "22px",
+            paddingX: "6px",
+            marginX: "-6px",
+            borderRadius: "{radii.xs}",
+            background: "transparent",
+            fontFamily: "inherit",
+            fontSize: "inherit",
+            fontWeight: "inherit",
+            lineHeight: "inherit",
+            color: "fg.muted",
+            cursor: "pointer",
+            _hover: { background: "bg.muted", color: "fg" },
+            "&[data-state=open]": { background: "bg.muted", color: "fg" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
+        },
         footerRun: {
             flexShrink: "0",
         },
@@ -234,6 +265,35 @@ export const queryResultsSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             overflow: "hidden",
             textOverflow: "ellipsis",
+        },
+        /* The plan's explanation: a line per sentence, each with the jq it is about under it. */
+        planLines: {
+            listStyle: "none",
+            margin: "0",
+            padding: "0",
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.2}",
+        },
+        planLine: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2px",
+            color: "fg.muted",
+            "&[data-kind=path]": { color: "fg", fontWeight: "medium" },
+            "&[data-kind=total]": { paddingInlineStart: "{spacing.3}" },
+        },
+        planText: {
+            fontSize: "{fontSizes.control}",
+            lineHeight: "1.4",
+        },
+        planCode: {
+            fontFamily: "mono",
+            fontSize: "11px",
+            lineHeight: "1.5",
+            color: "fg",
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
         },
     },
 });

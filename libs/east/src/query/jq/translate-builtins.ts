@@ -840,8 +840,13 @@ rule("map_values", (t, c) => {
   cannot(t, c, c.$, x, "an array, a dict or a struct");
 });
 
-/** `a + b` for `add`, as the checker types it: numbers, strings, arrays, dicts; struct merges. */
-function addInto(t: Translator, c: CallSite, $: Block, acc: Expr, v: Expr, type: EastType): void {
+/**
+ * `a + b` for `add`, as the checker types it: numbers, strings, arrays, dicts;
+ * struct merges. Also how a split query's pieces add up an `add` (`split.ts`).
+ *
+ * @internal
+ */
+export function addInto(t: Translator, c: CallSite, $: Block, acc: Expr, v: Expr, type: EastType): void {
   const o = t.open(v);
   const ot = t.type(o);
   if (ot.type === "Null") return;

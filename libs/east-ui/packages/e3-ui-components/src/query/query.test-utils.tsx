@@ -8,8 +8,10 @@
  * orders and customers bound on a page — the orders paged, the customers
  * whole — and a saved queries record in memory whose patch door applies each
  * patch with East's own checks; the builder mounted through its carrier, as a
- * surface mounts it, with a host's one-shot call; and the query library
- * (#1063) mounted the same way, alone or beside a builder sharing its id.
+ * surface mounts it, with a host's one-shot call — and, for a run's plan
+ * (#941), its split call, the data sources' statuses and the plan's options;
+ * and the query library (#1063) mounted the same way, alone or beside a
+ * builder sharing its id.
  *
  * @packageDocumentation
  */
@@ -30,13 +32,16 @@ import {
 import {
     Query, RecordBindHandleType, bindPagedPinnedPlatformFn, bindPlatformFn, queryKeys, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
-import { TreePathType, type ExecuteResult, type OneShotRequest } from "@elaraai/e3-types";
+import { TreePathType, type ExecuteResult, type OneShotRequest, type SplitCallRequest } from "@elaraai/e3-types";
 import {
     E3Provider, ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type E3Config, type RecordApi,
 } from "../platform/index.js";
-import { QueryCallProvider, type QueryCall } from "./hooks.js";
-import { createInMemoryQueryCall } from "./in-memory-call.js";
+import {
+    QueryCallProvider, QueryPlanOptionsProvider, QuerySourceStatusProvider, QuerySplitCallProvider,
+    type QueryCall, type QuerySourceStatus, type QuerySplitCall, type QuerySplitCallOptions,
+} from "./hooks.js";
+import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall, type InMemoryDataset } from "./in-memory-call.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import type { SavedQuery } from "./session.js";
@@ -207,27 +212,43 @@ export function offlineCall(): { call: QueryCall; requests: Parameters<QueryCall
     };
 }
 
+/** What a builder is mounted with besides its one-shot call: an e3 server, and what a run's plan reaches (#941). */
+export interface MountOptions {
+    /** The server's config, for an `E3Provider` around the builder, whose dataset statuses the Datasets tab reads (#939). */
+    readonly e3?: E3Config;
+    /** How a split call is made: a `QuerySplitCallProvider` around the builder. */
+    readonly split?: QuerySplitCall;
+    /** How a data source's status is read: a `QuerySourceStatusProvider` around the builder. */
+    readonly status?: QuerySourceStatus;
+    /** The most a dataset may weigh and still be read by one call: a `QueryPlanOptionsProvider` around the builder. */
+    readonly pieceBytes?: number;
+}
+
 /**
  * Mounts the builder as a surface mounts it: the record and two data sources
  * bound, with a host's one-shot call — under an e3 server's config when one is
- * given, whose dataset statuses the Datasets tab reads (#939).
+ * given, whose dataset statuses the Datasets tab reads (#939); and with a
+ * split call, a data source's status and the plan's options, when given (#941).
  *
  * @param call - How a one-shot call is made
- * @param options - `e3`: the server's config, for an `E3Provider` around the builder
+ * @param options - The server's config, and what a run's plan reaches ({@link MountOptions})
  * @returns The rendered builder
  */
-export async function mountBuilder(call?: QueryCall, options: { e3?: E3Config } = {}): Promise<RenderResult> {
+export async function mountBuilder(call?: QueryCall, options: MountOptions = {}): Promise<RenderResult> {
     const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const orders = $.let(bindPagedPinnedPlatformFn([OrdersType], ORDERS, East.value(none, OptionType(StringType)), East.value(false, BooleanType)));
         const customers = $.let(bindPlatformFn([CustomersType], CUSTOMERS, none, variant("direct", null)));
         const record = $.let(recordBindPlatformFn([HandleType], RECORD));
         return Query.Builder({ queries: record as never, datasets: { orders: orders as never, customers: customers as never } });
     }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
-    const builder = <EastChakraComponent value={program()} storageKey="query-builder" />;
-    const called = call === undefined ? builder : <QueryCallProvider call={call}>{builder}</QueryCallProvider>;
+    let tree = <EastChakraComponent value={program()} storageKey="query-builder" />;
+    if (call !== undefined) tree = <QueryCallProvider call={call}>{tree}</QueryCallProvider>;
+    if (options.split !== undefined) tree = <QuerySplitCallProvider call={options.split}>{tree}</QuerySplitCallProvider>;
+    if (options.status !== undefined) tree = <QuerySourceStatusProvider status={options.status}>{tree}</QuerySourceStatusProvider>;
+    if (options.pieceBytes !== undefined) tree = <QueryPlanOptionsProvider pieceBytes={options.pieceBytes}>{tree}</QueryPlanOptionsProvider>;
     const utils = render(
         <ChakraProvider value={system}>
-            {options.e3 === undefined ? called : <E3Provider config={options.e3}>{called}</E3Provider>}
+            {options.e3 === undefined ? tree : <E3Provider config={options.e3}>{tree}</E3Provider>}
         </ChakraProvider>,
     );
     await settle();
@@ -305,11 +326,7 @@ export function fixtureCall(options: { hold?: boolean } = {}): FixtureCall {
     const requests: OneShotRequest[] = [];
     const answers: ExecuteResult[] = [];
     const held: (() => void)[] = [];
-    const fixture = FIXTURE_VALUE as Readonly<Record<string, unknown>>;
-    const memory = createInMemoryQueryCall([
-        { path: ORDERS, type: OrdersType, value: fixture["orders"], hash: HASHES.get("orders")! },
-        { path: CUSTOMERS, type: CustomersType, value: fixture["customers"], hash: HASHES.get("customers")! },
-    ]);
+    const memory = createInMemoryQueryCall(fixtureDatasets());
     return {
         requests,
         answers,
@@ -325,6 +342,95 @@ export function fixtureCall(options: { hold?: boolean } = {}): FixtureCall {
             if (newestFirst) answers.reverse();
             // Each answer settles before the next, so a later one never lands in the same render.
             for (const resolve of answers) {
+                await act(async () => { resolve(); });
+                await settle();
+            }
+        },
+    };
+}
+
+/** What the fixture's datasets weigh, by name, when a test weighs them as more than their bytes. */
+export interface FixtureWeights {
+    /** What the orders weigh, in bytes. */
+    readonly orders?: number;
+    /** What the customers weigh, in bytes. */
+    readonly customers?: number;
+}
+
+/**
+ * The fixture's orders and customers as datasets in memory, each pinned at
+ * its hash in {@link HASHES}, and weighed as given: its beast2 bytes' length
+ * otherwise.
+ *
+ * @param weights - What each weighs, by name
+ * @returns The datasets
+ */
+export function fixtureDatasets(weights: FixtureWeights = {}): InMemoryDataset[] {
+    const fixture = FIXTURE_VALUE as Readonly<Record<string, unknown>>;
+    return [
+        { path: ORDERS, type: OrdersType, value: fixture["orders"], hash: HASHES.get("orders")!, ...(weights.orders === undefined ? {} : { bytes: weights.orders }) },
+        { path: CUSTOMERS, type: CustomersType, value: fixture["customers"], hash: HASHES.get("customers")!, ...(weights.customers === undefined ? {} : { bytes: weights.customers }) },
+    ];
+}
+
+/**
+ * The fixture's data sources' statuses, answered in memory: each one's rows,
+ * hash and weight (#941).
+ *
+ * @param weights - What each weighs, by name, when not its bytes
+ * @returns The status
+ */
+export function fixtureStatus(weights: FixtureWeights = {}): QuerySourceStatus {
+    return createInMemorySourceStatus(fixtureDatasets(weights));
+}
+
+/** A split call answered here, and what it was asked. */
+export interface FixtureSplit {
+    /** The call. */
+    readonly split: QuerySplitCall;
+    /** Each request, in order. */
+    readonly requests: SplitCallRequest[];
+    /** Each request's signal, in order: an abandoned run's is aborted. */
+    readonly signals: AbortSignal[];
+    /** Each answer, in the order the requests were made. */
+    readonly answers: ExecuteResult[];
+    /** Answers the calls held so far, in the order they were made. */
+    readonly release: () => Promise<void>;
+}
+
+/**
+ * A split call answered here, as e3 answers it (#941): the in-memory split
+ * call (`createInMemorySplitCall`) over the fixture's orders and customers,
+ * the partitioned one cut into `pieces`, recording each request, its signal
+ * and its answer.
+ *
+ * @param options - `pieces`: how many pieces; `hold`: each call reports half
+ *   its pieces done and waits for `release()`, so a test sees it going
+ * @returns the call, its requests, signals and answers, and `release`
+ */
+export function fixtureSplit(options: { pieces: number; hold?: boolean }): FixtureSplit {
+    const requests: SplitCallRequest[] = [];
+    const signals: AbortSignal[] = [];
+    const answers: ExecuteResult[] = [];
+    const held: (() => void)[] = [];
+    const memory = createInMemorySplitCall(fixtureDatasets(), { pieces: options.pieces });
+    return {
+        requests,
+        signals,
+        answers,
+        split: async (request: SplitCallRequest, callOptions: QuerySplitCallOptions) => {
+            requests.push(request);
+            signals.push(callOptions.signal);
+            const index = requests.length - 1;
+            if (options.hold === true) {
+                callOptions.onProgress({ phase: variant("partition", null), done: BigInt(Math.floor(options.pieces / 2)), units: BigInt(options.pieces) });
+                await new Promise<void>(resolve => { held.push(resolve); });
+            }
+            answers[index] = await memory(request, callOptions);
+            return answers[index];
+        },
+        release: async () => {
+            for (const resolve of held.splice(0)) {
                 await act(async () => { resolve(); });
                 await settle();
             }

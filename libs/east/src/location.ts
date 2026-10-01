@@ -301,6 +301,37 @@ export function setLocationCapture(enabled: boolean): void {
   captureEnabled = enabled;
 }
 
+/**
+ * Builds with source-location capture switched on or off, then switches it
+ * back as it was.
+ *
+ * @param enabled - `false` to build without capturing locations, `true` to
+ *   capture them
+ * @param build - what to build
+ * @returns what `build` returns
+ *
+ * @remarks
+ * A program whose bytes must not depend on the code that built it is built
+ * with capture off: one that e3 caches by its hash, which a browser and a
+ * server, or two builds of an app, must give alike. Locations given
+ * explicitly, as a query's are, still name their place.
+ *
+ * @example
+ * ```ts
+ * // The same bytes wherever and however often it is built.
+ * const ir = withLocationCapture(false, () => encodeEastIR(fn().toIR()));
+ * ```
+ */
+export function withLocationCapture<T>(enabled: boolean, build: () => T): T {
+  const previous = captureEnabled;
+  captureEnabled = enabled;
+  try {
+    return build();
+  } finally {
+    captureEnabled = previous;
+  }
+}
+
 function capture_stack_frames(): Location[] {
   if (!captureEnabled) return [];
   return locationsFromStack(new Error().stack);

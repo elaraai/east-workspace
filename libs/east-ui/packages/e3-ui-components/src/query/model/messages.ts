@@ -9,7 +9,8 @@
  * shapes and counts; the parts of a step card; the autocomplete's labels,
  * groups and offers; a summary's words; the plain sentence for each problem
  * and fix (`Query Editor Spec.md` §4.6); the generated description (§4.13);
- * and the builder's own chrome (#935). What the AUTHOR wrote, and what the
+ * the builder's own chrome (#935); and a run's plan, its path and why, its
+ * stages and its pruning (#941). What the AUTHOR wrote, and what the
  * data holds — a field's name, a case, a value, a saved query's name — is
  * data, and never passes through it.
  *
@@ -20,6 +21,7 @@
  * @packageDocumentation
  */
 
+import type { JqTotal, JqWholeReason } from "@elaraai/east";
 import type { ComparisonKind, StepKind } from "../steps/values.js";
 import type { InputKind } from "./refs.js";
 
@@ -46,6 +48,20 @@ export type TotalName = "count" | "sum" | "mean" | "min" | "max" | "distinct";
 
 /** What one value is, for the shape of a query that gives one. */
 export type OneKind = "wholeNumber" | "number" | "text" | "record" | "tree" | "calculation" | "list" | "lookupTable" | "value";
+
+/** Why a query runs as one unit: the code of east's reason (`JqWholeReason`). */
+export type PlanWholeCode = JqWholeReason["code"];
+
+/** How one total's parts combine: east's rule (`JqTotal`). */
+export type PlanTotalRule = JqTotal["rule"];
+
+/**
+ * How a split's pieces' outputs combine, as a plan's explanation says it: the
+ * rows joined; totals; rows grouped by a key, then each group's totals
+ * combined or its rows collected; the distinct rows; the first row of each
+ * key; a reduce's updates, added or the last kept.
+ */
+export type PlanCombineKind = "concat" | "totals" | "group" | "groupTotals" | "groupRows" | "distinct" | "distinctBy" | "reduceAdd" | "reduceReplace";
 
 /** The query builder's message table. */
 export interface QueryMessages {
@@ -627,6 +643,44 @@ export interface QueryMessages {
     /** A size — `1.4 MB`. */
     byteSize: (p: { value: string; unit: "B" | "KB" | "MB" | "GB" }) => string;
 
+    // ── Plans (#941) ─────────────────────────────────────────────────────
+    /** The plan's read-out in the results' footer — `One call`, `Split call · 12 pieces`, `Split call · 3 of 12 pieces done`. */
+    planBadge: (p: { split: boolean; detail: string }) => string;
+    /** The plan's popover's title, and the read-out's name for a screen reader. */
+    planTitle: () => string;
+    /** A split call, and why — `Split call over orders: it weighs 1.4 GB, more than one piece (16 MB).` */
+    planSplit: (p: { over: string; bytes: string; piece: string }) => string;
+    /** One call: it would split over a dataset within one piece — `One call: orders weighs 4 KB, within one piece (16 MB).` */
+    planSmall: (p: { over: string; bytes: string; piece: string }) => string;
+    /** One call: it would split over a dataset whose weight is not known. */
+    planUnweighed: (p: { over: string }) => string;
+    /** One call: it would split, and the split call could not be made — the planner's message. */
+    planUnsplit: (p: { message: string }) => string;
+    /**
+     * One call, for the reason the query runs as one unit; `name` the
+     * builtin or the data source the reason names; `at` whether the jq it is
+     * about follows.
+     */
+    planWhole: (p: { code: PlanWholeCode; name: string | undefined; at: boolean }) => string;
+    /** What each piece runs, before its jq — `Each piece of orders runs:`. */
+    planPiece: (p: { over: string }) => string;
+    /** How the pieces' outputs combine, by kind — a key's, a total's or the step's jq following where it ends with a colon. */
+    planCombine: (p: { kind: PlanCombineKind }) => string;
+    /** A total's rule, before its jq — `Added up:`. */
+    planTotal: (p: { rule: PlanTotalRule }) => string;
+    /** What runs once after the combine, before its jq. */
+    planThen: () => string;
+    /** The data sources every piece reads whole — `Every piece reads customers whole.` */
+    planBroadcast: (p: { names: string }) => string;
+    /** The pieces and what they weigh, once known — `orders is cut into 12 pieces, about 120 MB each.` */
+    planPieces: (p: { over: string; count: string; n: number; size: string }) => string;
+    /** How many pieces, for the read-out — `12 pieces`. */
+    planPieceCount: (p: { count: string; n: number }) => string;
+    /** How far a split run has got — `3 of 12 pieces done`, `1 of 3 merges done`. */
+    planProgress: (p: { phase: "partition" | "merge" | "combine"; done: string; units: string; n: number }) => string;
+    /** A read that skips what it doesn't need, before its jq — `Reads the count from orders's index, and no segment:`. */
+    planPruning: (p: { kind: "count" | "seek" | "stop"; name: string }) => string;
+
     // ── Results: the Table (#938) ────────────────────────────────────────
     /** The header of a result's one column, when the result is not records. */
     resultValue: () => string;
@@ -821,6 +875,39 @@ const PLACEHOLDER: Readonly<Record<SlotKind, string>> = {
 const INPUT_LABEL: Readonly<Record<InputKind, string>> = {
     "limit-n": "How many", "agg-as": "Total's name", "pick-as": "Field's name", "fill-value": "Value to use", "datepart-as": "Part's name",
     "tab-from": "From", "tab-to": "To", "tab-step": "Every", "tab-as": "Result's name",
+};
+
+/** How the pieces' outputs combine, in words; one that ends with a colon has its jq after it. */
+const PLAN_COMBINE: Readonly<Record<PlanCombineKind, string>> = {
+    concat: "Their rows are joined in order.",
+    totals: "Their totals combine, each by its rule:",
+    group: "Their rows are grouped by:",
+    groupTotals: "Each group's totals combine, each by its rule:",
+    groupRows: "Each group's rows are collected.",
+    distinct: "Their distinct rows are kept:",
+    distinctBy: "The first row of each key is kept, by:",
+    reduceAdd: "Their updates combine by key, added:",
+    reduceReplace: "Their updates combine by key, the last kept:",
+};
+
+/** How a total's parts combine, before its jq. */
+const PLAN_TOTAL: Readonly<Record<PlanTotalRule, string>> = {
+    count: "Counted:",
+    add: "Added up:",
+    min: "The lowest kept:",
+    max: "The highest kept:",
+    first: "The first kept:",
+    last: "The last kept:",
+    any: "True if any is:",
+    all: "True if all are:",
+    union: "The distinct values kept:",
+};
+
+/** A split run's units, by its stage: one, and more. */
+const PLAN_UNITS: Readonly<Record<"partition" | "merge" | "combine", readonly [string, string]>> = {
+    partition: ["piece", "pieces"],
+    merge: ["merge", "merges"],
+    combine: ["fold", "folds"],
 };
 
 /** Whether a slot takes a value, typed or offered. */
@@ -1218,6 +1305,45 @@ export const queryMessages: QueryMessages = {
     rowCount: ({ count, n }) => `${count} ${n === 1 ? "row" : "rows"}`,
     oneValue: () => "1 value",
     byteSize: ({ value, unit }) => `${value} ${unit}`,
+
+    planBadge: ({ split, detail }) => (split ? (detail === "" ? "Split call" : `Split call · ${detail}`) : "One call"),
+    planTitle: () => "How this run reads its data",
+    planSplit: ({ over, bytes, piece }) => `Split call over ${over}: it weighs ${bytes}, more than one piece (${piece}).`,
+    planSmall: ({ over, bytes, piece }) => `One call: ${over} weighs ${bytes}, within one piece (${piece}).`,
+    planUnweighed: ({ over }) => `One call: what ${over} weighs isn't known.`,
+    planUnsplit: ({ message }) => `One call: the split call couldn't be made — ${message}`,
+    planWhole: ({ code, name, at }) => {
+        const end = at ? ":" : ".";
+        switch (code) {
+            case "no_stream":
+                return name === undefined
+                    ? "One call: it reads a count, a key or a value, and works through no data source's rows."
+                    : `One call: it reads a count, a key or a value of ${name}, and works through none of its rows.`;
+            case "nested": return `One call: it works through rows inside an expression, not as its own pipeline${end}`;
+            case "stops_early":
+                return at
+                    ? "One call: it keeps only its first outputs, and one call stops as soon as it has them:"
+                    : `One call: its outputs stream from ${name ?? "a data source"}, and one call stops once it has as many as a run returns.`;
+            case "position": return `One call: it takes rows by their position, and one call reads only as far as it needs${end}`;
+            case "every_row": return `One call: a step needs every row at once, and no work is done row by row before it${end}`;
+            case "state": return `One call: a step carries state from row to row${end}`;
+            case "calls": return `One call: the work on each row calls a function value, which may call a platform function the runner doesn't load${end}`;
+            case "reads_again": return `One call: it reads ${name ?? "a data source"} again, outside the rows it works through${end}`;
+            case "key": return `One call: it groups by a key that isn't one value a lookup table can hold${end}`;
+            case "shape": return `One call: it isn't a pipeline the planner splits${end}`;
+        }
+    },
+    planPiece: ({ over }) => `Each piece of ${over} runs:`,
+    planCombine: ({ kind }) => PLAN_COMBINE[kind],
+    planTotal: ({ rule }) => PLAN_TOTAL[rule],
+    planThen: () => "Then, once, over what they combine to:",
+    planBroadcast: ({ names }) => `Every piece reads ${names} whole.`,
+    planPieces: ({ over, count, n, size }) => `${capital(over)} is cut into ${count} ${n === 1 ? "piece" : "pieces"}, about ${size} each.`,
+    planPieceCount: ({ count, n }) => `${count} ${n === 1 ? "piece" : "pieces"}`,
+    planProgress: ({ phase, done, units, n }) => `${done} of ${units} ${PLAN_UNITS[phase][n === 1 ? 0 : 1]} done`,
+    planPruning: ({ kind, name }) => (kind === "count" ? `Reads the count from the index of ${name}, and no segment:`
+        : kind === "seek" ? `Reads only the segment of ${name} that holds the key:`
+            : `Reads only the segments of ${name} it reaches before it stops:`),
 
     resultValue: () => "value",
     resultMissing: () => "—",

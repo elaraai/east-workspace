@@ -3,15 +3,19 @@ import react from '@vitejs/plugin-react';
 import dts from 'vite-plugin-dts';
 import { resolve } from 'path';
 
-// Library build configuration for @elaraai/e3-ui-components
+// Library build configuration for @elaraai/e3-ui-components: the package's
+// entry, and `query` — a query's calls without the builder, which imports no
+// React and no renderer, so it loads in Node (`src/query/calls.ts`).
 export default defineConfig({
   plugins: [react(), dts()],
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
-      name: 'E3UIComponents',
+      entry: {
+        index: resolve(__dirname, 'src/index.ts'),
+        query: resolve(__dirname, 'src/query/calls.ts'),
+      },
       formats: ['es', 'cjs'],
-      fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
+      fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
       external: (id) => [

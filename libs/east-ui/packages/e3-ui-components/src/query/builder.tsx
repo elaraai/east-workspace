@@ -33,9 +33,11 @@
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
  * slots' autocomplete hanging inside the builder; Save… names and describes it
  * in the save popover, and saves it through the session's Apply. Run, ⌘/Ctrl ⏎
- * anywhere in the builder, and opening a saved query run it (#938, `run.ts`):
- * the results show what came back, a fresh visual run's counts its shape
- * lines, and each run that answers joins this viewer's recent queries. The
+ * anywhere in the builder, and opening a saved query run it (#938, `run.ts`),
+ * each run planned as one call or as a split call over a dataset larger than
+ * one piece (#941, `plan.ts`): the results show what came back and how it was
+ * read, a fresh visual run's counts its shape lines, and each run that answers
+ * joins this viewer's recent queries. The
  * Datasets tab (#939) lists the data sources, and a click starts a new query
  * on one; the Library tab lists this viewer's recent runs and the saved
  * queries, and a click opens one, which runs. A query opened or started there
@@ -59,7 +61,9 @@ import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
 import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
 import { QueryDropTarget } from "./drops.js";
-import { useQueryCall, useQueryRoot, useQuerySummaries, useRecentQueries } from "./hooks.js";
+import {
+    useQueryCall, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySummaries, useRecentQueries,
+} from "./hooks.js";
 import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
 import type { QueryResult, QueryRoot } from "./one-shot.js";
@@ -232,8 +236,12 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         setPane({ collapsed: false });
     }, [setPane]);
 
-    // ── Runs and summaries: one-shot calls ──────────────────────────────
+    // ── Runs and summaries: one-shot calls, and a run's split call (#941) ──
     const call = useQueryCall();
+    const split = useQuerySplitCall();
+    const status = useQuerySourceStatus();
+    const planOptions = useQueryPlanOptions();
+    const seams = useMemo(() => ({ call, split, status, options: planOptions }), [call, split, status, planOptions]);
     // Each run that answers is one of this viewer's recent queries: the query's own program checked — a visual
     // run sends the counting program, which is not the query — its name and what it read.
     const { recent, remember } = useRecentQueries(recentKey);
@@ -246,7 +254,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
         });
     }, [remember, root]);
-    const { state: run, run: start } = useQueryRun(root, call, onRan);
+    const { state: run, run: start } = useQueryRun(root, seams, onRan);
     const summaries = useQuerySummaries(root, call);
     const saved = useMemo(() => savedOffers(record, root), [record, root]);
     const onOpenSaved = useCallback((name: string) => writeOpen(variant("saved", name)), [writeOpen]);

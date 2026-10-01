@@ -24,7 +24,9 @@ list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
 The query builder's one-shot calls are answered in the browser (#940):
 `main.tsx` runs each over the e3 example modules' `e3.input` defaults
-(`createInMemoryQueryCall` through a `QueryCallProvider`).
+(`createInMemoryQueryCall` through a `QueryCallProvider`), each run planned
+over the same inputs' statuses (`createInMemorySourceStatus` through a
+`QuerySourceStatusProvider`, #941) — tiny, so every run is one call.
 `vite.config.ts` aliases `@elaraai/e3` to the e3-ui-components snapshot
 harness's browser-safe shim: the examples only declare what they bind.
 `@elaraai/e3-ui` is pre-bundled once when the dev server starts, so a change
