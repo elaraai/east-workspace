@@ -30,13 +30,16 @@ E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' 
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
 
-## Build all packages (in dependency `order)
+## The packages: those under packages/, and the extension's webview
+PACKAGES := --filter='./packages/*' --filter='./packages/east-ui-extension/webview'
+
+## Build all packages, in dependency order
 build:
-	pnpm run build
+	pnpm -r $(PACKAGES) run build
 
 ## Run tests for all packages
 test:
-	pnpm run test
+	pnpm -r $(PACKAGES) run test
 
 ## The groups CI runs side by side (GROUP=components, ir or rest), so the
 ## longest sets the wall clock rather than their sum. Together they run every
@@ -64,7 +67,7 @@ test-export:
 
 ## Run linting for all packages
 lint:
-	pnpm run lint
+	pnpm -r $(PACKAGES) run lint
 
 ## Run the showcase dev server. The renderer (east-ui-components) resolves
 ## from its source via a dev-only Vite alias — no prebuilt dist, and
