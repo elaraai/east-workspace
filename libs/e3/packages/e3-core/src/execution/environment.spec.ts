@@ -160,6 +160,21 @@ describe('materializeEnvironment', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  /**
+   * Runs `work` in `dir`, as a host whose repositories are named rather than
+   * placed runs: each repository's path is its name, relative to the working
+   * directory.
+   */
+  async function workingIn<T>(dir: string, work: () => Promise<T>): Promise<T> {
+    const was = process.cwd();
+    process.chdir(dir);
+    try {
+      return await work();
+    } finally {
+      process.chdir(was);
+    }
+  }
+
   it('rejects image environments locally with a clear error', async () => {
     const spec = encodeBeast2For(EnvironmentSpecType)(
       variant('image', { digest: `example.com/img@sha256:${'0'.repeat(64)}` }),
@@ -270,7 +285,7 @@ describe('materializeEnvironment', () => {
     try { execFileSync('uv', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; }
   })();
 
-  it('materializes a single-project python env: sdist installs, uv pip check passes, imports work',
+  it('materializes a single-project python env: sdist installs, uv pip check passes, imports work — in a repository named absolutely, and in one named relative to the working directory',
     { skip: hasUv ? false : 'uv not on PATH' }, async () => {
       // Build a minimal locked uv project (no third-party deps → no registry
       // fetch beyond the build backend) and capture its files exactly as
@@ -290,26 +305,80 @@ describe('materializeEnvironment', () => {
         execFileSync('uv', ['build', '--sdist', '--out-dir', distDir], { cwd: projectDir, stdio: 'ignore' });
         const sdistFile = fs.readdirSync(distDir).find((f) => f.endsWith('.tar.gz'))!;
 
-        const pyprojectHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(projectDir, 'pyproject.toml'))));
-        const lockHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(projectDir, 'uv.lock'))));
-        const sdistHash = await storage.objects.write(repo, encodeFile(fs.readFileSync(path.join(distDir, sdistFile))));
-        const spec = encodeBeast2For(EnvironmentSpecType)(variant('python', {
-          pyproject: pyprojectHash, lock: lockHash,
-          sdists: [{ filename: sdistFile, hash: sdistHash }],
-        }));
-        const envHash = await storage.objects.write(repo, spec);
+        /** Captures the project into the repository at `at`, and builds it there cold. */
+        const materializeIn = async (at: string): Promise<void> => {
+          const pyprojectHash = await storage.objects.write(at, encodeFile(fs.readFileSync(path.join(projectDir, 'pyproject.toml'))));
+          const lockHash = await storage.objects.write(at, encodeFile(fs.readFileSync(path.join(projectDir, 'uv.lock'))));
+          const sdistHash = await storage.objects.write(at, encodeFile(fs.readFileSync(path.join(distDir, sdistFile))));
+          const spec = encodeBeast2For(EnvironmentSpecType)(variant('python', {
+            pyproject: pyprojectHash, lock: lockHash,
+            sdists: [{ filename: sdistFile, hash: sdistHash }],
+          }));
+          const envHash = await storage.objects.write(at, spec);
 
-        const bins = await materializeEnvironment(storage, repo, envHash);
-        assert.strictEqual(bins.length, 1);
-        const envDir = path.join(repo, 'envs', envHash);
-        const py = path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-        // The captured project code imports from the materialized venv alone.
-        const out = execFileSync(py, ['-c', 'import e3_pyenv_fixture as m; print(m.MARKER)'], { encoding: 'utf-8' });
-        assert.match(out, /e3-pyenv-ok/);
+          const bins = await materializeEnvironment(storage, at, envHash);
+          const envDir = path.resolve(at, 'envs', envHash);
+          assert.deepStrictEqual(bins, [path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin')],
+            'its PATH entry, absolute');
+          const py = path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+          // The captured project code imports from the materialized venv alone.
+          const out = execFileSync(py, ['-c', 'import e3_pyenv_fixture as m; print(m.MARKER)'], { encoding: 'utf-8' });
+          assert.match(out, /e3-pyenv-ok/);
+        };
+        await materializeIn(repo);
+        // A repository named rather than placed, whose path uv is given while
+        // it runs in the build directory
+        await repoInit(path.join(tmpDir, 'named-python-repo'));
+        await workingIn(tmpDir, () => materializeIn('named-python-repo'));
       } finally {
         fs.rmSync(projectDir, { recursive: true, force: true });
       }
     });
+
+  it('materializes a node env with its project\'s tarball, and a tools env, in a repository named relative to the working directory, each on PATH absolutely', async () => {
+    // A node project with no dependencies, and its own code as a tarball,
+    // which npm installs from the path it is given while it runs in the build
+    // directory
+    const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-node-proj-'));
+    try {
+      fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({ name: 'e3-env-own', version: '1.0.0', main: 'index.js' }));
+      fs.writeFileSync(path.join(projectDir, 'index.js'), 'module.exports.marker = "e3-env-own-ok";\n');
+      // npm is npm.cmd on Windows; a shell resolves it.
+      execFileSync('npm', ['pack', '--pack-destination', projectDir], { cwd: projectDir, stdio: 'ignore', shell: process.platform === 'win32' });
+      const tarball = fs.readFileSync(path.join(projectDir, 'e3-env-own-1.0.0.tgz'));
+
+      await repoInit(path.join(tmpDir, 'named-repo'));
+      await workingIn(tmpDir, async () => {
+        const at = 'named-repo';
+        const packageJson = Buffer.from(JSON.stringify({ name: 'e3-env-fixture', version: '1.0.0', private: true }));
+        const lock = Buffer.from(JSON.stringify({
+          name: 'e3-env-fixture', version: '1.0.0', lockfileVersion: 3, requires: true,
+          packages: { '': { name: 'e3-env-fixture', version: '1.0.0' } },
+        }));
+        const spec = encodeBeast2For(EnvironmentSpecType)(variant('node', {
+          packageJson: await storage.objects.write(at, encodeFile(packageJson)),
+          lock: await storage.objects.write(at, encodeFile(lock)),
+          tarballs: [await storage.objects.write(at, encodeFile(tarball))],
+        }));
+        const envHash = await storage.objects.write(at, spec);
+
+        const envDir = path.resolve(at, 'envs', envHash);
+        assert.deepStrictEqual(await materializeEnvironment(storage, at, envHash), [path.join(envDir, 'node_modules', '.bin')]);
+        const out = execFileSync(process.execPath, ['-e', 'console.log(require("e3-env-own").marker)'], { encoding: 'utf-8', cwd: envDir });
+        assert.match(out, /e3-env-own-ok/);
+
+        // A tools env runs no tool, but its PATH entry is the runner's, which
+        // resolves a relative one against its own working directory
+        const tools = encodeBeast2For(EnvironmentSpecType)(variant('tools', {
+          files: [{ path: 'bin/my-runner', hash: await storage.objects.write(at, encodeFile(Buffer.from('#!/bin/sh\necho hi\n'))) }],
+        }));
+        const toolsHash = await storage.objects.write(at, tools);
+        assert.deepStrictEqual(await materializeEnvironment(storage, at, toolsHash), [path.resolve(at, 'envs', toolsHash, 'bin')]);
+      });
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
 
   it('materializes an npm workspace_node env: closure members linked, non-closure member pruned', async () => {
     // Build a real npm workspace (common + pricing→common + forecasting),

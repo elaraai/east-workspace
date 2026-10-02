@@ -453,10 +453,17 @@ export async function sweepEnvironments(repo: string, reachable: ReadonlySet<str
  * environments build in a temp sibling directory and atomically rename into
  * place; when two processes race, the loser keeps the winner's build.
  *
+ * The cache directory is absolute whatever the repository's path, which a
+ * backend that names its repositories gives relative to the working
+ * directory: each build tool runs in the build directory and resolves a
+ * relative path it is given against that, and a runner resolves a relative
+ * PATH entry against its own.
+ *
  * @param storage - Storage backend holding the spec + blobs
- * @param repo - Repository path (the cache lives at `<repo>/envs/<hash>`)
+ * @param repo - Repository path (the cache lives at `<repo>/envs/<hash>`),
+ *   absolute or relative to the working directory
  * @param envHash - Object hash of the beast2-encoded {@link EnvironmentSpec}
- * @returns PATH entries for the materialized environment
+ * @returns PATH entries for the materialized environment, absolute
  * @throws {Error} for `image` environments (cloud-only) and failed builds
  */
 export async function materializeEnvironment(
@@ -475,7 +482,10 @@ export async function materializeEnvironment(
     );
   }
 
-  const envDir = path.join(repo, 'envs', envHash);
+  // Absolute, so every path built from it — the build directory, what the
+  // tools are given, the PATH entry — names the same place wherever it is
+  // resolved.
+  const envDir = path.resolve(repo, 'envs', envHash);
   const binDir = environmentBinDir(envDir, spec);
 
   // Warm path: an existing cache dir is complete by construction.
