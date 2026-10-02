@@ -13,6 +13,10 @@
  * When auth is configured the committed `actor` is derived from the verified
  * identity (the client-supplied actor is ignored), so the audit trail cannot
  * be forged. Compaction is gated to an elevated role.
+ *
+ * A host whose requests have a time limit gives the routes its deadline, which
+ * a mutation and a compaction answer under, and the page a history request
+ * that names no limit is answered with.
  */
 
 import { Hono } from 'hono';
@@ -36,11 +40,46 @@ function resolveActor(identity: Identity | undefined): { actor: string; authorit
   return { actor: 'api', authoritative: false };
 }
 
+/** Options for {@link createWorkspaceRecordRoutes}: the limits a host's
+ *  requests have, which the local server, with none, leaves unset. */
+export interface RecordRoutesOptions {
+  /** A mutation's and a compaction's deadline, under the host's request
+   *  timeout: each answers its typed outcome, `timed_out` or `conflict`, 2 s
+   *  under it rather than outlasting it. Unset, neither has one but its own
+   *  limits. */
+  syncDeadlineMs?: number;
+  /** How many commits a history request that names no `limit` is answered
+   *  with, the newest first; the client pages on from the last one's parent.
+   *  Unset, the whole chain. */
+  historyLimit?: number;
+}
+
+/**
+ * Record routes, mounted at `/api/repos/:repo/workspaces/:ws/records`.
+ *
+ * @param storage - Storage backend
+ * @param getRepoPath - A repository's identifier from its name
+ * @param getRunner - Each repository's task runner, which a mutation's
+ *   program runs on
+ * @param options - The host's sync deadline, and its history page
+ * @returns The routes
+ * @throws {RangeError} When `syncDeadlineMs` is not a positive number of
+ *   milliseconds, or `historyLimit` not a positive whole number of commits.
+ */
 export function createWorkspaceRecordRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   getRunner: GetRunner,
+  options: RecordRoutesOptions = {},
 ) {
+  // A limit no request could meet would refuse every one of them, or answer
+  // each with nothing, so a host is told when it mounts the routes.
+  if (options.syncDeadlineMs !== undefined && !(options.syncDeadlineMs > 0)) {
+    throw new RangeError(`syncDeadlineMs must be a positive number of milliseconds, got ${options.syncDeadlineMs}`);
+  }
+  if (options.historyLimit !== undefined && !(Number.isSafeInteger(options.historyLimit) && options.historyLimit >= 1)) {
+    throw new RangeError(`historyLimit must be a positive whole number of commits, got ${options.historyLimit}`);
+  }
   const app = new Hono<{ Variables: { identity?: Identity } }>();
 
   // GET /:rec — describe the record's mutations (for encoding arguments)
@@ -57,11 +96,11 @@ export function createWorkspaceRecordRoutes(
   app.get('/:rec/history', async (c) => {
     const repoPath = getRepoPath(c.req.param('repo')!);
     // A limit of 0, or a malformed one, is refused rather than read as none:
-    // the whole chain is what an absent limit asks for.
+    // an absent limit asks for the host's page, or the whole chain.
     const window = wholeQuery(c, { limit: 1 });
     if (window instanceof Response) return window;
     const from = c.req.query('from') || undefined;
-    return getRecordHistory(storage, repoPath, c.req.param('ws')!, c.req.param('rec')!, window.limit, from);
+    return getRecordHistory(storage, repoPath, c.req.param('ws')!, c.req.param('rec')!, window.limit ?? options.historyLimit, from);
   });
 
   // POST /:rec/mutations/:mut — apply a mutation synchronously (200 MutationResult)
@@ -76,7 +115,7 @@ export function createWorkspaceRecordRoutes(
       return await callMutationSync(
         storage, repoPath, getRunner(repoPath),
         c.req.param('ws')!, c.req.param('rec')!, c.req.param('mut')!, req, actor, authoritative,
-        { signal: c.req.raw.signal, idempotencyKey, verbose: c.req.query('verbose') === '1' },
+        { signal: c.req.raw.signal, idempotencyKey, verbose: c.req.query('verbose') === '1', budgetMs: options.syncDeadlineMs },
       );
     } catch (err) {
       return sendError(MutationResultType, errorToVariant(err));
@@ -91,7 +130,7 @@ export function createWorkspaceRecordRoutes(
       return sendError(MutationResultType, variant('permission_denied', { path: 'compact' }));
     }
     try {
-      return await compactRecord(storage, repoPath, c.req.param('ws')!, c.req.param('rec')!, resolveActor(identity).actor);
+      return await compactRecord(storage, repoPath, c.req.param('ws')!, c.req.param('rec')!, resolveActor(identity).actor, options.syncDeadlineMs);
     } catch (err) {
       return sendError(MutationResultType, errorToVariant(err));
     }

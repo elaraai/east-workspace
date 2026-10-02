@@ -24,4 +24,4 @@ export {
   type OneShotRoutesOptions,
   type FunctionRoutesOptions,
 } from './functions.js';
-export { createWorkspaceRecordRoutes } from './records.js';
+export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './records.js';
