@@ -212,7 +212,17 @@ export const tableSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             "&[data-numeric]": { fontFamily: "mono", fontSize: "12px", textAlign: "right" },
         },
-        row: { transitionProperty: "background", transitionDuration: "{durations.fast}" },
+        row: {
+            transitionProperty: "background",
+            transitionDuration: "{durations.fast}",
+            /* Selection and hover are neutral (`--paper-3` / `--paper-2`).
+             * Chakra fills a selected or hovered row from the palette's
+             * `subtle`, and the default palette is the brand, so they keep the
+             * gray they had (`bg`, Chakra's own key, so this replaces its
+             * value). Pinned here, not as the table's palette, which every
+             * part in its cells would inherit. */
+            _selected: { bg: "gray.subtle" },
+        },
         footer: {
             borderTopWidth: "1px",
             borderTopColor: "border.strong",
@@ -237,7 +247,12 @@ export const tableSlotRecipe = defineSlotRecipe({
             lg: { cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.sm}" }, columnHeader: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },
-        interactive: { true: { row: { _hover: { background: "bg.subtle" }, cursor: "pointer" } } },
+        interactive: {
+            true: {
+                row: { _hover: { background: "bg.subtle" }, cursor: "pointer" },
+                body: { "& tr": { _hover: { bg: "gray.subtle" } } },
+            },
+        },
     },
     defaultVariants: { variant: "line", size: "md" },
 });

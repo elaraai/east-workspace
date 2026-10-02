@@ -20,6 +20,10 @@ export const avatarSlotRecipe = defineSlotRecipe({
     slots: ["root", "image", "fallback"],
     base: {
         root: {
+            /* An avatar is neutral unless it is the `brand` variant; the brand
+             * is the default palette, and Chakra's `solid` / `outline` fill
+             * and ring from it. A `colorPalette` prop still selects another. */
+            colorPalette: "gray",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",

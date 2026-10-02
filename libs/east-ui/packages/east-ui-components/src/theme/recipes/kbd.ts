@@ -19,6 +19,9 @@ import { defineRecipe } from "@chakra-ui/react";
 export const kbdRecipe = defineRecipe({
     className: "elara-kbd",
     base: {
+        /* A key cap is neutral; the brand is the default palette, and
+         * Chakra's `plain` inks from it. */
+        colorPalette: "gray",
         display: "inline-flex",
         alignItems: "center",
         fontFamily: "mono",

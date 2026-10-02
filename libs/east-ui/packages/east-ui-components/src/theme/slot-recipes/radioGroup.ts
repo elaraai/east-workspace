@@ -96,7 +96,7 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             },
         },
     },
-    defaultVariants: {
-        colorPalette: "brand",
-    },
+    /* No `colorPalette` default: it is a style prop, not a variant, so a
+     * default for it does nothing. The checked mark is pinned to the brand
+     * above, and the default palette is the brand (`global-css.ts`). */
 });

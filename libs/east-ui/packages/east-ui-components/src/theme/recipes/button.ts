@@ -7,13 +7,14 @@
  * Button recipe override — enforces the canonical button vocabulary.
  *
  * Variants are roles, not palettes:
- *  - `solid`   — the one primary action on a screen. Spec brand.600 fill.
+ *  - `solid`   — the one primary action on a screen. The palette's solid
+ *                fill; with no palette set, the brand (the default palette).
  *  - `ink`     — the dual-CTA partner to solid (deep ink fill).
  *  - `outline` — secondary actions (1 px subtle border, body weight 500).
  *  - `ghost`   — tertiary, low-stakes (Cancel, Dismiss).
  *  - `danger`  — destructive intent (subtle outline + danger ink color).
  *  - `commit`  — bottom-bar secondary action (the outline look in a commit cluster).
- *  - `commit-primary` — the one committing action (solid brand fill).
+ *  - `commit-primary` — the one committing action (the `solid` look).
  *
  * Sizes match pattern_spec hit-targets:
  *  - `xs` — 26 px (compact `.x-btn` / `.btn.compact`)
@@ -80,15 +81,19 @@ export const buttonRecipe = defineRecipe({
     variants: {
         variant: {
             solid: {
-                /* Spec `.btn.primary { background: var(--brand-d) }` = brand.600.
-                 *  Routes through `colorPalette` so `colorPalette="red"` produces
-                 *  red.600 (etc.) — palette is the role-knob, the recipe doesn't
-                 *  pin to a single brand stop. */
-                background: "colorPalette.600",
-                color: "fg.inverse",
+                /* Spec primary: `--brand-d` fill, `--paper` label at 600,
+                 *  `--brand-dd` on hover and press (#1091). Routes through
+                 *  `colorPalette` so `colorPalette="red"` produces red — the
+                 *  palette is the role-knob — and reads only the mode-aware
+                 *  roles every palette has: a numeric stop is the same colour
+                 *  in both modes while the label flips, and a palette without
+                 *  stops (`danger`) would take another palette's. */
+                background: "colorPalette.solid",
+                color: "colorPalette.contrast",
                 fontWeight: "semibold",
-                _hover:  { background: "colorPalette.700" },
-                _active: { background: "colorPalette.800", transform: "scale(0.98)" },
+                _hover:    { background: "colorPalette.solidHover" },
+                _expanded: { background: "colorPalette.solidHover" },
+                _active:   { background: "colorPalette.solidHover", transform: "scale(0.98)" },
             },
             ink: {
                 /* Dual-CTA partner — always deep ink regardless of palette. */
@@ -98,7 +103,13 @@ export const buttonRecipe = defineRecipe({
                 _hover:  { background: "{colors.brand.800}" },
                 _active: { background: "{colors.brand.700}", transform: "scale(0.98)" },
             },
+            /* Only the primary roles take the default palette, the brand. The
+             *  neutral roles keep the gray palette: Chakra still reads it where
+             *  these do not override — an expanded (open-menu) fill, and all of
+             *  `subtle` / `surface` / `plain`. A `colorPalette` prop still
+             *  selects another. */
             outline: {
+                colorPalette: "gray",
                 background: "bg.surface",
                 color: "fg",
                 borderWidth: "1px",
@@ -114,11 +125,16 @@ export const buttonRecipe = defineRecipe({
                 _active: { background: "bg.muted", transform: "scale(0.98)" },
             },
             ghost: {
+                colorPalette: "gray",
                 background: "transparent",
                 color: "fg.muted",
                 _hover:  { background: "bg.subtle", color: "fg" },
                 _active: { background: "bg.emphasized", transform: "scale(0.98)" },
             },
+            /* Chakra's own tinted roles, styled by its recipe. */
+            subtle:  { colorPalette: "gray" },
+            surface: { colorPalette: "gray" },
+            plain:   { colorPalette: "gray" },
             danger: {
                 background: "transparent",
                 color: "fg.danger",
@@ -137,10 +153,10 @@ export const buttonRecipe = defineRecipe({
                 _hover: { background: "bg.subtle" },
             },
             "commit-primary": {
-                background: "{colors.brand.600}",
-                color: "fg.inverse",
+                background: "colorPalette.solid",
+                color: "colorPalette.contrast",
                 fontWeight: "semibold",
-                _hover: { background: "{colors.brand.700}" },
+                _hover: { background: "colorPalette.solidHover" },
             },
         },
         size: {
@@ -150,11 +166,11 @@ export const buttonRecipe = defineRecipe({
             lg: { height: "40px", paddingX: "{spacing.5}", fontSize: "{fontSizes.sm}"  /* 14 */ },
         },
     },
+    /* No `colorPalette` here: it is a style prop, not a variant, so a default
+     * for it does nothing. The default palette — brand — is set on `html`
+     * (`global-css.ts`), where Chakra sets its own. */
     defaultVariants: {
         variant: "solid",
         size: "md",
-        /* Default palette for the `solid` variant — brand-teal. Examples
-         *  that want red / green / etc. set `colorPalette` explicitly. */
-        colorPalette: "brand",
     },
 });

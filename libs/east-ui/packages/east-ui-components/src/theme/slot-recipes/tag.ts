@@ -24,6 +24,10 @@ export const tagSlotRecipe = defineSlotRecipe({
     slots: ["root", "label", "closeTrigger", "startElement", "endElement"],
     base: {
         root: {
+            /* A tag's chrome is neutral; the brand is the default palette, and
+             * Chakra's variants ring and fill from it. A `colorPalette` prop
+             * still selects another. */
+            colorPalette: "gray",
             display: "inline-flex",
             alignItems: "center",
             gap: "var(--cr-igap, 6px)",

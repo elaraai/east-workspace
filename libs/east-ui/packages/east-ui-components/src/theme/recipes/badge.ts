@@ -16,6 +16,10 @@ import { defineRecipe } from "@chakra-ui/react";
 export const badgeRecipe = defineRecipe({
     className: "elara-badge",
     base: {
+        /* A badge is neutral (a count is `--paper-3`); the brand is the
+         * default palette, and Chakra's variants fill and ring from it. A
+         * `colorPalette` prop still selects another. */
+        colorPalette: "gray",
         display: "inline-flex",
         alignItems: "center",
         gap: "{spacing.1}",

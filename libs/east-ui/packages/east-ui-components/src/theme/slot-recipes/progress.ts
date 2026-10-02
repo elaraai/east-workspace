@@ -37,6 +37,13 @@ export const progressSlotRecipe = defineSlotRecipe({
         },
     },
     variants: {
+        /* The track is neutral in every variant. Chakra's `subtle` fills it
+         * from the palette's `muted`, which the brand — the default palette —
+         * would tint, so it keeps the gray it had (`bgColor`, Chakra's own
+         * key, so this replaces its value). The range keeps the palette. */
+        variant: {
+            subtle: { track: { bgColor: "gray.muted" } },
+        },
         sentiment: {
             brand: {},
             pos: { range: { background: "fg.success" } },

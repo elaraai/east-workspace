@@ -910,3 +910,122 @@ test.describe("Visual invariants — toolbars", () => {
         });
     }
 });
+
+/**
+ * The design system's Primary in each theme (#1091): `--brand-d` fill, a
+ * `--paper` label at weight 600, and `--brand-dd` under the pointer — the
+ * design system's `tokens/colors.css` and `guidelines/cards/parts-button.html`
+ * (its current revision; dark `--brand-d` lifts one step).
+ */
+const PRIMARY = {
+    light: { fill: "rgb(58, 119, 128)", label: "rgb(255, 255, 255)", weight: "600", hover: "rgb(43, 75, 85)" },
+    dark: { fill: "rgb(101, 178, 189)", label: "rgb(26, 38, 38)", weight: "600", hover: "rgb(129, 204, 213)" },
+} as const;
+
+/** An opaque computed colour's channels, 0–255, as the page reports it (`rgb()` / `rgba()`). */
+function channels(c: string): [number, number, number] {
+    const m = /^rgba?\((\d+), (\d+), (\d+)/.exec(c);
+    if (m === null) throw new Error(`not an rgb colour: ${c}`);
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+/** WCAG contrast of two opaque colours. */
+function contrast(a: string, b: string): number {
+    const lum = (c: string) => {
+        const [r, g, bl] = channels(c).map((v) => {
+            const x = v / 255;
+            return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+        }) as [number, number, number];
+        return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+    };
+    const la = lum(a);
+    const lb = lum(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** What a button paints at rest — its fill, its label and the label's weight — and its fill under the pointer. */
+async function paint(page: Page, part: Locator): Promise<{ fill: string; label: string; weight: string; hover: string }> {
+    await page.mouse.move(0, 0);
+    const rest = await part.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { fill: s.backgroundColor, label: s.color, weight: s.fontWeight };
+    });
+    await part.hover();
+    const hover = await part.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await page.mouse.move(0, 0);
+    return { ...rest, hover };
+}
+
+/** A token's colour as the page resolves it in its theme. */
+async function tokenColour(page: Page, name: string): Promise<string> {
+    return page.evaluate((n) => {
+        const probe = document.createElement("div");
+        probe.style.color = `var(${n})`;
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+    }, name);
+}
+
+/** The showcase's host parts (`?host=parts`): Chakra's own parts as a host app draws them. Motion is
+ *  reduced, as the theme honours, so a hover is read at its end rather than part-way through. */
+async function openHostParts(page: Page, theme: "light" | "dark"): Promise<void> {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/?host=parts&theme=${theme}`);
+    await expect(page.locator("[data-host-part='button']")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+}
+
+test.describe("Visual invariants — the palette", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width, where the pointer hovers");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`host parts (${theme}): a Chakra <Button> and <IconButton> with no palette are the Primary — brand fill, paper label, the deeper brand under the pointer, the label at 4.5:1 or more`, async ({ page }) => {
+            await openHostParts(page, theme);
+            for (const name of ["button", "icon-button"]) {
+                const read = await paint(page, page.locator(`[data-host-part='${name}']`));
+                expect(read, name).toEqual(PRIMARY[theme]);
+                expect(contrast(read.label, read.fill), `${name}: its label on its fill`).toBeGreaterThanOrEqual(4.5);
+            }
+        });
+
+        test(`host parts (${theme}): a checked Chakra <Switch> with no palette has the brand track, its thumb in paper at 4.5:1 or more`, async ({ page }) => {
+            await openHostParts(page, theme);
+            const read = await page.locator("[data-host-part='switch']").evaluate((root) => ({
+                track: getComputedStyle(root.querySelector("[data-part='control']")!).backgroundColor,
+                thumb: getComputedStyle(root.querySelector("[data-part='thumb']")!).backgroundColor,
+            }));
+            expect(read).toEqual({ track: PRIMARY[theme].fill, thumb: PRIMARY[theme].label });
+            expect(contrast(read.thumb, read.track), "the thumb on its track").toBeGreaterThanOrEqual(4.5);
+        });
+
+        test(`host parts (${theme}): colorPalette still selects another palette — a red and a danger <Button> fill with that palette's solid, label in its contrast, and never take the brand's hover`, async ({ page }) => {
+            await openHostParts(page, theme);
+            for (const palette of ["red", "danger"]) {
+                const want = {
+                    fill: await tokenColour(page, `--chakra-colors-${palette}-solid`),
+                    label: await tokenColour(page, `--chakra-colors-${palette}-contrast`),
+                };
+                const read = await paint(page, page.locator(`[data-host-part='button-${palette}']`));
+                expect({ fill: read.fill, label: read.label }, palette).toEqual(want);
+                expect(read.hover, `${palette}: its hover`).not.toBe(PRIMARY[theme].hover);
+                expect(contrast(read.label, read.fill), `${palette}: its label on its fill`).toBeGreaterThanOrEqual(4.5);
+            }
+        });
+
+        test(`buttonBasic (${theme}): an East <Button> with no style is the Primary`, async ({ page }) => {
+            await page.emulateMedia({ reducedMotion: "reduce" });
+            await page.goto(`/?theme=${theme}#buttons/button/buttonBasic`);
+            await page.waitForSelector("header", { timeout: 20_000 });
+            const entry = page.locator("[data-index]", { has: page.locator(`a[href="#buttons/button/buttonBasic"]`) });
+            await entry.scrollIntoViewIfNeeded();
+            const button = entry.getByRole("button", { name: "Click me" });
+            await expect(button).toBeVisible({ timeout: 20_000 });
+            await settled(page);
+            const read = await paint(page, button);
+            expect(read).toEqual(PRIMARY[theme]);
+            expect(contrast(read.label, read.fill), "its label on its fill").toBeGreaterThanOrEqual(4.5);
+        });
+    }
+});

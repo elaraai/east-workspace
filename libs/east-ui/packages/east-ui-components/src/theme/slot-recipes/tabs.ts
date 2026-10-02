@@ -79,6 +79,13 @@ export const tabsSlotRecipe = defineSlotRecipe({
                     _selected: {
                         color: "fg",
                         borderBottomColor: "fg",
+                        /* Chakra paints the active tab's underline bar
+                         * (`::before`) from the palette's `solid`, and the
+                         * default palette is the brand: the bar keeps the ink
+                         * it had. Pinned here, not as the tabs' palette, which
+                         * every part in the panels would inherit. */
+                        _horizontal: { "--indicator-color": "colors.gray.solid" },
+                        _vertical: { "--indicator-color": "colors.gray.solid" },
                     },
                     "&[data-selected]": {
                         color: "fg",

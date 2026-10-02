@@ -7,6 +7,7 @@
  * Global CSS for the Elara Chakra v3 system.
  *
  *  - Sets the html/body baseline (Inter Tight, fg, bg.canvas).
+ *  - Makes brand the default colour palette; text selection stays neutral.
  *  - Honours `prefers-reduced-motion: reduce`.
  *  - Universal focus-visible — any element with `data-focus-visible`
  *    or focused via keyboard gets the canonical 3 px brand-tinted ring.
@@ -65,6 +66,22 @@ export const globalCss = defineGlobalStyles({
          * their own pressed/selected feedback. */
         textSizeAdjust: "100%",
         WebkitTapHighlightColor: "transparent",
+    },
+
+    /* Brand is the default palette (#1091), set where Chakra sets its own
+     * (`gray`): a part with no `colorPalette` of its own — a default
+     * <Button>, a checked <Switch> — takes the design system's brand. A part
+     * the design system draws neutral sets `gray` in its own recipe. */
+    html: {
+        colorPalette: "brand",
+    },
+
+    /* Chakra tints a text selection with the palette's `emphasized` role, a
+     * deep teal under the brand in light and a pale cyan in dark — neither
+     * leaves the text readable — so the selection keeps the neutral it had.
+     * `bg`, Chakra's own key, so this replaces its value. */
+    "*::selection": {
+        bg: "gray.emphasized/80",
     },
 
     "*, *::before, *::after": {
