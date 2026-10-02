@@ -503,6 +503,16 @@ add_executable(test_value_compare tests/test_value_compare.c)
 target_link_libraries(test_value_compare east-c)
 add_test(NAME value_compare COMMAND test_value_compare)
 
+# East text gate (#964): what no IR reaches, the host entry points over East
+# text. The plain parse refuses what the one that says why refuses — an escape
+# the grammar has no meaning for, once read with its backslash dropped — and a
+# string holding every control character and a NUL, and field and case names
+# holding backslashes and backticks, print as TypeScript prints them and parse
+# back at their length.
+add_executable(test_east_text tests/test_east_text.c)
+target_link_libraries(test_east_text east-c)
+add_test(NAME east_text COMMAND test_east_text)
+
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's
 # error text is byte-identical to the TS analyzer's. Skips (exit 77) unless

@@ -1712,13 +1712,15 @@ cpdef str beast2_auto_to_east_text(bytes data):
         _eastc.east_type_release(c_type)
         _consume_eastc_error("beast2 auto-decode failed", ValueError)
 
-    cdef char *text = _eastc.east_print_value(c_val, c_type)
+    # Taken at its length: a string's NUL is printed as itself
+    cdef size_t length = 0
+    cdef char *text = _eastc.east_print_value_len(c_val, c_type, &length)
     _eastc.east_value_release(c_val)
     _eastc.east_type_release(c_type)
     if text == NULL:
         raise ValueError("east-text print failed")
     try:
-        result = (<bytes>text).decode("utf-8", errors="replace")
+        result = text[:length].decode("utf-8", errors="replace")
     finally:
         free(text)
     return result
