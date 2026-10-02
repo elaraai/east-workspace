@@ -17,6 +17,7 @@ import {
   workspaceStatus,
   packageGetLatestVersion,
   packageResolve,
+  checkName,
   PackageNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceNotFoundError,
@@ -268,9 +269,11 @@ export async function deleteWorkspace(
  * A deploy that migrates a record, or builds an index over one, takes as long
  * as the record is large, which outlasts a request. So the deploy runs as a
  * job, in the compute the store dispatches it to: a local server's own
- * process, or a cloud's. The package is resolved first, so a deploy of one the
- * repository does not hold is refused at once, as `package_not_found`, and the
- * job deploys exactly the version resolved.
+ * process, or a cloud's. The workspace's name is checked and the package
+ * resolved before the job is filed, so a deploy to a name no workspace can have
+ * (`invalid_name`), or of a package the repository does not hold
+ * (`package_not_found`), is refused at once and files nothing, and the job
+ * deploys exactly the version resolved.
  *
  * The job never opens a path-initialised input's file: its path is on the
  * machine that exported the package. Each such input is left unassigned, and
@@ -295,6 +298,7 @@ export async function startWorkspaceDeploy(
   deployStore: WorkspaceDeployStore,
 ): Promise<Response> {
   try {
+    checkName('workspace', workspace);
     const { name, version: maybeVersion } = parsePackageRef(request.packageRef);
     const version = maybeVersion ?? await packageGetLatestVersion(storage, repoPath, name);
     if (version === undefined) throw new PackageNotFoundError(name);

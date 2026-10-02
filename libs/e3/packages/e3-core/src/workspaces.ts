@@ -529,6 +529,8 @@ const NO_FILES: DeployFiles = {
  * @param pkgName - Package name
  * @param pkgVersion - Package version
  * @param options - Optional settings including external lock
+ * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
+ *   is taken
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws {RecordDeployRefusedError} When a record cannot be carried into the
  *   package: it changed type with no migration, its applied migrations are not
@@ -565,6 +567,11 @@ export async function workspaceDeployWith(
   options: WorkspaceDeployOptions,
   files: DeployFiles,
 ): Promise<void> {
+  // The name is checked as a workspace's before the lock is taken: a lock's
+  // name may hold the `#` and `~` no workspace's may, so the lock store would
+  // refuse a malformed one, if at all, as a lock's.
+  checkName('workspace', name);
+
   // Acquire lock if not provided externally
   const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;

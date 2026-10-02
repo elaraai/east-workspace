@@ -8,10 +8,10 @@
  * the job's store was given — an embedder mounts these routes with a store and
  * a runner of its own — and without one, a deploy that owes an index build
  * fails before it writes anything. While it runs, the job and the workspace's
- * lock say how far it has got.
+ * lock say how far it has got. A deploy refused at its start files no job.
  */
 
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import {
@@ -76,10 +76,11 @@ async function seedIndexedPackage(storage: InMemoryStorage): Promise<string> {
     encodeBeast2For(DictType(StructType({ ik: StringType, k: StringType }), NullType))(new Map()));
 }
 
-/** The workspace routes, whose deploy jobs run on `getRunner`'s runner. */
-function routes(storage: InMemoryStorage, getRunner?: () => TaskRunner): Hono {
+/** The workspace routes, whose deploy jobs run on `getRunner`'s runner and are
+ *  filed with `transfer`, when given. */
+function routes(storage: InMemoryStorage, getRunner?: () => TaskRunner, transfer?: InMemoryTransferBackend): Hono {
   const app = new Hono();
-  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, () => REPO, new InMemoryTransferBackend({
+  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, () => REPO, transfer ?? new InMemoryTransferBackend({
     storage,
     getRepoPath: () => REPO,
     ...(getRunner !== undefined && { getRunner }),
@@ -87,9 +88,10 @@ function routes(storage: InMemoryStorage, getRunner?: () => TaskRunner): Hono {
   return app;
 }
 
-/** Start a deploy of `packageRef`: the job's id, or why the server started none. */
-async function start(app: Hono, packageRef = 'planrecords@1.0.0'): Promise<ReturnType<typeof decodeStarted>> {
-  const response = await app.request(`/api/repos/r/workspaces/${WS}/deploy`, {
+/** Start a deploy of `packageRef` to `ws`: the job's id, or why the server
+ *  started none. */
+async function start(app: Hono, packageRef = 'planrecords@1.0.0', ws = WS): Promise<ReturnType<typeof decodeStarted>> {
+  const response = await app.request(`/api/repos/r/workspaces/${encodeURIComponent(ws)}/deploy`, {
     method: 'POST',
     headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
     body: encodeBeast2For(WorkspaceDeployRequestType)({
@@ -234,5 +236,21 @@ describe('deploy route', () => {
     const started = await start(routes(storage), 'planrecords@9.9.9');
     assert.equal(started.type, 'error');
     assert.equal(started.value.type, 'package_not_found');
+  });
+
+  it('refuses a name no workspace can have at once, as invalid_name of a workspace, filing no job', async () => {
+    const transfer = new InMemoryTransferBackend({ storage, getRepoPath: () => REPO });
+    const filed = mock.method(transfer.workspaceDeploy, 'create');
+    const app = routes(storage, undefined, transfer);
+
+    for (const [name, why] of [
+      ['bad:name', 'holds ":", which a file name cannot'],
+      ['a#b', 'holds "#", which joins the parts of a lock\'s name'],
+    ] as const) {
+      assert.deepEqual(await start(app, 'planrecords@1.0.0', name), variant('error', variant('invalid_name', {
+        kind: 'workspace', name, message: `the workspace name ${JSON.stringify(name)} ${why}`,
+      })), name);
+    }
+    assert.equal(filed.mock.callCount(), 0, 'no job was filed');
   });
 });
