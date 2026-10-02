@@ -23,6 +23,7 @@
  * @packageDocumentation
  */
 
+import { IntegerType, equalFor } from '@elaraai/east';
 import type { DataflowEvent, DataflowExecutionState } from '@elaraai/e3-api-client';
 import type { Api } from '../api.js';
 import { describeError, isApiCode } from '../api.js';
@@ -70,6 +71,13 @@ export interface FeedsDeps {
     log?: ((line: string) => void) | undefined;
 }
 
+const sameSeq = equalFor(IntegerType);
+
+/** Whether a poll's cursor is before a run's first event, so the poll read every event. */
+function isFirst(seq: bigint): boolean {
+    return sameSeq(seq, 0n);
+}
+
 /** The workspace a view is about, if any. */
 export function viewWorkspace(state: TuiState): string | null {
     const v = state.view;
@@ -88,7 +96,8 @@ export function createFeeds(deps: FeedsDeps): Feeds {
     const running = new Map<string, Poller>();
     let unsubscribe: (() => void) | null = null;
     let lastSignature = '';
-    const executionCursor = new Map<string, { startedAt: string | null; events: DataflowEvent[] }>();
+    /** Each workspace's run as last polled: when it started, its events so far, and the cursor past them. */
+    const executionCursor = new Map<string, { startedAt: string | null; events: DataflowEvent[]; nextSeq: bigint }>();
     const repoStatusRequested = new Set<string>();
     const datasets = createDatasetLoader({ store, api: deps.api, log: deps.log });
     const logs = createLogsLoader({ store, api: deps.api, log: deps.log });
@@ -175,12 +184,17 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                             }
                             throw err;
                         }
-                        // The last run, for the LAST RUN column (never run is not an error).
+                        // The last run, for the LAST RUN column (never run is not an error): its
+                        // state alone, keeping the events a dashboard of the same run gathered.
                         try {
-                            const execution = await api.dataflowExecutePoll(ws, 0);
+                            const execution = await api.dataflowExecutePoll(ws, { limit: 0 });
                             if (signal.aborted) return;
-                            executionCursor.set(ws, { startedAt: execution.startedAt, events: [...execution.events] });
-                            store.dispatch({ type: 'data/execution', ws, state: execution, events: [...execution.events], startedAt: execution.startedAt });
+                            const seen = executionCursor.get(ws);
+                            const cursor = seen !== undefined && seen.startedAt === execution.startedAt
+                                ? seen
+                                : { startedAt: execution.startedAt, events: [], nextSeq: 0n };
+                            executionCursor.set(ws, cursor);
+                            store.dispatch({ type: 'data/execution', ws, state: execution, events: [...cursor.events], startedAt: execution.startedAt });
                         } catch (err) {
                             if (!isApiCode(err, 'execution_not_found')) throw err;
                             store.dispatch({ type: 'data/execution', ws, state: null, events: [], startedAt: null });
@@ -232,13 +246,13 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                 key: `execution:${ws}`,
                 intervalMs: active ? 1_000 : 5_000,
                 run: async () => {
-                    const cursor = executionCursor.get(ws) ?? { startedAt: null, events: [] };
+                    const cursor = executionCursor.get(ws) ?? { startedAt: null, events: [], nextSeq: 0n };
                     let result: DataflowExecutionState;
                     try {
-                        result = await api.dataflowExecutePoll(ws, cursor.events.length);
+                        result = await api.dataflowExecutePoll(ws, { since: cursor.nextSeq });
                     } catch (err) {
                         if (isApiCode(err, 'execution_not_found')) {
-                            executionCursor.set(ws, { startedAt: null, events: [] });
+                            executionCursor.set(ws, { startedAt: null, events: [], nextSeq: 0n });
                             store.dispatch({ type: 'data/execution', ws, state: null, events: [], startedAt: null });
                             return;
                         }
@@ -246,14 +260,14 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     }
                     let events = cursor.events;
                     if (result.startedAt !== cursor.startedAt) {
-                        // A new execution: its events restart at 0.
-                        const fresh = cursor.events.length === 0 ? result : await api.dataflowExecutePoll(ws, 0);
+                        // A new execution: its events are read from its first, unless the poll did.
+                        const fresh = isFirst(cursor.nextSeq) ? result : await api.dataflowExecutePoll(ws, {});
                         events = [...fresh.events];
                         result = fresh;
                     } else {
                         events = [...cursor.events, ...result.events];
                     }
-                    executionCursor.set(ws, { startedAt: result.startedAt, events });
+                    executionCursor.set(ws, { startedAt: result.startedAt, events, nextSeq: result.nextSeq });
                     store.dispatch({ type: 'data/execution', ws, state: result, events, startedAt: result.startedAt });
                 },
             });

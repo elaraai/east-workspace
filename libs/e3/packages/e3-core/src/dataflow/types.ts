@@ -21,6 +21,7 @@ import {
   DataflowGraphType,
   ExecutionEventType,
   DataflowExecutionStateType,
+  ExecutionStateSummaryType,
 } from '@elaraai/e3-types';
 
 // Re-export EastType schemas for serialization
@@ -30,6 +31,8 @@ export {
   DataflowGraphType,
   ExecutionEventType,
   DataflowExecutionStateType,
+  ExecutionStateSummaryType,
+  executionStateSummary,
 } from '@elaraai/e3-types';
 
 // Re-export status type aliases
@@ -63,6 +66,13 @@ export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
  * Dataflow execution state.
  */
 export type DataflowExecutionState = ValueTypeOf<typeof DataflowExecutionStateType>;
+
+/**
+ * A run's state but its graph, tasks, reactive tracking and events: what a
+ * poll of the run serves but the events, with its last event's sequence
+ * number.
+ */
+export type ExecutionStateSummary = ValueTypeOf<typeof ExecutionStateSummaryType>;
 
 // =============================================================================
 // Step Results (TypeScript-only, not persisted)

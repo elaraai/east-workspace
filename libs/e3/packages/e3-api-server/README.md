@@ -160,8 +160,13 @@ of the run in the request's host, and a poll and a cancel read the latest run
 from that store, whichever instance answers them. The dataset transfer routes
 (`createTransferRoutes`) take the transfer backend, whose upload store takes a
 delivery in on the runner it was given: an init adopts only what takes nothing
-in, and answers at once. A route answers for the repository in its URL alone:
-a job, an upload or a run another repository started is not found through it.
+in, and answers at once. A poll reads the latest run's summary from the store
+(`readLatestSummary`), and its events only past the poll's cursor, so a store
+whose reads cost by the byte answers a caught-up poll cheaply; the waits and
+split progress it serves are the orchestrator's (`getProgress`), which has none
+of a run another instance runs. A route answers for the repository in its URL
+alone: a job, an upload or a run another repository started is not found
+through it.
 
 ```typescript
 import { Hono } from 'hono';
@@ -351,7 +356,7 @@ grant polls only a platform-free call, or one such a caller launched.
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |

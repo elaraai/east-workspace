@@ -16,13 +16,57 @@ import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { NullType, OptionType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import {
-  Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, stateToStatus, type DataflowOrchestrator,
+  Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, stateToStatus,
+  type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
 } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { BEAST2_CONTENT_TYPE, E3_RELEASE } from '@elaraai/e3-types';
 import { createExecutionRoutes } from '../routes/executions.js';
 import { createServer } from '../server.js';
 import { DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, ResponseType } from '../types.js';
+
+/** A run's state, of no tasks, in workspace `main` of `test-repo`. */
+function runState(id: string, status: 'running' | 'completed' | 'failed' | 'cancelled'): DataflowExecutionState {
+  return {
+    release: E3_RELEASE, id, repo: 'test-repo', workspace: 'main', startedAt: new Date(Date.now() - 1000), force: false, filter: none,
+    graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status,
+    completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n,
+    events: [], eventSeq: 0n,
+  };
+}
+
+/**
+ * A state store that records the reads made of it, as a poll makes them: of
+ * the whole state, of a run's summary, and of its events.
+ */
+function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore; reads: string[] } {
+  const reads: string[] = [];
+  const store: ExecutionStateStore = {
+    create: (state) => inner.create(state),
+    read: (repo, workspace, id) => {
+      reads.push('read');
+      return inner.read(repo, workspace, id);
+    },
+    readLatest: (repo, workspace) => {
+      reads.push('readLatest');
+      return inner.readLatest(repo, workspace);
+    },
+    readLatestSummary: (repo, workspace) => {
+      reads.push('readLatestSummary');
+      return inner.readLatestSummary(repo, workspace);
+    },
+    update: (state) => inner.update(state),
+    updateTaskStatus: (repo, workspace, id, task, status, details) => inner.updateTaskStatus(repo, workspace, id, task, status, details),
+    updateStatus: (repo, workspace, id, status, details) => inner.updateStatus(repo, workspace, id, status, details),
+    recordEvent: (repo, workspace, id, event) => inner.recordEvent(repo, workspace, id, event),
+    getEventsSince: (repo, workspace, id, since) => {
+      reads.push('getEventsSince');
+      return inner.getEventsSince(repo, workspace, id, since);
+    },
+    delete: (repo, workspace, id) => inner.delete(repo, workspace, id),
+  };
+  return { store, reads };
+}
 
 describe('dataflow routes', () => {
   it('start, poll and cancel a run through the orchestrator and the state store their host gives', async () => {
@@ -40,9 +84,10 @@ describe('dataflow routes', () => {
         return { id: 'run-1', repo, workspace };
       },
       wait: () => new Promise(() => {}),
-      getStatus: async (handle) => ({
-        ...stateToStatus((await stateStore.read(handle.repo, handle.workspace, handle.id))!),
+      getStatus: async (handle) => stateToStatus((await stateStore.read(handle.repo, handle.workspace, handle.id))!),
+      getProgress: () => Promise.resolve({
         waiting: [{ task: 'train', unit: none, needs: 1024n, since: new Date(0).toISOString() }],
+        splits: [],
       }),
       cancel: async (handle) => {
         cancelled.push(handle.id);
@@ -92,6 +137,7 @@ describe('dataflow routes', () => {
         throw new Error('the route waited on a run another host executes');
       },
       getStatus: () => Promise.reject(new Error('not polled')),
+      getProgress: () => Promise.reject(new Error('not polled')),
       cancel: async () => {},
       getEvents: async () => [],
     };
@@ -111,6 +157,74 @@ describe('dataflow routes', () => {
     assert.equal(decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer())).type, 'success');
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(waits, 0);
+  });
+
+  it('poll a run by its cursor: the API\'s events past it, at most a limit, and the cursor past them, reading the run\'s summary and no more than its new events', async () => {
+    const { store, reads } = countingStore(new InMemoryStateStore());
+    const at = new Date(0);
+    // Seven events, three the API does not show: the run's start and end, and
+    // a task made ready
+    await store.create({
+      ...runState('run-1', 'failed'),
+      completedAt: some(at),
+      events: [
+        variant('execution_started', { seq: 1n, timestamp: at, executionId: 'run-1', totalTasks: 2n }),
+        variant('task_started', { seq: 2n, timestamp: at, task: 'etl' }),
+        variant('task_completed', { seq: 3n, timestamp: at, task: 'etl', cached: false, outputHash: 'a'.repeat(64), duration: 5n, peakBytes: none }),
+        variant('task_ready', { seq: 4n, timestamp: at, task: 'report' }),
+        variant('task_started', { seq: 5n, timestamp: at, task: 'report' }),
+        variant('task_failed', { seq: 6n, timestamp: at, task: 'report', error: none, exitCode: some(1n), duration: 7n }),
+        variant('execution_completed', { seq: 7n, timestamp: at, success: false, executed: 1n, cached: 0n, failed: 1n, skipped: 0n, duration: 12n }),
+      ],
+      eventSeq: 7n,
+    });
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(store),
+      getStateStore: () => store,
+    }));
+    const decodeState = decodeBeast2For(ResponseType(DataflowExecutionStateType));
+    const poll = async (query: string) => {
+      reads.length = 0;
+      const answer = decodeState(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/main/dataflow/execution${query}`)).arrayBuffer()));
+      if (answer.type !== 'success') assert.fail(`the poll ${query} was refused: ${answer.value.type}`);
+      return { events: answer.value.events.map((event) => `${event.type} ${event.value.task}`), nextSeq: answer.value.nextSeq, reads: [...reads] };
+    };
+
+    assert.deepEqual(await poll(''), {
+      events: ['start etl', 'complete etl', 'start report', 'failed report'], nextSeq: 7n, reads: ['readLatestSummary', 'getEventsSince'],
+    });
+    assert.deepEqual(await poll('?since=7'), { events: [], nextSeq: 7n, reads: ['readLatestSummary'] }, 'a poll that has every event reads none');
+    assert.deepEqual(await poll('?limit=0'), { events: [], nextSeq: 0n, reads: ['readLatestSummary'] }, 'nor does one that asks for none');
+    assert.deepEqual(await poll('?limit=1'), { events: ['start etl'], nextSeq: 2n, reads: ['readLatestSummary', 'getEventsSince'] });
+    assert.deepEqual(await poll('?since=2&limit=2'), {
+      events: ['complete etl', 'start report'], nextSeq: 5n, reads: ['readLatestSummary', 'getEventsSince'],
+    }, 'the cursor moves past an event the API does not show between two it serves');
+    assert.deepEqual(await poll('?since=5'), { events: ['failed report'], nextSeq: 7n, reads: ['readLatestSummary', 'getEventsSince'] });
+
+    const refused = await app.request('/api/repos/r/workspaces/main/dataflow/execution?since=-1');
+    assert.equal(refused.status, 400);
+    assert.deepEqual(await refused.json(), { error: { type: 'bad_request', message: 'since must be a non-negative integer, got "-1"' } });
+  });
+
+  it('poll a run another host runs without reading its state for the waits and progress, which only that host holds', async () => {
+    const { store, reads } = countingStore(new InMemoryStateStore());
+    await store.create(runState('run-1', 'running'));
+    const app = new Hono();
+    // This host's orchestrator, over the store the run is kept in, runs none
+    // of the runs it is asked of.
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(store),
+      getStateStore: () => store,
+    }));
+    const answer = decodeBeast2For(ResponseType(DataflowExecutionStateType))(
+      new Uint8Array(await (await app.request('/api/repos/r/workspaces/main/dataflow/execution')).arrayBuffer()));
+    if (answer.type !== 'success') assert.fail(`the poll was refused: ${answer.value.type}`);
+    assert.equal(answer.value.status.type, 'running');
+    assert.deepEqual([answer.value.waiting, answer.value.splits], [[], []]);
+    assert.deepEqual(reads, ['readLatestSummary'], 'the run\'s summary alone: it has no events past the cursor');
   });
 
   it('serve the budget a run gets, with what its runners hold now, and none when mounted without one', async () => {

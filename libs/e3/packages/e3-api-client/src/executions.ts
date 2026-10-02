@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, OptionType, none, some, variant } from '@elaraai/east';
+import { IntegerType, NullType, OptionType, none, printFor, some, variant } from '@elaraai/east';
 import type { LogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
 import {
   LogChunkType,
@@ -187,13 +187,17 @@ export async function dataflowExecute(
   // Start execution
   await dataflowExecuteLaunch(url, repo, workspace, dataflowOptions, options);
 
-  // Poll until complete
+  // Poll until complete, each poll served the events since the one before
   const startTime = Date.now();
+  const events: DataflowExecutionState['events'] = [];
+  let since = 0n;
   while (Date.now() - startTime < timeout) {
-    const state = await dataflowExecutePoll(url, repo, workspace, {}, options);
+    const state = await dataflowExecutePoll(url, repo, workspace, { since }, options);
+    events.push(...state.events);
+    since = state.nextSeq;
 
     if (state.status.type === 'completed' || state.status.type === 'failed' || state.status.type === 'aborted') {
-      return buildDataflowResult(state);
+      return buildDataflowResult({ ...state, events });
     }
 
     await new Promise(r => setTimeout(r, pollInterval));
@@ -275,22 +279,27 @@ export async function taskLogs(
  * Options for getting execution state.
  */
 export interface ExecutionStateOptions {
-  /** Skip first N events (default: 0) */
-  offset?: number;
-  /** Maximum events to return (default: all) */
+  /** The poll's cursor: the `nextSeq` the poll before answered, after which
+   *  the events are served (default: 0, every event) */
+  since?: bigint;
+  /** Maximum events to return (default: all); 0 for the run's state alone */
   limit?: number;
 }
+
+/** A cursor as a query spells it. */
+const printSeq = printFor(IntegerType);
 
 /**
  * Get dataflow execution state (for polling).
  *
- * Returns the current execution state including events for progress tracking.
- * Use offset/limit for pagination of events.
+ * Returns the current state of the workspace's latest run, and its events
+ * past the poll's cursor. A client polling a run passes the `nextSeq` each
+ * answer gives as the next poll's `since`, so each poll is served what is new.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
- * @param stateOptions - Pagination options for events
+ * @param stateOptions - The poll's cursor, and the most events it is served
  * @param options - Request options including auth token
  * @returns Execution state with events and summary
  * @throws {ApiError} On application-level errors
@@ -304,7 +313,7 @@ export async function dataflowExecutePoll(
   options: RequestOptions
 ): Promise<DataflowExecutionState> {
   const params = new URLSearchParams();
-  if (stateOptions.offset != null) params.set('offset', String(stateOptions.offset));
+  if (stateOptions.since != null) params.set('since', printSeq(stateOptions.since));
   if (stateOptions.limit != null) params.set('limit', String(stateOptions.limit));
 
   const query = params.toString();

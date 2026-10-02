@@ -264,20 +264,20 @@ async function executeRemote(
     filter: options.filter,
   }, { token: await getValidToken(baseUrl), verbose: options.verbose });
 
-  // Poll for execution state
-  let eventOffset = 0;
+  // Poll for execution state, each poll from the cursor the last answered
+  let since = 0n;
   let lastStatus: DataflowExecutionState['status']['type'] | null = null;
 
   while (!isAborted()) {
     const state = await dataflowExecutePollRemote(baseUrl, repo, ws, {
-      offset: eventOffset,
+      since,
     }, { token: await getValidToken(baseUrl) });
 
     // Print new events
     for (const event of state.events) {
       printEvent(event);
-      eventOffset++;
     }
+    since = state.nextSeq;
 
     // Check if execution is done
     if (state.status.type !== 'running') {

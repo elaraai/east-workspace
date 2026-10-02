@@ -86,7 +86,7 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         completedAt: some(iso(81_600)),
         summary: some({ executed: BigInt(tasks), cached: 1n, failed: count('failed'), skipped: 0n, duration: 38_400 }),
         events: [],
-        totalEvents: BigInt(events.length),
+        nextSeq: BigInt(events.length),
         budget: some({ cores: 8n, memory: BigInt(14 * 1024 ** 3), coresInUse: 0n, memoryInUse: 0n }),
         waiting: [],
         splits: [],

@@ -125,9 +125,10 @@ export function createExecutionRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
 
-    // The window of events, refused before the store is asked when malformed;
-    // a window of none still carries the run's state and its count of events
-    const window = wholeQuery(c, { offset: 0, limit: 0 });
+    // The poll's cursor — the sequence number of the last event the client has
+    // — and the most events it is served, refused before the store is asked
+    // when malformed; a poll of no events still carries the run's state
+    const window = wholeQuery(c, { since: 0, limit: 0 });
     if (window instanceof Response) return window;
 
     return getDataflowExecution(seams.getStateStore(repoPath), seams.getOrchestrator(repoPath), repoPath, ws, window, seams.budget);

@@ -50,6 +50,7 @@ import {
     type DatasetPageWindow,
     type DatasetStatusDetail,
     type ExecutionListItem,
+    type ExecutionStateOptions,
     type ListEntry,
     type LockStatus,
     type LogChunk,
@@ -112,7 +113,8 @@ export interface Api {
     datasetFindKey(ws: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
     datasetSet(ws: string, path: TreePath, data: Uint8Array): Promise<void>;
     dataflowExecuteLaunch(ws: string, options: DataflowOptions): Promise<void>;
-    dataflowExecutePoll(ws: string, offset: number): Promise<DataflowExecutionState>;
+    /** The latest run's state, and its events past the cursor (`since`, the `nextSeq` the poll before answered), at most `limit`: `limit: 0` for its state alone. */
+    dataflowExecutePoll(ws: string, window: ExecutionStateOptions): Promise<DataflowExecutionState>;
     /** The budget a run of the workspace gets (the server's), or null for a server whose runners hold none. */
     dataflowBudget(ws: string): Promise<DataflowBudget | null>;
     dataflowCancel(ws: string): Promise<void>;
@@ -174,7 +176,7 @@ export function createHttpApi(config: HttpApiConfig): Api {
         datasetFindKey: async (ws, path, query) => datasetFindKey(apiUrl, repo(), ws, path, query, await options()),
         datasetSet: async (ws, path, data) => datasetSet(apiUrl, repo(), ws, path, data, await options()),
         dataflowExecuteLaunch: async (ws, dataflowOptions) => dataflowExecuteLaunch(apiUrl, repo(), ws, dataflowOptions, await options()),
-        dataflowExecutePoll: async (ws, offset) => dataflowExecutePoll(apiUrl, repo(), ws, { offset }, await options()),
+        dataflowExecutePoll: async (ws, window) => dataflowExecutePoll(apiUrl, repo(), ws, window, await options()),
         dataflowBudget: async (ws) => dataflowBudget(apiUrl, repo(), ws, await options()),
         dataflowCancel: async (ws) => dataflowCancel(apiUrl, repo(), ws, await options()),
         taskLogs: async (ws, task, logOptions) => taskLogs(apiUrl, repo(), ws, task, logOptions, await options()),

@@ -510,6 +510,7 @@ export {
 export type {
   DataflowExecutionState,
   DataflowExecutionStatus,
+  ExecutionStateSummary,
   TaskState,
   TaskStatus as DataflowTaskStatus,
   ExecutionEvent,
@@ -561,6 +562,7 @@ export {
   stateToStatus,
   type DataflowOrchestrator,
   type ExecutionHandle,
+  type ExecutionProgress,
   type ExecutionStatus as OrchestratorExecutionStatus,
   type OrchestratorStartOptions,
   type ResumeOptions,

@@ -22,13 +22,17 @@ import { faPlay, faStop, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { useDataflowStart, useDataflowCancel, useDataflowExecution } from '@elaraai/e3-ui-components';
 import { useE3Context } from '../context/E3Context';
 
+/** The control reads the run's status alone, so its poll asks for no
+ *  events. */
+const STATUS_ONLY = { limit: 0 };
+
 export function DataflowControl() {
     const { apiUrl, currentWorkspace } = useE3Context();
 
     // Polled at the tree's cadence so the button and the task dots never
     // disagree about whether something is running.
     const { data: execution } = useDataflowExecution(
-        apiUrl, 'default', currentWorkspace, undefined, undefined,
+        apiUrl, 'default', currentWorkspace, STATUS_ONLY, undefined,
         { refetchInterval: 1000, staleTime: 0 },
     );
     const start = useDataflowStart(apiUrl, 'default', currentWorkspace);
