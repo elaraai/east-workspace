@@ -28,6 +28,7 @@ import { workspaceDeploy, workspaceExport } from './workspace-files.js';
 import { packageResolve, packageRead } from './packages.js';
 import { packageImport } from './package-files.js';
 import {
+  InvalidNameError,
   WorkspaceLockError,
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -258,6 +259,22 @@ describe('workspaces', () => {
 
       await assertRefusalNamesHolder('held', variant('export', null), () => workspaceDeploy(storage, testRepo, 'held', 'deploy-held', '1.0.0'));
       assert.strictEqual(await workspaceGetState(storage, testRepo, 'held'), null, 'nothing was deployed');
+    });
+
+    it('refuses a name no workspace can have before it takes the lock', async () => {
+      // A lock's name may hold `#`, and a backend's stores may take any name,
+      // so the deploy checks the name as a workspace's itself. A storage with
+      // no stores fails a deploy that asks one otherwise than with the name's
+      // refusal.
+      const noStores = {} as StorageBackend;
+      for (const name of ['bad:name', 'a#b']) {
+        await assert.rejects(workspaceDeploy(noStores, testRepo, name, 'deploy-test', '1.0.0'), (err: unknown) => {
+          assert.ok(err instanceof InvalidNameError, `${name}: an InvalidNameError, not ${String(err)}`);
+          assert.strictEqual(err.kind, 'workspace', name);
+          assert.strictEqual(err.value, name, name);
+          return true;
+        });
+      }
     });
   });
 
