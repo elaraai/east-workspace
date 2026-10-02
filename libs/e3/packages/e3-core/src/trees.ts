@@ -42,6 +42,7 @@ import {
   WorkspaceLockError,
   DatasetRefConflictError,
   DatasetTypeMismatchError,
+  checkName,
   lockStateToHolderInfo,
 } from './errors.js';
 
@@ -214,6 +215,8 @@ export interface DatasetLeaf {
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @returns The leaf's declared type, writability and addresses
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws {WorkspaceNotFoundError} If the workspace does not exist
  * @throws {WorkspaceNotDeployedError} If the workspace has no package deployed
  * @throws If the path is empty, invalid, or names a tree rather than a dataset
@@ -286,6 +289,8 @@ export interface WorkspaceSetDatasetOptions {
  * @param value - The new value to write
  * @param type - The East type for encoding the value (EastType or EastTypeValue)
  * @param options - Optional settings including external lock
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws If workspace not deployed, path invalid, path points to a tree, or a
  *   garbage collection is running
@@ -333,6 +338,8 @@ export async function workspaceSetDataset(
  * @param options - Optional settings including external lock
  * @throws {DatasetTypeMismatchError} When the bytes hold another type than
  *   the dataset declares
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws If workspace not deployed, path invalid, the dataset is not
  *   writable, the bytes are not a value the store takes, or a garbage
@@ -373,6 +380,11 @@ export async function workspaceSetDatasetBytes(
  * segments are stored before the ref that names them, which for a large
  * delivery is minutes, and a sweep in between would delete them.
  *
+ * The workspace's name is checked before the lock is taken. The lock store
+ * checks a lock's name, which may hold the `#` and `~` no workspace's may, and
+ * a backend's stores may take any name, so a write to a workspace that cannot
+ * exist would otherwise be refused, if at all, as something else.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
@@ -380,6 +392,8 @@ export async function workspaceSetDatasetBytes(
  * @param externalLock - A workspace lock the caller already holds
  * @param write - The write, given the dataset's leaf
  * @returns What `write` returns
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws If the dataset is not writable, or a garbage collection is running
  * @internal
@@ -392,6 +406,7 @@ export async function withDatasetWriteLock<T>(
   externalLock: LockHandle | undefined,
   write: (leaf: DatasetLeaf) => Promise<T>
 ): Promise<T> {
+  checkName('workspace', ws);
   if (treePath.length === 0) {
     throw new Error('Cannot set dataset at root path - root is always a tree');
   }
@@ -524,10 +539,18 @@ async function readHeadType(
 
 /**
  * Read a deployed workspace's state.
+ *
+ * The name is checked here rather than left to the ref store, so every read
+ * that resolves a path refuses a workspace that cannot exist alike, whichever
+ * backend answers.
+ *
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but not deployed
  */
 async function readWorkspaceState(storage: StorageBackend, repo: string, ws: string) {
+  checkName('workspace', ws);
   const data = await storage.refs.workspaceRead(repo, ws);
   if (data === null) {
     throw new WorkspaceNotFoundError(ws);
@@ -573,6 +596,8 @@ async function getWorkspaceStructure(
  * @param ws - Workspace name
  * @param treePath - Path to the tree node
  * @returns Array of field names at the path
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws If workspace not deployed, path invalid, or path points to a dataset
  */
 export async function workspaceListTree(
@@ -621,6 +646,8 @@ export async function workspaceListTree(
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @returns The decoded dataset value
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws If workspace not deployed, path invalid, or path points to a tree
  */
 export async function workspaceGetDataset(
@@ -677,6 +704,8 @@ export async function workspaceGetDataset(
  * @param ws - Workspace name
  * @param treePath - Path to the dataset
  * @returns Object with ref type and hash (null for unassigned/null refs)
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws If workspace not deployed, path invalid, or path points to a tree
  */
 export async function workspaceGetDatasetHash(
@@ -685,6 +714,9 @@ export async function workspaceGetDatasetHash(
   ws: string,
   treePath: TreePath
 ): Promise<{ refType: DataRef['type']; hash: string | null }> {
+  // Checked here, as `readWorkspaceState` checks it for the reads that
+  // resolve a path: this one reads the ref alone.
+  checkName('workspace', ws);
   if (treePath.length === 0) {
     throw new Error('Cannot get dataset at root path - root is always a tree');
   }
@@ -793,6 +825,8 @@ export interface WorkspaceGetDatasetStatusOptions {
  * @param treePath - Path to the dataset
  * @param options - Whether to also read the stored collection's geometry
  * @returns Dataset status including ref type, hash, type, and size
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws If workspace not deployed, path invalid, or path points to a tree
  */
 export async function workspaceGetDatasetStatus(
@@ -979,6 +1013,8 @@ function getTaskOutputTypeFromStructure(structure: Structure): EastTypeValue | u
  * @param treePath - Path to start from (empty for root)
  * @param options - Optional settings for depth limit and type inclusion
  * @returns Array of tree nodes at the path
+ * @throws {InvalidNameError} If `ws` is no workspace's name, before any store
+ *   is asked
  * @throws If workspace not deployed or path invalid
  */
 export async function workspaceGetTree(

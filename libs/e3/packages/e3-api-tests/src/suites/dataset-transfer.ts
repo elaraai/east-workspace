@@ -11,7 +11,9 @@
  * kept as its own segments, dedup shortcut, and hash mismatch rejection —
  * through the client, and at the wire, where a server
  * speaks the one protocol version and refuses a request naming another, or
- * none, in the same words, naming its release and the request's.
+ * none, in the same words, naming its release and the request's. A workspace
+ * whose name the URL escapes has its datasets read, written and uploaded like
+ * any other, and a name no workspace can have is refused at every door.
  */
 
 import { describe, it } from 'node:test';
@@ -45,11 +47,12 @@ function incompressibleString(byteLength: number): string {
 import {
   ArrayType, BlobType, IntegerType, StringType, StructType, encodeBeast2For, encodeBeast2PagedFor, decodeBeast2For, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { some, variant } from '@elaraai/east';
+import { equalFor, isValueOf, printFor, some, variant } from '@elaraai/east';
 import { computeHash } from '@elaraai/e3-core';
 import {
   BEAST2_CONTENT_TYPE,
   E3_RELEASE,
+  InvalidNameErrorType,
   ResponseType,
   TRANSFER_PROTOCOL_VERSION,
   TransferDoneResponseType,
@@ -575,6 +578,81 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
         ctx.config.baseUrl, ctx.repoName, 'transfer-ws', path, opts
       );
       assert.strictEqual(decode(retrieved), 'small value');
+    });
+
+    it('reads, writes and uploads the datasets of a workspace whose name the URL escapes', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const zipPath = await createStringPackageZip(ctx.tempDir, 'names-pkg', '1.0.0');
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+      const path = [variant('field', 'inputs'), variant('field', 'config')];
+      const encode = encodeBeast2For(StringType);
+      const decode = decodeBeast2For(StringType);
+
+      // Names a workspace may have, each escaped in the URL and decoded in the
+      // path the server's router reads: a space, a letter outside ASCII, and
+      // brackets.
+      for (const ws of ['my ws', 'café', 'q[1]']) {
+        await workspaceCreate(ctx.config.baseUrl, ctx.repoName, ws, opts);
+        await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, ws, 'names-pkg@1.0.0', opts);
+
+        await datasetSet(ctx.config.baseUrl, ctx.repoName, ws, path, encode(`set in ${ws}`), opts);
+        const { data: read } = await datasetGet(ctx.config.baseUrl, ctx.repoName, ws, path, opts);
+        assert.strictEqual(decode(read), `set in ${ws}`, `${ws}: the value set inline`);
+
+        // An upload's init, its part and its commit each name the dataset.
+        const data = encode(`uploaded to ${ws}`);
+        const hash = computeHash(data);
+        await datasetSetStream(ctx.config.baseUrl, ctx.repoName, ws, path, {
+          size: data.byteLength,
+          hash,
+          slice: (start, end) => data.subarray(start, end),
+        }, opts);
+        const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, ws, path, opts);
+        assert.deepStrictEqual(status.hash, some(hash), `${ws}: the value uploaded`);
+      }
+    });
+
+    it('refuses a name no workspace can have as invalid_name of a workspace, at every dataset door', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const path = [variant('field', 'inputs'), variant('field', 'config')];
+      const data = encodeBeast2For(StringType)('refused');
+
+      for (const [name, held] of [['bad|name', '|'], ['bad\\name', '\\']] as const) {
+        const message = `the workspace name ${JSON.stringify(name)} holds ${JSON.stringify(held)}, which a file name cannot`;
+
+        // A read answers the dataset's bytes, or an error as JSON, whose
+        // details are the message.
+        await assert.rejects(datasetGet(ctx.config.baseUrl, ctx.repoName, name, path, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `${name} read: expected ApiError, got ${err}`);
+          assert.strictEqual(err.code, 'invalid_name', `${name} read`);
+          assert.strictEqual(err.details, message, `${name} read`);
+          return true;
+        });
+
+        // The other doors answer in an envelope, whose error names the name
+        // and why.
+        const expected: ValueTypeOf<typeof InvalidNameErrorType> = { kind: 'workspace', name, message };
+        for (const [door, call] of [
+          ['status', () => datasetGetStatus(ctx.config.baseUrl, ctx.repoName, name, path, opts)],
+          ['set', () => datasetSet(ctx.config.baseUrl, ctx.repoName, name, path, data, opts)],
+          ['upload', () => datasetSetStream(ctx.config.baseUrl, ctx.repoName, name, path, {
+            size: data.byteLength,
+            hash: computeHash(data),
+            slice: (start, end) => data.subarray(start, end),
+          }, opts)],
+        ] as const) {
+          await assert.rejects(call(), (err: unknown) => {
+            assert.ok(err instanceof ApiError, `${name} ${door}: expected ApiError, got ${err}`);
+            assert.strictEqual(err.code, 'invalid_name', `${name} ${door}`);
+            assert.ok(isValueOf(err.details, InvalidNameErrorType), `${name} ${door}: the refusal names the name and why`);
+            const said = err.details as ValueTypeOf<typeof InvalidNameErrorType>;
+            assert.ok(equalFor(InvalidNameErrorType)(said, expected), `${name} ${door}: refused as ${printFor(InvalidNameErrorType)(said)}`);
+            return true;
+          });
+        }
+      }
     });
   });
 }

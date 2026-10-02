@@ -13,11 +13,12 @@ import { join } from 'node:path';
 import { variant, StringType, IntegerType, StructType, ArrayType, DictType, East } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { DataRef, Structure } from '@elaraai/e3-types';
-import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
+import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetHash, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
+import { datasetAdoptKnown } from './dataset-adopt.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { WorkspaceLockError, WorkspaceNotFoundError, WorkspaceNotDeployedError, lockStateToHolderInfo } from './errors.js';
+import { InvalidNameError, WorkspaceLockError, WorkspaceNotFoundError, WorkspaceNotDeployedError, lockStateToHolderInfo } from './errors.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -898,5 +899,32 @@ describe('trees', () => {
         WorkspaceNotDeployedError
       );
     });
+  });
+
+  describe('a name no workspace can have', () => {
+    // Every dataset door checks the name itself before it asks a store: a
+    // backend's stores may take any name, and its lock store takes a lock's,
+    // which may hold `#`. A storage with no stores fails a door that asks one
+    // otherwise than with the name's refusal.
+    const noStores = {} as StorageBackend;
+    const path = [variant('field', 'inputs'), variant('field', 'x')];
+
+    for (const name of ['bad|name', 'bad\\name', 'main#dataflow']) {
+      it(`refuses ${JSON.stringify(name)} at every dataset door before it asks a store`, async () => {
+        const refused = (door: string) => (err: unknown) => {
+          assert.ok(err instanceof InvalidNameError, `${door}: an InvalidNameError, not ${String(err)}`);
+          assert.strictEqual(err.kind, 'workspace', door);
+          assert.strictEqual(err.value, name, door);
+          return true;
+        };
+        await assert.rejects(workspaceGetDatasetHash(noStores, testRepo, name, path), refused('workspaceGetDatasetHash'));
+        await assert.rejects(workspaceGetDatasetStatus(noStores, testRepo, name, path), refused('workspaceGetDatasetStatus'));
+        await assert.rejects(workspaceGetDataset(noStores, testRepo, name, path), refused('workspaceGetDataset'));
+        await assert.rejects(workspaceListTree(noStores, testRepo, name, []), refused('workspaceListTree'));
+        await assert.rejects(workspaceGetTree(noStores, testRepo, name, []), refused('workspaceGetTree'));
+        await assert.rejects(workspaceSetDataset(noStores, testRepo, name, path, 'x', StringType), refused('workspaceSetDataset'));
+        await assert.rejects(datasetAdoptKnown(noStores, testRepo, name, path, '0'.repeat(64)), refused('datasetAdoptKnown'));
+      });
+    }
   });
 });
