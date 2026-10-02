@@ -20,8 +20,8 @@ import { pathToFileURL } from "node:url";
 
 import {
   ArrayType, BlobType, DictType, EastError, EastIR, East, Expr, FloatType, FunctionType, IRType, IntegerType, NeverType, NullType, OptionType, QueryCallType, RecursiveType,
-  SortedMap, StringType, StructType, SummaryLeafType, SummaryType, checkJq, compareFor, constValueOf, equalFor, evaluateJq, none, printFor, printJq, QueryError, some,
-  QueryErrorType, QuerySpanType, runtimeErrorAt, summaryProgram, toSource, translateJq, variant,
+  SortedMap, StringType, StructType, SummaryLeafType, SummaryType, checkJq, compareFor, constValueOf, decodeBeast2For, encodeBeast2For, equalFor, evaluateJq, none,
+  printFor, printJq, QueryError, some, QueryErrorType, QuerySpanType, runtimeErrorAt, summaryProgram, toSource, translateJq, variant, walkIR,
   type ArrayExpr, type EastType, type IR, type ValueTypeOf,
 } from "../src/index.js";
 import { canonicalDifference, canonicalIR } from "../src/codegen/canonical.js";
@@ -504,5 +504,95 @@ describe("the translation", () => {
     const cells = new SortedMap([[{ region: "NSW", week: 1n }, 1080.0]], compareFor(Cell));
     const found = evaluateJq(".[{region: \"NSW\", week: 1}]", cells, { inputType: DictType(Cell, FloatType) });
     assertValue(OptionType(FloatType), found, some(1080.0));
+  });
+});
+
+// ─── Folds that set a key of their state in place (#1093) ────────────────
+
+/**
+ * How many times a translation copies a dict: in all, and in the bodies of
+ * its loops, where a copy in a loop inside another counts once for each.
+ */
+function dictCopies(ir: IR): { all: number; inLoops: number } {
+  const count = (root: IR): number => {
+    let n = 0;
+    walkIR(root, node => { if (node.type === "Builtin" && node.value.builtin === "DictCopy") n += 1; });
+    return n;
+  };
+  let inLoops = 0;
+  walkIR(ir, node => {
+    if (node.type === "ForArray" || node.type === "ForSet" || node.type === "ForDict" || node.type === "While") inLoops += count(node.value.body);
+  });
+  return { all: count(ir), inLoops };
+}
+
+describe("folds that set a key of their state in place (#1093)", () => {
+  const Row = StructType({ k: StringType, k2: StringType, v: IntegerType });
+  const Rows = StructType({ rows: ArrayType(Row), start: DictType(StringType, IntegerType) });
+  const Counts = DictType(StringType, IntegerType);
+  const counts = (entries: [string, bigint][]): ValueTypeOf<typeof Counts> => new SortedMap(entries, compareFor(StringType));
+  const rows = (): ValueTypeOf<typeof Rows> => ({
+    rows: [{ k: "a", k2: "b", v: 1n }, { k: "b", k2: "a", v: 2n }, { k: "a", k2: "a", v: 3n }],
+    start: counts([["b", 10n]]),
+  });
+  // A dict whose values are dicts like it: the one way a fold's update can put its state inside its state.
+  const Tree = RecursiveType(self => DictType(StringType, self));
+  const Names = StructType({ names: ArrayType(StringType), start: DictType(StringType, Tree) });
+  const Trees = DictType(StringType, Tree);
+  const trees = (entries: [string, ValueTypeOf<typeof Trees>][]): ValueTypeOf<typeof Trees> => new SortedMap(entries, compareFor(StringType));
+
+  test("an update whose value holds nothing of the state sets the state's key in place: one copy of init, none in the loop", () => {
+    const cases: [program: string, type: EastType, expected: unknown][] = [
+      ["reduce .rows[] as $x ({}; .[$x.k] += $x.v)", Counts, counts([["a", 4n], ["b", 2n]])],
+      ["reduce .rows[] as $x ({}; .[$x.k] = $x.v)", Counts, counts([["a", 3n], ["b", 2n]])],
+      // The value reads the state, at a key, before the key is set.
+      ["reduce .rows[] as $x (.start; .[$x.k] += (.[$x.k2] // 0))", Counts, counts([["a", 20n], ["b", 20n]])],
+      ["reduce .rows[] as $x ({}; .[$x.k] |= . + $x.v)", Counts, counts([["a", 4n], ["b", 2n]])],
+      // Only the state's own key is set in place; the value at it is rebuilt.
+      ["reduce .rows[] as $x ({}; .[$x.k].n += $x.v)", DictType(StringType, StructType({ n: IntegerType })),
+        new SortedMap([["a", { n: 4n }], ["b", { n: 2n }]], compareFor(StringType))],
+      // A foreach whose extract reads the state, never giving it.
+      ["[foreach .rows[] as $x ({}; .[$x.k] += $x.v; .[$x.k])]", ArrayType(OptionType(IntegerType)), [some(1n), some(2n), some(4n)]],
+    ];
+    for (const [program, type, expected] of cases) {
+      const checked = checkJq(program, Rows);
+      assert.deepEqual(dictCopies(translateJq(checked).fn().toIR().ir), { all: 1, inLoops: 0 }, program);
+      assertValue(type, evaluateJq(checked, rows()), expected, program);
+    }
+  });
+
+  test("an update the state may reach copies it, as before: a value that is the state or several values, a foreach that gives it", () => {
+    const cases: [program: string, input: EastType, value: unknown, type: EastType, expected: unknown][] = [
+      ["reduce .names[] as $n (.start; .[$n] = .)", Names, { names: ["a", "b"], start: trees([]) }, Trees,
+        trees([["a", trees([])], ["b", trees([["a", trees([])]])]])],
+      ["reduce .names[] as $n (.start; . as $s | .[$n] = $s)", Names, { names: ["a", "b"], start: trees([]) }, Trees,
+        trees([["a", trees([])], ["b", trees([["a", trees([])]])]])],
+      ["def id: .; reduce .names[] as $n (.start; .[$n] = id)", Names, { names: ["a", "b"], start: trees([]) }, Trees,
+        trees([["a", trees([])], ["b", trees([["a", trees([])]])]])],
+      // Each of the update's values is set on the state as it was, and the last stays.
+      ["reduce .rows[] as $x ({}; .[$x.k] += ($x.v, 10))", Rows, rows(), Counts, counts([["a", 20n], ["b", 10n]])],
+      ["[foreach .rows[] as $x ({}; .[$x.k] += $x.v)]", Rows, rows(), ArrayType(Counts),
+        [counts([["a", 1n]]), counts([["a", 1n], ["b", 2n]]), counts([["a", 4n], ["b", 2n]])]],
+    ];
+    for (const [program, input, value, type, expected] of cases) {
+      const checked = checkJq(program, input);
+      const copies = dictCopies(translateJq(checked).fn().toIR().ir);
+      // The state is copied at each update, and init is the state as it is, with no copy before the loop.
+      assert.ok(copies.inLoops > 0, program);
+      assert.equal(copies.all, copies.inLoops, program);
+      assertValue(type, evaluateJq(checked, value), expected, program);
+    }
+  });
+
+  test("the state starts as a copy of init, so a frozen input it starts from is never changed", () => {
+    const value = rows();
+    const frozen = decodeBeast2For(Rows, { frozen: true })(encodeBeast2For(Rows)(value));
+    const checked = checkJq("reduce .rows[] as $x (.start; .[$x.k] += $x.v)", Rows);
+    assert.deepEqual(dictCopies(translateJq(checked).fn().toIR().ir), { all: 1, inLoops: 0 });
+    assertValue(Counts, evaluateJq(checked, frozen), counts([["a", 4n], ["b", 12n]]));
+    assertValue(Counts, evaluateJq(checked, value), counts([["a", 4n], ["b", 12n]]));
+    // Run again on the same input, which the first run left as it was.
+    assertValue(Counts, evaluateJq(checked, value), counts([["a", 4n], ["b", 12n]]));
+    assertValue(Counts, value.start, counts([["b", 10n]]));
   });
 });

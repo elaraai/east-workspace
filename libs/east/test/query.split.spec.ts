@@ -10,17 +10,21 @@
  * each split's explanation, and each reason a query stays one unit, is pinned
  * (N1's golden plans), with the reads that prune (N2's names); the programs
  * encode to the same bytes each time, which e3's cache keys a unit on; and a
- * piece's runtime error names its place in the jq. */
+ * piece's runtime error names its place in the jq. A piece that folds its
+ * rows by key in a table gives the same answer however often it flushes the
+ * table, and whether or not it bypasses it, with keys few and all different,
+ * and sends each key once per flush until the table holds a key too many
+ * (#1093). */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  EastError, EastTypeType, SortedMap, SortedSet,
+  EastError, EastTypeType, SortedMap, SortedSet, StringType,
   checkJq, compareFor, decodeEastIR, encodeEastIR, equalFor, printFor, splitJq, toEastTypeValue, translateJq,
-  type EastType, type FunctionExpr, type JqSplit, type JqSplitCall, type JqRange,
+  type EastType, type FunctionExpr, type JqSplit, type JqSplitCall, type JqRange, type SplitJqOptions, type ValueTypeOf,
 } from "../src/index.js";
-import { FixtureRoot, queryFixture } from "./query.fixture.js";
+import { FixtureRoot, Order, queryFixture } from "./query.fixture.js";
 
 const fixture = queryFixture() as unknown as Record<string, unknown>;
 
@@ -224,6 +228,158 @@ describe("a split query gives what the one unit gives (N1)", () => {
     const s = split(".orders | map(.id)");
     assert.ok(s.kind === "split" && s.output.kind === "array");
     assert.equal(s.then(), null);
+  });
+});
+
+// ─── The piece's table (#1093) ────────────────────────────────────────────
+
+/** Whether a split's pieces fold their rows by key in a table: every output that combines by key but a grouping that keeps its rows. */
+function foldsInPiece(s: JqSplitCall): boolean {
+  const c = s.stages.combine;
+  return c.kind === "distinct" || c.kind === "distinct_by" || c.kind === "reduce" || (c.kind === "group" && c.totals !== null);
+}
+
+/** Queries whose pieces fold by key: the equivalence queries' — keys few, the eight customers and SKUs — and keys all different, the order ids. */
+const TABLES: readonly string[] = [
+  ...SPLITS.filter(program => {
+    const s = split(program);
+    return s.kind === "split" && foldsInPiece(s);
+  }),
+  ".orders | group_by(.id) | map({id: .[0].id, revenue: map(.total) | add, n: length})",
+  ".orders | map(.id) | unique",
+  ".orders | unique_by(.id) | map(.total)",
+  "reduce .orders[] as $o ({}; .[$o.id | tostring] += $o.total)",
+];
+
+/** The table's flushes: the defaults, flushes forced every few rows with no bypass, the bypass forced at the first key, flushes then a bypass within one, and the share's own. */
+const FLUSHES: readonly SplitJqOptions[] = [
+  {},
+  ...[1, 2, 3, 7].flatMap(flushRows => [{ flushRows, bypassRatio: 1 }, { flushRows, bypassRatio: 0 }]),
+  { flushRows: 7, bypassRatio: 0.8 },
+  { flushRows: 64 },
+];
+
+/** What one piece sends: its program run over a part of the dataset, the arguments of each send in order. */
+function sent(s: JqSplitCall, part: unknown): unknown[][] {
+  const out: unknown[][] = [];
+  asRun(s.piece())(...s.inputs.map(input => input.name === s.over ? part : fixture[input.name]), (...args: unknown[]) => { out.push(args); return null; });
+  return out;
+}
+
+/** The number of different customers among some orders. */
+function customers(orders: readonly ValueTypeOf<typeof Order>[]): number {
+  return new SortedSet(orders.map(order => order.customer_id), compareFor(StringType)).size;
+}
+
+/**
+ * What a piece that folds orders by customer sends, as its table works: each
+ * customer once per flush of `flushRows` orders and at the end, until an
+ * order's customer makes the flush's customers more than `bypassRatio` of its
+ * orders; that order sends the table on, and each order after it goes on its
+ * own.
+ */
+function sends(orders: readonly ValueTypeOf<typeof Order>[], flushRows: number, bypassRatio: number): number {
+  const most = Math.floor(bypassRatio * flushRows);
+  let count = 0;
+  let flush: ValueTypeOf<typeof Order>[] = [];
+  for (let at = 0; at < orders.length; at++) {
+    flush.push(orders[at]!);
+    if (customers(flush) > most) return count + customers(flush) + orders.length - at - 1;
+    if (flush.length === flushRows) {
+      count += customers(flush);
+      flush = [];
+    }
+  }
+  return count + customers(flush);
+}
+
+describe("a piece's table gives what the one unit gives, however it flushes (#1093)", () => {
+  test("the queries that fold by key in their pieces include every kind of table, keys few and all different", () => {
+    const kinds = new SortedSet(TABLES.map(program => (split(program) as JqSplitCall).stages.combine.kind), compareFor(StringType));
+    assert.deepEqual([...kinds], ["distinct", "distinct_by", "group", "reduce"]);
+  });
+
+  for (const program of TABLES) {
+    test(program, () => {
+      const c = checked(program);
+      const limit = c.multiplicity === "many" ? { maxOutputs: 1000 } : {};
+      const translation = translateJq(c, limit);
+      const expected = asRun(translation.fn())(...translation.inputs.map(i => fixture[i.name!]));
+      for (const flushes of FLUSHES) {
+        const s = splitJq(c, { ...limit, ...flushes });
+        assert.ok(s.kind === "split" && foldsInPiece(s));
+        for (const pieces of [1, 2, 3, 7, 64]) {
+          const got = runSplit(s, pieces);
+          assert.ok(close(translation.resultType, got, expected),
+            `flushRows ${flushes.flushRows ?? "default"}, bypassRatio ${flushes.bypassRatio ?? "default"}, ${pieces} pieces: ${printFor(translation.resultType)(got as never)} is not ${printFor(translation.resultType)(expected as never)}`);
+        }
+      }
+    });
+  }
+
+  const byCustomer = ".orders | group_by(.customer_id) | map({customer: .[0].customer_id, revenue: map(.total) | add})";
+  const orders = fixture.orders as ValueTypeOf<typeof Order>[];
+
+  test("a piece sends each key once, with fewer rows than a flush", () => {
+    const s = split(byCustomer);
+    assert.ok(s.kind === "split");
+    assert.equal(sent(s, orders).length, 8);
+    assert.equal(customers(orders), 8);
+  });
+
+  test("a piece sends each key once per flush, until its table holds a key too many", () => {
+    // Every kind of table, keyed by the orders' customers.
+    const keyedByCustomer = [
+      byCustomer,
+      ".orders | map(.customer_id) | unique",
+      ".orders | unique_by(.customer_id) | map(.id)",
+      "reduce .orders[] as $o ({}; .[$o.customer_id] += $o.total)",
+    ];
+    for (const program of keyedByCustomer) {
+      for (const flushRows of [1, 2, 3, 7, 32, 64]) {
+        for (const bypassRatio of [0, 0.5, 0.8, 1]) {
+          const s = splitJq(checked(program), { flushRows, bypassRatio });
+          assert.ok(s.kind === "split");
+          assert.equal(sent(s, orders).length, sends(orders, flushRows, bypassRatio), `${program}: flushRows ${flushRows}, bypassRatio ${bypassRatio}`);
+        }
+        // The share's own, when none is given: 1/32 of a flush's rows.
+        const s = splitJq(checked(program), { flushRows });
+        assert.ok(s.kind === "split");
+        assert.equal(sent(s, orders).length, sends(orders, flushRows, 1 / 32), `${program}: flushRows ${flushRows}, the share's own`);
+      }
+    }
+    // Seven orders a flush: 5, 5, 5, 6, 5 and 4 customers. With no bypass, each
+    // flush sends its customers, 30 in all. A share of 0.8 allows 5 keys in 7
+    // rows: the fourth flush's sixth customer, on its last order, sends the
+    // table on, and the last 12 orders go on their own. Forced, the first order
+    // sends the table on, and the other 39 go on their own. The share's own
+    // allows 2 keys in 64 rows: the third order's customer, the third, sends
+    // the table on.
+    assert.equal(sends(orders, 7, 1), 30);
+    assert.equal(sends(orders, 7, 0.8), 33);
+    assert.equal(sends(orders, 7, 0), 40);
+    assert.equal(sends(orders, 64, 1 / 32), 40);
+    // Keys all different bypass at the first key too many, and every row is sent.
+    const ids = splitJq(checked(".orders | unique_by(.id) | map(.total)"), { flushRows: 7, bypassRatio: 0.8 });
+    assert.ok(ids.kind === "split");
+    assert.equal(sent(ids, orders).length, orders.length);
+  });
+
+  test("a piece's empty part sends nothing", () => {
+    for (const program of TABLES) {
+      const s = split(program);
+      assert.ok(s.kind === "split");
+      const part = cut(fixture[s.over], s.inputs.find(input => input.name === s.over)!.type, 64)[0];
+      assert.deepEqual(sent(s, part), [], program);
+    }
+  });
+
+  test("a flush of fewer than one row, or a share outside 0 to 1, is refused", () => {
+    for (const flushes of [{ flushRows: 0 }, { flushRows: 2.5 }, { bypassRatio: -0.1 }, { bypassRatio: 1.5 }, { bypassRatio: Number.NaN }]) {
+      const s = splitJq(checked(byCustomer), flushes);
+      assert.ok(s.kind === "split");
+      assert.throws(() => s.piece(), RangeError);
+    }
   });
 });
 

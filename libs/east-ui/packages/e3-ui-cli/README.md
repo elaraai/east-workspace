@@ -115,7 +115,34 @@ await renderToPng({
 
 ## Development
 
-`make build`, `make test`, `make lint` from this directory. See [`MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The browser app under `app/` is bundled into `dist/app` by `scripts/build-app.mjs` as the second half of `make build`. The terminal UI lives under `src/tui/` (an Ink app over a reducer store; every view has a frame spec against an in-memory API fake); `E3_UI_INTEGRATION=1 make test` also runs the integration smoke over a real embedded server and a repository seeded at test time.
+`make build`, `make test`, `make lint` from this directory. See [`MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The browser app under `app/` is bundled into `dist/app` by `scripts/build-app.mjs` as the second half of `make build`. The terminal UI lives under `src/tui/` (an Ink app over a reducer store; every view has a frame spec against an in-memory API fake); `E3_UI_INTEGRATION=1 make test` also runs the integration smoke over a real embedded server and a repository seeded at test time, and the query builder's plans against a real e3 on every runner it finds — east-node, and east-c when it is on PATH (`src/query-plans.spec.ts`).
+
+### Query plans at scale
+
+`src/query-scale.spec.ts` is the benchmark of the query builder's split calls (#941, #1093), run by hand: `make test` and CI skip it. It writes orders of the shared query fixture's types, seeded, with 100,000 customers; computes each benchmark query's answer from the generator as it writes them; takes both into a repository; and runs each query as the builder plans it — a split call on east-c, in this process through e3-core, with a server's ceilings raised and every execution forgotten first — holding every answer to that oracle. It reports each call's time, the time e3 took to plan the pieces and to run its units, the pieces' work per order per core, the CPU it and its runners used per order, each piece's peak and the load the run started under.
+
+```bash
+# east-c built Release from this tree, first on PATH — never the -O0 `make build`
+cmake -S ../../../east-c -B ../../../east-c/build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build ../../../east-c/build-release --target east-c-cli -j
+export PATH="$PWD/../../../east-c/build-release/packages/east-c-cli:$PATH"
+
+make build
+E3_QUERY_SCALE=1 E3_QUERY_SCALE_SIZES=1g,4g E3_QUERY_SCALE_DIR=/var/tmp/e3-query-scale \
+  node --test-reporter=spec --test dist/query-scale.spec.js
+```
+
+| Variable | Default | |
+|---|---|---|
+| `E3_QUERY_SCALE` | — | `1` runs it |
+| `E3_QUERY_SCALE_SIZES` | `100m` | `100m`, `1g`, `4g`, `16g` — 2.9, 29, 116 and 463 million orders, about 36 B each stored — or a number of orders, comma-separated |
+| `E3_QUERY_SCALE_DIR` | `$TMPDIR/e3-query-scale` | the data, its repositories and the report, kept between runs: put it on a disk, since 16g takes 16 GB of orders and as much again in its repository |
+| `E3_QUERY_SCALE_QUERIES` | all | `q1` the sum, `q2` four totals, `q3` revenue by region, `q4` the distinct customer ids, `q5` a `reduce` by customer, `q6` the ids of the largest 0.1%, `q6t` the same sorted, top 100 |
+| `E3_QUERY_SCALE_RUNS` | `1` | cold runs of each query |
+| `E3_QUERY_SCALE_ONE_SHOT` | — | `1` also runs each query as the one-shot call the builder would make, within `E3_QUERY_SCALE_ONE_SHOT_MS` (120 000) |
+| `E3_QUERY_SCALE_NOTE` | — | a line the report heads its tables with: the machine, say |
+
+The budget is e3's own, `E3_JOBS` and `E3_MEMORY` or what the process may use. Each table is printed and appended to `report.md` in the data directory, with the rows in `report.jsonl`. Times move with what else the machine runs: the report names the load each call started under, so run it on a quiet machine and compare runs made back to back; the CPU per order (Linux, from `/proc`) moves least, since a runner waiting for a core uses none. Under a cgroup memory limit, e3's memory guard can stop units that are not short of memory (#1094); run it outside one.
 
 ## Documentation
 

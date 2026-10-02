@@ -605,8 +605,11 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
   program each piece runs, how the pieces' outputs combine — the rows joined; totals, each by its rule; rows
   grouped by a key, each group's totals combined or its rows collected; the distinct rows; the first row of
   each key; a `reduce`'s updates by key, added or the last kept — and what runs once after them; or why the
-  query runs as one unit. The reads that skip what they don't need — a count from a dataset's index, a key
-  seek, a stream that stops — are named either way.
+  query runs as one unit. A piece whose output combines by key — a grouping that collects its rows aside —
+  folds its rows into a table first, by the rule its outputs combine by, and sends the table on every 32,768
+  rows and at its end; once the table holds more keys than a thirty-second of a flush's rows, 1,024, it sends
+  the table on, and its rows from there as they come (#1093). The reads that skip what they don't need — a
+  count from a dataset's index, a key seek, a stream that stops — are named either way.
 - **The path** (`planQuery`, or `draftPlan` then `weighPlan`): a query that splits runs as a split call only
   when the dataset it would cut weighs more than one piece — e3's smallest, `PIECE_SIZES.min` (16 MiB, from
   e3-types), unless a `QueryPlanOptionsProvider` sets `pieceBytes` — so a small dataset keeps a one-shot call's

@@ -30,7 +30,7 @@ import { decodeBeast2 } from "../../serialization/beast2/index.js";
 import { fromEastTypeValue } from "../../type_of_type.js";
 import {
   ArrayType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NeverType, NullType, OptionType, RefType,
-  StringType, StructType, VariantType, isSubtype, isTypeEqual, printType, type EastType,
+  StringType, StructType, VariantType, isImmutableType, isSubtype, isTypeEqual, printType, type EastType,
 } from "../../types.js";
 import { QueryCallType } from "../types.js";
 import { UPDATE_SELECTORS, walkSteps, type CheckJqResult } from "./check.js";
@@ -158,6 +158,11 @@ export interface Env {
   readonly instance: string;
   /** Recursive defs being generated, by their instance signature: the reference holding each one's function. */
   readonly recursion: ReadonlyMap<string, Expr>;
+  /**
+   * The path of a fold's update that sets a key of the fold's state in place:
+   * nothing else holds the state, so it changes without a copy (#1093).
+   */
+  readonly inPlace?: string;
 }
 
 /** A call of a builtin being translated. @internal */
@@ -1958,15 +1963,18 @@ export class Translator {
     const accType = this.checked.typeAt(`${path}#acc`, env.instance)?.type;
     if (accType === undefined) throw this.gap(`no accumulator type for ${kind}`);
     const updatePath = childPath(path, `${kind}.update`);
+    const inPlace = this.updatesInPlace(node, path, env, accType);
     // For each value `init` gives, a fold over the source's values.
     this.gen(node.value.init, childPath(path, `${kind}.init`), $, x, env, ($2, init) => {
-      const acc = this.declare($2, this.widenTo($2, init, accType, path), "acc");
+      const start = this.widenTo($2, init, accType, path);
+      // A state the update sets keys of in place starts as a copy, so what `init` gave never changes.
+      const acc = this.declare($2, inPlace ? this.b("DictCopy", [parts(accType).key, parts(accType).value], [start], accType, path) : start, "acc");
       this.collected(node.value.source, childPath(path, `${kind}.source`), $2, x, env, ($3, item) => {
         this.destructure($3, node.value.pattern, childPath(path, `${kind}.pattern`), item, env, updatePath, ($4, vars) => {
           const inner: Env = { ...env, vars };
           // The update runs on the state as it was; each output becomes the state, the last staying.
           const state = this.declare($4, acc, "state", false);
-          this.gen(node.value.update, updatePath, $4, state, inner, ($5, next) => {
+          this.gen(node.value.update, updatePath, $4, state, inPlace ? { ...inner, inPlace: updatePath } : inner, ($5, next) => {
             const value = this.bind($5, this.widenTo($5, next, accType, path), "next");
             this.assign($5, acc, value);
             if (kind === "foreach") {
@@ -1979,6 +1987,49 @@ export class Translator {
       });
       if (kind === "reduce") emit($2, acc);
     });
+  }
+
+  /**
+   * Whether a fold's update may set a key of its state in place, as jq
+   * changes a value nothing else holds (#1093). The state is a dict; the
+   * update sets a key of it, `.[k]` or `.name` with `=`, `|=` or an
+   * arithmetic update, perhaps further down (`.[k].n += 1`), where only the
+   * state's own key is set in place; the value of `=` and of an arithmetic
+   * update is one value, which holds nothing of the state; and a `foreach`
+   * gives what its `extract` reads of the state, never the state. A key is
+   * of an immutable type, so it never holds the state, and `|=`'s update runs
+   * on the old value at the key, which cannot reach the state.
+   */
+  private updatesInPlace(node: Extract<JqNode, { type: "reduce" | "foreach" }>, path: string, env: Env, accType: EastType): boolean {
+    if (accType.type !== "Dict") return false;
+    const update = node.value.update;
+    if (update.type !== "update" || !setsKeyOfInput(update.value.path)) return false;
+    // A value of the state's type, for the records of the nodes that run on it.
+    const state = this.placeholder(accType);
+    if (node.type === "foreach") {
+      const extract = node.value.extract;
+      if (extract.type === "none" || !this.holdsNoState(extract.value, childPath(path, "foreach.extract.some"), env, state)) return false;
+    }
+    if (update.value.op === "|=") return true;
+    const updatePath = childPath(path, `${node.type}.update`);
+    const valuePath = childPath(updatePath, "update.value");
+    const updateEnv = this.envFor(updatePath, env, state);
+    const value = this.result(valuePath, this.envFor(valuePath, updateEnv, state));
+    if (value === null || value.mult.lo !== 1 || value.mult.hi !== 1) return false;
+    return this.holdsNoState(update.value.value, valuePath, updateEnv, state);
+  }
+
+  /**
+   * Whether a filter's outputs on a fold's state hold nothing of it: they
+   * are of an immutable type, which holds no dict, or {@link stateHeldBy}
+   * finds them read from the state or made without it.
+   */
+  private holdsNoState(node: JqNode, path: string, env: Env, state: Expr): boolean {
+    const r = this.result(path, this.envFor(path, env, state));
+    if (r === null) return false;
+    const type = unifyShape(r.shape);
+    if (type !== undefined && isImmutableType(type)) return true;
+    return stateHeldBy(node, "itself", new Map(), env.defs) === "nothing";
   }
 
   private genBind(node: Extract<JqNode, { type: "bind" }>, path: string, $: Block, x: Value, env: Env, emit: Emit): void {
@@ -2200,13 +2251,15 @@ export class Translator {
     const targetPath = childPath(path, "update.path");
     const valuePath = childPath(path, "update.value");
     const input = this.expr(x, path);
+    // A fold's update of a state nothing else holds sets the state's key in place (#1093).
+    const inPlace = env.inPlace === path;
     if (op === "|=") {
       // Each position's new value is the update's first output on the old one; none deletes it.
-      emit($, this.whole(this.modify($, input, target, targetPath, env, ($2, old) => this.firstOf(value, valuePath, $2, old, env)), path));
+      emit($, this.whole(this.modify($, input, target, targetPath, env, ($2, old) => this.firstOf(value, valuePath, $2, old, env), inPlace), path));
       return;
     }
     // `=` and the arithmetic updates take their value on `.`, once for each of its outputs.
-    this.collected(value, valuePath, $, x, env, ($2, v) => {
+    const update = ($2: Block, v: Expr): void => {
       const bound = this.bind($2, v, "update");
       emit($2, this.whole(this.modify($2, input, target, targetPath, env, ($3, old) => {
         if (op === "=") return { value: bound, optional: false };
@@ -2220,8 +2273,11 @@ export class Translator {
           return { value: cell, optional: false };
         }
         return { value: this.arith($3, operator, old, bound, path), optional: false };
-      }), path));
-    });
+      }, inPlace), path));
+    };
+    // In place, the one value is taken first, so no loop it runs over the state is open while the state changes.
+    if (inPlace) update($, this.one(value, valuePath, $, input, env, this.typeAt(valuePath, this.envFor(valuePath, env, input))));
+    else this.collected(value, valuePath, $, x, env, update);
   }
 
   /** What an update gives: the value, `null` where it deleted `.` itself (an optional value's `none`), as jq gives it. */
@@ -2253,12 +2309,15 @@ export class Translator {
 
   /**
    * A value with the positions a path names updated: `f` gives each
-   * position's new value from its old one, or none, which deletes it.
+   * position's new value from its old one, or none, which deletes it. With
+   * `inPlace`, `v` is a fold's state nothing else holds, and the key of it
+   * the path sets is set in place (#1093); a position further down is set in
+   * a copy, as any other is.
    *
    * @returns the value updated; an option of it, none where `.` itself was
    *   deleted; or `undefined` where it always is
    */
-  modify($: Block, v: Expr, target: JqNode, path: string, env: Env, f: UpdateFn): Update | undefined {
+  modify($: Block, v: Expr, target: JqNode, path: string, env: Env, f: UpdateFn, inPlace = false): Update | undefined {
     const at = (step: string): string => childPath(path, step);
     const present = (value: Expr): Update => ({ value, optional: false });
     switch (target.type) {
@@ -2266,10 +2325,12 @@ export class Translator {
         return f($, v);
       case "pipe":
         return this.modify($, v, target.value.left, at("pipe.left"), env, ($2, inner) =>
-          this.modify($2, inner, target.value.right, at("pipe.right"), env, f));
+          this.modify($2, inner, target.value.right, at("pipe.right"), env, f), inPlace);
       case "field": {
         const { name, optional } = target.value;
-        return this.modify($, v, target.value.target, at("field.target"), env, ($2, inner) => present(this.setField($2, inner, name, optional, path, env, f)));
+        // Only a key of `v` itself is set in place.
+        const own = inPlace && target.value.target.type === "identity";
+        return this.modify($, v, target.value.target, at("field.target"), env, ($2, inner) => present(this.setField($2, inner, name, optional, path, env, f, own)), inPlace);
       }
       case "index": {
         const { index, optional } = target.value;
@@ -2279,13 +2340,14 @@ export class Translator {
         const key = literal?.type.type === "String" ? undefined
           : literal !== undefined ? this.value(literal.value, literal.type, keyPath)
           : this.one(index, keyPath, $, v, env, this.typeAt(keyPath, this.envFor(keyPath, env, v)));
+        const own = inPlace && target.value.target.type === "identity";
         return this.modify($, v, target.value.target, at("index.target"), env, ($2, inner) => {
-          if (key !== undefined) return present(this.setIndex($2, inner, key, optional, path, f));
+          if (key !== undefined) return present(this.setIndex($2, inner, key, optional, path, f, own));
           const name = literal!.value as string;
           return present(this.type(this.open(inner)).type === "Dict"
-            ? this.setIndex($2, inner, this.str(name, path), optional, path, f)
-            : this.setField($2, inner, name, optional, path, env, f));
-        });
+            ? this.setIndex($2, inner, this.str(name, path), optional, path, f, own)
+            : this.setField($2, inner, name, optional, path, env, f, own));
+        }, inPlace);
       }
       case "slice": {
         const { from, optional, to } = target.value;
@@ -2294,10 +2356,10 @@ export class Translator {
           : this.one(option.value as JqNode, at(step), $, v, env, this.typeAt(at(step), this.envFor(at(step), env, v)));
         const a = bound(from, "slice.from.some");
         const b = bound(to, "slice.to.some");
-        return this.modify($, v, target.value.target, at("slice.target"), env, ($2, inner) => present(this.setSlice($2, inner, a, b, optional, path, f)));
+        return this.modify($, v, target.value.target, at("slice.target"), env, ($2, inner) => present(this.setSlice($2, inner, a, b, optional, path, f)), inPlace);
       }
       case "iterate":
-        return this.modify($, v, target.value.target, at("iterate.target"), env, ($2, inner) => present(this.setEach($2, inner, target.value.optional, path, f)));
+        return this.modify($, v, target.value.target, at("iterate.target"), env, ($2, inner) => present(this.setEach($2, inner, target.value.optional, path, f)), inPlace);
       case "descend":
         return this.walkUpdate($, v, undefined, path, f);
       case "call": {
@@ -2394,10 +2456,11 @@ export class Translator {
 
   /**
    * A struct with one field replaced or added, or deleted by an update that
-   * gives none; a dict's string key set; a variant's payload; `null` made a
+   * gives none; a dict's string key set, in place with `inPlace`, as
+   * {@link Translator.setIndex} sets it; a variant's payload; `null` made a
    * struct. With `?`, a value of another kind is unchanged.
    */
-  setField($: Block, v: Expr, name: string, optional: boolean, path: string, env: Env, f: UpdateFn): Expr {
+  setField($: Block, v: Expr, name: string, optional: boolean, path: string, env: Env, f: UpdateFn, inPlace = false): Expr {
     const e = this.open(v);
     const t = this.type(e);
     if (t.type === "Variant" && nullablePayload(t) === undefined && name === "value") return this.setPayload(e, path, env, f);
@@ -2428,7 +2491,7 @@ export class Translator {
       if (!(name in fields) && next !== undefined) put(name, this.required($, next, path));
       return this.rebuilt(v, types, values);
     }
-    if (t.type === "Dict") return this.setIndex($, e, this.str(name, path), optional, path, f);
+    if (t.type === "Dict") return this.setIndex($, e, this.str(name, path), optional, path, f, inPlace);
     if (optional) return v;
     throw this.gap(`.${name} = … on ${printType(t)}`);
   }
@@ -2474,9 +2537,10 @@ export class Translator {
   /**
    * An array or dict with one element replaced, or deleted where the update
    * gives none; an empty struct or `null` made a dict. With `?`, a value of
-   * another kind is unchanged.
+   * another kind is unchanged. With `inPlace`, a dict nothing else holds is
+   * changed itself, not a copy of it, while its values' type stays (#1093).
    */
-  setIndex($: Block, v: Expr, key: Expr, optional: boolean, path: string, f: UpdateFn): Expr {
+  setIndex($: Block, v: Expr, key: Expr, optional: boolean, path: string, f: UpdateFn, inPlace = false): Expr {
     const e = this.open(v);
     const t = this.type(e);
     if (t.type === "Array") {
@@ -2509,14 +2573,15 @@ export class Translator {
       const next = f($, old);
       if (next === undefined) {
         if (t.type !== "Dict") return this.value(new Map(), DictType(K, NeverType));
-        const out = this.declare($, this.b("DictCopy", [K, V0], [e], t, path), "dict");
+        const out = inPlace ? e : this.declare($, this.b("DictCopy", [K, V0], [e], t, path), "dict");
         this.stmt($, this.b("DictTryDelete", [K, V0], [out, k], BooleanType, path));
         return out;
       }
       const nextType = this.updateType(next);
       const V = V0.type === "Never" ? nextType : unify(V0, nextType) ?? V0;
       const D = DictType(K, V);
-      const out = this.declare($, t.type === "Dict" ? this.b("DictCopy", [K, V], [this.widenTo($, e, D, path)], D, path) : this.value(new Map(), D), "dict");
+      const out = inPlace && t.type === "Dict" && isTypeEqual(D, t) ? e
+        : this.declare($, t.type === "Dict" ? this.b("DictCopy", [K, V], [this.widenTo($, e, D, path)], D, path) : this.value(new Map(), D), "dict");
       if (next.optional) {
         this.match($, next.value, {
           some: ($2, w) => this.put($2, out, k, w, path),
@@ -2967,6 +3032,234 @@ function callsItself(node: JqNode, key: string): boolean {
   if (node.type === "call" && `${node.value.name}/${node.value.args.length}` === key) return true;
   if (node.type === "def" && `${node.value.name}/${node.value.params.length}` === key) return callsItself(node.value.rest, key);
   return jqChildren(node).some(child => child.node !== undefined && callsItself(child.node, key));
+}
+
+// ─── Updates in place (#1093) ─────────────────────────────────────────────
+
+/**
+ * Whether an update's path sets a key of its input: its first step on `.` is
+ * a field read or an index, whatever steps follow (`.[k]`, `.name`,
+ * `.[k].lines[]`).
+ */
+function setsKeyOfInput(path: JqNode): boolean {
+  switch (path.type) {
+    case "field": case "index": return path.value.target.type === "identity" || setsKeyOfInput(path.value.target);
+    case "slice": case "iterate": return setsKeyOfInput(path.value.target);
+    case "pipe": return setsKeyOfInput(path.value.left);
+    default: return false;
+  }
+}
+
+/**
+ * What of a fold's state a value may hold: `"nothing"`; `"itself"`, the
+ * state as a whole, or else nothing of it, so what is read from it holds
+ * nothing; or `"anything"`, the state inside it too, as far as
+ * {@link stateHeldBy} can tell.
+ */
+type Held = "nothing" | "itself" | "anything";
+
+const HELD_ORDER: Readonly<Record<Held, number>> = { nothing: 0, itself: 1, anything: 2 };
+
+/** The more of the state either of two values may hold. */
+function most(a: Held, b: Held): Held {
+  return HELD_ORDER[a] >= HELD_ORDER[b] ? a : b;
+}
+
+/** What a value read from another may hold: nothing, unless the other may hold the state inside it. */
+function readFrom(from: Held): Held {
+  return from === "anything" ? "anything" : "nothing";
+}
+
+/** What a new value holding values that may hold `held` may hold: the state inside it, where they hold any of it. */
+function holding(held: Held): Held {
+  return held === "nothing" ? "nothing" : "anything";
+}
+
+/** Builtins whose outputs hold nothing of what they are given: numbers, strings, booleans, a dict's keys, or no output. */
+const SCALAR_BUILTINS: ReadonlySet<string> = new Set([
+  "empty", "error", "not", "isempty", "range", "IN", "length", "utf8bytelength", "keys", "keys_unsorted", "has", "in",
+  "any", "all", "contains", "inside", "index", "rindex", "indices", "bsearch", "join", "type", "tostring", "tojson",
+  "tonumber", "toboolean", "builtins", "infinite", "nan", "isfinite", "isinfinite", "isnan", "isnormal", "startswith",
+  "endswith", "ltrimstr", "rtrimstr", "trimstr", "trim", "ltrim", "rtrim", "ascii_downcase", "ascii_upcase", "split",
+  "test", "sub", "gsub", "format", "@text", "@json", "@html", "@uri", "@base64", "@csv", "@tsv", "@sh", "floor", "ceil",
+  "round", "trunc", "sqrt", "log", "log2", "log10", "exp", "exp2", "exp10", "sin", "cos", "tan", "fabs", "pow", "fmin",
+  "fmax", "fmod", "todate", "todateiso8601", "fromdate", "fromdateiso8601", "strftime", "strptime", "year", "month",
+  "day", "hour", "minute", "second", "millisecond", "weekday", "epoch_ms", "datetime_add", "datetime_diff",
+  "signature", "source", "calls", "captures",
+]);
+
+/** Builtins whose outputs are their input's parts, or new values made of them, whatever their arguments give. */
+const PART_BUILTINS: ReadonlySet<string> = new Set([
+  "to_entries", "from_entries", "pick", "transpose", "flatten", "combinations", "sort", "sort_by", "group_by", "unique",
+  "unique_by", "min", "max", "min_by", "max_by", "reverse",
+]);
+
+/** Builtins whose outputs are their input itself, or nothing of it. */
+const SELECTING_BUILTINS: ReadonlySet<string> = new Set([
+  "select", "arrays", "objects", "iterables", "booleans", "numbers", "strings", "nulls", "values", "scalars", "normals",
+  "finites", "abs",
+]);
+
+/** How a builtin's outputs hold what it is given: see {@link builtinHolds}. */
+type BuiltinHolds = "scalar" | "parts" | "input" | "last" | "each" | "first";
+
+/**
+ * Builtins whose outputs hold what they are given otherwise, by
+ * `name/arity`: `"parts"`, as {@link PART_BUILTINS}'; `"input"`, as
+ * {@link SELECTING_BUILTINS}'; `"last"`, their last argument's outputs;
+ * `"each"`, each of their input's parts through their argument, in a new
+ * value; `"first"`, their first argument's outputs, in a new value.
+ */
+const BUILTINS_BY_ARITY: Readonly<Record<string, BuiltinHolds>> = {
+  "first/0": "parts", "last/0": "parts", "nth/1": "parts", "add/0": "parts", "INDEX/1": "parts",
+  "recurse/0": "input",
+  "first/1": "last", "last/1": "last", "nth/2": "last", "limit/2": "last", "skip/2": "last",
+  "map/1": "each", "map_values/1": "each", "with_entries/1": "each",
+  "add/1": "first", "INDEX/2": "first",
+};
+
+/**
+ * How a builtin's outputs hold what it is given, by its name and arity:
+ * `"scalar"`, nothing of it; `"parts"`, its input's parts, or new values made
+ * of them (`sort`, `to_entries`); `"input"`, its input itself, or nothing of
+ * it (`select`, `numbers`); `"last"`, its last argument's outputs
+ * (`first(f)`, `limit(n; f)`); `"each"`, each of its input's parts through
+ * its argument, in a new value (`map(f)`); `"first"`, its first argument's
+ * outputs, in a new value (`add(f)`, `INDEX(src; f)`); or `undefined`, any of
+ * it.
+ */
+function builtinHolds(name: string, arity: number): BuiltinHolds | undefined {
+  const byArity = BUILTINS_BY_ARITY[`${name}/${arity}`];
+  if (byArity !== undefined) return byArity;
+  if (SCALAR_BUILTINS.has(name)) return "scalar";
+  if (PART_BUILTINS.has(name)) return "parts";
+  if (SELECTING_BUILTINS.has(name)) return "input";
+  return undefined;
+}
+
+/** What each variable a pattern binds holds of the state, the pattern taking a value that holds `source`: the value itself, or its parts. */
+function patternHolds(pattern: JqPattern, source: Held, into: Map<string, Held>): void {
+  switch (pattern.type) {
+    case "variable":
+      into.set(pattern.value, source);
+      return;
+    case "array":
+      for (const item of pattern.value as JqPattern[]) patternHolds(item, readFrom(source), into);
+      return;
+    case "object":
+      for (const entry of pattern.value as { key: string; value: { type: "none" | "some"; value: any } }[]) {
+        if (entry.value.type === "none") into.set(entry.key, readFrom(source));
+        else patternHolds(entry.value.value as JqPattern, readFrom(source), into);
+      }
+  }
+}
+
+/**
+ * What of a fold's state a filter's outputs may hold, given what its input
+ * may hold: how an update that sets a key of the state in place knows its
+ * value never holds the state. It reads the filter as written, and is
+ * conservative: what it cannot follow, a `def` written inside the filter, or
+ * a def or builtin it does not know given a value that may hold the state,
+ * holds anything.
+ *
+ * @param node - the filter
+ * @param input - what its input may hold of the state
+ * @param vars - what the variables bound inside the filter hold of the
+ *   state; any other was bound before the state was made, and holds nothing
+ *   of it
+ * @param defs - the defs and filter parameters in scope, by `name/arity`,
+ *   which a call names before a builtin of the same name
+ * @returns what its outputs may hold of the state
+ */
+function stateHeldBy(node: JqNode, input: Held, vars: ReadonlyMap<string, Held>, defs: ReadonlyMap<string, unknown>): Held {
+  const held = (n: JqNode, from: Held = input, scope: ReadonlyMap<string, Held> = vars): Held => stateHeldBy(n, from, scope, defs);
+  switch (node.type) {
+    case "identity": case "descend":
+      return input;
+    case "literal": case "string": case "format": case "negate": case "break":
+      return "nothing";
+    case "variable":
+      return vars.get(node.value) ?? "nothing";
+    case "field": case "index": case "slice": case "iterate":
+      // An index's key and a slice's bounds are only read: what is read is part of the target.
+      return readFrom(held(node.value.target));
+    case "pipe":
+      return held(node.value.right, held(node.value.left));
+    case "comma": case "alternative":
+      return most(held(node.value.left), held(node.value.right));
+    case "binary": {
+      // A comparison or a logical operator gives a boolean; arithmetic, an operand as it is or a new value of their parts.
+      const op = node.value.op;
+      return op === "and" || op === "or" || COMPARISONS.has(op) ? "nothing" : most(held(node.value.left), held(node.value.right));
+    }
+    case "array":
+      return node.value.type === "none" ? "nothing" : holding(held(node.value.value as JqNode));
+    case "object": {
+      let out: Held = "nothing";
+      for (const entry of node.value) {
+        // `{$v}` holds the variable; `{name}` and `{"\(k)"}`, the input's value at the key.
+        const value = entry.value.type === "some" ? held(entry.value.value as JqNode)
+          : entry.key.type === "variable" ? vars.get(entry.key.value as string) ?? "nothing"
+          : readFrom(input);
+        out = most(out, holding(value));
+      }
+      return out;
+    }
+    case "if": {
+      let out = node.value.otherwise.type === "some" ? held(node.value.otherwise.value) : input;
+      for (const branch of node.value.branches) out = most(out, held(branch.then));
+      return out;
+    }
+    case "try":
+      // The handler runs on the error's message, a string.
+      return node.value.catch.type === "some" ? most(held(node.value.body), held(node.value.catch.value, "nothing")) : held(node.value.body);
+    case "label":
+      return held(node.value.body);
+    case "bind": {
+      // A name holds what the pattern that binds it gives it; another pattern binds it null.
+      const source = held(node.value.source);
+      const bound = new Map<string, Held>();
+      for (const pattern of node.value.patterns) {
+        const one = new Map<string, Held>();
+        patternHolds(pattern, source, one);
+        for (const [name, h] of one) bound.set(name, most(bound.get(name) ?? "nothing", h));
+      }
+      return held(node.value.body, input, new Map([...vars, ...bound]));
+    }
+    case "reduce": case "foreach": {
+      const scope = new Map(vars);
+      patternHolds(node.value.pattern, held(node.value.source), scope);
+      // The fold's own state: what `init` gives, then what its update gives on it, until that settles.
+      let state = held(node.value.init);
+      for (;;) {
+        const next = most(state, held(node.value.update, state, scope));
+        if (next === state) break;
+        state = next;
+      }
+      if (node.type === "reduce") return state;
+      const extract = node.value.extract;
+      return extract.type === "none" ? state : held(extract.value, state, scope);
+    }
+    case "call": {
+      const { args, name } = node.value;
+      switch (defs.has(`${name}/${args.length}`) ? undefined : builtinHolds(name, args.length)) {
+        case "scalar": return "nothing";
+        case "parts": return readFrom(input);
+        case "input": return input;
+        case "last": return held(args[args.length - 1]!);
+        case "each": return input === "anything" ? "anything" : holding(held(args[0]!, "nothing"));
+        case "first": return holding(held(args[0]!));
+        default:
+          // A def, a filter parameter or another builtin, given nothing of the state, gives nothing of it.
+          return input === "nothing" && args.every(arg => held(arg, "nothing") === "nothing") ? "nothing" : "anything";
+      }
+    }
+    case "update":
+      // An update gives its input rebuilt, or as it is.
+      return input === "nothing" && jqChildren(node).every(child => child.node === undefined || held(child.node, "nothing") === "nothing") ? "nothing" : "anything";
+    case "def":
+      return "anything";
+  }
 }
 
 /**

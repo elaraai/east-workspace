@@ -1397,6 +1397,16 @@ first(.orders[] | select(.total > 1000)) | .id
   last output becomes the state, which stays as it was when the update gives
   none (§13.24); `foreach` gives each of its outputs, through `extract` when
   there is one.
+- **A key of a dict state is set in place** (#1093), as jq changes a value
+  nothing else holds, so a fold over n values takes time in n, not n². The
+  update sets a key of the state (`.[k] = v`, `+=` and the other arithmetic
+  updates, `//=`, `|=`, by `.[k]` or `.name`, perhaps with steps after it, as
+  `.[k].n += 1`, where only the state's own key is set in place), and nothing
+  else can see the state change: `v` is one value, holding nothing of the
+  state (a value of an immutable type, or one that only reads the state, as
+  `.[k2] // 0` and `length` do), and a `foreach` gives only what its
+  `extract` reads of the state. The state then starts as a copy of `init`,
+  so nothing `init` read changes with it. Any other update copies the state.
 - **Errors are East errors.** `error(v)` raises `v`'s East text (§13.14). An
   arithmetic error is the builtin's own (`Division by zero` from an integer
   `%`); `/` by zero raises `Division by zero`, as jq raises an error.
@@ -1862,6 +1872,31 @@ the engine groups the additions.
 | `reduce .[] as $x ({}; .[k] += v)`, or `= v`, or over `.D[]` | `dict`, by `k` | added with `+`, or the last kept |
 | anything else, after some row work | `array` | concatenated in input order |
 
+- **A piece's table** (#1093). A piece whose output combines by key — a
+  grouping by totals, `unique`, `unique_by`, a `reduce` — folds its rows into
+  a table first, keyed as its output is, by the rule the pieces' outputs
+  combine by: totals field by field, `unique`'s rows kept once each,
+  `unique_by`'s first row kept, a `reduce`'s `+=` added and its `=` the last
+  kept. Every 32,768 rows, and at the piece's end, it sends the table's
+  entries on and empties it, so the runner's sorter folds a pair per key per
+  flush, not a pair per row. A grouping that collects its rows has no table.
+- **The bypass.** A table may hold 1/32 of a flush's rows as keys, 1,024: the
+  key one past that sends the table on at once, and from there the piece
+  sends each row on as it comes, as a piece with no table does. So a table
+  holds at most 1,024 keys, each folded from at most a flush's rows. A table
+  costs more a row than the sorter it spares unless each key stands for many
+  rows: on east-c, Release, a table of 8 to 1,024 keys made a grouping by
+  totals 9 to 23% cheaper a row and `unique_by` about a third, and cost
+  `unique` and a `reduce` adding a number at most 9% more, while one of
+  16,384 keys cost them 30 to 43% more. A flush's keys only grow, so the
+  bypass comes at the first key too many, and no table grows past it.
+- **The same answer.** The sorter folds each key's values in the order the
+  piece sends them, which is input order, with the same merge, so a table, a
+  bypass and a flush every row give the same values. A Float sum is added in
+  another grouping — a flush's rows, then the flushes, then the pieces — so
+  its last bits can differ from the one unit's, as any split's can; the
+  grouping is the data's alone, the same on every runtime and at every core
+  count.
 - **What runs once.** The final function makes the value the combined result
   stands for: the totals finished and their expression generated over them,
   the groups in key order (`group_by`'s order), the set's rows in order, or
@@ -1900,7 +1935,10 @@ the engine groups the additions.
 `test/query.split.spec.ts` runs every rule over the shared fixture cut into
 pieces and assembled as e3 assembles them, and holds the results to the
 translation's; it holds each rule's and each reason's explanation, and the
-programs' bytes, to what this section says.
+programs' bytes, to what this section says. Every table runs again with
+flushes forced every 1, 2, 3 and 7 rows, bypassed at its first key and within
+a flush, with keys few and all different, and what a piece sends is held to
+the count the table's rules give.
 
 ---
 

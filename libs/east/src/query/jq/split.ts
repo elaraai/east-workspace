@@ -19,6 +19,13 @@
  * `add` adds (numbers, strings, arrays and dicts), counting, the least, the
  * greatest, the first, the last, or, and, union and concatenation.
  *
+ * A piece whose output combines by key — a grouping by totals, `unique`,
+ * `unique_by`, a `reduce` — folds its rows into a table inside the piece, as
+ * the merge folds them, and sends the table's entries on every so many rows
+ * and at its end (#1093): the runner's sorter then folds a pair per key per
+ * flush, not a pair per row. A table that gathers more keys than its rows
+ * repay sends them on, and the piece's rows from there go straight on.
+ *
  * @packageDocumentation
  */
 
@@ -48,6 +55,21 @@ import { TranslationError, Translator, parts, type Block, type CallSite, type Em
 export interface SplitJqOptions {
   /** A `many` query's limit, as `translateJq`'s: the final function keeps this many outputs, and one more, so a caller can tell they were cut short. */
   maxOutputs?: number;
+  /**
+   * The rows a piece folds into its table before it sends the table's entries
+   * on; 32,768 when omitted. A test forces small flushes with it.
+   *
+   * @internal
+   */
+  flushRows?: number;
+  /**
+   * The share of a flush's rows its table's keys may be: at one key more, a
+   * piece sends the table on and the rest of its rows straight on; 1/32 when
+   * omitted. A test forces the bypass with 0, and stops it with 1.
+   *
+   * @internal
+   */
+  bypassRatio?: number;
 }
 
 /** A query split over one dataset's pieces, or why it runs as one unit. */
@@ -1156,7 +1178,7 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
     inputs,
     resultType,
     output,
-    piece: () => pieceProgram(checked, plan, inputs, output),
+    piece: () => pieceProgram(checked, plan, inputs, output, options),
     then: () => thenNeeded ? thenProgram(checked, plan, inputs, output, resultType, options) : null,
     stages: {
       piece: spanning(checked, plan.rows.start, plan.rows.end),
@@ -1212,19 +1234,12 @@ function outputOf(checked: CheckJqResult, plan: Plan): JqSplitOutput {
       return { kind: "set", type: SetType(R) };
     case "distinct_by": {
       const K = c.key.type;
-      const type = DictType(K, R);
-      return { kind: "dict", type, merge: () => mergeFunction(checked, K, R, (_t, _$, a) => a) };
+      return { kind: "dict", type: DictType(K, R), merge: () => mergeFunction(checked, K, R, foldOf(plan, c, R)) };
     }
     case "group": {
       const K = c.key.type;
       const V = groupValueType(plan, c);
-      const totals = c.totals;
-      return {
-        kind: "dict", type: DictType(K, V),
-        merge: () => mergeFunction(checked, K, V, (t, $, a, b) => totals === null
-          ? t.b("ArrayConcat", [R], [a, b], V, c.path)
-          : combineStruct(t, $, totals.leaves, a, b, V)),
-      };
+      return { kind: "dict", type: DictType(K, V), merge: () => mergeFunction(checked, K, V, foldOf(plan, c, V)) };
     }
     case "totals": {
       const leaves = c.totals.leaves;
@@ -1235,11 +1250,33 @@ function outputOf(checked: CheckJqResult, plan: Plan): JqSplitOutput {
     case "reduce": {
       const K = c.keyType;
       const V = c.valueType;
+      return { kind: "dict", type: DictType(K, V), merge: () => mergeFunction(checked, K, V, foldOf(plan, c, V)) };
+    }
+  }
+}
+
+/** How a later value of a key folds into an earlier one: a function of the two, the earlier first, that gives the value. */
+type Fold = (t: SplitTranslator, $: Block, earlier: Expr, later: Expr) => Expr;
+
+/**
+ * How a dict output's values of one key fold, the earlier first: the merge e3
+ * runs, and a piece's table. `unique_by` keeps the earlier row, a grouping
+ * combines its totals field by field or concatenates its rows, and a `reduce`
+ * adds as `+=` adds or keeps the later value.
+ */
+function foldOf(plan: Plan, c: Extract<Combine, { kind: "distinct_by" | "group" | "reduce" }>, V: EastType): Fold {
+  switch (c.kind) {
+    case "distinct_by":
+      return (_t, _$, earlier) => earlier;
+    case "group": {
+      const totals = c.totals;
+      return (t, $, earlier, later) => totals === null
+        ? t.b("ArrayConcat", [plan.rowType], [earlier, later], V, c.path)
+        : combineStruct(t, $, totals.leaves, earlier, later, V);
+    }
+    case "reduce": {
       const path = childPath(c.path, "reduce.update");
-      return {
-        kind: "dict", type: DictType(K, V),
-        merge: () => mergeFunction(checked, K, V, (t, $, a, b) => c.update === "replace" ? b : t.widenTo($, t.arith($, "+", a, b, path), V, path)),
-      };
+      return (t, $, earlier, later) => c.update === "replace" ? later : t.widenTo($, t.arith($, "+", earlier, later, path), V, path);
     }
   }
 }
@@ -1254,7 +1291,7 @@ function combineStruct(t: SplitTranslator, $: Block, leaves: readonly Leaf[], a:
 }
 
 /** A dict output's merge: a function of the key and two values. */
-function mergeFunction(checked: CheckJqResult, K: EastType, V: EastType, body: (t: SplitTranslator, $: Block, a: Expr, b: Expr) => Expr): FunctionExpr<any[], any> {
+function mergeFunction(checked: CheckJqResult, K: EastType, V: EastType, body: Fold): FunctionExpr<any[], any> {
   return withLocationCapture(false, () => func([K, V, V], V, ($, _key, a, b) => {
     const t = new SplitTranslator(checked, {});
     return t.as(body(t, $, a as Expr, b as Expr), V);
@@ -1377,7 +1414,7 @@ function rowPartials(t: SplitTranslator, $: Block, totals: Totals, row: Expr, en
 }
 
 /** The program each piece runs: the bindings, the row work over the piece, and what it emits. */
-function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput): FunctionExpr<any[], any> {
+function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, options: SplitJqOptions): FunctionExpr<any[], any> {
   const emitType = output.kind === "dict" ? FunctionType([parts(output.type).key, parts(output.type).value], NullType)
     : output.kind === "fold" ? FunctionType([output.type], NullType)
     : FunctionType([output.kind === "set" ? parts(output.type).key : parts(output.type).value], NullType);
@@ -1392,12 +1429,20 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
     const send = ($2: Block, ...args: Expr[]): void => t.stmt($2, t.callFn(emit, args, plan.rows.source.path));
     // A fold's partials are added up in the piece, and emitted once.
     const folded = c.kind === "totals" ? c.totals.leaves.map((leaf, i) => t.declare($, t.value(leaf.zero, leaf.type), `p${i}`)) : [];
+    // An output that combines by key is folded by key in the piece first; a grouping that keeps its rows sends each on.
+    const table = c.kind === "distinct" ? pieceTable(t, $, plan.rowType, undefined, c.path, options, send)
+      : c.kind === "distinct_by" || c.kind === "reduce" || (c.kind === "group" && c.totals !== null)
+        ? pieceTable(t, $, parts(output.type).key, { type: parts(output.type).value, fold: foldOf(plan, c, parts(output.type).value) }, c.path, options, send)
+        : undefined;
     genBinds(t, $, root, binds, emptyEnv(), ($2, env) => {
       const piece = root.fields.get(plan.rows.source.over)!;
       t.forEach($2, piece, ($3, item) => genRow(t, $3, item, plan.rows.steps, 0, env, ($4, row, scope) => {
         switch (c.kind) {
-          case "concat": case "distinct":
+          case "concat":
             send($4, t.widenTo($4, row, plan.rowType, plan.rows.end));
+            return;
+          case "distinct":
+            table!.add($4, t.widenTo($4, row, plan.rowType, plan.rows.end));
             return;
           case "totals":
             addRow(t, $4, c.totals, folded, row, scope);
@@ -1410,11 +1455,11 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
               send($4, key, rows);
               return;
             }
-            send($4, key, rowPartials(t, $4, c.totals, row, scope, groupValueType(plan, c)));
+            table!.add($4, key, rowPartials(t, $4, c.totals, row, scope, groupValueType(plan, c)));
             return;
           }
           case "distinct_by":
-            send($4, t.one(c.key.node, c.key.path, $4, row, scope, c.key.type), t.widenTo($4, row, plan.rowType, plan.rows.end));
+            table!.add($4, t.one(c.key.node, c.key.path, $4, row, scope, c.key.type), t.widenTo($4, row, plan.rowType, plan.rows.end));
             return;
           case "reduce": {
             const { node, path } = c;
@@ -1426,7 +1471,7 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
               const accEnv = t.placeholder(c.accType);
               const key = t.one(target.value.index, childPath(updatePath, "update.path.index.index"), $5, accEnv, inner, c.keyType);
               const value = t.one(update.value.value, childPath(updatePath, "update.value"), $5, accEnv, inner, t.typeAt(childPath(updatePath, "update.value"), inner));
-              send($5, t.widenTo($5, key, c.keyType, path), t.widenTo($5, value, c.valueType, path));
+              table!.add($5, t.widenTo($5, key, c.keyType, path), t.widenTo($5, value, c.valueType, path));
             });
             return;
           }
@@ -1434,8 +1479,127 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
       }), plan.rows.source.path);
     });
     if (c.kind === "totals") send($, t.struct(output.type, Object.fromEntries(folded.map((acc, i) => [`p${i}`, acc]))));
+    table?.flush($);
     return t.null();
   })) as unknown as FunctionExpr<any[], any>;
+}
+
+// ─── The piece's table ──────────────────────────────────────────────────────
+
+/** The rows a piece folds into its table before it sends the table's entries on: what bounds the table, whatever the keys. */
+const FLUSH_ROWS = 32_768;
+
+/**
+ * The share of a flush's rows its table's keys may be: 1,024 keys in 32,768
+ * rows, each key standing for 32 rows on average. A table costs more a row
+ * than the runner's sorter it spares, unless each key stands for many rows:
+ * on east-c, Release, over a piece's orders, a table of 8 to 1,024 keys made
+ * a grouping by totals 9 to 23% cheaper and `unique_by` about a third, and
+ * cost `unique` and a `reduce` adding a Float at most 9% more, while one of
+ * 16,384 keys cost them 30 to 43% more (#1093). Trino's adaptive partial
+ * aggregation stops at 0.8, but its table spares a shuffle over the network,
+ * not a sort in the same process.
+ */
+const BYPASS_RATIO = 1 / 32;
+
+/** A piece's table, as its row work uses it. */
+interface Table {
+  /** Folds one row's key, and its value for a dict, into the table, or sends them on once the table is bypassed. */
+  add($: Block, key: Expr, value?: Expr): void;
+  /** Sends on what the table holds, and empties it: at the piece's end. */
+  flush($: Block): void;
+}
+
+/**
+ * Declares a piece's table (#1093): a set of the rows, or a dict whose value
+ * for a key is its rows' values folded by the output's merge, in input order.
+ *
+ * @param key - the type of the set's rows, or the dict's keys
+ * @param value - the dict's value type and the merge's fold; `undefined` for a set
+ * @param path - the combine's node, where the table's work is placed
+ * @param options - `flushRows` and `bypassRatio`, for a test
+ * @param send - sends a row, or a key and its value, on to the output
+ * @returns the table
+ *
+ * @remarks
+ * Every `flushRows` rows, and at the piece's end, the table sends each of its
+ * entries on and empties, so it never holds more than that many rows'
+ * contributions. A table may hold `bypassRatio` of a flush's rows as keys: the
+ * key one past that sends the table on at once, and from there the piece
+ * sends each row on as it comes, as a piece with no table does. A flush's keys
+ * only grow, so the table is bypassed at its first key too many rather than at
+ * the flush it would be found at, and never grows past that many keys. Either
+ * way the runner's sorter folds each key's values in the order the piece sends
+ * them, which is input order, so the output is the same values; a Float sum is
+ * only added in another grouping.
+ */
+function pieceTable(t: SplitTranslator, $: Block, key: EastType, value: { type: EastType; fold: Fold } | undefined, path: string, options: SplitJqOptions, send: ($: Block, ...args: Expr[]) => void): Table {
+  const flushRows = options.flushRows ?? FLUSH_ROWS;
+  const ratio = options.bypassRatio ?? BYPASS_RATIO;
+  if (!Number.isInteger(flushRows) || flushRows < 1) throw new RangeError(`splitJq: flushRows is ${flushRows}, not a whole number of rows from 1`);
+  if (!(ratio >= 0 && ratio <= 1)) throw new RangeError(`splitJq: bypassRatio is ${ratio}, not a share from 0 to 1`);
+  // The keys a table may hold: the share of a flush's rows, as a count.
+  const most = Math.floor(ratio * flushRows);
+  const table = value === undefined
+    ? t.declare($, t.value(new SortedSet([], compareFor(key)), SetType(key)), "table")
+    : t.declare($, t.value(new SortedMap([], compareFor(key)), DictType(key, value.type)), "table");
+  const held = t.declare($, t.int(0), "held");
+  const direct = t.declare($, t.bool(false), "direct");
+  const size = (): Expr => value === undefined
+    ? t.b("SetSize", [key], [table], IntegerType, path)
+    : t.b("DictSize", [key, value.type], [table], IntegerType, path);
+  const flush = ($2: Block): void => {
+    if (value === undefined) {
+      t.forEach($2, table, ($3, row) => send($3, row), path, "row");
+      t.stmt($2, t.b("SetClear", [key], [table], NullType, path));
+      return;
+    }
+    t.forEach($2, table, ($3, v, k) => send($3, k!, v), path, "value");
+    t.stmt($2, t.b("DictClear", [key, value.type], [table], NullType, path));
+  };
+  // A key new to the table: one more than a flush may hold sends the table on, and every row after it.
+  const added = ($2: Block): void => {
+    t.ifElse($2, t.lt(t.int(most), size(), path), $3 => {
+      flush($3);
+      t.assign($3, direct, t.bool(true));
+    }, undefined, path);
+  };
+  // A row into a set; a key's value into a dict, folded into the value it holds.
+  const fold = ($2: Block, k: Expr, v: Expr | undefined): void => {
+    if (value === undefined) {
+      t.ifElse($2, t.b("SetTryInsert", [key], [table, k], BooleanType, path), $3 => added($3), undefined, path);
+      return;
+    }
+    if (v === undefined) throw new TranslationError("a key with no value for a dict's table");
+    const V = value.type;
+    t.match($2, t.b("DictTryGet", [key, V], [table, k], OptionType(V), path), {
+      none: $3 => {
+        t.stmt($3, t.b("DictInsert", [key, V], [table, k, v], NullType, path));
+        added($3);
+      },
+      some: ($3, earlier) => {
+        const folded = value.fold(t, $3, earlier, v);
+        // A fold that keeps the earlier value changes nothing.
+        if (folded !== earlier) t.stmt($3, t.b("DictUpdate", [key, V], [table, k, t.as(folded, V)], NullType, path));
+      },
+    }, path);
+  };
+  return {
+    add: ($2, k, v) => {
+      // Each computed once, whichever way it goes.
+      const bound = t.bind($2, k, "key");
+      const boundValue = v === undefined ? undefined : t.bind($2, v, "value");
+      t.ifElse($2, direct, $3 => send($3, ...(boundValue === undefined ? [bound] : [bound, boundValue])), $3 => {
+        fold($3, bound, boundValue);
+        t.assign($3, held, t.add(held, t.int(1), path));
+        t.ifElse($3, t.b("GreaterEqual", [IntegerType], [held, t.int(flushRows)], BooleanType, path), $4 => {
+          flush($4);
+          t.assign($4, held, t.int(0));
+        }, undefined, path);
+      }, path);
+    },
+    flush,
+  };
 }
 
 // ─── The final function ─────────────────────────────────────────────────────
