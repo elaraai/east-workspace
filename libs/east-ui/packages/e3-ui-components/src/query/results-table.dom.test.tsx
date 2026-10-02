@@ -15,8 +15,8 @@ import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-    evaluateJq, fromEastTypeValue, isTypeEqual, isValueOf, none, printFor, some, toEastTypeValue, variant,
+    ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, VectorType,
+    decodeBeast2For, encodeBeast2For, evaluateJq, fromEastTypeValue, isTypeEqual, isValueOf, none, printFor, some, toEastTypeValue, variant,
     type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Table } from "@elaraai/east-ui/internal";
@@ -76,6 +76,20 @@ function run(program: string): DecodedResult {
     const type: EastType = multiplicity.type === "one" ? element : multiplicity.type === "maybe" ? OptionType(element) : ArrayType(element);
     return { type, value: evaluateJq(checked, FIXTURE_VALUE, { root: true }) };
 }
+
+/**
+ * A vector result, as a run gives one: its value encoded and decoded as the
+ * run's beast2 answer is, so it is East's own representation of the vector.
+ */
+function vectorResult<T extends EastType>(type: T, value: ValueTypeOf<T>): DecodedResult {
+    return { type, value: decodeBeast2For(type)(encodeBeast2For(type)(value)) };
+}
+
+/** Vector results of each element kind: numbers, whole numbers, and booleans, which a vector holds as bytes. */
+const FLOAT_VECTOR = vectorResult(VectorType(FloatType), new Float64Array([1.5, -2, 0.25]));
+const INTEGER_VECTOR = vectorResult(VectorType(IntegerType), new BigInt64Array([3n, -7n]));
+const BOOLEAN_VECTOR = vectorResult(VectorType(BooleanType), new Uint8ClampedArray([1, 0, 1]));
+const printBoolean = printFor(BooleanType);
 
 /** A result's value, read at the type a test expects, once the result's type is shown to be it. */
 function valueAt<T>(result: DecodedResult, type: EastType): T {
@@ -182,6 +196,16 @@ describe("a result's rows and columns (#938)", () => {
         expect(columns).toEqual([{ key: "value", type: FloatType, field: undefined }]);
         expect(rows).toEqual(totals.map(value => ({ value })));
     });
+
+    test("a vector: one row per element in the `value` column, its numbers or booleans as East reads them out", () => {
+        const floats = resultRows(FLOAT_VECTOR);
+        expect(floats.columns).toEqual([{ key: "value", type: FloatType, field: undefined }]);
+        expect(floats.rows).toEqual([{ value: 1.5 }, { value: -2 }, { value: 0.25 }]);
+        expect(resultRows(INTEGER_VECTOR).columns).toEqual([{ key: "value", type: IntegerType, field: undefined }]);
+        expect(resultRows(INTEGER_VECTOR).rows).toEqual([{ value: 3n }, { value: -7n }]);
+        expect(resultRows(BOOLEAN_VECTOR).columns).toEqual([{ key: "value", type: BooleanType, field: undefined }]);
+        expect(resultRows(BOOLEAN_VECTOR).rows).toEqual([{ value: true }, { value: false }, { value: true }]);
+    });
 });
 
 // ── A cell's words ──────────────────────────────────────────────────────────
@@ -257,6 +281,15 @@ describe("the Table's value (#938)", () => {
         for (const program of [DEFAULT_PROGRAM, ".orders[:3]", ".orders | length", "first(.orders[])", "first(.orders[] | select(.id == 0))", ".orders | map(.total)", ".customers"]) {
             expect(isValueOf(resultTable(run(program), words), Table.Types.Root)).toBe(true);
         }
+        for (const vector of [FLOAT_VECTOR, INTEGER_VECTOR, BOOLEAN_VECTOR]) {
+            expect(isValueOf(resultTable(vector, words), Table.Types.Root)).toBe(true);
+        }
+    });
+
+    test("a vector's cells are its elements under their own tag, and its column declares the element's kind", () => {
+        expect(columnCells(resultTable(BOOLEAN_VECTOR, words), "value")).toEqual([variant("Boolean", true), variant("Boolean", false), variant("Boolean", true)]);
+        expect(columnCells(resultTable(INTEGER_VECTOR, words), "value")).toEqual([variant("Integer", 3n), variant("Integer", -7n)]);
+        expect(resultTable(FLOAT_VECTOR, words).columns.map(c => c.valueType)).toEqual([toEastTypeValue(FloatType)]);
     });
 
     test("its rows are inline and flat; it is virtualised under a sticky header and fills its box", () => {
@@ -348,5 +381,15 @@ describe("a result through the production Table renderer (#938)", () => {
         expect(headers(container)).toEqual(["value"]);
         expect(bodyRows(container)).toEqual(totals.map(total => [f.float(total)]));
         expect(numericCells(container, 0)).toEqual(totals.map(() => true));
+    });
+
+    test("a vector: the `value` column, a row per element — numbers right-aligned, booleans as East prints them", () => {
+        const floats = renderTable(resultTable(FLOAT_VECTOR, words)).container;
+        expect(headers(floats)).toEqual(["value"]);
+        expect(bodyRows(floats)).toEqual([1.5, -2, 0.25].map(n => [f.float(n)]));
+        expect(numericCells(floats, 0)).toEqual([true, true, true]);
+        cleanup();
+        const booleans = renderTable(resultTable(BOOLEAN_VECTOR, words)).container;
+        expect(bodyRows(booleans)).toEqual([true, false, true].map(b => [printBoolean(b)]));
     });
 });
