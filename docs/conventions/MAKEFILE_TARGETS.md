@@ -58,7 +58,7 @@ Lib-specific extras (run `make help` in each):
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
 | `libs/east-web` | `make test-compliance` (east-node-std's exported compliance suite over east-web-std, from `/tmp/east-node-std`; `make test` exports it first) |
 | `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627) |
-| `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all`, `make test-responsive` (the showcase's Playwright suite over the built showcase, exactly as CI runs it; `SHARD=n/4` runs one CI shard) |
+| `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all`, `make test-group GROUP=components\|ir\|rest` (one of the three test groups CI runs side by side; together they run every package's tests once), `make test-responsive` (the showcase's Playwright suite over the built showcase, exactly as CI runs it; `SHARD=n/8` runs one CI shard) |
 
 **Every `make build` type-checks.** A package built by `tsc` type-checks as
 it builds. A package bundled by vite or esbuild strips types without
