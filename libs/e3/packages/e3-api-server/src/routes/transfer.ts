@@ -16,6 +16,7 @@ import {
 } from '@elaraai/e3-core/portable';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
+import { datasetPathOf } from './dataset-path.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
@@ -132,33 +133,12 @@ export function createTransferRoutes(
   const commitWaitMs = options.commitWaitMs ?? DEFAULT_COMMIT_WAIT_MS;
   const uploads = transferBackend.datasetUpload;
 
-  /**
-   * Extract dataset path from the request URL wildcard.
-   * The route is mounted at /api/repos/:repo/workspaces/:ws/datasets
-   * so a request to .../datasets/inputs/config/upload yields path "inputs/config".
-   */
-  function extractDatasetPath(c: { req: { path: string; param(name: string): string | undefined } }, suffix: string): string {
-    const fullPath = c.req.path;
-    const repo = c.req.param('repo')!;
-    const ws = c.req.param('ws')!;
-    const datasetsPrefix = `/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(ws)}/datasets/`;
-    let pathStr = fullPath.startsWith(datasetsPrefix) ? fullPath.slice(datasetsPrefix.length) : '';
-    // Strip trailing suffix (e.g. "/upload" or "/upload/<id>")
-    if (pathStr.endsWith(suffix)) {
-      pathStr = pathStr.slice(0, -suffix.length);
-    }
-    // Remove trailing slash
-    if (pathStr.endsWith('/')) {
-      pathStr = pathStr.slice(0, -1);
-    }
-    return pathStr;
-  }
-
-  /** Whether an upload was created for the repository, workspace and dataset this request addresses. */
+  /** Whether an upload was created for the repository, workspace and dataset
+   *  this request addresses: its path read as the init's was. */
   function addresses(c: Context, transfer: DatasetUpload, suffix: string): boolean {
     return transfer.repo === c.req.param('repo')
       && transfer.workspace === c.req.param('ws')
-      && transfer.path === extractDatasetPath(c, suffix);
+      && transfer.path === datasetPathOf(c, suffix);
   }
 
   /** The upload `id`, if this request addresses it. */
@@ -220,7 +200,7 @@ export function createTransferRoutes(
     const repo = c.req.param('repo')!;
     const ws = c.req.param('ws')!;
     const repoPath = getRepoPath(repo);
-    const pathStr = extractDatasetPath(c, '/upload');
+    const pathStr = datasetPathOf(c, '/upload');
     const { hash, size } = await decodeBody(c, TransferUploadRequestType);
 
     // Dedup — the store knows these bytes as the manifest they were split

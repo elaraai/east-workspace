@@ -17,6 +17,7 @@ import {
   getDatasetStatus,
   setDataset,
 } from '../handlers/datasets.js';
+import { datasetPathOf } from './dataset-path.js';
 
 /** Options for {@link createDatasetRoutes}. */
 export interface DatasetRouteOptions {
@@ -67,12 +68,7 @@ export function createDatasetRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-
-    // Extract the wildcard path (c.req.path is percent-encoded)
-    const fullPath = c.req.path;
-    const datasetsPrefix = `/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(ws)}/datasets/`;
-    const pathStr = fullPath.startsWith(datasetsPrefix) ? fullPath.slice(datasetsPrefix.length) : '';
-    const treePath = urlPathToTreePath(pathStr);
+    const treePath = urlPathToTreePath(datasetPathOf(c));
 
     const list = c.req.query('list') === 'true';
     const recursive = c.req.query('recursive') === 'true';
@@ -134,12 +130,7 @@ export function createDatasetRoutes(
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-
-    // Extract the wildcard path (c.req.path is percent-encoded)
-    const fullPath = c.req.path;
-    const datasetsPrefix = `/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(ws)}/datasets/`;
-    const pathStr = fullPath.startsWith(datasetsPrefix) ? fullPath.slice(datasetsPrefix.length) : '';
-    const treePath = urlPathToTreePath(pathStr);
+    const treePath = urlPathToTreePath(datasetPathOf(c));
 
     // Body is raw BEAST2, read as it arrives.
     return setDataset(storage, repoPath, ws, treePath, bodyChunks(c.req.raw.body));
