@@ -19,8 +19,6 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
-/** Strong secondary ink — a change's words. */
-const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
 /** The bar's rules and its quiet ink, as the spec's secondary and faintest ink fall on the inverse ground. */
 const BAR_RULE = { base: "gray.600", _dark: "gray.400" } as const;
 const BAR_QUIET = { base: "gray.400", _dark: "gray.600" } as const;
@@ -227,7 +225,8 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             "&[data-sign=removed]": { color: "fg.danger" },
         },
         changeText: { display: "flex", flexDirection: "column", gap: "3px", minWidth: "0" },
-        changeLine: { fontSize: "13px", color: INK_2, overflowWrap: "anywhere" },
+        /* A change's words — the strong secondary ink, `--ink-2`. */
+        changeLine: { fontSize: "13px", color: "fg.strong", overflowWrap: "anywhere" },
         changeName: { fontWeight: "600", color: "fg" },
         changeDetail: { fontFamily: "mono", fontSize: "10.5px", color: "fg.subtle", overflowWrap: "anywhere" },
         /* The design system's banner: its glyph, then its words; its ground
@@ -239,7 +238,7 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             fontSize: "13px",
             lineHeight: "1.5",
             color: "fg",
-            "&[data-tone=warning]": { color: INK_2 },
+            "&[data-tone=warning]": { color: "fg.strong" },
         },
         bannerGlyph: {
             flex: "none",

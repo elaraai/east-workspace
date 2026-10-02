@@ -41,14 +41,16 @@ const STATUS_TO_LAYER: Record<BannerValue["status"]["type"], string> = {
     stale:    "banner.dashed.stale",
 };
 
-const STATUS_TO_FG: Record<BannerValue["status"]["type"], string> = {
-    info:     "fg.info",
-    success:  "fg.success",
-    warning:  "fg.warning",
-    error:    "fg.danger",
+/* Banner status ↦ its mark: the icon's colour, and the solid banner's fill. A
+ * mark takes the valence base, never its text step (component-rules §1). */
+const STATUS_TO_MARK: Record<BannerValue["status"]["type"], string> = {
+    info:     "status.info",
+    success:  "status.pos",
+    warning:  "status.warn",
+    error:    "status.neg",
     neutral:  "fg.muted",
     change:   "border.brand",
-    guard:    "fg.warning",
+    guard:    "status.warn",
     stale:    "fg.muted",
 };
 
@@ -133,8 +135,8 @@ export function BannerView({
     background, color, borderColor, iconColor: iconColorProp,
 }: BannerViewProps) {
     const layer = STATUS_TO_LAYER[status];
-    const fg = STATUS_TO_FG[status];
-    const iconColor = iconColorProp ?? fg;
+    const mark = STATUS_TO_MARK[status];
+    const iconColor = iconColorProp ?? mark;
     const role = status === "warning" || status === "error" ? "alert" : "status";
 
     return (
@@ -148,7 +150,7 @@ export function BannerView({
             // banner is hosted in a compact container.
             flexWrap="wrap"
             {...(solid
-                ? { bg: background ?? fg, color: color ?? "white", paddingX: "4", paddingY: "3", borderRadius: "2px" }
+                ? { bg: background ?? mark, color: color ?? "white", paddingX: "4", paddingY: "3", borderRadius: "2px" }
                 : { layerStyle: layer, ...(background !== undefined ? { bg: background } : {}), ...(color !== undefined ? { color } : {}) }
             )}
             {...(borderColor !== undefined ? { borderColor } : {})}

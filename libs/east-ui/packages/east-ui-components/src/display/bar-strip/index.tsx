@@ -19,11 +19,12 @@ const compareFloats = compareFor(FloatType);
 /** East BarStrip value type. */
 export type BarStripValue = ValueTypeOf<typeof BarStrip.Types.BarStrip>;
 
+/** A bar's fill is a mark: the valence base, never its text step. */
 const TONE_FILL: Record<string, string> = {
-    success: "fg.success",
-    warning: "fg.warning",
-    danger:  "fg.danger",
-    info:    "fg.info",
+    success: "status.pos",
+    warning: "status.warn",
+    danger:  "status.neg",
+    info:    "status.info",
     neutral: "fg.muted",
 };
 

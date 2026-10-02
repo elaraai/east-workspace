@@ -20,7 +20,7 @@
  * ```tsx
  * <Pill>
  *     <Text textStyle="caption" color="fg.subtle">stakes</Text>
- *     <Text color="ink.warning" fontWeight="semibold">$8.4k impact</Text>
+ *     <Text color="fg.warning" fontWeight="semibold">$8.4k impact</Text>
  *     <Text color="border.strong">·</Text>
  *     <Text color="fg.muted">3 workers</Text>
  * </Pill>

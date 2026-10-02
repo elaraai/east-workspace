@@ -26,7 +26,8 @@ export const progressSlotRecipe = defineSlotRecipe({
             height: "6px",
             overflow: "hidden",
         },
-        range: { background: "{colors.brand.500}", height: "100%" },
+        /* `--brand-d` while running, `--pos` complete, `--neg` failed. */
+        range: { background: "brand.solid", height: "100%" },
         valueText: {
             fontFamily: "mono", fontSize: "11px",
             fontWeight: "600",
@@ -46,8 +47,8 @@ export const progressSlotRecipe = defineSlotRecipe({
         },
         sentiment: {
             brand: {},
-            pos: { range: { background: "fg.success" } },
-            neg: { range: { background: "fg.danger" } },
+            pos: { range: { background: "status.pos" } },
+            neg: { range: { background: "status.neg" } },
         },
         size: {
             xs: { track: { height: "3px" } },

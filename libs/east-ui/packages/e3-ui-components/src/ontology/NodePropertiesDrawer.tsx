@@ -115,11 +115,11 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
                         fontSize="xs"
                         letterSpacing="wider"
                         textTransform="uppercase"
-                        color="ink.danger"
+                        color="fg.danger"
                         px="3" py="1.5"
                         border="1px solid"
                         borderColor="transparent"
-                        _hover={{ borderColor: 'ink.danger' }}
+                        _hover={{ borderColor: 'status.neg' }}
                         onClick={() => { onDelete?.(nodeId); onClose(); }}
                     >
                         Delete

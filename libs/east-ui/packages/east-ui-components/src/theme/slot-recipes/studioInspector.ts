@@ -21,9 +21,6 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
-/** Strong secondary ink — the description's. */
-const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
-
 /** One of the body's sections, ruled off from the next. */
 const SECTION = {
     display: "flex",
@@ -96,7 +93,8 @@ export const studioInspectorSlotRecipe = defineSlotRecipe({
         description: {
             textStyle: "body.sm",
             margin: "0",
-            color: INK_2,
+            /* Strong secondary ink, `--ink-2`. */
+            color: "fg.strong",
             "&[data-empty]": { color: "fg.subtle" },
         },
         /* Its layout: one row per field, its label and its control. */

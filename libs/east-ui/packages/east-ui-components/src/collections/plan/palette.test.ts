@@ -71,7 +71,7 @@ describe("the Plan paints with semantic tokens only (#949)", () => {
             `const c = { border: "1px solid #fff" };`,
             `const e = "color-mix(in srgb, var(--chakra-colors-gray-400) 40%, transparent)";`,
             `// brand.600 and #1f2a30 in a comment are prose (#949)`,
-            `const d = { color: "brand.solid", fill: "brandHeat.3", stroke: "var(--chakra-colors-brand-solid)" };`,
+            `const d = { color: "brand.solid", fill: "heat.4", stroke: "var(--chakra-colors-brand-solid)" };`,
         ].join("\n"));
         expect([...probe.matchAll(PALETTE)].map((m) => m[0])).toEqual(["brand.600", "--chakra-colors-gray-400"]);
         expect([...probe.matchAll(HEX)].map((m) => m[0])).toEqual(["#1f2a30", "#fff"]);

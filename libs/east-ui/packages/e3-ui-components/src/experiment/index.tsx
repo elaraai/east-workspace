@@ -71,11 +71,19 @@ const SUBJECT_DEFAULT = { one: 'record', many: 'records' } as const;
 // has even framed the question) — past this row count we wait for an explicit Run.
 const AUTORUN_MAX_ROWS = 50_000;
 
-// Tone → semantic colour token (Box `bg` / Text `color`). Semantic roles, no hex.
+// Tone → semantic colour token for TEXT (Text `color`): a valence set as text
+// takes its text step. Semantic roles, no hex.
 const TONE_TOKEN: Record<string, string> = {
     neg: 'fg.danger', pos: 'fg.success', warn: 'fg.warning', muted: 'fg.muted', brand: 'brand.solid',
 };
 const toneToken = (t: string): string => TONE_TOKEN[t] ?? 'brand.solid';
+
+// Tone → semantic colour token for a FILL (a bar's `bg`): a mark takes the
+// valence base, never its text step.
+const TONE_FILL: Record<string, string> = {
+    neg: 'status.neg', pos: 'status.pos', warn: 'status.warn', muted: 'fg.muted', brand: 'brand.solid',
+};
+const toneFill = (t: string): string => TONE_FILL[t] ?? 'brand.solid';
 
 // ---------------------------------------------------------------------------
 // Payload decode + column introspection.
@@ -149,7 +157,7 @@ function RunError({ error }: { error: FuncCallError }) {
     const tail = (error.stderr || error.stdout || '').trim().split('\n').slice(-12).join('\n');
     return (
         <Box layerStyle="banner.stale" display="flex" flexDirection="column" gap="2" mt="3">
-            <Box display="inline-flex" alignItems="flex-start" gap="2" color="fg.danger">
+            <Box display="inline-flex" alignItems="flex-start" gap="2" color="status.neg">
                 <Box as="span" mt="0.5" fontSize="12px" flexShrink="0"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
                 <Text textStyle="body.sm" color="fg.default"><Text as="span" fontWeight="bold">Could not run the experiment.</Text> {error.message}</Text>
             </Box>
@@ -523,7 +531,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
             {rows.map((r, i) => (
                 <Box key={i} css={bs.row}>
                     <Text css={bs.label} textStyle="mono.sm" color="fg.default" truncate>{r.label}</Text>
-                    <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(r.frac * 100)}%`} bg={toneToken(r.tone)} /></Box>
+                    <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(r.frac * 100)}%`} bg={toneFill(r.tone)} /></Box>
                     <Text css={bs.value}>{r.value}</Text>
                 </Box>
             ))}
@@ -644,7 +652,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                         <Text textStyle="caption" lineHeight="1.35" mt="px">{c.reason}</Text>
                                     </Box>
                                     <Box>
-                                        <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(c.imbalance * 100)}%`} bg={toneToken(c.tone)} /></Box>
+                                        <Box css={bs.track}><Box css={bs.fill} width={`${Math.round(c.imbalance * 100)}%`} bg={toneFill(c.tone)} /></Box>
                                         <Text textStyle="caption.eyebrow" fontSize="9px" textAlign="center" mt="1.5"><Help id="confounder_imbalance">{c.level}</Help></Text>
                                     </Box>
                                     {!readonly && (
@@ -728,7 +736,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     <>
                     {stale && (
                         <Box layerStyle="banner.stale" display="flex" alignItems="center" gap="2" mx="4.5" mt="4.5">
-                            <Box as="span" color="fg.warning" flexShrink="0" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
+                            <Box as="span" color="status.warn" flexShrink="0" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
                             <Text textStyle="body.sm" color="fg.default"><Text as="span" fontWeight="bold">Showing the previous setup.</Text> Hit Run to update these results for your edits.</Text>
                         </Box>
                     )}
@@ -963,7 +971,7 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
                     <Text textStyle="caption" color="fg.muted">Stress tests:</Text>
                     {checks.map((c, i) => (
                         <Box key={i} as="span" display="inline-flex" alignItems="center" gap="1.5"
-                            color={c.passed ? 'fg.success' : 'fg.warning'}>
+                            color={c.passed ? 'status.pos' : 'status.warn'}>
                             <FontAwesomeIcon icon={c.passed ? faCheck : faTriangleExclamation} style={{ fontSize: '10px' }} />
                             <Text as="span" textStyle="caption" color="fg.default">{c.short}</Text>
                             {i < checks.length - 1 && <Text as="span" textStyle="caption" color="fg.subtle">·</Text>}
@@ -974,14 +982,14 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
 
             {a.cautious && (
                 <Box layerStyle="banner.stale" display="flex" alignItems="flex-start" gap="2" mt="3">
-                    <Box as="span" color="fg.warning" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
+                    <Box as="span" color="status.warn" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
                     <Text textStyle="body.sm" color="fg.default"><Help id="answer_cautious"><Text as="span" fontWeight="bold">Treat this as provisional.</Text></Help> We adjusted and got a number, but a robustness check failed — the estimate may still be driven by something we didn’t adjust for. See <Text as="span" fontWeight="semibold">Can we trust it?</Text></Text>
                 </Box>
             )}
 
             {a.flip && (
                 <Box layerStyle="banner.stale" display="flex" alignItems="flex-start" gap="2" mt="3">
-                    <Box as="span" color="fg.warning" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
+                    <Box as="span" color="status.warn" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
                     <Text textStyle="body.sm" color="fg.default"><Help id="answer_flip"><Text as="span" fontWeight="bold">Raw and like-for-like disagree.</Text></Help> In the plain average, the <Text as="span" fontWeight="semibold">{a.treatment}</Text> group sits <Text as="span" fontStyle="italic">{lowerWord}</Text> on <Text as="span" fontWeight="semibold">{a.outcome}</Text> ({signed(a.naive, words)}) — but they also differ most on <Text as="span" fontWeight="semibold">{top.label}</Text> ({top.display}). Adjusting for it reverses the result.</Text>
                 </Box>
             )}
@@ -1035,7 +1043,7 @@ function RefusalZone({ refusal, overlap, naiveValue, outcome, words }: {
 }) {
     return (
         <Box p="4.5">
-            <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="fg.warning">
+            <Box display="inline-flex" alignItems="center" gap="2" mb="2" color="status.warn">
                 <FontAwesomeIcon icon={faTriangleExclamation} style={{ fontSize: '14px' }} />
                 <Text textStyle="title.card" color="fg.default"><Help id={refusal.kind === 'positivity' ? 'refusal_positivity' : 'refusal_not_estimable'}>{refusal.title}</Help></Text>
             </Box>
@@ -1090,7 +1098,7 @@ function ValidatePanel({ vm, barList, words }: {
                     <Text css={meter.label}><Help id="validate_split">{vm.holdback ? 'Hold-back split' : 'Split'}</Help></Text>
                     <Box css={meter.track}>
                         <Box css={meter.segment} flex={vm.primary.treatedShare} bg="brand.solid" />
-                        <Box css={meter.segment} flex={1 - vm.primary.treatedShare} bg="bg.emphasized" />
+                        <Box css={meter.segment} flex={1 - vm.primary.treatedShare} bg="fg.faint" />
                     </Box>
                     <Box css={meter.keyRow} justifyContent="space-between">
                         <Box css={meter.keyItem}>
@@ -1098,7 +1106,7 @@ function ValidatePanel({ vm, barList, words }: {
                             <span><Text as="span" css={meter.valueText}>{words.number(vm.primary.nTreated)}</Text> {vm.holdback ? 'treated' : 'get it'}</span>
                         </Box>
                         <Box css={meter.keyItem}>
-                            <Box css={meter.keyDot} bg="bg.emphasized" />
+                            <Box css={meter.keyDot} bg="fg.faint" />
                             <span><Text as="span" css={meter.valueText}>{words.number(vm.primary.nControl)}</Text> {vm.holdback ? 'held back' : 'left alone'}</span>
                         </Box>
                     </Box>

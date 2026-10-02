@@ -184,13 +184,14 @@ export const layerStyles = defineLayerStyles({
 
     /* ─── Banners — full surround, no left-accent stripe ────
      *
-     * Spec `.bn.*` and `.banner.*`. Each variant pairs a very low-tint
-     * background with a 1 px coloured border. No 4 px left accent. */
+     * Spec `.bn.*` and `.banner.*`. Each variant pairs the valence's 6% wash
+     * with a 1 px edge in the valence base — an edge is a mark, never the
+     * text step. No 4 px left accent. */
     "banner.stale": {
         value: {
             background: "bg.warning.subtle",
             borderWidth: "1px",
-            borderColor: "fg.warning",
+            borderColor: "status.warn",
             borderRadius: "4px",
             padding: "10px 14px",
         },
@@ -199,7 +200,7 @@ export const layerStyles = defineLayerStyles({
         value: {
             background: "bg.info.subtle",
             borderWidth: "1px",
-            borderColor: "fg.info",
+            borderColor: "status.info",
             borderRadius: "4px",
             padding: "10px 14px",
         },
@@ -217,7 +218,7 @@ export const layerStyles = defineLayerStyles({
         value: {
             background: "bg.danger.subtle",
             borderWidth: "1px",
-            borderColor: "fg.danger",
+            borderColor: "status.neg",
             borderRadius: "4px",
             padding: "10px 14px",
         },
@@ -226,7 +227,7 @@ export const layerStyles = defineLayerStyles({
         value: {
             background: "bg.success.subtle",
             borderWidth: "1px",
-            borderColor: "fg.success",
+            borderColor: "status.pos",
             borderRadius: "4px",
             padding: "10px 14px",
         },
@@ -235,7 +236,7 @@ export const layerStyles = defineLayerStyles({
         value: {
             background: "bg.warning.subtle",
             borderWidth: "1px",
-            borderColor: "fg.warning",
+            borderColor: "status.warn",
             borderRadius: "4px",
             padding: "10px 14px",
         },

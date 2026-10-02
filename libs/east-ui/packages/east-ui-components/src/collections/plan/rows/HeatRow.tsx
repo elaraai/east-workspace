@@ -5,9 +5,10 @@
 
 /**
  * Heat rows (`Plan Spec.md` §4·K4) — the Matrix cell recipes quantised onto
- * the shared scale: heat cells on the design system's five `brandHeat` steps
- * (#949 — the cell's value prints in the ink its step pairs with, at least
- * 4.5:1 in both themes), 45° no-data hatch, ≥ warn threshold ring,
+ * the shared scale: heat cells on the design system's heat ramp, five steps
+ * (`heat.1` … `heat.5`; #949 — the cell's value prints in the ink its step
+ * pairs with, at least 4.5:1 in both themes), 45° no-data hatch, ≥ warn
+ * threshold ring,
  * booked-vs-free weight bars (planned ⇒ pale), and weighted segment
  * compositions. The renderer names each cell's STEP and each segment's FILL
  * as data attributes; every colour lives on the `plan` recipe slots.
@@ -40,7 +41,8 @@ import { getSomeorUndefined } from "../../../utils.js";
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 
-/** The `brandHeat` step a depth in `[0, 1]` falls on — five steps. */
+/** The heat-ramp level a depth in `[0, 1]` falls on — five, 0 to 4 (the
+ *  ramp's steps 1 to 5). */
 export function heatLevel(depth: number): number {
     return Math.max(0, Math.min(4, Math.round(depth * 4)));
 }
@@ -135,8 +137,8 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                         : v !== undefined && format !== undefined ? w.value(v, format) : undefined;
                     const warned = v !== undefined && warn !== undefined && v >= warn;
                     const words = heatValueText(v, label, warned, w);
-                    // Its step on the `brandHeat` scale — the recipe paints it,
-                    // and inks its value to match.
+                    // Its level on the heat ramp — the recipe paints it, and
+                    // inks its value to match.
                     const level = v === undefined ? undefined : heatLevel(depth);
                     return (
                         <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}

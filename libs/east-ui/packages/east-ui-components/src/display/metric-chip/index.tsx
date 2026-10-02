@@ -21,13 +21,14 @@ export type MetricChipValue = ValueTypeOf<typeof MetricChip.Types.MetricChip>;
 /**
  * The palette each tone gives the outline and solid emphases — the outline
  * is the design system's outlined DeltaPill: the panel paper and a strong
- * rule, a rising or falling value on its own hue's wash and edge.
+ * rule, a rising or falling value on its own hue's wash and edge. Text takes
+ * the valence's text step; an edge or a fill is a mark, the valence base.
  */
 const TONE_PALETTE: Record<string, { fg: string; outlineBg: string; outlineBorder: string; solidBg: string; solidFg: string }> = {
-    positive: { fg: "fg.success", outlineBg: "success.subtle", outlineBorder: "fg.success",    solidBg: "fg.success", solidFg: "white" },
-    negative: { fg: "fg.danger",  outlineBg: "danger.subtle",  outlineBorder: "fg.danger",     solidBg: "fg.danger",  solidFg: "white" },
-    neutral:  { fg: "fg.subtle",  outlineBg: "bg.panel",       outlineBorder: "border.strong", solidBg: "fg.muted",   solidFg: "white" },
-    info:     { fg: "brand.solid", outlineBg: "bg.panel",      outlineBorder: "border.strong", solidBg: "fg.info",    solidFg: "white" },
+    positive: { fg: "fg.success", outlineBg: "success.subtle", outlineBorder: "status.pos",    solidBg: "status.pos",  solidFg: "white" },
+    negative: { fg: "fg.danger",  outlineBg: "danger.subtle",  outlineBorder: "status.neg",    solidBg: "status.neg",  solidFg: "white" },
+    neutral:  { fg: "fg.subtle",  outlineBg: "bg.panel",       outlineBorder: "border.strong", solidBg: "fg.muted",    solidFg: "white" },
+    info:     { fg: "brand.solid", outlineBg: "bg.panel",      outlineBorder: "border.strong", solidBg: "status.info", solidFg: "white" },
 };
 
 /** The sizes around the default — `sm` is the recipe's own, the design system's 20px pill. */

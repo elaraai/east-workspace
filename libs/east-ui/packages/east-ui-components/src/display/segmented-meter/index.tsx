@@ -23,11 +23,12 @@ const THICKNESS_PX: Record<string, string> = {
     lg: "14px",
 };
 
+/** A segment's fill is a mark: the valence base, never its text step. */
 const TONE_FILL: Record<string, string> = {
-    success: "fg.success",
-    warning: "fg.warning",
-    danger:  "fg.danger",
-    info:    "fg.info",
+    success: "status.pos",
+    warning: "status.warn",
+    danger:  "status.neg",
+    info:    "status.info",
     neutral: "fg.muted",
 };
 
@@ -63,7 +64,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
     const height = densityHeight ?? THICKNESS_PX[thicknessTag] ?? "6px";
     const labelsPos = style ? getSomeorUndefined(style.labels)?.type ?? "none" : "none";
     const borderRadius = (style && getSomeorUndefined(style.borderRadius)) ?? "sm";
-    const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "gray.100";
+    const trackColor = (style && getSomeorUndefined(style.trackColor)) ?? "bg.subtle";
     const captionColor = style ? getSomeorUndefined(style.captionColor) : undefined;
     const labelColor = (style && getSomeorUndefined(style.labelColor)) ?? "white";
 
@@ -78,7 +79,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
             {segments.map((seg: typeof segments[number], i: number) => {
                 const toneTag = getSomeorUndefined(seg.tone)?.type;
                 const color = getSomeorUndefined(seg.color)
-                    ?? (toneTag ? TONE_FILL[toneTag] : "fg.info");
+                    ?? (toneTag ? TONE_FILL[toneTag] : "status.info");
                 const segLabel = getSomeorUndefined(seg.label);
                 return (
                     <Box

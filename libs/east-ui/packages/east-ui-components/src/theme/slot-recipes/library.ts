@@ -37,9 +37,6 @@ const CAPS = {
     textTransform: "uppercase",
 } as const;
 
-/** The faintest ink — the grip's. */
-const INK_5 = { base: "gray.400", _dark: "gray.600" } as const;
-
 export const librarySlotRecipe = defineSlotRecipe({
     className: "elara-library",
     slots: [
@@ -292,7 +289,8 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             width: "{spacing.2}",
             fontSize: "10px",
-            color: INK_5,
+            /* The faintest ink, `--ink-5`. */
+            color: "fg.faint",
             /* Touch: the grip is the instant-drag handle (drag-layer grip
              * fast-path) — no scroll gesture from it, and a 32px tap halo. */
             touchAction: "none",
@@ -362,7 +360,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             flexShrink: "0",
             fontSize: "9.5px",
-            color: INK_5,
+            color: "fg.faint",
             "[data-placed] &": { color: "brand.solid" },
             "&[data-tone=success]": { color: "fg.success" },
             "&[data-tone=warning]": { color: "fg.warning" },

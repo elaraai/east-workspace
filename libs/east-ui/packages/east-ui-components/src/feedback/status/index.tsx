@@ -29,12 +29,13 @@ export interface EastChakraStatusProps {
  *
  * Spec rule: status = dot + WORD, never a tinted background. We render a
  * bare 8 px circle whose colour comes from the spec's muted hues, and a
- * label rendered in `caption.eyebrow` (mono / 10 / 600 / 0.18 em / uppercase). */
+ * label rendered in `caption.eyebrow` (mono / 10 / 600 / 0.18 em / uppercase).
+ * The paired icon takes the dot's colour: a mark, the valence base. */
 const DOT_COLOR: Record<StatusValue["value"]["type"], string> = {
-    success: "fg.success",
-    warning: "fg.warning",
-    danger:  "fg.danger",
-    info:    "fg.info",
+    success: "status.pos",
+    warning: "status.warn",
+    danger:  "status.neg",
+    info:    "status.info",
     neutral: "fg.muted",
 };
 

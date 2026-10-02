@@ -19,14 +19,15 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 
 /** Border + soft ring shown while a control holds focus. */
 export const fieldFocusRing = {
-    borderColor: "{colors.brand.600}",
+    borderColor: "brand.solid",
     boxShadow: "focus",
     outline: "none",
 } satisfies SystemStyleObject;
 
-/** Border + soft ring while an invalid control holds focus. */
+/** Border + soft ring while an invalid control holds focus — the invalid
+ *  edge is a mark, the valence base. */
 export const fieldFocusRingError = {
-    borderColor: "fg.danger",
+    borderColor: "status.neg",
     boxShadow: "focusError",
     outline: "none",
 } satisfies SystemStyleObject;
@@ -55,7 +56,7 @@ export const fieldChrome = {
     _hover: { borderColor: "fg.subtle" },
     _focusVisible: fieldFocusRing,
     _invalid: {
-        borderColor: "fg.danger",
+        borderColor: "status.neg",
         _focusVisible: fieldFocusRingError,
     },
     _disabled: { background: "bg.subtle", color: "fg.muted", cursor: "not-allowed" },

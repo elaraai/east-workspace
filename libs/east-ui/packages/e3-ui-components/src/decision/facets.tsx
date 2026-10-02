@@ -162,7 +162,7 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
             <Box display="grid" gridTemplateColumns="80px 1fr 64px" alignItems="center" gap="8px">
                 <Text {...caption} whiteSpace="nowrap">{label}</Text>
                 <Box height="6px" bg="border.subtle" borderRadius="3px" overflow="hidden">
-                    <Box height="100%" width={`${Math.round(Math.min(Math.abs(frac), 1) * 100)}%`} bg={tone === 'success' ? 'fg.success' : tone === 'danger' ? 'fg.danger' : 'fg.subtle'} opacity={0.7} />
+                    <Box height="100%" width={`${Math.round(Math.min(Math.abs(frac), 1) * 100)}%`} bg={tone === 'success' ? 'status.pos' : tone === 'danger' ? 'status.neg' : 'fg.subtle'} opacity={0.7} />
                 </Box>
                 <Text fontSize="11px" fontFamily="mono" fontWeight="semibold" textAlign="right">{display}</Text>
             </Box>
@@ -212,14 +212,14 @@ export const OptionsFacet = memo(function OptionsFacet({ decision, narrow }: Opt
                             {o.downside !== undefined && (
                                 <>
                                     <Text fontSize="10.5px" fontFamily="mono" color="fg.danger" flexShrink={0}>{fmt(words, decision, o.downside, true)}</Text>
-                                    <Box height="12px" width={`${Math.round(downFrac * 100)}%`} bg="fg.danger" opacity={0.55} />
+                                    <Box height="12px" width={`${Math.round(downFrac * 100)}%`} bg="status.neg" opacity={0.55} />
                                 </>
                             )}
                         </Box>
                         <Box display="flex" alignItems="center" gap="6px" height="16px" borderLeftWidth="1px" borderColor="border.strong">
                             {o.value > 0 && (
                                 <>
-                                    <Box height="12px" width={`${Math.round(upFrac * 100)}%`} bg={signed ? 'fg.success' : 'fg.subtle'} opacity={0.6} />
+                                    <Box height="12px" width={`${Math.round(upFrac * 100)}%`} bg={signed ? 'status.pos' : 'fg.subtle'} opacity={0.6} />
                                     <Text fontSize="10.5px" fontFamily="mono" color={signed ? 'fg.success' : 'fg.muted'} flexShrink={0}>{fmt(words, decision, o.value, signed)}</Text>
                                 </>
                             )}
@@ -373,7 +373,7 @@ export const JudgementFacet = memo(function JudgementFacet({ decision, handle, c
 
             {gateHint !== null && (
                 <Box display="flex" alignItems="center" gap="8px" pt="4px">
-                    <Box width="7px" height="7px" borderRadius="full" bg="fg.warning" flexShrink={0} />
+                    <Box width="7px" height="7px" borderRadius="full" bg="status.warn" flexShrink={0} />
                     <Text {...caption}>{gateHint}</Text>
                     <chakra.button
                         type="button"

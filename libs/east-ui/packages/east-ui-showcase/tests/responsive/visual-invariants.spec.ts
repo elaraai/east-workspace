@@ -121,12 +121,48 @@ async function violations(entry: Locator): Promise<string[]> {
             tint: token("--chakra-colors-brand-tint"),
             strong: token("--chakra-colors-border-strong"),
         };
-        /** An rgb / color(srgb) string's channels, 0–1. */
+        /** Any colour the page computes — `rgb()`, `color(srgb …)`, the
+         *  `oklch(…)` a mix in oklch (the heat ramp) computes to — as sRGB
+         *  channels, 0–1: drawn over white on a one-pixel canvas and read back,
+         *  so no format goes unread. */
+        const pixel = document.createElement("canvas");
+        pixel.width = 1;
+        pixel.height = 1;
+        const ink = pixel.getContext("2d", { willReadFrequently: true })!;
+        /** Colours painted one over the next, the first at the bottom, over white. */
+        const paint = (layers: readonly string[]): Uint8ClampedArray => {
+            ink.clearRect(0, 0, 1, 1);
+            ink.fillStyle = "#ffffff";
+            ink.fillRect(0, 0, 1, 1);
+            for (const c of layers) {
+                ink.fillStyle = c;
+                ink.fillRect(0, 0, 1, 1);
+            }
+            return ink.getImageData(0, 0, 1, 1).data;
+        };
         const rgb = (c: string): [number, number, number] | undefined => {
-            const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c);
-            if (m !== null) return [Number(m[1]) / 255, Number(m[2]) / 255, Number(m[3]) / 255];
-            const s = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
-            return s !== null ? [Number(s[1]), Number(s[2]), Number(s[3])] : undefined;
+            const d = paint([c]);
+            return [d[0]! / 255, d[1]! / 255, d[2]! / 255];
+        };
+        /** A colour's opacity, 0–1, read the same way. */
+        const alpha = (c: string): number => {
+            ink.clearRect(0, 0, 1, 1);
+            ink.fillStyle = c;
+            ink.fillRect(0, 0, 1, 1);
+            return ink.getImageData(0, 0, 1, 1).data[3]! / 255;
+        };
+        /** What a box's text is read on: its own background over its
+         *  ancestors', down to the first opaque one — a cell with no fill of
+         *  its own (a no-data heat cell) reads on the row behind it. */
+        const ground = (el: Element): string => {
+            const layers: string[] = [];
+            for (let at: Element | null = el; at !== null; at = at.parentElement) {
+                const bg = cs(at).backgroundColor;
+                layers.unshift(bg);
+                if (alpha(bg) >= 1) break;
+            }
+            const d = paint(layers);
+            return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
         };
         const lum = (c: string): number | undefined => {
             const v = rgb(c);
@@ -196,7 +232,7 @@ async function violations(entry: Locator): Promise<string[]> {
             if ((el.textContent ?? "").trim() === "") continue;
             type(el, "heat value", { minSize: 10.5 });
             const cell = el.parentElement!;
-            const k = contrast(cs(el).color, cs(cell).backgroundColor);
+            const k = contrast(cs(el).color, ground(cell));
             if (k !== undefined && k < 4.5) bad.push(`heat value "${name(el)}": contrast ${k.toFixed(2)}:1, want ≥ 4.5:1`);
         }
         // ── 7 · Span labels ──

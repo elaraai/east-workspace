@@ -20,9 +20,6 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
-/** Strong secondary ink — a row the pane lists. */
-const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
-
 /** The pane's mono caps captions. */
 const CAPTION = {
     fontFamily: "mono",
@@ -118,7 +115,8 @@ export const studioLibrarySlotRecipe = defineSlotRecipe({
             background: "transparent",
             fontSize: "13px",
             textAlign: "start",
-            color: INK_2,
+            /* Strong secondary ink, `--ink-2`. */
+            color: "fg.strong",
             cursor: "pointer",
             _hover: { background: "bg.subtle" },
             _focusVisible: { outline: "none", boxShadow: "focus" },

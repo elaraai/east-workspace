@@ -395,13 +395,14 @@ function deriveBindings(
 type IconKind = "insert" | "delete" | "update" | "unchanged" | "conflict";
 
 /* Op glyph — a bare semantic mark in the column gutter; the +/− value chips
- * and row context carry the rest. No tinted circle. */
+ * and row context carry the rest. No tinted circle. A glyph is a mark, so it
+ * takes the valence base, never its text step. */
 const OP_GLYPH: Record<IconKind, { color: string; icon: any }> = {
-    insert:    { color: "fg.success", icon: faPlus },
-    delete:    { color: "fg.danger",  icon: faMinus },
-    update:    { color: "fg.muted",   icon: faPen },
-    unchanged: { color: "fg.subtle",  icon: faEquals },
-    conflict:  { color: "fg.warning", icon: faTriangleExclamation },
+    insert:    { color: "status.pos",  icon: faPlus },
+    delete:    { color: "status.neg",  icon: faMinus },
+    update:    { color: "fg.muted",    icon: faPen },
+    unchanged: { color: "fg.subtle",   icon: faEquals },
+    conflict:  { color: "status.warn", icon: faTriangleExclamation },
 };
 
 function OpIcon({ kind, size = "20px" }: { kind: IconKind; size?: string }) {
@@ -540,13 +541,13 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
             <HStack gap="16px" align="center">
                 <HStack gap="6px" wrap="wrap">
                     {row.before !== undefined && (
-                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.danger"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before, words)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="status.neg"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before, words)}</Chip>
                     )}
                     {row.before !== undefined && row.after !== undefined && (
                         <Box as="span" color="fg.subtle" fontSize="11px"><FontAwesomeIcon icon={faArrowRight} /></Box>
                     )}
                     {row.after !== undefined && (
-                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.success"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after, words)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="status.pos"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after, words)}</Chip>
                     )}
                 </HStack>
                 {showActions && (
@@ -615,7 +616,7 @@ const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serv
                 p="12px"
                 bg="bg.surface"
                 border="1px solid"
-                borderColor="fg.warning"
+                borderColor="status.warn"
                 borderRadius="md"
                 role="radiogroup"
                 aria-label={`Resolve ${row.path || "(root)"}`}

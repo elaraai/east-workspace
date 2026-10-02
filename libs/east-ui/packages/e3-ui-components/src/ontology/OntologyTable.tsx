@@ -287,7 +287,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                 <Box as="td" css={rowCellCss} verticalAlign="top" textAlign="right">
                     {row.lints.length > 0 && (
                         <Tip label={<VStack alignItems="stretch" gap="0.5">{row.lints.map(l => <Text key={l} fontSize="xs">{l}</Text>)}</VStack>}>
-                            <Box as="span" display="inline-flex" color="ink.warning">
+                            <Box as="span" display="inline-flex" color="status.warn">
                                 <FiAlertTriangle size={13} />
                             </Box>
                         </Tip>
@@ -343,7 +343,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                     )}
                                     {row.lints.length > 0 && (
                                         <VStack alignItems="stretch" gap="1">
-                                            <HStack gap="1" color="ink.warning">
+                                            <HStack gap="1" color="fg.warning">
                                                 <FiAlertTriangle size={11} />
                                                 <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                                                     Warnings
@@ -453,7 +453,7 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
                 </Text>
                 {group.lintCount > 0 && (
                     <Tip label={`${group.lintCount} completeness warnings in this group`}>
-                        <HStack gap="1" color="ink.warning">
+                        <HStack gap="1" color="fg.warning">
                             <FiAlertTriangle size={12} />
                             <Text fontFamily="mono" fontSize="2xs" fontWeight="bold">{group.lintCount}</Text>
                         </HStack>
@@ -577,7 +577,7 @@ export const OntologyTable = memo(function OntologyTable({ ontology, onSelectNod
                     cursor="pointer"
                     onClick={() => setShowLints(v => !v)}
                 >
-                    <HStack gap="1.5" color="ink.warning">
+                    <HStack gap="1.5" color="fg.warning">
                         <FiAlertTriangle size={12} />
                         <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                             {projection.lints.length} graph warnings

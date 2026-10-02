@@ -185,7 +185,9 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
             // hard-overridden to `hidden` after the props spread).
             overflow={props.overflow ?? "hidden"}
             {...(sized ? { display: "flex", flexDirection: "column" } : {})}
-            {...(background !== undefined ? { bg: background } : {})}
+            // A Frame is `--paper` on the `--paper-2` page (app-layout ›
+            // Frame); Chakra's card recipe paints `bg.panel`, the band paper.
+            bg={background ?? "bg.surface"}
             {...(accentColor !== undefined ? { borderLeftWidth: "3px", borderLeftColor: accentColor } : {})}
             aria-disabled={isDisabled || undefined}
             opacity={isDisabled ? 0.5 : undefined}

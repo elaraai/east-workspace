@@ -376,9 +376,10 @@ export const snapGridSlotRecipe = defineSlotRecipe({
                 borderColor: "brand.solid",
                 boxShadow: "focus",
             },
-            // A draft a check refuses — the Sheet's and the Plan's marks.
-            "[data-incomplete] > &": { borderColor: "fg.warning" },
-            "[data-invalid] > &": { borderColor: "fg.danger" },
+            // A draft a check refuses — the Sheet's and the Plan's marks: an
+            // edge takes the valence base, never its text step.
+            "[data-incomplete] > &": { borderColor: "status.warn" },
+            "[data-invalid] > &": { borderColor: "status.neg" },
         },
         handle: {
             position: "absolute",

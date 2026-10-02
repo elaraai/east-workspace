@@ -39,13 +39,14 @@ export function getCommonPinningStyles<TData>(column: Column<TData, unknown>): C
 // ── Shared header divider bar + resize handle ───────────────────────
 
 /** The vertical grip/divider bar shown between header columns — 2px × 16px,
- *  faint grey, its right edge sitting ON the column boundary so it lines up with
- *  the body cells' `border-right`. The resize handle renders it (brightening on
- *  hover); a non-resizable axis header renders <ColumnDividerBar/> for the SAME
- *  look. (`right: 0` keeps it inside the cell — no clip under `overflow: hidden`.) */
+ *  faint, in the resize handle's `--rule-strong` (base-components › Tables), its
+ *  right edge sitting ON the column boundary so it lines up with the body
+ *  cells' `border-right`. The resize handle renders it (brightening on hover); a
+ *  non-resizable axis header renders <ColumnDividerBar/> for the SAME look.
+ *  (`right: 0` keeps it inside the cell — no clip under `overflow: hidden`.) */
 const DIVIDER_BAR = {
     position: "absolute" as const, right: "0", top: "50%", transform: "translateY(-50%)",
-    width: "2px", height: "16px", bg: "bg.emphasized", borderRadius: "1px",
+    width: "2px", height: "16px", bg: "border.strong", borderRadius: "1px",
 } as const;
 
 /** A static copy of the resize-handle grip bar, for non-resizable headers. */
