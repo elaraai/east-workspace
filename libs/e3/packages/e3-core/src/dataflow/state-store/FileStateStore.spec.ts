@@ -93,7 +93,9 @@ describe('FileStateStore atomic-write rename resilience', () => {
             throw errno(code);
           }
           return realRename(from, to);
-        }, () => store.update(updated));
+        }, async () => {
+          assert.strictEqual(await store.update(updated), 'applied', `${code}: the write landed`);
+        });
 
         assert.strictEqual(failuresLeft, 0, `${code}: both injected failures should have been hit`);
         const read = await store.read(repo, 'ws', state.id);

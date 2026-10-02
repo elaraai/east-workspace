@@ -484,6 +484,25 @@ export class DataflowAbortedError extends E3Error {
   }
 }
 
+/**
+ * Thrown by a run's wait when another process has moved the run on: the state
+ * store refused the loop's write, built on a state the run has since left.
+ *
+ * @remarks
+ * Not an error of the run, which goes on where it was moved on — a host that
+ * runs a run's loop in successive processes moves it on to the next. The loop
+ * stopped what it launched, launched and wrote nothing more, and failed no
+ * task.
+ */
+export class DataflowSupersededError extends E3Error {
+  constructor(
+    /** The run, by its id */
+    public readonly runId: string,
+  ) {
+    super(`the run ${runId} was moved on by another process: this loop stopped, and wrote nothing more of it`);
+  }
+}
+
 // =============================================================================
 // Generic Errors
 // =============================================================================
