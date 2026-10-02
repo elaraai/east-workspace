@@ -15,6 +15,11 @@
 
 import { defineSemanticTokens } from "@chakra-ui/react";
 
+/** A palette's solid fill at 90% — the hover Chakra's own theme gives a solid
+ *  part, for the palettes the design system leaves to Chakra. */
+const stockSolidHover = (palette: string) =>
+    ({ value: `color-mix(in srgb, {colors.${palette}.solid} 90%, transparent)` });
+
 export const semanticTokens = defineSemanticTokens({
     colors: {
         /** Stable group identity colours, shared by markers and rails. */
@@ -38,10 +43,22 @@ export const semanticTokens = defineSemanticTokens({
          * (black) for `solid` — which is why brand-targeted radios /
          * checkboxes / sliders / switches were rendering ink-black instead
          * of teal.
+         *
+         * `brand` is also the default palette (`html` in `global-css.ts`), so
+         * its solid roles are the design system's Primary (#1091): `solid` is
+         * `--brand-d`, the interactive brand, which lifts one step in dark;
+         * `contrast` is `--paper`, the label and ticks on it; `solidHover` is
+         * `--brand-dd`, its hover and pressed fill.
+         *
+         * `solidHover` is a role of our own, so EVERY palette carries it
+         * (below): a palette's roles are CSS variables, and one the palette
+         * lacks is inherited from the nearest element whose palette has it —
+         * a red button would hover in the default palette's brand.
          */
         brand: {
-            solid:       { value: { base: "{colors.brand.600}", _dark: "{colors.brand.400}" } },
-            contrast:    { value: { base: "{colors.white}",      _dark: "{colors.brand.900}" } },
+            solid:       { value: { base: "{colors.brand.600}", _dark: "#65b2bd" } },
+            solidHover:  { value: { base: "{colors.brand.700}", _dark: "#81ccd5" } },
+            contrast:    { value: { base: "{colors.white}",      _dark: "{colors.gray.900}" } },
             fg:          { value: { base: "{colors.brand.700}", _dark: "{colors.brand.300}" } },
             muted:       { value: { base: "{colors.brandTint}", _dark: "{colors.brand.800}" } },
             subtle:      { value: { base: "{colors.brand.50}",  _dark: "{colors.brand.900}" } },
@@ -67,6 +84,7 @@ export const semanticTokens = defineSemanticTokens({
          * The mixes below are opaque and chip-legible while still muted. */
         success: {
             solid:      { value: "{colors.status.pos}" },
+            solidHover: stockSolidHover("success"),
             contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
             fg:         { value: "{colors.status.pos}" },
             muted:      { value: "color-mix(in srgb, {colors.status.pos} 22%, {colors.bg.surface})" },
@@ -76,6 +94,7 @@ export const semanticTokens = defineSemanticTokens({
         },
         danger: {
             solid:      { value: "{colors.status.neg}" },
+            solidHover: stockSolidHover("danger"),
             contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
             fg:         { value: "{colors.status.neg}" },
             muted:      { value: "color-mix(in srgb, {colors.status.neg} 22%, {colors.bg.surface})" },
@@ -85,6 +104,7 @@ export const semanticTokens = defineSemanticTokens({
         },
         warning: {
             solid:      { value: "{colors.status.warn}" },
+            solidHover: stockSolidHover("warning"),
             contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
             fg:         { value: "{colors.status.warn}" },
             muted:      { value: "color-mix(in srgb, {colors.status.warn} 22%, {colors.bg.surface})" },
@@ -94,6 +114,7 @@ export const semanticTokens = defineSemanticTokens({
         },
         info: {
             solid:      { value: "{colors.status.info}" },
+            solidHover: stockSolidHover("info"),
             contrast:   { value: { base: "{colors.white}", _dark: "{colors.brand.900}" } },
             fg:         { value: "{colors.status.info}" },
             muted:      { value: "color-mix(in srgb, {colors.status.info} 22%, {colors.bg.surface})" },
@@ -107,6 +128,7 @@ export const semanticTokens = defineSemanticTokens({
          * Built on the East cool green-gray scale. */
         neutral: {
             solid:      { value: { base: "{colors.gray.500}", _dark: "{colors.gray.400}" } },
+            solidHover: stockSolidHover("neutral"),
             contrast:   { value: { base: "{colors.white}",    _dark: "{colors.brand.900}" } },
             fg:         { value: { base: "{colors.gray.600}", _dark: "{colors.gray.400}" } },
             muted:      { value: { base: "{colors.gray.100}", _dark: "{colors.gray.700}" } },
@@ -114,6 +136,20 @@ export const semanticTokens = defineSemanticTokens({
             emphasized: { value: { base: "{colors.gray.700}", _dark: "{colors.gray.300}" } },
             focusRing:  { value: "{colors.brand.500}" },
         },
+
+        /* Chakra's own hues — the stock palettes `ColorScheme` names. The
+         * design system specifies only the brand's solid hover; a solid part
+         * in one of these hovers as Chakra's theme hovers it. */
+        gray:   { solidHover: stockSolidHover("gray") },
+        red:    { solidHover: stockSolidHover("red") },
+        orange: { solidHover: stockSolidHover("orange") },
+        yellow: { solidHover: stockSolidHover("yellow") },
+        green:  { solidHover: stockSolidHover("green") },
+        teal:   { solidHover: stockSolidHover("teal") },
+        blue:   { solidHover: stockSolidHover("blue") },
+        cyan:   { solidHover: stockSolidHover("cyan") },
+        purple: { solidHover: stockSolidHover("purple") },
+        pink:   { solidHover: stockSolidHover("pink") },
 
         /* ─── Mode-dependent scales (#362) ────────────────────
          *

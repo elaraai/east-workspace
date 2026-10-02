@@ -47,6 +47,26 @@ The Chakra theme itself is host-app-owned. This package is theme-less —
 look up tokens via Chakra semantic tokens (`bg.primary`, `text.muted`,
 `border.primary`, `card.bg`), never raw hex.
 
+**Palette (#1091).** Brand is the default `colorPalette`.
+`theme/global-css.ts` sets it on `html`, where Chakra sets its own `gray`.
+A renderer passes `colorPalette` only when the East style names one, so a
+part with none takes the brand. A part the design system draws neutral
+keeps the gray palette in its own recipe, and a prop still wins over it:
+- badge, tag, avatar, kbd and code set `colorPalette: "gray"` on their
+  root;
+- the button sets it in every role but the primary (`outline`, `ghost`,
+  `subtle`, `surface`, `plain`);
+- a container pins the colour itself, never its palette: the tabs'
+  underline bar, the table's selected and hovered rows, and the progress
+  track. A palette set on a container is inherited by every part inside
+  it (a primary button in a table cell would draw gray).
+
+A variant that fills from the palette reads only the roles every palette
+defines: `solid`, `contrast` and `solidHover`. It never reads a numeric
+stop. A stop is the same colour in both modes, and the valence palettes
+have none, so the brand's would be inherited from `html`.
+`test/theme/palette.spec.ts` holds every palette to those roles.
+
 ## Stack
 
 - **React 19.2** with `react-dom` 19

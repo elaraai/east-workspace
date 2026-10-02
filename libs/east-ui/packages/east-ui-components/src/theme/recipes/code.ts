@@ -17,6 +17,9 @@ import { defineRecipe } from "@chakra-ui/react";
 export const codeRecipe = defineRecipe({
     className: "elara-code",
     base: {
+        /* A code chip is neutral; the brand is the default palette, and
+         * Chakra's `outline` / `surface` ring from it. */
+        colorPalette: "gray",
         fontFamily: "mono",
         fontSize: "0.92em",
         background: "bg.subtle",

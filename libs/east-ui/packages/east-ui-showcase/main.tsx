@@ -25,6 +25,7 @@ import { codeBlockAdapter } from "./components/PatternEntry";
 import { IsolatedFileView } from "./components/IsolatedFileView";
 import { AppErrorBoundary } from "./components/ErrorOverlay";
 import { HostBarEnd, HostRailFooter } from "./components/HostChrome";
+import { HostParts } from "./components/HostParts";
 import { ShowcaseE3Runtime } from "./components/ShowcaseE3";
 
 /* Stamp the colour mode onto <html> before anything renders (#362) —
@@ -36,9 +37,11 @@ const store = new UIStore();
 /* Route at the root: when `?file=<pathKey>` is in the URL we render the
  * isolated stack of cards for that source file *only* — no sidebar, no
  * header, no chrome — so a capture of the page holds just that file's
- * example card(s). */
+ * example card(s). `?host=parts` renders Chakra's own parts as a host app
+ * draws them (#1091), for the responsive suite to hold the theme's defaults. */
 function Root() {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("host") === "parts") return <HostParts />;
     const isolatedFile = params.get("file");
     if (isolatedFile) {
         const entries = catalog.filter(e => e.pathKey === isolatedFile);
