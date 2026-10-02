@@ -43,6 +43,7 @@ import {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  checkName,
   lockStateToHolderInfo,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
@@ -254,17 +255,25 @@ export async function workspaceGetPackage(
  * ends, so it has no status to read meanwhile; its lock says a deploy holds it,
  * and how far the deploy has got with its file sources and its records.
  *
+ * The name is a workspace's, checked as one before the lock store is asked: a
+ * lock's resource may hold `#` and `~`, which join the parts of lock names, so
+ * `main#dataflow` — the lock a run of main's dataflow holds — would otherwise
+ * be read as the lock of a workspace that cannot exist.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
  * @returns The lock's state and what its holder last reported, or null when
  *   nothing holds the workspace exclusively
+ * @throws {InvalidNameError} When the name is no workspace's: it holds `#` or
+ *   `~`, or a character a file name cannot hold
  */
 export async function workspaceLockStatus(
   storage: StorageBackend,
   repo: string,
   name: string,
 ): Promise<LockStatus | null> {
+  checkName('workspace', name);
   const state = await storage.locks.getState(repo, name);
   if (state === null) return null;
   const progress = await storage.locks.getProgress(repo, name);
