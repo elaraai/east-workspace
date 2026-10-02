@@ -22,7 +22,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
+.PHONY: build test test-group lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
@@ -34,6 +34,25 @@ build:
 ## Run tests for all packages
 test:
 	pnpm run test
+
+## The groups CI runs side by side (GROUP=components, ir or rest), so the
+## longest sets the wall clock rather than their sum. Together they run every
+## package's tests once: `rest` is every package the other two don't name, so
+## a new package lands there.
+TEST_GROUP_components := --filter=@elaraai/east-ui-components
+TEST_GROUP_ir := --filter=@elaraai/east-ui --filter=@elaraai/e3-ui
+TEST_GROUP_rest := --filter='./packages/*' --filter='./packages/east-ui-extension/webview' \
+                   --filter='!@elaraai/east-ui-components' --filter='!@elaraai/east-ui' --filter='!@elaraai/e3-ui'
+
+ifneq ($(filter test-group,$(MAKECMDGOALS)),)
+ifeq ($(filter components ir rest,$(GROUP)),)
+$(error test-group needs GROUP=components, ir or rest)
+endif
+endif
+
+## Run one of CI's test groups, as its job does (GROUP=components, ir or rest)
+test-group:
+	pnpm -r $(TEST_GROUP_$(GROUP)) run test
 
 ## Run linting for all packages
 lint:
@@ -187,12 +206,13 @@ help:
 	@echo ""
 	@echo "  build             - Build all packages"
 	@echo "  test              - Run tests"
+	@echo "  test-group GROUP=components|ir|rest - Run one of CI's three test groups"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
 	@echo "  design            - Serve app_design_system/ (canonical design system) on :5174"
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
-	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/4 optional)"
+	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/8 optional)"
 	@echo "  east-ui-examples-html-<pathKey> - Snapshot a single example (e.g. east-ui-examples-html-disclosure/tabs)"
 	@echo "  extension         - Build and package VS Code extension"
 	@echo "  extension-install - Install VS Code extension"
@@ -205,7 +225,7 @@ help:
 ## The responsive suite (#357, #833): Playwright drives the BUILT showcase
 ## over every catalog page at desktop + mobile viewports. These are DOM specs
 ## (packages/east-ui-showcase/tests/responsive/) with no pixel comparisons.
-## CI runs exactly this target, sharded: `make test-responsive SHARD=1/4`.
+## CI runs exactly this target, sharded: `make test-responsive SHARD=1/8`.
 ##
 ## It serves what `make build` built, building the showcase only when its
 ## dist is missing, so rebuild after a change. A failing spec leaves its

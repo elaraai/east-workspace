@@ -9,7 +9,7 @@
  * reference, the Plan's geometry, the Sheet's ring under the keyboard and
  * the load, at desktop and mobile viewports. It is one suite, run the same way everywhere:
  * `make test-responsive` (libs/east-ui) locally, and in CI sharded with
- * `SHARD=n/4`. Nothing here compares pixels.
+ * `SHARD=n/8`. Nothing here compares pixels.
  *
  * Browser resolution: `npx playwright install chromium` where supported;
  * on hosts Playwright can't provision (e.g. non-LTS Ubuntu) point
