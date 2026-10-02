@@ -19,20 +19,23 @@ import { RepoLayoutError, RepositoryBusyError, RepositoryUpgradePendingError } f
 import { withKeyedLock } from './keyed-mutex.js';
 import { withRepositoryHeld } from './running-work.js';
 import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js';
+import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
 
 /**
  * The store upgrades every backend applies, in the order they apply: a change
  * to a record's East type.
  *
  * @remarks
- * None yet: the forms this e3 writes are the first a repository record names.
+ * - `execution-stop-reasons`: a stopped execution's record says why it
+ *   stopped ({@link executionStopReasons}).
+ *
  * A release that changes a stored form appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
  * its own here, and removes it after.
  *
  * @internal
  */
-export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [];
+export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [executionStopReasons];
 
 /** How long an open that owes upgrades waits for work running in the
  *  repository to finish, unless its caller says otherwise. */

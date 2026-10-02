@@ -232,8 +232,9 @@ export class ExecutionAttempt {
    * <cause>` to its stderr log.
    *
    * @remarks
-   * A log that cannot be appended to, or flushed, is warned of, and the record
-   * is written all the same.
+   * A `cancelled` record's reason is `aborted`, its message the cause. A log
+   * that cannot be appended to, or flushed, is warned of, and the record is
+   * written all the same.
    *
    * @param outcome - How it is recorded
    * @param cause - Why it stopped, as its log and its record say
@@ -250,7 +251,7 @@ export class ExecutionAttempt {
       console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
     }
     const stopped = { executionId, inputHashes, startedAt: new Date(startTime), completedAt: new Date(), unit };
-    const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', stopped)
+    const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', { ...stopped, reason: { kind: variant('aborted', null), message: cause } })
       : outcome === 'error' ? variant('error', { ...stopped, message: cause })
       : variant('failed', { ...stopped, exitCode: -1n, peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)) });
     await this.end(status);

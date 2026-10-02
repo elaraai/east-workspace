@@ -30,6 +30,7 @@ describe('the repository gate', () => {
     assert.ok(run, 'the run holds its workspace');
     // The host is upgraded to a release whose backend ships a layout step,
     // which the repository, created before it, owes.
+    const before = (await storage.refs.repositoryRead(repo))?.upgrades.map(({ name }) => name) ?? [];
     const applied: string[] = [];
     storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); } });
 
@@ -74,7 +75,7 @@ describe('the repository gate', () => {
     const status = await app.request(`/api/repos/${repo}/workspaces/main/status`);
     assert.equal(await status.text(), 'the status route ran');
     assert.deepEqual(applied, ['host-layout-2']);
-    assert.deepEqual((await storage.refs.repositoryRead(repo))?.upgrades.map(({ name }) => name), ['host-layout-2']);
+    assert.deepEqual((await storage.refs.repositoryRead(repo))?.upgrades.map(({ name }) => name), [...before, 'host-layout-2']);
   });
 
   it('leaves the upgrade to the host\'s job when told to: no request applies it, each one tells the host, and all pass once the job has', async () => {

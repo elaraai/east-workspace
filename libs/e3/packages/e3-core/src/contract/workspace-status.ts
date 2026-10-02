@@ -13,8 +13,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { East, IntegerType, none, some, variant } from '@elaraai/east';
+import { East, IntegerType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import { StopReasonType, type StopReason } from '@elaraai/e3-types';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageRead } from '../packages.js';
@@ -45,6 +46,7 @@ export function workspaceStatusTests(setup: BackendSetup): void {
   describe('the workspace status', () => {
     let dir: string;
     let zip: string;
+    let chainZip: string;
 
     before(async () => {
       dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
@@ -54,6 +56,11 @@ export function workspaceStatusTests(setup: BackendSetup): void {
         [e3.input('x', IntegerType, variant('value', 10n))],
         East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)),
       )), zip);
+      // A task over another's output.
+      chainZip = join(dir, 'status-chain.zip');
+      const first = e3.task('first', [e3.input('y', IntegerType, variant('value', 3n))], East.function([IntegerType], IntegerType, ($, y) => y.add(1n)));
+      await e3.export(e3.package('status-chain', '1.0.0',
+        e3.task('second', [first.output], East.function([IntegerType], IntegerType, ($, z) => z.multiply(3n)))), chainZip);
     });
 
     after(() => {
@@ -96,6 +103,60 @@ export function workspaceStatusTests(setup: BackendSetup): void {
       runner.setExecutionAlive(false);
       const stale = (await workspaceStatus(storage, runner, repo, WS)).tasks.find((task) => task.name === 'double');
       assert.equal(stale?.status.type, 'stale-running');
+
+      // A host's own reason says it cannot finish, as `false` does.
+      runner.setExecutionAlive(() => ({ kind: variant('host', 'OutOfMemoryError'), message: 'its container ran out of memory' }));
+      const stopped = (await workspaceStatus(storage, runner, repo, WS)).tasks.find((task) => task.name === 'double');
+      assert.equal(stopped?.status.type, 'stale-running');
+    });
+
+    it('reads ready a task whose latest attempt over its inputs was cancelled or interrupted, naming why it stopped', async (t) => {
+      const { storage, repo, taskHash, inHash } = await deployed(t);
+      const runner = new MockTaskRunner();
+      const equal = equalFor(StopReasonType);
+      const own = { inputHashes: [], startedAt: new Date(), completedAt: new Date(), unit: false };
+      const aborted: StopReason = { kind: variant('aborted', null), message: 'cancelled: e3 stopped the runner because the run was aborted' };
+      const cancelled = uuidv7();
+      await storage.refs.executionWrite(repo, taskHash, inHash, cancelled, variant('cancelled', { ...own, executionId: cancelled, reason: aborted }));
+      let task = (await workspaceStatus(storage, runner, repo, WS)).tasks.find((each) => each.name === 'double');
+      assert.equal(task?.status.type, 'ready');
+      assert.ok(task?.stopped !== null && task?.stopped !== undefined && equal(task.stopped, aborted), 'it names why its attempt stopped');
+
+      const yielded: StopReason = { kind: variant('yielded', null), message: 'interrupted: the run yielded mid-stage' };
+      const interrupted = uuidv7();
+      await storage.refs.executionWrite(repo, taskHash, inHash, interrupted, variant('interrupted', { ...own, executionId: interrupted, pid: 0n, reason: yielded }));
+      task = (await workspaceStatus(storage, runner, repo, WS)).tasks.find((each) => each.name === 'double');
+      assert.equal(task?.status.type, 'ready');
+      assert.ok(task?.stopped !== null && task?.stopped !== undefined && equal(task.stopped, yielded), 'the latest attempt\'s, interrupted');
+
+      const failed = uuidv7();
+      await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', { ...own, executionId: failed, exitCode: 1n, peakBytes: none }));
+      task = (await workspaceStatus(storage, runner, repo, WS)).tasks.find((each) => each.name === 'double');
+      assert.equal(task?.status.type, 'failed');
+      assert.equal(task?.stopped, null, 'an attempt that failed did not stop');
+    });
+
+    it('names no stopped attempt of a task that waits for a stale one upstream', async (t) => {
+      const { storage, repo } = await setup(t);
+      await packageImport(storage, repo, chainZip);
+      await workspaceCreate(storage, repo, WS);
+      await workspaceDeploy(storage, repo, WS, 'status-chain', '1.0.0');
+      // The first task's output is set, and nothing ran it over its input, so
+      // it is stale; the second's attempt over that output was cancelled.
+      const output = await storage.objects.write(repo, encodeBeast2For(IntegerType)(4n));
+      await storage.datasets.write(repo, WS, 'tasks/first/output', variant('value', { hash: output, versions: new Map() }));
+      const second = (await packageRead(storage, repo, 'status-chain', '1.0.0')).tasks.get('second')!;
+      const cancelled = uuidv7();
+      await storage.refs.executionWrite(repo, second, inputsHash([output]), cancelled, variant('cancelled', {
+        executionId: cancelled, inputHashes: [output], startedAt: new Date(), completedAt: new Date(), unit: false,
+        reason: { kind: variant('aborted', null), message: 'cancelled' },
+      }));
+
+      const tasks = (await workspaceStatus(storage, new MockTaskRunner(), repo, WS)).tasks;
+      assert.equal(tasks.find((each) => each.name === 'first')?.status.type, 'ready');
+      const waiting = tasks.find((each) => each.name === 'second');
+      assert.equal(waiting?.status.type, 'waiting');
+      assert.equal(waiting?.stopped, null, 'it reads waiting for the task upstream, not ready for its stopped attempt');
     });
 
     it('reads a unit of a split task running as no run of the task', async (t) => {

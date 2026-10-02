@@ -230,17 +230,9 @@ export class LocalRefStore implements RefStore {
   // -------------------------------------------------------------------------
 
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
-    const execDir = executionPath(repo, taskHash, inputsHash, executionId);
-    const statusPath = path.join(execDir, 'status.beast2');
-
-    let data: Buffer;
-    try {
-      data = await fs.readFile(statusPath);
-    } catch (err) {
-      if (isNotFoundError(err)) {
-        return null;
-      }
-      throw err;
+    const data = await this.executionReadBytes(repo, taskHash, inputsHash, executionId);
+    if (data === null) {
+      return null;
     }
 
     try {
@@ -251,6 +243,18 @@ export class LocalRefStore implements RefStore {
         inputsHash,
         err instanceof Error ? err : new Error(String(err))
       );
+    }
+  }
+
+  /** Reads the attempt's `status.beast2` as it is. */
+  async executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null> {
+    try {
+      return await fs.readFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'status.beast2'));
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        return null;
+      }
+      throw err;
     }
   }
 

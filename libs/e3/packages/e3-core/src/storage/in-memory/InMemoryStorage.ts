@@ -4,7 +4,8 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { none, variant } from '@elaraai/east';
+import { encodeBeast2For, none, variant } from '@elaraai/east';
+import { ExecutionStatusType, decodeExecutionStatus } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
 import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
@@ -189,6 +190,18 @@ class InMemoryObjectStore implements ObjectStore {
 }
 
 /**
+ * An execution attempt's record as the in-memory store holds it: the status
+ * written, or bytes a test left, as an earlier release or a crash leaves a
+ * stored record.
+ */
+type HeldExecution = { readonly status: ExecutionStatus } | { readonly bytes: Uint8Array };
+
+const encodeStatus = encodeBeast2For(ExecutionStatusType);
+
+/** What a damaged record holds unless its test gives bytes: no record. */
+const NOT_A_RECORD = new TextEncoder().encode('not a record');
+
+/**
  * In-memory implementation of RefStore for testing.
  */
 /* eslint-disable @typescript-eslint/require-await */
@@ -198,7 +211,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   private packages = new Map<string, Map<string, string>>();
   private workspaces = new Map<string, Map<string, Uint8Array>>();
   // executions now keyed by taskHash/inputsHash/executionId
-  private executions = new Map<string, Map<string, ExecutionStatus>>();
+  private executions = new Map<string, Map<string, HeldExecution>>();
   // dataflow runs keyed by workspace/runId
   private dataflowRuns = new Map<string, Map<string, DataflowRun>>();
   // owner sidecars keyed by repo/taskHash/inputsHash/executionId
@@ -207,9 +220,6 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   private plans = new Map<string, string>();
   // adoption memo entries keyed by repo/sourceHash
   private adoptions = new Map<string, string>();
-  // execution records a test left in bytes that do not decode, keyed by
-  // repo/taskHash/inputsHash/executionId
-  private damaged = new Set<string>();
 
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
@@ -229,7 +239,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return repoWorkspaces;
   }
 
-  private getExecutions(repo: string): Map<string, ExecutionStatus> {
+  private getExecutions(repo: string): Map<string, HeldExecution> {
     let repoExecutions = this.executions.get(repo);
     if (!repoExecutions) {
       repoExecutions = new Map();
@@ -316,38 +326,49 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   // Execution operations (with executionId)
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
-    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
-    if (this.damaged.has(`${repo}/${key}`)) {
-      throw new ExecutionCorruptError(taskHash, inputsHash, new Error('the record does not decode'));
+    const held = this.getExecutions(repo).get(this.makeExecutionKey(taskHash, inputsHash, executionId));
+    if (held === undefined) return null;
+    if ('status' in held) return held.status;
+    try {
+      return decodeExecutionStatus(held.bytes);
+    } catch (err) {
+      throw new ExecutionCorruptError(taskHash, inputsHash, err instanceof Error ? err : new Error(String(err)));
     }
-    return this.getExecutions(repo).get(key) ?? null;
+  }
+
+  /** Reads a record as a store of bytes would: the bytes a test left, or the
+   *  status written, encoded. */
+  async executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null> {
+    const held = this.getExecutions(repo).get(this.makeExecutionKey(taskHash, inputsHash, executionId));
+    if (held === undefined) return null;
+    return 'bytes' in held ? held.bytes : encodeStatus(held.status);
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
-    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
-    this.damaged.delete(`${repo}/${key}`);
-    this.getExecutions(repo).set(key, status);
+    this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), { status });
   }
 
   /**
-   * Leaves an execution attempt's record in bytes that do not decode, as a
-   * crash or a failing disk leaves one: a test's, for the cases of such a
-   * record. A write of the record replaces it.
+   * Leaves an execution attempt's record in bytes, as a crash or a failing
+   * disk leaves one, or an earlier release left one in its form: a test's,
+   * for the cases of such a record. The record is there, and listed, from
+   * then on, and a write of it replaces it.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
    * @param executionId - The attempt's id
+   * @param bytes - The record's bytes: bytes that do not decode as one unless
+   *   given
    */
-  damageExecution(repo: string, taskHash: string, inputsHash: string, executionId: string): void {
-    this.damaged.add(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`);
+  damageExecution(repo: string, taskHash: string, inputsHash: string, executionId: string, bytes: Uint8Array = NOT_A_RECORD): void {
+    this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), { bytes });
   }
 
   async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).delete(key);
     this.owners.delete(`${repo}/${key}`);
-    this.damaged.delete(`${repo}/${key}`);
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
@@ -488,9 +509,6 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
         }
       }
     }
-    for (const key of [...this.damaged]) {
-      if (key.startsWith(`${repo}/`)) this.damaged.delete(key);
-    }
     return dropped;
   }
 
@@ -503,7 +521,6 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     this.owners.clear();
     this.plans.clear();
     this.adoptions.clear();
-    this.damaged.clear();
   }
 }
 

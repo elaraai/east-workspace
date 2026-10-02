@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
-import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
+import { ArrayType, East, IRType, StringType, encodeBeast2For, equalFor, none, variant } from '@elaraai/east';
+import { StopReasonType, TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
 
 import { LocalTaskRunner, probeExecutionCache, taskExecute, taskExecuteUnit } from './LocalTaskRunner.js';
 import { collectNodeModulesBins } from './processExec.js';
@@ -21,7 +21,7 @@ import { uuidv7 } from '../uuid.js';
 import { inputsHash } from '../executions.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
-import { createTestRepo, deadPid, removeTestRepo } from '../test-helpers.js';
+import { HeldLogStore, createTestRepo, deadPid, logsAtEachEnd, removeTestRepo, withLogStore } from '../test-helpers.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 describe('collectNodeModulesBins', () => {
@@ -290,14 +290,21 @@ describe('stopped executions', () => {
     });
     const deadProcess = async (): Promise<ExecutionOwner> => ({ pid: BigInt(deadPid()), pidStartTime: 12345n, bootId: await getBootId() });
 
-    it('rewrites a running record whose runner and owner are both gone as interrupted', async () => {
+    it('rewrites a running record whose runner and owner are both gone as interrupted, saying why once its log is flushed', async () => {
       const runner = await deadProcess();
       const executionId = await writeRunning(runner, await deadProcess());
+      // A store that holds appends until they are flushed: the record's write
+      // finds the line that says why readable.
+      const logs = new HeldLogStore(storage.logs);
+      const ends = logsAtEachEnd(storage.refs, logs);
 
-      assert.equal(await probeExecutionCache(storage, repo, taskHash, inHash), null);
+      assert.equal(await probeExecutionCache(withLogStore(storage, logs), repo, taskHash, inHash), null);
       const status = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
-      assert.equal(status?.type, 'interrupted');
-      assert.equal(status?.type === 'interrupted' ? status.value.pid : null, runner.pid);
+      assert.ok(status?.type === 'interrupted', `the record is ${status?.type}`);
+      assert.equal(status.value.pid, runner.pid);
+      const message = 'interrupted: its runner and the process or browser tab that owned it are gone';
+      assert.ok(equalFor(StopReasonType)(status.value.reason, { kind: variant('owner_gone', null), message }), 'its runner and its owner are gone');
+      assert.deepEqual(ends.map((end) => ({ status: end.status, stderr: end.stderr })), [{ status: 'interrupted', stderr: `e3: ${message}\n` }]);
     });
 
     it('leaves a running record alone while its owner lives, while its runner lives, or with no owner', async () => {

@@ -176,6 +176,7 @@ export async function getWorkspaceStatus(
         output: t.output,
         dependsOn: t.dependsOn,
         peakBytes: t.peakBytes === null ? none : some(BigInt(t.peakBytes)),
+        stopped: t.stopped === null ? none : some(t.stopped),
       })),
       summary: {
         datasets: {

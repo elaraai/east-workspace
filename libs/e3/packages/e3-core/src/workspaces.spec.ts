@@ -511,6 +511,7 @@ describe('workspaces', () => {
       const runId = '0190a0b0-6666-7000-8000-000000000000';
       await storage.refs.executionWrite(testRepo, taskHash, inputsHash, executionId, variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
+        reason: { kind: variant('aborted', null), message: 'cancelled' },
       }));
       await storage.refs.dataflowRunWrite(testRepo, 'ws', {
         runId, workspaceName: 'ws', packageRef: 'run-export@1.0.0', startedAt: new Date(0), completedAt: none,

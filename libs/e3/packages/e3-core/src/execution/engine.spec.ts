@@ -18,11 +18,11 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import {
   ArrayType, DictType, IntegerType, SetType, StringType, StructType,
-  East, SortedMap, SortedSet, compareFor, some,
+  East, SortedMap, SortedSet, compareFor, equalFor, some, variant,
   type EastType,
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
-import { decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
+import { StopReasonType, decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
 import { executeSplitTask, probeExecutionCache, taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
 import { SplitTask } from './engine.js';
 import { processOwner } from './processHelpers.js';
@@ -532,7 +532,7 @@ describe('a task split into pieces', () => {
     }
   });
 
-  it('records a task a yielding run suspends interrupted, and one an aborted run stops cancelled, once its log is flushed', async () => {
+  it('records a task a yielding run suspends interrupted, and one an aborted run stops cancelled, each with why and once its log is flushed', async () => {
     const taskHash = await deploy(e3.streamTask('suspended', {
       inputs: [e3.partition(sales)],
       output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
@@ -548,7 +548,8 @@ describe('a task split into pieces', () => {
     const held = withLogStore(storage, logs);
     const whole = (executionId: string, stream: 'stdout' | 'stderr'): string => logs.appended(repo, taskHash, inputsHash([input]), executionId, stream);
 
-    // A run that yields leaves the task mid-stage: the plan's line is its log.
+    // A run that yields leaves the task mid-stage: the plan's line is its log,
+    // and why it stopped the last line of its stderr.
     const yielded = uuidv7();
     const suspended = await SplitTask.open(held, repo, taskHash, task, [input], { inHash: inputsHash([input]), executionId: yielded, startTime: Date.now() }, {}, null, null);
     assert.ok(suspended instanceof SplitTask);
@@ -560,12 +561,21 @@ describe('a task split into pieces', () => {
     assert.ok(stopped instanceof SplitTask);
     assert.equal((await stopped.advance([], []))?.cancelled, true);
 
+    const yieldCause = 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again';
+    const abortCause = 'cancelled: e3 stopped the task\'s units because the run was aborted';
     assert.deepEqual(ends.map(({ executionId, status, stdout, stderr }) => ({ executionId, status, stdout, stderr })), [
-      { executionId: yielded, status: 'interrupted', stdout: whole(yielded, 'stdout'), stderr: '' },
-      { executionId: aborted, status: 'cancelled', stdout: whole(aborted, 'stdout'), stderr: 'e3: cancelled: e3 stopped the task\'s units because the run was aborted\n' },
+      { executionId: yielded, status: 'interrupted', stdout: whole(yielded, 'stdout'), stderr: `e3: ${yieldCause}\n` },
+      { executionId: aborted, status: 'cancelled', stdout: whole(aborted, 'stdout'), stderr: `e3: ${abortCause}\n` },
     ]);
     assert.match(whole(yielded, 'stdout'), /^plan pieces=\d+ /);
     assert.match(whole(aborted, 'stdout'), /^plan pieces=\d+ /);
+
+    // Each record says why the task stopped, as its log's last line does.
+    const equal = equalFor(StopReasonType);
+    const suspendedRecord = await storage.refs.executionGet(repo, taskHash, inputsHash([input]), yielded);
+    assert.ok(suspendedRecord?.type === 'interrupted' && equal(suspendedRecord.value.reason, { kind: variant('yielded', null), message: yieldCause }));
+    const cancelledRecord = await storage.refs.executionGet(repo, taskHash, inputsHash([input]), aborted);
+    assert.ok(cancelledRecord?.type === 'cancelled' && equal(cancelledRecord.value.reason, { kind: variant('aborted', null), message: abortCause }));
   });
 
   it('roots each stage\'s plan through its sidecar until the task ends, and a later run takes up the stage it names', async () => {
