@@ -13,13 +13,12 @@
  */
 
 import { variant } from "../../containers/variant.js";
-import { printFor } from "../../serialization/east.js";
 import {
   ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, StringType, StructType, VariantType,
   isImmutableType, isTypeEqual, printType, type EastType,
 } from "../../types.js";
 import { BUILTINS, type Builtin, type CallContext } from "./catalog.js";
-import { isoDateTime, literalValue, type JqLiteral } from "./literals.js";
+import { isoDateTime, jsonString, literalValue, type JqLiteral } from "./literals.js";
 import { MESSAGES, closest, edit, report, type QueryError, type QueryFix } from "./messages.js";
 import { parseJq, type ParsedJq } from "./parse.js";
 import {
@@ -188,9 +187,6 @@ interface Env {
   /** Inside `try` or after `?`: a type error jq would raise at run time gives no output instead. */
   readonly lenient: boolean;
 }
-
-/** A name as a jq string literal: JSON's escapes, which East's text shares for strings. */
-const printString = printFor(StringType);
 
 /** Where the operands of an arithmetic operator are, and the text it covers. */
 interface Operands {
@@ -676,7 +672,7 @@ class Checker {
       }
       case "Dict": {
         if (unwrap(t.key as EastType).type !== "String") {
-          return this.mismatch(env, range, "type_mismatch", MESSAGES.keyType(`.${name}`, describeType(t.key as EastType), printString(name), "String"));
+          return this.mismatch(env, range, "type_mismatch", MESSAGES.keyType(`.${name}`, describeType(t.key as EastType), jsonString(name), "String"));
         }
         const value = orNull(t.value as EastType);
         if (value === undefined) return this.mismatch(env, range, "ambiguous_output", MESSAGES.noCommonType(describeType(t.value as EastType), "Null"));
@@ -923,7 +919,7 @@ class Checker {
     const start = base.node.type === "identity" ? chain.from : this.range(base.path)!.to;
     const variantText = this.text.slice(start, this.range(variant.path)!.to);
     const leafText = this.text.slice(start, chain.to);
-    const select = `select(${variantText}.type == ${printString(partial.caseName)})`;
+    const select = `select(${variantText}.type == ${jsonString(partial.caseName)})`;
     const message = MESSAGES.narrowFirst(leafText, describeType(type), partial.caseName, variantText, partial.leaf);
     const label = "Narrow first";
     let fix: QueryFix;
@@ -1011,7 +1007,7 @@ class Checker {
       const out = this.arithmetic(op, left, right, { leftPath, rightPath, range: this.range(path) }, env);
       return { shape: out.shape, mult: piped(mult, out.mult), partial: out.partial };
     }
-    throw new Error(`checkJq: ${printString(op)} is not a jq binary operator`);
+    throw new Error(`checkJq: ${jsonString(op)} is not a jq binary operator`);
   }
 
   comparison(op: string, node: Extract<JqNode, { type: "binary" }>, path: string, left: Result, right: Result, env: Env): Result {
@@ -1024,10 +1020,10 @@ class Checker {
       if (literal.type.type !== "String") continue;
       const name = literal.value as string;
       if (!JQ_TYPE_NAMES.includes(name)) {
-        const suggestions = closest(name, JQ_TYPE_NAMES).map(c => printString(c));
+        const suggestions = closest(name, JQ_TYPE_NAMES).map(c => jsonString(c));
         const range = this.range(otherPath);
         const fixes = suggestions.length > 0 && range !== undefined ? [edit(`Use ${suggestions[0]}`, range.from, range.to, suggestions[0]!)] : [];
-        return this.fail(range, "unknown_case", MESSAGES.unknownType(printString(name), JQ_TYPE_NAMES, suggestions[0]), { suggestions, fixes });
+        return this.fail(range, "unknown_case", MESSAGES.unknownType(jsonString(name), JQ_TYPE_NAMES, suggestions[0]), { suggestions, fixes });
       }
       const types = op === "==" ? [name] : JQ_TYPE_NAMES.filter(n => n !== name);
       return { shape: typed(BooleanType), mult: ONE, proves: [{ kind: "type", path: typeSide.typeOf, types }] };
@@ -1041,11 +1037,11 @@ class Checker {
       const variantType = unwrap(caseSide.caseOf.variant);
       const allCases = variantType.type === "Variant" ? Object.keys(variantType.cases as Record<string, EastType>) : [];
       if (!allCases.includes(name)) {
-        const suggestions = closest(name, allCases).map(c => printString(c));
+        const suggestions = closest(name, allCases).map(c => jsonString(c));
         const range = this.range(otherPath);
         const fixes = suggestions.length > 0 && range !== undefined ? [edit(`Use ${suggestions[0]}`, range.from, range.to, suggestions[0]!)] : [];
         const variantPath = this.source(casePath).replace(/\s*\.\s*type$/, "");
-        return this.fail(range, "unknown_case", MESSAGES.unknownCase(variantPath, printString(name), allCases, suggestions[0]), { suggestions, fixes });
+        return this.fail(range, "unknown_case", MESSAGES.unknownCase(variantPath, jsonString(name), allCases, suggestions[0]), { suggestions, fixes });
       }
       if (op === "==" || op === "!=") {
         const cases = op === "==" ? [name] : caseSide.caseOf.cases.filter(c => c !== name);
@@ -1267,7 +1263,7 @@ class Checker {
       mult = piped(mult, value.mult);
       const earlier = literal.findIndex(l => l.name === name);
       if (earlier !== -1) {
-        this.warn(this.range(path), "duplicate_key", MESSAGES.duplicateKey(printString(name)));
+        this.warn(this.range(path), "duplicate_key", MESSAGES.duplicateKey(jsonString(name)));
         literal[earlier] = { name, result: value };
       } else {
         literal.push({ name, result: value });

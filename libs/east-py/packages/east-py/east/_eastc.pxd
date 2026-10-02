@@ -648,9 +648,13 @@ cdef extern from "east/serialization.h":
     EastValue *east_csv_decode_with_error(const char *csv, EastType *type,
                                            EastValue *config, char **error_out)
 
-    # East text format
+    # East text format. A string's NUL is written as itself, so text that may
+    # hold one is read and written at its length, through the _len forms.
     char *east_print_value(EastValue *value, EastType *type)
+    char *east_print_value_len(EastValue *value, EastType *type, size_t *len_out)
     EastValue *east_parse_value(const char *text, EastType *type)
+    EastValue *east_parse_value_len(const char *text, size_t length, EastType *type,
+                                    char **error_out)
     char *east_print_type(EastType *type)
     EastType *east_parse_type(const char *text)
 

@@ -4,8 +4,9 @@
  */
 
 /**
- * A jq program's constants: each literal's East type and value, and the
- * ISO-8601 text a string literal writes a DateTime as (`devdocs/QUERY.md` §7).
+ * A jq program's constants: each literal's East type and value, the ISO-8601
+ * text a string literal writes a DateTime as (`devdocs/QUERY.md` §7), and a
+ * string's jq text, which is JSON's.
  *
  * The checker and the translator read a literal through these alike: the
  * checker to type it and to report a string that is not a date, the
@@ -14,7 +15,7 @@
  * @packageDocumentation
  */
 
-import { jsonParseDateTime } from "../../serialization/json.js";
+import { encodeJSONFor, jsonParseDateTime } from "../../serialization/json.js";
 import { BooleanType, FloatType, IntegerType, NullType, StringType, type EastType, type ValueTypeOf } from "../../types.js";
 import type { JqLiteralType } from "../types.js";
 
@@ -37,6 +38,30 @@ export function literalValue(literal: JqLiteral): { type: EastType; value: unkno
     case "null": return { type: NullType, value: null };
     case "string": return { type: StringType, value: literal.value };
   }
+}
+
+/** A String's JSON, as East's JSON codec writes it: UTF-8 bytes. */
+const encodeStringJson = encodeJSONFor(StringType);
+const utf8 = new TextDecoder();
+
+/**
+ * A string as jq's text writes it: a JSON string, written by East's JSON
+ * codec. The twin of python's `json_string`.
+ *
+ * @param value - the string
+ * @returns the string in quotes, with JSON's escapes
+ *
+ * @remarks
+ * Whatever writes jq text writes its strings with this: the printer's string
+ * literals and quoted names, a checker's fix and the names its messages quote,
+ * a completion, a summary's program. East's own text escapes only a backslash
+ * and a quote and keeps control characters as they are, which a jq string
+ * cannot hold, so it is not jq's.
+ *
+ * @internal
+ */
+export function jsonString(value: string): string {
+  return utf8.decode(encodeStringJson(value));
 }
 
 /**

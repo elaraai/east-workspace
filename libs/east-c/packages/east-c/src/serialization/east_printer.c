@@ -95,11 +95,17 @@ static bool needs_escaping(const char *id)
     return false;
 }
 
+/* An identifier that is no plain one is quoted in backticks, each `\` and
+ * backtick in it escaped: the only escapes the grammar reads, as the
+ * TypeScript printer writes them. */
 static void pbuf_append_identifier(PBuf *sb, const char *id)
 {
     if (needs_escaping(id)) {
         pbuf_append_char(sb, '`');
-        pbuf_append_str(sb, id);
+        for (size_t i = 0; id[i]; i++) {
+            if (id[i] == '\\' || id[i] == '`') pbuf_append_char(sb, '\\');
+            pbuf_append_char(sb, id[i]);
+        }
         pbuf_append_char(sb, '`');
     } else {
         pbuf_append_str(sb, id);
@@ -523,10 +529,10 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
         }
         EastType *case_type =
             (ci < type->data.variant.num_cases) ? type->data.variant.cases[ci].type : NULL;
-        /* (debug removed) */
 
+        /* A case name is an identifier, quoted as a field name is */
         pbuf_append_char(sb, '.');
-        pbuf_append_str(sb, case_name);
+        pbuf_append_identifier(sb, case_name);
 
         /* Print value if not null */
         if (case_type && case_type->kind != EAST_TYPE_NULL && value->data.variant.value &&
@@ -661,13 +667,19 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
     }
 }
 
-char *east_print_value(EastValue *value, EastType *type)
+char *east_print_value_len(EastValue *value, EastType *type, size_t *len_out)
 {
     PBuf sb = pbuf_new(256);
     PrintContext ctx = {0};
     print_val(&sb, value, type, &ctx);
     ctx_free(&ctx);
+    if (len_out) *len_out = sb.data ? sb.len : 0;
     return pbuf_finish(&sb);
+}
+
+char *east_print_value(EastValue *value, EastType *type)
+{
+    return east_print_value_len(value, type, NULL);
 }
 
 /* ================================================================== */

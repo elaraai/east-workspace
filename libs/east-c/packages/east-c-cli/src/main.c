@@ -230,9 +230,13 @@ static EastValue *load_ir(const char *path, bool verbose)
         size_t len = 0;
         char *text = read_file_text(path, &len);
         if (!text) return NULL;
-        EastValue *val = east_parse_value(text, east_ir_type);
+        char *err = NULL;
+        EastValue *val = east_parse_value_len(text, len, east_ir_type, &err);
         free(text);
-        if (!val) fprintf(stderr, "Error: Failed to parse East IR from %s\n", path);
+        if (!val)
+            fprintf(stderr, "Error: Failed to parse East IR from %s: %s\n", path,
+                    err ? err : "the text does not parse");
+        free(err);
         return val;
     }
     return NULL;
@@ -277,9 +281,13 @@ static EastValue *load_value(const char *path, EastType *type)
         size_t len = 0;
         char *text = read_file_text(path, &len);
         if (!text) return NULL;
-        EastValue *val = east_parse_value(text, type);
+        char *err = NULL;
+        EastValue *val = east_parse_value_len(text, len, type, &err);
         free(text);
-        if (!val) fprintf(stderr, "Error: Failed to parse East from %s\n", path);
+        if (!val)
+            fprintf(stderr, "Error: Failed to parse East from %s: %s\n", path,
+                    err ? err : "the text does not parse");
+        free(err);
         return val;
     }
     return NULL;
@@ -532,12 +540,15 @@ static int save_value(const char *path, EastValue *value, EastType *type)
         return rc;
     }
     if (fmt == FMT_EAST) {
-        char *text = east_print_value(value, type);
+        /* The text's bytes as printed: a string's NUL or newline is written as
+         * itself, never cut short or translated */
+        size_t len = 0;
+        char *text = east_print_value_len(value, type, &len);
         if (!text) {
             fprintf(stderr, "Error: East print failed\n");
             return -1;
         }
-        int rc = write_file_text(path, text);
+        int rc = write_file_binary(path, (const uint8_t *)text, len);
         free(text);
         return rc;
     }
@@ -923,10 +934,12 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                 free(ts);
             }
         } else {
-            /* Print as .east format to stdout */
-            char *text = east_print_value(out_val, return_type);
+            /* Print as .east format to stdout, at its length */
+            size_t len = 0;
+            char *text = east_print_value_len(out_val, return_type, &len);
             if (text) {
-                printf("%s\n", text);
+                fwrite(text, 1, len, stdout);
+                fputc('\n', stdout);
                 free(text);
             }
         }
@@ -1467,13 +1480,14 @@ static int cmd_convert(const char *in_path, const char *out_path, const char *ty
             fprintf(stderr, "Wrote %s  (%s)\n", out_path, sz);
         }
     } else {
-        /* Default: print east-text to stdout. */
-        char *text = east_print_value(value, type);
+        /* Default: print east-text to stdout, at its length. */
+        size_t len = 0;
+        char *text = east_print_value_len(value, type, &len);
         if (!text) {
             fprintf(stderr, "Error: east-text print failed\n");
             rc = 1;
         } else {
-            fputs(text, stdout);
+            fwrite(text, 1, len, stdout);
             fputc('\n', stdout);
             free(text);
             rc = 0;

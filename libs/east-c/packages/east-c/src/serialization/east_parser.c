@@ -102,11 +102,85 @@ static void ta2_free(TokenArr2 *ta)
     free(ta->tokens);
 }
 
-/* Simplified re-implementation of tokenizer for parser self-containment */
-static TokenArr2 tokenize2(const char *text)
+/* Scans the quoted identifier whose opening backtick is at text[*pos], keeping
+ * *line and *col: `\\` and `\`` are its escapes, and every other character
+ * stands for itself, as the TypeScript parser reads one. Read whole, it is a
+ * token of `kind` at (start_line, start_col), holding the identifier; an
+ * escape the grammar has no meaning for, or a missing closing backtick, is a
+ * TOK_ERROR saying which, where it was found. */
+static Token2 scan_quoted_identifier(const char *text, size_t len, size_t *pos, int *line, int *col,
+                                     int start_line, int start_col, EastTokenType2 kind)
+{
+#define QADV()                                                                                     \
+    do {                                                                                           \
+        if (text[*pos] == '\n') {                                                                  \
+            (*line)++;                                                                             \
+            *col = 1;                                                                              \
+        } else {                                                                                   \
+            (*col)++;                                                                              \
+        }                                                                                          \
+        (*pos)++;                                                                                  \
+    } while (0)
+
+    Token2 t = {0};
+    size_t bcap = 64, blen = 0;
+    char *buf = malloc(bcap);
+    const char *refusal = NULL;
+    QADV(); /* the opening backtick */
+    for (;;) {
+        if (*pos >= len) {
+            refusal = "unterminated identifier (missing closing `)";
+            break;
+        }
+        char c = text[*pos];
+        if (c == '`') {
+            QADV();
+            break;
+        }
+        if (c == '\\') {
+            QADV();
+            if (*pos >= len) {
+                refusal = "unterminated identifier (missing closing `)";
+                break;
+            }
+            c = text[*pos];
+            if (c != '\\' && c != '`') {
+                refusal = "unexpected escape sequence in identifier";
+                break;
+            }
+        }
+        if (blen + 1 >= bcap) {
+            bcap *= 2;
+            buf = realloc(buf, bcap);
+        }
+        buf[blen++] = c;
+        QADV();
+    }
+#undef QADV
+
+    if (refusal) {
+        free(buf);
+        t.type = TOK_ERROR;
+        t.text = strdup(refusal);
+        t.text_len = strlen(refusal);
+        t.line = *line;
+        t.column = *col;
+        return t;
+    }
+    buf[blen] = '\0';
+    t.type = kind;
+    t.text = buf;
+    t.text_len = blen;
+    t.line = start_line;
+    t.column = start_col;
+    return t;
+}
+
+/* Simplified re-implementation of tokenizer for parser self-containment.
+ * Reads `len` bytes, a NUL among them standing for itself in a string. */
+static TokenArr2 tokenize2(const char *text, size_t len)
 {
     TokenArr2 result = ta2_new();
-    size_t len = strlen(text);
     size_t pos = 0;
     int line = 1, col = 1;
 
@@ -260,6 +334,10 @@ static TokenArr2 tokenize2(const char *text)
                 t.line = sl;
                 t.column = sc;
                 ta2_push(&result, t);
+            } else if (next == '`') {
+                /* A case name that is no plain identifier, quoted as one */
+                ta2_push(&result, scan_quoted_identifier(text, len, &pos, &line, &col, sl, sc,
+                                                         TOK_VARIANT_TAG));
             } else {
                 Token2 t = {0};
                 t.type = TOK_DOT;
@@ -304,7 +382,8 @@ static TokenArr2 tokenize2(const char *text)
                     else if (esc == quote)
                         buf[blen++] = quote;
                     else {
-                        /* Invalid escape — record error but continue for non-error path */
+                        /* An escape the grammar has no meaning for: the
+                         * first one is the string's error */
                         if (!str_error) {
                             str_error = true;
                             err_line = esc_line;
@@ -330,21 +409,14 @@ static TokenArr2 tokenize2(const char *text)
             }
             buf[blen] = '\0';
             if (str_error) {
-                /* Emit error token followed by a string token */
+                /* The string is refused where its error was found */
+                free(buf);
                 Token2 te = {0};
                 te.type = TOK_ERROR;
                 te.text = err_msg;
                 te.line = err_line;
                 te.column = err_col;
                 ta2_push(&result, te);
-                /* Also push the string so non-error path still works */
-                Token2 ts2 = {0};
-                ts2.type = TOK_STRING;
-                ts2.text = buf;
-                ts2.text_len = blen;
-                ts2.line = sl;
-                ts2.column = sc;
-                ta2_push(&result, ts2);
             } else {
                 Token2 t = {0};
                 t.type = TOK_STRING;
@@ -590,26 +662,8 @@ static TokenArr2 tokenize2(const char *text)
         /* Identifier/keyword */
         else if (isalpha((unsigned char)c) || c == '_' || c == '`') {
             if (c == '`') {
-                ADV2();
-                size_t bcap = 64, blen = 0;
-                char *buf = malloc(bcap);
-                while (pos < len && CUR2() != '`') {
-                    buf[blen++] = CUR2();
-                    ADV2();
-                    if (blen >= bcap - 1) {
-                        bcap *= 2;
-                        buf = realloc(buf, bcap);
-                    }
-                }
-                if (CUR2() == '`') ADV2();
-                buf[blen] = '\0';
-                Token2 t = {0};
-                t.type = TOK_IDENTIFIER;
-                t.text = buf;
-                t.text_len = blen;
-                t.line = sl;
-                t.column = sc;
-                ta2_push(&result, t);
+                ta2_push(&result, scan_quoted_identifier(text, len, &pos, &line, &col, sl, sc,
+                                                         TOK_IDENTIFIER));
             } else {
                 size_t bcap = 64, blen = 0;
                 char *buf = malloc(bcap);
@@ -671,10 +725,10 @@ static TokenArr2 tokenize2(const char *text)
 /*  Stream helpers                                                     */
 /* ================================================================== */
 
-static TokStream2 ts2_new(const char *text)
+static TokStream2 ts2_new(const char *text, size_t len)
 {
     TokStream2 ts;
-    ts.ta = tokenize2(text);
+    ts.ta = tokenize2(text, len);
     ts.pos = 0;
     return ts;
 }
@@ -875,522 +929,17 @@ static EastValue *pctx_resolve_backref(TokStream2 *ts, ParseContext *ctx)
 }
 
 /* ================================================================== */
-/*  Value parser                                                       */
-/* ================================================================== */
-
-static EastValue *parse_val(TokStream2 *ts, EastType *type, ParseContext *ctx);
-
-static EastValue *parse_val(TokStream2 *ts, EastType *type, ParseContext *ctx)
-{
-    if (!type) return NULL;
-    Token2 *tok = ts2_cur(ts);
-
-    switch (type->kind) {
-    case EAST_TYPE_NULL:
-        if (tok->type == TOK_NULL_TOK) {
-            ts2_adv(ts);
-            return east_null();
-        }
-        return NULL;
-
-    case EAST_TYPE_BOOLEAN:
-        if (tok->type == TOK_TRUE) {
-            ts2_adv(ts);
-            return east_boolean(true);
-        }
-        if (tok->type == TOK_FALSE) {
-            ts2_adv(ts);
-            return east_boolean(false);
-        }
-        return NULL;
-
-    case EAST_TYPE_INTEGER:
-        if (tok->type == TOK_INTEGER) {
-            ts2_adv(ts);
-            return east_integer(tok->int_val);
-        }
-        return NULL;
-
-    case EAST_TYPE_FLOAT:
-        /* The reference float grammar rejects a leading '+' (the integer
-         * grammar accepts it), so a '+'-signed number token is not a float. */
-        if ((tok->type == TOK_FLOAT || tok->type == TOK_INTEGER) && tok->text &&
-            tok->text[0] == '+') {
-            return NULL;
-        }
-        if (tok->type == TOK_FLOAT) {
-            ts2_adv(ts);
-            return east_float(tok->float_val);
-        }
-        if (tok->type == TOK_INTEGER) {
-            ts2_adv(ts);
-            return east_float((double)tok->int_val);
-        }
-        return NULL;
-
-    case EAST_TYPE_STRING:
-        if (tok->type == TOK_ERROR) {
-            /* Skip error token to get the string token behind it */
-            ts2_adv(ts);
-            tok = ts2_cur(ts);
-        }
-        if (tok->type == TOK_STRING) {
-            ts2_adv(ts);
-            return east_string_len(tok->text, tok->text_len);
-        }
-        return NULL;
-
-    case EAST_TYPE_DATETIME: {
-        if (tok->type == TOK_DATETIME_LIT && tok->text) {
-            ts2_adv(ts);
-            /* Parse ISO 8601 datetime */
-            int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0, ms = 0;
-            int tz_sign = 1, tz_hour = 0, tz_min = 0;
-
-            sscanf(tok->text, "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &min, &sec);
-            const char *dot = strchr(tok->text, '.');
-            if (dot) {
-                /* Parse milliseconds */
-                char msbuf[4] = {0};
-                size_t mlen = 0;
-                const char *dp = dot + 1;
-                while (*dp >= '0' && *dp <= '9' && mlen < 3) {
-                    msbuf[mlen++] = *dp++;
-                }
-                /* Pad with zeros if needed */
-                while (mlen < 3)
-                    msbuf[mlen++] = '0';
-                ms = atoi(msbuf);
-            }
-
-            /* Handle timezone */
-            const char *p = tok->text;
-            while (*p) {
-                if (*p == 'Z' || *p == 'z') break;
-                if ((*p == '+' || *p == '-') && p > tok->text + 10) {
-                    tz_sign = (*p == '-') ? -1 : 1;
-                    sscanf(p + 1, "%d:%d", &tz_hour, &tz_min);
-                    break;
-                }
-                p++;
-            }
-
-            /* Convert to epoch millis */
-            int64_t y = year;
-            int64_t m_adj = month;
-            if (m_adj <= 2) {
-                y--;
-                m_adj += 9;
-            } else {
-                m_adj -= 3;
-            }
-
-            int64_t era = (y >= 0 ? y : y - 399) / 400;
-            int64_t yoe = y - era * 400;
-            int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-            int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-            int64_t days = era * 146097 + doe - 719468;
-
-            int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
-            epoch_secs -= tz_sign * (tz_hour * 3600 + tz_min * 60);
-
-            return east_datetime(epoch_secs * 1000 + ms);
-        }
-        return NULL;
-    }
-
-    case EAST_TYPE_BLOB: {
-        if (tok->type == TOK_HEX && tok->text) {
-            ts2_adv(ts);
-            size_t hlen = tok->text_len;
-            size_t blen = hlen / 2;
-            if (hlen % 2 != 0) return NULL;
-            if (hlen == 0) return east_blob(NULL, 0);
-
-            uint8_t *bdata = malloc(blen);
-            for (size_t i = 0; i < blen; i++) {
-                char hex[3] = {tok->text[i * 2], tok->text[i * 2 + 1], '\0'};
-                bdata[i] = (uint8_t)strtoul(hex, NULL, 16);
-            }
-            EastValue *val = east_blob(bdata, blen);
-            free(bdata);
-            return val;
-        }
-        return NULL;
-    }
-
-    case EAST_TYPE_ARRAY: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
-        EastType *elem_type = type->data.element;
-        if (!ts2_match(ts, TOK_LBRACKET)) return NULL;
-        EastValue *arr = east_array_new(elem_type);
-        if (ctx) pctx_register(ctx, arr);
-
-        if (ts2_cur(ts)->type != TOK_RBRACKET) {
-            size_t idx = 0;
-            for (;;) {
-                char idx_buf[24];
-                snprintf(idx_buf, sizeof(idx_buf), "[%zu]", idx);
-                if (ctx) pctx_push_path(ctx, idx_buf);
-                EastValue *elem = parse_val(ts, elem_type, ctx);
-                if (ctx) pctx_pop_path(ctx);
-                if (!elem) {
-                    east_value_release(arr);
-                    return NULL;
-                }
-                east_array_push(arr, elem);
-                east_value_release(elem);
-                idx++;
-                if (!ts2_match(ts, TOK_COMMA)) break;
-            }
-        }
-        if (!ts2_match(ts, TOK_RBRACKET)) {
-            east_value_release(arr);
-            return NULL;
-        }
-        return arr;
-    }
-
-    case EAST_TYPE_SET: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
-        EastType *elem_type = type->data.element;
-        if (!ts2_match(ts, TOK_LBRACE)) return NULL;
-        EastValue *set = east_set_new(elem_type);
-        if (ctx) pctx_register(ctx, set);
-
-        if (ts2_cur(ts)->type != TOK_RBRACE) {
-            for (;;) {
-                EastValue *elem = parse_val(ts, elem_type, ctx);
-                if (!elem) {
-                    east_value_release(set);
-                    return NULL;
-                }
-                east_set_insert(set, elem);
-                east_value_release(elem);
-                if (!ts2_match(ts, TOK_COMMA)) break;
-            }
-        }
-        if (!ts2_match(ts, TOK_RBRACE)) {
-            east_value_release(set);
-            return NULL;
-        }
-        return set;
-    }
-
-    case EAST_TYPE_DICT: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
-        EastType *key_type = type->data.dict.key;
-        EastType *val_type = type->data.dict.value;
-
-        if (!ts2_match(ts, TOK_LBRACE)) return NULL;
-        EastValue *dict = east_dict_new(key_type, val_type);
-        if (ctx) pctx_register(ctx, dict);
-
-        /* Handle empty dict: {} or {:} */
-        if (ts2_cur(ts)->type == TOK_RBRACE) {
-            ts2_adv(ts);
-            return dict;
-        }
-        if (ts2_cur(ts)->type == TOK_COLON) {
-            ts2_adv(ts);
-            if (!ts2_match(ts, TOK_RBRACE)) {
-                east_value_release(dict);
-                return NULL;
-            }
-            return dict;
-        }
-
-        for (;;) {
-            EastValue *k = parse_val(ts, key_type, ctx);
-            if (!k) {
-                east_value_release(dict);
-                return NULL;
-            }
-            if (!ts2_match(ts, TOK_COLON)) {
-                east_value_release(k);
-                east_value_release(dict);
-                return NULL;
-            }
-            EastValue *v = parse_val(ts, val_type, ctx);
-            if (!v) {
-                east_value_release(k);
-                east_value_release(dict);
-                return NULL;
-            }
-            east_dict_set(dict, k, v);
-            east_value_release(k);
-            east_value_release(v);
-            if (!ts2_match(ts, TOK_COMMA)) break;
-        }
-        if (!ts2_match(ts, TOK_RBRACE)) {
-            east_value_release(dict);
-            return NULL;
-        }
-        return dict;
-    }
-
-    case EAST_TYPE_STRUCT: {
-        if (!ts2_match(ts, TOK_LPAREN)) return NULL;
-
-        size_t nf = type->data.struct_.num_fields;
-        const char **names = malloc(nf * sizeof(char *));
-        EastValue **values = calloc(nf, sizeof(EastValue *));
-
-        for (size_t i = 0; i < nf; i++) {
-            names[i] = type->data.struct_.fields[i].name;
-        }
-
-        while (ts2_cur(ts)->type != TOK_RPAREN && ts2_cur(ts)->type != TOK_EOF_TOK) {
-            /* Parse field_name = value */
-            Token2 *name_tok = ts2_cur(ts);
-            if (name_tok->type != TOK_IDENTIFIER) break;
-            ts2_adv(ts);
-
-            if (!ts2_match(ts, TOK_EQUALS)) break;
-
-            /* Find field index */
-            int fidx = -1;
-            for (size_t i = 0; i < nf; i++) {
-                if (strcmp(names[i], name_tok->text) == 0) {
-                    fidx = (int)i;
-                    break;
-                }
-            }
-
-            if (fidx >= 0) {
-                char path_buf[256];
-                snprintf(path_buf, sizeof(path_buf), ".%s", name_tok->text);
-                if (ctx) pctx_push_path(ctx, path_buf);
-                values[fidx] = parse_val(ts, type->data.struct_.fields[fidx].type, ctx);
-                if (ctx) pctx_pop_path(ctx);
-                if (!values[fidx]) {
-                    /* Field was present but value failed to parse — error */
-                    for (size_t i = 0; i < nf; i++) {
-                        if (values[i]) east_value_release(values[i]);
-                    }
-                    free(names);
-                    free(values);
-                    return NULL;
-                }
-            }
-
-            ts2_match(ts, TOK_COMMA); /* optional trailing comma */
-        }
-
-        ts2_match(ts, TOK_RPAREN);
-
-        /* Fill missing fields with null */
-        for (size_t i = 0; i < nf; i++) {
-            if (!values[i]) values[i] = east_null();
-        }
-
-        EastValue *result = east_struct_new(names, values, nf, type);
-        for (size_t i = 0; i < nf; i++)
-            east_value_release(values[i]);
-        free(names);
-        free(values);
-        return result;
-    }
-
-    case EAST_TYPE_VARIANT: {
-        /* .CaseName [value] */
-        if (tok->type != TOK_VARIANT_TAG) return NULL;
-        ts2_adv(ts);
-
-        const char *case_name = tok->text;
-        EastType *case_type = NULL;
-        for (size_t i = 0; i < type->data.variant.num_cases; i++) {
-            if (strcmp(type->data.variant.cases[i].name, case_name) == 0) {
-                case_type = type->data.variant.cases[i].type;
-                break;
-            }
-        }
-        if (!case_type) return NULL;
-
-        EastValue *case_value;
-        if (case_type->kind == EAST_TYPE_NULL) {
-            /* Nullary variant: optionally accept explicit "null" */
-            if (ts2_cur(ts)->type == TOK_NULL_TOK) ts2_adv(ts);
-            case_value = east_null();
-        } else {
-            case_value = parse_val(ts, case_type, ctx);
-            if (!case_value) return NULL;
-        }
-
-        EastValue *result = east_variant_new(case_name, case_value, type);
-        east_value_release(case_value);
-        return result;
-    }
-
-    case EAST_TYPE_REF: {
-        /* &value or backref */
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
-        if (!ts2_match(ts, TOK_AMPERSAND)) return NULL;
-        EastValue *inner = parse_val(ts, type->data.element, ctx);
-        if (!inner) return NULL;
-        EastValue *ref = east_ref_new(inner);
-        east_value_release(inner);
-        if (ctx) pctx_register(ctx, ref);
-        return ref;
-    }
-
-    case EAST_TYPE_VECTOR: {
-        /* vec[elem, elem, ...] */
-        EastType *elem_type = type->data.element;
-        Token2 *cur = ts2_cur(ts);
-        if (cur->type != TOK_IDENTIFIER || !cur->text || strcmp(cur->text, "vec") != 0) return NULL;
-        ts2_adv(ts);
-        if (!ts2_match(ts, TOK_LBRACKET)) return NULL;
-
-        /* Collect elements */
-        size_t cap = 16, vlen = 0;
-        size_t elem_size = 0;
-        if (elem_type->kind == EAST_TYPE_FLOAT)
-            elem_size = sizeof(double);
-        else if (elem_type->kind == EAST_TYPE_INTEGER)
-            elem_size = sizeof(int64_t);
-        else if (elem_type->kind == EAST_TYPE_BOOLEAN)
-            elem_size = sizeof(bool);
-
-        void *tmp = malloc(cap * elem_size);
-
-        if (ts2_cur(ts)->type != TOK_RBRACKET) {
-            for (;;) {
-                EastValue *elem = parse_val(ts, elem_type, ctx);
-                if (!elem) {
-                    free(tmp);
-                    return NULL;
-                }
-                if (vlen >= cap) {
-                    cap *= 2;
-                    tmp = realloc(tmp, cap * elem_size);
-                }
-                if (elem_type->kind == EAST_TYPE_FLOAT)
-                    ((double *)tmp)[vlen] = elem->data.float64;
-                else if (elem_type->kind == EAST_TYPE_INTEGER)
-                    ((int64_t *)tmp)[vlen] = elem->data.integer;
-                else if (elem_type->kind == EAST_TYPE_BOOLEAN)
-                    ((bool *)tmp)[vlen] = elem->data.boolean;
-                east_value_release(elem);
-                vlen++;
-                if (!ts2_match(ts, TOK_COMMA)) break;
-            }
-        }
-        if (!ts2_match(ts, TOK_RBRACKET)) {
-            free(tmp);
-            return NULL;
-        }
-
-        EastValue *vec = east_vector_new(elem_type, vlen);
-        if (vec && vlen > 0) {
-            memcpy(vec->data.vector.data, tmp, vlen * elem_size);
-        }
-        free(tmp);
-        return vec;
-    }
-
-    case EAST_TYPE_MATRIX: {
-        /* mat[[row], [row], ...] */
-        EastType *elem_type = type->data.element;
-        Token2 *cur = ts2_cur(ts);
-        if (cur->type != TOK_IDENTIFIER || !cur->text || strcmp(cur->text, "mat") != 0) return NULL;
-        ts2_adv(ts);
-        if (!ts2_match(ts, TOK_LBRACKET)) return NULL;
-
-        size_t rows = 0, cols = 0;
-        size_t cap_flat = 64;
-        size_t elem_size = 0;
-        if (elem_type->kind == EAST_TYPE_FLOAT)
-            elem_size = sizeof(double);
-        else if (elem_type->kind == EAST_TYPE_INTEGER)
-            elem_size = sizeof(int64_t);
-        else if (elem_type->kind == EAST_TYPE_BOOLEAN)
-            elem_size = sizeof(bool);
-
-        void *flat = malloc(cap_flat * elem_size);
-        size_t flat_len = 0;
-
-        if (ts2_cur(ts)->type != TOK_RBRACKET) {
-            for (;;) {
-                if (!ts2_match(ts, TOK_LBRACKET)) {
-                    free(flat);
-                    return NULL;
-                }
-                size_t row_cols = 0;
-                if (ts2_cur(ts)->type != TOK_RBRACKET) {
-                    for (;;) {
-                        if (flat_len >= cap_flat) {
-                            cap_flat *= 2;
-                            flat = realloc(flat, cap_flat * elem_size);
-                        }
-                        EastValue *elem = parse_val(ts, elem_type, ctx);
-                        if (!elem) {
-                            free(flat);
-                            return NULL;
-                        }
-                        if (elem_type->kind == EAST_TYPE_FLOAT)
-                            ((double *)flat)[flat_len] = elem->data.float64;
-                        else if (elem_type->kind == EAST_TYPE_INTEGER)
-                            ((int64_t *)flat)[flat_len] = elem->data.integer;
-                        else if (elem_type->kind == EAST_TYPE_BOOLEAN)
-                            ((bool *)flat)[flat_len] = elem->data.boolean;
-                        east_value_release(elem);
-                        flat_len++;
-                        row_cols++;
-                        if (!ts2_match(ts, TOK_COMMA)) break;
-                    }
-                }
-                if (!ts2_match(ts, TOK_RBRACKET)) {
-                    free(flat);
-                    return NULL;
-                }
-                if (rows == 0) cols = row_cols;
-                rows++;
-                if (!ts2_match(ts, TOK_COMMA)) break;
-            }
-        }
-        if (!ts2_match(ts, TOK_RBRACKET)) {
-            free(flat);
-            return NULL;
-        }
-
-        EastValue *mat = east_matrix_new(elem_type, rows, cols);
-        if (mat && flat_len > 0) {
-            memcpy(mat->data.matrix.data, flat, flat_len * elem_size);
-        }
-        free(flat);
-        return mat;
-    }
-
-    case EAST_TYPE_RECURSIVE:
-        /* Unwrap: parse via the inner node type */
-        if (type->data.recursive.node) {
-            return parse_val(ts, type->data.recursive.node, ctx);
-        }
-        return NULL;
-
-    case EAST_TYPE_NEVER:
-    case EAST_TYPE_FUNCTION:
-    case EAST_TYPE_ASYNC_FUNCTION:
-        return NULL;
-    }
-
-    return NULL;
-}
-
-/* ================================================================== */
 /*  Public API: east_parse_value                                       */
 /* ================================================================== */
 
+/* The plain entry is the one parser, refusing what it refuses - an escape the
+ * grammar has no meaning for, a field missing or out of order, trailing input
+ * - and answering NULL without saying why: east_parse_value_len, below, says
+ * why. */
 EastValue *east_parse_value(const char *text, EastType *type)
 {
-    if (!text || !type) return NULL;
-    TokStream2 ts = ts2_new(text);
-    ParseContext ctx = {0};
-    EastValue *result = parse_val(&ts, type, &ctx);
-    pctx_free(&ctx);
-    ts2_free(&ts);
-    return result;
+    if (!text) return NULL;
+    return east_parse_value_len(text, strlen(text), type, NULL);
 }
 
 /* ================================================================== */
@@ -2411,13 +1960,22 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
 }
 
 /* ================================================================== */
-/*  Public API: east_parse_value_with_error                            */
+/*  Public API: east_parse_value_with_error, east_parse_value_len      */
 /* ================================================================== */
 
 EastValue *east_parse_value_with_error(const char *text, EastType *type, char **error_out)
 {
+    if (!text) return NULL;
+    return east_parse_value_len(text, strlen(text), type, error_out);
+}
+
+/* The parse of `len` bytes of text, which may hold a NUL: a string's NUL is
+ * read as itself, as every runtime prints one. A message's "got" names the
+ * character a token starts at as far as the first NUL. */
+EastValue *east_parse_value_len(const char *text, size_t len, EastType *type, char **error_out)
+{
     if (!text || !type) return NULL;
-    TokStream2 ts = ts2_new(text);
+    TokStream2 ts = ts2_new(text, len);
     ParseContext ctx = {0};
     ParseErr err;
     pe_init(&err);
@@ -2772,7 +2330,7 @@ static EastType *parse_type_internal(TokStream2 *ts)
 EastType *east_parse_type(const char *text)
 {
     if (!text) return NULL;
-    TokStream2 ts = ts2_new(text);
+    TokStream2 ts = ts2_new(text, strlen(text));
     EastType *result = parse_type_internal(&ts);
     ts2_free(&ts);
     return result;
