@@ -7,13 +7,14 @@ include ../../paths.mk
 
 .PHONY: build test test-export test-export-std test-export-io lint clean help
 
-## Build the project
+## Build the project: every package, in dependency order
 build:
-	pnpm run build
+	pnpm -r --filter='./packages/*' run build
 
-## Run all tests (builds first)
+## Run all tests (builds first), one package at a time
 test:
-	pnpm run build && pnpm test
+	pnpm -r --filter='./packages/*' run build
+	pnpm -r --workspace-concurrency=1 --filter='./packages/*' run test
 
 ## Export test IR from packages that support it
 test-export:
@@ -32,7 +33,8 @@ test-export-io:
 
 ## Run linter (builds first)
 lint:
-	pnpm run build && pnpm run lint
+	pnpm -r --filter='./packages/*' run build
+	pnpm -r --filter='./packages/*' run lint
 
 ## Clean build artifacts
 clean:

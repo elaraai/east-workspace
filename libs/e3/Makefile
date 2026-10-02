@@ -60,10 +60,10 @@ test-integration-shard: build-integration
 	@echo "Running integration shard $(SHARD)..."
 	pnpm --filter e3-integration-tests run test:specs $(INTEGRATION_SHARD_$(SHARD))
 
-## Run all linters
+## Run all linters: every package's, and the integration specs'
 lint:
 	@echo "Linting all packages..."
-	pnpm run lint
+	pnpm -r --filter='./packages/*' --filter='./test/*' run lint
 
 ## Pre-build the local @elaraai stack the environment e2e materializes.
 ## Optional: test/integration/src/localStack.ts builds it on demand. Running it

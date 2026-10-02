@@ -50,6 +50,14 @@ cd libs/east && make test       # tests only east
 cd libs/e3 && make help         # lists e3-specific extras (e.g. `make test-integration-shard`)
 ```
 
+A lib's `make build`, `make test` and `make lint` run its packages' own
+scripts, `pnpm -r --filter='./packages/*' run <script>`. A lib's own
+`package.json` defines no `build`, `test` or `lint` script (#1115): the root's
+`pnpm -r` runs every workspace package that has one, so an aggregate's script
+would run its packages a second time, beside their own runs and ahead of their
+dependencies. What a lib does beyond its packages' scripts — east-web's
+compliance run, say — is its Makefile's.
+
 Lib-specific extras (run `make help` in each):
 
 | Lib | Notable extras |
