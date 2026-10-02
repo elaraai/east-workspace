@@ -9,10 +9,11 @@ construct for construct — the two builders must produce the same IR under
 declared ``returns`` on east-c.
 
 The TypeScript side is read from the exported examples
-(``/tmp/east-examples-ir/crosslang``, ``npm run export:examples`` in
-libs/east); without it the stem SKIPS, and under
-``EAST_CONFORMANCE_REQUIRED=1`` (CI) a missing export is a collection error
-(``test_ts_py_roundtrip`` raises it first).
+(``$EAST_EXAMPLES_IR_DIR/crosslang``, ``make export-examples`` in libs/east;
+the root ``paths.mk`` sets the variable when the run goes through make);
+without it the stem SKIPS, and under ``EAST_CONFORMANCE_REQUIRED=1`` (CI) a
+missing export is a collection error (``test_ts_py_roundtrip`` raises it
+first).
 """
 
 from __future__ import annotations
@@ -131,12 +132,15 @@ STEM = {
     "crosslangUnwrapMerge": unwrap_merge,
 }
 
-STEM_DIR = os.path.join(EXAMPLES_DIR, "crosslang")
+STEM_DIR = os.path.join(EXAMPLES_DIR, "crosslang") if EXAMPLES_DIR else None
+STEM_WHERE = STEM_DIR or "EAST_EXAMPLES_IR_DIR, which is unset (run it through make)"
 
 
-@pytest.mark.skipif(not os.path.isdir(STEM_DIR), reason=f"no exported crosslang examples in {STEM_DIR}")
+@pytest.mark.skipif(STEM_DIR is None or not os.path.isdir(STEM_DIR),
+                    reason=f"no exported crosslang examples in {STEM_WHERE}")
 @pytest.mark.parametrize("name", list(STEM))
 def test_same_program_same_ir_same_result(name):
+    assert STEM_DIR is not None
     raw, ts_ir = _load(os.path.join(STEM_DIR, f"{name}.json"))
     py_fn = STEM[name]
     py_ir = function_ir(py_fn)
@@ -153,7 +157,7 @@ def test_same_program_same_ir_same_result(name):
 
 
 def test_every_exported_stem_example_has_a_python_twin():
-    if not os.path.isdir(STEM_DIR):
-        pytest.skip(f"no exported crosslang examples in {STEM_DIR}")
+    if STEM_DIR is None or not os.path.isdir(STEM_DIR):
+        pytest.skip(f"no exported crosslang examples in {STEM_WHERE}")
     exported = sorted(f[:-5] for f in os.listdir(STEM_DIR) if f.endswith(".json"))
     assert exported == sorted(STEM), "every TypeScript stem example needs its python twin here"

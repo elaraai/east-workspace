@@ -31,11 +31,14 @@ from east.serialization.json import decode_json_for, encode_json_for
 from east.types.type_of_type import IRType
 from tests.test_compliance import SUITE_SUBDIRECTORIES, get_test_ir_files, suite_name
 
-IR_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
-# The corpus's suites, the query suites' directories (#924, #987) included.
-FILES = [str(f) for f in get_test_ir_files(Path(IR_DIR), SUITE_SUBDIRECTORIES)]
+# The exported corpus, which the root paths.mk names when the run goes through
+# make; its suites, the query suites' directories (#924, #987) included.
+IR_DIR = os.environ.get("EAST_TEST_IR_DIR")
+FILES = [str(f) for f in get_test_ir_files(Path(IR_DIR), SUITE_SUBDIRECTORIES)] if IR_DIR else []
 
-pytestmark = pytest.mark.skipif(not FILES, reason=f"no exported IR corpus in {IR_DIR}")
+pytestmark = pytest.mark.skipif(
+    not FILES,
+    reason=f"no exported IR corpus in {IR_DIR}" if IR_DIR else "EAST_TEST_IR_DIR is unset: run it through make")
 
 
 def _json(ir) -> str:

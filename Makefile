@@ -12,6 +12,11 @@ ifneq ($(words $(CURDIR)),1)
 $(error This checkout is at a path containing spaces: "$(CURDIR)". Clone/move it to a space-free path outside OneDrive, e.g. C:/src/east-workspace. See docs/WINDOWS_SETUP.md.)
 endif
 
+# The checkout's paths: the corpora the exports write and the gates read, for
+# the targets that run package scripts directly (`pnpm test`, test-all's
+# TypeScript leg) as much as for the libs' own Makefiles
+include paths.mk
+
 .PHONY: setup setup-browser install build link test lint clean services-up services-down services-status server-e3 server-e3-update server-e3-down server-e3-logs test-all test-export set-version check-version help check-deps
 
 # ── Setup (one-time) ─────────────────────────────────────────────────
@@ -267,8 +272,9 @@ test-all: services-up test-export
 	@exit_code=0; \
 	echo ""; \
 	echo "=== TypeScript ==="; \
-	EAST_QUIET=1 pnpm -r --no-bail run test > /tmp/east-ts-test.log 2>&1 || exit_code=1; \
-	tail -12 /tmp/east-ts-test.log; \
+	mkdir -p $(REPO_ROOT)/tmp; \
+	EAST_QUIET=1 pnpm -r --no-bail run test > $(REPO_ROOT)/tmp/east-ts-test.log 2>&1 || exit_code=1; \
+	tail -12 $(REPO_ROOT)/tmp/east-ts-test.log; \
 	echo ""; \
 	echo "=== east-web ==="; \
 	EAST_QUIET=1 $(MAKE) --no-print-directory -C $(CURDIR)/libs/east-web test-compliance || exit_code=1; \

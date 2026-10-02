@@ -5,9 +5,10 @@
 """The IR → python → IR round trip (#627).
 
 For every program of the exported TypeScript compliance corpus
-(``/tmp/east-test-ir``, ``make test-export`` in libs/east) and every
-exported ``*.examples.ts`` example (``/tmp/east-examples-ir``, ``npm run
-export:examples``):
+(``EAST_TEST_IR_DIR``, ``make test-export`` in libs/east) and every
+exported ``*.examples.ts`` example (``EAST_EXAMPLES_IR_DIR``, ``make
+export-examples`` in libs/east) — the root ``paths.mk`` sets both to this
+checkout's ``tmp/`` when the run goes through make:
 
     IR₁ → east.codegen.to_python_source → python module → East.function → IR₂
 
@@ -28,11 +29,11 @@ about a minute over the corpus and the examples. (It took twelve until
 #636: not the compliance runs but the type converter, re-minting and
 re-interning every recursive type at every crossing.)
 
-Without an exported IR directory a leg SKIPS — the local default. CI sets
-``EAST_CONFORMANCE_REQUIRED=1``, under which a missing directory is a
-collection ERROR: the round trip is a required gate there, and a leg that
-quietly skipped because the temp dir did not match the default path was
-how it went unrun for a while.
+Without an exported IR directory, or its variable, a leg SKIPS — the local
+default. CI sets ``EAST_CONFORMANCE_REQUIRED=1``, under which a missing
+directory is a collection ERROR: the round trip is a required gate there,
+and a leg that quietly skipped because the temp dir did not match the
+default path was how it went unrun for a while.
 """
 
 from __future__ import annotations
@@ -52,14 +53,16 @@ from east.serialization.json import decode_json_for, encode_json_for
 from east.types.type_of_type import IRType
 from tests.test_compliance import SUITE_SUBDIRECTORIES, get_test_ir_files, suite_name
 
-CORPUS_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
-EXAMPLES_DIR = os.environ.get("EAST_EXAMPLES_IR_DIR", "/tmp/east-examples-ir")
+CORPUS_DIR = os.environ.get("EAST_TEST_IR_DIR")
+EXAMPLES_DIR = os.environ.get("EAST_EXAMPLES_IR_DIR")
 SAVE_DIR = os.environ.get("EAST_CONFORMANCE_SAVE")
 REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 
 # The corpus's suites, the query suites' directories (#924, #987) included, each named by its path under the corpus.
-CORPUS = [str(f) for f in get_test_ir_files(Path(CORPUS_DIR), SUITE_SUBDIRECTORIES)]
-EXAMPLES = sorted(glob.glob(os.path.join(EXAMPLES_DIR, "*", "*.json")))
+CORPUS = [str(f) for f in get_test_ir_files(Path(CORPUS_DIR), SUITE_SUBDIRECTORIES)] if CORPUS_DIR else []
+EXAMPLES = sorted(glob.glob(os.path.join(EXAMPLES_DIR, "*", "*.json"))) if EXAMPLES_DIR else []
+CORPUS_WHERE = CORPUS_DIR or "EAST_TEST_IR_DIR, which is unset (run it through make)"
+EXAMPLES_WHERE = EXAMPLES_DIR or "EAST_EXAMPLES_IR_DIR, which is unset (run it through make)"
 
 
 def corpus_name(path: str) -> str:
@@ -68,12 +71,12 @@ def corpus_name(path: str) -> str:
 
 if REQUIRED and not CORPUS:
     raise RuntimeError(
-        f"EAST_CONFORMANCE_REQUIRED=1 but no exported IR corpus in {CORPUS_DIR} "
-        "(`make test-export` in libs/east, or set EAST_TEST_IR_DIR)")
+        f"EAST_CONFORMANCE_REQUIRED=1 but no exported IR corpus in {CORPUS_WHERE} "
+        "(`make test-export` in libs/east)")
 if REQUIRED and not EXAMPLES:
     raise RuntimeError(
-        f"EAST_CONFORMANCE_REQUIRED=1 but no exported examples in {EXAMPLES_DIR} "
-        "(`npm run export:examples` in libs/east, or set EAST_EXAMPLES_IR_DIR)")
+        f"EAST_CONFORMANCE_REQUIRED=1 but no exported examples in {EXAMPLES_WHERE} "
+        "(`make export-examples` in libs/east)")
 
 
 def _rebuild(ir, label: str, providers: Providers | None = None):
@@ -97,7 +100,7 @@ def _load(path: str):
 # ── the compliance corpus ────────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not CORPUS, reason=f"no exported IR corpus in {CORPUS_DIR}")
+@pytest.mark.skipif(not CORPUS, reason=f"no exported IR corpus in {CORPUS_WHERE}")
 @pytest.mark.parametrize("path", CORPUS, ids=[corpus_name(f) for f in CORPUS])
 def test_corpus_program_round_trips(path, tmp_path):
     _raw, ir = _load(path)
@@ -143,7 +146,7 @@ def _compliance_report(ir, path: Path):
 # ── every exported example ───────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not EXAMPLES, reason=f"no exported examples in {EXAMPLES_DIR}")
+@pytest.mark.skipif(not EXAMPLES, reason=f"no exported examples in {EXAMPLES_WHERE}")
 @pytest.mark.parametrize(
     "path", EXAMPLES,
     ids=[f"{os.path.basename(os.path.dirname(f))}/{os.path.basename(f)[:-5]}" for f in EXAMPLES])

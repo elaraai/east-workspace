@@ -238,7 +238,7 @@ recipe into CI only once it's green locally.
 4. **Run compliance on Windows** (the fuzz-filename fix on this branch already
    keeps IR filenames under `MAX_PATH`):
    ```bat
-   :: export IR on any box: cd libs/east && make test-export   (writes /tmp/east-test-ir)
+   :: export IR on any box: cd libs/east && make test-export   (writes the checkout's tmp/east-test-ir)
    libs\east-c\build-msvc\packages\east-c\test_compliance.exe <ir-dir>\Array.json
    :: or the whole suite via the portable runner under Git Bash:
    ./packages/east-c/scripts/run_compliance.sh build-msvc/ir-east build-msvc/packages/east-c/test_compliance

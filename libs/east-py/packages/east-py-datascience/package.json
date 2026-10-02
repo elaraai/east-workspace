@@ -22,7 +22,7 @@
     "build": "tsc",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
-    "test:export": "npm run build && rm -rf /tmp/east-py-datascience && EXPORT_TEST_IR=/tmp/east-py-datascience node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
+    "test:export": "npm run build && rm -rf \"${EAST_DATASCIENCE_IR_DIR:?is unset: run make -C libs/east-py test-export}\" && EXPORT_TEST_IR=\"$EAST_DATASCIENCE_IR_DIR\" node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

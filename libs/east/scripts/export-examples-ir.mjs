@@ -6,7 +6,12 @@
  * Export every `example()` in test/*.examples.ts as its own IR program, for
  * the cross-runtime codegen conformance suite (#627).
  *
- *   node scripts/export-examples-ir.mjs [outDir]      (default /tmp/east-examples-ir)
+ *   node scripts/export-examples-ir.mjs [outDir]
+ *
+ * `outDir` defaults to `EAST_EXAMPLES_IR_DIR`, which the root `paths.mk` sets
+ * to this checkout's `tmp/east-examples-ir` (`make -C libs/east
+ * export-examples`): where the codegen spec and east-py's conformance suites
+ * read it.
  *
  * Writes <outDir>/<suite>/<exportName>.json with the same `{ir, source_map}`
  * wrapper the test-IR export writes (east-c / east-py decode it as is), plus
@@ -22,7 +27,11 @@ import { pathToFileURL } from "node:url";
 const east = await import("../dist/src/index.js");
 const { Expr, toJSONFor, toEastTypeValue, IRType, StructType, ArrayType, IntegerType, StringType } = east;
 
-const outDir = process.argv[2] ?? "/tmp/east-examples-ir";
+const outDir = process.argv[2] ?? process.env.EAST_EXAMPLES_IR_DIR;
+if (!outDir) {
+  console.error("export-examples-ir: EAST_EXAMPLES_IR_DIR is unset: run make -C libs/east export-examples");
+  process.exit(1);
+}
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 

@@ -21,6 +21,9 @@
  * directory, removed when every case passes and kept for a look otherwise.
  *
  * usage: test_cli_exec <east-c-binary> [<corpus-dir>]
+ *   (default corpus: $EAST_TEST_IR_DIR/runner_corpus — the root paths.mk sets
+ *   EAST_TEST_IR_DIR when this runs through make, `make -C libs/east-c unit`;
+ *   unset, the corpus is skipped)
  */
 #include <east/compat.h>
 #include <east/east.h>
@@ -285,7 +288,15 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <east-c-binary> [<corpus-dir>]\n", argv[0]);
         return 2;
     }
-    const char *corpus = argc > 2 ? argv[2] : "/tmp/east-test-ir/runner_corpus";
+    char default_corpus[4096];
+    const char *corpus = argc > 2 ? argv[2] : NULL;
+    if (!corpus) {
+        const char *ir = getenv("EAST_TEST_IR_DIR");
+        if (ir && *ir) {
+            snprintf(default_corpus, sizeof(default_corpus), "%s/runner_corpus", ir);
+            corpus = default_corpus;
+        }
+    }
     east_type_of_type_init();
     /* A unit refuses an output directory that holds anything, so every run
      * starts from fresh copies. */
@@ -295,17 +306,22 @@ int main(int argc, char **argv)
         return 2;
     }
     test_no_platform(argv[1], scratch);
-    char index[4096];
-    snprintf(index, sizeof(index), "%s/index.beast2", corpus);
-    if (!file_exists(index)) {
+    /* A path under the corpus has room for the corpus itself and a name after it. */
+    char index[8192];
+    if (corpus) snprintf(index, sizeof(index), "%s/index.beast2", corpus);
+    if (!corpus || !file_exists(index)) {
         if (failures > 0) {
             fprintf(stderr, "%d failure(s); the cases ran in %s\n", failures, scratch);
             return 1;
         }
         remove_tree(scratch);
-        printf("cli exec gate: a unit given no platform fails naming it; the corpus is skipped "
-               "(no runner corpus at %s — run `make test-export`)\n",
-               corpus);
+        if (corpus)
+            printf("cli exec gate: a unit given no platform fails naming it; the corpus is skipped "
+                   "(no runner corpus at %s — run `make test-export`)\n",
+                   corpus);
+        else
+            printf("cli exec gate: a unit given no platform fails naming it; the corpus is skipped "
+                   "(EAST_TEST_IR_DIR is unset: run it through make, make -C libs/east-c unit)\n");
         return 77;
     }
     EastValue *names = load(index, east_array_type(&east_string_type));

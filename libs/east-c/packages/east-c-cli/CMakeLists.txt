@@ -50,9 +50,10 @@ set_tests_properties(cli_profile PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BI
 # unit copied into a scratch directory and executed with `exec`, its exit
 # status, its result's outcome and every output byte held to the corpus.
 # Skips (exit 77) unless `make test-export` has produced
-# /tmp/east-test-ir/runner_corpus. Runs in the ASan tree too. Whatever the
-# corpus, it first runs a checked-in unit given no platform, whose program
-# calls one (#1031).
+# $EAST_TEST_IR_DIR/runner_corpus — the root paths.mk sets EAST_TEST_IR_DIR
+# when ctest runs through make (`make -C libs/east-c unit`). Runs in the ASan
+# tree too. Whatever the corpus, it first runs a checked-in unit given no
+# platform, whose program calls one (#1031).
 add_executable(test_cli_exec tests/test_cli_exec.c)
 target_link_libraries(test_cli_exec east-c)
 target_compile_definitions(test_cli_exec PRIVATE

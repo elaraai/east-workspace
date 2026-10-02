@@ -2,7 +2,8 @@
 # Run east-c / east-c-std compliance suites.
 #
 # Usage: run_compliance.sh [ir-dir] [test-binary]
-#   ir-dir       directory of exported IR .json files (default: /tmp/east-test-ir)
+#   ir-dir       directory of exported IR .json files (default: $EAST_TEST_IR_DIR,
+#                which the root paths.mk sets when this runs through make)
 #   test-binary  the compliance harness (default: build/.../test_compliance)
 #
 # Runs the harness against each IR file and fails (exit 1) if any suite fails.
@@ -14,8 +15,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/../../../build"
-IR_DIR="${1:-/tmp/east-test-ir}"
+IR_DIR="${1:-${EAST_TEST_IR_DIR:-}}"
 TEST_BIN="${2:-${BUILD_DIR}/packages/east-c/test_compliance}"
+
+if [ -z "$IR_DIR" ]; then
+    echo "Error: no IR directory: pass one, or run it through make (make -C libs/east-c test-east-c), which sets EAST_TEST_IR_DIR"
+    exit 1
+fi
 
 # Allow a .exe binary (Windows / cross-build) to be passed without the suffix.
 if [ ! -x "$TEST_BIN" ] && [ -x "${TEST_BIN}.exe" ]; then

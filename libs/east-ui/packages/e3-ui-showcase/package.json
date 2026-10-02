@@ -8,7 +8,7 @@
   "scripts": {
     "build": "node --max-old-space-size=16000 ./node_modules/typescript/bin/tsc",
     "test": "node --enable-source-maps --test 'dist/**/*.spec.js'",
-    "test:export": "rm -rf /tmp/e3-ui-showcase-tests && EXPORT_TEST_IR=/tmp/e3-ui-showcase-tests node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
+    "test:export": "rm -rf \"${E3_UI_SHOWCASE_TEST_IR:?is unset: run make -C libs/east-ui/packages/e3-ui-showcase test}\" && EXPORT_TEST_IR=\"$E3_UI_SHOWCASE_TEST_IR\" node --enable-source-maps --test 'dist/**/*.spec.js' 2>&1 | grep 'Exported test IR'",
     "lint": "eslint ."
   },
   "dependencies": {

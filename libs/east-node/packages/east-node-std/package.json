@@ -29,7 +29,7 @@
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "test:check": "tsc -p tsconfig.test.json",
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js'",
-    "test:export": "npm run build && rm -rf \"${EAST_NODE_STD_IR:-/tmp/east-node-std}\" && EXPORT_TEST_IR=\"${EAST_NODE_STD_IR:-/tmp/east-node-std}\" npm test 2>&1 | grep 'Exported test IR'",
+    "test:export": "npm run build && rm -rf \"${EAST_NODE_STD_IR:?is unset: run make -C libs/east-node test-export-std}\" && EXPORT_TEST_IR=\"$EAST_NODE_STD_IR\" npm test 2>&1 | grep 'Exported test IR'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
