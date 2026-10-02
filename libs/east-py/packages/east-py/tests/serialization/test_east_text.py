@@ -13,6 +13,7 @@ missing, trailing input — with east-c's message, where ``parse_east`` once rea
 """
 
 import pytest
+from east.serialization._beast2_eastc import beast2_auto_to_east_text
 
 from east import (
     DictType,
@@ -30,7 +31,6 @@ from east import (
     variant,
 )
 from east.ir.builders import ir_function, ir_value
-from east.serialization._beast2_eastc import beast2_auto_to_east_text
 from east.serialization.beast2 import encode_beast2_with_header_for
 from east.serialization.east_parser import parse_east
 from east.serialization.east_printer import print_east

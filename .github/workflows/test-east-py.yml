@@ -177,6 +177,15 @@ jobs:
         working-directory: libs/east-py
         run: uv run east-py lint packages/east-py/east packages/east-py-std packages/east-py-io packages/east-py-cli/east_py_cli packages/east-py-datascience/src
 
+      # The rest of `make lint`: the license headers and ruff. One OS is
+      # enough, since neither reads the platform.
+      - name: Lint (license headers + ruff)
+        if: runner.os == 'Linux'
+        working-directory: libs/east-py
+        run: |
+          uv run python scripts/check_headers.py
+          uv run ruff check packages/
+
   # The three-way sweep (#628): IR (TS) → python → IR → TypeScript → IR over
   # the corpus and every example — the python and TypeScript printers against
   # the python and TypeScript builders, every leg equal under east-c's
