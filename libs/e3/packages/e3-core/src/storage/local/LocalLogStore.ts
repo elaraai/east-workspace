@@ -100,6 +100,12 @@ export class LocalLogStore implements LogStore {
     }
   }
 
+  /** Holds nothing to flush: an append is in the log's file once it
+   *  resolves. */
+  flush(): Promise<void> {
+    return Promise.resolve();
+  }
+
   async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     for (const stream of ['stdout', 'stderr'] as const) {
       try {

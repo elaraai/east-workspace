@@ -149,6 +149,8 @@ They are kept separate:
 
 Each stream is decoded as whole UTF-8 characters and appended to its log with at most one append in flight; whatever arrives meanwhile is coalesced into the next append. While more than 1 MiB handed to the log has not been written, e3 pauses the pipe, so a runner that floods its output blocks on the pipe instead of growing e3's heap.
 
+**An execution's end follows its whole log.** A runner records how an attempt ended once every append of its log has settled. `ExecutionAttempt` flushes the log (`LogStore.flush`) before it writes the record, so a store that holds appends makes them readable first: one whose storage has no append of its own gathers appends into fewer, larger writes. A split task's own execution flushes its log before its end, and before the `interrupted` record a yielding run leaves. A package import writes an execution's logs, flushed, before its status. So a reader that finds an execution ended reads its whole log, whatever store holds it. A flush that fails is warned of, and the end is recorded all the same, as with an append that fails. The one log this cannot make whole is that of an execution whose host died before its end, which a later probe records `interrupted`: it holds what the store made readable before the host died.
+
 ## Stopped Executions
 
 An execution that e3 stops, or whose process dies, is recorded with a status that names the cause: the `cancelled` or `interrupted` case, or a `failed` or `error` that says why.
