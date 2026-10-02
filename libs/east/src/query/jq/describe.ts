@@ -10,11 +10,9 @@
  * @packageDocumentation
  */
 
-import { printFor } from "../../serialization/east.js";
-import { StringType, type EastType } from "../../types.js";
+import type { EastType } from "../../types.js";
+import { jsonString } from "./literals.js";
 import { describeType, nullablePayload, unwrap } from "./shapes.js";
-
-const printString = printFor(StringType);
 
 /**
  * The kind of a value, in plain words: `text`, `number`, `whole number`,
@@ -117,7 +115,7 @@ export function describeJqType(type: EastType, options: { maxDepth?: number } = 
     switch (u.type) {
       case "Struct":
         for (const [name, field] of Object.entries(u.fields as Record<string, EastType>)) {
-          visit(field, `${path}.${/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : printString(name)}`, depth + 1, when);
+          visit(field, `${path}.${/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : jsonString(name)}`, depth + 1, when);
         }
         return;
       case "Array": visit(u.value as EastType, `${path}[]`, depth + 1, when); return;
@@ -127,7 +125,7 @@ export function describeJqType(type: EastType, options: { maxDepth?: number } = 
       case "Dict": visit(u.value as EastType, `${path}[<${describeType(u.key as EastType, 1)}>]`, depth + 1, when); return;
       case "Variant": {
         const cases = u.cases as Record<string, EastType>;
-        lines.push(`${"  ".repeat(depth + 1)}${path}.type  ${Object.keys(cases).map(c => printString(c)).join(" | ")}${when}`);
+        lines.push(`${"  ".repeat(depth + 1)}${path}.type  ${Object.keys(cases).map(c => jsonString(c)).join(" | ")}${when}`);
         for (const [name, payload] of Object.entries(cases)) {
           if (unwrap(payload).type === "Null") continue;
           visit(payload, `${path}.value`, depth + 1, ` (when ${name})`);

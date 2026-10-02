@@ -12,11 +12,11 @@
  */
 
 import { validateCrossPlatformCompatible } from "../../expr/regex_validation.js";
-import { printFor } from "../../serialization/east.js";
 import {
   ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, OptionType, StringType, StructType,
   VariantType, isImmutableType, isTypeEqual, type EastType,
 } from "../../types.js";
+import { jsonString } from "./literals.js";
 import { MESSAGES, edit, type QueryFix } from "./messages.js";
 import {
   ERROR, MANY, MAYBE, ONE, ZERO, describeType, descendTypes, either, isOrdered, membersOf, nullablePayload, orNull, piped,
@@ -323,8 +323,6 @@ function checkFlags(ctx: CallContext, i: number | undefined): string | undefined
   }
   return flags;
 }
-
-const printString = printFor(StringType);
 
 /**
  * Checks a strftime/strptime format argument: a literal string whose every
@@ -1422,7 +1420,7 @@ function unit(ctx: CallContext, i: number): boolean {
   const u = literalString(ctx, i, "unit");
   if (u === undefined) return false;
   if (!UNITS.includes(u)) {
-    ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, ordinal(i), `one of ${UNITS.join(", ")}`, printString(u)), { arg: i });
+    ctx.fail("type_mismatch", MESSAGES.argument(ctx.name, ordinal(i), `one of ${UNITS.join(", ")}`, jsonString(u)), { arg: i });
     return false;
   }
   return true;

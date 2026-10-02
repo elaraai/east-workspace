@@ -1437,6 +1437,23 @@ await describe("East", (test) => {
         $(assert.equal(East.print(East.value("hello world")), "\"hello world\""));
     });
 
+    test("print() escapes only a string's backslashes and quotes, and writes every other character as itself", $ => {
+        $(assert.equal(East.print(East.value("a\nb\tc\rd")), "\"a\nb\tc\rd\""));
+        $(assert.equal(East.print(East.value("\u0000\u0001\u001f\u007f")), "\"\u0000\u0001\u001f\u007f\""));
+        $(assert.equal(East.print(East.value("say \"hi\" \\ bye")), "\"say \\\"hi\\\" \\\\ bye\""));
+        $(assert.equal(East.print(East.value("\u{1F600} \u2028\u2029")), "\"\u{1F600} \u2028\u2029\""));
+    });
+
+    test("parse() reads back a printed string holding control characters, in a struct, as a dict key and in a variant", $ => {
+        const T = StructType({ s: StringType, d: DictType(StringType, StringType), v: VariantType({ text: StringType }) });
+        const value = $.let(East.value({
+            s: "line\nbreak\ttab\rreturn",
+            d: new Map([["key\nwith\u0001controls", "\"quoted\" \\"]]),
+            v: variant("text", "\u0000\u001f"),
+        }, T));
+        $(assert.equal(East.print(value).parse(T), value));
+    });
+
     test("print() with datetime", $ => {
         const date = new Date("2025-01-01T12:34:56.789Z");
         $(assert.equal(East.print(East.value(date)), "2025-01-01T12:34:56.789"));
@@ -1479,6 +1496,24 @@ await describe("East", (test) => {
         $(assert.equal(East.print(East.value(none, OptionType(IntegerType))), ".none"));
         $(assert.equal(East.print(East.value(some(42n), OptionType(IntegerType))), ".some 42"));
         $(assert.equal(East.print(East.value(variant("success", "ok"), VariantType({ success: StringType, failure: StringType }))), ".success \"ok\""));
+    });
+
+    test("print() quotes a field or case name that is no plain identifier, escaping each backslash and backtick in it", $ => {
+        $(assert.equal(East.print(East.value({ "a\\b\\c": 1n })), "(`a\\\\b\\\\c`=1)"));
+        $(assert.equal(East.print(East.value({ "a`b`c": 1n })), "(`a\\`b\\`c`=1)"));
+        $(assert.equal(East.print(East.value({ "a\\": 1n })), "(`a\\\\`=1)"));
+        $(assert.equal(East.print(East.value(variant("my case", 1n), VariantType({ "my case": IntegerType }))), ".`my case` 1"));
+    });
+
+    test("parse() reads back a printed field or case name holding backslashes and backticks, one at its end among them", $ => {
+        for (const name of ["a\\", "a`", "a\\b\\c", "a`b`c", "\\`", "x\\y z"]) {
+            const S = StructType({ [name]: IntegerType });
+            const s = $.let(East.value({ [name]: 1n }, S));
+            $(assert.equal(East.print(s).parse(S), s));
+            const V = VariantType({ [name]: IntegerType, other: NullType });
+            const v = $.let(East.value(variant(name, 2n), V));
+            $(assert.equal(East.print(v).parse(V), v));
+        }
     });
 
     assert.examples(test, {

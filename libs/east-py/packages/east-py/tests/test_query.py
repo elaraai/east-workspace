@@ -99,7 +99,6 @@ def assert_value(t: EastType, actual: Any, expected: Any, message: str = "") -> 
 #: the values TypeScript's translation gives. Each must still print
 #: differently, so the list shrinks when the printers agree.
 PRINTED_DIFFERENTLY = {
-    "format-tsv": "#964: TypeScript's printer writes a tab as \\t, which no East parser reads; east-c writes the tab",
     "identity-root": "#985: TypeScript prints a function value as its signature, east-c as λ",
 }
 

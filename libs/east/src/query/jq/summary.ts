@@ -10,14 +10,12 @@
  * @packageDocumentation
  */
 
-import { printFor } from "../../serialization/east.js";
 import {
   ArrayType, DateTimeType, DictType, FloatType, IntegerType, OptionType, StringType, StructType, type EastType,
 } from "../../types.js";
 import { plainKind } from "./describe.js";
+import { jsonString } from "./literals.js";
 import { nullablePayload, unwrap } from "./shapes.js";
-
-const printString = printFor(StringType);
 
 /** A value and how many times it occurs. */
 const TextCountType = StructType({ n: IntegerType, value: StringType });
@@ -80,7 +78,7 @@ interface Leaf {
 
 /** A field's name in a path: bare when it is an identifier. */
 function fieldStep(name: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? `.${name}` : `.${printString(name)}`;
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? `.${name}` : `.${jsonString(name)}`;
 }
 
 /** The leaves of a row type, breadth first. */
@@ -127,7 +125,7 @@ function leavesOf(row: EastType, maxLeaves: number): Leaf[] {
         leaves.push({ path: join(path, ".type"), reach: join(reach, ".type"), type: payload === undefined ? StringType : OptionType(StringType), cases: Object.keys(cases) });
         for (const [name, caseType] of Object.entries(cases)) {
           if (unwrap(caseType).type === "Null") continue;
-          const narrowed = `${reach === "." ? "" : `${reach} | `}select(.type == ${printString(name)}) | .value`;
+          const narrowed = `${reach === "." ? "" : `${reach} | `}select(.type == ${jsonString(name)}) | .value`;
           queue.push({ type: caseType, path: join(path, ".value"), reach: `(${narrowed})`, seen });
         }
         break;
@@ -155,7 +153,7 @@ function leafProgram(leaf: Leaf, topValues: number): string {
   let numbers = "null";
   let values = "null";
   if (leaf.cases !== undefined) {
-    cases = `[${leaf.cases.map(c => `{n: ([$p[] | select(. == ${printString(c)})] | length), value: ${printString(c)}}`).join(", ")}]`;
+    cases = `[${leaf.cases.map(c => `{n: ([$p[] | select(. == ${jsonString(c)})] | length), value: ${jsonString(c)}}`).join(", ")}]`;
     distinct = "($p | unique | length)";
   } else {
     switch (inner.type) {
@@ -183,8 +181,8 @@ function leafProgram(leaf: Leaf, topValues: number): string {
   }
   const missing = nullable ? "([$v[] | select(. == null)] | length)" : "0";
   const present = nullable ? "[$v[] | values] as $p | " : "$v as $p | ";
-  return `{key: ${printString(leaf.path)}, value: ([$rows[] | ${reach}] as $v | ${present}`
-    + `{cases: ${cases}, count: ($v | length), dates: ${dates}, distinct: ${distinct}, kind: ${printString(kind)}, `
+  return `{key: ${jsonString(leaf.path)}, value: ([$rows[] | ${reach}] as $v | ${present}`
+    + `{cases: ${cases}, count: ($v | length), dates: ${dates}, distinct: ${distinct}, kind: ${jsonString(kind)}, `
     + `lengths: ${lengths}, missing: ${missing}, numbers: ${numbers}, values: ${values}})}`;
 }
 

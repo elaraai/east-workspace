@@ -68,11 +68,11 @@ _print_float = print_for(FloatType)
 
 
 def json_string(value: str) -> str:
-    """A string in jq's syntax, which is JSON's: TypeScript's ``printFor(StringType)``.
+    """A string in jq's syntax, which is JSON's: the twin of TypeScript's ``jsonString`` (``literals.ts``).
 
-    jq's string literal is a JSON string, and TypeScript's East printer writes
-    one (``JSON.stringify``). east-c's East-text printer leaves control
-    characters unescaped, so it is not used here.
+    jq's string literal is a JSON string. East's text printer, in every
+    runtime, escapes only a backslash and a quote and leaves control characters
+    as they are, which a jq string cannot hold, so it is not used here.
     """
     return json.dumps(value, ensure_ascii=False)
 

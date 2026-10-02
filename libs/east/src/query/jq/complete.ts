@@ -10,16 +10,14 @@
  * @packageDocumentation
  */
 
-import { printFor } from "../../serialization/east.js";
-import { StringType, isTypeEqual, type EastType } from "../../types.js";
+import { isTypeEqual, type EastType } from "../../types.js";
 import { BUILTINS } from "./catalog.js";
 import { checkJq, type CheckJqResult } from "./check.js";
 import { plainKind } from "./describe.js";
 import { scanJq, type JqLexeme } from "./lex.js";
+import { jsonString } from "./literals.js";
 import { parseJq } from "./parse.js";
 import { describeType, membersOf, nullablePayload, orNull, unwrap, type Result } from "./shapes.js";
-
-const printString = printFor(StringType);
 
 /** What a completion is. */
 export type JqCompletionKind = "dataset" | "field" | "case" | "key" | "value" | "variable" | "builtin";
@@ -72,7 +70,7 @@ const PARAMS = ["f", "g", "h", "i", "j", "k", "l", "m"];
 
 /** A text completed inside a string: escaped as a jq string's text, then the closing quote — `say \"hi\""`. */
 function closeString(text: string): string {
-  return printString(text).slice(1);
+  return jsonString(text).slice(1);
 }
 
 /** A builtin's signatures: `first, first(f)`. */
@@ -168,9 +166,9 @@ function fieldItems(result: Result, variantText: string | undefined): JqCompleti
     if (inner.type === "Struct") {
       for (const [name, field] of Object.entries(inner.fields as Record<string, EastType>)) {
         const read = optional || (payloads && member.case !== undefined) ? orNull(field) ?? field : field;
-        const insert = NAME.test(name) ? name : printString(name);
+        const insert = NAME.test(name) ? name : jsonString(name);
         if (payloads && member.case !== undefined) {
-          add({ label: name, kind: "field", detail: describeType(read), doc: `only when ${variantText ?? "."}.type == ${printString(member.case)}`, insert, warn: true });
+          add({ label: name, kind: "field", detail: describeType(read), doc: `only when ${variantText ?? "."}.type == ${jsonString(member.case)}`, insert, warn: true });
         } else {
           add({ label: name, kind: "field", detail: describeType(read), doc: plainKind(read), insert });
         }
@@ -293,7 +291,7 @@ export function completeJq(text: string, offset: number, input: EastType, option
       if (t.type === "Struct") {
         const items = Object.entries(t.fields as Record<string, EastType>).map(([name, field]): JqCompletion => {
           const doc = options.describeRoot?.(name) ?? plainKind(field);
-          return { label: name, kind: "dataset", detail: describeType(field), doc, insert: NAME.test(name) ? name : printString(name) };
+          return { label: name, kind: "dataset", detail: describeType(field), doc, insert: NAME.test(name) ? name : jsonString(name) };
         });
         return finish(from, offset, items, typed, false);
       }

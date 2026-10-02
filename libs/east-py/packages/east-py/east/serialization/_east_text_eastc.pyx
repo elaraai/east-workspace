@@ -45,14 +45,16 @@ cpdef str _print_value(object py_type, object value):
         _eastc.east_type_release(c_type)
         raise
 
-    cdef char* c_str = _eastc.east_print_value(c_val, c_type)
+    # Taken at its length: a string's NUL is printed as itself
+    cdef size_t length = 0
+    cdef char* c_str = _eastc.east_print_value_len(c_val, c_type, &length)
     _eastc.east_value_release(c_val)
 
     if c_str == NULL:
         _eastc.east_type_release(c_type)
         raise RuntimeError("east-c east_print_value returned NULL")
 
-    cdef str result = c_str.decode("utf-8")
+    cdef str result = c_str[:length].decode("utf-8")
     free(c_str)
     _eastc.east_type_release(c_type)
     return result
@@ -77,17 +79,26 @@ cpdef str _print_type(object py_type):
 # ─── Parse ────────────────────────────────────────────────────────────────
 
 cpdef object _parse_value(object py_type, str text):
-    """Parse East text format into a value via east-c."""
+    """Parse East text format into a value via east-c.
+
+    Raises ValueError with east-c's message — the one TypeScript's parseFor
+    gives — for text the grammar refuses: an escape it has no meaning for, a
+    field missing, trailing input.
+    """
     _ensure_eastc_runtime()
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
     cdef bytes text_bytes = text.encode("utf-8")
+    cdef char* error = NULL
 
-    cdef _eastc.EastValue* c_val = _eastc.east_parse_value(
-        <const char*>text_bytes, c_type)
+    # Read at its length: a string's NUL is read as itself
+    cdef _eastc.EastValue* c_val = _eastc.east_parse_value_len(
+        <const char*>text_bytes, len(text_bytes), c_type, &error)
 
     if c_val == NULL:
         _eastc.east_type_release(c_type)
-        raise ValueError(f"east-c parse failed for: {text[:100]}")
+        message = error.decode("utf-8", "replace") if error != NULL else f"east-c parse failed for: {text[:100]}"
+        free(error)
+        raise ValueError(message)
 
     try:
         result = c_value_to_py(c_val, c_type)

@@ -11,9 +11,9 @@
  */
 
 import { printFor } from "../../serialization/east.js";
-import { BooleanType, FloatType, IntegerType, StringType } from "../../types.js";
+import { BooleanType, FloatType, IntegerType } from "../../types.js";
 import { isJqKeyword } from "./lex.js";
-import type { JqLiteral } from "./literals.js";
+import { jsonString, type JqLiteral } from "./literals.js";
 import { childPath, type JqNode, type JqPattern, type JqRange, type JqSpans } from "./spans.js";
 
 /** Options for {@link printJq}. */
@@ -79,7 +79,6 @@ const FORMAT_NAME = /^[a-zA-Z0-9_]+$/;
 const printBoolean = printFor(BooleanType);
 const printInteger = printFor(IntegerType);
 const printFloat = printFor(FloatType);
-const printString = printFor(StringType);
 
 /** A literal's text and how it prints. */
 interface Literal {
@@ -98,7 +97,8 @@ interface Literal {
  * The jq text of a literal.
  *
  * @param literal - the literal
- * @returns its text, as East prints the value
+ * @returns its text: a number or a boolean as East prints it, a string as a
+ *   JSON string
  */
 function literalOf(literal: JqLiteral): Literal {
   switch (literal.type) {
@@ -120,7 +120,7 @@ function literalOf(literal: JqLiteral): Literal {
       return { type: "Float", text, negative: text.startsWith("-"), digits: false };
     }
     case "string":
-      return { type: "String", text: printString(literal.value), negative: false, digits: false };
+      return { type: "String", text: jsonString(literal.value), negative: false, digits: false };
   }
 }
 
@@ -134,7 +134,7 @@ function literalOf(literal: JqLiteral): Literal {
  * @throws {Error} When it is not.
  */
 function checkName(ok: boolean, what: string, name: string): void {
-  if (!ok) throw new Error(`printJq: ${printString(name)} is not a jq ${what}`);
+  if (!ok) throw new Error(`printJq: ${jsonString(name)} is not a jq ${what}`);
 }
 
 /** Prints one program, recording each node's span as it goes. */
@@ -195,13 +195,8 @@ class Printer {
 
   private binary(op: string): readonly [number, number, number] {
     const levels = BINARY[op];
-    if (levels === undefined) throw new Error(`printJq: ${printString(op)} is not a jq binary operator`);
+    if (levels === undefined) throw new Error(`printJq: ${jsonString(op)} is not a jq binary operator`);
     return levels;
-  }
-
-  /** A JSON string: jq's string syntax, East's printer. */
-  private string(value: string): string {
-    return printString(value);
   }
 
   /** The whole program. */
@@ -326,7 +321,7 @@ class Printer {
         this.node(node.value.right, at("alternative.right"), ALTERNATIVE, false);
         break;
       case "update":
-        if (!UPDATE_OPS.has(node.value.op)) throw new Error(`printJq: ${printString(node.value.op)} is not a jq update operator`);
+        if (!UPDATE_OPS.has(node.value.op)) throw new Error(`printJq: ${jsonString(node.value.op)} is not a jq update operator`);
         this.node(node.value.path, at("update.path"), OR, false);
         this.emit(` ${node.value.op} `);
         this.node(node.value.value, at("update.value"), OR, false);
@@ -371,7 +366,7 @@ class Printer {
         } else {
           this.target(target, at("field.target"), true);
         }
-        this.emit(`.${SIMPLE_NAME.test(name) ? name : this.string(name)}${optional ? "?" : ""}`);
+        this.emit(`.${SIMPLE_NAME.test(name) ? name : jsonString(name)}${optional ? "?" : ""}`);
         break;
       }
       case "index":
@@ -437,7 +432,7 @@ class Printer {
           if (i > 0) this.emit(", ");
           const key = entry.key;
           if (key.type === "name") {
-            this.emit(SIMPLE_NAME.test(key.value) ? key.value : this.string(key.value));
+            this.emit(SIMPLE_NAME.test(key.value) ? key.value : jsonString(key.value));
           } else if (key.type === "variable") {
             checkName(NAME.test(key.value) && (key.value !== "__loc__" || entry.value.type === "none"), "object key variable", key.value);
             this.emit(`$${key.value}`);
@@ -465,7 +460,7 @@ class Printer {
         this.emit("\"");
         node.value.forEach((part: { type: string; value: any }, i: number) => {
           if (part.type === "text") {
-            this.emit(this.string(part.value as string).slice(1, -1));
+            this.emit(jsonString(part.value as string).slice(1, -1));
           } else {
             this.emit("\\(");
             this.node(part.value as JqNode, at(`string[${i}].interpolate`), PIPE, true);
@@ -552,7 +547,7 @@ class Printer {
             checkName(NAME.test(entry.key) && entry.key !== "__loc__", "variable", entry.key);
             this.emit(`$${entry.key}`);
           } else {
-            this.emit(`${SIMPLE_NAME.test(entry.key) ? entry.key : this.string(entry.key)}: `);
+            this.emit(`${SIMPLE_NAME.test(entry.key) ? entry.key : jsonString(entry.key)}: `);
             this.pattern(entry.value.value as JqPattern, childPath(path, `object[${i}].value.some`));
           }
         });

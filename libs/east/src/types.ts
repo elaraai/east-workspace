@@ -10,6 +10,7 @@ import { isMatrix, type matrix } from "./containers/matrix.js";
 import { EastError } from "./error.js";
 import type { Location } from "./location.js";
 import type { TypeDiff } from "./type_diff.js";
+import { printEastString, quoteEastIdentifier } from "./serialization/east_text.js";
 
 // =============================================================================
 // Type identity — every EastType gets a unique integer ID via a Symbol property.
@@ -1310,12 +1311,12 @@ export function printType(type: EastType, stack: EastType[] = []): string {
     return ret;
   } else if (type.type === "Struct") {
     stack.push(type);
-    const ret = `.Struct [${Object.entries(type.fields).map(([k, t]) => `(name=${JSON.stringify(k)}, type=${printType(t, stack)})`).join(", ")}]`;
+    const ret = `.Struct [${Object.entries(type.fields).map(([k, t]) => `(name=${printEastString(k)}, type=${printType(t, stack)})`).join(", ")}]`;
     stack.pop();
     return ret;
   } else if (type.type === "Variant") {
     stack.push(type);
-    const ret = `.Variant [${Object.entries(type.cases).map(([k, t]) => `(name=${JSON.stringify(k)}, type=${printType(t, stack)})`).join(", ")}]`;
+    const ret = `.Variant [${Object.entries(type.cases).map(([k, t]) => `(name=${printEastString(k)}, type=${printType(t, stack)})`).join(", ")}]`;
     stack.pop();
     return ret;
   } else if (type.type === "Vector") {
@@ -1407,7 +1408,7 @@ export function printTypeSummary(type: EastType, maxDepth = 1, maxFields = 3, st
     const entries = Object.entries(type.fields);
     if (maxDepth <= 0) return `.Struct [${entries.length} fields]`;
     stack.push(type);
-    const shown = entries.slice(0, maxFields).map(([k, t]) => `(name=${JSON.stringify(k)}, type=${printTypeSummary(t, maxDepth - 1, maxFields, stack)})`);
+    const shown = entries.slice(0, maxFields).map(([k, t]) => `(name=${printEastString(k)}, type=${printTypeSummary(t, maxDepth - 1, maxFields, stack)})`);
     stack.pop();
     const remaining = entries.length - maxFields;
     if (remaining > 0) {
@@ -1420,7 +1421,7 @@ export function printTypeSummary(type: EastType, maxDepth = 1, maxFields = 3, st
       return `.Variant (${entries.map(([k]) => k).join(" | ")})`;
     }
     stack.push(type);
-    const shown = entries.slice(0, maxFields).map(([k, t]) => `(name=${JSON.stringify(k)}, type=${printTypeSummary(t, maxDepth - 1, maxFields, stack)})`);
+    const shown = entries.slice(0, maxFields).map(([k, t]) => `(name=${printEastString(k)}, type=${printTypeSummary(t, maxDepth - 1, maxFields, stack)})`);
     stack.pop();
     const remaining = entries.length - maxFields;
     if (remaining > 0) {
@@ -2343,13 +2344,13 @@ export function TypeWiden(t1: EastType, t2: EastType): EastType {
  * @remarks
  * Used by {@link printType} to format field and case names.
  * Identifiers matching `/^[a-zA-Z_][a-zA-Z0-9_]*$/` are returned as-is,
- * others are wrapped in backticks with escaping.
+ * others are wrapped in backticks, every `\` and `` ` `` in them escaped.
  */
 export function printIdentifier(x: string) {
   if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(x)) {
     return x;
   } else {
-    return `\`${x.replace('\\', '\\\\').replace('`', '\\`')}\``;
+    return quoteEastIdentifier(x);
   }
 }
 
