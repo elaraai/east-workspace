@@ -8,7 +8,7 @@
  * the MODEL, so a model that is itself wrong to look at — two bands painting
  * the same edge a pixel apart, a column a sliver wide, a label too small to
  * read — passes them. These invariants hold the page to how it must LOOK
- * (`app_design_system/guidelines/component-rules.md`, the design review of
+ * (`app_design_system/guidelines/guidelines/component-rules.md`, the design review of
  * #949), across the examples, in both themes. Every visual bug found by eye
  * lands here first, as a failing invariant, and is fixed against it.
  *

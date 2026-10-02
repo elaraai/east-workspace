@@ -78,8 +78,8 @@ build-showcase:
 
 ## Pixel-perfect audit of the Slice.Edit popover — opens each editor case in the
 ## snapshot harness and dumps the popover's computed CSS (content / head / body /
-## foot + value-control) to diff against the retired pattern spec (git history)
-## and the rendered captures (`app_design_system/components/rendered/`).
+## foot + value-control) to compare with the design system's spec card
+## (`app_design_system/guidelines/cards/parts-slice-edit.html`).
 ## Reads from the built renderer, so run `make build` (or the package build) first.
 probe-slice:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
@@ -88,22 +88,22 @@ probe-slice:
 ## Pixel audit of the Collections.Table examples — renders
 ## single examples (waiting for virtualized rows to load past skeleton),
 ## screenshots each to dist-examples/probe-coll-*.png, and dumps the table
-## header/cell/row computed CSS to diff against the rendered captures
-## (`app_design_system/components/rendered/collections/`).
+## header/cell/row computed CSS to compare with the design system's spec cards
+## (`app_design_system/guidelines/cards/parts-header-cell.html`, `parts-row.html`).
 ## Run the package build first.
 probe-collections:
 	-pnpm --filter @elaraai/east-ui-components exec playwright install chromium
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/probe-collections.ts
 
-## Serve the canonical design system (`app_design_system/` — tokens, atoms,
-## guidelines, and the rendered example captures under
-## `components/rendered/`) statically over HTTP for visual review. Lists every
-## routable IPv4 interface up front so a remote browser (Tailscale, LAN, etc.)
-## can pick the right address.
+## Serve the design system's read-only download (`app_design_system/` — the
+## East Design System from claude.ai/design: tokens, base styles, guidelines and
+## spec cards) statically over HTTP for review. Lists every routable IPv4
+## interface up front so a remote browser (Tailscale, LAN, etc.) can pick the
+## right address.
 design:
 	@port=5174; \
 	echo "Serving app_design_system/ at:"; \
-	echo "  http://localhost:$$port  (rendered: /components/rendered/)"; \
+	echo "  http://localhost:$$port  (spec cards: /guidelines/cards/)"; \
 	ip -4 -o addr show scope global 2>/dev/null \
 	    | awk '{print $$4}' | cut -d/ -f1 \
 	    | sed "s|.*|  http://&:$$port|"; \
@@ -209,7 +209,7 @@ help:
 	@echo "  test-group GROUP=components|ir|rest - Run one of CI's three test groups"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
-	@echo "  design            - Serve app_design_system/ (canonical design system) on :5174"
+	@echo "  design            - Serve the design system's download (app_design_system/, read-only) on :5174"
 	@echo "  examples              - Rebuild east-ui + e3-ui (example sources)"
 	@echo "  east-ui-examples-html-all     - Snapshot every east-ui example to standalone HTML"
 	@echo "  test-responsive               - The showcase's Playwright suite (desktop + mobile), exactly as CI runs it (SHARD=n/8 optional)"

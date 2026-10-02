@@ -241,7 +241,7 @@ These rules layer on top of the above for east-ui examples:
 ## 8. Consolidation: the five example slots (east-ui / e3-ui)
 
 Examples serve three masters — the plugin search index, visual
-demonstration (showcase / rendered captures), and the
+demonstration (the showcase and its responsive suite), and the
 examples↔tests contract — and none of them require one-prop-per-example
 granularity. UI example files stay small by construction: a component's
 examples file may contain ONLY the following slots, each at most once
@@ -349,6 +349,3 @@ rendered, always captured) or keeps its own example.
 5. Regenerate the plugin search index (`plugin-artifacts` workflow) —
    **coordinate before touching** per root CLAUDE.md (skills/index are
    plugin-facing).
-6. Regenerate rendered design captures (`make east-ui-examples-html-all`
-   + `node scripts/design-example-cards.mjs`) — consolidations improve
-   the per-component card.

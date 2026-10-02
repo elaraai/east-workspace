@@ -4,30 +4,30 @@
  */
 
 /**
- * Showcase chrome built to the brand-system spec
- * (`libs/east-ui/app_design_system/guidelines/reference/index.html`,
- * `#brand-system` section).
+ * The showcase's own chrome, built to the East Design System's app layout
+ * (`libs/east-ui/app_design_system/guidelines/guidelines/app-layout.md` —
+ * Sidebar, Logo region, App bar, Main — drawn by
+ * `guidelines/cards/app-shell.html`). The theme holds the values: the
+ * `navList` recipe (`surface: "shell"`) and the `nav.panel`, `nav.logo` and
+ * `header.bar` layer styles.
  *
- * Sidebar recipe: 240 px paper-2 panel · 1 px right rule · mono 12 px
- * uppercase items @ 36 px height · active state = inset brand-tint pill
- * (8 px side inset, brand-700 at weight 700). Collapses to a 56 px logo
- * + chevron rail; toggle is
- * the chevron in the panel header *or* the `[` key. State is persisted to
- * `localStorage` per the spec. The icon column the spec mandates is
- * intentionally omitted (this surface doesn't carry per-item icons) — in
- * collapsed mode only the toggle button is shown beneath the logo.
+ * Sidebar: 240px expanded, a `--paper-2` panel behind a 1px right rule, mono
+ * items 36px tall; the active item is the `--brand-tint` fill with
+ * `--brand-dd` text, 8px side inset. It collapses to a 56px logo + chevron
+ * rail; the chevron in the panel header *or* the `[` key toggles it, and the
+ * state is persisted to `localStorage`. The icon column is omitted (this
+ * surface carries no per-item icons) — collapsed, only the toggle shows
+ * beneath the logo.
  *
- * Logo region (bsys): fixed-height identity strip at the top of the sidebar
- * — 64 px expanded · 56 px collapsed · 16 px left/right padding · vertically
- * centred · 12 px rule-free gap below to the first item. No badges /
- * version stamps / toggles / search inside the region — identity only.
+ * Logo region: a fixed-height identity strip at the top of the sidebar —
+ * 64px expanded · 56px collapsed · 16px side padding · centred · a 12px
+ * rule-free gap below. Identity only.
  *
- * Header recipe: sticky to viewport top · 84 px tall · 1 px bottom rule.
+ * App bar: sticky to the viewport top · 1px bottom rule.
  *   Row 1 — breadcrumb left, search right.
  *   Row 2 — surface title left, state eyebrow right.
  *
- * Main recipe: 32 px top/bottom · 24 px left/right viewport padding,
- * 1480 px max content width. Grid layout (one of the three allowed).
+ * Main: 32px top/bottom · 24px left/right padding, 1480px max content width.
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -486,8 +486,9 @@ function Breadcrumb({ category }: { category: string }) {
         navSections.find(s => s.categories.includes(category))?.section ?? "East UI";
     return (
         <Text textStyle="breadcrumb">
-            {/* `link` (brand.600 / brand.300) not a raw brand.600 — the latter
-             *  stays dark and drops below AA on the dark surface (#362). */}
+            {/* `link` — `brand.solid`, the design system's `--brand-d` in each
+             *  mode — not a raw brand.600, which stays dark and drops below
+             *  AA on the dark surface (#362). */}
             <Box as="span" color="link">{section}</Box>
             <Box as="span" px="1">/</Box>
             <Box as="span" color="fg">{category}</Box>

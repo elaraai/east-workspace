@@ -73,5 +73,3 @@ As of #571 (Gantt / Planner / AlignedStack retired into `Plan`):
 4. `make build && make test-responsive` in `libs/east-ui` (the responsive
    suite, which CI also runs).
 5. Regenerate the plugin search index (coordinate first).
-6. Regenerate rendered design captures
-   (`make east-ui-examples-html-all` + `node scripts/design-example-cards.mjs`).

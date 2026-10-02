@@ -25,27 +25,35 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
 
 ## Visual style
 
-**Canonical design source: `libs/east-ui/app_design_system/`.** Do not
-maintain a copy of design tokens here — the previous CSS-variable dump in
-this file rotted out of sync with the HTML. Use these `make` targets from
-`libs/east-ui/`:
+**Canonical design source: the East Design System** in claude.ai/design,
+downloaded read-only into `libs/east-ui/app_design_system/` (see
+[`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design source). Do not
+maintain a copy of its tokens anywhere else in prose — the theme is the copy,
+and the token guard holds it to the download.
 
-| Target | What it does |
+The theme (`src/theme/`, exported as `system`) holds one token for each
+design-system token — `fg` … `fg.faint` (`--ink` … `--ink-5`),
+`bg.surface` / `bg.canvas` / `bg.subtle` (the papers), `border.subtle` /
+`border.strong` (the rules), `brandMark` / `brand.solid` / `brandPressed` /
+`brandTint`, `status.pos` … (valence bases: marks, fills, edges) and
+`fg.success` … (their text steps: words), `heat.1` … `heat.5`, the
+`fontSizes` `label.*` / `body.*` / `title.*` / `num`, the radii, the focus
+rings `focus` / `focusInset`, and the motion tokens — and
+`src/theme/design-system.test.ts` fails, naming the token, when one drifts
+from `app_design_system/tokens/*.css`. Recipes and renderers name these
+tokens, never a raw hex, a raw palette step (`brand.600`) or a size outside
+the scale.
+
+| Target (from `libs/east-ui/`) | What it does |
 |---|---|
-| `make design` | Serves the canonical design system (`app_design_system/`, incl. the `components/rendered/` captures) on :5174 for visual review. |
+| `make design` | Serves the design system's download (`app_design_system/`) on :5174. |
+| `make test-responsive` | The showcase's responsive suite — where visual changes are measured. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 
-Token tables, semantic tokens, typography, dark-theme overrides — all in
-`libs/east-ui/app_design_system/tokens/` + `base/semantic.css`; the
-appearance ground truth is `app_design_system/components/rendered/`
-(generated captures — real renderer + theme).
-Per `[Always visually verify]` memory: after every component or example
-change, re-snapshot and Read the PNG.
-
-The Chakra theme itself is host-app-owned. This package is theme-less —
-look up tokens via Chakra semantic tokens (`bg.primary`, `text.muted`,
-`border.primary`, `card.bg`), never raw hex.
+Visual verification measures computed styles in the responsive suite: a
+visual change lands with a visual invariant in
+`../east-ui-showcase/tests/responsive/`. Never read a screenshot.
 
 **Palette (#1091).** Brand is the default `colorPalette`.
 `theme/global-css.ts` sets it on `html`, where Chakra sets its own `gray`.
@@ -446,4 +454,4 @@ barrel export.
 - [`../east-ui/CLAUDE.md`](../east-ui/CLAUDE.md) — East-side component definitions (the IR layer this package renders)
 - `src/forms/input/index.tsx` — canonical reference for the interactive-state renderer pattern
 - [`../east-ui/STANDARDS.md`](../east-ui/STANDARDS.md) — TypeDoc + testing standards (shared with east-ui)
-- `libs/east-ui/app_design_system/` — canonical visual design (tokens, atoms, guidelines, reference spec)
+- `libs/east-ui/app_design_system/` — the East Design System, downloaded read-only (tokens, guidelines, spec cards)

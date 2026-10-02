@@ -19,7 +19,7 @@ or `east-ui-showcase/tests/responsive/*` are frozen — retarget the
 referencing script in the same PR or don't touch the name. Every
 consolidation rewrites the sibling `*.spec.ts` in lockstep (the
 examples↔tests contract) and runs the §8 cascade (the responsive
-suite, plugin index, rendered captures).
+suite, plugin index).
 
 ## Test platform
 
