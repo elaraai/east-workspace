@@ -24,7 +24,7 @@ import type { RequeueReason, StageUnit } from '@elaraai/e3-types';
 import type {
   ExecutionEvent,
   DataflowExecutionStatus,
-  DataflowExecutionState,
+  ExecutionStateSummary,
 } from './types.js';
 
 // =============================================================================
@@ -94,8 +94,10 @@ export interface ApiExecutionState {
   startedAt: string;
   completedAt: string | null;
   summary: ApiExecutionSummary | null;
+  /** The run's API-visible events past the poll's cursor */
   events: ApiDataflowEvent[];
-  totalEvents: bigint;
+  /** The cursor past the events served: the next poll's `since` */
+  nextSeq: bigint;
 }
 
 // =============================================================================
@@ -219,16 +221,17 @@ export function coreStatusToApiStatus(status: DataflowExecutionStatus): ApiExecu
 /**
  * Convert e3-core execution state to API-compatible state.
  *
- * @param state - The e3-core execution state
- * @param events - Events to include (already filtered by offset/limit)
- * @param totalApiEvents - Total number of API-visible events (for pagination)
+ * @param state - The run's summary (`ExecutionStateSummary`), or its whole
+ *   state, which holds it
+ * @param events - The events past the poll's cursor, at most its limit
+ * @param nextSeq - The cursor past those events: the next poll's `since`
  * @param duration - Total execution duration in milliseconds
  * @returns API-compatible execution state
  */
 export function coreStateToApiState(
-  state: DataflowExecutionState,
+  state: Pick<ExecutionStateSummary, 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped'>,
   events: ExecutionEvent[],
-  totalApiEvents: number,
+  nextSeq: bigint,
   duration: number
 ): ApiExecutionState {
   // Convert events, filtering out those without API equivalents
@@ -263,6 +266,6 @@ export function coreStateToApiState(
     completedAt: completedAtValue,
     summary,
     events: apiEvents,
-    totalEvents: BigInt(totalApiEvents),
+    nextSeq,
   };
 }

@@ -477,6 +477,9 @@ export {
   DataflowExecutionStateType,
   type DataflowExecutionState,
   decodeDataflowExecutionState,
+  ExecutionStateSummaryType,
+  type ExecutionStateSummary,
+  executionStateSummary,
   // Dataflow run history
   DataflowRunStatusType,
   type DataflowRunStatus,

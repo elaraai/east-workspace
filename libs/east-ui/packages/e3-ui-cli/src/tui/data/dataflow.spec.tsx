@@ -69,7 +69,7 @@ describe('/run and /stop', () => {
         assert.equal(api.calls.filter(c => c.startsWith('dataflowExecuteLaunch')).length, launches);
         assert.match(mounted.lines()[33]!, /^ ›  ◐ a run is already in progress — \/stop first$/);
         // The poll shows it running: settling clears, the pill counts events.
-        const polled = await api.dataflowExecutePoll('main', 0);
+        const polled = await api.dataflowExecutePoll('main', {});
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: polled, events: [...polled.events], startedAt: polled.startedAt });
         assert.equal(mounted.store.getState().data.execution['main']?.settling, false);
         lines = mounted.lines();
@@ -84,7 +84,7 @@ describe('/run and /stop', () => {
         assert.match(lines[33]!, /^ ›  ■ Dataflow cancelled$/);
         assert.match(lines[0]!, new RegExp(`■ STOPPING ${SPIN}  ● CONNECTED$`));
         assert.match(lines[8]!, new RegExp(`^ EXECUTION\\s+■ STOPPING · started just now · 0 of 6 tasks · ${SPIN}$`));
-        const stopped = await api.dataflowExecutePoll('main', 0);
+        const stopped = await api.dataflowExecutePoll('main', {});
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: stopped, events: [...stopped.events], startedAt: stopped.startedAt });
         lines = mounted.lines();
         assert.match(lines[0]!, /^ e3-ui  demo-repo › main\s+● CONNECTED$/);
@@ -126,7 +126,7 @@ describe('/run and /stop', () => {
         assert.match(mounted.lines()[33]!, /^ ›  ◐ no run in progress$/);
         assert.ok(!api.calls.includes('dataflowCancel main'));
         // Our poll says running, but this server process has no execution to cancel.
-        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], totalEvents: 0n, budget: none, waiting: [], splits: [] };
+        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], nextSeq: 0n, budget: none, waiting: [], splits: [] };
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: running as never, events: [], startedAt: running.startedAt });
         await mounted.press('x');
         await mounted.press(KEY.enter);

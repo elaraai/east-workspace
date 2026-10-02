@@ -17,7 +17,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, variant } from '@elaraai/east';
+import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, lessFor, variant } from '@elaraai/east';
 import {
   packageImport,
   workspaceCreate,
@@ -341,8 +341,9 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start execution
         await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', { force: true }, opts);
 
-        // Poll and collect events
+        // Poll and collect events, each poll from the cursor the last gave
         const events: unknown[] = [];
+        let since = 0n;
         const maxWait = 60000;
         const startTime = Date.now();
 
@@ -351,12 +352,13 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
             ctx.config.baseUrl,
             ctx.repoName,
             'diamond-ws',
-            { offset: events.length },
+            { since },
             opts
           );
 
           // Collect new events
           events.push(...state.events);
+          since = state.nextSeq;
 
           if (state.status.type === 'completed' || state.status.type === 'failed') {
             break;
@@ -1093,58 +1095,67 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
     });
 
     describe('event pagination', { concurrency: false }, () => {
-      it('dataflowExecutePoll supports event offset and limit', async (t) => {
+      it('dataflowExecutePoll serves the events past its cursor, at most its limit, and the cursor past them', async (t) => {
         const ctx = await withEvtPag(t);
         const opts = await ctx.opts();
+        const poll = (stateOptions: ExecutionStateOptions) => dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', stateOptions, opts);
 
         // Execute and wait for completion
         await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts);
 
-        // Get first event only
-        const page1 = await dataflowExecutePoll(
-          ctx.config.baseUrl, ctx.repoName, 'evtpag-ws',
-          { offset: 0, limit: 1 },
-          opts
-        );
-        assert.strictEqual(page1.events.length, 1, 'Should return exactly 1 event');
-        assert.ok(page1.totalEvents >= 3n, `Expected at least 3 total events, got ${page1.totalEvents}`);
+        const before = lessFor(IntegerType);
 
-        // Get second event
-        const page2 = await dataflowExecutePoll(
-          ctx.config.baseUrl, ctx.repoName, 'evtpag-ws',
-          { offset: 1, limit: 1 },
-          opts
-        );
-        assert.strictEqual(page2.events.length, 1, 'Should return exactly 1 event');
+        // Every event, and the cursor past the last
+        const all = await poll({});
+        assert.ok(all.events.length >= 3, `Expected at least 3 events, got ${all.events.length}`);
+        assert.ok(before(0n, all.nextSeq), 'the cursor moved past the events');
 
-        // Events should be different
-        const event1 = page1.events[0];
-        const event2 = page2.events[0];
-        const event1Key = `${event1.type}:${'value' in event1 ? (event1.value as { task: string }).task : ''}`;
-        const event2Key = `${event2.type}:${'value' in event2 ? (event2.value as { task: string }).task : ''}`;
-        assert.notStrictEqual(event1Key, event2Key, 'Paginated events should be different');
+        // A page of one, and the next from its cursor: the events in order
+        const page1 = await poll({ limit: 1 });
+        const page2 = await poll({ since: page1.nextSeq, limit: 1 });
+        assert.deepStrictEqual([...page1.events, ...page2.events], all.events.slice(0, 2), 'the first two events, in order');
+        assert.ok(before(page1.nextSeq, page2.nextSeq), 'each cursor past the events served');
+
+        // A poll that has every event is served none, and its cursor stays
+        const caughtUp = await poll({ since: all.nextSeq });
+        assert.deepStrictEqual([caughtUp.events, caughtUp.nextSeq], [[], all.nextSeq]);
+        assert.strictEqual(caughtUp.status.type, 'completed', 'with the run\'s state');
       });
 
-      it('refuses a malformed window of events with bad_request; a window of none carries the run\'s state and its count', async (t) => {
+      it('refuses a malformed cursor or limit with bad_request; a poll of no events carries the run\'s state', async (t) => {
         const ctx = await withEvtPag(t);
         const opts = await ctx.opts();
         assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts));
 
-        // Each was served a window before, of every event or of none
+        // Through the client, which sends a limit as it prints
         const windows: [ExecutionStateOptions, string][] = [
-          [{ offset: NaN }, 'offset must be a non-negative integer, got "NaN"'],
-          [{ offset: -1 }, 'offset must be a non-negative integer, got "-1"'],
           [{ limit: NaN }, 'limit must be a non-negative integer, got "NaN"'],
+          [{ limit: -1 }, 'limit must be a non-negative integer, got "-1"'],
           [{ limit: 1.5 }, 'limit must be a non-negative integer, got "1.5"'],
+          [{ since: -1n }, 'since must be a non-negative integer, got "-1"'],
         ];
         for (const [window, message] of windows) {
           await rejectsBadRequest(dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', window, opts), message);
         }
 
+        // As a request spells them: a word, and a number past those a number
+        // holds exactly
+        const execution = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/evtpag-ws/dataflow/execution`;
+        const headers: Record<string, string> = opts.token ? { 'Authorization': `Bearer ${opts.token}` } : {};
+        const requests: [string, string][] = [
+          ['since=abc', 'since must be a non-negative integer, got "abc"'],
+          ['since=1.5', 'since must be a non-negative integer, got "1.5"'],
+          ['since=99999999999999999999', 'since must be at most 9007199254740991, got "99999999999999999999"'],
+        ];
+        for (const [query, message] of requests) {
+          const response = await ctx.fetch(`${execution}?${query}`, { headers });
+          assert.strictEqual(response.status, 400, query);
+          assert.deepStrictEqual(await response.json(), { error: { type: 'bad_request', message } }, query);
+        }
+
         const none = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { limit: 0 }, opts);
         assert.strictEqual(none.status.type, 'completed');
-        assert.strictEqual(none.events.length, 0);
-        assert.ok(none.totalEvents >= 3n, `Expected at least 3 total events, got ${none.totalEvents}`);
+        assert.deepStrictEqual([none.events, none.nextSeq], [[], 0n], 'no events, and the cursor where it was');
       });
     });
   });

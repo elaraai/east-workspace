@@ -62,6 +62,18 @@ export interface ExecutionStatus {
 }
 
 /**
+ * What an orchestrator holds in memory of a run in flight, which nothing
+ * stores: the tasks and units waiting for room in the runner's budget, and
+ * each split task's progress through its stage.
+ */
+export interface ExecutionProgress {
+  /** The tasks and units waiting for room, as the runner reports them */
+  waiting: UnitWait[];
+  /** Each split task's progress through its stage */
+  splits: SplitProgress[];
+}
+
+/**
  * Options for starting a dataflow execution.
  */
 export interface OrchestratorStartOptions {
@@ -238,6 +250,22 @@ export interface DataflowOrchestrator {
    * @returns Current status
    */
   getStatus(handle: ExecutionHandle): Promise<ExecutionStatus>;
+
+  /**
+   * Get what the orchestrator holds in memory of a run it runs: its waits
+   * for room and its split tasks' progress.
+   *
+   * @remarks
+   * A poll of the run serves them beside the run's state, which the poll reads
+   * from the state store. Nothing stores them, so a run the orchestrator does
+   * not hold — one another process or another instance runs, or one that has
+   * ended — has none, and the orchestrator reads nothing to say so.
+   *
+   * @param handle - The run's handle
+   * @returns Its waits and its split tasks' progress, or none of either for a
+   *   run the orchestrator does not hold
+   */
+  getProgress(handle: ExecutionHandle): Promise<ExecutionProgress>;
 
   /**
    * Cancel a running dataflow execution.

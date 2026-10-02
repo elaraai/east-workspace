@@ -15,6 +15,7 @@
 import type {
   DataflowExecutionState,
   ExecutionEvent,
+  ExecutionStateSummary,
   TaskStatus,
 } from '../types.js';
 
@@ -116,6 +117,26 @@ export interface ExecutionStateStore {
   readLatest(repo: string, workspace: string): Promise<DataflowExecutionState | null>;
 
   /**
+   * Read the summary of a workspace's most recent run: its id, status, times,
+   * error and counts, and the sequence number of its last event.
+   *
+   * @remarks
+   * A poll of the run, and a cancel, read it rather than the whole state,
+   * which grows with the dataflow and with every event of the run. A poll then
+   * reads the events past its cursor ({@link getEventsSince}) only when the
+   * summary's last event is past it. A store that reads the whole state for it
+   * derives it (`executionStateSummary`), as the file, in-memory and browser
+   * stores do; a store whose reads cost by the byte keeps it beside the state,
+   * written with each change.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - Workspace name
+   * @returns The summary of the run {@link readLatest} returns, or null if
+   *   none exists
+   */
+  readLatestSummary(repo: string, workspace: string): Promise<ExecutionStateSummary | null>;
+
+  /**
    * Update the entire execution state.
    *
    * This is used for bulk updates after a sequence of step functions.
@@ -189,7 +210,9 @@ export interface ExecutionStateStore {
   /**
    * Get events for an execution since a given sequence number.
    *
-   * Used for polling/watching execution progress.
+   * Used for polling/watching execution progress: a poll reads the events
+   * past its cursor, which a store that keeps a run's events apart from its
+   * state answers without reading the rest.
    *
    * @param repo - Repository identifier
    * @param workspace - Workspace name
