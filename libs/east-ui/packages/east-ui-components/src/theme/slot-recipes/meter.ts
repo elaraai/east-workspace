@@ -33,7 +33,7 @@ export const meterSlotRecipe = defineSlotRecipe({
             top: "0",
             left: "0",
             bottom: "0",
-            background: "{colors.brand.500}",
+            background: "brand.solid",
             borderRadius: "{radii.xs}",
         },
         value: {
@@ -51,12 +51,13 @@ export const meterSlotRecipe = defineSlotRecipe({
             md: { track: { height: "6px" } },
             lg: { track: { height: "8px" } },
         },
+        /* A fill is a mark: the valence base, never its text step. */
         tone: {
-            brand:   { fill: { background: "{colors.brand.600}" } },
-            success: { fill: { background: "fg.success" } },
-            warning: { fill: { background: "fg.warning" } },
-            danger:  { fill: { background: "fg.danger" } },
-            info:    { fill: { background: "fg.info" } },
+            brand:   { fill: { background: "brand.solid" } },
+            success: { fill: { background: "status.pos" } },
+            warning: { fill: { background: "status.warn" } },
+            danger:  { fill: { background: "status.neg" } },
+            info:    { fill: { background: "status.info" } },
             neutral: { fill: { background: "fg.muted" } },
         },
         // Density cascade — track + value text scale with the chipRail/trace

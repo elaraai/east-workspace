@@ -481,12 +481,10 @@ const TableCore = function TableCore({
     // set, the renderer plumbs it onto the relevant DOM node via
     // inline style.
     const headerBackground = style ? getSomeorUndefined(style.headerBackground) : undefined;
-    // `gray.500` (= spec --ink-4 #6b8080), NOT the semantic `fg.subtle`:
-    // Chakra's default theme also defines `fg.subtle` (as the lighter
-    // gray.400), and that definition leaks into the table scope and wins,
-    // rendering headers too faint. gray.500 is single-valued, so it resolves
-    // unambiguously to the spec header ink.
-    const headerColor = style ? getSomeorUndefined(style.headerColor) ?? "gray.500" : "gray.500";
+    // The header ink is `--ink-4`, the theme's `fg.subtle` — which names its
+    // value in both modes, so Chakra's own `fg.subtle` (the lighter
+    // gray.400) no longer shows through it.
+    const headerColor = style ? getSomeorUndefined(style.headerColor) ?? "fg.subtle" : "fg.subtle";
     const borderColor = style ? getSomeorUndefined(style.borderColor) : undefined;
     const zebraBackground = style ? getSomeorUndefined(style.zebraBackground) : undefined;
     const hoverBackground = style ? getSomeorUndefined(style.hoverBackground) : undefined;

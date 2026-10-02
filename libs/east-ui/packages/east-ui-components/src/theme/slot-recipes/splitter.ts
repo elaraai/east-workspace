@@ -54,11 +54,13 @@ export const splitterSlotRecipe = defineSlotRecipe({
                 width: "4px",
                 height: "26px",
                 borderRadius: "full",
-                background: "bg.emphasized",
+                /* A resize handle is `--rule-strong` (base-components ›
+                 * Tables), darkening to the label ink under the pointer. */
+                background: "border.strong",
                 transition: "background-color 0.15s",
             },
-            _hover: { _after: { background: "bg.muted" } },
-            _focusVisible: { _after: { background: "bg.muted" } },
+            _hover: { _after: { background: "fg.subtle" } },
+            _focusVisible: { _after: { background: "fg.subtle" } },
         },
     },
 });

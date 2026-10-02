@@ -140,7 +140,7 @@ export const buttonRecipe = defineRecipe({
                 color: "fg.danger",
                 borderWidth: "1px",
                 borderColor: "border.strong",
-                _hover:  { borderColor: "fg.danger" },
+                _hover:  { borderColor: "status.neg" },
             },
             /* Commit-cluster buttons are the ORDINARY button family (spec
              * Commit.Bar recipe mock: `.btn` / `.btn.primary` in a gap row) —

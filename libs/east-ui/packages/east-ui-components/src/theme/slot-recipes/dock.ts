@@ -30,9 +30,6 @@ const CAPS = {
     textTransform: "uppercase",
 } as const;
 
-/** Strong secondary ink — the rail's label. */
-const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
-
 export const dockSlotRecipe = defineSlotRecipe({
     className: "elara-dock",
     slots: ["root", "header", "tabList", "tab", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
@@ -193,7 +190,8 @@ export const dockSlotRecipe = defineSlotRecipe({
         railLabel: {
             ...CAPS,
             writingMode: "vertical-rl",
-            color: INK_2,
+            /* Strong secondary ink, `--ink-2`. */
+            color: "fg.strong",
             whiteSpace: "nowrap",
             "[data-orientation=vertical] &": { writingMode: "horizontal-tb" },
         },

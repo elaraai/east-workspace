@@ -31,10 +31,10 @@ export const inputRecipe = defineRecipe({
             default: {},
             /** Mono + right-aligned for numeric form rows. */
             numeric: { ...numericChrome },
-            /** Uncommitted edit — spec `.mx-num.dirty` */
+            /** Uncommitted edit — a dirty value is the `--brand-tint` fill
+             *  (component-rules §1, base-components › Field). */
             dirty: {
-                background: "warning.subtle.strong",
-                boxShadow: "inset 2px 0 0 {colors.fg.warning}",
+                background: "brandTint",
                 fontWeight: "semibold",
                 color: "fg",
             },
@@ -46,7 +46,7 @@ export const inputRecipe = defineRecipe({
                 borderBottomWidth: "1px",
                 borderBottomColor: "border.strong",
                 _focusVisible: {
-                    borderBottomColor: "{colors.brand.600}",
+                    borderBottomColor: "brand.solid",
                     boxShadow: "none",
                 },
             },

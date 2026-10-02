@@ -167,7 +167,7 @@ export const globalCss = defineGlobalStyles({
      * brand ring the moment the keyboard reaches it. */
     "[data-draggable]:focus-visible": {
         outline: "2px solid",
-        outlineColor: "{colors.brand.500}",
+        outlineColor: "brandMark",
         outlineOffset: "2px",
     },
     /* The shared trash sink (#267) — a fixed bottom-centre zone the drag
@@ -192,7 +192,7 @@ export const globalCss = defineGlobalStyles({
         borderRadius: "{radii.md}",
         borderWidth: "1.5px",
         borderStyle: "dashed",
-        borderColor: "fg.danger",
+        borderColor: "status.neg",
         background: "bg.danger.subtle",
         color: "fg.danger",
         fontSize: "18px",
@@ -203,7 +203,7 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-trash][data-drop-active]": {
         background: "bg.danger.subtle",
         outline: "2px solid",
-        outlineColor: "fg.danger",
+        outlineColor: "status.neg",
         outlineOffset: "-3px",
     },
     /* The three drop stages are drawn as an OVERLAY pseudo-element, not as an
@@ -239,13 +239,13 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-cell][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before": {
         borderWidth: "1px",
         borderStyle: "dashed",
-        borderColor: "{colors.brand.500}",
+        borderColor: "brandMark",
     },
     /* Active: the cell the pointer is actually over. */
     "[data-drag-cell][data-drop-active]:not([data-drop-invalid])::before": {
         borderWidth: "2px",
         borderStyle: "solid",
-        borderColor: "{colors.brand.600}",
+        borderColor: "brand.solid",
     },
     "[data-drag-cell][data-drop-active]:not([data-drop-invalid])": {
         background: "bg.brand.subtle",
@@ -258,13 +258,13 @@ export const globalCss = defineGlobalStyles({
      * leave the viewport and `remove` would become unreachable. */
     "[data-drag-sink][data-drop-valid]": {
         outline: "1px dashed",
-        outlineColor: "{colors.brand.500}",
+        outlineColor: "brandMark",
         outlineOffset: "-2px",
     },
     "[data-drag-sink][data-drop-active]": {
         background: "bg.brand.subtle",
         outline: "2px solid",
-        outlineColor: "{colors.brand.600}",
+        outlineColor: "brand.solid",
         outlineOffset: "-3px",
     },
     /* A connected-but-vetoed cell (duplicate person, host `canAssign` veto)
@@ -274,11 +274,12 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-cell][data-drop-invalid]::before": {
         borderWidth: "2px",
         borderStyle: "solid",
-        borderColor: "fg.danger",
+        borderColor: "status.neg",
     },
     "[data-drag-cell][data-drop-invalid]": {
         background: "bg.danger.subtle",
         cursor: "not-allowed",
+        /* The ⊘ is a mark: the valence base, as the state icons are. */
         "&::after": {
             content: '"⊘"',
             position: "absolute",
@@ -286,7 +287,7 @@ export const globalCss = defineGlobalStyles({
             right: "6px",
             fontSize: "14px",
             lineHeight: "1",
-            color: "fg.danger",
+            color: "status.neg",
             pointerEvents: "none",
             zIndex: 5,
         },

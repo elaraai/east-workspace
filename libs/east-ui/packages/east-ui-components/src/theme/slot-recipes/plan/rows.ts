@@ -506,12 +506,13 @@ export const rowsBase = {
         height: "var(--plan-strip-mark-h)",
         borderRadius: "1px",
         zIndex: 2,
-        // The value's depth, on the heat row's own steps (#949).
-        "&[data-level='0']": { background: "brandHeat.0" },
-        "&[data-level='1']": { background: "brandHeat.1" },
-        "&[data-level='2']": { background: "brandHeat.2" },
-        "&[data-level='3']": { background: "brandHeat.3" },
-        "&[data-level='4']": { background: "brandHeat.4" },
+        // The value's depth, on the heat row's own steps (#949): the heat
+        // ramp, a level counting from 0 and a step from 1.
+        "&[data-level='0']": { background: "heat.1" },
+        "&[data-level='1']": { background: "heat.2" },
+        "&[data-level='2']": { background: "heat.3" },
+        "&[data-level='3']": { background: "heat.4" },
+        "&[data-level='4']": { background: "heat.5" },
         "&[data-tone='neg']": { background: "{colors.status.neg}", opacity: 0.85 },
         "&[data-tone='warn']": { background: "{colors.status.warn}", opacity: 0.9 },
         "&[data-nodata]": {

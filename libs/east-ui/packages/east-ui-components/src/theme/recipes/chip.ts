@@ -41,7 +41,9 @@ export const chipRecipe = defineRecipe({
         borderStyle: "solid",
         borderColor: "border.strong",
         background: "bg.surface",
-        color: "brand.fg",
+        /* A rail chip's text is `--ink-2`; the brand tone's is `--brand-dd`
+         * (base-components › Toolbar & slice). */
+        color: "fg.strong",
         whiteSpace: "nowrap",
         lineHeight: "1",
         fontVariantNumeric: "tabular-nums",

@@ -58,13 +58,15 @@ export const statusSlotRecipe = defineSlotRecipe({
         },
     },
     variants: {
+        /* The dot and its glyph are marks: the valence base, never its text
+         * step; neutral is `--ink-4`, live `--brand` (the Status card). */
         status: {
-            success: { indicator: { background: "fg.success" }, icon: { color: "fg.success" } },
-            warning: { indicator: { background: "fg.warning" }, icon: { color: "fg.warning" } },
-            danger:  { indicator: { background: "fg.danger"  }, icon: { color: "fg.danger"  } },
-            info:    { indicator: { background: "fg.info"    }, icon: { color: "fg.info"    } },
+            success: { indicator: { background: "status.pos"  }, icon: { color: "status.pos"  } },
+            warning: { indicator: { background: "status.warn" }, icon: { color: "status.warn" } },
+            danger:  { indicator: { background: "status.neg"  }, icon: { color: "status.neg"  } },
+            info:    { indicator: { background: "status.info" }, icon: { color: "status.info" } },
             neutral: { indicator: { background: "fg.subtle"   }, icon: { color: "fg.subtle"   } },
-            brand:   { indicator: { background: "{colors.brand.500}" }, icon: { color: "{colors.brand.500}" } },
+            brand:   { indicator: { background: "brandMark"   }, icon: { color: "brandMark"   } },
         },
         size: {
             sm: { indicator: { width: "6px",  height: "6px"  }, icon: { fontSize: "11px" } },

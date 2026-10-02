@@ -18,7 +18,7 @@ export const noteRecipe = defineRecipe({
     className: "elara-note",
     base: {
         borderLeftWidth: "3px",
-        borderLeftColor: "{colors.brand.600}",
+        borderLeftColor: "brand.solid",
         background: "bg.canvas",
         paddingX: "{spacing.4}",
         paddingY: "{spacing.3}",
@@ -29,10 +29,11 @@ export const noteRecipe = defineRecipe({
     },
     variants: {
         accent: {
-            brand:   { borderLeftColor: "{colors.brand.600}" },
-            warning: { borderLeftColor: "fg.warning" },
-            danger:  { borderLeftColor: "fg.danger" },
-            success: { borderLeftColor: "fg.success" },
+            /* A rule is a mark: the valence base, never its text step. */
+            brand:   { borderLeftColor: "brand.solid" },
+            warning: { borderLeftColor: "status.warn" },
+            danger:  { borderLeftColor: "status.neg" },
+            success: { borderLeftColor: "status.pos" },
             muted:   { borderLeftColor: "border.muted" },
         },
     },

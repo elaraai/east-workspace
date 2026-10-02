@@ -9,9 +9,6 @@
  * fill on the sunken track, and the value right-aligned in mono.
  */
 
-/** The mock's second ink — the labels'. */
-const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
-
 import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const barStripSlotRecipe = defineSlotRecipe({
@@ -34,7 +31,8 @@ export const barStripSlotRecipe = defineSlotRecipe({
             minWidth: "64px",
             flexShrink: "0",
             fontSize: "12.5px",
-            color: INK_2,
+            /* The second ink, `--ink-2`. */
+            color: "fg.strong",
             whiteSpace: "nowrap",
         },
         track: {

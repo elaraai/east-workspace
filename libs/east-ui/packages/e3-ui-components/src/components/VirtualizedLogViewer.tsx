@@ -56,7 +56,7 @@ function HighlightedLine({
             <span
                 key={`m${idx}`}
                 style={{
-                    backgroundColor: isCurrent ? 'var(--chakra-colors-status-warn)' : 'var(--chakra-colors-status-warn-subtle-strong)',
+                    backgroundColor: isCurrent ? 'var(--chakra-colors-status-warn)' : 'var(--chakra-colors-status-warn-subtle)',
                     color: 'var(--chakra-colors-fg-default)',
                     borderRadius: '2px',
                     outline: isCurrent ? '2px solid var(--chakra-colors-status-warn)' : undefined,

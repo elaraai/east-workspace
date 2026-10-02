@@ -7,8 +7,9 @@
  * Avatar slot recipe — pattern_spec/spec.css `.avatar` 22 px gray chip.
  *
  * Default size `xs` = 22 px circular gray-on-paper with mono 10 px / 600
- * initials in `fg`. `brand` variant flips to `{colors.brand.600}` fill +
- * white initials (spec `.mx-avatar` for matrix grid).
+ * initials in `fg.strong` (`--ink-2`). `brand` variant flips to a
+ * `brand.solid` fill with `brand.contrast` initials (spec `.mx-avatar` for
+ * matrix grid).
  *
  * @packageDocumentation
  */
@@ -53,15 +54,16 @@ export const avatarSlotRecipe = defineSlotRecipe({
             subtle: {
                 root: {
                     background: "bg.subtle",
-                    color: "brand.fg",
+                    /* Initials are `--ink-2` (base-components › Avatar). */
+                    color: "fg.strong",
                     borderWidth: "1px",
                     borderColor: "border.subtle",
                 },
             },
             brand: {
                 root: {
-                    background: "{colors.brand.600}",
-                    color: "fg.inverse",
+                    background: "brand.solid",
+                    color: "brand.contrast",
                     fontWeight: "bold",
                     letterSpacing: "0.05em",
                 },

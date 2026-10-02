@@ -43,13 +43,14 @@ export const cellsBase = {
                 "repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, {colors.fg} 7%, transparent) 3px 4px)",
         },
         "&[data-warn]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
-        // The cell's step on the design system's heat scale (#949) — five
-        // steps, one per mode each; `heatLabel` inks the value to match.
-        "&[data-level='0']": { background: "brandHeat.0" },
-        "&[data-level='1']": { background: "brandHeat.1" },
-        "&[data-level='2']": { background: "brandHeat.2" },
-        "&[data-level='3']": { background: "brandHeat.3" },
-        "&[data-level='4']": { background: "brandHeat.4" },
+        // The cell's step on the design system's heat ramp (#949) — five
+        // steps, `--heat-1` … `--heat-5`, in each theme; `heatLabel` inks the
+        // value to match. A level counts from 0, a step from 1.
+        "&[data-level='0']": { background: "heat.1" },
+        "&[data-level='1']": { background: "heat.2" },
+        "&[data-level='2']": { background: "heat.3" },
+        "&[data-level='3']": { background: "heat.4" },
+        "&[data-level='4']": { background: "heat.5" },
         // ── R2 VALUE → TONE STRIP — the reference case (#591) ──
         // A heat row IS the tone strip that chart and table collapse INTO,
         // so there is nothing to convert: drop the 3px inset and centre a
@@ -66,18 +67,16 @@ export const cellsBase = {
         },
         ...planElementFocus,
     },
-    // A heat value (#949) — 10.5px, in the ink its cell's heat step pairs
-    // with (`brandHeatInk`: at least 4.5:1 on that step, in both themes).
+    // A heat value (#949) — 10.5px, in the ink the design system pairs with
+    // its cell's step: `--ink` on steps 1–3, `--paper` on 4–5 (charts.md ›
+    // Sequential ramp), at least 4.5:1 on that step in both themes.
     heatLabel: {
         fontFamily: "mono",
         fontSize: "10.5px",
         fontWeight: "semibold",
         fontVariantNumeric: "tabular-nums",
-        "&[data-level='0']": { color: "brandHeatInk.0" },
-        "&[data-level='1']": { color: "brandHeatInk.1" },
-        "&[data-level='2']": { color: "brandHeatInk.2" },
-        "&[data-level='3']": { color: "brandHeatInk.3" },
-        "&[data-level='4']": { color: "brandHeatInk.4" },
+        "&[data-level='0'], &[data-level='1'], &[data-level='2']": { color: "fg" },
+        "&[data-level='3'], &[data-level='4']": { color: "bg.surface" },
         // No data: the em-dash on the hatch, in the label ink.
         "&:not([data-level])": { color: "fg.subtle" },
         "&[data-ctx]": { display: "none" },

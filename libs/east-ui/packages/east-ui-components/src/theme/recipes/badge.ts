@@ -51,7 +51,7 @@ export const badgeRecipe = defineRecipe({
             brand: {
                 background: "bg.brand.subtle",
                 borderColor: "transparent",
-                color: "{colors.brand.600}",
+                color: "brand.solid",
             },
             /** Spec `.diff-pill` default — outlined. */
             outline: {
@@ -59,28 +59,29 @@ export const badgeRecipe = defineRecipe({
                 borderColor: "border.strong",
                 color: "fg",
             },
-            /** Spec `.diff-pill.ok`, `.stakes-tag.low`. */
+            /** Spec `.diff-pill.ok`, `.stakes-tag.low`. The edge is a mark
+             *  (the valence base), the word its text step, on the 6% wash. */
             ok: {
                 background: "success.subtle",
-                borderColor: "fg.success",
+                borderColor: "status.pos",
                 color: "fg.success",
             },
             /** Spec `.stakes-tag.high`, `.diff-pill.warn`. */
             warn: {
-                background: "warning.subtle.strong",
-                borderColor: "fg.warning",
+                background: "warning.subtle",
+                borderColor: "status.warn",
                 color: "fg.warning",
             },
             /** Spec `.diff-pill.block`, `.stakes-tag.crit`. */
             danger: {
                 background: "danger.subtle",
-                borderColor: "fg.danger",
+                borderColor: "status.neg",
                 color: "fg.danger",
             },
             /** Spec `.stakes-tag.mid`. */
             stakesMid: {
                 background: "bg.brand.subtle",
-                borderColor: "{colors.brand.600}",
+                borderColor: "brand.solid",
                 color: "brand.fg",
             },
             /** Plain — Chakra default. */
@@ -99,11 +100,12 @@ export const badgeRecipe = defineRecipe({
                 fontSize: "11px",
                 paddingX: "7px",
             },
-            /** Spec Badge & progress — callout pill (brand-d fill, white). */
+            /** Spec Badge & progress — callout pill (`--brand-d` fill,
+             *  `--paper` text). */
             callout: {
-                background: "{colors.brand.600}",
+                background: "brand.solid",
                 borderColor: "transparent",
-                color: "fg.inverse",
+                color: "brand.contrast",
                 borderRadius: "{radii.full}",
                 fontWeight: "semibold",
                 fontSize: "11px",

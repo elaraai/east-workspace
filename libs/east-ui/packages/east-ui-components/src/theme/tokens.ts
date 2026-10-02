@@ -70,24 +70,30 @@ export const tokens = defineTokens({
         mono:    { value: FONT_MONO },
     },
     colors: {
+        /* The raw scales feed the semantic tokens and are never referenced by
+         * a recipe or renderer (component-rules §1). */
         brand: brandScale,
         gray:  grayScale,
-        // Accent series — chart palette only. Order is canonical. Mid-vibrancy
-        // hues that hold on light and dark surfaces alike, so they stay raw
-        // tokens (mode-independent).
+        // Accent hues — chart marks only, never chrome. The design system's
+        // comparison order after series 1 (`brand.solid`) is teal → purple →
+        // blue → orange (`--teal-500` … `--orange-500`). Mid-vibrancy hues
+        // that hold on light and dark surfaces alike, so they stay raw tokens
+        // (mode-independent).
         accent: {
-            brand:  { value: "#488e97" },
-            purple: { value: "#8b5cf6" },
-            orange: { value: "#f97316" },
-            blue:   { value: "#3b82f6" },
             teal:   { value: "#14b8a6" },
+            purple: { value: "#8b5cf6" },
+            blue:   { value: "#3b82f6" },
+            orange: { value: "#f97316" },
+            brand:  { value: "#488e97" },
             yellow: { value: "#eab308" },
             pink:   { value: "#ec4899" },
             slate:  { value: "#6b8080" },
         },
-        /* `brandTint`, `brandHeat`, `overlay` and `status` are SEMANTIC tokens
-         * (semantic-tokens.ts, #362) — they carry per-colour-mode values, which
-         * raw tokens cannot. References (`{colors.status.pos}`,
+        /* The design system's colours — `fg` … `fg.faint`, the papers, the
+         * rules, `brandMark` / `brand.solid` / `brandPressed` / `brandTint`,
+         * `status.*`, the text steps and `heat.*` — are SEMANTIC tokens
+         * (semantic-tokens.ts): they carry per-colour-mode values, which raw
+         * tokens cannot. References (`{colors.status.pos}`,
          * `var(--chakra-colors-status-pos)`, …) resolve identically. */
     },
     radii: {

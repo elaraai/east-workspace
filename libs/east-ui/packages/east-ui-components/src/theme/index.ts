@@ -9,7 +9,10 @@
  * Consumers (east-ui-showcase, east-ui-patterns-showcase, future apps) wrap
  * their root in `<ChakraProvider value={system}>` and inherit:
  *  - tokens (raw colour scales + fonts + spacing + radii + shadows)
- *  - semantic tokens (`bg.canvas`/`bg.surface`/`fg`/`fg.muted`/`border.subtle`/`ink.success`/...)
+ *  - semantic tokens — the design system's colours, one each (`fg` … `fg.faint`,
+ *    `bg.surface`/`bg.canvas`/`bg.subtle`, `border.subtle`/`border.strong`,
+ *    `brandMark`/`brand.solid`/`brandPressed`/`brandTint`, `status.*`, the
+ *    `fg.success` … text steps, `heat.1` … `heat.5`), and their aliases
  *  - text styles (`display.{xl,lg,md,sm,xs}`, `body.{lg,md,sm}`, `eyebrow`, `caption`, `mono.*`)
  *  - layer styles (`card`, `card.flat`, `card.elevated`, `surface.muted`, `pill`)
  *  - button + input recipe overrides (visual: solid|ink|outline|ghost · size: sm|md|lg)

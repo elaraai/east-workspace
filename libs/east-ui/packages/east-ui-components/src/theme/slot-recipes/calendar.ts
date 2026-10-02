@@ -156,7 +156,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         totalsBarFill: {
             display: "block",
             height: "100%",
-            background: "{colors.brand.500}",
+            background: "brand.solid",
             borderRadius: "2px",
             transition: "width 220ms {easings.out}",
         },
@@ -216,8 +216,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
             borderRadius: "3px",
             borderWidth: "1px",
             letterSpacing: "0.02em",
-            "&[data-dir=up]":   { color: "fg.success", borderColor: "fg.success", background: "bg.success.subtle" },
-            "&[data-dir=down]": { color: "fg.danger",  borderColor: "fg.danger",  background: "bg.danger.subtle" },
+            /* The word is the valence's text step; its edge, a mark, the base. */
+            "&[data-dir=up]":   { color: "fg.success", borderColor: "status.pos", background: "bg.success.subtle" },
+            "&[data-dir=down]": { color: "fg.danger",  borderColor: "status.neg", background: "bg.danger.subtle" },
             "&[data-dir=flat]": { color: "fg.subtle",  borderColor: "border.strong", background: "bg.canvas" },
         },
         action: {

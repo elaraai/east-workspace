@@ -282,7 +282,7 @@ function OntologyEditorBody({
                                 bg="bg.surface"
                                 borderRadius="sm"
                                 border="1px solid"
-                                borderColor={searchMatchIds ? (searchMatchIds.size > 0 ? 'brand.solid' : 'ink.danger') : 'border.subtle'}
+                                borderColor={searchMatchIds ? (searchMatchIds.size > 0 ? 'brand.solid' : 'status.neg') : 'border.subtle'}
                                 pl="8"
                                 pr={searchQuery ? '8' : '3'}
                             />
@@ -298,7 +298,7 @@ function OntologyEditorBody({
                             )}
                             {searchMatchIds && (
                                 <Box position="absolute" right={searchQuery ? '8' : '2'} top="50%" transform="translateY(-50%)" zIndex={1} pointerEvents="none">
-                                    <Text fontFamily="mono" fontSize="2xs" color={searchMatchIds.size > 0 ? 'brand.fg' : 'ink.danger'}>
+                                    <Text fontFamily="mono" fontSize="2xs" color={searchMatchIds.size > 0 ? 'brand.fg' : 'fg.danger'}>
                                         {searchMatchIds.size}
                                     </Text>
                                 </Box>
@@ -401,7 +401,7 @@ function OntologyEditorBody({
                                 <Menu.Separator />
                                 <Menu.Item
                                     value="delete"
-                                    color="ink.danger"
+                                    color="fg.danger"
                                     onClick={() => { handlers.deleteNodes(new Set([nodeMenu.nodeId])); setNodeMenu(null); }}
                                 >
                                     Delete node
@@ -424,7 +424,7 @@ function OntologyEditorBody({
                             <Menu.Content minW="160px">
                                 <Menu.Item
                                     value="delete"
-                                    color="ink.danger"
+                                    color="fg.danger"
                                     onClick={() => { handlers.deleteLinks(new Set([edgeMenu.edgeId])); setEdgeMenu(null); }}
                                 >
                                     Delete link
@@ -574,7 +574,7 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                 </HStack>
                 <HStack gap="3">
                     {pending && (
-                        <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" textTransform="uppercase" color="ink.warning">
+                        <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" textTransform="uppercase" color="fg.warning">
                             Unsaved changes
                         </Text>
                     )}
