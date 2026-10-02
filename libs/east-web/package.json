@@ -6,12 +6,6 @@
   "workspaces": [
     "packages/*"
   ],
-  "scripts": {
-    "build": "pnpm --filter @elaraai/east-web-std run build",
-    "test": "pnpm --filter @elaraai/east-web-std run test",
-    "test:compliance": "pnpm --filter @elaraai/east-web-std run test:compliance",
-    "lint": "pnpm --filter @elaraai/east-web-std run lint"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/elaraai/east-workspace.git",
