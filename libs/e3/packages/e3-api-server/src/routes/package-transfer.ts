@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { variant, none } from '@elaraai/east';
-import { packageResolve, PackageNotFoundError } from '@elaraai/e3-core/portable';
+import { packageResolve } from '@elaraai/e3-core/portable';
 import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
 import {
   PackageTransferInitRequestType,
@@ -165,35 +165,33 @@ export function createPackageTransferRoutes(
   // Package-level routes (mounted at /api/repos/:repo/packages)
   // =========================================================================
 
-  // POST /api/repos/:repo/packages/:name/:version/export — Trigger export
+  // POST /api/repos/:repo/packages/:name/:version/export — Trigger export.
+  // The package is resolved before a job is filed, so a name or version the
+  // repository does not hold, or cannot (`invalid_name`), files none; every
+  // error is answered as the other routes answer it.
   pkgApi.post('/:name/:version/export', async (c) => {
     const repo = c.req.param('repo')!;
-    const repoPath = getRepoPath(repo);
     const name = c.req.param('name')!;
     const version = c.req.param('version')!;
 
-    // Pre-flight: verify package exists before creating job
     try {
-      await packageResolve(storage, repoPath, name, version);
+      await packageResolve(storage, getRepoPath(repo), name, version);
+
+      const id = globalThis.crypto.randomUUID();
+      await transferBackend.packageExport.create(id, {
+        repo,
+        name,
+        version,
+        workspace: none,
+        status: variant('processing', variant('pending', null)),
+        createdAt: new Date(),
+      });
+
+      await transferBackend.packageExport.execute(id, repo);
+      return sendSuccess(PackageJobResponseType, { id });
     } catch (err) {
-      if (err instanceof PackageNotFoundError) {
-        return sendError(PackageJobResponseType, errorToVariant(err));
-      }
-      throw err;
+      return sendError(PackageJobResponseType, errorToVariant(err));
     }
-
-    const id = globalThis.crypto.randomUUID();
-    await transferBackend.packageExport.create(id, {
-      repo,
-      name,
-      version,
-      workspace: none,
-      status: variant('processing', variant('pending', null)),
-      createdAt: new Date(),
-    });
-
-    await transferBackend.packageExport.execute(id, repo);
-    return sendSuccess(PackageJobResponseType, { id });
   });
 
   return { repoApi, pkgApi };
