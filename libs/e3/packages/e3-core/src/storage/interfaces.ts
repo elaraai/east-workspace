@@ -787,10 +787,19 @@ export interface LogChunk {
 /**
  * Log storage for execution stdout/stderr.
  * All methods take `repo` as first parameter to identify the repository.
+ *
+ * @remarks
+ * Once an execution's record says it has ended, its log is whole for every
+ * reader: e3 flushes an attempt's log ({@link LogStore.flush}) after its last
+ * append and before it records how the attempt ended. The one log this cannot
+ * make whole is that of an execution whose host died before its end, which a
+ * later probe records `interrupted`: it is what its store made readable
+ * before the host died.
  */
 export interface LogStore {
   /**
-   * Append data to a log stream.
+   * Append data to a log stream. What it appends is readable by every reader
+   * once the attempt's log is flushed ({@link flush}), or sooner.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -829,6 +838,28 @@ export interface LogStore {
   // Note: The options.limit parameter corresponds to a maximum bytes to read.
   // The returned LogChunk.size indicates actual bytes read.
   // The returned LogChunk.complete indicates if end of file was reached.
+
+  /**
+   * Make both streams of an execution attempt's log readable by every reader,
+   * as they stand once every append made before the flush has resolved.
+   *
+   * @remarks
+   * A store may resolve an append before its data is readable elsewhere: one
+   * whose storage has no append of its own gathers appends into fewer, larger
+   * writes. Such a store writes what it holds of the attempt's log here. e3
+   * records how an attempt ended only once its log is flushed — a runner's
+   * attempt (`ExecutionAttempt`), a split task's own execution (`SplitTask`)
+   * and an execution a package import files — so a reader that finds an
+   * execution ended reads its whole log. A store whose appends are readable
+   * once they resolve, as the local, in-memory and browser stores' are, does
+   * nothing; nor does a flush of a log nothing appended to.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   */
+  flush(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void>;
 
   /**
    * Remove both streams of an execution attempt's logs.

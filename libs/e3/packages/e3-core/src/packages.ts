@@ -256,8 +256,10 @@ export async function packageRead(
  * {@link OBJECT_CONCURRENCY} at a time, each object larger than 8 MiB on its
  * own, and the name the store's write gives each is checked against the hash
  * its entry names it by, so an object is hashed once, by its store. The
- * executions come next, and the package ref is written last, once all it
- * names is in.
+ * executions come next: each one's logs written whole and flushed
+ * (`LogStore.flush`) before its status, so a reader that finds the status
+ * reads the whole log, and an import stopped between the two writes the logs
+ * again whole. The package ref is written last, once all it names is in.
  *
  * Nothing names what an import writes, or finds, until its package ref does,
  * so it holds the repository's running work ({@link withRunningWork}): gc
@@ -322,39 +324,35 @@ async function importZip(
   let ref: { name: string; version: string; hash: string } | undefined;
   let objectCount = 0;
 
-  // Track current execution being assembled (flush on directory change)
+  // The execution being assembled, written once the entries move on to another
   let currentExecDir: string | null = null;
   let currentExecFiles = new Map<string, Uint8Array>();
 
-  const flushExecution = async () => {
+  const writeExecution = async () => {
     if (currentExecDir === null) return;
     const [taskHash, inputsHash, executionId] = currentExecDir.split('/') as [string, string, string];
-
-    // Check if execution already exists — skip if so
-    const existingStatus = await storage.refs.executionGet(repo, taskHash, inputsHash, executionId);
-    if (existingStatus !== null) {
-      currentExecDir = null;
-      currentExecFiles = new Map();
-      return;
-    }
-
-    // Write status first, in the current form whichever form it was exported in
-    const statusData = currentExecFiles.get('status.beast2');
-    if (statusData) {
-      await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, decodeExecutionStatus(statusData));
-    }
-
-    // Write logs
-    for (const stream of ['stdout.txt', 'stderr.txt'] as const) {
-      const logData = currentExecFiles.get(stream);
-      if (logData && logData.length > 0) {
-        const streamName = stream === 'stdout.txt' ? 'stdout' : 'stderr';
-        await storage.logs.append(repo, taskHash, inputsHash, executionId, streamName, LOG_TEXT.decode(logData));
-      }
-    }
-
+    const files = currentExecFiles;
     currentExecDir = null;
     currentExecFiles = new Map();
+
+    // An execution the repository records already is left as it is
+    if (await storage.refs.executionGet(repo, taskHash, inputsHash, executionId) !== null) return;
+
+    // Its status, in the current form whichever form it was exported in, is
+    // written last, once its logs are written whole and flushed: a reader that
+    // finds the status reads the whole log. An import stopped between the two
+    // left logs and no status, and the logs are written again whole.
+    const statusData = files.get('status.beast2');
+    const status = statusData === undefined ? null : decodeExecutionStatus(statusData);
+    await storage.logs.remove(repo, taskHash, inputsHash, executionId);
+    for (const stream of ['stdout', 'stderr'] as const) {
+      const logData = files.get(`${stream}.txt`);
+      if (logData !== undefined && logData.length > 0) {
+        await storage.logs.append(repo, taskHash, inputsHash, executionId, stream, LOG_TEXT.decode(logData));
+      }
+    }
+    await storage.logs.flush(repo, taskHash, inputsHash, executionId);
+    if (status !== null) await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, status);
   };
 
   try {
@@ -434,9 +432,9 @@ async function importZip(
 
           const execDir = `${taskHash}/${inputsHash}/${executionId}`;
 
-          // Flush previous execution if we've moved to a new one
+          // The previous execution is whole once the entries move on
           if (currentExecDir !== null && currentExecDir !== execDir) {
-            await flushExecution();
+            await writeExecution();
           }
           currentExecDir = execDir;
           currentExecFiles.set(file, await getData());
@@ -451,8 +449,8 @@ async function importZip(
     zipfile.close();
   }
 
-  // Flush the last execution
-  await flushExecution();
+  // The last execution
+  await writeExecution();
 
   if (ref === undefined) {
     throw new PackageInvalidError('missing package ref');
@@ -666,6 +664,7 @@ export async function packageZipOpenFrom(
       logs: {
         append: refuse('append to a log'),
         read: logs.read.bind(logs),
+        flush: refuse('flush a log'),
         remove: refuse('remove a log'),
       },
       repos: {

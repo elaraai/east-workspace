@@ -55,7 +55,9 @@ in `StorageBackend.upgrades`; how an upload's bytes are taken in,
 `DatasetUploadStore.commit`; where a delivery's rows are walked and written
 again, `TaskRunner.intake`, and the largest delivery it takes in whole,
 `TaskRunner.wholeIntakeLimit`; whether placing an object costs a download,
-`ObjectStore.placement`; what a caller may run through one-shot, or load
+`ObjectStore.placement`; when what an execution appended to its log is
+readable by every reader, `LogStore.flush`, which shared code awaits before it
+records how an execution ended; what a caller may run through one-shot, or load
 through a function call's runner override, the grant the one-shot and function
 routes' `OneShotAccess` gives it, which e3-core's `oneShotExecute` and the
 function handlers apply; whether an object was written or re-referenced
