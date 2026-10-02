@@ -294,6 +294,15 @@ A split task is planned when it becomes ready and is not cached: its pieces are 
 
 A yield stops the loop launching, suspends each split task in progress — its execution recorded `interrupted` — and resets the in-progress tasks to `pending`, keeping a split task's `plan`. The resumed run takes each stage up again from its plan, and finds the units that finished in the execution cache. A run whose host died is resumed the same way. An aborted run ends a split task whose next units never started `cancelled`, as its units in flight end.
 
+**The run's state has one writer.** The orchestrator running a run is its state's one writer in its process. Every write goes through one queue: a task started or completed, a split task's stage, a yield's checkpoint, a cancel, and the run's end. The queue takes a snapshot of the state as each write is made, and applies the writes in order, one at a time.
+- **A run's end is final in every store** (`ExecutionStateStore`). An end is `completed`, `failed` or `cancelled`. Every later write of the run is dropped, and the store keeps the state the run ended with, whole.
+- **Every write answers how the store took it** (`StateWriteOutcome`): `applied`, `dropped` or `refused`.
+- **A cancel writes the run's end at once.** Its tasks in progress go back to `pending`, so a poll sees the run ended while its runners stop.
+- **A `dropped` write means another process ended the run,** as a host's cancel in another process does. The loop stops what it runs and launches and writes nothing more. If that process cancelled the run and the record still reads running, the loop ends the record `cancelled`. `wait()` rejects with `DataflowAbortedError`.
+- **A `refused` write means another process moved the run on,** as a host that runs a run's loop in successive processes does. Only a store shared across processes refuses. The loop stops the same way and writes nothing more, its record included. `wait()` rejects with `DataflowSupersededError`.
+- **Neither fails a task.**
+- **A resume whose first write is not applied is refused.**
+
 The execution state names the release that wrote it (`release`). `decodeDataflowExecutionState` reads this release's form and refuses any other, naming the release that wrote it: a newer one's, and an older one's that no repository upgrade step carried forward, which is re-created with its repository (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
 
 ## Garbage Collection Integration

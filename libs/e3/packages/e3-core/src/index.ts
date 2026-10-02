@@ -410,6 +410,7 @@ export {
   type StepInitializeOptions,
   // State store
   type ExecutionStateStore,
+  type StateWriteOutcome,
   type TaskStatusDetails,
   type ExecutionStatusDetails,
   InMemoryStateStore,
@@ -513,6 +514,7 @@ export {
   // Dataflow
   DataflowError,
   DataflowAbortedError,
+  DataflowSupersededError,
   // Generic
   PermissionDeniedError,
   // Helpers

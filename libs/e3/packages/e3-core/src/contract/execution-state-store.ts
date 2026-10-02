@@ -11,11 +11,32 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { none, some, variant } from '@elaraai/east';
-import { E3_RELEASE } from '@elaraai/e3-types';
+import { equalFor, none, printFor, some, variant } from '@elaraai/east';
+import { DataflowExecutionStateType, E3_RELEASE } from '@elaraai/e3-types';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { DataflowExecutionState } from '../dataflow/types.js';
 import { uuidv7 } from '../uuid.js';
+
+/** A running run's state of one pending task, `etl`, in workspace `ws`. */
+function runningState(repo: string, id: string): DataflowExecutionState {
+  return {
+    release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+    graph: none, graphHash: none,
+    tasks: new Map([['etl', {
+      name: 'etl', status: 'pending', cached: none, outputHash: none, error: none, exitCode: none,
+      startedAt: none, completedAt: none, duration: none, plan: none, execution: none,
+    }]]),
+    executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status: 'running', completedAt: none, error: none,
+    versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
+  };
+}
+
+/** Asserts a run's state is the one it ended with, whole. */
+function assertEndedAs(read: DataflowExecutionState | null, ended: DataflowExecutionState | null, what: string): void {
+  assert.ok(read !== null && ended !== null, `${what}: the store holds the run`);
+  const print = printFor(DataflowExecutionStateType);
+  assert.ok(equalFor(DataflowExecutionStateType)(read, ended), `${what}: ${print(read)}, not the state it ended with, ${print(ended)}`);
+}
 
 /**
  * A state store under test, and the repository its runs are of.
@@ -98,33 +119,70 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       assert.equal(latest?.status, 'running');
     });
 
-    it('updates a run\'s state whole, but never takes a run back from how it ended: completed, failed or cancelled', async (t) => {
+    it('updates a run\'s state whole, and keeps a run that has ended as it ended: every later write is dropped, whatever it writes', async (t) => {
       const { store, repo } = await setup(t);
       for (const ended of ['completed', 'failed', 'cancelled'] as const) {
         const id = uuidv7();
-        const state: DataflowExecutionState = {
-          release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
-          graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
-          status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
-          taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
-        };
+        const state = runningState(repo, id);
         await store.create(state);
-        await store.update({ ...state, executed: 2n, cached: 1n });
+        assert.equal(await store.update({ ...state, executed: 2n, cached: 1n }), 'applied');
         assert.equal((await store.read(repo, 'ws', id))?.executed, 2n);
 
-        await store.updateStatus(repo, 'ws', id, ended, { error: `the run ${ended}` });
+        assert.equal(await store.updateStatus(repo, 'ws', id, ended, { error: `the run ${ended}` }), 'applied');
+        const atEnd = await store.read(repo, 'ws', id);
+        assert.equal(atEnd?.status, ended);
+
         // A run's loop may persist what it had in memory after its end has
-        // landed, and a cancel may land after a run has ended: the run stays
-        // as it ended.
-        await store.update({ ...state, executed: 3n });
-        for (const other of (['running', 'completed', 'failed', 'cancelled'] as const).filter((status) => status !== ended)) {
-          await store.updateStatus(repo, 'ws', id, other);
+        // landed, and another process may end a run that has ended: the run
+        // keeps the state it ended with, and every write says it was dropped.
+        assert.equal(await store.update({ ...state, executed: 3n }), 'dropped', `a running state over a ${ended} run`);
+        assert.equal(await store.update({ ...state, status: ended, executed: 4n }), 'dropped', `a ${ended} state over a ${ended} run`);
+        for (const status of ['running', 'completed', 'failed', 'cancelled'] as const) {
+          assert.equal(await store.updateStatus(repo, 'ws', id, status, { error: 'later' }), 'dropped', `${status} over a ${ended} run`);
         }
+        assert.equal(await store.updateTaskStatus(repo, 'ws', id, 'etl', 'completed', { cached: false, outputHash: 'c'.repeat(64) }), 'dropped',
+          `a task's status in a ${ended} run`);
+        assert.equal(await store.recordEvent(repo, 'ws', id, variant('task_started', { seq: 1n, timestamp: new Date(), task: 'etl' })), 'dropped',
+          `an event of a ${ended} run`);
+        assertEndedAs(await store.read(repo, 'ws', id), atEnd, `a ${ended} run`);
+      }
+    });
+
+    it('keeps a run as its end left it when writes of it are made at once: the end lands, and nothing after it', async (t) => {
+      const { store, repo } = await setup(t);
+      for (const ended of ['completed', 'failed', 'cancelled'] as const) {
+        // A run's whole states, written at once, one of them its end: what a
+        // store shared by more than one writer sees.
+        const id = uuidv7();
+        const state = runningState(repo, id);
+        await store.create(state);
+        const end: DataflowExecutionState = { ...state, status: ended, executed: 100n, completedAt: some(new Date()) };
+        const writes = Array.from({ length: 16 }, (_, i) => i === 8 ? end : { ...state, executed: BigInt(i) });
+        const outcomes = await Promise.all(writes.map((write) => store.update(write)));
+        assert.equal(outcomes[8], 'applied', `the ${ended} write lands`);
+        assert.ok(outcomes.every((outcome) => outcome === 'applied' || outcome === 'dropped'), `${ended}: every write applied or dropped`);
         const read = await store.read(repo, 'ws', id);
-        assert.equal(read?.status, ended, `a ${ended} run stays ${ended}`);
-        assert.equal(read?.executed, 2n, `a ${ended} run keeps the state it ended with`);
-        await store.update({ ...state, status: ended, executed: 4n });
-        assert.equal((await store.read(repo, 'ws', id))?.executed, 4n, `a ${ended} state replaces a ${ended} one`);
+        assert.equal(read?.status, ended, `${ended}: no write made with it took the run back`);
+        assert.equal(read?.executed, 100n, `${ended}: the state its end carried, whole`);
+
+        // Its status, set at once with whole states, a task's status and an
+        // event: the run keeps the state its end left, whatever lands around
+        // it.
+        const other = uuidv7();
+        const running = runningState(repo, other);
+        await store.create(running);
+        const mixed = await Promise.all([
+          store.update({ ...running, executed: 1n }),
+          store.recordEvent(repo, 'ws', other, variant('task_started', { seq: 1n, timestamp: new Date(), task: 'etl' })),
+          store.updateStatus(repo, 'ws', other, ended, { error: `the run ${ended}` }),
+          store.updateTaskStatus(repo, 'ws', other, 'etl', 'completed', { cached: false, outputHash: 'd'.repeat(64) }),
+          store.update({ ...running, executed: 2n }),
+        ]);
+        assert.equal(mixed[2], 'applied', `the ${ended} status lands`);
+        const atEnd = await store.read(repo, 'ws', other);
+        assert.equal(atEnd?.status, ended);
+        assert.equal(await store.update({ ...running, executed: 3n }), 'dropped', `a write once ${ended} is dropped`);
+        assertEndedAs(await store.read(repo, 'ws', other), atEnd, `a ${ended} run after writes made with its end`);
       }
     });
 
