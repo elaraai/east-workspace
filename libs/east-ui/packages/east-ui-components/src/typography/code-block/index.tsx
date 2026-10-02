@@ -174,7 +174,7 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
                     bg={props.headerBackground}
                 >
                     {props.title
-                        ? <Text fontSize="sm" fontWeight="medium">{props.title}</Text>
+                        ? <Text fontSize="body.lg" fontWeight="medium">{props.title}</Text>
                         : <Box />}
                     {props.showCopyButton && (
                         <IconButton
@@ -192,7 +192,7 @@ export const EastChakraCodeBlock = memo(function EastChakraCodeBlock({ value }: 
                 as="pre"
                 m="0"
                 p="3"
-                fontSize="sm"
+                fontSize="body.lg"
                 fontFamily="mono"
                 lineHeight="1.5"
                 overflow="auto"

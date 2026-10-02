@@ -544,7 +544,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             borderRadius: "md",
             bg: "bg.surface",
             boxShadow: "md",
-            fontSize: "control",
+            fontSize: "body",
             fontWeight: "600",
             color: "fg",
             whiteSpace: "nowrap",

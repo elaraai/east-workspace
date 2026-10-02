@@ -80,9 +80,9 @@ export const avatarSlotRecipe = defineSlotRecipe({
             "2xs": { root: { width: "18px", height: "18px", fontSize: "8px" } },
             xs: { root: { width: "22px",  height: "22px",  fontSize: "10px" } },
             sm: { root: { width: "24px",  height: "24px",  fontSize: "10px" } },
-            md: { root: { width: "32px",  height: "32px",  fontSize: "{fontSizes.xs}" } },
-            lg: { root: { width: "40px",  height: "40px",  fontSize: "{fontSizes.sm}" } },
-            xl: { root: { width: "56px",  height: "56px",  fontSize: "{fontSizes.md}" } },
+            md: { root: { width: "32px",  height: "32px",  fontSize: "{fontSizes.label.lg}" } },
+            lg: { root: { width: "40px",  height: "40px",  fontSize: "{fontSizes.body.lg}" } },
+            xl: { root: { width: "56px",  height: "56px",  fontSize: "{fontSizes.body.lg}" } },
         },
         // Density cascade — the avatar diameter matches the chipRail/trace
         // chip height at each density, so an avatar sits flush in a mixed

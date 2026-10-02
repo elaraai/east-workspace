@@ -166,7 +166,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         },
         allocLabel: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             color: "fg",
             whiteSpace: "nowrap",
@@ -184,7 +184,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         amountInput: {
             width: "76px",
             fontFamily: "mono",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontVariantNumeric: "tabular-nums",
             textAlign: "right",
             color: "fg",
@@ -199,7 +199,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         },
         amountText: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontVariantNumeric: "tabular-nums",
             color: "fg",
         },
@@ -236,7 +236,7 @@ export const blendSlotRecipe = defineSlotRecipe({
            recipe (#267) — the renderer mounts the shared `DropHint`.) */
         dragGhost: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             color: "fg",
             background: "bg.surface",
@@ -270,7 +270,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         },
         metricValue: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             color: "fg",
             fontVariantNumeric: "tabular-nums",
@@ -355,7 +355,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             paddingX: "{spacing.3}",
             paddingY: "{spacing.1.5}",
             fontFamily: "mono",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg",
             fontVariantNumeric: "tabular-nums",
             borderBottomWidth: "1px",

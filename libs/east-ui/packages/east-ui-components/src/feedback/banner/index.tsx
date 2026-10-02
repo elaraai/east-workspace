@@ -161,7 +161,7 @@ export function BannerView({
                     display="inline-flex"
                     alignItems="center"
                     color={solid ? "currentcolor" : iconColor}
-                    fontSize="md"
+                    fontSize="16px"
                     flexShrink={0}
                     pt="0.5"
                 >
@@ -172,7 +172,7 @@ export function BannerView({
                 </ChakraBox>
             ) : null}
             <ChakraBox flex="1" minWidth={0}>
-                <ChakraBox fontWeight="semibold" fontSize="sm" lineHeight="1.4">
+                <ChakraBox fontWeight="semibold" fontSize="body.lg" lineHeight="1.4">
                     {title}
                 </ChakraBox>
                 {description !== undefined ? (

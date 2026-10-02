@@ -58,7 +58,7 @@ interface LabelProps {
 
 export function Label({ children }: LabelProps) {
   return (
-    <Text fontSize="sm" fontWeight={500} color="fg" mb={2}>
+    <Text fontSize="body.lg" fontWeight={500} color="fg" mb={2}>
       {children}
     </Text>
   );

@@ -6,297 +6,213 @@
 /**
  * Named text-style presets for the Elara Chakra v3 system.
  *
- * Components consume them via `<Text textStyle="eyebrow" />` etc. — that's
- * what enforces the canonical typography rules from pattern_spec/colors_and_type.css:
- *  - Display headings use DM Sans with negative tracking.
- *  - Body uses Inter Tight, line-height 1.5–1.625.
- *  - Eyebrow is the only positively-tracked, uppercase element.
- *  - Mono is JetBrains Mono with `tabular-nums` for tabular numerics.
- *
- * After PR 2 (token realignment), spec fontSize tiers (xs=12 … 6xl=60)
- * line up directly with our tokens.
+ * Components consume them via `<Text textStyle="eyebrow" />` etc. The first
+ * block is the East Design System's own text styles, one for each of its
+ * classes (`app_design_system/_ds_bundle.css`: `.h1` … `.h6`, `.p`, `.lead`,
+ * `.small`, `.caption`, `.eyebrow`, `.mono`, `.num`, `.num-lg`) plus
+ * `absent`, its "no data" value. Every other name is an older or IR name,
+ * held to the same rules:
+ *  - Titles are DM Sans at the title sizes (15–24px) with negative tracking.
+ *  - Running text is Inter Tight at 12.5–14px.
+ *  - Labels — eyebrows, keys, statuses — are JetBrains Mono at 9.5–11px,
+ *    600, uppercase, tracked 0.1–0.18em, in `--ink-4` unless they name
+ *    another ink.
+ *  - Numerals are mono with tabular figures; large numbers 26px / 600.
+ * Only the design system's sizes, weights, line heights and tracking are
+ * used — each a token (`tokens.ts`).
  *
  * @packageDocumentation
  */
 
 import { defineTextStyles } from "@chakra-ui/react";
 
+/** Tabular figures — every numeral in the data voice. */
+const TNUM = { fontVariantNumeric: "tabular-nums", fontFeatureSettings: '"tnum"' } as const;
+
+/** A mono label: uppercase, 600, tracked (component-rules §2) — on its own
+ *  line height, or the line's when it names none. */
+const label = (fontSize: string, letterSpacing: string, color: string, lineHeight?: string) => ({
+    fontFamily: "mono",
+    fontSize,
+    fontWeight: "{fontWeights.semibold}",
+    ...(lineHeight !== undefined ? { lineHeight } : {}),
+    letterSpacing,
+    textTransform: "uppercase",
+    color,
+}) as const;
+
+const TIGHT = "{lineHeights.tight}";
+const NORMAL = "{lineHeights.normal}";
+
+/* The design system's title styles, `.h1` … `.h5` (`h6` is Inter Tight). */
+const H1 = { fontFamily: "heading", fontSize: "{fontSizes.title.xl}", fontWeight: "{fontWeights.bold}",     lineHeight: "{lineHeights.tight}", letterSpacing: "{letterSpacings.tighter}" } as const;
+const H2 = { fontFamily: "heading", fontSize: "{fontSizes.title.lg}", fontWeight: "{fontWeights.bold}",     lineHeight: "{lineHeights.tight}", letterSpacing: "{letterSpacings.tight}" } as const;
+const H3 = { fontFamily: "heading", fontSize: "{fontSizes.title.md}", fontWeight: "{fontWeights.semibold}", lineHeight: "{lineHeights.snug}",  letterSpacing: "{letterSpacings.snug}" } as const;
+const H4 = { fontFamily: "heading", fontSize: "{fontSizes.title.sm}", fontWeight: "{fontWeights.semibold}", lineHeight: "{lineHeights.snug}",  letterSpacing: "{letterSpacings.snug}" } as const;
+const H5 = { fontFamily: "heading", fontSize: "{fontSizes.title.xs}", fontWeight: "{fontWeights.bold}",     lineHeight: "{lineHeights.snug}",  letterSpacing: "{letterSpacings.snug}" } as const;
+const H6 = { fontFamily: "body",    fontSize: "{fontSizes.body.lg}",  fontWeight: "{fontWeights.semibold}", lineHeight: "{lineHeights.normal}" } as const;
+
+/** The design system's heading element styles, `h1` … `h6`, without their
+ *  ink: as element styles (`global-css.ts`) a heading keeps the text colour
+ *  of the surface it sits on, which on a page is `--ink`. */
+export const headingStyles = { h1: H1, h2: H2, h3: H3, h4: H4, h5: H5, h6: H6 } as const;
+
+/** The design system's eyebrow (`.eyebrow`): mono 10 / 600 / 0.12em, uppercase, `--ink-4`. */
+const EYEBROW = label("{fontSizes.label.sm}", "{letterSpacings.widest}", "fg.subtle", NORMAL);
+
+/** Large numbers (`.num-lg`): mono, tabular, 26px / 600. */
+const NUM_LG = { fontFamily: "mono", fontSize: "{fontSizes.num}", fontWeight: "{fontWeights.semibold}", lineHeight: "1", ...TNUM } as const;
+
 export const textStyles = defineTextStyles({
-    /* ─── Display family — DM Sans, tight tracking ─────────── */
+    /* ─── The design system's text styles ─────────────────── */
 
-    "display.xl": {
+    /** Page title — DM Sans 24 / 700 / −0.02em. */
+    h1: { value: { ...H1, color: "fg" } },
+    /** Dialog title, h2 — DM Sans 20 / 700 / −0.015em. */
+    h2: { value: { ...H2, color: "fg" } },
+    /** Compact bar, h3 — DM Sans 18 / 600 / −0.01em. */
+    h3: { value: { ...H3, color: "fg" } },
+    /** Condensed bar, h4 — DM Sans 16 / 600 / −0.01em. */
+    h4: { value: { ...H4, color: "fg" } },
+    /** Empty state, h5 — DM Sans 15 / 700 / −0.01em. */
+    h5: { value: { ...H5, color: "fg" } },
+    /** h6 — Inter Tight 14 / 600. */
+    h6: { value: { ...H6, color: "fg" } },
+    /** Running text (`.p`) — 13 / 1.625. */
+    body: { value: { fontSize: "{fontSizes.body}", lineHeight: "{lineHeights.relaxed}", color: "fg" } },
+    /** A lede — 14 / 1.625 in `--ink-3`. */
+    lead: { value: { fontSize: "{fontSizes.body.lg}", lineHeight: "{lineHeights.relaxed}", color: "fg.muted" } },
+    /** Small text — 12.5 / 1.5 in `--ink-3`. */
+    small: { value: { fontSize: "{fontSizes.body.sm}", lineHeight: "{lineHeights.normal}", color: "fg.muted" } },
+    /** A caption — 12.5 / 1.5, tracked 0.02em, in `--ink-4`. */
+    caption: {
         value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.5xl}",        // 48px (spec h1)
-            fontWeight: "{fontWeights.bold}",
-            lineHeight: "1.1",
-            letterSpacing: "{letterSpacings.tighter}",
+            fontSize: "{fontSizes.body.sm}",
+            lineHeight: "{lineHeights.normal}",
+            letterSpacing: "{letterSpacings.wide}",
+            color: "fg.subtle",
         },
     },
-    "display.lg": {
+    /** An eyebrow — mono 10 / 600 / 0.12em, uppercase, `--ink-4`. */
+    eyebrow: { value: EYEBROW },
+    /** The data voice — mono with tabular figures, at the line's size. */
+    mono: { value: { fontFamily: "mono", ...TNUM } },
+    /** A numeral (`.num`) — mono, tabular, 500. */
+    num: { value: { fontFamily: "mono", fontWeight: "{fontWeights.medium}", ...TNUM } },
+    /** A large number (`.num-lg`) — Stat values, data-rail cells. */
+    "num-lg": { value: NUM_LG },
+    /** An absent value — "no data", or the reason it cannot exist yet — in
+     *  mono italic 400, `--ink-4`, at the value's own size (base-components ›
+     *  Numbers & absent values). The only italic. */
+    absent: {
         value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.4xl}",        // 36px (spec h2)
-            fontWeight: "{fontWeights.bold}",
-            lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.tight}",
-        },
-    },
-    "display.md": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.3xl}",        // 30px (spec h3)
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.snug}",
-            letterSpacing: "{letterSpacings.snug}",
-        },
-    },
-    "display.sm": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.2xl}",        // 24px (spec h4)
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.snug}",
-            letterSpacing: "{letterSpacings.snug}",
-        },
-    },
-    "display.xs": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.xl}",         // 20px (spec h5)
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.snug}",
+            fontFamily: "mono",
+            fontStyle: "italic",
+            fontWeight: "{fontWeights.normal}",
+            color: "fg.subtle",
         },
     },
 
-    /* ─── Card / inline title — DM Sans ───────────────────── */
+    /* ─── Display family — the title styles under their older names ─ */
 
-    /** Brief / hero title — spec `.briefing-title` 22px. */
+    "display.xl": { value: H1 },
+    "display.lg": { value: H2 },
+    "display.md": { value: H3 },
+    "display.sm": { value: H4 },
+    "display.xs": { value: H5 },
+
+    /* ─── Card / inline titles — DM Sans ──────────────────── */
+
+    /** Brief / hero title. */
     "title.card.lg": {
         value: {
             fontFamily: "heading",
-            fontSize: "22px",
+            fontSize: "{fontSizes.title.lg}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.25",
+            lineHeight: "{lineHeights.tight}",
             letterSpacing: "{letterSpacings.snug}",
         },
     },
-    /** Card title — spec `.bf2-evi-fact` 18px. */
+    /** Card title. */
     "title.card.md": {
         value: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.lg}",         // 18px
+            fontSize: "{fontSizes.title.md}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.3",
+            lineHeight: "{lineHeights.snug}",
+            letterSpacing: "{letterSpacings.snug}",
         },
     },
     /** Back-compat alias for callers that still use `title.card`. */
     "title.card": {
         value: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.lg}",
+            fontSize: "{fontSizes.title.md}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.3",
+            lineHeight: "{lineHeights.snug}",
             letterSpacing: "{letterSpacings.snug}",
         },
     },
+    /** A row's title — the smallest title size. */
     "title.row": {
         value: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.sm}",         // 14px
+            fontSize: "{fontSizes.title.xs}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.3",
+            lineHeight: "{lineHeights.snug}",
+            letterSpacing: "{letterSpacings.snug}",
         },
     },
 
     /* ─── Body — Inter Tight ───────────────────────────────── */
 
-    "body.lg": {
-        value: {
-            fontSize: "{fontSizes.md}",         // 16px (marketing default)
-            lineHeight: "{lineHeights.relaxed}",
-        },
-    },
-    "body.md": {
-        value: {
-            fontSize: "{fontSizes.sm}",         // 14px (product default)
-            lineHeight: "{lineHeights.normal}",
-        },
-    },
-    "body.sm": {
-        value: {
-            fontSize: "13px",                   // spec body in tight surfaces
-            lineHeight: "{lineHeights.normal}",
-        },
-    },
-    "lead": {
-        value: {
-            fontSize: "{fontSizes.lg}",         // 18px
-            lineHeight: "{lineHeights.relaxed}",
-            color: "fg.muted",
-        },
-    },
-    "small": {
-        value: {
-            fontSize: "{fontSizes.sm}",         // 14px
-            lineHeight: "{lineHeights.normal}",
-            color: "fg.muted",
-        },
-    },
-    "caption": {
-        value: {
-            fontSize: "{fontSizes.xs}",         // 12px
-            lineHeight: "{lineHeights.normal}",
-            letterSpacing: "{letterSpacings.wide}",
-            color: "fg.subtle",
-        },
-    },
+    "body.lg": { value: { fontSize: "{fontSizes.body.lg}", lineHeight: "{lineHeights.relaxed}" } },
+    "body.md": { value: { fontSize: "{fontSizes.body}", lineHeight: "{lineHeights.normal}" } },
+    "body.sm": { value: { fontSize: "{fontSizes.body.sm}", lineHeight: "{lineHeights.normal}" } },
 
-    /* ─── Eyebrow family — brand section labels ─────────────
-     *
-     * Spec `.eyebrow` uses fontWeight 600 (semibold), NOT bold. */
-    "eyebrow": {
-        value: {
-            fontFamily: "body",
-            fontSize: "{fontSizes.xs}",         // 12px
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.normal}",
-            letterSpacing: "{letterSpacings.widest}",
-            textTransform: "uppercase",
-            /* `link` = brand.600 light / brand.300 dark — fixed brand.600
-             * sits under 3:1 on dark surfaces (#362). */
-            color: "{colors.link}",
-        },
-    },
-    /** Mono eyebrow — spec `.mode-id`, `.bf2-evi-tag`. */
-    "eyebrow.mono": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",         // 12px
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.wider2}",   // 0.16em
-            textTransform: "uppercase",
-            /* brand.fg = brand.700 light / brand.300 dark (#362). */
-            color: "{colors.brand.fg}",
-        },
-    },
-    /** Caption-tier eyebrow — spec `.cell .lbl`, `.sc-eyebrow`, `.cap-eyebrow`.
-     *
-     * 11 px / weight 600 / antialiased. We landed on 11 px instead of the
-     * tighter 10 px so JetBrains Mono cap-tops don't blur under sub-pixel
-     * hinting; the larger size lets weight 600 stay crisp while keeping
-     * the labels visually present (medium/500 read as too faint).
-     */
-    "caption.eyebrow": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.widest2}",   // 0.18em — spec .cell .lbl / .cap-eyebrow
-            textTransform: "uppercase",
-            color: "fg.subtle",                          // --ink-4
-        },
-    },
-    /** KV-pair label — spec `.tag .k`, `.kvrow .k`. */
-    "tag.kv.k": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "{fontWeights.semibold}",
-            letterSpacing: "{letterSpacings.wider}",    // 0.1em
-            textTransform: "uppercase",
-            color: "fg.muted",
-        },
-    },
+    /* ─── Labels — mono, uppercase, tracked ────────────────── */
 
-    /* ─── Sub-label — section dividers within a card ───────── */
-    "sublabel": {
-        value: {
-            fontFamily: "body",
-            fontSize: "{fontSizes.xs}",         // 12px
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.normal}",
-            letterSpacing: "{letterSpacings.wider}",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-    },
+    /** A brand eyebrow — spec `.mode-id`, `.bf2-evi-tag`; the one label in
+     *  the brand's ink (`brand.fg`, `--brand-dd`). */
+    "eyebrow.mono": { value: label("{fontSizes.label.sm}", "{letterSpacings.wider2}", "{colors.brand.fg}", TIGHT) },
+    /** Caption-tier eyebrow — spec `.cell .lbl`, `.sc-eyebrow`, `.cap-eyebrow`. */
+    "caption.eyebrow": { value: label("{fontSizes.label.lg}", "{letterSpacings.widest2}", "fg.subtle", TIGHT) },
+    /** KV-pair key — spec `.tag .k`, `.kvrow .k`. */
+    "tag.kv.k": { value: label("{fontSizes.label.sm}", "{letterSpacings.caps}", "fg.muted") },
+    /** Sub-label — a section divider within a card. */
+    "sublabel": { value: label("{fontSizes.label.lg}", "{letterSpacings.caps}", "fg.subtle", NORMAL) },
 
     /* ─── Mono — JetBrains Mono with tabular figures ─────────
      *
-     * Sizes re-anchored to the spec ladder. Renderers reach for the right
-     * tier explicitly — `mono.xs` for caption-tier (10), `mono.sm` for
-     * inline numerics (11), `mono.md` for default mono prose (12),
-     * `mono.lg` for body-sized mono (14). */
-    "mono.xs": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
-    "mono.sm": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
-    "mono.md": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",         // 12px
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
-    "mono.lg": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "{fontSizes.sm}",         // 14px
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
+     * `mono.xs` for the caption tier (10), `mono.sm` for inline numerics
+     * (11), `mono.md` for mono prose (12.5), `mono.lg` for body-sized mono
+     * (14). */
+    "mono.xs": { value: { fontFamily: "mono", fontSize: "{fontSizes.label.sm}", ...TNUM } },
+    "mono.sm": { value: { fontFamily: "mono", fontSize: "{fontSizes.label.lg}", ...TNUM } },
+    "mono.md": { value: { fontFamily: "mono", fontSize: "{fontSizes.body.sm}", ...TNUM } },
+    "mono.lg": { value: { fontFamily: "mono", fontSize: "{fontSizes.body.lg}", ...TNUM } },
     /** Pattern-name / diff key — spec `.pattern-name`, `.diff-row .label .key`. */
     "mono.label": {
         value: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.sm}",         // 14px
+            fontSize: "{fontSizes.body.lg}",
             fontWeight: "{fontWeights.semibold}",
             lineHeight: "{lineHeights.tight}",
             color: "fg",
         },
     },
-    /** Body-sized tabular numerics — spec `.je-meta`, `.ar`, table numeric cells. */
+    /** Tabular numerics at label size — spec `.je-meta`, `.ar`. */
     "mono.tabular.sm": {
         value: {
             fontFamily: "mono",
-            fontSize: "11px",
+            fontSize: "{fontSizes.label.lg}",
             fontWeight: "{fontWeights.medium}",
             lineHeight: "{lineHeights.normal}",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
+            ...TNUM,
         },
     },
-    /** KPI hero numerics — spec `.cell .val` (22px), `.bf2-big` (44px scaled
-     * via prop). Default 24px covers data-rail cells; renderers up-size with
-     * a `fontSize` prop for hero contexts. */
-    "mono.kpi": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "{fontSizes.2xl}",        // 24px default — covers .cell .val
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1",
-            letterSpacing: "{letterSpacings.tight}",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
+    /** KPI numerics — the large number (`.num-lg`). */
+    "mono.kpi": { value: NUM_LG },
 
     /* ─── IR-token aliases (hyphenated form) ────────────────
      *
@@ -305,209 +221,91 @@ export const textStyles = defineTextStyles({
      * receive from East values and pass through to Chakra's `textStyle`
      * prop. Without these aliases, `textStyle="mono-kpi"` would not
      * resolve and Numeric / Text / Heading would fall back to defaults. */
-    "display-xl": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.5xl}",        // 48px (spec h1)
-            fontWeight: "{fontWeights.bold}",
-            lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.tighter}",
-        },
-    },
-    "display-lg": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.4xl}",
-            fontWeight: "{fontWeights.bold}",
-            lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.tight}",
-        },
-    },
-    "display-md": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.3xl}",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.snug}",
-            letterSpacing: "{letterSpacings.snug}",
-        },
-    },
-    "display-sm": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "{fontSizes.2xl}",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.snug}",
-            letterSpacing: "{letterSpacings.snug}",
-        },
-    },
+    "display-xl": { value: H1 },
+    "display-lg": { value: H2 },
+    "display-md": { value: H3 },
+    "display-sm": { value: H4 },
     "heading-lg": {
         value: {
             fontFamily: "heading",
-            fontSize: "22px",
+            fontSize: "{fontSizes.title.lg}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.25",
+            lineHeight: "{lineHeights.tight}",
             letterSpacing: "{letterSpacings.snug}",
         },
     },
     "heading-md": {
         value: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.lg}",
+            fontSize: "{fontSizes.title.md}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.3",
+            lineHeight: "{lineHeights.snug}",
+            letterSpacing: "{letterSpacings.snug}",
         },
     },
     "heading-sm": {
         value: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.title.xs}",
             fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.3",
+            lineHeight: "{lineHeights.snug}",
+            letterSpacing: "{letterSpacings.snug}",
         },
     },
-    "heading-xs": {
-        value: {
-            fontFamily: "heading",
-            fontSize: "13px",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1.3",
-        },
-    },
-    "body-lg": {
-        value: { fontSize: "{fontSizes.md}", lineHeight: "{lineHeights.relaxed}" },
-    },
-    "body-md": {
-        value: { fontSize: "{fontSizes.sm}", lineHeight: "{lineHeights.normal}" },
-    },
-    "body-sm": {
-        value: { fontSize: "13px", lineHeight: "{lineHeights.normal}" },
-    },
-    "label-md": {
-        value: {
-            fontFamily: "body",
-            fontSize: "{fontSizes.xs}",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.normal}",
-            letterSpacing: "{letterSpacings.wider}",
-            textTransform: "uppercase",
-            color: "fg.subtle",
-        },
-    },
-    "label-sm": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.tight}",
-            letterSpacing: "{letterSpacings.widest2}",
-            textTransform: "uppercase",
-            color: "fg.muted",
-        },
-    },
-    "overline": {
-        value: {
-            fontFamily: "body",
-            fontSize: "{fontSizes.xs}",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "{lineHeights.normal}",
-            letterSpacing: "{letterSpacings.widest}",
-            textTransform: "uppercase",
-            /* `link` = brand.600 light / brand.300 dark — fixed brand.600
-             * sits under 3:1 on dark surfaces (#362). */
-            color: "{colors.link}",
-        },
-    },
-    "code-sm": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "11px",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
-    "code-md": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
-    "mono-kpi": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "{fontSizes.2xl}",
-            fontWeight: "{fontWeights.semibold}",
-            lineHeight: "1",
-            letterSpacing: "{letterSpacings.tight}",
-            fontVariantNumeric: "tabular-nums",
-            fontFeatureSettings: '"tnum"',
-        },
-    },
+    /** Below the title sizes a heading is `h6` — Inter Tight 14 / 600. */
+    "heading-xs": { value: H6 },
+    "body-lg": { value: { fontSize: "{fontSizes.body.lg}", lineHeight: "{lineHeights.relaxed}" } },
+    "body-md": { value: { fontSize: "{fontSizes.body}", lineHeight: "{lineHeights.normal}" } },
+    "body-sm": { value: { fontSize: "{fontSizes.body.sm}", lineHeight: "{lineHeights.normal}" } },
+    /** A form / metric label. */
+    "label-md": { value: label("{fontSizes.label.lg}", "{letterSpacings.caps}", "fg.subtle", NORMAL) },
+    /** A small form / metric label. */
+    "label-sm": { value: label("{fontSizes.label.sm}", "{letterSpacings.widest2}", "fg.subtle", TIGHT) },
+    /** An overline — the eyebrow. */
+    "overline": { value: EYEBROW },
+    "code-sm": { value: { fontFamily: "mono", fontSize: "{fontSizes.label.lg}", ...TNUM } },
+    "code-md": { value: { fontFamily: "mono", fontSize: "{fontSizes.body.sm}", ...TNUM } },
+    "mono-kpi": { value: NUM_LG },
 
-    /* ─── App shell chrome — bsys "Header recipe" / "Sidebar recipe" ─
+    /* ─── App shell chrome — app-layout.md › App bar, Sidebar ─
      *
-     * The application chrome (sticky 84 px header, 240 px sidebar) is
-     * driven by these five tokens. Numbers are 1:1 with the spec; the
-     * colour roles use semantic tokens so dark mode inherits without
-     * change. */
+     * The application chrome (sticky header, 240px sidebar). The colour
+     * roles are semantic tokens, so dark mode inherits without change. */
 
-    /** Header Row 1 left — section breadcrumb. Spec `Header recipe Row 1`. */
+    /** App bar row 1 — the breadcrumb's ancestors: mono 11 / 500 / 0.06em, `--ink-3`. */
     "breadcrumb": {
         value: {
             fontFamily: "mono",
-            fontSize: "11px",
+            fontSize: "{fontSizes.label.lg}",
             fontWeight: "{fontWeights.medium}",
-            letterSpacing: "0.06em",
+            letterSpacing: "{letterSpacings.wider}",
             color: "fg.muted",
         },
     },
-    /** Header Row 2 left — surface title. Spec `Header recipe Row 2 title`
-     *  (brand 24 px / 700 / −0.015 em). */
+    /** App bar row 2 — the surface title: DM Sans 24 / 700 / −0.015em, line
+     *  height 1.1 (the comfortable bar). */
     "surface.title": {
         value: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.2xl}",        // 24px
+            fontSize: "{fontSizes.title.xl}",
             fontWeight: "{fontWeights.bold}",
             lineHeight: "1.1",
-            letterSpacing: "-0.015em",
+            letterSpacing: "{letterSpacings.tight}",
             color: "fg",
         },
     },
-    /** Header Row 2 right — state eyebrow. Spec `Header recipe Row 2
-     *  state eyebrow` (mono 10.5 px / 0.14 em uppercase). */
-    "state.eyebrow": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "10.5px",
-            fontWeight: "{fontWeights.semibold}",
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            color: "fg.muted",
-        },
-    },
-    /** Sidebar group header — Spec `Sidebar recipe section eyebrow`
-     *  (mono 9.5 px / 600 / 0.18 em in `ink-4`). */
-    "nav.eyebrow": {
-        value: {
-            fontFamily: "mono",
-            fontSize: "9.5px",
-            fontWeight: "{fontWeights.semibold}",
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            color: "fg.muted",
-        },
-    },
-    /** Sidebar item label — Spec `Sidebar recipe item label`
-     *  (mono 12 px / 600 / 0.12 em uppercase). Colour intentionally
-     *  omitted so callers control per-state (active vs. resting). */
+    /** App bar row 2, right — the state eyebrow: mono 10.5, uppercase. */
+    "state.eyebrow": { value: label("{fontSizes.label.md}", "{letterSpacings.label}", "fg.subtle") },
+    /** Sidebar section eyebrow — mono 9.5 / 600 / 0.18em, `--ink-4`. */
+    "nav.eyebrow": { value: label("{fontSizes.label.xs}", "{letterSpacings.widest2}", "fg.subtle") },
+    /** Sidebar item label — mono 11 / 600 / 0.12em uppercase. Colour
+     *  intentionally omitted so callers control per-state (active vs. resting). */
     "nav.item": {
         value: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",         // 12px
+            fontSize: "{fontSizes.label.lg}",
             fontWeight: "{fontWeights.semibold}",
-            letterSpacing: "0.12em",
+            letterSpacing: "{letterSpacings.widest}",
             textTransform: "uppercase",
         },
     },

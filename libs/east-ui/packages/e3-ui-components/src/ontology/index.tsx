@@ -298,7 +298,7 @@ function OntologyEditorBody({
                             )}
                             {searchMatchIds && (
                                 <Box position="absolute" right={searchQuery ? '8' : '2'} top="50%" transform="translateY(-50%)" zIndex={1} pointerEvents="none">
-                                    <Text fontFamily="mono" fontSize="2xs" color={searchMatchIds.size > 0 ? 'brand.fg' : 'fg.danger'}>
+                                    <Text fontFamily="mono" fontSize="label.sm" color={searchMatchIds.size > 0 ? 'brand.fg' : 'fg.danger'}>
                                         {searchMatchIds.size}
                                     </Text>
                                 </Box>
@@ -365,7 +365,7 @@ function OntologyEditorBody({
                             <Menu.Content minW="180px">
                                 <Menu.ItemGroup>
                                     <Menu.ItemGroupLabel
-                                        fontFamily="mono" fontSize="2xs" fontWeight="bold"
+                                        fontFamily="mono" fontSize="label.sm" fontWeight="bold"
                                         letterSpacing="widest" textTransform="uppercase" color="fg.subtle"
                                     >
                                         Add node
@@ -374,7 +374,7 @@ function OntologyEditorBody({
                                         <Menu.Item key={kind} value={kind} onClick={() => onAddNode(kind)}>
                                             <HStack gap="2">
                                                 <Box w="8px" h="8px" borderRadius="full" bg={NODE_KIND_ACCENT[kind]} flexShrink={0} />
-                                                <Text fontSize="sm" textTransform="capitalize">{kind}</Text>
+                                                <Text fontSize="body.lg" textTransform="capitalize">{kind}</Text>
                                             </HStack>
                                         </Menu.Item>
                                     ))}
@@ -531,7 +531,7 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                 bg="bg.surface" border="1px solid" borderColor="border.subtle" borderRadius="lg"
                 p="9" textAlign="center"
             >
-                <Text fontFamily="mono" fontSize="md" color="fg.subtle">
+                <Text fontFamily="mono" fontSize="body.lg" color="fg.subtle">
                     Loading ontology…
                 </Text>
             </Box>
@@ -565,16 +565,16 @@ const EastChakraOntology = memo(function EastChakraOntology({ value }: EastChakr
                 justify="space-between"
             >
                 <HStack gap="3">
-                    <Text fontFamily="mono" fontSize="xs" fontWeight="semibold" letterSpacing="widest" textTransform="uppercase" color="fg">
+                    <Text fontFamily="mono" fontSize="label.lg" fontWeight="semibold" letterSpacing="widest" textTransform="uppercase" color="fg">
                         Ontology
                     </Text>
-                    <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" color="fg.muted">
+                    <Text fontFamily="mono" fontSize="label.sm" letterSpacing="wider" color="fg.muted">
                         {nodeCount} NODES · {linkCount} LINKS
                     </Text>
                 </HStack>
                 <HStack gap="3">
                     {pending && (
-                        <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" textTransform="uppercase" color="fg.warning">
+                        <Text fontFamily="mono" fontSize="label.sm" letterSpacing="wider" textTransform="uppercase" color="fg.warning">
                             Unsaved changes
                         </Text>
                     )}

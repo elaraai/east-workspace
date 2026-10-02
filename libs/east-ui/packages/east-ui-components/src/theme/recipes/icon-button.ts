@@ -42,8 +42,8 @@ export const iconButtonRecipe = defineRecipe({
             subtle:  { background: "bg.subtle", color: "fg", _hover: { background: "bg.emphasized" } },
         },
         size: {
-            xs: { width: "26px", height: "26px", fontSize: "{fontSizes.control}" },
-            sm: { width: "28px", height: "28px", fontSize: "{fontSizes.control}" },
+            xs: { width: "26px", height: "26px", fontSize: "{fontSizes.body}" },
+            sm: { width: "28px", height: "28px", fontSize: "{fontSizes.body}" },
             md: { width: "32px", height: "32px", fontSize: "14px" },
             lg: { width: "40px", height: "40px", fontSize: "16px" },
         },

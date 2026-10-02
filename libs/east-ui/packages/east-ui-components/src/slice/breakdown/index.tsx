@@ -191,7 +191,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     paddingX: "10px",
                                     paddingY: "6px",
                                     fontFamily: "body",
-                                    fontSize: "{fontSizes.xs}",
+                                    fontSize: "{fontSizes.body.sm}",
                                     lineHeight: "1",
                                 } as const;
                                 return selectable ? (
@@ -222,7 +222,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     color="fg.muted"
                                     paddingX="10px"
                                     paddingY="6px"
-                                    fontSize="{fontSizes.xs}"
+                                    fontSize="{fontSizes.body.sm}"
                                     lineHeight="1"
                                 >
                                     {`+${moreCount} more · ${words.number(moreTotal)}`}

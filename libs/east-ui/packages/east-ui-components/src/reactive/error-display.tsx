@@ -67,7 +67,7 @@ export function EastErrorDisplay({ title, message, stack, context }: EastErrorDi
                             <Code
                                 display="block"
                                 whiteSpace="pre-wrap"
-                                fontSize="xs"
+                                fontSize="body.sm"
                                 mt="2"
                                 p="2"
                                 layerStyle="banner.error"

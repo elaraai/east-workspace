@@ -513,24 +513,24 @@ export function FontVariantNumeric(variant_: FontVariantNumericLiteral): ExprTyp
  * Text and Heading require a `textStyle`; raw `fontSize` stays on Box only
  * as an escape hatch.
  *
- * @property display-xl - Hero page title (48 px)
- * @property display-lg - Large display heading
- * @property display-md - Medium display heading
- * @property display-sm - Small display heading
- * @property heading-lg - Large section heading
- * @property heading-md - Medium section heading
- * @property heading-sm - Small section heading
- * @property heading-xs - Extra-small heading
- * @property body-lg - Large body text
- * @property body-md - Medium body text (default)
- * @property body-sm - Small body text
- * @property label-md - Medium form label / metric label
- * @property label-sm - Small form label / metric label
- * @property caption - Caption / footnote
- * @property overline - Overline / eyebrow
- * @property code-sm - Small code / token
- * @property code-md - Medium code / token
- * @property mono-kpi - KPI numeric — mono + tabular-nums + display sizing
+ * @property display-xl - Page title, the design system's `h1` (24 px)
+ * @property display-lg - Large display heading, `h2` (20 px)
+ * @property display-md - Medium display heading, `h3` (18 px)
+ * @property display-sm - Small display heading, `h4` (16 px)
+ * @property heading-lg - Large section heading (20 px)
+ * @property heading-md - Medium section heading (18 px)
+ * @property heading-sm - Small section heading (15 px)
+ * @property heading-xs - Extra-small heading, `h6` in the body face (14 px)
+ * @property body-lg - Large body text (14 px)
+ * @property body-md - Medium body text (13 px, the default)
+ * @property body-sm - Small body text (12.5 px)
+ * @property label-md - Medium form label / metric label (mono 11 px)
+ * @property label-sm - Small form label / metric label (mono 10 px)
+ * @property caption - Caption / footnote (12.5 px)
+ * @property overline - Overline / eyebrow (mono 10 px)
+ * @property code-sm - Small code / token (mono 11 px)
+ * @property code-md - Medium code / token (mono 12.5 px)
+ * @property mono-kpi - KPI numeric — mono + tabular-nums, the large number (26 px)
  */
 export const TextStyleType = VariantType({
     "display-xl": NullType,

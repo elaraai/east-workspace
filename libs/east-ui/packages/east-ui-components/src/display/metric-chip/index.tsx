@@ -33,10 +33,10 @@ const TONE_PALETTE: Record<string, { fg: string; outlineBg: string; outlineBorde
 
 /** The sizes around the default — `sm` is the recipe's own, the design system's 20px pill. */
 const SIZE_PADDING: Record<string, { px: string; py: string; fontSize: string }> = {
-    xs: { px: "1.5", py: "0", fontSize: "xs" },
-    md: { px: "2.5", py: "1", fontSize: "sm" },
-    lg: { px: "3", py: "1.5", fontSize: "md" },
-    xl: { px: "3.5", py: "2", fontSize: "md" },
+    xs: { px: "1.5", py: "0", fontSize: "body.sm" },
+    md: { px: "2.5", py: "1", fontSize: "body.lg" },
+    lg: { px: "3", py: "1.5", fontSize: "body.lg" },
+    xl: { px: "3.5", py: "2", fontSize: "body.lg" },
 };
 
 export interface EastChakraMetricChipProps {

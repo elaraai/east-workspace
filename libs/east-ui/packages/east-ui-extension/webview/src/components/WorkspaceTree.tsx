@@ -184,9 +184,9 @@ export function WorkspaceTree() {
             </Flex>
 
             {!currentWorkspace ? (
-                <Text px="14px" py="2" fontSize="xs" color="fg.muted">Select a workspace</Text>
+                <Text px="14px" py="2" fontSize="body.sm" color="fg.muted">Select a workspace</Text>
             ) : error ? (
-                <Box px="14px" py="2"><Text color="fg.danger" fontSize="xs">{formatApiError(error).message}</Text></Box>
+                <Box px="14px" py="2"><Text color="fg.danger" fontSize="body.sm">{formatApiError(error).message}</Text></Box>
             ) : (
                 <>
                     <SectionEyebrow icon={faDatabase} label="Inputs" />
@@ -202,7 +202,7 @@ export function WorkspaceTree() {
                         />
                     ))}
                     {!isLoading && inputs.length === 0 && (
-                        <Text pl="14px" py="1" fontFamily="mono" fontSize="2xs" color="fg.subtle">No inputs</Text>
+                        <Text pl="14px" py="1" fontFamily="mono" fontSize="label.sm" color="fg.subtle">No inputs</Text>
                     )}
 
                     <SectionEyebrow icon={faBolt} label="Tasks" />
@@ -220,11 +220,11 @@ export function WorkspaceTree() {
                         />
                     ))}
                     {!isLoading && tasks.length === 0 && (
-                        <Text pl="14px" py="1" fontFamily="mono" fontSize="2xs" color="fg.subtle">No tasks</Text>
+                        <Text pl="14px" py="1" fontFamily="mono" fontSize="label.sm" color="fg.subtle">No tasks</Text>
                     )}
 
                     {isLoading && !status && (
-                        <HStack px="14px" py="2"><Spinner size="xs" /><Text fontSize="xs" color="fg.muted">Loading…</Text></HStack>
+                        <HStack px="14px" py="2"><Spinner size="xs" /><Text fontSize="body.sm" color="fg.muted">Loading…</Text></HStack>
                     )}
                 </>
             )}

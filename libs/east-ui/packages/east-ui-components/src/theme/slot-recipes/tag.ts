@@ -8,7 +8,7 @@
  *
  * Slots:
  *  - `root` — outer container (inline-flex + padding + border).
- *  - `label` — text content (body 12 / weight 500).
+ *  - `label` — text content (body 12.5 / weight 500).
  *  - `closeTrigger` — the trailing × dismiss button.
  *
  * Default `variant="outline"` is the spec base chip; `brand` / `dashed`
@@ -94,8 +94,8 @@ export const tagSlotRecipe = defineSlotRecipe({
         },
         size: {
             sm: { root: { fontSize: "11px", paddingX: "{spacing.2}", paddingY: "2px" } },
-            md: { root: { fontSize: "var(--cr-fs, {fontSizes.xs})", paddingX: "var(--cr-px, 10px)", paddingY: "var(--cr-py, {spacing.1})" } },
-            lg: { root: { fontSize: "{fontSizes.control}", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
+            md: { root: { fontSize: "var(--cr-fs, {fontSizes.body.sm})", paddingX: "var(--cr-px, 10px)", paddingY: "var(--cr-py, {spacing.1})" } },
+            lg: { root: { fontSize: "{fontSizes.body}", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
         },
         // Density cascade — values mirror the `chipRail` `--cr-*` sets so a
         // tag with an explicit density matches a rail (and a Trace step) at

@@ -26,7 +26,7 @@ export const facetTabsSlotRecipe = defineSlotRecipe({
         },
         tab: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.2xs}",
+            fontSize: "{fontSizes.label.sm}",
             fontWeight: "medium",
             letterSpacing: "0.04em",
             lineHeight: "1.4",

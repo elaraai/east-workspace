@@ -34,7 +34,7 @@ export const mapSlotRecipe = defineSlotRecipe({
             // ── Leaflet container + muted attribution (CARTO terms require it) ──
             "& .leaflet-container": { background: "bg.panel", fontFamily: "inherit", width: "100%", height: "100%" },
             "& .leaflet-tile": { filter: "saturate(0.92)" },
-            "& .leaflet-control-attribution": { fontSize: "2xs", opacity: 0.55 },
+            "& .leaflet-control-attribution": { fontSize: "label.sm", opacity: 0.55 },
             "& .leaflet-control-attribution a": { color: "fg.muted" },
             "& .leaflet-interactive": { cursor: "pointer" },
 
@@ -76,12 +76,12 @@ export const mapSlotRecipe = defineSlotRecipe({
                 boxShadow: "0 0 0 3px color-mix(in srgb, {colors.brand.500} 25%, transparent)",
             },
             "& .elara-map-pin-label, & .elara-map-label": {
-                fontFamily: "mono", fontSize: "2xs", color: "fg",
+                fontFamily: "mono", fontSize: "label.sm", color: "fg",
                 background: "bg.surface", paddingInline: "1", borderRadius: "sm",
                 borderWidth: "1px", borderColor: "border.subtle",
             },
             "& .elara-map-tip.leaflet-tooltip": {
-                fontFamily: "mono", fontSize: "2xs",
+                fontFamily: "mono", fontSize: "label.sm",
                 color: "fg", background: "bg.surface",
                 borderWidth: "1px", borderColor: "border.subtle", borderRadius: "sm",
                 boxShadow: "xs",
@@ -149,7 +149,7 @@ export const mapSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.md}",
             boxShadow: "md",
             padding: "14px 16px",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
             /* Compact hosts: the OverlayHost's dismiss chip anchors here. */

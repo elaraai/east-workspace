@@ -102,7 +102,7 @@ export const OntologyEdge = memo(({
                 >
                     <Text
                         fontFamily="mono"
-                        fontSize="2xs"
+                        fontSize="label.sm"
                         letterSpacing="wider"
                         px="2"
                         py="0.5"

@@ -28,7 +28,7 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1}",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             cursor: "pointer",
             /* Touch (#346). */
             _coarse: { minHeight: "44px" },
@@ -39,7 +39,7 @@ export const treeViewSlotRecipe = defineSlotRecipe({
         },
         branchTrigger: { color: "fg.muted", cursor: "pointer", _hover: { color: "fg" } },
         branchIndicator: { color: "fg.muted", transitionProperty: "transform", transitionDuration: "{durations.fast}" },
-        branchText: { fontSize: "{fontSizes.control}", color: "fg" },
+        branchText: { fontSize: "{fontSizes.body}", color: "fg" },
         branchContent: { paddingLeft: "{spacing.4}" },
         item: {
             display: "flex",
@@ -47,7 +47,7 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1}",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg",
             cursor: "pointer",
             /* Touch (#346). */
@@ -56,6 +56,6 @@ export const treeViewSlotRecipe = defineSlotRecipe({
             _selected: { background: "bg.brand.subtle", color: "brand.fg" },
             "&[data-selected]": { background: "bg.brand.subtle", color: "brand.fg" },
         },
-        itemText: { fontSize: "{fontSizes.control}" },
+        itemText: { fontSize: "{fontSizes.body}" },
     },
 });

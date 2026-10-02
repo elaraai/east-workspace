@@ -59,7 +59,7 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
     return (
         <VStack gap="4" align="stretch">
             <Field.Root>
-                <Field.Label fontFamily="mono" fontSize="2xs" letterSpacing="widest" textTransform="uppercase" color="fg.muted">
+                <Field.Label fontFamily="mono" fontSize="label.sm" letterSpacing="widest" textTransform="uppercase" color="fg.muted">
                     Type
                 </Field.Label>
                 <HStack gap="2" alignItems="center">
@@ -77,7 +77,7 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
             </Field.Root>
 
             <Field.Root>
-                <Field.Label fontFamily="mono" fontSize="2xs" letterSpacing="widest" textTransform="uppercase" color="fg.muted">
+                <Field.Label fontFamily="mono" fontSize="label.sm" letterSpacing="widest" textTransform="uppercase" color="fg.muted">
                     Name
                 </Field.Label>
                 <Input
@@ -94,7 +94,7 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
             </Field.Root>
 
             <Field.Root>
-                <Field.Label fontFamily="mono" fontSize="2xs" letterSpacing="widest" textTransform="uppercase" color="fg.muted">
+                <Field.Label fontFamily="mono" fontSize="label.sm" letterSpacing="widest" textTransform="uppercase" color="fg.muted">
                     Description
                 </Field.Label>
                 <Textarea
@@ -112,7 +112,7 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
                     <Box
                         as="button"
                         fontFamily="mono"
-                        fontSize="xs"
+                        fontSize="label.lg"
                         letterSpacing="wider"
                         textTransform="uppercase"
                         color="fg.danger"
@@ -124,7 +124,7 @@ function NodePropertiesForm({ nodeId, node, onUpdate, onDelete, onClose }: NodeP
                     >
                         Delete
                     </Box>
-                    <Text fontFamily="mono" fontSize="2xs" letterSpacing="widest" textTransform="uppercase" color="fg.subtle">
+                    <Text fontFamily="mono" fontSize="label.sm" letterSpacing="widest" textTransform="uppercase" color="fg.subtle">
                         Edits save on blur
                     </Text>
                 </HStack>
@@ -146,11 +146,11 @@ export function NodePropertiesDrawer({ nodeId, getNode, onClose, onUpdate, onDel
                         {/* eyebrow header */}
                         <Drawer.Header bg="bg.panel" borderBottom="1px solid" borderColor="border.subtle" px="4" py="3">
                             <HStack justify="space-between" alignItems="center">
-                                <Text fontFamily="mono" fontSize="xs" fontWeight="semibold" letterSpacing="widest" textTransform="uppercase" color="fg">
+                                <Text fontFamily="mono" fontSize="label.lg" fontWeight="semibold" letterSpacing="widest" textTransform="uppercase" color="fg">
                                     Edit Node
                                 </Text>
                                 {nodeId && (
-                                    <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" color="fg.muted">
+                                    <Text fontFamily="mono" fontSize="label.sm" letterSpacing="wider" color="fg.muted">
                                         {nodeId}
                                     </Text>
                                 )}

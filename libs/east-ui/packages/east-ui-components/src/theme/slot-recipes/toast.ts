@@ -36,8 +36,8 @@ export const toastSlotRecipe = defineSlotRecipe({
             color: "status.info",
             lineHeight: "1.4",
         },
-        title: { fontWeight: "semibold", fontSize: "{fontSizes.sm}", color: "fg" },
-        description: { fontSize: "{fontSizes.control}", color: "fg.muted", marginTop: "{spacing.1}" },
+        title: { fontWeight: "semibold", fontSize: "{fontSizes.body.lg}", color: "fg" },
+        description: { fontSize: "{fontSizes.body}", color: "fg.muted", marginTop: "{spacing.1}" },
     },
     variants: {
         /* The edge and the indicator glyph are marks: the valence base. */

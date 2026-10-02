@@ -48,7 +48,7 @@ export const navListSlotRecipe = defineSlotRecipe({
             background: "transparent",
             color: "fg.muted",
             fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.label.lg}",   // the sidebar's item label: mono 11
             fontWeight: "semibold",
             letterSpacing: "0.12em",
             textTransform: "uppercase",
@@ -60,9 +60,9 @@ export const navListSlotRecipe = defineSlotRecipe({
             _hover: {
                 color: "link",
             },
-            // Active row is an inset pill, not a full-width band. `brandTint`
-            // and `brand.fg` are mode-aware semantic tokens (#362) — the pill
-            // flips to a brand.800 fill with brand.300 ink in dark.
+            // Active row is an inset pill, not a full-width band: the design
+            // system's active item, the `--brand-tint` fill with `--brand-dd`
+            // text (`brand.fg`), 8px side inset (app-layout › Sidebar).
             "&[aria-current=page], &[data-active]": {
                 width: "calc(100% - 16px)",
                 marginInline: "8px",
@@ -77,7 +77,7 @@ export const navListSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             justifyContent: "center",
             width: "16px",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "12px",   // the glyph — an icon size
             flexShrink: "0",
         },
         itemText: {

@@ -94,7 +94,7 @@ function Chip({ chip, emphasized = false, hovered, setHovered, onSelect }: ChipP
             transform={active ? 'translateY(-1px)' : 'none'}
             boxShadow={active ? 'sm' : 'none'}
             transition="opacity 140ms ease, transform 140ms ease, border-color 140ms ease, background 140ms ease"
-            fontSize="xs"
+            fontSize="body.sm"
             color="fg"
             cursor="pointer"
             onMouseEnter={() => setHovered(chip.id)}
@@ -115,7 +115,7 @@ function ChipCell({ chips, emphasized, hovered, setHovered, onSelect }: {
     emphasized?: boolean;
 } & HoverState & { onSelect: (id: string) => void }) {
     if (chips.length === 0) {
-        return <Text as="span" fontFamily="mono" fontSize="2xs" color="fg.subtle">—</Text>;
+        return <Text as="span" fontFamily="mono" fontSize="label.sm" color="fg.subtle">—</Text>;
     }
     return (
         <HStack gap="1" flexWrap="wrap">
@@ -159,17 +159,17 @@ function FlowList({ label, icon, neighbors, hovered, setHovered, onSelect }: {
         <VStack alignItems="stretch" gap="1" minW="0">
             <HStack gap="1" color="fg.subtle">
                 {icon}
-                <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
+                <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                     {label}
                 </Text>
             </HStack>
             {neighbors.length === 0 ? (
-                <Text fontFamily="mono" fontSize="2xs" color="fg.subtle">none</Text>
+                <Text fontFamily="mono" fontSize="label.sm" color="fg.subtle">none</Text>
             ) : neighbors.map(n => (
                 <HStack key={n.id} gap="1.5" flexWrap="wrap">
                     <Chip chip={{ id: n.id, name: n.name, kind: 'process' }}
                           hovered={hovered} setHovered={setHovered} onSelect={onSelect} />
-                    <Text fontSize="2xs" color="fg.muted">via {n.via.join(', ')}</Text>
+                    <Text fontSize="label.sm" color="fg.muted">via {n.via.join(', ')}</Text>
                 </HStack>
             ))}
         </VStack>
@@ -208,7 +208,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
             >
                 <Box as="td" css={rowCellCss} verticalAlign="top">
                     <HStack gap="1">
-                        <Text fontFamily="mono" fontSize="2xs" fontWeight="bold" color="fg.muted">
+                        <Text fontFamily="mono" fontSize="label.sm" fontWeight="bold" color="fg.muted">
                             S{row.stage}
                         </Text>
                         {row.cyclic && (
@@ -229,7 +229,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                 boxShadow={hovered === row.id ? `0 0 0 3px ${NODE_KIND_ACCENT.process}33` : 'none'}
                                 transition="box-shadow 140ms ease"
                             />
-                            <Text fontSize="sm" fontWeight="semibold" color="fg" lineHeight="tight">
+                            <Text fontSize="body.lg" fontWeight="semibold" color="fg" lineHeight="tight">
                                 {row.name}
                             </Text>
                             <Box
@@ -252,7 +252,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                             </HStack>
                         )}
                         {row.description && (
-                            <Text fontSize="xs" color="fg.muted" lineHeight="snug"
+                            <Text fontSize="body.sm" color="fg.muted" lineHeight="snug"
                                   overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
                                 {row.description}
                             </Text>
@@ -269,7 +269,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                     <VStack alignItems="stretch" gap="1">
                         <ChipCell chips={row.kpis} hovered={hovered} setHovered={setHovered} onSelect={onSelect} />
                         {row.alsoVia.length > 0 && (
-                            <Text fontSize="2xs" color="fg.subtle">
+                            <Text fontSize="label.sm" color="fg.subtle">
                                 also via {row.alsoVia.map(k => k.name).join(', ')}
                             </Text>
                         )}
@@ -286,7 +286,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                 </Box>
                 <Box as="td" css={rowCellCss} verticalAlign="top" textAlign="right">
                     {row.lints.length > 0 && (
-                        <Tip label={<VStack alignItems="stretch" gap="0.5">{row.lints.map(l => <Text key={l} fontSize="xs">{l}</Text>)}</VStack>}>
+                        <Tip label={<VStack alignItems="stretch" gap="0.5">{row.lints.map(l => <Text key={l} fontSize="body.sm">{l}</Text>)}</VStack>}>
                             <Box as="span" display="inline-flex" color="status.warn">
                                 <FiAlertTriangle size={13} />
                             </Box>
@@ -332,11 +332,11 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                         <VStack alignItems="stretch" gap="1">
                                             <HStack gap="1" color="brand.fg">
                                                 <FiRefreshCw size={11} />
-                                                <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
+                                                <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                                                     Cycle
                                                 </Text>
                                             </HStack>
-                                            <Text fontSize="xs" color="fg.muted">
+                                            <Text fontSize="body.sm" color="fg.muted">
                                                 {[row.name, ...row.cycleWith].join(' → ')} → {row.name}
                                             </Text>
                                         </VStack>
@@ -345,12 +345,12 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                         <VStack alignItems="stretch" gap="1">
                                             <HStack gap="1" color="fg.warning">
                                                 <FiAlertTriangle size={11} />
-                                                <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
+                                                <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                                                     Warnings
                                                 </Text>
                                             </HStack>
                                             {row.lints.map(l => (
-                                                <Text key={l} fontSize="xs" color="fg.muted">{l}</Text>
+                                                <Text key={l} fontSize="body.sm" color="fg.muted">{l}</Text>
                                             ))}
                                         </VStack>
                                     )}
@@ -359,7 +359,7 @@ const ProcessRowView = memo(function ProcessRowView({ row, index, ctx }: {
                                     <chakra.button
                                         type="button"
                                         fontFamily="mono"
-                                        fontSize="2xs"
+                                        fontSize="label.sm"
                                         letterSpacing="wider"
                                         textTransform="uppercase"
                                         color="brand.fg"
@@ -392,7 +392,7 @@ function SectionRows({ section, ctx, startIndex }: { section: KpiSection; ctx: R
                          borderBottom="1px solid" borderColor="border.subtle">
                         <HStack gap="2" pl="4">
                             <Box w="6px" h="6px" borderRadius="full" bg={NODE_KIND_ACCENT.kpi} />
-                            <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold"
+                            <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold"
                                   letterSpacing="wider" textTransform="uppercase" color="fg.muted">
                                 via
                             </Text>
@@ -447,20 +447,20 @@ function GroupSection({ group, ctx, collapsed, toggleCollapsed, headerCss, colum
                 </Box>
                 <Box w="8px" h="8px" borderRadius="full"
                      bg={group.id === null ? 'border.strong' : NODE_KIND_ACCENT.objective} flexShrink={0} />
-                <Text fontSize="sm" fontWeight="semibold" color="fg">{group.name}</Text>
-                <Text fontFamily="mono" fontSize="2xs" letterSpacing="wider" color="fg.muted" textTransform="uppercase">
+                <Text fontSize="body.lg" fontWeight="semibold" color="fg">{group.name}</Text>
+                <Text fontFamily="mono" fontSize="label.sm" letterSpacing="wider" color="fg.muted" textTransform="uppercase">
                     {group.processCount} processes · {group.decisionCount} decisions
                 </Text>
                 {group.lintCount > 0 && (
                     <Tip label={`${group.lintCount} completeness warnings in this group`}>
                         <HStack gap="1" color="fg.warning">
                             <FiAlertTriangle size={12} />
-                            <Text fontFamily="mono" fontSize="2xs" fontWeight="bold">{group.lintCount}</Text>
+                            <Text fontFamily="mono" fontSize="label.sm" fontWeight="bold">{group.lintCount}</Text>
                         </HStack>
                     </Tip>
                 )}
                 {group.description && (
-                    <Text fontSize="xs" color="fg.subtle" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                    <Text fontSize="body.sm" color="fg.subtle" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
                         {group.description}
                     </Text>
                 )}
@@ -559,7 +559,7 @@ export const OntologyTable = memo(function OntologyTable({ ontology, onSelectNod
     if (projection.processCount === 0) {
         return (
             <Box p="9" textAlign="center">
-                <Text fontFamily="mono" fontSize="sm" color="fg.subtle">
+                <Text fontFamily="mono" fontSize="body.lg" color="fg.subtle">
                     No process nodes yet — add processes in the graph view to populate the table.
                 </Text>
             </Box>
@@ -579,7 +579,7 @@ export const OntologyTable = memo(function OntologyTable({ ontology, onSelectNod
                 >
                     <HStack gap="1.5" color="fg.warning">
                         <FiAlertTriangle size={12} />
-                        <Text fontFamily="mono" fontSize="2xs" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
+                        <Text fontFamily="mono" fontSize="label.sm" fontWeight="semibold" letterSpacing="wider" textTransform="uppercase">
                             {projection.lints.length} graph warnings
                         </Text>
                         <Box transform={showLints ? 'rotate(180deg)' : 'none'} transition="transform 180ms ease" display="inline-flex">
@@ -590,7 +590,7 @@ export const OntologyTable = memo(function OntologyTable({ ontology, onSelectNod
                         <Box overflow="hidden" minH="0">
                             <VStack alignItems="stretch" gap="0.5" pt="1.5">
                                 {projection.lints.map(l => (
-                                    <Text key={l} fontSize="xs" color="fg.muted">{l}</Text>
+                                    <Text key={l} fontSize="body.sm" color="fg.muted">{l}</Text>
                                 ))}
                             </VStack>
                         </Box>

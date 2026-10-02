@@ -224,7 +224,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                 <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" />
             </Flex>
             {status !== null && (
-                <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">{status}</Text>
+                <Text fontSize="body.sm" color="fg.muted" whiteSpace="nowrap">{status}</Text>
             )}
             {canStep && (
                 <>

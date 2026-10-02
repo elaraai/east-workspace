@@ -69,7 +69,7 @@ export const EastChakraExtension = memo(function EastChakraExtension({
         // crashing or rendering blank in dev. Production callers that want
         // a different fallback can detect via `hasExtensionRenderer`.
         return (
-            <Box layerStyle="banner.error" fontFamily="mono" fontSize="xs">
+            <Box layerStyle="banner.error" fontFamily="mono" fontSize="body.sm">
                 <Text fontWeight="semibold">Extension renderer missing</Text>
                 <Text>kind: {value.kind}</Text>
             </Box>

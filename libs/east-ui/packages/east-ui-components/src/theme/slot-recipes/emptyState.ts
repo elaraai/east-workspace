@@ -40,7 +40,7 @@ export const emptyStateSlotRecipe = defineSlotRecipe({
             letterSpacing: "{letterSpacings.wide}",
         },
         title: {
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.title.xs}",   // 15 — the design system's empty-state title
             fontWeight: "semibold",
             color: "fg",
             lineHeight: "{lineHeights.snug}",

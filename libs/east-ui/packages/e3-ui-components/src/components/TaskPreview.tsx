@@ -54,7 +54,7 @@ export const TaskPreview = memo(function TaskPreview({
                 the client <App> owns the whole surface. */}
             {!bare && (
                 <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" flexShrink={0}>
-                    <Text fontSize="sm" fontWeight="medium" color="fg">{task}</Text>
+                    <Text fontSize="body.lg" fontWeight="medium" color="fg">{task}</Text>
                 </Flex>
             )}
             <Box flex={1} overflow="hidden" minHeight={0}>

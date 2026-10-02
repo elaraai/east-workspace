@@ -58,7 +58,7 @@ export function ErrorAlert({ error, onDismiss }: { error: CaughtError; onDismiss
             <Alert.Root status="error" variant="subtle" borderRadius="md" alignItems="flex-start" data-showcase-error="">
                 <Alert.Indicator />
                 <Alert.Content gap="3" width="full" minW={0}>
-                    <Alert.Title fontSize="sm">{error.title}</Alert.Title>
+                    <Alert.Title fontSize="body.lg">{error.title}</Alert.Title>
                     <Alert.Description width="full" minW={0}>
                         <Box fontWeight="medium" mb="2">{error.message}</Box>
                         <Box

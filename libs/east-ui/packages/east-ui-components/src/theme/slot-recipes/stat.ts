@@ -6,9 +6,11 @@
 /**
  * Stat slot recipe — pattern_spec/spec.css `.cell` data-rail.
  *
- * Label: `caption.eyebrow` (mono 10 / 600 / 0.18 em / uppercase).
- * Value: `mono.kpi` (mono / 24 px / 600 / tight / tabular-nums).
- * HelpText: `mono.tabular.sm` muted body-sized numerics.
+ * Label: `caption.eyebrow` (mono 11 / 600 / 0.18 em / uppercase).
+ * Value: tabular figures at the size variant — 20 (sm) or 26 (md, lg; the
+ * design system's large number, `--fs-num`). Unit: mono 10.5 (the design
+ * system's unit suffix).
+ * HelpText: `mono.tabular.sm` muted numerics.
  *
  * @packageDocumentation
  */
@@ -37,7 +39,7 @@ export const statSlotRecipe = defineSlotRecipe({
         },
         valueUnit: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.label.md}",
             color: "fg.muted",
             marginLeft: "{spacing.1}",
         },
@@ -55,9 +57,9 @@ export const statSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { valueText: { fontSize: "{fontSizes.xl}" } },     // 20px
-            md: { valueText: { fontSize: "26px" } },               // spec scorecard sc-val
-            lg: { valueText: { fontSize: "{fontSizes.4xl}" } },    // 36px
+            sm: { valueText: { fontSize: "{fontSizes.title.lg}" } },   // 20px
+            md: { valueText: { fontSize: "{fontSizes.num}" } },        // 26px — the large number
+            lg: { valueText: { fontSize: "{fontSizes.num}" } },        // 26px — no larger number exists
         },
         // Density cascade — value/label/help text tighten with the
         // chipRail/trace rhythm so a stat block shares a surface with chips

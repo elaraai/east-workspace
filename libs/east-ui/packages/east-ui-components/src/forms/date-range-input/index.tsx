@@ -133,7 +133,8 @@ export const EastChakraDateRangeInput = memo(function EastChakraDateRangeInput({
         }
     }, [onChangeFn]);
 
-    const fontSize = sizeTag === "sm" || sizeTag === "xs" ? "sm" : sizeTag === "lg" ? "lg" : "md";
+    // The separator reads at the fields' size: the input recipe's sm / md / lg.
+    const fontSize = sizeTag === "sm" || sizeTag === "xs" ? "body.sm" : sizeTag === "lg" ? "body.lg" : "body";
 
     const fieldShell = {
         ...fieldChrome,

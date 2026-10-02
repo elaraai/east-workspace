@@ -92,7 +92,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
                         overflow="hidden"
                     >
                         {labelsPos === "inside" && segLabel && (
-                            <ChakraText fontSize="xs" color={labelColor} truncate>{segLabel}</ChakraText>
+                            <ChakraText fontSize="body.sm" color={labelColor} truncate>{segLabel}</ChakraText>
                         )}
                     </Box>
                 );
@@ -107,7 +107,7 @@ export const EastChakraSegmentedMeter = memo(function EastChakraSegmentedMeter({
                 const segLabel = getSomeorUndefined(seg.label);
                 return (
                     <Box key={i} flex={Number(seg.value)} textAlign="center">
-                        {segLabel && <ChakraText fontSize="xs" color="fg.muted" truncate>{segLabel}</ChakraText>}
+                        {segLabel && <ChakraText fontSize="body.sm" color="fg.muted" truncate>{segLabel}</ChakraText>}
                     </Box>
                 );
             })}

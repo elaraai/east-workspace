@@ -711,7 +711,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             return (
                                 <Box key={tk} as="button" role="tab" aria-selected={on} tabIndex={on ? 0 : -1}
                                     onClick={() => setTab(tk)} cursor="pointer"
-                                    fontSize="xs" fontWeight="semibold" px="3.5" py="3" mb="-1px"
+                                    fontSize="body.sm" fontWeight="semibold" px="3.5" py="3" mb="-1px"
                                     color={on ? 'brand.fg' : 'fg.muted'}
                                     borderBottomWidth="2px" borderColor={on ? 'brand.solid' : 'transparent'}
                                     _hover={{ color: on ? 'brand.fg' : 'fg.default' }}
