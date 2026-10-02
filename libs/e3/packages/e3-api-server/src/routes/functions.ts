@@ -25,6 +25,7 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import { ArrayType } from '@elaraai/east';
 import { oneShotExecute, workspaceGetPackage } from '@elaraai/e3-core/portable';
 import type { ExecuteCeilings, OneShotGrant, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core/portable';
 import { decodeBody, sendError, sendSuccess } from '../beast2.js';
@@ -32,6 +33,7 @@ import { errorToVariant } from '../errors.js';
 import type { Identity } from '../identity.js';
 import {
   FunctionCallRequestType,
+  FunctionSignatureType,
   OneShotRequestType,
   ExecuteResultType,
   PackageJobResponseType,
@@ -159,6 +161,12 @@ export function createPackageFunctionRoutes(
  * `/api/repos/:repo/workspaces/:ws/functions`. The package is resolved from
  * what's deployed in the workspace; the handlers are identical.
  *
+ * @remarks
+ * A workspace whose package cannot be resolved — none deployed, or no such
+ * workspace — is answered in the envelope of the route's own type, as its
+ * handler answers every other error: the client decodes each route's answer by
+ * that type, and would read another's as a decode error, not the API's.
+ *
  * @param storage - Storage backend
  * @param getRepoPath - A repository's identifier from its name
  * @param getRunner - Each repository's task runner
@@ -186,7 +194,7 @@ export function createWorkspaceFunctionRoutes(
       const { repoPath, name, version } = await deployed(c);
       return await listPackageFunctions(storage, repoPath, name, version);
     } catch (err) {
-      return sendError(ExecuteResultType, errorToVariant(err));
+      return sendError(ArrayType(FunctionSignatureType), errorToVariant(err));
     }
   });
 
@@ -195,7 +203,7 @@ export function createWorkspaceFunctionRoutes(
       const { repoPath, name, version } = await deployed(c);
       return await describePackageFunction(storage, repoPath, name, version, c.req.param('fn')!);
     } catch (err) {
-      return sendError(ExecuteResultType, errorToVariant(err));
+      return sendError(FunctionSignatureType, errorToVariant(err));
     }
   });
 
