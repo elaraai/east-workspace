@@ -13,6 +13,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import { equalFor, isValueOf, printFor, type ValueTypeOf } from '@elaraai/east';
+import { InvalidNameErrorType } from '@elaraai/e3-types';
 import {
   ApiError,
   packageImport,
@@ -116,6 +118,33 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         'a workspace nothing is deployed to');
       assert.strictEqual(await workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts), null,
         'a deployed workspace, its deploy done');
+    });
+
+    it('workspaceLockStatus refuses a name no workspace can have as invalid_name of a workspace, as every route of a workspace does', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      // `main#dataflow` is the lock a run of main's dataflow holds: a lock's
+      // name, never a workspace's, and no lock is read for it.
+      const joins = (c: string) => `holds ${JSON.stringify(c)}, which joins the parts of a lock's name`;
+      for (const [name, why] of [
+        ['main#dataflow', joins('#')],
+        ['a#b', joins('#')],
+        ['a~b', joins('~')],
+        ['bad:name', `holds ":", which a file name cannot`],
+      ] as const) {
+        await assert.rejects(workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, name, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `${name}: expected ApiError, got ${err}`);
+          assert.strictEqual(err.code, 'invalid_name');
+          assert.ok(isValueOf(err.details, InvalidNameErrorType), `${name}: the refusal names the name and why`);
+          const said = err.details as ValueTypeOf<typeof InvalidNameErrorType>;
+          const expected: ValueTypeOf<typeof InvalidNameErrorType> = {
+            kind: 'workspace', name, message: `the workspace name ${JSON.stringify(name)} ${why}`,
+          };
+          assert.ok(equalFor(InvalidNameErrorType)(said, expected), `${name}: refused as ${printFor(InvalidNameErrorType)(said)}`);
+          return true;
+        });
+      }
     });
 
     describe('with deployed package', { concurrency: false }, () => {
