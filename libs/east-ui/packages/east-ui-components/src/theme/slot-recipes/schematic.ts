@@ -525,7 +525,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         },
         navSearch: {
             margin: "{spacing.2}",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg",
             background: "bg.surface",
             borderWidth: "1px",

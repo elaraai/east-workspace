@@ -106,16 +106,17 @@ const inlineComponents: Components = {
 /* ─── Block element overrides — themed GFM ───────────────────────────── */
 
 const blockComponents: Components = {
-    /* Headings — DM Sans, tight tracking. Use display.* for h1–h3 and
-     * the inline title styles for the rest. */
-    h1: ({ children }) => <Heading as="h1" textStyle="display.lg" mt="6" mb="3">{children}</Heading>,
-    h2: ({ children }) => <Heading as="h2" textStyle="display.md" mt="6" mb="3">{children}</Heading>,
-    h3: ({ children }) => <Heading as="h3" textStyle="display.sm" mt="5" mb="2">{children}</Heading>,
-    h4: ({ children }) => <Heading as="h4" textStyle="display.xs" mt="4" mb="2">{children}</Heading>,
-    h5: ({ children }) => <Heading as="h5" textStyle="title.card" mt="4" mb="2">{children}</Heading>,
-    h6: ({ children }) => <Heading as="h6" textStyle="title.row"  mt="3" mb="1">{children}</Heading>,
+    /* Headings — the design system's title styles, one step below the
+     * page's own: a document's `#` is the design system's `h2` (20), down
+     * to `h6` (Inter Tight 14) for `#####` and `######`. */
+    h1: ({ children }) => <Heading as="h1" textStyle="h2" mt="6" mb="3">{children}</Heading>,
+    h2: ({ children }) => <Heading as="h2" textStyle="h3" mt="6" mb="3">{children}</Heading>,
+    h3: ({ children }) => <Heading as="h3" textStyle="h4" mt="5" mb="2">{children}</Heading>,
+    h4: ({ children }) => <Heading as="h4" textStyle="h5" mt="4" mb="2">{children}</Heading>,
+    h5: ({ children }) => <Heading as="h5" textStyle="h6" mt="4" mb="2">{children}</Heading>,
+    h6: ({ children }) => <Heading as="h6" textStyle="h6" mt="3" mb="1">{children}</Heading>,
 
-    /* Paragraphs — Inter Tight 14/1.5 in product, generous gaps. */
+    /* Paragraphs — Inter Tight 13/1.5 in product, generous gaps. */
     p: ({ children }) => <Text textStyle="body.md" my="3" color="fg">{children}</Text>,
 
     /* Lists. */
@@ -147,7 +148,7 @@ const blockComponents: Components = {
             as="pre"
             layerStyle="surface.muted"
             fontFamily="mono"
-            fontSize="md"
+            fontSize="body.lg"
             overflowX="auto"
             my="3"
         >
@@ -174,7 +175,7 @@ const blockComponents: Components = {
             borderRadius="md"
             overflow="hidden"
             my="4"
-            fontSize="md"
+            fontSize="body"
         >
             {children as ReactNode}
         </Box>

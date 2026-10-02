@@ -161,9 +161,9 @@ export const buttonRecipe = defineRecipe({
         },
         size: {
             xs: { height: "26px", paddingX: "{spacing.2}", fontSize: "11.5px" },
-            sm: { height: "28px", paddingX: "{spacing.3}", fontSize: "{fontSizes.xs}"  /* 12 */ },
+            sm: { height: "28px", paddingX: "{spacing.3}", fontSize: "{fontSizes.body.sm}"  /* 12.5 */ },
             md: { height: "32px", paddingX: "{spacing.3}", fontSize: "12.5px" },
-            lg: { height: "40px", paddingX: "{spacing.5}", fontSize: "{fontSizes.sm}"  /* 14 */ },
+            lg: { height: "40px", paddingX: "{spacing.5}", fontSize: "{fontSizes.body.lg}"  /* 14 */ },
         },
     },
     /* No `colorPalette` here: it is a style prop, not a variant, so a default

@@ -17,7 +17,7 @@
  */
 
 import { defineRecipe } from "@chakra-ui/react";
-import { fieldChrome, numericChrome } from "../field-chrome.js";
+import { fieldChrome, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 
 export const inputRecipe = defineRecipe({
     className: "elara-input",
@@ -52,9 +52,9 @@ export const inputRecipe = defineRecipe({
             },
         },
         size: {
-            sm: { fontSize: "{fontSizes.xs}" /* 12 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}", _coarse: { fontSize: "{fontSizes.md}" } },
-            md: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingY: "7px", _coarse: { fontSize: "{fontSizes.md}" } },
-            lg: { fontSize: "{fontSizes.md}" /* 16 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
+            sm: { fontSize: "{fontSizes.body.sm}" /* 12.5 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            md: { fontSize: "{fontSizes.body}" /* 13 */, paddingX: "10px", paddingY: "7px", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            lg: { fontSize: "{fontSizes.body.lg}" /* 14 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
         },
     },
     defaultVariants: {

@@ -56,7 +56,7 @@ export const optionListSlotRecipe = defineSlotRecipe({
         },
         itemText: {
             fontFamily: "heading",
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.body.lg}",
             fontWeight: "semibold",
             color: "fg",
             lineHeight: "1.25",

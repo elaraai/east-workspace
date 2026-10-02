@@ -26,7 +26,7 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             minWidth: "min(240px, calc(100vw - 16px))",
             /* Viewport clamp (#347) — same rule as Popover. */
             maxWidth: "min(360px, calc(100vw - 16px))",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
             /* The viewport clamp holds the content; its body scrolls. The
@@ -63,7 +63,7 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             marginBottom: "8px",
         },
         description: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg.muted",
         },
     },

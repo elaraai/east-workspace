@@ -137,13 +137,13 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         // clause builder's hint grammar).
         hint: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.2xs}",
+            fontSize: "{fontSizes.label.sm}",
             color: "fg.muted",
         },
         // The hint while the input is invalid — the Field's error, in its voice.
         hintError: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.2xs}",
+            fontSize: "{fontSizes.label.sm}",
             color: "fg.danger",
         },
 

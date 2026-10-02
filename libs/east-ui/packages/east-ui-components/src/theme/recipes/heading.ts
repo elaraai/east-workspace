@@ -7,9 +7,9 @@
  * Heading recipe.
  *
  * Sets DM Sans (`heading` font token) + tight tracking as the default for
- * every `<Heading>`. Sizes (`size="xl|lg|md|sm|xs"`) map onto the
- * corresponding `display.{xl..xs}` textStyle so the spec's
- * pattern_spec/colors_and_type.css `.h1..h5` rules are honoured.
+ * every `<Heading>`. Sizes (`size="xl|lg|md|sm|xs"`) are the design system's
+ * `h1` … `h5` (`_ds_bundle.css`): 24 / 20 / 18 / 16 / 15, the
+ * `display.{xl..xs}` text styles.
  *
  * @packageDocumentation
  */
@@ -27,30 +27,32 @@ export const headingRecipe = defineRecipe({
     variants: {
         size: {
             xl: {
-                fontSize: "{fontSizes.5xl}",   // 48 — spec h1
+                fontSize: "{fontSizes.title.xl}",   // 24 — h1
                 fontWeight: "bold",
                 lineHeight: "{lineHeights.tight}",
                 letterSpacing: "{letterSpacings.tighter}",
             },
             lg: {
-                fontSize: "{fontSizes.4xl}",   // 36 — spec h2
+                fontSize: "{fontSizes.title.lg}",   // 20 — h2
                 fontWeight: "bold",
                 lineHeight: "{lineHeights.tight}",
                 letterSpacing: "{letterSpacings.tight}",
             },
             md: {
-                fontSize: "{fontSizes.3xl}",   // 30 — spec h3
+                fontSize: "{fontSizes.title.md}",   // 18 — h3
                 lineHeight: "{lineHeights.snug}",
                 letterSpacing: "{letterSpacings.snug}",
             },
             sm: {
-                fontSize: "{fontSizes.2xl}",   // 24 — spec h4
+                fontSize: "{fontSizes.title.sm}",   // 16 — h4
                 lineHeight: "{lineHeights.snug}",
+                letterSpacing: "{letterSpacings.snug}",
             },
             xs: {
-                fontFamily: "body",            // spec h5 drops to Inter Tight
-                fontSize: "{fontSizes.xl}",    // 20 — spec h5
+                fontSize: "{fontSizes.title.xs}",   // 15 — h5, DM Sans 700
+                fontWeight: "bold",
                 lineHeight: "{lineHeights.snug}",
+                letterSpacing: "{letterSpacings.snug}",
             },
         },
     },

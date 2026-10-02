@@ -6,8 +6,10 @@
 /**
  * Raw design tokens for the canonical Elara Chakra v3 system.
  *
- * Values mirror the UX/UI Guide (Part 1 — Foundations). Don't introduce a
- * value here that isn't in the guide; if you need one, update the guide first.
+ * Values are the East Design System's (`libs/east-ui/app_design_system/
+ * tokens/*.css`, a read-only download of the claude.ai/design project); the
+ * token guard (`design-system.test.ts`) fails, naming the token, when one
+ * drifts. Don't introduce a value the design system doesn't have.
  *
  * @packageDocumentation
  */
@@ -164,6 +166,7 @@ export const tokens = defineTokens({
         inOut:  { value: "cubic-bezier(0.65, 0, 0.35, 1)" },
     },
     fontWeights: {
+        light:     { value: "300" },
         normal:    { value: "400" },
         medium:    { value: "500" },
         semibold:  { value: "600" },
@@ -171,21 +174,40 @@ export const tokens = defineTokens({
         extrabold: { value: "800" },
     },
     fontSizes: {
-        // Aligned to pattern_spec/colors_and_type.css. Each tier carries the
-        // px value the spec assigns (`--fs-xs: 12px` through `--fs-6xl: 60px`).
-        // `control` sits off the tier scale — the spec's form-control / dense
-        // mono size (`.p-input`, `.je-rationale`), between xs (12) and sm (14).
-        control: { value: "13px" },
-        xs:    { value: "12px" },
-        sm:    { value: "14px" },
-        md:    { value: "16px" },
-        lg:    { value: "18px" },
-        xl:    { value: "20px" },
-        "2xl": { value: "24px" },
-        "3xl": { value: "30px" },
-        "4xl": { value: "36px" },
-        "5xl": { value: "48px" },
-        "6xl": { value: "60px" },
+        // The design system's sizes, and no others (`--fs-*`). Chakra's own
+        // `xs` … `9xl` scale stays in the merged system for Chakra's recipes;
+        // ours never name it.
+        //
+        // Labels (mono): 9.5 annotation lines, section eyebrows · 10 eyebrows,
+        // table headers, axis labels · 10.5 compact breadcrumb, legend · 11
+        // breadcrumb, tabs, segmented control, tooltip, sidebar items.
+        label: {
+            xs: { value: "9.5px" },
+            sm: { value: "10px" },
+            md: { value: "10.5px" },
+            lg: { value: "11px" },
+        },
+        // Running text (Inter Tight): 12.5 buttons, captions · 13 body, table
+        // cells, controls · 14 ledes.
+        body: {
+            sm:      { value: "12.5px" },
+            DEFAULT: { value: "13px" },
+            lg:      { value: "14px" },
+        },
+        // Titles (DM Sans): 15 empty state · 16 condensed bar · 18 compact
+        // bar, h3 · 20 dialog, h2 · 24 page, h1.
+        title: {
+            xs: { value: "15px" },
+            sm: { value: "16px" },
+            md: { value: "18px" },
+            lg: { value: "20px" },
+            xl: { value: "24px" },
+        },
+        // Large numbers (mono, tabular, 600): Stat values, data-rail cells.
+        num: { value: "26px" },
+        /** @deprecated `body` — the size the CommandPalette recipe still
+         *  names (due for removal); nothing else may. */
+        control: { value: "{fontSizes.body}" },
     },
     lineHeights: {
         tight:   { value: "1.25" },
@@ -194,15 +216,20 @@ export const tokens = defineTokens({
         relaxed: { value: "1.625" },
     },
     letterSpacings: {
-        // Display tracking is negative.
+        // The design system's tracking. Titles track negative (h1 −0.02em,
+        // h2 −0.015em, h3–h5 −0.01em); the caption 0.02em; the breadcrumb
+        // 0.06em; labels — eyebrows, keys, statuses, tabs, table headers —
+        // 0.1em to 0.18em.
         tighter: { value: "-0.02em" },
         tight:   { value: "-0.015em" },
         snug:    { value: "-0.01em" },
         normal:  { value: "0" },
-        wide:    { value: "0.02em" },
-        wider:   { value: "0.06em" },
-        widest:  { value: "0.12em" },   // eyebrow
+        wide:    { value: "0.02em" },   // caption
+        wider:   { value: "0.06em" },   // breadcrumb
+        caps:    { value: "0.1em" },    // keys, the tightest label tracking
+        widest:  { value: "0.12em" },   // eyebrow, sidebar items
+        label:   { value: "0.14em" },   // a Frame's name, the state eyebrow
         wider2:  { value: "0.16em" },   // mode-id, table headerCell, scope label
-        widest2: { value: "0.18em" },   // caption.eyebrow, cell label, sc-eyebrow
+        widest2: { value: "0.18em" },   // section eyebrows, cell labels
     },
 });

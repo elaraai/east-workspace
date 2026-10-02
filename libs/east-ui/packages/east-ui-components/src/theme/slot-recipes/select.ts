@@ -11,7 +11,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome } from "../field-chrome.js";
+import { fieldChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 
 export const selectSlotRecipe = defineSlotRecipe({
     className: "elara-select",
@@ -31,7 +31,7 @@ export const selectSlotRecipe = defineSlotRecipe({
             width: "100%",
             cursor: "pointer",
             /* Touch (#346): 44px trigger + 16px text on coarse pointers. */
-            _coarse: { minHeight: "44px", fontSize: "{fontSizes.md}" },
+            _coarse: { minHeight: "44px", fontSize: TOUCH_FONT_FLOOR },
         },
         valueText: {
             flex: 1,
@@ -67,7 +67,7 @@ export const selectSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             cursor: "pointer",
             /* Touch (#346). */
             _coarse: { minHeight: "44px" },
@@ -104,9 +104,9 @@ export const selectSlotRecipe = defineSlotRecipe({
         // (`indicatorGroup` sits over the trigger's right edge), so the value
         // text never collides with it — per size (#130).
         size: {
-            sm: { trigger: { fontSize: "{fontSizes.xs}", paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "{spacing.1}" } },
-            md: { trigger: { fontSize: "{fontSizes.control}", paddingX: "10px", paddingInlineEnd: "30px", paddingY: "7px" } },
-            lg: { trigger: { fontSize: "{fontSizes.md}", paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "{spacing.3}" } },
+            sm: { trigger: { fontSize: "{fontSizes.body.sm}", paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "{spacing.1}" } },
+            md: { trigger: { fontSize: "{fontSizes.body}", paddingX: "10px", paddingInlineEnd: "30px", paddingY: "7px" } },
+            lg: { trigger: { fontSize: "{fontSizes.body.lg}", paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "{spacing.3}" } },
         },
     },
     defaultVariants: {

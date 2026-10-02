@@ -21,7 +21,7 @@ export const menuSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             boxShadow: "md",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             /* Viewport clamp (#347): long menus scroll inside Zag's
              * available height instead of running off small screens. */
             maxWidth: "calc(100vw - 16px)",

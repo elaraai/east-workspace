@@ -74,7 +74,7 @@ export const boardSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
         },
         areaLabel: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             color: "fg",
         },

@@ -17,6 +17,14 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 
+/**
+ * The font size a text control keeps on a coarse pointer (#346): iOS Safari
+ * zooms the page into any focused input set under 16px. It is the one size
+ * outside the design system's scale — a platform floor, not a type size —
+ * and only `_coarse` styles name it.
+ */
+export const TOUCH_FONT_FLOOR = "16px";
+
 /** Border + soft ring shown while a control holds focus. */
 export const fieldFocusRing = {
     borderColor: "brand.solid",
@@ -35,7 +43,7 @@ export const fieldFocusRingError = {
 /** The full field shape — border, radius, padding, font, focus/hover/disabled. */
 export const fieldChrome = {
     fontFamily: "body",
-    fontSize: "{fontSizes.control}",
+    fontSize: "{fontSizes.body}",
     lineHeight: "1.3",
     // Drop Chakra's per-control fixed height vars (--input-height etc.) so the
     // box is padding-driven and identical across every control + size.

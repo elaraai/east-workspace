@@ -67,7 +67,7 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
             },
         },
         itemText: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg",
             userSelect: "none",
         },

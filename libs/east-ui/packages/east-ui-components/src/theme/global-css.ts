@@ -4,10 +4,20 @@
  */
 
 /**
- * Global CSS for the Elara Chakra v3 system.
+ * Global CSS for the Elara Chakra v3 system — the East Design System's base
+ * element styles (`app_design_system/_ds_bundle.css`).
  *
- *  - Sets the html/body baseline (Inter Tight, fg, bg.canvas).
+ *  - Sets the html/body baseline (Inter Tight, `--ink`, `--paper-2`, tabular
+ *    figures).
  *  - Makes brand the default colour palette; text selection stays neutral.
+ *  - `h1` … `h6` take the design system's title styles (24 / 20 / 18 / 16 /
+ *    15, then Inter Tight 14), keeping the text colour of their surface; a
+ *    link is `--brand-d`, `--brand-dd` and underlined under the pointer;
+ *    inline `code` is the `--paper-3` chip and a bare `kbd` the key cap.
+ *    The design system's `p` rule is not applied: Chakra's `<Text>` renders
+ *    a `<p>`, and an element rule would override the size and ink it
+ *    inherits from its parent. The text classes are text styles
+ *    (`text-styles.ts`) instead.
  *  - Honours `prefers-reduced-motion: reduce`.
  *  - Universal focus-visible — any element with `data-focus-visible`
  *    or focused via keyboard gets the canonical 3 px brand-tinted ring.
@@ -27,6 +37,7 @@
  */
 
 import { defineGlobalStyles, type SystemStyleObject } from "@chakra-ui/react";
+import { headingStyles } from "./text-styles.js";
 
 /* Reduced-motion reset. Built via `Record<string, SystemStyleObject>` and
  * then narrowed to `SystemStyleObject`. Chakra v3's `SystemStyleObject` is
@@ -61,6 +72,8 @@ export const globalCss = defineGlobalStyles({
         color: "fg",
         background: "bg.canvas",
         textRendering: "optimizeLegibility",
+        /* Every numeral tabular (component-rules §2). */
+        fontFeatureSettings: '"tnum" 1',
         /* Mobile hygiene (#346): keep the browser from inflating text on
          * orientation change, and drop the grey tap flash — components give
          * their own pressed/selected feedback. */
@@ -88,9 +101,36 @@ export const globalCss = defineGlobalStyles({
         boxSizing: "border-box",
     },
 
-    /* Code / pre default to mono with the soft inline chip treatment. */
+    /* Headings — the design system's title styles. */
+    "h1": headingStyles.h1,
+    "h2": headingStyles.h2,
+    "h3": headingStyles.h3,
+    "h4": headingStyles.h4,
+    "h5": headingStyles.h5,
+    "h6": headingStyles.h6,
+
+    /* Links — `--brand-d`, `--brand-dd` and underlined under the pointer. */
+    "a": {
+        color: "link",
+        textDecoration: "none",
+    },
+    "a:hover": {
+        color: "link.hover",
+        textDecoration: "underline",
+        textUnderlineOffset: "2px",
+    },
+
+    /* Code / pre are mono; inline code is the `--paper-3` chip. */
     "code, pre": {
         fontFamily: "mono",
+    },
+    ":not(pre) > code": {
+        fontSize: "0.92em",
+        background: "bg.subtle",
+        paddingBlock: "1px",
+        paddingInline: "5px",
+        borderRadius: "{radii.sm}",
+        color: "fg",
     },
 
     /* Font Awesome ships `vertical-align: -0.125em` on every icon to align
@@ -118,20 +158,27 @@ export const globalCss = defineGlobalStyles({
         fontFeatureSettings: '"tnum" 1',
     },
 
-    /* Bare <kbd> follows the same look as the `kbd` recipe — flat, no
-     * drop shadow, 3 px radius. */
+    /* A bare <kbd> is the design system's key cap (parts-kbd-avatar): 20px
+     * tall, mono 11 / 500 in `--ink-2`, case kept, on `--paper-2` in a 1px
+     * `--rule-strong` ring — flat, no shadow. */
     "kbd": {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "20px",
+        minWidth: "20px",
+        paddingInline: "{spacing.1}",
         fontFamily: "mono",
-        fontSize: "10px",
-        fontWeight: "{fontWeights.semibold}",
-        letterSpacing: "{letterSpacings.wide}",
-        background: "bg.subtle",
+        fontSize: "{fontSizes.label.lg}",
+        fontWeight: "{fontWeights.medium}",
+        lineHeight: "1",
+        background: "bg.canvas",
         borderWidth: "1px",
         borderColor: "border.strong",
-        borderRadius: "3px",
-        paddingX: "{spacing.2}",
-        paddingY: "1px",
-        color: "fg",
+        borderRadius: "{radii.sm}",
+        color: "fg.strong",
+        whiteSpace: "nowrap",
+        verticalAlign: "middle",
     },
 
     /* Dashed hairline separator (spec uses for ephemeral / stale rules). */

@@ -39,18 +39,18 @@ export const editableChipSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             color: "fg.muted",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "12px",   // the affordance glyph — an icon size
             /* Touch (#346). */
             ...coarseHitArea({ position: true }),
         },
     },
     variants: {
         size: {
-            xs: { root: { paddingX: "{spacing.1.5}", paddingY: "0", fontSize: "{fontSizes.xs}" } },
-            sm: { root: { paddingX: "{spacing.2}", paddingY: "{spacing.0.5}", fontSize: "{fontSizes.sm}" } },
-            md: { root: { paddingX: "{spacing.2.5}", paddingY: "{spacing.1}", fontSize: "{fontSizes.sm}" } },
-            lg: { root: { paddingX: "{spacing.3}", paddingY: "{spacing.1.5}", fontSize: "{fontSizes.md}" } },
-            xl: { root: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2}", fontSize: "{fontSizes.md}" } },
+            xs: { root: { paddingX: "{spacing.1.5}", paddingY: "0", fontSize: "{fontSizes.body.sm}" } },
+            sm: { root: { paddingX: "{spacing.2}", paddingY: "{spacing.0.5}", fontSize: "{fontSizes.body.lg}" } },
+            md: { root: { paddingX: "{spacing.2.5}", paddingY: "{spacing.1}", fontSize: "{fontSizes.body.lg}" } },
+            lg: { root: { paddingX: "{spacing.3}", paddingY: "{spacing.1.5}", fontSize: "{fontSizes.body.lg}" } },
+            xl: { root: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2}", fontSize: "{fontSizes.body.lg}" } },
         },
         // Density cascade — mirrors the chipRail `--cr-*` sets so an editable
         // chip lines up with tags and traces at the same density. No default:

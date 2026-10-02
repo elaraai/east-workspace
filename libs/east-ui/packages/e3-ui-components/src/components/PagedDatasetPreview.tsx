@@ -317,8 +317,8 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         if (error instanceof ApiError && error.code === 'dataset_too_large') {
             return (
                 <Flex height="100%" direction="column" align="center" justify="center" gap={3} p={6}>
-                    <Text fontSize="lg" color="fg.warning" fontWeight="bold">Too large to page</Text>
-                    <Text color="fg.muted" fontSize="sm" textAlign="center" maxW="32rem">
+                    <Text fontSize="title.md" color="fg.warning" fontWeight="bold">Too large to page</Text>
+                    <Text color="fg.muted" fontSize="body.lg" textAlign="center" maxW="32rem">
                         {typeof error.details === 'string' ? error.details : 'This dataset cannot be paged server-side.'}
                     </Text>
                     <DownloadButton onClick={onDownload} label="Download value" />
@@ -335,10 +335,10 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     return (
         <Flex direction="column" height="100%" overflow="hidden">
             <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
-                <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">
+                <Text fontSize="body.sm" color="fg.muted" whiteSpace="nowrap">
                     {words.number(totals.elements)} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes, words)}
                 </Text>
-                {loadingCount > 0 && <Text fontSize="xs" color="fg.muted">Loading…</Text>}
+                {loadingCount > 0 && <Text fontSize="body.sm" color="fg.muted">Loading…</Text>}
                 {keyType !== null && (
                     <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange}
                         onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />

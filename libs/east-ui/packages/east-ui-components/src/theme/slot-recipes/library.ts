@@ -327,7 +327,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             "& > [data-tone]": { marginLeft: "auto", flexShrink: "0" },
         },
         cardLabel: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             lineHeight: "1.2",
             color: "fg",
@@ -469,7 +469,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             _hover: { color: "brand.fg" },
         },
         ghost: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             color: "fg",
             background: "bg.surface",

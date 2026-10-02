@@ -1888,7 +1888,7 @@ const TableCore = function TableCore({
                 onChange (when present) with the new page (1-based). */}
             {paginationConfig && !hidePaginationBand && (
                 <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
-                    <Text fontSize="sm" color="fg.muted">
+                    <Text fontSize="body.lg" color="fg.muted">
                         Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(tree.roots.length)} total)
                     </Text>
                     <button

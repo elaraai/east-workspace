@@ -25,7 +25,7 @@ export const popoverSlotRecipe = defineSlotRecipe({
             /* Viewport clamp (#347): the 360px spec band yields to small
              * screens; tall content scrolls within Zag's available height. */
             maxWidth: "min(360px, calc(100vw - 16px))",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             lineHeight: "{lineHeights.normal}",
             color: "fg",
             /* The viewport clamp holds the content; its body scrolls. The
@@ -56,12 +56,12 @@ export const popoverSlotRecipe = defineSlotRecipe({
             marginBottom: "8px",
         },
         description: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg.muted",
         },
         body: {
             padding: "0",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             flex: "1 1 auto",
             minHeight: "0",
             overflowY: "auto",

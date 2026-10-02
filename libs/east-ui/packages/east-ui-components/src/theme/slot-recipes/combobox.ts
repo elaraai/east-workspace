@@ -13,7 +13,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 
 export const comboboxSlotRecipe = defineSlotRecipe({
     className: "elara-combobox",
@@ -49,11 +49,11 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             background: "transparent",
             border: "none",
             /* Touch (#346): 44px input row + 16px text (iOS zoom guard). */
-            _coarse: { minHeight: "44px", fontSize: "{fontSizes.md}" },
+            _coarse: { minHeight: "44px", fontSize: TOUCH_FONT_FLOOR },
             paddingInline: "10px",
             paddingBlock: "7px",
             fontFamily: "body",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             lineHeight: "1.3",
             color: "fg",
             outline: "none",
@@ -94,7 +94,7 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.2}",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             cursor: "pointer",
             /* Touch (#346). */
             _coarse: { minHeight: "44px" },

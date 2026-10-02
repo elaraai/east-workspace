@@ -278,8 +278,8 @@ export const DatasetPreview = memo(function DatasetPreview({
     if (isOversized) {
         return (
             <Flex height="100%" direction="column" align="center" justify="center" layerStyle="banner.stale" borderRadius="0" gap={3} p={6}>
-                <Text fontSize="lg" color="fg.warning" fontWeight="bold">Value too large to display</Text>
-                <Text color="fg.muted" fontSize="sm">
+                <Text fontSize="title.md" color="fg.warning" fontWeight="bold">Value too large to display</Text>
+                <Text color="fg.muted" fontSize="body.lg">
                     The data is {formatSize(sizeBytes, words)}, which exceeds the {formatSize(sizeLimit, words)} display limit.
                 </Text>
                 <DownloadButton onClick={download} label="Download value" />
@@ -313,7 +313,7 @@ export const DatasetPreview = memo(function DatasetPreview({
                         onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
                 )}
                 <Flex flex={1} justify="flex-end" align="center" gap={2}>
-                    <Text fontSize="xs" color="fg.muted">{countText}{formatSize(sizeBytes, words)}</Text>
+                    <Text fontSize="body.sm" color="fg.muted">{countText}{formatSize(sizeBytes, words)}</Text>
                     <DownloadButton onClick={download} />
                 </Flex>
             </Flex>

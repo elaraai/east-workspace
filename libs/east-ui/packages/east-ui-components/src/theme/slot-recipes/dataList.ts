@@ -32,9 +32,9 @@ export const dataListSlotRecipe = defineSlotRecipe({
             },
         },
         size: {
-            sm: { item: { fontSize: "{fontSizes.xs}" } },
+            sm: { item: { fontSize: "{fontSizes.body.sm}" } },
             md: {},
-            lg: { itemValue: { fontSize: "{fontSizes.md}" } },
+            lg: { itemValue: { fontSize: "{fontSizes.body.lg}" } },
         },
     },
     defaultVariants: { orientation: "vertical", size: "md" },

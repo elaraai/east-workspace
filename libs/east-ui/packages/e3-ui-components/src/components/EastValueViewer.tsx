@@ -331,7 +331,7 @@ export function EastValueViewer({ type, value }: EastValueViewerProps) {
         <Box
             layerStyle="surface.code.dark"
             fontFamily="mono"
-            fontSize="sm"
+            fontSize="body.lg"
             p={4}
             overflow="auto"
             maxHeight="100%"

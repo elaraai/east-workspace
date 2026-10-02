@@ -83,11 +83,11 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             color: "brand.fg",
             fontWeight: "semibold",
             whiteSpace: "nowrap",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
         },
         rangeJoin: {
             color: "fg.subtle",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
             flexShrink: 0,
         },
         // Inline "why can't I Add" caption under the row (mirrors the cohort
@@ -96,7 +96,7 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
         hint: {
             gridColumn: "1 / -1",
             fontFamily: "mono",
-            fontSize: "{fontSizes.2xs}",
+            fontSize: "{fontSizes.label.sm}",
             color: "fg.muted",
         },
         // Authored clause rendered as a compact chip: field · op · value.
@@ -105,7 +105,7 @@ export const clauseBuilderSlotRecipe = defineSlotRecipe({
             alignItems: "baseline",
             gap: "{spacing.1}",
             fontFamily: "mono",
-            fontSize: "{fontSizes.2xs}",
+            fontSize: "{fontSizes.label.sm}",
             lineHeight: "1.4",
         },
         chipField: { color: "brand.fg", fontWeight: "semibold", whiteSpace: "nowrap" },

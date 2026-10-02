@@ -52,7 +52,7 @@ export const checkboxSlotRecipe = defineSlotRecipe({
             },
         },
         label: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg",
             userSelect: "none",
         },

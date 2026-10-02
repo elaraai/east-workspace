@@ -30,7 +30,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         /* Bare like Table / Deck — identity chrome is host composition. */
         root: {
             background: "bg.surface",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
         },
         row: {
             display: "flex",
@@ -102,7 +102,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         },
         valueText: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body}",
             color: "fg.default",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -110,7 +110,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         },
         /* Branch preview / count — "Press · 2.5 · Running", "3 items". */
         summary: {
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
             color: "fg.subtle",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -119,7 +119,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         /* Read-only summarized value for unsupported types. */
         opaque: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body}",
             color: "fg.subtle",
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -155,7 +155,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         setBtn: {
             display: "inline-flex",
             alignItems: "center",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
             fontWeight: "500",
             color: "fg.subtle",
             borderRadius: "{radii.sm}",
@@ -169,7 +169,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         keyInput: {
             width: "120px",
             fontFamily: "mono",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body}",
             paddingX: "{spacing.1}",
             height: "22px",
             borderWidth: "1px",
@@ -189,7 +189,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         },
         empty: {
             padding: "{spacing.4}",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
             color: "fg.subtle",
         },
         /* Collapse-all / expand-all bar — pins above the rows (the
@@ -207,7 +207,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
         toolbarBtn: {
             display: "inline-flex",
             alignItems: "center",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
             color: "fg.subtle",
             borderRadius: "{radii.sm}",
             paddingX: "{spacing.2}",
@@ -221,7 +221,7 @@ export const valueTreeSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "{spacing.2}",
-            fontSize: "{fontSizes.xs}",
+            fontSize: "{fontSizes.body.sm}",
             color: "fg.subtle",
             cursor: "pointer",
             borderRadius: "{radii.sm}",

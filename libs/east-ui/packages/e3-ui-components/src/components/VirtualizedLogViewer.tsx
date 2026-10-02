@@ -280,7 +280,7 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                         width="min(150px, 40vw)"
                     />
                     {searchQuery && (
-                        <Text fontSize="xs" color="fg.subtle" minWidth="50px" textAlign="center">
+                        <Text fontSize="body.sm" color="fg.subtle" minWidth="50px" textAlign="center">
                             {matches.length > 0 ? `${currentMatchIndex + 1}/${matches.length}` : '0/0'}
                         </Text>
                     )}
@@ -329,7 +329,7 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                     borderBottomRadius="md"
                     borderTopWidth="0"
                     fontFamily="mono"
-                    fontSize="sm"
+                    fontSize="body.lg"
                     color="fg.inverse"
                     onScroll={handleScroll}
                 >

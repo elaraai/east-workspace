@@ -13,10 +13,13 @@
  *    `bg.surface`/`bg.canvas`/`bg.subtle`, `border.subtle`/`border.strong`,
  *    `brandMark`/`brand.solid`/`brandPressed`/`brandTint`, `status.*`, the
  *    `fg.success` … text steps, `heat.1` … `heat.5`), and their aliases
- *  - text styles (`display.{xl,lg,md,sm,xs}`, `body.{lg,md,sm}`, `eyebrow`, `caption`, `mono.*`)
+ *  - text styles — the design system's (`h1` … `h6`, `body`, `lead`, `small`,
+ *    `caption`, `eyebrow`, `mono`, `num`, `num-lg`, `absent`) and the older
+ *    and IR names held to them (`display.*`, `body.*`, `mono.*`, …)
  *  - layer styles (`card`, `card.flat`, `card.elevated`, `surface.muted`, `pill`)
  *  - button + input recipe overrides (visual: solid|ink|outline|ghost · size: sm|md|lg)
- *  - global CSS (font @import, focus-visible ring, prefers-reduced-motion)
+ *  - global CSS (the design system's base element styles, focus-visible
+ *    ring, prefers-reduced-motion)
  *
  * @example
  * ```tsx
@@ -32,6 +35,8 @@
  */
 
 import { createSystem, defaultConfig, defineConfig, defineRecipe } from "@chakra-ui/react";
+
+import { TOUCH_FONT_FLOOR } from "./field-chrome.js";
 
 import { tokens } from "./tokens.js";
 import { semanticTokens } from "./semantic-tokens.js";
@@ -176,7 +181,7 @@ const config = defineConfig({
             /* Touch floor (#348) merged onto Chakra's default textarea
              * recipe — sub-16px focused fields make iOS Safari zoom. */
             textarea:   defineRecipe({
-                base: { _coarse: { fontSize: "{fontSizes.md}", minHeight: "44px" } },
+                base: { _coarse: { fontSize: TOUCH_FONT_FLOOR, minHeight: "44px" } },
             }),
         },
         slotRecipes: {

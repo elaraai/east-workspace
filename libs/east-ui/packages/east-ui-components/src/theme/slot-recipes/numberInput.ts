@@ -20,7 +20,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing, numericChrome } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { inputRecipe } from "../recipes/input.js";
 
 /** One stepper chevron — both triggers share this shape. */
@@ -54,12 +54,12 @@ const sizeOverride = {
         // Clear Chakra's size textStyle so shared input typography wins.
         textStyle: "none",
         lineHeight: "1.3",
-        fontSize: "{fontSizes.control}",
+        fontSize: "{fontSizes.body}",
         paddingX: "10px",
         paddingY: "7px",
         "--input-height": "auto",
         /* Touch (#348): 44px row + 16px text (iOS zoom-on-focus guard). */
-        _coarse: { fontSize: "{fontSizes.md}", minHeight: "44px" },
+        _coarse: { fontSize: TOUCH_FONT_FLOOR, minHeight: "44px" },
     },
     control: {
         fontSize: "inherit",
@@ -100,7 +100,7 @@ export const numberInputSlotRecipe = defineSlotRecipe({
             outline: "none",
             background: "transparent",
             color: "inherit",
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             ps: "10px",
             pe: "10px",
             paddingBlock: "7px",

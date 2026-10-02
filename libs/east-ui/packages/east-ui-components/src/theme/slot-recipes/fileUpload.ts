@@ -59,8 +59,8 @@ export const fileUploadSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.sm}",
             background: "bg.surface",
         },
-        itemName: { fontSize: "{fontSizes.control}", color: "fg", flex: 1 },
+        itemName: { fontSize: "{fontSizes.body}", color: "fg", flex: 1 },
         itemSizeText: { fontFamily: "mono", fontSize: "11px", color: "fg.muted" },
-        fileText: { fontSize: "{fontSizes.control}", color: "fg" },
+        fileText: { fontSize: "{fontSizes.body}", color: "fg" },
     },
 });

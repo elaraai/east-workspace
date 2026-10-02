@@ -7,7 +7,7 @@
  * Edit history slot recipe — the editing session's Undo / Redo / Discard /
  * Apply bar (#879), shared by every editable collection. It sits in its
  * host's toolbar, beside the search, not in a row of its own: a status line
- * (mono xs `fg.muted`), the issues button (hidden, keeping its place, while
+ * (mono 11px `fg.muted`), the issues button (hidden, keeping its place, while
  * there are none), the history buttons (the `iconButton` recipe, grown to the
  * touch floor on a coarse pointer), and under them the latest error in
  * `fg.danger`.
@@ -35,7 +35,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             flex: "none",
             whiteSpace: "nowrap",
             fontFamily: "mono",
-            fontSize: "xs",
+            fontSize: "label.lg",
             color: "fg.muted",
         },
         button: {
@@ -49,7 +49,7 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         error: {
             marginTop: "{spacing.2}",
-            fontSize: "xs",
+            fontSize: "body.sm",
             color: "fg.danger",
         },
     },

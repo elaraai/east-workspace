@@ -186,7 +186,7 @@ export const tableSlotRecipe = defineSlotRecipe({
             "&[aria-expanded=false]": { transform: "rotate(-90deg)" },
         },
         cell: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             // Tight leading so a single-line cell + 10px vertical padding
             // lands on the spec's ~36px row rather than ballooning past it
             // under Chakra's default 1.5 line-height.
@@ -243,8 +243,8 @@ export const tableSlotRecipe = defineSlotRecipe({
         // pairs each with a row height from `TABLE_ROW_HEIGHT`.
         size: {
             sm: { cell: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}", fontSize: "12px" }, columnHeader: { paddingX: "{spacing.2}", paddingY: "{spacing.1.5}" } },
-            md: { cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.control}" }, columnHeader: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}" } },
-            lg: { cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.sm}" }, columnHeader: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
+            md: { cell: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}", fontSize: "{fontSizes.body}" }, columnHeader: { paddingX: "{spacing.3.5}", paddingY: "{spacing.2.5}" } },
+            lg: { cell: { paddingX: "{spacing.4}", paddingY: "{spacing.3}", fontSize: "{fontSizes.body.lg}" }, columnHeader: { paddingX: "{spacing.4}", paddingY: "{spacing.3}" } },
         },
         striped: { true: { row: { "&:nth-of-type(odd)": { background: "bg.subtle" } } } },
         interactive: {

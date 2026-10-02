@@ -128,7 +128,7 @@ export const OntologyNode = memo(({ data, selected }: NodeProps<Node<OntologyFlo
             {/* Content column: name over kind tag (+ optional description). */}
             <VStack gap="0.5" alignItems="stretch" minW="0">
                 <Text
-                    fontSize="sm"
+                    fontSize="body.lg"
                     fontWeight="semibold"
                     color="fg"
                     lineHeight="tight"
@@ -140,7 +140,7 @@ export const OntologyNode = memo(({ data, selected }: NodeProps<Node<OntologyFlo
                 </Text>
                 <Text
                     fontFamily="mono"
-                    fontSize="2xs"
+                    fontSize="label.sm"
                     fontWeight="semibold"
                     letterSpacing="wider"
                     textTransform="uppercase"
@@ -151,7 +151,7 @@ export const OntologyNode = memo(({ data, selected }: NodeProps<Node<OntologyFlo
                 </Text>
                 {data.description && (
                     <Text
-                        fontSize="xs"
+                        fontSize="body.sm"
                         color="fg.muted"
                         lineHeight="snug"
                         mt="0.5"

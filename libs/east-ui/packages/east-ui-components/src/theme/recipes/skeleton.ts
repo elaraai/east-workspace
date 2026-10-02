@@ -22,7 +22,8 @@ export const skeletonRecipe = defineRecipe({
     },
     variants: {
         variant: {
-            line:   { height: "{fontSizes.md}" },
+            // A line of running text: the body size (13px).
+            line:   { height: "{fontSizes.body}" },
             circle: { borderRadius: "{radii.full}" },
             block:  { minHeight: "120px" },
         },

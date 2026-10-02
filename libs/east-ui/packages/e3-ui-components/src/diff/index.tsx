@@ -1258,7 +1258,7 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     // Workspace not configured — diagnostic only visible to devs.
     if (!cache.getConfig().workspace) {
         return (
-            <Box layerStyle="banner.error" borderRadius="md" p="12px" fontFamily="mono" fontSize="xs">
+            <Box layerStyle="banner.error" borderRadius="md" p="12px" fontFamily="mono" fontSize="body.sm">
                 Diff renderer requires a configured workspace on the ReactiveDatasetCache.
             </Box>
         );

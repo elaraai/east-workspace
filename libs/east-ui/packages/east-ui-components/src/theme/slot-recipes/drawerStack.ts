@@ -61,7 +61,7 @@ export const drawerStackRailSlotRecipe = defineSlotRecipe({
         label: {
             writingMode: "vertical-rl",
             transform: "rotate(180deg)",
-            fontSize: "sm",
+            fontSize: "body.lg",
             fontWeight: "medium",
             whiteSpace: "nowrap",
             overflow: "hidden",

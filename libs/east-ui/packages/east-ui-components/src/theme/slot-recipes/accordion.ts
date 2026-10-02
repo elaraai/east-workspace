@@ -97,7 +97,7 @@ export const accordionSlotRecipe = defineSlotRecipe({
             paddingY: "14px",
         },
         itemBody: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             color: "fg",
             lineHeight: "1.5",
         },

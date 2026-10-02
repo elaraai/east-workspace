@@ -112,7 +112,7 @@ export const EastChakraFileUpload = memo(function EastChakraFileUpload({ value }
                     <Box color="fg.muted" fontSize="20px" lineHeight="1" aria-hidden>
                         <FontAwesomeIcon icon={faArrowUpFromBracket} />
                     </Box>
-                    <Box fontSize="sm" color="fg">
+                    <Box fontSize="body.lg" color="fg">
                         <ChakraFileUpload.Trigger asChild>
                             <Box as="span" color="link" cursor="pointer" textDecoration="underline" textUnderlineOffset="2px">
                                 {triggerText ?? "Choose files"}

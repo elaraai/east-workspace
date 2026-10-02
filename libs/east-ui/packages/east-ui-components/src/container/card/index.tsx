@@ -216,7 +216,7 @@ export const EastChakraCard = memo(function EastChakraCard({ value, storageKey }
                     <ChakraBox as="span" color="fg.warning">
                         <FontAwesomeIcon icon={faClock} />
                     </ChakraBox>
-                    <ChakraBox fontWeight="semibold" fontSize="sm">Stale data</ChakraBox>
+                    <ChakraBox fontWeight="semibold" fontSize="body.lg">Stale data</ChakraBox>
                 </ChakraBox>
             )}
             {/* Body — bsys Frame body: 18px padding, flex column so multiple

@@ -58,7 +58,7 @@ export const rosterSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
         },
         personLabel: {
-            fontSize: "{fontSizes.control}",
+            fontSize: "{fontSizes.body}",
             fontWeight: "600",
             color: "fg",
         },

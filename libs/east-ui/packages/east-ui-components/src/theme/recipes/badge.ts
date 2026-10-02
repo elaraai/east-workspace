@@ -44,7 +44,7 @@ export const badgeRecipe = defineRecipe({
         size: {
             sm: { fontSize: "10px", paddingX: "{spacing.2}", paddingY: "2px", lineHeight: "1.2" },
             md: { fontSize: "11px", paddingX: "{spacing.2.5}", paddingY: "3px", lineHeight: "1.2" },
-            lg: { fontSize: "{fontSizes.xs}", paddingX: "{spacing.3}", paddingY: "{spacing.1}", lineHeight: "1.2" },
+            lg: { fontSize: "{fontSizes.label.lg}", paddingX: "{spacing.3}", paddingY: "{spacing.1}", lineHeight: "1.2" },
         },
         variant: {
             /** Spec `.pattern-anchor` — brand-tinted body, no border. */

@@ -31,7 +31,7 @@ export const sliderSlotRecipe = defineSlotRecipe({
         },
         valueText: {
             fontFamily: "mono",
-            fontSize: "{fontSizes.sm}",
+            fontSize: "{fontSizes.body.lg}",
             fontVariantNumeric: "tabular-nums",
             color: "fg",
         },

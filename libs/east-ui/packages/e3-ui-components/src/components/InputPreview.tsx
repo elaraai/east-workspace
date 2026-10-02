@@ -31,7 +31,7 @@ export const InputPreview = memo(function InputPreview({
         // silently fall back to auto height and grow with the content.
         <Box height="100%" display="flex" flexDirection="column" overflow="hidden">
             <Flex px={4} py={2} borderBottom="1px solid" borderColor="border.subtle" bg="bg.surface" align="center" justify="space-between">
-                <Text fontSize="sm" fontWeight="medium" color="fg">{displayName}</Text>
+                <Text fontSize="body.lg" fontWeight="medium" color="fg">{displayName}</Text>
             </Flex>
             <Box flex={1} overflow="hidden" minHeight={0}>
                 <DatasetPreview

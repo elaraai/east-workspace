@@ -77,11 +77,11 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
             >
                 <VStack gap={2}>
                     {variant === 'loading' && <LoadingIcon animate size="52px" />}
-                    <Text color={styles.titleColor} fontSize={variant === 'loading' ? 'sm' : 'lg'}>
+                    <Text color={styles.titleColor} fontSize={variant === 'loading' ? 'body.lg' : 'title.md'}>
                         {title}
                     </Text>
                     {message && (
-                        <Text color={styles.messageColor} fontSize="sm">
+                        <Text color={styles.messageColor} fontSize="body.lg">
                             {message}
                         </Text>
                     )}
@@ -95,7 +95,7 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
                                 bg={styles.detailsBg}
                                 color={styles.detailsColor}
                                 borderRadius="md"
-                                fontSize="sm"
+                                fontSize="body.lg"
                                 overflow="auto"
                                 maxHeight="300px"
                             >
@@ -120,7 +120,7 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
     // Block layout for error and warning states
     return (
         <Box data-status={variant} p={6} bg={styles.bg} height="100%" width="100%">
-            <Text fontSize="lg" fontWeight="bold" color={styles.titleColor} mb={4}>
+            <Text fontSize="title.md" fontWeight="bold" color={styles.titleColor} mb={4}>
                 {title}
             </Text>
             {message && (
@@ -138,7 +138,7 @@ export function StatusDisplay({ variant, title, message, details }: StatusDispla
                         bg={styles.detailsBg}
                         color={styles.detailsColor}
                         borderRadius="md"
-                        fontSize="sm"
+                        fontSize="body.lg"
                         overflow="auto"
                         maxHeight="300px"
                     >

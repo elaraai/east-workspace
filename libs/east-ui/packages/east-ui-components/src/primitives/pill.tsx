@@ -9,7 +9,7 @@
  * @remarks
  * The canonical chrome for inline status / metadata chips per
  * pattern_spec/spec.css `.chip`: 4 px corner radius (NOT pill-full), 1 px
- * strong border, white background, body 12 px medium-weight text, compact
+ * strong border, white background, body 12.5 px medium-weight text, compact
  * mono numerics for inline values. Used by stakes tags, freshness chips,
  * peer indicators, novelty flags, and any other "small inline thing with
  * a label and a value" surface.
@@ -45,8 +45,8 @@ export interface PillProps extends Omit<StackProps, "children"> {
 
 const sizeProps: Record<PillSize, Pick<StackProps, "px" | "py" | "fontSize" | "gap">> = {
     sm: { px: "2",   py: "0.5", fontSize: "11px", gap: "1"   },
-    md: { px: "2.5", py: "1",   fontSize: "xs",   gap: "1.5" },   // 12 px
-    lg: { px: "3",   py: "1.5", fontSize: "sm",   gap: "2"   },   // 14 px
+    md: { px: "2.5", py: "1",   fontSize: "body.sm", gap: "1.5" },   // 12.5 px
+    lg: { px: "3",   py: "1.5", fontSize: "body.lg", gap: "2"   },   // 14 px
 };
 
 /**

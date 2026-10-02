@@ -24,7 +24,7 @@ export const noteRecipe = defineRecipe({
         paddingY: "{spacing.3}",
         fontStyle: "italic",
         color: "fg.muted",
-        fontSize: "{fontSizes.sm}",
+        fontSize: "{fontSizes.body.lg}",
         lineHeight: "{lineHeights.normal}",
     },
     variants: {
