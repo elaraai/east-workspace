@@ -32,11 +32,12 @@ export const fieldFocusRing = {
     outline: "none",
 } satisfies SystemStyleObject;
 
-/** Border + soft ring while an invalid control holds focus — the invalid
- *  edge is a mark, the valence base. */
+/** Border + ring while an invalid control holds focus — the invalid edge is
+ *  a mark, the valence base; the ring is the one focus ring (the design
+ *  system has no other). */
 export const fieldFocusRingError = {
     borderColor: "status.neg",
-    boxShadow: "focusError",
+    boxShadow: "focus",
     outline: "none",
 } satisfies SystemStyleObject;
 

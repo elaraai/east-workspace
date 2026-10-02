@@ -52,7 +52,6 @@ export const sliderSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderWidth: "2px",
             borderColor: "{colors.brand.600}",
-            boxShadow: "sm",
             cursor: "grab",
             /* Touch hit target (#346) — thumb keeps its 14px spec visual;
              * the grab halo inflates to 44px on coarse pointers. Zag

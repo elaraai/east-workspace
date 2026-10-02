@@ -34,7 +34,6 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
-            boxShadow: "md",
             /* It never clips: the arrow is drawn inside it, over its edge.
                What reaches its rounded foot keeps the corners itself. */
             display: "flex",

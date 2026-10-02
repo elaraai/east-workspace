@@ -23,7 +23,6 @@ export const toastSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.subtle",
             background: "bg.surface",
-            boxShadow: "md",
             padding: "12px 16px",
             minWidth: "240px",
             maxWidth: "480px",

@@ -393,7 +393,7 @@ export const elementsBase = {
         padding: "3px 8px",
         borderRadius: "3px",
         background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}, 0 4px 12px -4px color-mix(in srgb, {colors.fg} 30%, transparent)",
+        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}",
         fontFamily: "mono",
         whiteSpace: "nowrap",
         pointerEvents: "none",

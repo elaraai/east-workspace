@@ -100,7 +100,8 @@ export const statusSlotRecipe = defineSlotRecipe({
         live: {
             true: {
                 indicator: {
-                    boxShadow: "0 0 0 3px rgba(72, 142, 151, 0.18)",
+                    /* A ring, not a shadow: 3px of `--brand` at 18%. */
+                    boxShadow: "0 0 0 3px color-mix(in oklch, {colors.brandMark} 18%, transparent)",
                     animation: "spec-pulse-live 2.4s ease-in-out infinite",
                 },
             },

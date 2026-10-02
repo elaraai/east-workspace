@@ -4,8 +4,9 @@
  */
 
 /**
- * Select slot recipe — inherits Input chrome on the trigger, frame.flat
- * + md shadow on the content listbox.
+ * Select slot recipe — inherits Input chrome on the trigger; the content
+ * listbox is flat and bordered — no shadow (the design system shadows
+ * nothing but the focus ring).
  *
  * @packageDocumentation
  */
@@ -55,7 +56,6 @@ export const selectSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
-            boxShadow: "md",
             paddingY: "{spacing.1}",
             overflow: "hidden",
             maxHeight: "320px",

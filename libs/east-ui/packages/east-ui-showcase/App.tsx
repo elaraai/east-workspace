@@ -346,7 +346,7 @@ function Sidebar({ selected, onSelect }: { selected: string; onSelect: (cat: str
             overflowX="hidden"
             transitionProperty="width"
             transitionDuration="{durations.normal}"
-            transitionTimingFunction="{easings.smooth}"
+            transitionTimingFunction="{easings.inOut}"
             /* Mobile (#356): the fixed sidebar yields to the nav drawer. */
             hideBelow="md"
         >

@@ -49,7 +49,7 @@ function AppContent() {
                 overflowX="hidden"
                 transitionProperty="width"
                 transitionDuration="{durations.normal}"
-                transitionTimingFunction="{easings.smooth}"
+                transitionTimingFunction="{easings.inOut}"
             >
                 {/* Logo region — bsys "Logo region": 64 px expanded · 56 px
                  *  collapsed · 16 px side padding · 12 px rule-free gap below. */}

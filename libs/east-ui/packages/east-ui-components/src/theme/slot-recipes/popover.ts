@@ -16,7 +16,6 @@ export const popoverSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.md}",
             borderWidth: "1px",
             borderColor: "border.strong",
-            boxShadow: "md",
             padding: "14px 16px",
             /* Chakra's default recipe fixes width at --popover-size (320px);
              * the spec sizes to content within 240–360. */

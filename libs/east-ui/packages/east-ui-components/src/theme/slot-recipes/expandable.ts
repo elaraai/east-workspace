@@ -38,7 +38,6 @@ export const expandableSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.subtle",
-            boxShadow: "sm",
             _hover: { opacity: 1 },
             _focusVisible: { opacity: 1 },
         },
@@ -58,9 +57,6 @@ export const expandableSlotRecipe = defineSlotRecipe({
                      * `inset: 0` already tracks the visual viewport (no vh). */
                     paddingTop: "env(safe-area-inset-top, 0px)",
                     paddingBottom: "env(safe-area-inset-bottom, 0px)",
-                },
-                control: {
-                    boxShadow: "md",
                 },
                 body: {
                     height: "100%",

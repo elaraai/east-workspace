@@ -20,7 +20,6 @@ export const menuSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.md}",
             borderWidth: "1px",
             borderColor: "border.strong",
-            boxShadow: "md",
             fontSize: "{fontSizes.body}",
             /* Viewport clamp (#347): long menus scroll inside Zag's
              * available height instead of running off small screens. */

@@ -271,7 +271,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             paddingY: "1px",
             whiteSpace: "nowrap",
             cursor: "pointer",
-            boxShadow: "xs",
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",
@@ -293,7 +292,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.1}",
             minWidth: "84px",
             cursor: "pointer",
-            boxShadow: "sm",
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",
@@ -396,21 +394,19 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
             borderRadius: "{radii.sm}",
             cursor: "pointer",
-            boxShadow: "xs",
             "&:hover": { color: "fg", borderColor: "border.strong" },
             // Active tool (#153) — the selected segment reads as pressed.
             "&[data-active]": { color: "{colors.white}", background: "{colors.brand.600}", borderColor: "{colors.brand.600}" },
             "&[data-active]:hover": { color: "{colors.white}", background: "{colors.brand.600}", borderColor: "{colors.brand.600}" },
         },
         // A vertical segmented group of `controlButton`s (#153) — same button
-        // visual, attached: outer corners rounded (overflow-clipped), one shared
-        // shadow, and the inner border collapsed so adjacent buttons share a rule.
+        // visual, attached: outer corners rounded (overflow-clipped), and the
+        // inner border collapsed so adjacent buttons share a rule.
         controlGroup: {
             display: "flex",
             flexDirection: "column",
             borderRadius: "{radii.sm}",
             overflow: "hidden",
-            boxShadow: "xs",
             "& > button": { borderRadius: "0", boxShadow: "none" },
             "& > button:not(:first-of-type)": { borderTopWidth: "0" },
         },
@@ -445,7 +441,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.sm}",
             background: "{colors.brand.600}",
             color: "{colors.white}",
-            boxShadow: "xs",
             pointerEvents: "none",
         },
         minimap: {
@@ -456,7 +451,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
-            boxShadow: "sm",
             overflow: "hidden",
             cursor: "pointer",
         },
@@ -643,7 +637,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
              borderColor: "border.subtle",
              borderRadius: "{radii.xs}",  
-             boxShadow: "xs",
              padding: "2px",
         },
         scaleRuler: {
@@ -681,7 +674,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.subtle",
             borderRadius: "{radii.sm}",
-            boxShadow: "md",
             padding: "{spacing.3}",
             minWidth: "180px",
             maxWidth: "340px",
@@ -700,7 +692,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.subtle",
             borderRadius: "{radii.sm}",
-            boxShadow: "md",
             padding: "{spacing.1}",
             fontSize: "11px",
         },

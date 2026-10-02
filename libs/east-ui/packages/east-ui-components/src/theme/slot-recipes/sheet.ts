@@ -51,7 +51,7 @@
  *     option a 2 px brand ring (#860).
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
- *     pill opens on hover (`shadow.xs`) with brand controls. A failed
+ *     pill opens on hover with brand controls (no shadow). A failed
  *     window's band (#853) is the same band with its reason in `fg.danger`
  *     and a brand Retry, the pill kept in view while the band scrolls past;
  *     a row that could not be drawn is one row of `fg.danger` mono on the
@@ -1182,9 +1182,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             cursor: "pointer",
             whiteSpace: "nowrap",
-            // The lens band's controls open on hover — the only shadow in the sheet (B§11).
+            // The lens band's controls open on hover (B§11) — the pill casts no
+            // shadow: the design system shadows nothing but the focus ring.
             "& [data-slot=bandControl]": { display: "none" },
-            "&[data-lens]:hover": { boxShadow: "xs", "& [data-slot=bandControl]": { display: "inline-flex" } },
+            "&[data-lens]:hover": { "& [data-slot=bandControl]": { display: "inline-flex" } },
             // Where nothing can hover they stay open.
             _hoverNone: { "&[data-lens] [data-slot=bandControl]": { display: "inline-flex" } },
             _coarse: { paddingY: "4px", gap: "10px" },

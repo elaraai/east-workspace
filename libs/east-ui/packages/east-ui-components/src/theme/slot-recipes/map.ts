@@ -84,7 +84,6 @@ export const mapSlotRecipe = defineSlotRecipe({
                 fontFamily: "mono", fontSize: "label.sm",
                 color: "fg", background: "bg.surface",
                 borderWidth: "1px", borderColor: "border.subtle", borderRadius: "sm",
-                boxShadow: "xs",
             },
 
             // ── Marker dot / icon tones ──
@@ -138,7 +137,7 @@ export const mapSlotRecipe = defineSlotRecipe({
             zIndex: 1000,
         },
         // Chrome matches the canonical popover/card content surface
-        // (bg.surface + border.strong + md shadow + 14/16 padding).
+        // (bg.surface + border.strong + 14/16 padding; no shadow).
         overlayItem: {
             maxWidth: "360px",
             minWidth: "min(240px, calc(100% - 16px))",
@@ -147,7 +146,6 @@ export const mapSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "{radii.md}",
-            boxShadow: "md",
             padding: "14px 16px",
             fontSize: "{fontSizes.body}",
             lineHeight: "{lineHeights.normal}",
@@ -167,7 +165,6 @@ export const mapSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "{radii.md}",
-            boxShadow: "md",
             color: "fg.muted",
             cursor: "pointer",
             _hover: { color: "fg", background: "bg.subtle" },

@@ -147,7 +147,7 @@ export const tableSlotRecipe = defineSlotRecipe({
                 background: "bg.emphasized",
                 opacity: 0,
                 transitionProperty: "opacity",
-                transitionDuration: "{durations.moderate}",
+                transitionDuration: "{durations.normal}",
             },
             "th:hover &": { _before: { opacity: 1 } },
             _hover: { _before: { opacity: 1, background: "fg.muted" } },

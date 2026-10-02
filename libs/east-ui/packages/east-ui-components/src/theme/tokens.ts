@@ -99,12 +99,15 @@ export const tokens = defineTokens({
          * `var(--chakra-colors-status-pos)`, …) resolve identically. */
     },
     radii: {
-        xs:   { value: "3px" },   // small controls / chips (badge, meter, barStrip, checkbox)
+        // The design system's radii (`--r-*`): square-ish — chips, counts, NEW,
+        // DeltaPill and kbd 4px; buttons, inputs, menus and popovers 6px;
+        // frames, dialogs, the Commit bar and the Stamp 10px; `full` only on
+        // avatars and dots. `xs` (3px) is not the design system's and is kept
+        // only for its existing users.
+        xs:   { value: "3px" },
         sm:   { value: "4px" },
-        md:   { value: "6px" },   // buttons, inputs
-        lg:   { value: "8px" },   // cards
-        xl:   { value: "12px" },
-        "2xl":{ value: "16px" },  // dialogs
+        md:   { value: "6px" },
+        lg:   { value: "10px" },
         full: { value: "9999px" },
     },
     spacing: {
@@ -142,27 +145,20 @@ export const tokens = defineTokens({
             row:    { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
         },
     },
-    shadows: {
-        // Cool ink at low opacity — never warm, never black.
-        xs: { value: "0 1px 2px rgba(17, 27, 34, 0.05)" },
-        sm: { value: "0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08)" },
-        md: { value: "0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06)" },
-        lg: { value: "0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08)" },
-        xl: { value: "0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10)" },
-        // Focus ring — 3 px brand-tinted.
-        focus: { value: "0 0 0 3px rgba(72, 142, 151, 0.35)" },
-        // Focus ring for invalid controls — 3 px danger-tinted.
-        focusError: { value: "0 0 0 3px rgba(184, 90, 74, 0.25)" },
-    },
+    /* The shadows — the focus rings, and nothing else — are semantic tokens
+     * (they differ by colour mode): see `semantic-tokens.ts`. */
+    // Motion — fast and matter-of-fact, no bounces (`--dur-*`, `--ease-*`):
+    // `fast` hover and focus, `normal` (`--dur-base`) panels, banners and the
+    // Commit bar, `slow` the run pulse and the diff settle.
     durations: {
         fast:   { value: "120ms" },
         normal: { value: "200ms" },
         slow:   { value: "360ms" },
     },
     easings: {
-        // Soft landing — the default.
+        // Everything that moves.
         out:    { value: "cubic-bezier(0.16, 1, 0.3, 1)" },
-        // Symmetric curve for slide-in dialogs.
+        // State toggles only.
         inOut:  { value: "cubic-bezier(0.65, 0, 0.35, 1)" },
     },
     fontWeights: {

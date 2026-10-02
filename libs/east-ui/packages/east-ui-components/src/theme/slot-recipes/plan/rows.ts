@@ -568,16 +568,16 @@ export const rowsBase = {
     // ── Sticky parent (#823) ──
     // The group band's look, pinned under the header while the rows in view
     // belong to a parent whose own row has scrolled off — which section or
-    // entry they are. Opaque, so rows never paint through it; a hairline
-    // shadow lifts it off the row it covers. A click takes the reader to the
-    // parent's row.
+    // entry they are. Opaque, so rows never paint through it; its 1px rule
+    // parts it from the row it covers — no shadow (the design system shadows
+    // nothing but the focus ring). A click takes the reader to the parent's
+    // row.
     stickyParent: {
         display: "grid",
         height: "var(--plan-group-h)",
         background: "bg.panel",
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
-        boxShadow: "0 1px 0 {colors.border.subtle}, 0 2px 4px -2px color-mix(in srgb, {colors.fg} 18%, transparent)",
         cursor: "pointer",
         "&:hover": { background: "{colors.brandTint}" },
     },
