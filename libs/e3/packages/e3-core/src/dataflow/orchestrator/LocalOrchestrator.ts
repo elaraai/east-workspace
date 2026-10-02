@@ -38,6 +38,7 @@ import { uuidv7 } from '../../uuid.js';
 import type {
   DataflowOrchestrator,
   ExecutionHandle,
+  ExecutionProgress,
   ExecutionStatus,
   OrchestratorStartOptions,
   ResumeOptions,
@@ -718,8 +719,20 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       throw new Error(`Execution ${handle.id} not found for workspace '${handle.workspace}'`);
     }
 
+    return { ...stateToStatus(execution.state), ...this.progressOf(execution) };
+  }
+
+  /** What this orchestrator holds of a run it runs; none for any other, of
+   *  which it reads nothing. */
+  getProgress(handle: ExecutionHandle): Promise<ExecutionProgress> {
+    const execution = this.executions.get(this.executionKey(handle.repo, handle.workspace, handle.id));
+    return Promise.resolve(execution === undefined ? { waiting: [], splits: [] } : this.progressOf(execution));
+  }
+
+  /** A run's waits for room and its split tasks' progress, as the loop holds
+   *  them. */
+  private progressOf(execution: RunningExecution): ExecutionProgress {
     return {
-      ...stateToStatus(execution.state),
       waiting: [...execution.waiting.values()],
       splits: [...execution.splits].map(([task, run]) => {
         const { merge, units } = run.split.stage;

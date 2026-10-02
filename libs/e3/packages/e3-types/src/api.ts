@@ -876,12 +876,20 @@ export const SplitProgressType = StructType({
  * DataflowExecutionStateType in dataflow.ts which stores the full
  * execution state on disk.
  *
+ * A poll names a cursor (`since`), the sequence number of the last event it
+ * has, and is served the run's events past it, at most its `limit`; the
+ * response's `nextSeq` is the cursor of the poll after it. A poll that has
+ * every event reads no event of the run, so a client polls on a timer for the
+ * whole run at the cost of what is new.
+ *
  * @property status - Current execution status
  * @property startedAt - ISO timestamp when execution started
  * @property completedAt - ISO timestamp when execution finished (if done)
  * @property summary - Execution summary (available when complete)
- * @property events - Task events (may be paginated via offset/limit)
- * @property totalEvents - Total number of events (for pagination)
+ * @property events - The run's task events past the poll's cursor, at most
+ *   its limit, in the order they happened
+ * @property nextSeq - The cursor past the events served, which the next poll
+ *   passes as `since`: the poll's own when it served none
  * @property budget - The server's budget now, where it has one: a server whose
  *   runners hold none, as a remote backend's, serves `none`
  * @property waiting - The tasks and units of the run waiting for room, while it
@@ -895,7 +903,7 @@ export const ApiDataflowExecutionStateType = StructType({
   completedAt: OptionType(StringType),
   summary: OptionType(DataflowExecutionSummaryType),
   events: ArrayType(DataflowEventType),
-  totalEvents: IntegerType,
+  nextSeq: IntegerType,
   budget: OptionType(DataflowBudgetType),
   waiting: ArrayType(UnitWaitType),
   splits: ArrayType(SplitProgressType),

@@ -515,6 +515,66 @@ export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutio
   throw new Error('the data is not an execution state: its type is not the execution state\'s');
 }
 
+/**
+ * A dataflow run's state but its graph, its tasks, its reactive tracking and
+ * its events: what a poll of the run serves but the events, and the sequence
+ * number of its last event, past which a poll reads the events it has not
+ * served.
+ *
+ * @remarks
+ * An execution state store answers it for a workspace's latest run
+ * (`ExecutionStateStore.readLatestSummary`), so a poll reads it rather than
+ * the whole state, which grows with the dataflow and with every event of the
+ * run. A store may keep it beside the state, written with each change of the
+ * state; one that reads the whole state anyway derives it
+ * ({@link executionStateSummary}).
+ */
+export const ExecutionStateSummaryType = StructType({
+  /** The run's id, a UUIDv7 */
+  id: StringType,
+  /** When the run started */
+  startedAt: DateTimeType,
+  /** Number of tasks executed (not from cache) */
+  executed: IntegerType,
+  /** Number of tasks served from cache */
+  cached: IntegerType,
+  /** Number of tasks that failed */
+  failed: IntegerType,
+  /** Number of tasks skipped due to upstream failure */
+  skipped: IntegerType,
+  /** The run's status ({@link DataflowExecutionStatus}) */
+  status: StringType,
+  /** When the run ended */
+  completedAt: OptionType(DateTimeType),
+  /** Why the run failed, when it did */
+  error: OptionType(StringType),
+  /** The sequence number of the run's last event: 0 while it has none */
+  lastSeq: IntegerType,
+});
+export type ExecutionStateSummary = ValueTypeOf<typeof ExecutionStateSummaryType>;
+
+/**
+ * The summary of a run's state ({@link ExecutionStateSummaryType}).
+ *
+ * @param state - The run's state
+ * @returns Its summary: its last event's sequence number is the last event's
+ *   own, however the event was recorded
+ */
+export function executionStateSummary(state: DataflowExecutionState): ExecutionStateSummary {
+  return {
+    id: state.id,
+    startedAt: state.startedAt,
+    executed: state.executed,
+    cached: state.cached,
+    failed: state.failed,
+    skipped: state.skipped,
+    status: state.status,
+    completedAt: state.completedAt,
+    error: state.error,
+    lastSeq: state.events.at(-1)?.value.seq ?? 0n,
+  };
+}
+
 // =============================================================================
 // Dataflow Run History
 // =============================================================================

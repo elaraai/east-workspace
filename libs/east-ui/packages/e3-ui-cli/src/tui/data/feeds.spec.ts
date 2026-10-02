@@ -5,7 +5,8 @@
 
 /**
  * Feed specs — which pollers a view mounts, the execution event cursor,
- * the repositories view's lazy facts, the workspaces view's summaries, and
+ * the repositories view's lazy facts, the workspaces view's summaries and
+ * last runs, and
  * what holds a workspace a first deploy is deploying, all over the in-memory
  * API and fake timers.
  */
@@ -99,8 +100,8 @@ describe('feeds', () => {
         assert.equal(execution.state?.status.type, 'completed');
         assert.equal(execution.events.length, 2);
         const polls = api.calls.filter(c => c.startsWith('dataflowExecutePoll'));
-        assert.ok(polls.some(c => c.endsWith(' 0')), 'the first poll starts at offset 0');
-        // The next poll asks from the cursor and adds nothing.
+        assert.ok(polls.some(c => c.endsWith(' 0')), 'the first poll starts at the cursor 0');
+        // The next poll asks from the cursor the last answered, and adds nothing.
         await clock.advance(5_000);
         assert.ok(api.calls.filter(c => c.startsWith('dataflowExecutePoll')).some(c => c.endsWith(' 2')), 'polls continue from the cursor');
         execution = store.getState().data.execution['main']!;
@@ -152,6 +153,8 @@ describe('feeds', () => {
         assert.equal(state.data.workspaceState['main']?.packageName, 'demand');
         assert.equal(state.data.execution['main']?.state, null);
         assert.equal(state.data.workspaceState['scratch'], null);
+        assert.deepEqual(api.calls.filter(c => c.startsWith('dataflowExecutePoll')), ['dataflowExecutePoll main 0 limit 0'],
+            'the LAST RUN column reads the run without its events');
         feeds.stop();
     });
 

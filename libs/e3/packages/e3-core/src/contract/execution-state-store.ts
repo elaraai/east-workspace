@@ -12,7 +12,7 @@
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { equalFor, none, printFor, some, variant } from '@elaraai/east';
-import { DataflowExecutionStateType, E3_RELEASE } from '@elaraai/e3-types';
+import { DataflowExecutionStateType, E3_RELEASE, ExecutionStateSummaryType, executionStateSummary } from '@elaraai/e3-types';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { DataflowExecutionState } from '../dataflow/types.js';
 import { uuidv7 } from '../uuid.js';
@@ -117,6 +117,44 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const latest = await store.readLatest(repo, 'ws');
       assert.equal(latest?.id, second);
       assert.equal(latest?.status, 'running');
+    });
+
+    it('summarises the workspace\'s latest run as its state holds it, with its last event\'s sequence however the event came; none for a workspace with no run', async (t) => {
+      const { store, repo } = await setup(t);
+      assert.equal(await store.readLatestSummary(repo, 'ws'), null);
+      await store.create({ ...runningState(repo, uuidv7()), status: 'completed', completedAt: some(new Date()) });
+      const id = uuidv7();
+      const state = runningState(repo, id);
+      await store.create(state);
+      const summary = async () => {
+        const read = await store.readLatestSummary(repo, 'ws');
+        assert.ok(read !== null, 'the store summarises the run');
+        const whole = executionStateSummary((await store.readLatest(repo, 'ws'))!);
+        const print = printFor(ExecutionStateSummaryType);
+        assert.ok(equalFor(ExecutionStateSummaryType)(read, whole), `${print(read)}, not the summary of the state, ${print(whole)}`);
+        return read;
+      };
+      assert.equal((await summary()).id, id, 'the latest run\'s');
+
+      // Events a whole state carries, and one recorded on its own
+      await store.update({
+        ...state,
+        executed: 1n,
+        events: [
+          variant('task_ready', { seq: 1n, timestamp: new Date(), task: 'etl' }),
+          variant('task_started', { seq: 2n, timestamp: new Date(), task: 'etl' }),
+        ],
+        eventSeq: 2n,
+      });
+      assert.equal((await summary()).lastSeq, 2n);
+      await store.recordEvent(repo, 'ws', id, variant('task_failed', {
+        seq: 3n, timestamp: new Date(), task: 'etl', error: some('exit code 2'), exitCode: some(2n), duration: 30n,
+      }));
+      await store.updateStatus(repo, 'ws', id, 'failed', { error: 'etl failed' });
+      const ended = await summary();
+      assert.deepEqual([ended.status, ended.executed, ended.lastSeq, ended.error], ['failed', 1n, 3n, some('etl failed')]);
+      assert.equal(ended.completedAt.type, 'some');
+      assert.equal(await store.readLatestSummary(repo, 'other'), null);
     });
 
     it('updates a run\'s state whole, and keeps a run that has ended as it ended: every later write is dropped, whatever it writes', async (t) => {

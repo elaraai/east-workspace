@@ -11,6 +11,7 @@
  */
 
 import { some } from '@elaraai/east';
+import { executionStateSummary } from '@elaraai/e3-types';
 import type {
   ExecutionStateStore,
   StateWriteOutcome,
@@ -20,6 +21,7 @@ import type {
 import type {
   DataflowExecutionState,
   ExecutionEvent,
+  ExecutionStateSummary,
   TaskStatus,
   TaskState,
 } from '../types.js';
@@ -84,6 +86,12 @@ export class InMemoryStateStore implements ExecutionStateStore {
     // An execution's id is its run's UUIDv7, so the latest sorts last.
     const latestId = [...wsStates.keys()].sort().at(-1)!;
     return cloneExecutionState(wsStates.get(latestId)!);
+  }
+
+  /** The summary of the workspace's latest run, from the state it holds. */
+  async readLatestSummary(repo: string, workspace: string): Promise<ExecutionStateSummary | null> {
+    const state = await this.readLatest(repo, workspace);
+    return state === null ? null : executionStateSummary(state);
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await

@@ -16,7 +16,7 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { encodeBeast2For, some } from '@elaraai/east';
-import { decodeDataflowExecutionState } from '@elaraai/e3-types';
+import { decodeDataflowExecutionState, executionStateSummary } from '@elaraai/e3-types';
 import type {
   ExecutionStateStore,
   StateWriteOutcome,
@@ -27,6 +27,7 @@ import {
   DataflowExecutionStateType,
   type DataflowExecutionState,
   type ExecutionEvent,
+  type ExecutionStateSummary,
   type TaskState,
   type TaskStatus,
 } from '../types.js';
@@ -131,6 +132,13 @@ export class FileStateStore implements ExecutionStateStore {
       }
       throw err;
     }
+  }
+
+  /** The summary of the workspace's run, read from its file whole: the file
+   *  holds the run's state alone. */
+  async readLatestSummary(repo: string, workspace: string): Promise<ExecutionStateSummary | null> {
+    const state = await this.readLatest(repo, workspace);
+    return state === null ? null : executionStateSummary(state);
   }
 
   async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {

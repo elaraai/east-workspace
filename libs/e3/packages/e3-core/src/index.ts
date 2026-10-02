@@ -375,6 +375,7 @@ export {
   // Types (re-exported from e3-types)
   type DataflowExecutionState,
   type DataflowExecutionStatus,
+  type ExecutionStateSummary,
   type TaskState,
   type TaskStatus as DataflowTaskStatus,
   type ExecutionEvent,
@@ -418,6 +419,7 @@ export {
   // Orchestrator
   type DataflowOrchestrator,
   type ExecutionHandle,
+  type ExecutionProgress,
   type ExecutionStatus as OrchestratorExecutionStatus,
   type OrchestratorStartOptions,
   type ResumeOptions,

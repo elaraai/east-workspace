@@ -12,7 +12,7 @@
  */
 
 import { encodeBeast2For, some } from '@elaraai/east';
-import { DataflowExecutionStateType, decodeDataflowExecutionState } from '@elaraai/e3-types';
+import { DataflowExecutionStateType, decodeDataflowExecutionState, executionStateSummary, type ExecutionStateSummary } from '@elaraai/e3-types';
 import {
   checkName,
   type DataflowExecutionState,
@@ -142,6 +142,12 @@ export class WebStateStore implements ExecutionStateStore {
     checkName('workspace', workspace);
     const [latest] = await this.records.scan([...recordKeys.kind(repo, 'state'), workspace], { reverse: true, limit: 1 });
     return latest === undefined ? null : decodeDataflowExecutionState(latest.value);
+  }
+
+  /** The summary of the workspace's latest run, from the record of its state. */
+  async readLatestSummary(repo: string, workspace: string): Promise<ExecutionStateSummary | null> {
+    const state = await this.readLatest(repo, workspace);
+    return state === null ? null : executionStateSummary(state);
   }
 
   async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {
