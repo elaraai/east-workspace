@@ -31,7 +31,7 @@ import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
 import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
-import { WorkspaceLockError, DataflowAbortedError, DataflowError } from '../../errors.js';
+import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError } from '../../errors.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
@@ -43,7 +43,8 @@ import type {
   ResumeOptions,
 } from './interfaces.js';
 import { stateToStatus } from './interfaces.js';
-import type { ExecutionStateStore } from '../state-store/interfaces.js';
+import type { ExecutionStateStore, ExecutionStatusDetails, StateWriteOutcome } from '../state-store/interfaces.js';
+import { cloneExecutionState } from '../state-store/clone.js';
 import type {
   DataflowExecutionState,
   ExecutionEvent,
@@ -139,6 +140,90 @@ class AsyncMutex {
   }
 }
 
+// =============================================================================
+// The Run's Writer
+// =============================================================================
+
+/**
+ * A run's one writer of its state: every write of the run goes through it, and
+ * reaches the store a write at a time, in the order the writes were made.
+ *
+ * @remarks
+ * A write is a snapshot of the state as it stood when the write was made, so a
+ * write waiting its turn carries that state, however the loop changes its own
+ * meanwhile. The store never has two of the run's writes at once, which a
+ * store that moves a run's state by compare-and-set would refuse as another
+ * process's.
+ *
+ * Once the store takes a write otherwise than applying it — `dropped`, the run
+ * having ended, or `refused`, another process having moved it on — the writer
+ * writes nothing more: every later write answers that outcome unwritten, and
+ * `onStop` hears it once.
+ */
+class RunWriter {
+  /** Settles once every write made so far has landed, or failed. */
+  private tail: Promise<unknown> = Promise.resolve();
+  /** The outcome that stopped the writer, once a write was not applied. */
+  private stopped: 'dropped' | 'refused' | null = null;
+
+  /**
+   * @param store - The store the run's state is kept in
+   * @param onStop - Hears the outcome that stopped the writer, once
+   */
+  constructor(
+    private readonly store: ExecutionStateStore,
+    private readonly onStop: (outcome: 'dropped' | 'refused') => void,
+  ) {}
+
+  /**
+   * Writes the run's whole state, as it stands now.
+   *
+   * @param state - The run's state, which the loop may change as soon as this
+   *   returns
+   * @returns How the store took it
+   */
+  write(state: DataflowExecutionState): Promise<StateWriteOutcome> {
+    const snapshot = cloneExecutionState(state);
+    return this.enqueue(() => this.store.update(snapshot));
+  }
+
+  /**
+   * Sets the run's status, over the state the writes before this one left.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - Workspace name
+   * @param id - The run's id
+   * @param status - Its status
+   * @param details - Its error and summary
+   * @returns How the store took it
+   */
+  writeStatus(
+    repo: string,
+    workspace: string,
+    id: string,
+    status: 'running' | 'completed' | 'failed' | 'cancelled',
+    details: ExecutionStatusDetails,
+  ): Promise<StateWriteOutcome> {
+    return this.enqueue(() => this.store.updateStatus(repo, workspace, id, status, details));
+  }
+
+  /** Applies a write once every write before it has settled. */
+  private enqueue(apply: () => Promise<StateWriteOutcome>): Promise<StateWriteOutcome> {
+    const written = this.tail.then(async (): Promise<StateWriteOutcome> => {
+      if (this.stopped !== null) return this.stopped;
+      const outcome = await apply();
+      if (outcome !== 'applied') {
+        this.stopped = outcome;
+        this.onStop(outcome);
+      }
+      return outcome;
+    });
+    // A write that failed fails itself alone: the next one still goes.
+    this.tail = written.catch(() => {});
+    return written;
+  }
+}
+
 /**
  * How a task's execution ended, as the loop completes it.
  */
@@ -211,9 +296,17 @@ interface RunningExecution {
   abortController: AbortController;
   /** Set when a yield checkpoint has been taken — suppresses further persists */
   yielded: boolean;
-  /** Set as the run's end is recorded — completed, failed or cancelled:
-   *  nothing the run persists after it is written */
+  /** Set as the run's end is recorded — completed, failed or cancelled — or
+   *  as the store stops taking its writes: nothing the run persists after it
+   *  is written */
   ended: boolean;
+  /** The run's one writer of its state; `null` when the orchestrator keeps no
+   *  state store */
+  writer: RunWriter | null;
+  /** Why the store stopped taking the run's writes — `dropped`, another
+   *  process having ended the run, or `refused`, another having moved it on —
+   *  or `null` while it takes them */
+  stoppedBy: 'dropped' | 'refused' | null;
   /**
    * Yield result, resolved into completionPromise from the loop's `finally`
    * (after locks are released) so a caller awaiting wait() can resume()
@@ -302,7 +395,12 @@ export interface LocalOrchestratorHost {
  * - Uses step functions for each operation
  * - Per-dataset ref writes are atomic and independent (no mutex needed)
  * - Supports AbortSignal for cancellation
- * - Persists state through the provided state store
+ * - Persists state through the provided state store, as each run's one
+ *   writer: a write at a time, in the order they were made, each a snapshot of
+ *   the state when made. A cancel writes the run's end whole, as its last word.
+ *   A run whose write the store drops, another process having ended it, or
+ *   refuses, another having moved it on, stops what it runs, launches and
+ *   writes nothing more, and fails no task.
  * - Reactive: detects input changes after each task, invalidates and
  *   re-executes affected tasks until fixpoint
  * - Runs a run's tasks on the runner its start names, or else on its host's
@@ -457,8 +555,15 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Crash recovery: tasks stranded in_progress by a dead host are reset
       // to pending (a clean yield already did this — then it's a no-op).
       // Work they actually finished is recovered via the execution cache.
+      // The write is the resumed run's first: one the store does not take
+      // leaves nothing to resume.
       stepYield(state);
-      await this.stateStore.update(state);
+      const resumed = await this.stateStore.update(state);
+      if (resumed !== 'applied') {
+        throw new DataflowError(
+          `Cannot resume execution ${executionId}: ${resumed === 'dropped' ? 'it has ended' : 'another process has moved it on'}`
+        );
+      }
 
       // Re-seed DataflowRun task executions for already-completed tasks so
       // the final run record covers the whole execution, not just this
@@ -542,6 +647,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       abortController: new AbortController(),
       yielded: false,
       ended: false,
+      writer: null,
+      stoppedBy: null,
       runningTasks: new Map(),
       splits: new Map(),
       waiting: new Map(),
@@ -555,6 +662,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       rejectCompletion,
     };
 
+    // Every write of the run's state goes through its one writer.
+    if (this.stateStore) {
+      execution.writer = new RunWriter(this.stateStore, (outcome) => this.stopped(execution, outcome));
+    }
+
     const key = this.executionKey(repo, workspace, executionId);
     this.executions.set(key, execution);
 
@@ -566,15 +678,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       const onAbort = () => {
         execution.aborted = true;
         execution.abortController.abort();
-        if (this.stateStore) {
-          void this.stateStore.updateStatus(
-            repo,
-            workspace,
-            executionId,
-            'cancelled',
-            { error: 'Execution was cancelled' }
-          ).catch(() => { /* ignore errors during shutdown */ });
-        }
+        void this.endCancelled(execution, 'Execution was cancelled').catch(() => { /* ignore errors during shutdown */ });
       };
       options.signal.addEventListener('abort', onAbort, { once: true });
       execution.abortCleanup = () => options.signal!.removeEventListener('abort', onAbort);
@@ -640,16 +744,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution.aborted = true;
     // Stops the running tasks too.
     execution.abortController.abort();
-
-    if (this.stateStore) {
-      await this.stateStore.updateStatus(
-        handle.repo,
-        handle.workspace,
-        handle.id,
-        'cancelled',
-        { error: 'Execution was cancelled' }
-      );
-    }
+    await this.endCancelled(execution, 'Execution was cancelled');
   }
 
   async getEvents(handle: ExecutionHandle, sinceSeq: number): Promise<ExecutionEvent[]> {
@@ -871,9 +966,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             continue;
           }
 
-          // Mark as started (event added by step function)
-          stepTaskStarted(state, taskName);
-          await this.persistState(execution, state);
+          // Mark as started (event added by step function), under the mutex
+          // as every other change of the run's state is
+          await execution.mutex.runExclusive(async () => {
+            stepTaskStarted(state, taskName);
+            await this.persistState(execution, state);
+          });
           options.onTaskStart?.(taskName);
 
           // A task whose work is split over its inputs runs as the units of
@@ -892,6 +990,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // those terminally anyway.
         if (!execution.hasFailure && !checkAborted() && options.shouldYield?.()) {
           await this.checkpointYield(execution);
+          // A checkpoint the store did not take is no yield: the run was
+          // ended, or moved on, elsewhere.
+          if (execution.stoppedBy !== null) await this.endStopped(storage, repo, execution, wsState);
           return;
         }
 
@@ -943,11 +1044,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // Check for abort one final time
       if (checkAborted()) {
-        stepCancel(state, 'Execution was aborted');
-        execution.ended = true;
-        if (this.stateStore) {
-          await this.stateStore.update(state);
-        }
+        // A run whose writes the store stopped taking was ended, or moved
+        // on, elsewhere; any other is cancelled, unless its cancel recorded
+        // its end already.
+        if (execution.stoppedBy !== null) await this.endStopped(storage, repo, execution, wsState);
+        await this.endCancelled(execution, 'Execution was aborted');
+        if (execution.stoppedBy !== null) await this.endStopped(storage, repo, execution, wsState);
 
         // Write cancelled DataflowRun record
         if (wsState) {
@@ -962,9 +1064,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // Finalize (event added by step function)
       const { result } = stepFinalize(state);
       execution.ended = true;
-      if (this.stateStore) {
-        await this.stateStore.update(state);
-      }
+      await execution.writer?.write(state);
+      // An end the store did not take is another process's: the run was
+      // ended, or moved on, there.
+      if (execution.stoppedBy !== null) await this.endStopped(storage, repo, execution, wsState);
 
       // Write final DataflowRun record
       if (wsState) {
@@ -1004,9 +1107,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // completionResult declaration above.
       completionResult = result;
     } catch (err) {
-      // A run that was cancelled has recorded its end already, and ends here
-      // by rejecting: its abort is what wait() answers.
-      if (err instanceof DataflowAbortedError) throw err;
+      // A run that was cancelled has recorded its end already, as has one
+      // another process ended or moved on, and ends here by rejecting: its
+      // abort is what wait() answers.
+      if (err instanceof DataflowAbortedError || err instanceof DataflowSupersededError) throw err;
 
       // An unexpected error escaped the execution loop (e.g. a task has an
       // unassigned input). The success-path finalization above is skipped, so
@@ -1022,13 +1126,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       await this.stopLaunched(storage, repo, execution);
       execution.ended = true;
       const failMsg = err instanceof Error ? err.message : String(err);
-      if (this.stateStore) {
-        await this.stateStore
-          .updateStatus(repo, state.workspace, state.id, 'failed', { error: failMsg })
-          .catch(() => { /* best effort — don't mask the original error */ });
-      }
-      // And so does its record, which would otherwise read 'running' for good.
-      if (wsState !== null) {
+      await execution.writer
+        ?.writeStatus(repo, state.workspace, state.id, 'failed', { error: failMsg })
+        .catch(() => { /* best effort — don't mask the original error */ });
+      // And so does its record, which would otherwise read 'running' for good
+      // — unless the store stopped taking the run's writes, another process
+      // having ended it, or moved it on.
+      if (wsState !== null && execution.stoppedBy === null) {
         const failedTask = [...state.tasks.entries()].find(([, ts]) => ts.status === 'failed')?.[0] ?? 'unknown';
         await storage.refs
           .dataflowRunWrite(repo, state.workspace, this.endedRun(state, wsState, execution, variant('failed', { failedTask, error: failMsg })))
@@ -1093,6 +1197,79 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
+   * Records the run's end as cancelled, once: its tasks in progress back to
+   * pending — the run's abort stops them — and the run cancelled, written whole
+   * as the run's last word, since nothing written after it is taken. Under the
+   * mutex, so no completion is half applied in what is written.
+   */
+  private async endCancelled(execution: RunningExecution, reason: string): Promise<void> {
+    await execution.mutex.runExclusive(async () => {
+      if (execution.ended) return;
+      execution.ended = true;
+      stepYield(execution.state);
+      stepCancel(execution.state, reason);
+      await execution.writer?.write(execution.state);
+    });
+  }
+
+  /**
+   * Stops a run whose writes the store no longer takes — another process ended
+   * it, or moved it on: nothing more of its state is written, what runs is
+   * stopped as a cancel stops it, and nothing more is launched. The loop then
+   * ends it ({@link endStopped}).
+   */
+  private stopped(execution: RunningExecution, outcome: 'dropped' | 'refused'): void {
+    execution.stoppedBy ??= outcome;
+    execution.ended = true;
+    execution.aborted = true;
+    execution.abortController.abort();
+  }
+
+  /**
+   * Ends a run whose writes the store no longer takes: what the loop launched
+   * is stopped and settled, and no task is failed for it. A run another
+   * process cancelled gets its record ended as its state was, while the
+   * record still reads running; one another process moved on gets nothing more
+   * written, its record included.
+   *
+   * @throws {DataflowSupersededError} When another process moved the run on
+   * @throws {DataflowAbortedError} When another process ended it
+   */
+  private async endStopped(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    wsState: WorkspaceState | null
+  ): Promise<never> {
+    await this.stopLaunched(storage, repo, execution);
+    const { state } = execution;
+    if (execution.stoppedBy === 'refused') throw new DataflowSupersededError(state.id);
+    if (wsState !== null) {
+      await this.recordCancelledElsewhere(storage, repo, execution, wsState).catch(() => { /* its end is its state's */ });
+    }
+    throw new DataflowAbortedError(this.buildPartialResults(state));
+  }
+
+  /**
+   * Ends the record of a run another process cancelled, as its state says,
+   * unless the record has ended already: a run another process completed or
+   * failed has its record from that process.
+   */
+  private async recordCancelledElsewhere(
+    storage: StorageBackend,
+    repo: string,
+    execution: RunningExecution,
+    wsState: WorkspaceState
+  ): Promise<void> {
+    const { state } = execution;
+    const stored = await this.stateStore?.read(repo, state.workspace, state.id);
+    if (stored?.status !== 'cancelled') return;
+    const record = await storage.refs.dataflowRunGet(repo, state.workspace, state.id);
+    if (record !== null && record.status.type !== 'running') return;
+    await storage.refs.dataflowRunWrite(repo, state.workspace, this.endedRun(state, wsState, execution, variant('cancelled', {})));
+  }
+
+  /**
    * Take a yield checkpoint: reset in-flight tasks to pending, persist the
    * still-'running' state, and stage the yielded FinalizeResult (resolved
    * from the loop's finally, after locks are released).
@@ -1112,10 +1289,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await run.split.suspend();
       }
       stepYield(state);
-      if (this.stateStore) {
-        await this.stateStore.update(state);
-      }
+      await execution.writer?.write(state);
     });
+    // A checkpoint the store did not take yields nothing: the loop ends the
+    // run as another process left it.
+    if (execution.stoppedBy !== null) return;
     execution.yieldResult = {
       success: false,
       runId: state.id,
@@ -1787,22 +1965,22 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   }
 
   /**
-   * Persist state, skipping the write once the run's end is recorded, and
-   * when execution has been aborted and the state doesn't yet reflect
-   * cancellation (defense-in-depth).
+   * Persist state through the run's writer, skipping the write once the run's
+   * end is recorded or the store has stopped taking its writes, once the run
+   * is aborted — its cancel writes its end — and after a yield checkpoint.
    */
   private async persistState(
     execution: RunningExecution,
     state: DataflowExecutionState
   ): Promise<void> {
-    if (!this.stateStore) return;
+    if (execution.writer === null) return;
     // The run's end is the last word, however it ended.
     if (execution.ended) return;
-    if (execution.aborted && state.status !== 'cancelled') return;
+    if (execution.aborted) return;
     // After a yield checkpoint the checkpoint write is the last word —
     // late-settling completion handlers must not overwrite it.
     if (execution.yielded) return;
-    await this.stateStore.update(state);
+    await execution.writer.write(state);
   }
 
   /**

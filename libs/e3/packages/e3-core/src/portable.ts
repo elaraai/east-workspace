@@ -550,6 +550,7 @@ export {
 // State store
 export type {
   ExecutionStateStore,
+  StateWriteOutcome,
   TaskStatusDetails,
   ExecutionStatusDetails,
 } from './dataflow/state-store/interfaces.js';
@@ -626,6 +627,7 @@ export {
   // Dataflow
   DataflowError,
   DataflowAbortedError,
+  DataflowSupersededError,
   // Generic
   PermissionDeniedError,
   // Helpers

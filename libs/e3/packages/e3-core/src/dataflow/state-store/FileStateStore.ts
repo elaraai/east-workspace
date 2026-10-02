@@ -19,6 +19,7 @@ import { encodeBeast2For, some } from '@elaraai/east';
 import { decodeDataflowExecutionState } from '@elaraai/e3-types';
 import type {
   ExecutionStateStore,
+  StateWriteOutcome,
   TaskStatusDetails,
   ExecutionStatusDetails,
 } from './interfaces.js';
@@ -30,6 +31,7 @@ import {
   type TaskStatus,
 } from '../types.js';
 import { checkName } from '../../errors.js';
+import { withKeyedLock } from '../../keyed-mutex.js';
 // The one atomic write every local record goes through: staged as a `.partial`
 // gc sweeps, and renamed over the record with the shared Windows retry budget.
 import { atomicWriteFile } from '../../storage/local/localHelpers.js';
@@ -48,7 +50,11 @@ type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]
  * - Uses atomic writes (write to temp, then rename) for durability
  * - State is stored in beast2 binary format for type safety
  * - Events are stored inline in the execution state
- * - Thread-safe for concurrent access within a single process (via file locking)
+ * - Changes a workspace's state one at a time within a process: each reads
+ *   the file, and writes it back, under an in-process lock of the file's
+ *   path, so changes made at once never write over each other
+ * - A run that has ended keeps the state it ended with: every later write is
+ *   dropped, as is a write of a run a later one has replaced
  * - Suitable for local CLI and API server usage
  */
 export class FileStateStore implements ExecutionStateStore {
@@ -76,14 +82,15 @@ export class FileStateStore implements ExecutionStateStore {
 
   async create(state: DataflowExecutionState): Promise<void> {
     const path = this.statePath(state.workspace);
+    await withKeyedLock(path, async () => {
+      // Check if execution already exists
+      const existing = await this.read(state.repo, state.workspace, state.id);
+      if (existing) {
+        throw new Error(`Execution ${state.id} already exists in workspace '${state.workspace}'`);
+      }
 
-    // Check if execution already exists
-    const existing = await this.read(state.repo, state.workspace, state.id);
-    if (existing) {
-      throw new Error(`Execution ${state.id} already exists in workspace '${state.workspace}'`);
-    }
-
-    await atomicWriteFile(path, encode(state));
+      await atomicWriteFile(path, encode(state));
+    });
   }
 
   async read(repo: string, workspace: string, id: string): Promise<DataflowExecutionState | null> {
@@ -126,23 +133,9 @@ export class FileStateStore implements ExecutionStateStore {
     }
   }
 
-  async update(state: DataflowExecutionState): Promise<void> {
+  async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {
     const path = this.statePath(state.workspace);
-    // A run that has ended stays as it ended: completed, failed and cancelled
-    // are final, and a write of another status is dropped. A run's loop may
-    // persist what it had in memory after its end has landed. The file is the
-    // workspace's latest run's, so a write for a run a later one has replaced
-    // is dropped too.
-    try {
-      const existing = await fs.readFile(path);
-      const current = decodeDataflowExecutionState(existing);
-      if (current.id !== state.id || (current.status !== 'running' && state.status !== current.status)) {
-        return;
-      }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
-    await atomicWriteFile(path, encode(state));
+    return withKeyedLock(path, () => this.put(path, state));
   }
 
   async updateTaskStatus(
@@ -152,41 +145,36 @@ export class FileStateStore implements ExecutionStateStore {
     task: string,
     status: TaskStatus,
     details?: TaskStatusDetails
-  ): Promise<void> {
-    const state = await this.read(repo, workspace, executionId);
-    if (!state) {
-      throw new Error(`Execution ${executionId} not found in workspace '${workspace}'`);
-    }
+  ): Promise<StateWriteOutcome> {
+    return this.change(repo, workspace, executionId, (state) => {
+      const taskState = state.tasks.get(task) as Mutable<TaskState> | undefined;
+      if (!taskState) {
+        throw new Error(`Task '${task}' not found in execution ${executionId}`);
+      }
 
-    const taskState = state.tasks.get(task) as Mutable<TaskState> | undefined;
-    if (!taskState) {
-      throw new Error(`Task '${task}' not found in execution ${executionId}`);
-    }
+      const mutableState = state as Mutable<DataflowExecutionState>;
 
-    const mutableState = state as Mutable<DataflowExecutionState>;
+      taskState.status = status;
+      if (details) {
+        if (details.cached !== undefined) taskState.cached = some(details.cached);
+        if (details.outputHash !== undefined) taskState.outputHash = some(details.outputHash);
+        if (details.error !== undefined) taskState.error = some(details.error);
+        if (details.exitCode !== undefined) taskState.exitCode = some(BigInt(details.exitCode));
+        if (details.duration !== undefined) taskState.duration = some(BigInt(details.duration));
+      }
+      taskState.completedAt = some(new Date());
 
-    taskState.status = status;
-    if (details) {
-      if (details.cached !== undefined) taskState.cached = some(details.cached);
-      if (details.outputHash !== undefined) taskState.outputHash = some(details.outputHash);
-      if (details.error !== undefined) taskState.error = some(details.error);
-      if (details.exitCode !== undefined) taskState.exitCode = some(BigInt(details.exitCode));
-      if (details.duration !== undefined) taskState.duration = some(BigInt(details.duration));
-    }
-    taskState.completedAt = some(new Date());
-
-    // Update counters based on status
-    if (status === 'completed' && details?.cached) {
-      mutableState.cached = state.cached + 1n;
-    } else if (status === 'completed') {
-      mutableState.executed = state.executed + 1n;
-    } else if (status === 'failed') {
-      mutableState.failed = state.failed + 1n;
-    } else if (status === 'skipped') {
-      mutableState.skipped = state.skipped + 1n;
-    }
-
-    await this.update(state);
+      // Update counters based on status
+      if (status === 'completed' && details?.cached) {
+        mutableState.cached = state.cached + 1n;
+      } else if (status === 'completed') {
+        mutableState.executed = state.executed + 1n;
+      } else if (status === 'failed') {
+        mutableState.failed = state.failed + 1n;
+      } else if (status === 'skipped') {
+        mutableState.skipped = state.skipped + 1n;
+      }
+    });
   }
 
   async updateStatus(
@@ -195,29 +183,24 @@ export class FileStateStore implements ExecutionStateStore {
     executionId: string,
     status: 'running' | 'completed' | 'failed' | 'cancelled',
     details?: ExecutionStatusDetails
-  ): Promise<void> {
-    const state = await this.read(repo, workspace, executionId);
-    if (!state) {
-      throw new Error(`Execution ${executionId} not found in workspace '${workspace}'`);
-    }
+  ): Promise<StateWriteOutcome> {
+    return this.change(repo, workspace, executionId, (state) => {
+      const mutableState = state as Mutable<DataflowExecutionState>;
 
-    const mutableState = state as Mutable<DataflowExecutionState>;
-
-    mutableState.status = status;
-    if (status !== 'running') {
-      mutableState.completedAt = some(new Date());
-    }
-    if (details?.error) {
-      mutableState.error = some(details.error);
-    }
-    if (details?.summary) {
-      mutableState.executed = BigInt(details.summary.executed);
-      mutableState.cached = BigInt(details.summary.cached);
-      mutableState.failed = BigInt(details.summary.failed);
-      mutableState.skipped = BigInt(details.summary.skipped);
-    }
-
-    await this.update(state);
+      mutableState.status = status;
+      if (status !== 'running') {
+        mutableState.completedAt = some(new Date());
+      }
+      if (details?.error) {
+        mutableState.error = some(details.error);
+      }
+      if (details?.summary) {
+        mutableState.executed = BigInt(details.summary.executed);
+        mutableState.cached = BigInt(details.summary.cached);
+        mutableState.failed = BigInt(details.summary.failed);
+        mutableState.skipped = BigInt(details.summary.skipped);
+      }
+    });
   }
 
   async recordEvent(
@@ -225,16 +208,11 @@ export class FileStateStore implements ExecutionStateStore {
     workspace: string,
     executionId: string,
     event: ExecutionEvent
-  ): Promise<void> {
-    const state = await this.read(repo, workspace, executionId);
-    if (!state) {
-      throw new Error(`Execution ${executionId} not found in workspace '${workspace}'`);
-    }
-
-    // Append event to inline events array (cast to mutable array)
-    (state.events as ExecutionEvent[]).push(event);
-
-    await this.update(state);
+  ): Promise<StateWriteOutcome> {
+    return this.change(repo, workspace, executionId, (state) => {
+      // Append event to inline events array (cast to mutable array)
+      (state.events as ExecutionEvent[]).push(event);
+    });
   }
 
   async getEventsSince(
@@ -258,19 +236,20 @@ export class FileStateStore implements ExecutionStateStore {
   }
 
   async delete(_repo: string, workspace: string, executionId: string): Promise<void> {
-    // Only delete if the stored execution matches the requested ID
-    const state = await this.readLatest(_repo, workspace);
-    if (state && state.id === executionId) {
-      const statePath = this.statePath(workspace);
-
-      try {
-        await fs.unlink(statePath);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-          throw err;
+    const statePath = this.statePath(workspace);
+    await withKeyedLock(statePath, async () => {
+      // Only delete if the stored execution matches the requested ID
+      const state = await this.readLatest(_repo, workspace);
+      if (state && state.id === executionId) {
+        try {
+          await fs.unlink(statePath);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw err;
+          }
         }
       }
-    }
+    });
   }
 
   /**
@@ -290,5 +269,47 @@ export class FileStateStore implements ExecutionStateStore {
     }
     return null;
   }
-}
 
+  /**
+   * Changes a run's state under its file's lock: reads it, applies `change`
+   * to it, and writes it back unless the run has ended.
+   *
+   * @throws {Error} When the file holds no such run, or `change` throws
+   */
+  private async change(
+    repo: string,
+    workspace: string,
+    executionId: string,
+    change: (state: DataflowExecutionState) => void
+  ): Promise<StateWriteOutcome> {
+    const path = this.statePath(workspace);
+    return withKeyedLock(path, async () => {
+      const state = await this.read(repo, workspace, executionId);
+      if (!state) {
+        throw new Error(`Execution ${executionId} not found in workspace '${workspace}'`);
+      }
+      // A run that has ended keeps the state it ended with, task and event
+      // included.
+      if (state.status !== 'running') return 'dropped';
+      change(state);
+      await atomicWriteFile(path, encode(state));
+      return 'applied';
+    });
+  }
+
+  /**
+   * Writes a run's state over the workspace's file, which its caller holds the
+   * lock of: unless the file holds a run that has ended, or another run, which
+   * a later one replaced this one with.
+   */
+  private async put(path: string, state: DataflowExecutionState): Promise<StateWriteOutcome> {
+    try {
+      const current = decodeDataflowExecutionState(await fs.readFile(path));
+      if (current.id !== state.id || current.status !== 'running') return 'dropped';
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    await atomicWriteFile(path, encode(state));
+    return 'applied';
+  }
+}
