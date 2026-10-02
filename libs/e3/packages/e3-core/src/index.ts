@@ -205,6 +205,8 @@ export {
   type ResolvedRecordIndex,
   type MutationOutcome,
   type RecordMutateOptions,
+  type RecordCompactOptions,
+  type RecordReindexOptions,
   type RecordMutateLimits,
   type RecordHistoryEntry,
   type RecordSignature,

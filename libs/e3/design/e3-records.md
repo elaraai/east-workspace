@@ -600,6 +600,21 @@ record *state* need no new routes — `datasetGet` already serves them.
 > so mutations are sync-only for now. Record state remains readable via
 > `datasetGet` (`e3 get .records.<rec>`).
 
+> **Amended (2026-10-02).** A host mounts the routes with the limits its
+> requests have, as it does the function routes (`e3-functions.md` §7.1):
+> `createWorkspaceRecordRoutes(storage, getRepoPath, getRunner, { syncDeadlineMs?, historyLimit? })`.
+> - **`syncDeadlineMs`** — a mutation's and a compaction's deadline, under the
+>   host's request timeout. Each answers its typed outcome 2 s under it: a
+>   mutation's run stops at what remains of it (`timed_out`), and its retries,
+>   or a compaction's, stop once it is spent (`conflict`). Unset, as on the
+>   local server, neither has a deadline but its own limits.
+> - **`historyLimit`** — how many commits a history request that names no
+>   `limit` is answered with, the newest first; the client pages on from the
+>   last one's parent, as `e3 history` does to the root. Unset, the whole
+>   chain.
+>
+> A limit no request could meet is refused when the routes are mounted.
+
 ### 9.3 CLI
 
 ```bash

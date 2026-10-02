@@ -69,8 +69,8 @@ export {
   type FunctionRoutesOptions,
 } from './routes/functions.js';
 
-// Record mutations and history
-export { createWorkspaceRecordRoutes } from './routes/records.js';
+// Record mutations and history, under the host's deadline and history page
+export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './routes/records.js';
 
 // =============================================================================
 // Handlers

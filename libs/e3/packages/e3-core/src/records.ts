@@ -779,6 +779,33 @@ async function buildRecordIndexes(
 }
 
 /**
+ * What {@link recordReindex} rebuilds, and how it retries.
+ *
+ * @remarks
+ * Of a mutation's options, a reindex takes the ones it honours. It runs no
+ * mutation program, so it takes no `limits` and no `budgetMs`: its builds run
+ * until they finish or `signal` stops them. It writes no keyed commit, so it
+ * takes no `idempotencyKey`, and carries the record's last key forward.
+ */
+export interface RecordReindexOptions {
+  /** Caller identity recorded on the `$reindex` commit. */
+  actor: string;
+  /** The one index to rebuild; every index the record declares when omitted. */
+  index?: string;
+  /** Wall-clock budget for CAS retries (default 30s); on expiry returns conflict. */
+  maxRetryMs?: number;
+  /** Hard cap on CAS attempts (mainly for tests forcing a conflict). */
+  maxAttempts?: number;
+  /** Cancellation — aborts the index build in flight. */
+  signal?: AbortSignal;
+  /** Externally-held shared workspace lock; acquired internally when omitted. */
+  lock?: LockHandle;
+  /** Pass `-v` to each build's runner (known runtimes only) so it prints
+   *  timing/perf to stderr. Runtime-only; never affects hashing or caching. */
+  verbose?: boolean;
+}
+
+/**
  * Rebuild a record's indexes from its primary and commit the result.
  *
  * @remarks
@@ -798,7 +825,8 @@ async function buildRecordIndexes(
  * @param repo - Repository identifier
  * @param ws - Workspace name
  * @param recordName - The record to reindex
- * @param opts - One index by name (default: all), plus the mutation options
+ * @param opts - The actor, one index by name (default: all), and the
+ *   retries, cancellation and lock
  * @returns `committed` / `invalid` / a program failure / `conflict`
  */
 export async function recordReindex(
@@ -807,7 +835,7 @@ export async function recordReindex(
   repo: string,
   ws: string,
   recordName: string,
-  opts: RecordMutateOptions & { index?: string },
+  opts: RecordReindexOptions,
 ): Promise<MutationOutcome> {
   return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
     const resolved = await resolveRecord(storage, repo, ws, recordName);
@@ -1262,24 +1290,51 @@ export async function recordDescribe(
   return { name: recordName, mutations, indexes };
 }
 
+/** What {@link recordCompact} commits as, and how it retries. */
+export interface RecordCompactOptions {
+  /** Caller identity recorded on the `$compact` commit. */
+  actor: string;
+  /** Wall-clock budget for CAS retries (default 30s); on expiry returns conflict. */
+  maxRetryMs?: number;
+  /** Hard wall-clock budget for the whole call, such as a host's request
+   *  deadline. A compaction runs no program, so the budget bounds its retries:
+   *  they stop once it is spent, as once `maxRetryMs` is, and the call returns
+   *  `conflict`. Omit for the retry window alone. */
+  budgetMs?: number;
+  /** Hard cap on CAS attempts (mainly for tests forcing a conflict). */
+  maxAttempts?: number;
+  /** Externally-held shared workspace lock; acquired internally when omitted. */
+  lock?: LockHandle;
+}
+
 /**
  * Compact a record's history: write a fresh `$compact` root commit
  * (`parent: none`) over the current state and swing the ref to it. The prior
  * commit chain becomes unreachable and is reclaimed by GC; the state itself is
- * unchanged. Returns `committed` / `invalid` / `conflict` like a mutation.
+ * unchanged.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param recordName - The record to compact
+ * @param opts - The actor, and the retries' window, budget and cap
+ * @returns `committed` / `invalid`, or `conflict` once the retries stop, like
+ *   a mutation
  */
 export async function recordCompact(
   storage: StorageBackend,
   repo: string,
   ws: string,
   recordName: string,
-  opts: { actor: string; maxRetryMs?: number; maxAttempts?: number; lock?: LockHandle },
+  opts: RecordCompactOptions,
 ): Promise<MutationOutcome> {
   return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
     const resolved = await resolveRecord(storage, repo, ws, recordName);
     if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
 
-    const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
+    // A compaction runs no program, so its budget bounds the retries alone:
+    // they stop at whichever of the two ends first.
+    const deadline = Date.now() + Math.min(opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS, opts.budgetMs ?? Infinity);
     for (let attempt = 1; ; attempt++) {
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
       if (!existing || existing.ref.type !== 'value') {

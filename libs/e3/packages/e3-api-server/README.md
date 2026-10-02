@@ -199,6 +199,22 @@ app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath, {
 }));
 ```
 
+A host whose requests have a time limit gives it to the routes that run a
+program for a request, so that each answers its typed outcome before the host
+cuts it off: the function and one-shot routes take `syncDeadlineMs`, and so do
+the record routes, whose mutation and compaction answer `timed_out` or
+`conflict` 2 s under it. The record routes' `historyLimit` is how many commits
+a history request that names no `limit` is answered with; the client pages on
+from the last one's parent. Unset, as on this server, neither is bounded. A
+limit no request could meet is refused when the routes are mounted.
+
+```typescript
+app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner, {
+  syncDeadlineMs: 29_000,  // under a 30 s gateway
+  historyLimit: 1_000,
+}));
+```
+
 ## API Endpoints
 
 All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
@@ -349,6 +365,15 @@ an append reruns only the pieces the append reached. Its timeout is one budget
 for the whole job, counted from its launch. A call is polled only through the
 repository and workspace that launched it, and a caller with a platform-free
 grant polls only a platform-free call, or one such a caller launched.
+
+### Records
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations and indexes, with their types |
+| GET | `/api/repos/:repo/workspaces/:ws/records/:rec/history` | Its commits, newest first: `?limit=` of them from `?from=`, the head when absent; with no limit, the whole chain, or the host's page (`historyLimit`) |
+| POST | `/api/repos/:repo/workspaces/:ws/records/:rec/mutations/:mut` | Apply a mutation: `committed`, `invalid`, `failed`, `timed_out` or `conflict`; with an `Idempotency-Key`, a retry answers the first call's commit |
+| POST | `/api/repos/:repo/workspaces/:ws/records/:rec/compact` | Collapse the history to a `$compact` root, the state kept (an elevated role when auth is on) |
 
 ### Execution
 
