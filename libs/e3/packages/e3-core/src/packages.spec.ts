@@ -30,7 +30,8 @@ import { computeHash as nodeComputeHash } from './objects-node.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
 import {
-  createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, withRelease, writeZip, zipBytes, zipEqual,
+  HeldLogStore, createTestRepo, removeTestRepo, createTempDir, removeTempDir, logsAtEachEnd, readZipEntries, withLogStore, withRelease,
+  writeZip, zipBytes, zipEqual,
 } from './test-helpers.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -195,6 +196,47 @@ describe('packages', () => {
       assert.strictEqual(result.name, 'runs');
       assert.deepStrictEqual(await storage.refs.dataflowRunList(testRepo, 'main'), []);
       assert.ok(!existsSync(join(testRepo, 'dataflows', 'main')), 'nothing is filed under the workspace name');
+    });
+
+    it('files an execution a zip carries with its logs written whole and flushed before its status, so an import stopped between them is taken up whole', async () => {
+      // A reader that finds the status reads the whole log. An import stopped
+      // before the status left the logs, which the next writes again rather
+      // than after what the first wrote.
+      const zipPath = join(tempDir, 'ran.zip');
+      await e3.export(e3.package('ran', '1.0.0'), zipPath);
+      const [task, inputs, executionId] = ['c'.repeat(64), 'd'.repeat(64), '0190a0b0-7777-7000-8000-000000000000'];
+      const status = variant('cancelled', { executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false });
+      const at = `executions/${task}/${inputs}/${executionId}`;
+      const crafted = await writeZip(join(tempDir, 'with-logs.zip'), [
+        ...await readZipEntries(zipPath),
+        [`${at}/status.beast2`, Buffer.from(encodeBeast2For(ExecutionStatusType)(status))],
+        [`${at}/stdout.txt`, Buffer.from('one\ntwo\n')],
+        [`${at}/stderr.txt`, Buffer.from('e3: cancelled\n')],
+      ]);
+      // The store fails the status's first write; its logs hold appends until
+      // they are flushed, as a store that gathers appends into fewer writes does.
+      const write = storage.refs.executionWrite.bind(storage.refs);
+      let failing = true;
+      storage.refs.executionWrite = (repo, taskHash, inputsHash, id, written) => {
+        if (!failing) return write(repo, taskHash, inputsHash, id, written);
+        failing = false;
+        return Promise.reject(new Error('the store failed the write'));
+      };
+      const logs = new HeldLogStore(storage.logs);
+      const ends = logsAtEachEnd(storage.refs, logs);
+      const importing = withLogStore(storage, logs);
+
+      await assert.rejects(packageImport(importing, testRepo, crafted), /the store failed the write/);
+      assert.strictEqual(await storage.refs.executionGet(testRepo, task, inputs, executionId), null, 'the stopped import wrote no status');
+      await packageImport(importing, testRepo, crafted);
+
+      const whole = { stdout: 'one\ntwo\n', stderr: 'e3: cancelled\n' };
+      assert.deepStrictEqual(ends.map(({ status: written, stdout, stderr }) => ({ status: written, stdout, stderr })),
+        [{ status: 'cancelled', ...whole }, { status: 'cancelled', ...whole }], 'each write of the status found the whole log readable');
+      for (const stream of ['stdout', 'stderr'] as const) {
+        assert.strictEqual((await storage.logs.read(testRepo, task, inputs, executionId, stream)).data, whole[stream], `the ${stream} log is written once`);
+      }
+      assert.deepStrictEqual(await storage.refs.executionGet(testRepo, task, inputs, executionId), status);
     });
 
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
@@ -366,6 +408,7 @@ describe('packages', () => {
           await assert.rejects(view.objects.write(testRepo, new Uint8Array([1])), /^Error: a view of a package zip writes nothing, and was asked to write an object$/);
           await assert.rejects(view.refs.packageWrite(testRepo, 'orders', '1.0.0', expected.packageHash), /was asked to write a package ref$/);
           await assert.rejects(view.datasets.write(testRepo, 'main', 'records/orders', variant('unassigned', null)), /was asked to write a dataset ref$/);
+          await assert.rejects(view.logs.flush(testRepo, 'c'.repeat(64), 'd'.repeat(64), '0190a0b0-8888-7000-8000-000000000000'), /was asked to flush a log$/);
         } finally {
           zip.close();
         }

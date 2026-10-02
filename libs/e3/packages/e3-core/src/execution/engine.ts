@@ -49,7 +49,9 @@
  * While the units run, the task's own execution is recorded `running`, under
  * the owner its driver passes, whose identity its record carries, and its log
  * names each unit's execution. An aborted run records it `cancelled`, and a
- * failure is the lowest-index failing unit's.
+ * failure is the lowest-index failing unit's. However it ends, its end is
+ * recorded once its log is written and flushed, so a reader that finds the
+ * task ended reads its whole log.
  *
  * The engine runs wherever its driver does: it reaches storage through the
  * storage interfaces and runs units through the executor its driver gives, and
@@ -536,12 +538,14 @@ export class SplitTask {
 
   /**
    * Leaves the task mid-stage, for a run that yields: its execution is
-   * recorded `interrupted`, and its plan stays rooted for the run that takes
-   * the stage up again. A task that has ended is left as it ended.
+   * recorded `interrupted`, once its log is written and flushed, and its plan
+   * stays rooted for the run that takes the stage up again. A task that has
+   * ended is left as it ended.
    */
   async suspend(): Promise<void> {
     if (!this.running) return;
     await this.logWrites;
+    await this.flushLog();
     await this.storage.refs.executionWrite(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, variant('interrupted', {
       executionId: this.ids.executionId,
       inputHashes: this.inputHashes,
@@ -562,6 +566,17 @@ export class SplitTask {
         console.warn(`Failed to append the task's log: ${messageOf(err)}`);
       }
     });
+  }
+
+  /** Makes the task's log whole for every reader before a record of its end
+   *  (`LogStore.flush`); a log that cannot be flushed is warned of, and the
+   *  record is written all the same. */
+  private async flushLog(): Promise<void> {
+    try {
+      await this.storage.logs.flush(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId);
+    } catch (err) {
+      console.warn(`Failed to flush the task's log: ${messageOf(err)}`);
+    }
   }
 
   /** Starts a stage: writes its plan, naming the plan of the stage before it
@@ -613,10 +628,11 @@ export class SplitTask {
     return this.successResult(outputHash);
   }
 
-  /** Records the task's outcome, once its log is written, and unroots its
-   *  plan. */
+  /** Records the task's outcome, once its log is written and flushed, and
+   *  unroots its plan. */
   private async finish(status: ExecutionStatus): Promise<void> {
     await this.logWrites;
+    await this.flushLog();
     this.running = false;
     await this.storage.refs.executionWrite(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, status);
     if (this.rooted) {

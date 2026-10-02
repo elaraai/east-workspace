@@ -992,6 +992,12 @@ class WebLogStore implements LogStore {
     };
   }
 
+  /** Holds nothing to flush: an append is a record of the transaction that
+   *  wrote it, readable by every tab once the append resolves. */
+  flush(): Promise<void> {
+    return Promise.resolve();
+  }
+
   async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     checkExecution(taskHash, inputsHash, executionId);
     await writeRecords(this.records, (tx) => tx.deletePrefix([...recordKeys.kind(repo, 'log'), taskHash, inputsHash, executionId]));

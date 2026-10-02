@@ -696,6 +696,11 @@ class InMemoryLogStore implements LogStore, InMemoryRepositoryRecords {
     };
   }
 
+  /** Holds nothing to flush: an append is in the log once it resolves. */
+  flush(): Promise<void> {
+    return Promise.resolve();
+  }
+
   async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     for (const stream of ['stdout', 'stderr']) {
       this.logs.delete(this.makeLogKey(repo, taskHash, inputsHash, executionId, stream));
