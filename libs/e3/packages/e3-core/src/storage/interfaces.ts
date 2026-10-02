@@ -713,11 +713,18 @@ export interface LockService {
    * (process ID for local, request ID for Lambda, etc.) and writes the lock
    * state.
    *
+   * Null is the answer for a holder, and for nothing else: a caller reports a
+   * null as the resource held (a gc, a deploy, a running dataflow), so any
+   * other failure to take the lock is thrown as itself.
+   *
    * @param repo - Repository identifier
    * @param resource - Resource identifier (e.g., "workspaces/production")
    * @param operation - What operation is acquiring the lock
    * @param options - Lock options (`mode` defaults to `exclusive`)
-   * @returns Lock handle, or null if the lock couldn't be acquired
+   * @returns Lock handle, or null if a current holder's mode excludes it
+   * @throws {InvalidNameError} When the resource is a name the store cannot key
+   *   by
+   * @throws When the store fails to take the lock for any other reason
    */
   acquire(
     repo: string,
