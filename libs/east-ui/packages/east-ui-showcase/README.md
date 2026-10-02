@@ -2,14 +2,12 @@
 
 Internal — not published.
 
-Development and snapshot app for `@elaraai/east-ui` types and
-`@elaraai/east-ui-components` React renderers. Hosts the runtime demo and runs
-the snapshot pipeline that turns every east-ui example into standalone HTML and
-PNG for visual verification.
-
-The `dist-examples/` and `dist-design/` directories (gitignored) are where the
-snapshots land — they exist specifically so an agent can "see" the rendered
-output.
+Development app for `@elaraai/east-ui` types and `@elaraai/east-ui-components`
+React renderers. Hosts the runtime demo and the responsive suite
+(`tests/responsive/`, `make test-responsive` from `libs/east-ui/`), which
+measures every example's computed styles against the East Design System — in
+both themes, with no screenshots. The design system itself is the read-only
+download in `libs/east-ui/app_design_system/`.
 
 ## Setup
 
@@ -24,7 +22,8 @@ Run from `libs/east-ui/`:
 ```bash
 make east-ui-examples-html-all                 # Snapshot every east-ui example to standalone HTML
 make east-ui-examples-html-<pathKey>           # Snapshot one example (e.g. disclosure/tabs)
-make design                                    # Serve app_design_system/ on :5174 for visual review
+make test-responsive                           # The responsive suite over the built showcase
+make design                                    # Serve the design system's download (app_design_system/) on :5174
 ```
 
 Run from this package directory:

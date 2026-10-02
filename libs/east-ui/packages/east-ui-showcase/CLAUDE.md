@@ -30,11 +30,12 @@ resolve to source together — a split resolves East's reference-based
 identities into two instances and `Data.bind` stops matching its
 registered platform implementation.
 
-Per `[Always visually verify]` memory: after every east-ui example or
-component change, rebuild + re-snapshot + Read the PNG. The
-`dist-examples/` and `dist-design/` directories (gitignored) are
-where the snapshots land — they exist specifically so an agent can
-"see" the rendered output.
+Visual verification is the responsive suite (`tests/responsive/`): after
+an east-ui example or component change, rebuild and run it, and land a
+visual change with a visual invariant there — computed styles measured in
+the page, in both themes. Never read a screenshot. The design system it
+measures against is the read-only download in `../../app_design_system/`
+(see [`../../CLAUDE.md`](../../CLAUDE.md) › Canonical design source).
 
 ## Key scripts
 
@@ -76,7 +77,7 @@ where the snapshots land — they exist specifically so an agent can
 |---|---|
 | `make east-ui-examples-html-all` | Snapshots every example to standalone HTML. |
 | `make east-ui-examples-html-<pathKey>` | Snapshots one example (e.g. `disclosure/tabs`). |
-| `make design` | Serves `app_design_system/` (incl. `components/rendered/`) on :5174 for visual review. |
+| `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
 | `make test-responsive` | The Playwright suite in `tests/responsive/` (DOM specs over every catalog page, the shell, the code reference, the Plan's geometry, the Sheet's ring under the keyboard, the load, and the e3 the page runs, at desktop + mobile) against the built showcase, exactly as CI runs it; `SHARD=n/8` runs one CI shard. Each spec waits for the page to be at rest (`settle.ts`: no e3 example still starting, the layout still), never for a fixed time, and nothing retries. |
 
 ## See also

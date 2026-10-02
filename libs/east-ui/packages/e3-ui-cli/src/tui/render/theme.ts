@@ -9,11 +9,16 @@
  *
  * `process.stdout.getColorDepth()` selects truecolor / 256 / 16 colours;
  * `NO_COLOR` forces monochrome (bold / dim / inverse only) and
- * `FORCE_COLOR` overrides detection, the way chalk reads them. The tokens
- * follow `libs/east-ui/app_design_system`: ink is the default foreground,
- * ink-4 is dim, brand (`#488e97`) marks the selection bar and the active
- * tab, pos / neg / warn / info colour status dots — "status is a dot + word,
- * never a tinted badge".
+ * `FORCE_COLOR` overrides detection, the way chalk reads them. The roles
+ * follow the East Design System (claude.ai/design, downloaded read-only into
+ * `libs/east-ui/app_design_system/`; its colours are `tokens/colors.css`):
+ * ink is the default foreground, ink-4 is dim, brand (`--brand`, `#488e97`)
+ * marks the selection bar and the active tab, pos / neg / warn / info colour
+ * status dots — "status is a dot + word, never a tinted badge". The values
+ * are tuned for a terminal's own background and are not held to the design
+ * system's: `info` here is still the teal it once shared with the brand
+ * (the design system's `--info` is its own blue, `#416b9f`), and `warn` the
+ * earlier `#b8862d` (now `#b6842b`).
  *
  * @packageDocumentation
  */

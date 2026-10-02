@@ -12,7 +12,7 @@ UI) plus a VS Code extension.
 |---|---|
 | `packages/east-ui` | **IR layer.** Typed component definitions returning East data structures (`UIComponentType` variant). Backs the `east:east-ui` plugin skill. |
 | `packages/east-ui-components` | **Renderer layer.** React + Chakra UI v3 components that consume east-ui values. |
-| `packages/east-ui-showcase` | **Showcase + snapshot pipeline.** Demos every component and produces PNG snapshots via `make east-ui-examples-html-*` for visual verification. |
+| `packages/east-ui-showcase` | **Showcase + responsive suite.** Demos every component; its Playwright suite (`make test-responsive`) measures them. `make east-ui-examples-html-*` snapshots examples to standalone HTML. |
 | `packages/east-ui-extension` | VS Code extension that previews east-ui values in a webview. |
 
 ### e3-specific UI (per `[e3-ui design]` memory)
@@ -31,7 +31,7 @@ design / snapshot workflow:
 
 | Target | What it does |
 |---|---|
-| `make design` | Serves the canonical design system (`app_design_system/`, incl. `components/rendered/`) on :5174. |
+| `make design` | Serves the design system's download (`app_design_system/`, read-only) on :5174. |
 | `make east-ui-examples-html-all` | Snapshots every east-ui example to standalone HTML. |
 | `make east-ui-examples-html-<key>` | Snapshots a single example (e.g. `east-ui-examples-html-disclosure/tabs`). |
 | `make test-group GROUP=components\|ir\|rest` | One of the three test groups CI runs side by side: `components` (east-ui-components), `ir` (east-ui and e3-ui) and `rest` (every package the other two don't name). Together they run every package's tests once, as `make test` does. |
@@ -43,29 +43,32 @@ See [`../../docs/conventions/MAKEFILE_TARGETS.md`](../../docs/conventions/MAKEFI
 
 ## Canonical design source
 
-`app_design_system/` (this lib) holds the canonical **East Application
-Design System** — semantic tokens (`tokens/`, `base/semantic.css`, entry
-`styles.css`), the 8 core atoms (`components/core/`), the hard-constraint
-guidelines (`guidelines/`), and the rendered component captures
-(`components/rendered/`, generated ground truth for component appearance). It is synced to claude.ai/design via the `/design-sync` skill
-(see `app_design_system/.design-sync/`). The renderer packages **do not**
-maintain their own copy of design tokens — they use Chakra semantic tokens
-(`bg.primary`, `text.muted`, …) which the host app's theme maps back to
-these values.
+The design system lives in claude.ai/design, in the project **"East
+Design System"**: its tokens (`tokens/colors.css`, `tokens/typography.css`,
+`tokens/layout.css`), base element styles (`_ds_bundle.css`), guidelines
+(`guidelines/guidelines/`) and spec cards (`guidelines/cards/`). Every change
+to it happens there.
 
-`app_design_system/components/rendered/` holds the RENDERED example
-captures (generated, gitignored): one standalone HTML per `*.examples.ts`
-file, produced by the real renderer + theme via
-`make east-ui-examples-html-all` and staged/deduped by
-`scripts/design-example-cards.mjs` (first-line `@dsCard` markers,
-"Components · <Category>" picker groups). They are the ground truth for
-component appearance and SHIP with the design-sync. The hand-drawn pattern
-specs, reference pages, and proposals were retired to git history
-(2026-07-29).
+`app_design_system/` (this lib) is a read-only download of it, file for file
+(`.download.json` lists each file's sha256). Never edit it by hand, and
+nothing writes into it. It is refreshed by a full re-download: the user runs
+`/design-sync`, which deletes the folder, downloads the project again and
+commits it.
 
-Per `[Always visually verify]` memory: after every component or example
-change, rebuild + re-snapshot + Read the PNG. That's the whole point of
-`dist-examples`.
+The theme follows the download. `packages/east-ui-components/src/theme/`
+holds one token for each design-system token (the table in
+`semantic-tokens.ts`, `tokens.ts`), and recipes and renderers name those
+tokens (`fg.subtle`, `bg.canvas`, `border.strong`, `status.pos`, …), never a
+raw value. The token guard
+(`packages/east-ui-components/src/theme/design-system.test.ts`, run by
+`make test`) reads `app_design_system/tokens/*.css` and fails, naming the
+token, when a theme value drifts from the design system's in either colour
+mode — so after a re-download it names exactly what the theme must follow.
+
+Visual verification measures computed styles in the showcase's responsive
+suite (`make test-responsive`, `packages/east-ui-showcase/tests/responsive/`):
+a visual change lands with a visual invariant there. Never read a
+screenshot.
 
 ## Plugin skills (DO NOT EDIT casually)
 

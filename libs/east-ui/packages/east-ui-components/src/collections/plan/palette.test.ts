@@ -5,7 +5,7 @@
 
 /**
  * The Plan paints with the design system's semantic tokens only (#949,
- * `app_design_system/guidelines/component-rules.md` §1). A raw palette step
+ * `app_design_system/guidelines/guidelines/component-rules.md` §1). A raw palette step
  * (`brand.600`, `gray.400`) or a hex colour ignores the theme: it reads the
  * same in dark mode, and it drifts from the roles every other surface paints
  * with. This reads the Plan's renderer and recipes — and the shared brush
