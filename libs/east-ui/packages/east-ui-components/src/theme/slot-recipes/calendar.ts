@@ -119,11 +119,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
                 boxShadow: "inset 0 0 0 2px var(--cal-ring)",
                 filter: "brightness(1.05)",
             },
-            /* selected — the ink outline, lifted with a soft shadow. */
+            /* selected — the ink outline; no shadow (the design system
+             * shadows nothing but the focus ring). */
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",
-                boxShadow: "0 2px 10px rgba(17,27,34,0.22)",
                 zIndex: "2",
             },
             /* non-interactive densities keep the default cursor. */

@@ -299,19 +299,25 @@ export const semanticTokens = defineSemanticTokens({
         },
     },
 
-    /* ─── Shadows ─────────────────────────────────────────────
+    /* ─── Shadows ─────────────────────────────────────────────────────────
      *
-     * Chakra defines its elevation scale as SEMANTIC tokens, which outrank
-     * the plain `tokens.shadows` definitions — without these overrides every
-     * `boxShadow: "md"` etc. resolves to Chakra's default shadows, not the
-     * spec's cool-ink ones in `tokens.ts`. Must mirror that scale here. */
+     * The focus ring is the one shadow the design system allows: outside on
+     * controls (`focus`), inset on cells and rows (`focusInset`) — 3px of
+     * `--brand` at 35% in light, of the lifted `--brand-d` at 80% in dark
+     * (`tokens/layout.css`). Nothing else is ever shadowed: frames, overlays,
+     * dialogs and the Commit bar separate by a 1px rule. Chakra's elevation
+     * scale is therefore `none` in both themes, so its default recipes and any
+     * `boxShadow="md"` cast nothing. */
     shadows: {
-        /* Dark variants deepen to true black at higher opacity — the light
-         * cool-ink shadows read as mud on dark surfaces (#362). */
-        xs: { value: { base: "0 1px 2px rgba(17, 27, 34, 0.05)", _dark: "0 1px 2px rgba(0, 0, 0, 0.40)" } },
-        sm: { value: { base: "0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08)", _dark: "0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.50)" } },
-        md: { value: { base: "0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06)", _dark: "0 4px 6px -1px rgba(0, 0, 0, 0.50), 0 2px 4px -2px rgba(0, 0, 0, 0.45)" } },
-        lg: { value: { base: "0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08)", _dark: "0 10px 15px -3px rgba(0, 0, 0, 0.55), 0 4px 6px -4px rgba(0, 0, 0, 0.50)" } },
-        xl: { value: { base: "0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10)", _dark: "0 20px 25px -5px rgba(0, 0, 0, 0.60), 0 8px 10px -6px rgba(0, 0, 0, 0.55)" } },
+        focus:      modes("0 0 0 3px rgba(72, 142, 151, 0.35)", "0 0 0 3px color-mix(in oklch, {colors.brand.solid} 80%, transparent)"),
+        focusInset: modes("inset 0 0 0 3px rgba(72, 142, 151, 0.35)", "inset 0 0 0 3px color-mix(in oklch, {colors.brand.solid} 80%, transparent)"),
+
+        xs:    modes("none", "none"),
+        sm:    modes("none", "none"),
+        md:    modes("none", "none"),
+        lg:    modes("none", "none"),
+        xl:    modes("none", "none"),
+        "2xl": modes("none", "none"),
+        inner: modes("none", "none"),
     },
 });

@@ -19,8 +19,11 @@
  *    inherits from its parent. The text classes are text styles
  *    (`text-styles.ts`) instead.
  *  - Honours `prefers-reduced-motion: reduce`.
- *  - Universal focus-visible — any element with `data-focus-visible`
- *    or focused via keyboard gets the canonical 3 px brand-tinted ring.
+ *  - Universal focus-visible — the browser's outline gives way to the one
+ *    focus ring, `--shadow-focus` (3px of `--brand` at 35%; of the lifted
+ *    `--brand-d` at 80% in dark). A recipe's own `_focusVisible` (an inset
+ *    ring on a cell, `none` inside a field's chrome) still wins: recipes
+ *    sit in a later cascade layer than these global styles.
  *
  * Brand fonts (DM Sans, Inter Tight, JetBrains Mono) are self-hosted via
  * the `@fontsource-variable/*` stylesheets that an app registers with one
@@ -344,12 +347,10 @@ export const globalCss = defineGlobalStyles({
      * See `reducedMotionRules` above for why this is extracted. */
     "@media (prefers-reduced-motion: reduce)": reducedMotionRules,
 
-    /* Universal focus-visible: strip the browser default outline. Components
-     * opt in to the brand-tinted focus ring via their own recipe
-     * `_focusVisible` declarations (Button, IconButton). Inputs (Input,
-     * Select, Combobox, Slider, Date / Time inputs, SegmentGroup) signal
-     * focus via border-colour change only — no shadow ring. */
+    /* Universal focus-visible: no browser outline — the focus ring, the one
+     * shadow the design system allows (tokens/layout.css › --shadow-focus). */
     ":focus-visible": {
         outline: "none",
+        boxShadow: "focus",
     },
 });

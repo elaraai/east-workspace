@@ -202,7 +202,6 @@ export const rosterSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
-            boxShadow: "md",
             paddingX: "{spacing.2}",
             paddingY: "2px",
         },

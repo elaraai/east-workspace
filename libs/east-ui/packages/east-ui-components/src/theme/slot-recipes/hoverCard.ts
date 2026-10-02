@@ -18,7 +18,6 @@ export const hoverCardSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.md}",
             borderWidth: "1px",
             borderColor: "border.strong",
-            boxShadow: "md",
             padding: "14px 16px",
             /* Same chrome and sizing rule as Popover — fit to content
              * within the spec band, not Chakra's fixed default width. */

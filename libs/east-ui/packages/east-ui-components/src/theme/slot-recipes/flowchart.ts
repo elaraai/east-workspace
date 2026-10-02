@@ -9,7 +9,7 @@
  * segment + freshness chip right), body canvas (lane bands, node cards,
  * H/V links), 38px derived-count footer. Node cards are 116×40 r6 with a
  * mono 12/700 code line and a 10.5px muted label; the hover-card SHELL is
- * paper / rule-strong / shadow-md / r6 (its body is dev-defined UI).
+ * paper / rule-strong / r6, with no shadow (its body is dev-defined UI).
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
@@ -29,35 +29,23 @@ export const flowchartSlotRecipe = defineSlotRecipe({
     ],
     base: {
         /* Bare like Table / Planner — identity chrome is host composition.
-         * The --fc-* variables mirror the design spec's literal DS tokens
-         * (--ink-2 / --ink-3 / --ink-4 / --paper / --paper-2 / --rule-strong /
-         * --info / --brand / --brand-d / --brand-dd / --neg), with the spec's
-         * dark-mode values — SVG geometry consumes them directly. */
+         * The --fc-* variables name the design system's colours (--ink-2 /
+         * --ink-3 / --ink-4 / --paper / --paper-2 / --rule-strong / --info /
+         * --brand / --brand-d / --brand-dd / --neg) through the theme's one
+         * token for each, so both modes follow it — SVG geometry consumes
+         * them directly. */
         root: {
-            "--fc-ink":         "{colors.brand.700}",
-            "--fc-ink3":        "{colors.gray.600}",
-            "--fc-ink4":        "{colors.gray.500}",
-            "--fc-paper":       "{colors.white}",
-            "--fc-lane":        "{colors.gray.50}",
-            "--fc-rule-strong": "{colors.gray.300}",
-            "--fc-info":        "{colors.brand.600}",
-            "--fc-brand":       "{colors.brand.500}",
-            "--fc-brand-d":     "{colors.brand.600}",
-            "--fc-brand-dd":    "{colors.brand.700}",
-            "--fc-neg":         "#b85a4a",
-            _dark: {
-                "--fc-ink":         "{colors.gray.300}",
-                "--fc-ink3":        "{colors.gray.400}",
-                "--fc-ink4":        "{colors.gray.500}",
-                "--fc-paper":       "{colors.gray.900}",
-                "--fc-lane":        "{colors.gray.800}",
-                "--fc-rule-strong": "{colors.gray.600}",
-                "--fc-info":        "#6fb3bb",
-                "--fc-brand":       "{colors.brand.500}",
-                "--fc-brand-d":     "#5ba9b3",
-                "--fc-brand-dd":    "#79c4cd",
-                "--fc-neg":         "#d98a7c",
-            },
+            "--fc-ink":         "{colors.fg.strong}",
+            "--fc-ink3":        "{colors.fg.muted}",
+            "--fc-ink4":        "{colors.fg.subtle}",
+            "--fc-paper":       "{colors.bg.surface}",
+            "--fc-lane":        "{colors.bg.canvas}",
+            "--fc-rule-strong": "{colors.border.strong}",
+            "--fc-info":        "{colors.status.info}",
+            "--fc-brand":       "{colors.brandMark}",
+            "--fc-brand-d":     "{colors.brand.solid}",
+            "--fc-brand-dd":    "{colors.brandPressed}",
+            "--fc-neg":         "{colors.status.neg}",
             background: "bg.surface",
             display: "flex",
             flexDirection: "column",
@@ -297,7 +285,6 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             borderColor: "brand.600",
             borderRadius: "6px",
             padding: "4px 10px",
-            boxShadow: "md",
         },
 
         /* ── legend ───────────────────────────────────────────────────── */
@@ -364,10 +351,10 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         footerNeg: { color: "status.neg", fontWeight: "600" },
         footerSplit: { marginLeft: "auto", color: "fg.subtle" },
 
-        /* ── hover card — paper · rule-strong · shadow-md · r6 ────────── */
-        /* Hover-card SHELL — paper · rule-strong · shadow-md · r6 per the
-         * spec; the BODY is dev-defined UI (stateHover / linkHover /
-         * triggerHover builders). */
+        /* ── hover card — paper · rule-strong · r6, no shadow ─────────── */
+        /* Hover-card SHELL — paper · rule-strong · r6 (the design system
+         * shadows nothing but the focus ring); the BODY is dev-defined UI
+         * (stateHover / linkHover / triggerHover builders). */
         hoverCard: {
             position: "absolute",
             zIndex: 10,
@@ -377,7 +364,6 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.strong",
             borderRadius: "6px",
-            boxShadow: "md",
             padding: "10px 12px",
             pointerEvents: "auto",
         },

@@ -476,7 +476,6 @@ export const librarySlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "brand.solid",
             borderRadius: "{radii.md}",
-            boxShadow: "md",
             paddingX: "{spacing.3}",
             paddingY: "{spacing.1}",
         },

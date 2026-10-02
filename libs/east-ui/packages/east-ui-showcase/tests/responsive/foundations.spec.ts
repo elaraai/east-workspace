@@ -96,6 +96,17 @@ const TYPE = cssRules(TYPOGRAPHY_CSS).get(":root")!;
 const LAYOUT = cssRules(join(DS_DIR, "tokens", "layout.css")).get(":root")!;
 const BUNDLE = cssRules(BUNDLE_CSS);
 
+/** The download's layout tokens in dark, where they differ (the focus ring). */
+const LAYOUT_DARK = cssRules(join(DS_DIR, "tokens", "layout.css")).get(".dark") ?? new Map<string, string>();
+
+/** A design-system value in a mode, its `var()`s resolved. */
+function dsIn(value: string, mode: Mode): string {
+    return value.replace(/var\(\s*(--[\w-]+)\s*\)/gu, (_m, ref: string) => {
+        const v = TYPE.get(ref) ?? (mode === "dark" ? LAYOUT_DARK.get(ref) : undefined) ?? LAYOUT.get(ref);
+        return v !== undefined ? dsIn(v, mode) : dsColour(ref, mode);
+    });
+}
+
 /** A base-style declaration with its `var()`s resolved — type and layout tokens, then (light) colours. */
 function dsDeclared(value: string): string {
     return value.replace(/var\(\s*(--[\w-]+)\s*\)/gu, (_m, ref: string) => {
@@ -423,5 +434,104 @@ test.describe("Foundations — type", () => {
         const figures = await page.evaluate(() => getComputedStyle(document.body).fontFeatureSettings);
         check("page figures", /"tnum"/u.test(figures), figures);
         expect(bad).toEqual([]);
+    });
+});
+
+/**
+ * Every element on the page that casts a shadow — a box-shadow layer that is
+ * not inset and is offset or blurred. A ring (`0 0 0 Npx`, spread only) and
+ * an inset line are rules, not shadows, and pass.
+ */
+function castShadows(page: Page): Promise<string[]> {
+    return page.evaluate(() => {
+        /** A computed box-shadow's layers — commas inside a colour function don't split. */
+        const layers = (value: string): string[] => {
+            const out: string[] = [];
+            let depth = 0;
+            let start = 0;
+            for (let i = 0; i < value.length; i++) {
+                if (value[i] === "(") depth++;
+                else if (value[i] === ")") depth--;
+                else if (value[i] === "," && depth === 0) { out.push(value.slice(start, i)); start = i + 1; }
+            }
+            out.push(value.slice(start));
+            return out.map((l) => l.trim());
+        };
+        const bad: string[] = [];
+        for (const el of document.querySelectorAll("*")) {
+            const value = getComputedStyle(el).boxShadow;
+            if (value === "none") continue;
+            for (const layer of layers(value)) {
+                if (/\binset\b/u.test(layer)) continue;
+                const lengths = layer.replace(/[a-z-]+\([^)]*\)/giu, "").match(/-?[\d.]+px/gu) ?? [];
+                const [x = 0, y = 0, blur = 0] = lengths.map((v) => Number.parseFloat(v));
+                if (x !== 0 || y !== 0 || blur !== 0) {
+                    const what = el.getAttribute("data-part") ?? el.getAttribute("data-slot") ?? el.className.toString().split(" ")[0];
+                    bad.push(`<${el.tagName.toLowerCase()} ${what}>: ${layer}`);
+                }
+            }
+        }
+        return [...new Set(bad)];
+    });
+}
+
+test.describe("Foundations — radii, shadows and motion", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read once, at the desktop width");
+
+    for (const mode of MODES) {
+        test(`S1 (${mode}): nothing casts a shadow — frames, cards, chips and the overlays separate by rules (tokens/layout.css)`, async ({ page }) => {
+            const bad: string[] = [];
+            for (const hash of ["container/card/cardBasic", "collections/deck/deckBasic", "collections/library/libraryLarge", "collections/schematic/schematicSlice", "collections/flowchart/flowchartPlant", "collections/sheet/sheetLens"]) {
+                await open(page, mode, hash);
+                bad.push(...(await castShadows(page)).map((b) => `${hash} ${b}`));
+            }
+            // The overlays, open: a popover and a hover card.
+            for (const [hash, button] of [["overlays/popover/popoverBasic", /^Open Popover$/u], ["overlays/hover-card/hoverCardOpenFromState", /^Pin the preview$/u]] as const) {
+                await open(page, mode, hash);
+                const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+                await entry.getByRole("button", { name: button }).first().click();
+                await expect(page.locator('[data-part="content"][data-state="open"]').first()).toBeVisible();
+                await settled(page);
+                bad.push(...(await castShadows(page)).map((b) => `${hash} (open) ${b}`));
+            }
+            expect(bad).toEqual([]);
+        });
+
+        test(`S2 (${mode}): the keyboard's focus wears the one focus ring, --shadow-focus`, async ({ page }) => {
+            await open(page, mode);
+            await installReader(page);
+            await page.keyboard.press("Tab");
+            const ring = await page.evaluate(() => {
+                const el = document.activeElement;
+                return el === null || el === document.body ? null : getComputedStyle(el).boxShadow;
+            });
+            expect(ring, "a focused element").not.toBeNull();
+            // The computed ring leads with its colour; the declared one ends with it.
+            const parts = (v: string) => {
+                const colour = /[a-z-]+\([^()]*\)/iu.exec(v)?.[0] ?? "";
+                const lengths = v.replace(colour, "").trim().split(/\s+/u).filter((t) => t !== "").map((t) => Number.parseFloat(t));
+                return { colour, lengths };
+            };
+            const got = parts(ring!);
+            const want = parts(dsIn((mode === "dark" ? LAYOUT_DARK.get("--shadow-focus") : undefined) ?? LAYOUT.get("--shadow-focus")!, mode));
+            expect(got.lengths, `offset, blur and spread of ${ring}`).toEqual(want.lengths);
+            const gotColour = await painted(page, got.colour);
+            const wantColour = await painted(page, want.colour);
+            expect(gotColour.every((v, i) => Math.abs(v - wantColour[i]!) <= 2), `the ring's ink: rgba(${gotColour.join(", ")}), want ${want.colour}`).toBe(true);
+        });
+    }
+
+    test("M1: motion is the design system's — the sidebar toggles over --dur-base on --ease-in-out, and a viewer who asks for less motion gets none", async ({ page }) => {
+        await open(page, "light");
+        const read = () => page.evaluate(() => {
+            const s = getComputedStyle(document.querySelector("aside")!);
+            return { duration: s.transitionDuration, easing: s.transitionTimingFunction };
+        });
+        const moving = await read();
+        expect(Number.parseFloat(moving.duration) * 1000).toBe(Number.parseFloat(LAYOUT.get("--dur-base")!));
+        expect(moving.easing).toBe(LAYOUT.get("--ease-in-out")!.replace(/\s+/gu, " ").replace(/,\s*/gu, ", "));
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const still = await read();
+        expect(Number.parseFloat(still.duration), `reduced: ${still.duration}`).toBeLessThan(0.001);
     });
 });

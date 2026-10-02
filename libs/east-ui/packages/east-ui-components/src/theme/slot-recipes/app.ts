@@ -44,8 +44,10 @@ export const appSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.strong",
             transitionProperty: "width",
+            /* A state toggle — `--dur-base` on `--ease-in-out` (app-layout ›
+             * Sidebar). */
             transitionDuration: "{durations.normal}",
-            transitionTimingFunction: "{easings.smooth}",
+            transitionTimingFunction: "{easings.inOut}",
         },
         // Logo region — bsys "nav.logo": fixed-height identity strip, no bottom
         // rule (a rule-free gap separates it from the first item).

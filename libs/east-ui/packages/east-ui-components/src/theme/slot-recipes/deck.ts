@@ -403,7 +403,6 @@ export const deckSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             borderRadius: "{radii.md}",
             overflow: "hidden",
-            boxShadow: "{shadows.lg}",
             outline: "none",
             "&[data-mode=hover]": { pointerEvents: "none" },
         },

@@ -43,7 +43,6 @@ export const switchSlotRecipe = defineSlotRecipe({
         thumb: {
             background: "bg.surface",
             borderRadius: "{radii.full}",
-            boxShadow: "sm",
             scale: "1",
             transitionProperty: "transform",
             transitionDuration: "{durations.fast}",

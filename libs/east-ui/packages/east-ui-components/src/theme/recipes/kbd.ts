@@ -53,12 +53,13 @@ export const kbdRecipe = defineRecipe({
                 borderWidth: "0",
                 color: "fg",
             },
+            /* Chakra's name for the key with a drop edge — drawn flat: the
+             * design system casts no shadow but the focus ring. */
             raised: {
                 background: "bg.subtle",
                 borderWidth: "1px",
                 borderColor: "border.strong",
                 color: "fg",
-                boxShadow: "0 2px 0 {colors.border.strong}",
             },
         },
         // Density cascade — a key cap is a micro-label like Badge, one tier

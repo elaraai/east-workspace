@@ -7,7 +7,7 @@
  * Combobox slot recipe — typed-input search with dropdown listbox.
  *
  * Trigger inherits the input shape (4 px radius, 1 px border.subtle).
- * Content listbox is a `frame.flat` 6 px popup with md shadow.
+ * Content listbox is a `frame.flat` 6 px popup, bordered, with no shadow.
  *
  * @packageDocumentation
  */
@@ -83,7 +83,6 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.md}",
             borderWidth: "1px",
             borderColor: "border.subtle",
-            boxShadow: "md",
             paddingY: "{spacing.1}",
             maxHeight: "320px",
             overflowY: "auto",

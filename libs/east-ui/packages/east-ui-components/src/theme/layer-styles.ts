@@ -28,7 +28,7 @@ export const layerStyles = defineLayerStyles({
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.strong",
-            borderRadius: "10px",
+            borderRadius: "{radii.lg}",
             overflow: "hidden",
         },
     },
@@ -52,15 +52,14 @@ export const layerStyles = defineLayerStyles({
             overflow: "hidden",
         },
     },
-    /** Marketing-tier frame — 12 px radius + soft shadow (one of the only
-     * surfaces in the spec that carries elevation at rest). */
+    /** Marketing-tier frame — the Frame's 10 px radius on the hairline rule.
+     *  No shadow: the design system shadows nothing but the focus ring. */
     "frame.lg": {
         value: {
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.subtle",
-            borderRadius: "12px",
-            boxShadow: "sm",
+            borderRadius: "{radii.lg}",
             overflow: "hidden",
         },
     },
@@ -87,6 +86,8 @@ export const layerStyles = defineLayerStyles({
             padding: "4",
         },
     },
+    /** Chakra's name for a lifted card — drawn flat: structure comes from
+     *  1px rules, never a shadow. */
     "card.elevated": {
         value: {
             background: "bg.surface",
@@ -94,7 +95,6 @@ export const layerStyles = defineLayerStyles({
             borderColor: "border.subtle",
             borderRadius: "{radii.md}",
             padding: "4",
-            boxShadow: "md",
         },
     },
 
