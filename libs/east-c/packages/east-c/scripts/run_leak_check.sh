@@ -47,6 +47,8 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # conformance cases (#924), the type matrix and the query corpus (#987).
 shopt -s nullglob
 SUITES=("$IR_DIR"/*.json "$IR_DIR"/query-*/*.json)
+# An empty export tests nothing: refuse it, as run_compliance.sh does, so the gate is never green over no IR.
+[ "${#SUITES[@]}" -gt 0 ] || { echo "Error: no IR .json files in $IR_DIR (run: make test-export)"; exit 1; }
 
 # A suite's name: its path under the IR directory, so two directories' suites never share one.
 suite_name() {

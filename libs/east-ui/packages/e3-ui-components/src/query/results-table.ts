@@ -20,7 +20,7 @@
 import {
     BlobType, BooleanType, NullType, SortedMap, StringType,
     compareFor, isPrimitiveType, none, printFor, some, toEastTypeValue, variant,
-    type ArrayType, type EastType, type SetType, type StructType, type ValueTypeOf, type VariantType,
+    type ArrayType, type EastType, type SetType, type StructType, type ValueTypeOf, type VariantType, type VectorType,
     type matrix, type option, type ref,
 } from "@elaraai/east";
 import type { Table } from "@elaraai/east-ui/internal";
@@ -118,8 +118,9 @@ const printBlob = printFor(BlobType);
  *   order; a record is one row.
  * - **An option.** `none` is no rows, with the columns its payload would
  *   give; `some` is its payload's rows.
- * - **Anything else.** An array or a set of other values is one row per
- *   value, and any other value one row, in one `value` column: each row is
+ * - **Anything else.** An array, a set or a vector of other values is one
+ *   row per value — a vector's numbers or booleans, as East reads them out of
+ *   it — and any other value one row, in one `value` column: each row is
  *   `{ value }`.
  *
  * @example
@@ -146,7 +147,7 @@ function columnsOf(type: EastType): ResultColumn[] {
     const payload = optionPayload(type);
     if (payload !== undefined) return columnsOf(payload);
     const t = unwrapRecursive(type);
-    if (t.type === "Array" || t.type === "Set") {
+    if (t.type === "Array" || t.type === "Set" || t.type === "Vector") {
         const element = elementOf(t);
         const record = recordOf(element);
         return record === undefined ? [valueColumn(element)] : fieldColumns(record);
@@ -168,17 +169,32 @@ function rowsOf(type: EastType, value: unknown): readonly unknown[] {
         return option.type === "some" ? rowsOf(payload, option.value) : [];
     }
     const t = unwrapRecursive(type);
-    if (t.type === "Array" || t.type === "Set") {
+    if (t.type === "Array" || t.type === "Set" || t.type === "Vector") {
         // A set iterates in East's order of its keys.
-        const items = t.type === "Array" ? value as readonly unknown[] : [...value as ReadonlySet<unknown>];
+        const items = t.type === "Array" ? value as readonly unknown[]
+            : t.type === "Set" ? [...value as ReadonlySet<unknown>]
+            : vectorItems(t, value);
         return recordOf(elementOf(t)) === undefined ? items.map(item => ({ [VALUE_KEY]: item })) : items;
     }
     return t.type === "Struct" ? [value] : [{ [VALUE_KEY]: value }];
 }
 
-/** An array's or a set's element type. */
-function elementOf(type: ArrayType | SetType): EastType {
-    return (type.type === "Array" ? type.value : type.key) as EastType;
+/** An array's, a set's or a vector's element type. */
+function elementOf(type: ArrayType | SetType | VectorType): EastType {
+    return (type.type === "Array" ? type.value : type.type === "Set" ? type.key : type.element) as EastType;
+}
+
+/**
+ * A vector's elements as East values, as East's own `VectorToArray` reads
+ * them out: a vector of numbers holds them as they are, and a vector of
+ * booleans holds each as a byte, 0 for false.
+ */
+function vectorItems(type: VectorType, value: unknown): readonly unknown[] {
+    switch (unwrapRecursive(type.element as EastType).type) {
+        case "Boolean": return Array.from(value as Uint8ClampedArray, byte => byte !== 0);
+        case "Integer": return Array.from(value as BigInt64Array);
+        default: return Array.from(value as Float64Array);
+    }
 }
 
 /** The record an element is, read through its recursive wrapper; `undefined` when it is no record. */
