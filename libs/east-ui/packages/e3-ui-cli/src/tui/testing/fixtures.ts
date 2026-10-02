@@ -49,6 +49,7 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         dependsOn: i > 0 ? [`task_${i - 1}`] : [],
         // The peak of the execution an up-to-date or failed task's status comes from.
         peakBytes: i % 5 === 0 || i % 5 === 2 ? some(BigInt(64 * 1024 ** 2 + i * 4_096)) : none,
+        stopped: none,
     }));
     const ds = (path: string, status: string, hash: string | null, producedBy: string | null) =>
         ({ path, status: variant(status, null), hash: hash !== null ? some(hash) : none, isTaskOutput: producedBy !== null, producedBy: producedBy !== null ? some(producedBy) : none });

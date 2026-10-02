@@ -13,15 +13,17 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IntegerType, encodeBeast2For, none, variant } from '@elaraai/east';
+import { IntegerType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { E3_RELEASE, WorkspaceRecordType } from '@elaraai/e3-types';
-import { RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
+import { E3_RELEASE, ExecutionStatusType, WorkspaceRecordType, decodeExecutionStatus, type StopReason } from '@elaraai/e3-types';
+import { ExecutionCorruptError, RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageImport } from '../package-files.js';
 import { recordHistory, recordSystemCommit } from '../records.js';
 import { REPOSITORY_UPGRADES, repositoryOpen } from '../repository-record.js';
 import { withRunningWork } from '../running-work.js';
+import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType } from '../upgrades/execution-stop-reasons.js';
+import { uuidv7 } from '../uuid.js';
 import { workspaceCreate } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
@@ -258,6 +260,80 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       assert.deepEqual(await storage.datasets.read(repo, 'main', 'records/counter'), ref);
       assert.equal((await restore()).kind, 'committed');
       assert.equal((await recordHistory(storage, repo, 'main', 'counter')).length, history.length + 1);
+    });
+
+    it('carries every execution record an earlier release wrote into the form that says why a stopped one stopped, of every case, and leaves the rest as they are', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record in the form an earlier release wrote');
+      const record = await repositoryOpen(storage, repo);
+      // A repository an earlier release wrote, which has not had the upgrade.
+      const before = { release: '1.0.84', upgrades: record.upgrades.filter(({ name }) => name !== EXECUTION_STOP_REASONS) };
+      await storage.refs.repositoryWrite(repo, before);
+
+      const task = 'a'.repeat(64);
+      const inputs = '1'.repeat(64);
+      const at = new Date(1_000);
+      const own = { inputHashes: ['b'.repeat(64)], startedAt: at, unit: false };
+      const running = variant('running', { ...own, executionId: uuidv7(), pid: 41n, pidStartTime: 7n, bootId: 'boot' });
+      const success = variant('success', { ...own, executionId: uuidv7(), outputHash: 'c'.repeat(64), completedAt: at, peakBytes: some(1024n), plan: none });
+      const failed = variant('failed', { ...own, executionId: uuidv7(), completedAt: at, exitCode: 2n, peakBytes: none });
+      const error = variant('error', { ...own, executionId: uuidv7(), completedAt: at, message: 'Failed to read output' });
+      const cancelled = variant('cancelled', { ...own, executionId: uuidv7(), completedAt: at });
+      const interrupted = variant('interrupted', { ...own, executionId: uuidv7(), completedAt: at, pid: 41n, unit: true });
+      const encodeEarlier = encodeBeast2For(ExecutionStatusBeforeReasonsType);
+      for (const status of [running, success, failed, error, cancelled, interrupted]) {
+        await damage.execution(task, inputs, status.value.executionId, encodeEarlier(status));
+      }
+      // One in the current form, and one in neither, which a crash left.
+      const host: StopReason = { kind: variant('host', 'OutOfMemoryError'), message: 'its container ran out of memory' };
+      const current = variant('interrupted', { ...own, executionId: uuidv7(), completedAt: at, pid: 0n, reason: host });
+      await storage.refs.executionWrite(repo, task, inputs, current.value.executionId, current);
+      const currentBytes = await storage.refs.executionReadBytes(repo, task, inputs, current.value.executionId);
+      const corrupt = uuidv7();
+      await damage.execution(task, inputs, corrupt);
+      await assert.rejects(storage.refs.executionGet(repo, task, inputs, cancelled.value.executionId), ExecutionCorruptError,
+        'before the upgrade, a record in the earlier form does not read');
+
+      // What the opens write, by execution.
+      const writes: string[] = [];
+      const write = storage.refs.executionWrite.bind(storage.refs);
+      storage.refs.executionWrite = (r, tk, i, id, status) => {
+        writes.push(id);
+        return write(r, tk, i, id, status);
+      };
+      try {
+        const opened = await repositoryOpen(storage, repo);
+        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: EXECUTION_STOP_REASONS, release: E3_RELEASE }]);
+        assert.deepEqual([...writes].sort(), [running, success, failed, error, cancelled, interrupted].map((status) => status.value.executionId).sort(),
+          'every record in the earlier form is rewritten, of every case, and no other');
+
+        const equal = equalFor(ExecutionStatusType);
+        const unrecorded: StopReason = { kind: variant('unrecorded', null), message: '' };
+        const carried = [
+          running, success, failed, error,
+          variant('cancelled', { ...cancelled.value, reason: unrecorded }),
+          variant('interrupted', { ...interrupted.value, reason: unrecorded }),
+        ];
+        for (const status of carried) {
+          const read = await storage.refs.executionGet(repo, task, inputs, status.value.executionId);
+          assert.ok(read !== null && equal(read, status), `a ${status.type} record reads as it was, in the current form`);
+          const bytes = await storage.refs.executionReadBytes(repo, task, inputs, status.value.executionId);
+          assert.ok(bytes !== null && equal(decodeExecutionStatus(bytes), status), `a ${status.type} record is stored in the current form`);
+        }
+        assert.deepEqual(await storage.refs.executionReadBytes(repo, task, inputs, current.value.executionId), currentBytes,
+          'a record in the current form is left as it is');
+        await assert.rejects(storage.refs.executionGet(repo, task, inputs, corrupt), ExecutionCorruptError,
+          'a record in neither form is left as it is');
+
+        // Cut short by a crash, the upgrade runs again whole, and rewrites
+        // nothing it carried.
+        writes.length = 0;
+        await storage.refs.repositoryWrite(repo, before);
+        await repositoryOpen(storage, repo);
+        assert.deepEqual(writes, []);
+      } finally {
+        storage.refs.executionWrite = write;
+      }
     });
   });
 }

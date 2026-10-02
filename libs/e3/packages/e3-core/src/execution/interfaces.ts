@@ -12,7 +12,7 @@
  */
 
 import type { EastTypeValue } from '@elaraai/east';
-import type { ExecutionStatus, PartitionProgress, RunnerValue } from '@elaraai/e3-types';
+import type { ExecutionStatus, PartitionProgress, RunnerValue, StopReason } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 // =============================================================================
@@ -112,13 +112,20 @@ export type RunningExecution = Extract<ExecutionStatus, { type: 'running' }>['va
  * own runner says it cannot finish. A unit running on another host is then
  * left running — its runner's compute says so — whatever the host that probes
  * can see of its processes.
+ *
+ * It answers `true` while the execution can finish; `false` once it cannot,
+ * its runner and the process or tab that owned it being gone, which the
+ * probe records `owner_gone`; or, once it cannot for a reason of the host's
+ * own — e3-cloud's container stopped, say — that reason, which the probe
+ * records as given. The probe writes the reason's message as the attempt's
+ * last log line too, `e3: <message>`.
  */
 export type ExecutionLiveness = (
   storage: StorageBackend,
   taskHash: string,
   inputsHash: string,
   running: RunningExecution,
-) => Promise<boolean>;
+) => Promise<boolean | StopReason>;
 
 /** What a `merge` unit of a split task assembles: outputs its pieces wrote. */
 export interface MergeParts {
@@ -340,14 +347,17 @@ export interface TaskRunner {
    * @param taskHash - Hash of the TaskObject
    * @param inputsHash - The execution's combined inputs hash
    * @param running - Its `running` record
-   * @returns Whether it can still finish
+   * @returns `true` while it can still finish; once it cannot, `false` when
+   *   its runner and its owner are gone, or the runner's own reason, which the
+   *   execution cache's probe records as the execution's (see
+   *   {@link ExecutionLiveness})
    */
   executionAlive(
     storage: StorageBackend,
     taskHash: string,
     inputsHash: string,
     running: RunningExecution
-  ): Promise<boolean>;
+  ): Promise<boolean | StopReason>;
 
   /**
    * Run a body IR detached from the dataflow graph (function / one-shot

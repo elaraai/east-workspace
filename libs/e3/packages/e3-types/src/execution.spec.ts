@@ -5,15 +5,16 @@
 
 /**
  * Execution status wire: the typed outcomes with their peaks, a split task's
- * plan and whether the execution is a unit, what each keeps from gc, and the
- * refusal of a record an older e3 wrote before `cancelled` and `interrupted`
- * were cases of it, before a runner's peak was recorded, before a split task's
- * plan was, or before a record said whether it is a unit.
+ * plan, whether the execution is a unit and why a stopped one stopped, what
+ * each keeps from gc, and the refusal of a record an older e3 wrote before
+ * `cancelled` and `interrupted` were cases of it, before a runner's peak was
+ * recorded, before a split task's plan was, before a record said whether it
+ * is a unit, or before a stopped one said why.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, DateTimeType, IntegerType, OptionType, StringType, StructType, VariantType, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { ArrayType, BooleanType, DateTimeType, IntegerType, OptionType, StringType, StructType, VariantType, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import { ExecutionStatusType, decodeExecutionStatus, executionStatusRoots, type ExecutionStatus } from './execution.js';
 
 /** The four-case wire every record had before the typed outcomes. */
@@ -45,7 +46,7 @@ describe('ExecutionStatusType', () => {
   };
   const encodeOlder = encodeBeast2For(PreOutcomeExecutionStatusType);
 
-  it('round-trips the typed outcomes, with a runner\'s peak or without one, a task\'s own or a unit\'s', () => {
+  it('round-trips the typed outcomes, with a runner\'s peak or without one, a task\'s own or a unit\'s, and why a stopped one stopped', () => {
     const own = { ...stopped, unit: false };
     const statuses: ExecutionStatus[] = [
       variant('success', { ...own, outputHash: 'b'.repeat(64), peakBytes: some(96n * 1024n ** 2n), plan: none }),
@@ -54,8 +55,11 @@ describe('ExecutionStatusType', () => {
       variant('running', { executionId: '0199-b', inputHashes: ['a'.repeat(64)], startedAt: new Date(1000), pid: 4242n, pidStartTime: 7n, bootId: 'boot', unit: true }),
       variant('failed', { ...own, exitCode: 1n, peakBytes: some(412n * 1024n ** 2n) }),
       variant('failed', { ...own, exitCode: -1n, peakBytes: none }),
-      variant('cancelled', own),
-      variant('interrupted', { ...own, pid: 4242n }),
+      variant('cancelled', { ...own, reason: { kind: variant('aborted', null), message: 'cancelled: e3 stopped the runner because the run was aborted' } }),
+      variant('interrupted', { ...own, pid: 4242n, reason: { kind: variant('owner_gone', null), message: 'its runner and its owner are gone' } }),
+      variant('interrupted', { ...own, pid: 0n, unit: true, reason: { kind: variant('yielded', null), message: 'its run yielded' } }),
+      variant('interrupted', { ...own, pid: 0n, reason: { kind: variant('host', 'OutOfMemoryError'), message: 'its container ran out of memory' } }),
+      variant('interrupted', { ...own, pid: 0n, reason: { kind: variant('unrecorded', null), message: '' } }),
       variant('error', { ...own, message: 'Failed to read output: no such file' }),
     ];
     const encode = encodeBeast2For(ExecutionStatusType);
@@ -67,7 +71,7 @@ describe('ExecutionStatusType', () => {
     assert.deepEqual(executionStatusRoots(variant('success', { ...success, plan: none })), ['b'.repeat(64)]);
     assert.deepEqual(executionStatusRoots(variant('success', { ...success, plan: some('c'.repeat(64)) })), ['b'.repeat(64), 'c'.repeat(64)]);
     assert.deepEqual(executionStatusRoots(variant('failed', { ...stopped, exitCode: 1n, peakBytes: none, unit: false })), []);
-    assert.deepEqual(executionStatusRoots(variant('cancelled', { ...stopped, unit: false })), []);
+    assert.deepEqual(executionStatusRoots(variant('cancelled', { ...stopped, unit: false, reason: { kind: variant('aborted', null), message: '' } })), []);
   });
 
   it('keeps from gc the inputs a running attempt reads, passing over a merge\'s tag', () => {
@@ -113,6 +117,24 @@ describe('ExecutionStatusType', () => {
       }),
     });
     assert.throws(() => decodeExecutionStatus(encodeBeast2For(withoutUnits)(variant('success', { ...stopped, outputHash: 'b'.repeat(64), peakBytes: none, plan: none }))), refusal);
+    // With units, before a stopped record said why it stopped: only the
+    // repository upgrade that carries such a record forward reads it, and every
+    // case of it is refused, since its type names the cases that changed.
+    const withoutReasons = VariantType({
+      ...ExecutionStatusType.cases,
+      cancelled: StructType({ executionId: StringType, inputHashes: ArrayType(StringType), startedAt: DateTimeType, completedAt: DateTimeType, unit: BooleanType }),
+      interrupted: StructType({
+        executionId: StringType, inputHashes: ArrayType(StringType), startedAt: DateTimeType, completedAt: DateTimeType, pid: IntegerType, unit: BooleanType,
+      }),
+    });
+    const own = { ...stopped, unit: false };
+    for (const record of [
+      variant('cancelled', own),
+      variant('interrupted', { ...own, pid: 4242n }),
+      variant('success', { ...own, outputHash: 'b'.repeat(64), peakBytes: none, plan: none }),
+    ] as const) {
+      assert.throws(() => decodeExecutionStatus(encodeBeast2For(withoutReasons)(record)), refusal);
+    }
   });
 
   it('throws for bytes of no status shape', () => {

@@ -6,8 +6,9 @@
 /**
  * The repository record over e3-core's own backends: the contract suite every
  * backend runs, over a local repository `repoInit` created, one the local
- * `RepoStore` created, and the in-memory backend; and what only e3-core can
- * set up — a backend's own steps, and a repository with no record.
+ * `RepoStore` created, and the in-memory backend, each able to hold a record
+ * in an earlier release's form; and what only e3-core can set up — a
+ * backend's own steps, and a repository with no record.
  */
 
 import { describe, it } from 'node:test';
@@ -21,14 +22,14 @@ import { REPOSITORY_UPGRADES, newRepositoryRecord, repositoryOpen } from './repo
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/LocalBackend.js';
 import { REPOSITORY_RECORD_FILE } from './storage/local/LocalRefStore.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
+import { createTempDir, createTestRepo, inMemoryDamage, localDamage, removeTempDir, removeTestRepo } from './test-helpers.js';
 import type { RepositoryUpgrade } from './storage/interfaces.js';
 
 describe('over a local repository repoInit created', () => {
   repositoryRecordTests(async (t) => {
     const repo = createTestRepo();
     t.after(() => removeTestRepo(repo));
-    return { storage: new LocalStorage(dirname(repo)), repo };
+    return { storage: new LocalStorage(dirname(repo)), repo, damage: localDamage(repo) };
   });
 });
 
@@ -38,7 +39,8 @@ describe('over a local repository its RepoStore created', () => {
     t.after(() => removeTempDir(reposDir));
     const storage = new LocalStorage(reposDir);
     await storage.repos.create('created');
-    return { storage, repo: join(reposDir, 'created') };
+    const repo = join(reposDir, 'created');
+    return { storage, repo, damage: localDamage(repo) };
   });
 });
 
@@ -46,7 +48,7 @@ describe('over the in-memory backend', () => {
   repositoryRecordTests(async () => {
     const storage = new InMemoryStorage();
     await storage.repos.create('created');
-    return { storage, repo: 'created' };
+    return { storage, repo: 'created', damage: inMemoryDamage(storage, 'created') };
   });
 });
 
@@ -77,7 +79,8 @@ describe('a backend\'s own upgrades', () => {
     assert.deepEqual(record.upgrades, [
       ...before.upgrades, { name: 'backend-layout', release: E3_RELEASE }, { name: 'shared-form', release: E3_RELEASE },
     ]);
-    assert.deepEqual(newRepositoryRecord(storage.upgrades).upgrades.map(({ name }) => name), ['backend-layout', 'shared-form']);
+    assert.deepEqual(newRepositoryRecord(storage.upgrades).upgrades.map(({ name }) => name), ['backend-layout', ...REPOSITORY_UPGRADES.map(({ name }) => name)]);
+    assert.equal(REPOSITORY_UPGRADES.at(-1), shared);
   });
 
   it('refuse an open when a step\'s name is another\'s, which the record could not tell apart', async (t) => {

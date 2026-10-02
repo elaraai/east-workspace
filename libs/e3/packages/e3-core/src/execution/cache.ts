@@ -10,18 +10,18 @@
  *
  * The cache is the execution records a repository keeps. Its probe serves the
  * latest attempt when that attempt succeeded, and first rewrites a `running`
- * record whose execution can no longer finish as `interrupted`. Whether one can
- * finish is the judgement of the runner that started it, which the probe's
- * caller passes: every backend's runner judges its own executions, so a probe
- * never judges a unit running on another host by what the host that probes can
- * see. The local runner's judgement, by processes on this machine, is the local
- * runner's own (`LocalTaskRunner.ts`).
+ * record whose execution can no longer finish as `interrupted`, with why.
+ * Whether one can finish is the judgement of the runner that started it, which
+ * the probe's caller passes: every backend's runner judges its own executions,
+ * so a probe never judges a unit running on another host by what the host that
+ * probes can see. The local runner's judgement, by processes on this machine,
+ * is the local runner's own (`LocalTaskRunner.ts`).
  *
  * @packageDocumentation
  */
 
 import { variant } from '@elaraai/east';
-import type { ExecutionOwner, ExecutionStatus, PartitionProgress } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, PartitionProgress, StopReason } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { ExecutionLiveness, RunningExecution, UnitRequeue } from './interfaces.js';
 
@@ -143,7 +143,9 @@ export interface ExecutionIds {
  * `interrupted`, so it no longer reads as live. Whether it can finish is the
  * judgement of the runner that started it, which `alive` gives: a backend whose
  * executions run on other hosts passes its own, and one still running there is
- * left as it is.
+ * left as it is. The record says why it cannot: `owner_gone` when `alive`
+ * answers `false`, or the reason it answers. Its log's last line says so too
+ * (`e3: <message>`), flushed before the record is written.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -183,10 +185,21 @@ export async function probeExecutionCache(
   };
 }
 
+/** Why an execution whose runner and owner are gone stopped, as its record
+ *  and its log's last line say. */
+const OWNER_GONE: StopReason = {
+  kind: variant('owner_gone', null),
+  message: 'interrupted: its runner and the process or browser tab that owned it are gone',
+};
+
 /**
  * Rewrites a `running` record as `interrupted` when its execution can no
  * longer finish, so nothing will ever write its outcome: when `alive`, the
- * judgement of the runner that started it, says so.
+ * judgement of the runner that started it, says so. The record names why —
+ * `owner_gone` for `false`, or the reason `alive` gives — and so does the
+ * log's last line, which is flushed before the record is written. A log that
+ * cannot be appended to, or flushed, is warned of, and the record is written
+ * all the same.
  */
 async function repairInterruptedExecution(
   storage: StorageBackend,
@@ -196,14 +209,32 @@ async function repairInterruptedExecution(
   running: RunningExecution,
   alive: ExecutionLiveness,
 ): Promise<void> {
-  if ((await alive(storage, taskHash, inHash, running)) !== false) return;
+  const answer = await alive(storage, taskHash, inHash, running);
+  let reason: StopReason;
+  switch (answer) {
+    case true: return;
+    case false: reason = OWNER_GONE; break;
+    default: reason = answer;
+  }
+  const { executionId } = running;
+  try {
+    await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${reason.message}\n`);
+  } catch (err) {
+    console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    await storage.logs.flush(repo, taskHash, inHash, executionId);
+  } catch (err) {
+    console.warn(`Failed to flush the log: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const status: ExecutionStatus = variant('interrupted', {
-    executionId: running.executionId,
+    executionId,
     inputHashes: running.inputHashes,
     startedAt: running.startedAt,
     completedAt: new Date(),
     pid: running.pid,
     unit: running.unit,
+    reason,
   });
-  await storage.refs.executionWrite(repo, taskHash, inHash, running.executionId, status);
+  await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
 }

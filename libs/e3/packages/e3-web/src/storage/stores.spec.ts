@@ -82,7 +82,8 @@ function origin(t: TestContext, blobs: BlobsAdapter = new MemoryBlobs()): () => 
 }
 
 /** A backend with a repository in it, its runs' state kept beside it, and its
- *  execution records left, when a case asks, in bytes that do not decode. */
+ *  execution records left, when a case asks, in bytes of its choosing: bytes
+ *  that do not decode, or a record in an earlier release's form. */
 const backend: BackendSetup = async (t) => {
   const storage = await origin(t)();
   await storage.repos.create(REPO);
@@ -92,8 +93,8 @@ const backend: BackendSetup = async (t) => {
     repo: REPO,
     stateStore: new WebStateStore(records),
     damage: {
-      execution: (taskHash, inputsHash, executionId) => records.transact((tx) => {
-        tx.put(recordKeys.execution(REPO, taskHash, inputsHash, executionId), encoder.encode('not a record'));
+      execution: (taskHash, inputsHash, executionId, bytes) => records.transact((tx) => {
+        tx.put(recordKeys.execution(REPO, taskHash, inputsHash, executionId), bytes ?? encoder.encode('not a record'));
         return Promise.resolve();
       }),
     },

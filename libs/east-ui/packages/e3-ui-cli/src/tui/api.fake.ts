@@ -413,6 +413,7 @@ export class FakeApi implements Api {
                 output: this.outputPathOf(t),
                 dependsOn: t.dependsOn,
                 peakBytes: t.peakBytes !== undefined ? some(BigInt(t.peakBytes)) : none,
+                stopped: none,
             }));
             const count = (pred: (t: FakeTask) => boolean) => BigInt(w.tasks.filter(pred).length);
             const dcount = (status: string) => BigInt(datasets.filter(d => d.status.type === status).length);

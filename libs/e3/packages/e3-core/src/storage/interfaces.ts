@@ -446,6 +446,21 @@ export interface RefStore {
   executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null>;
 
   /**
+   * Read an execution attempt's record as it is stored: its bytes, in the form
+   * the release that wrote it wrote. A repository upgrade reads a record so,
+   * to carry one an earlier release wrote into the current form, which alone
+   * {@link executionGet} reads.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   * @returns The record's bytes, an `ExecutionStatusType` value in beast2, or
+   *   null if there is no record
+   */
+  executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null>;
+
+  /**
    * Write execution status.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash

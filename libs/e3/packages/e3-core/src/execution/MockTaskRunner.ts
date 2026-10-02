@@ -3,6 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
+import type { StopReason } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { uuidv7 } from '../uuid.js';
 import type {
@@ -127,17 +128,17 @@ export class MockTaskRunner implements TaskRunner {
     return { ...result, executionId: result.executionId ?? uuidv7() };
   }
 
-  private alive: (running: RunningExecution) => boolean = () => false;
+  private alive: (running: RunningExecution) => boolean | StopReason = () => false;
 
   /**
    * Set what executionAlive answers of an execution recorded running: that
    * every one can still finish, that none can, or what a function of its
-   * record decides. None can, unless set: the mock runs nothing that outlives
-   * its call.
+   * record decides — a host's reason it cannot among them. None can, unless
+   * set: the mock runs nothing that outlives its call.
    *
    * @param alive - The answer, or a function of the running record giving it
    */
-  setExecutionAlive(alive: boolean | ((running: RunningExecution) => boolean)): void {
+  setExecutionAlive(alive: boolean | ((running: RunningExecution) => boolean | StopReason)): void {
     this.alive = typeof alive === 'function' ? alive : () => alive;
   }
 
@@ -146,7 +147,7 @@ export class MockTaskRunner implements TaskRunner {
     _taskHash: string,
     _inputsHash: string,
     running: RunningExecution
-  ): Promise<boolean> {
+  ): Promise<boolean | StopReason> {
     return Promise.resolve(this.alive(running));
   }
 

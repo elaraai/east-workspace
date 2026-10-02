@@ -48,7 +48,11 @@ shared code. Whether an execution can still finish is
 `TaskRunner.executionAlive` — which the execution cache's probe asks too,
 through the liveness a driver is given (`ExecuteOptions.executionAlive`,
 `SplitTaskDriver.executionAlive`), so a probe never judges a unit running on
-another host by the processes of the host that probes; whether a lock's holder
+another host by the processes of the host that probes — and why it cannot,
+when the host knows: it answers the host's own `StopReason`, which the probe
+records on the execution as given; how a record is stored, which a shared
+upgrade step reads to carry a record an earlier release wrote into the
+current form, `RefStore.executionReadBytes`; whether a lock's holder
 is alive, `LockService.isHolderAlive`; what gc sweeps beside objects and
 records, `RepoStore.gcSweepBackend`; a change to one backend's layout, a step
 in `StorageBackend.upgrades`; how an upload's bytes are taken in,
@@ -297,10 +301,11 @@ work too: a write in flight survives it, an object unreachable for less than
 the window survives it, what an execution still running reads survives it, a
 delete that races a re-reference leaves the object, and a mark spread over
 steps reaches what one step does. A case that needs a record the store cannot
-decode asks the setup to damage one (`BackendContext.damage`, a
-`BackendDamage`), and is skipped by a setup that cannot; so a backend whose
-records can be left so gives the hook, or the suite never holds it to
-answering such a record with `ExecutionCorruptError`. e3-core runs every suite
+decode, or one in the form an earlier release wrote, asks the setup to leave
+one in the bytes it gives (`BackendContext.damage`, a `BackendDamage`), and is
+skipped by a setup that cannot; so a backend whose records can be left so
+gives the hook, or the suite never holds it to answering such a record with
+`ExecutionCorruptError`, nor to carrying an earlier release's records forward. e3-core runs every suite
 over `LocalStorage` and `InMemoryStorage` (`stores.spec.ts` is the pattern),
 and another backend runs them over its own by giving its own setup: e3-web
 runs them over `WebStorage` and `WebStateStore` (its own `stores.spec.ts`),

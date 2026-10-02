@@ -52,7 +52,7 @@ import {
 } from '../fixtures.js';
 import { assertDataflowSucceeded, describeDataflowResult } from '../assertions.js';
 import { waitFor } from '../cli.js';
-import type { ExecutionStateOptions, LogOptions, RequestOptions } from '@elaraai/e3-api-client';
+import type { ExecutionListItem, ExecutionStateOptions, LogOptions, RequestOptions } from '@elaraai/e3-api-client';
 
 /**
  * Asserts a call is refused `bad_request`, with the message the server gives.
@@ -676,6 +676,32 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           return finalStatus !== 'running';
         }, 60000);
         assert.strictEqual(finalStatus, 'aborted');
+      });
+
+      it('serves why a cancelled run\'s task stopped, in the task\'s history and its status', async (t) => {
+        const ctx = await withSlow(t);
+        const opts = await ctx.opts();
+        const history = () => taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'slow-ws', 'slow', opts);
+
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+        // The task's attempt is recorded running before the cancel, so the
+        // cancel stops that attempt.
+        await waitFor(async () => (await history()).some((item) => item.status.type === 'running'), 60000);
+        await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
+
+        const cancelled = (items: ExecutionListItem[]) => items.find((item) => item.status.type === 'cancelled');
+        await waitFor(async () => cancelled(await history()) !== undefined, 60000);
+        const stopped = cancelled(await history());
+        if (stopped?.reason.type !== 'some') assert.fail('a cancelled attempt says why it stopped');
+        assert.strictEqual(stopped.reason.value.kind.type, 'aborted');
+        assert.notStrictEqual(stopped.reason.value.message, '', 'in words, as its log\'s last line does');
+
+        // The task reads ready, naming why its latest attempt stopped.
+        const task = (await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts)).tasks.find((each) => each.name === 'slow');
+        assert.ok(task !== undefined, 'the task is in the status');
+        assert.strictEqual(task.status.type, 'ready');
+        if (task.stopped.type !== 'some') assert.fail('the status names why the task\'s attempt stopped');
+        assert.strictEqual(task.stopped.value.kind.type, 'aborted');
       });
 
       it('dataflowCancel returns error when no execution is running', async (t) => {

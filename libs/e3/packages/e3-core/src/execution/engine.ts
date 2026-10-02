@@ -48,10 +48,11 @@
  *
  * While the units run, the task's own execution is recorded `running`, under
  * the owner its driver passes, whose identity its record carries, and its log
- * names each unit's execution. An aborted run records it `cancelled`, and a
- * failure is the lowest-index failing unit's. However it ends, its end is
- * recorded once its log is written and flushed, so a reader that finds the
- * task ended reads its whole log.
+ * names each unit's execution. An aborted run records it `cancelled`, for the
+ * reason `aborted`; a run that yields leaves it `interrupted`, for the reason
+ * `yielded`; and a failure is the lowest-index failing unit's. However it
+ * ends, its end is recorded once its log is written and flushed, so a reader
+ * that finds the task ended reads its whole log.
  *
  * The engine runs wherever its driver does: it reaches storage through the
  * storage interfaces and runs units through the executor its driver gives, and
@@ -514,37 +515,36 @@ export class SplitTask {
 
   /**
    * Ends the task stopped because the run was aborted: its execution is
-   * recorded `cancelled`, with the cause as the last line of its stderr log.
+   * recorded `cancelled`, for the reason `aborted`, with the cause as the last
+   * line of its stderr log.
    *
    * @returns The task's execution
    */
   async cancel(): Promise<ExecutionResult> {
     const cause = "cancelled: e3 stopped the task's units because the run was aborted";
-    await this.logWrites;
-    try {
-      await this.storage.logs.append(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, 'stderr', `e3: ${cause}\n`);
-    } catch (err) {
-      console.warn(`Failed to append stderr log: ${messageOf(err)}`);
-    }
+    await this.stoppedLine(cause);
     await this.finish(variant('cancelled', {
       executionId: this.ids.executionId,
       inputHashes: this.inputHashes,
       startedAt: new Date(this.ids.startTime),
       completedAt: new Date(),
       unit: false,
+      reason: { kind: variant('aborted', null), message: cause },
     }));
     return this.ended('error', cause, null, true);
   }
 
   /**
    * Leaves the task mid-stage, for a run that yields: its execution is
-   * recorded `interrupted`, once its log is written and flushed, and its plan
-   * stays rooted for the run that takes the stage up again. A task that has
-   * ended is left as it ended.
+   * recorded `interrupted`, for the reason `yielded`, once the reason is the
+   * last line of its stderr log and the log is flushed, and its plan stays
+   * rooted for the run that takes the stage up again. A task that has ended is
+   * left as it ended.
    */
   async suspend(): Promise<void> {
     if (!this.running) return;
-    await this.logWrites;
+    const cause = 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again';
+    await this.stoppedLine(cause);
     await this.flushLog();
     await this.storage.refs.executionWrite(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, variant('interrupted', {
       executionId: this.ids.executionId,
@@ -553,7 +553,20 @@ export class SplitTask {
       completedAt: new Date(),
       pid: (this.owner ?? NO_OWNER).pid,
       unit: false,
+      reason: { kind: variant('yielded', null), message: cause },
     }));
+  }
+
+  /** Appends why the task stopped, `e3: <cause>`, as the last line of its
+   *  stderr log, after every line the task logged; a line that cannot be
+   *  written is warned of, and the task's end is recorded all the same. */
+  private async stoppedLine(cause: string): Promise<void> {
+    await this.logWrites;
+    try {
+      await this.storage.logs.append(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, 'stderr', `e3: ${cause}\n`);
+    } catch (err) {
+      console.warn(`Failed to append stderr log: ${messageOf(err)}`);
+    }
   }
 
   /** Appends a line to the task's log, after every line before it; a line
