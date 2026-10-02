@@ -28,8 +28,9 @@ import {
   fetchWithAuth,
   type Response,
 } from '@elaraai/e3-api-client';
-import { encodeBeast2For, decodeBeast2For, NullType } from '@elaraai/east';
+import { encodeBeast2For, decodeBeast2For, equalFor, isValueOf, printFor, NullType, type ValueTypeOf } from '@elaraai/east';
 import {
+  InvalidNameErrorType,
   PackageJobResponseType,
   PackageTransferInitRequestType,
   PackageTransferInitResponseType,
@@ -141,6 +142,36 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
           return true;
         }
       );
+    });
+
+    it('refuses an export of a malformed package name, version or workspace name as invalid_name', async (t) => {
+      const ctx = await withPackageZip(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      await packageImport(base, ctx.repoName, ctx.packageZip, opts);
+
+      /** An export refused as every other route refuses the name: as
+       *  `invalid_name`, naming the name and why. */
+      const invalidName = (kind: string, name: string, why: string) => (err: unknown) => {
+        assert.ok(err instanceof ApiError, `Expected ApiError, got ${err}`);
+        assert.strictEqual(err.code, 'invalid_name');
+        assert.ok(isValueOf(err.details, InvalidNameErrorType), 'the refusal names the name and why');
+        const said = err.details as ValueTypeOf<typeof InvalidNameErrorType>;
+        const expected: ValueTypeOf<typeof InvalidNameErrorType> = {
+          kind, name, message: `the ${kind} name ${JSON.stringify(name)} ${why}`,
+        };
+        assert.ok(equalFor(InvalidNameErrorType)(said, expected), `refused as ${printFor(InvalidNameErrorType)(said)}`);
+        return true;
+      };
+      const holds = (c: string) => `holds ${JSON.stringify(c)}, which a file name cannot`;
+
+      await assert.rejects(packageExport(base, ctx.repoName, 'bad:name', '1.0.0', opts), invalidName('package', 'bad:name', holds(':')));
+      await assert.rejects(packageExport(base, ctx.repoName, 'a/b', '1.0.0', opts), invalidName('package', 'a/b', holds('/')));
+      await assert.rejects(packageExport(base, ctx.repoName, 'transfer-pkg', '1:0', opts), invalidName('package version', '1:0', holds(':')));
+      await assert.rejects(workspaceExport(base, ctx.repoName, 'bad:name', opts), invalidName('workspace', 'bad:name', holds(':')));
+      await assert.rejects(workspaceExport(base, ctx.repoName, 'a/b', opts), invalidName('workspace', 'a/b', holds('/')));
+      await assert.rejects(workspaceExport(base, ctx.repoName, 'a#b', opts),
+        invalidName('workspace', 'a#b', `holds "#", which joins the parts of a lock's name`));
     });
 
     it('refuses on import a zip a newer e3 exported, naming that release, and imports nothing', async (t) => {
