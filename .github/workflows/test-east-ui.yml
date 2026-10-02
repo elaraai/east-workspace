@@ -9,6 +9,8 @@ on:
       - "libs/east-node/**"
       - "libs/east-web/**"
       - "libs/e3/**"
+      # e3-ui-cli's query-plans spec runs its calls on east-c, built here (#1093).
+      - "libs/east-c/**"
       # The East rules gate these packages' lint (#963): a rule change runs it.
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
@@ -21,6 +23,7 @@ on:
       - "libs/east-node/**"
       - "libs/east-web/**"
       - "libs/e3/**"
+      - "libs/east-c/**"
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
@@ -74,6 +77,24 @@ jobs:
       - name: Build e3 (dependency)
         working-directory: libs/e3
         run: make build
+
+      # e3-ui-cli's query-plans spec sends its calls to every stock runner on
+      # PATH: east-node, which the package holds, and east-c, the runner the
+      # query builder sends (#1093). Build this tree's east-c as the east-c
+      # workflow does, Release, but its CLI alone, and put it on PATH.
+      - name: Install east-c build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      - name: Build east-c (for e3-ui-cli's query plans)
+        working-directory: libs/east-c
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j --target east-c-cli
+          echo "$PWD/build/packages/east-c-cli" >> "$GITHUB_PATH"
+
+      # The spec skips a runner it cannot find: hold here that it will find east-c.
+      - name: east-c on PATH
+        run: east-c version
 
       - name: Build east-py-datascience TypeScript (dependency)
         working-directory: libs/east-py/packages/east-py-datascience

@@ -34,6 +34,12 @@ deliberately not a CI gate — timing on a shared runner is a flaky test.
 Tests are named `perf:` for `--test-name-pattern`. A real-terminal smoke: `script -qfec "stty
 cols 120 rows 36; node dist/cli.js <repo>" /dev/null` with keys piped in.
 
+The query builder's plans run against e3 in two specs: `src/query-plans.spec.ts`
+(`E3_UI_INTEGRATION=1`, in CI) on every stock runner on PATH — CI builds
+east-c for it — and `src/query-scale.spec.ts`, the benchmark at 100 MB to
+16 GB (`E3_QUERY_SCALE=1`, by hand only, on a Release east-c; the README's
+"Query plans at scale" says how).
+
 ## Plugin skill
 
 `SKILL.md` backs the `east:e3-ui-cli` plugin skill (the plugin symlinks to

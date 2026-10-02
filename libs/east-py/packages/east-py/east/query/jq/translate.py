@@ -69,6 +69,7 @@ from east.types.types import (
     StringType,
     StructType,
     VariantType,
+    is_immutable_type,
     is_subtype,
 )
 
@@ -135,6 +136,9 @@ class Env:
     instance: str
     #: Recursive defs being generated, by their instance signature: the reference holding each one's function.
     recursion: dict[str, A] = field(default_factory=dict)
+    #: The path of a fold's update that sets a key of the fold's state in place: nothing else holds the state, so it
+    #: changes without a copy (#1093).
+    in_place: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2087,10 +2091,14 @@ class Translator:
             raise self.gap(f"no accumulator type for {kind}")
         acc_type = acc_node.type
         update_path = child_path(path, f"{kind}.update")
+        in_place = self.updates_in_place(n, path, env, acc_type)
 
         # For each value `init` gives, a fold over the source's values.
         def on_init(b2: Block, init: A) -> None:
-            acc = self.declare(b2, self.widen_to(b2, init, acc_type, path), "acc")
+            start = self.widen_to(b2, init, acc_type, path)
+            # A state the update sets keys of in place starts as a copy, so what `init` gave never changes.
+            acc = self.declare(b2, self.b("DictCopy", [dict_key(acc_type), dict_value(acc_type)], [start], acc_type, path)
+                               if in_place else start, "acc")
 
             def on_item(b3: Block, item: A) -> None:
                 def on_vars(b4: Block, variables: dict[str, Value]) -> None:
@@ -2107,12 +2115,62 @@ class Translator:
                                 emit(b5, value)
                             else:
                                 self.gen(extract.value, child_path(path, "foreach.extract.some"), b5, value, inner, emit)
-                    self.gen(v["update"], update_path, b4, state, inner, on_next)
+                    self.gen(v["update"], update_path, b4, state, replace(inner, in_place=update_path) if in_place else inner,
+                             on_next)
                 self.destructure(b3, v["pattern"], child_path(path, f"{kind}.pattern"), item, env, update_path, on_vars)
             self.collected(v["source"], child_path(path, f"{kind}.source"), b2, x, env, on_item)
             if kind == "reduce":
                 emit(b2, acc)
         self.gen(v["init"], child_path(path, f"{kind}.init"), b, x, env, on_init)
+
+    def updates_in_place(self, n: JqNode, path: str, env: Env, acc_type: EastType) -> bool:
+        """Whether a fold's update may set a key of its state in place, as jq changes a value nothing else holds (#1093).
+
+        The state is a dict; the update sets a key of it, ``.[k]`` or ``.name``
+        with ``=``, ``|=`` or an arithmetic update, perhaps further down
+        (``.[k].n += 1``), where only the state's own key is set in place; the
+        value of ``=`` and of an arithmetic update is one value, which holds
+        nothing of the state; and a ``foreach`` gives what its ``extract``
+        reads of the state, never the state. A key is of an immutable type, so
+        it never holds the state, and ``|=``'s update runs on the old value at
+        the key, which cannot reach the state.
+        """
+        if acc_type.type != "Dict":
+            return False
+        kind = n.type
+        update = n.value["update"]
+        if update.type != "update" or not _sets_key_of_input(update.value["path"]):
+            return False
+        # A value of the state's type, for the records of the nodes that run on it.
+        state = self.placeholder(acc_type)
+        if kind == "foreach":
+            extract = n.value["extract"]
+            if extract.type == "none" or not self.holds_no_state(extract.value, child_path(path, "foreach.extract.some"),
+                                                                 env, state):
+                return False
+        if update.value["op"] == "|=":
+            return True
+        update_path = child_path(path, f"{kind}.update")
+        value_path = child_path(update_path, "update.value")
+        update_env = self.env_for(update_path, env, state)
+        value = self.result(value_path, self.env_for(value_path, update_env, state))
+        if value is None or value.mult.lo != 1 or value.mult.hi != 1:
+            return False
+        return self.holds_no_state(update.value["value"], value_path, update_env, state)
+
+    def holds_no_state(self, n: JqNode, path: str, env: Env, state: A) -> bool:
+        """Whether a filter's outputs on a fold's state hold nothing of it.
+
+        They are of an immutable type, which holds no dict, or
+        :func:`_state_held_by` finds them read from the state or made without it.
+        """
+        r = self.result(path, self.env_for(path, env, state))
+        if r is None:
+            return False
+        t = unify_shape(r.shape)
+        if t is not None and is_immutable_type(t):
+            return True
+        return _state_held_by(n, "itself", {}, env.defs) == "nothing"
 
     def gen_bind(self, n: JqNode, path: str, b: Block, x: Value, env: Env, emit: Emit) -> None:
         body = n.value["body"]
@@ -2335,10 +2393,13 @@ class Translator:
         target_path = child_path(path, "update.path")
         value_path = child_path(path, "update.value")
         input_expr = self.expr(x, path)
+        # A fold's update of a state nothing else holds sets the state's key in place (#1093).
+        in_place = env.in_place == path
         if op == "|=":
             # Each position's new value is the update's first output on the old one; none deletes it.
             emit(b, self.whole(self.modify(b, input_expr, target, target_path, env,
-                                           lambda b2, old: self.first_of(value, value_path, b2, old, env)), path))
+                                           lambda b2, old: self.first_of(value, value_path, b2, old, env), in_place),
+                               path))
             return
 
         # `=` and the arithmetic updates take their value on `.`, once for each of its outputs.
@@ -2360,8 +2421,13 @@ class Translator:
                     self.present(b3, old, path, lambda b4, w: self.assign(b4, cell, self.widen_to(b4, w, typ, path)))
                     return Update(cell, False)
                 return Update(self.arith(b3, operator, old, bound, path), False)
-            emit(b2, self.whole(self.modify(b2, input_expr, target, target_path, env, f), path))
-        self.collected(value, value_path, b, x, env, on_value)
+            emit(b2, self.whole(self.modify(b2, input_expr, target, target_path, env, f, in_place), path))
+        # In place, the one value is taken first, so no loop it runs over the state is open while the state changes.
+        if in_place:
+            on_value(b, self.one(value, value_path, b, input_expr, env,
+                                 self.type_at(value_path, self.env_for(value_path, env, input_expr))))
+        else:
+            self.collected(value, value_path, b, x, env, on_value)
 
     def whole(self, update: Update | None, path: str) -> A:
         """What an update gives: the value, ``null`` where it deleted ``.`` itself."""
@@ -2392,8 +2458,14 @@ class Translator:
         self.once(b, run, path)
         return Update(found, True)
 
-    def modify(self, b: Block, v: A, target: JqNode, path: str, env: Env, f: UpdateFn) -> Update | None:  # noqa: C901
-        """A value with the positions a path names updated: ``f`` gives each position's new value, or none."""
+    def modify(self, b: Block, v: A, target: JqNode, path: str, env: Env, f: UpdateFn,  # noqa: C901
+               in_place: bool = False) -> Update | None:
+        """A value with the positions a path names updated: ``f`` gives each position's new value, or none.
+
+        With ``in_place``, ``v`` is a fold's state nothing else holds, and the
+        key of it the path sets is set in place (#1093); a position further
+        down is set in a copy, as any other is.
+        """
         def at(step: str) -> str:
             return child_path(path, step)
 
@@ -2406,10 +2478,12 @@ class Translator:
             return f(b, v)
         if kind == "pipe":
             return self.modify(b, v, tv["left"], at("pipe.left"), env,
-                               lambda b2, inner: self.modify(b2, inner, tv["right"], at("pipe.right"), env, f))
+                               lambda b2, inner: self.modify(b2, inner, tv["right"], at("pipe.right"), env, f), in_place)
         if kind == "field":
+            # Only a key of `v` itself is set in place.
+            own = in_place and tv["target"].type == "identity"
             return self.modify(b, v, tv["target"], at("field.target"), env, lambda b2, inner: present(
-                self.set_field(b2, inner, tv["name"], tv["optional"], path, env, f)))
+                self.set_field(b2, inner, tv["name"], tv["optional"], path, env, f, own)), in_place)
         if kind == "index":
             index = tv["index"]
             optional = tv["optional"]
@@ -2424,15 +2498,16 @@ class Translator:
                 key = self.value(literal[1], literal[0], key_path)
             else:
                 key = self.one(index, key_path, b, v, env, self.type_at(key_path, self.env_for(key_path, env, v)))
+            own = in_place and tv["target"].type == "identity"
 
             def on_target(b2: Block, inner: A) -> Update:
                 if key is not None:
-                    return present(self.set_index(b2, inner, key, optional, path, f))
+                    return present(self.set_index(b2, inner, key, optional, path, f, own))
                 name = literal[1]  # type: ignore[index]
                 if self.open(inner).type.type == "Dict":
-                    return present(self.set_index(b2, inner, self.str_(name, path), optional, path, f))
-                return present(self.set_field(b2, inner, name, optional, path, env, f))
-            return self.modify(b, v, tv["target"], at("index.target"), env, on_target)
+                    return present(self.set_index(b2, inner, self.str_(name, path), optional, path, f, own))
+                return present(self.set_field(b2, inner, name, optional, path, env, f, own))
+            return self.modify(b, v, tv["target"], at("index.target"), env, on_target, in_place)
         if kind == "slice":
             # The bounds are taken on the slice's own input, as jq takes them.
             def bound(option: Any, step: str) -> A | None:
@@ -2442,10 +2517,10 @@ class Translator:
             lo = bound(tv["from"], "slice.from.some")
             hi = bound(tv["to"], "slice.to.some")
             return self.modify(b, v, tv["target"], at("slice.target"), env, lambda b2, inner: present(
-                self.set_slice(b2, inner, lo, hi, tv["optional"], path, f)))
+                self.set_slice(b2, inner, lo, hi, tv["optional"], path, f)), in_place)
         if kind == "iterate":
             return self.modify(b, v, tv["target"], at("iterate.target"), env, lambda b2, inner: present(
-                self.set_each(b2, inner, tv["optional"], path, f)))
+                self.set_each(b2, inner, tv["optional"], path, f)), in_place)
         if kind == "descend":
             return self.walk_update(b, v, None, path, f)
         if kind == "call":
@@ -2540,8 +2615,12 @@ class Translator:
         t = original.type
         return self.struct(t if t.type == "Recursive" and type_equal(node_of(t), typ) else typ, values)
 
-    def set_field(self, b: Block, v: A, name: str, optional: bool, path: str, env: Env, f: UpdateFn) -> A:
-        """A struct with one field replaced, added or deleted; a dict's key; a variant's payload; ``null`` made a struct."""
+    def set_field(self, b: Block, v: A, name: str, optional: bool, path: str, env: Env, f: UpdateFn,
+                  in_place: bool = False) -> A:
+        """A struct with one field replaced, added or deleted; a dict's key; a variant's payload; ``null`` made a struct.
+
+        A dict's key is set in place with ``in_place``, as :meth:`set_index` sets it.
+        """
         e = self.open(v)
         t = e.type
         if t.type == "Variant" and nullable_payload(t) is None and name == "value":
@@ -2577,7 +2656,7 @@ class Translator:
                 put(name, self.required(b, nxt, path))
             return self.rebuilt(v, types, values)
         if t.type == "Dict":
-            return self.set_index(b, e, self.str_(name, path), optional, path, f)
+            return self.set_index(b, e, self.str_(name, path), optional, path, f, in_place)
         if optional:
             return v
         raise self.gap(f".{name} = … on {print_type(t)}")
@@ -2614,8 +2693,13 @@ class Translator:
             b2, self.not_(self.eq(index, i, path), path), lambda b3: self.push(b3, kept, item, path), None, path), path)  # type: ignore[arg-type]
         return kept
 
-    def set_index(self, b: Block, v: A, key: A, optional: bool, path: str, f: UpdateFn) -> A:  # noqa: C901
-        """An array or dict with one element replaced, or deleted where the update gives none."""
+    def set_index(self, b: Block, v: A, key: A, optional: bool, path: str, f: UpdateFn,  # noqa: C901
+                  in_place: bool = False) -> A:
+        """An array or dict with one element replaced, or deleted where the update gives none.
+
+        With ``in_place``, a dict nothing else holds is changed itself, not a
+        copy of it, while its values' type stays (#1093).
+        """
         e = self.open(v)
         t = e.type
         if t.type == "Array":
@@ -2663,15 +2747,18 @@ class Translator:
             if nxt is None:
                 if t.type != "Dict":
                     return self.value({}, DictType(k_type, NeverType))
-                out = self.declare(b, self.b("DictCopy", [k_type, v0], [e], t, path), "dict")
+                out = e if in_place else self.declare(b, self.b("DictCopy", [k_type, v0], [e], t, path), "dict")
                 self.stmt(b, self.b("DictTryDelete", [k_type, v0], [out, k], BooleanType, path))
                 return out
             next_type = self.update_type(nxt)
             unified = unify(v0, next_type)
             value_type = next_type if v0.type == "Never" else (v0 if unified is None else unified)
             d_type = DictType(k_type, value_type)
-            out = self.declare(b, self.b("DictCopy", [k_type, value_type], [self.widen_to(b, e, d_type, path)], d_type, path)
-                               if t.type == "Dict" else self.value({}, d_type), "dict")
+            if in_place and t.type == "Dict" and type_equal(d_type, t):
+                out = e
+            else:
+                out = self.declare(b, self.b("DictCopy", [k_type, value_type], [self.widen_to(b, e, d_type, path)], d_type,
+                                             path) if t.type == "Dict" else self.value({}, d_type), "dict")
             if nxt.optional:
                 self.match(b, nxt.value, {
                     "some": lambda b2, w: self.put(b2, out, k, w, path),
@@ -3098,6 +3185,248 @@ def _calls_itself(n: JqNode, key: str) -> bool:
     if n.type == "def" and f"{n.value['name']}/{len(n.value['params'])}" == key:
         return _calls_itself(n.value["rest"], key)
     return any(child.node is not None and _calls_itself(child.node, key) for child in jq_children(n))
+
+
+# ─── Updates in place (#1093) ───────────────────────────────────────────────
+
+
+def _sets_key_of_input(path: JqNode) -> bool:
+    """Whether an update's path sets a key of its input.
+
+    Its first step on ``.`` is a field read or an index, whatever steps follow
+    (``.[k]``, ``.name``, ``.[k].lines[]``).
+    """
+    kind = path.type
+    if kind in ("field", "index"):
+        return path.value["target"].type == "identity" or _sets_key_of_input(path.value["target"])
+    if kind in ("slice", "iterate"):
+        return _sets_key_of_input(path.value["target"])
+    if kind == "pipe":
+        return _sets_key_of_input(path.value["left"])
+    return False
+
+
+#: What of a fold's state a value may hold: ``"nothing"``; ``"itself"``, the state as a whole, or else nothing of it,
+#: so what is read from it holds nothing; or ``"anything"``, the state inside it too, as far as
+#: :func:`_state_held_by` can tell.
+_HELD_ORDER = {"nothing": 0, "itself": 1, "anything": 2}
+
+
+def _most(a: str, b: str) -> str:
+    """The more of the state either of two values may hold."""
+    return a if _HELD_ORDER[a] >= _HELD_ORDER[b] else b
+
+
+def _read_from(source: str) -> str:
+    """What a value read from another may hold: nothing, unless the other may hold the state inside it."""
+    return "anything" if source == "anything" else "nothing"
+
+
+def _holding(held: str) -> str:
+    """What a new value holding values that may hold ``held`` may hold: the state inside it, where they hold any."""
+    return "nothing" if held == "nothing" else "anything"
+
+
+#: Builtins whose outputs hold nothing of what they are given: numbers, strings, booleans, a dict's keys, or no output.
+_SCALAR_BUILTINS = frozenset({
+    "empty", "error", "not", "isempty", "range", "IN", "length", "utf8bytelength", "keys", "keys_unsorted", "has", "in",
+    "any", "all", "contains", "inside", "index", "rindex", "indices", "bsearch", "join", "type", "tostring", "tojson",
+    "tonumber", "toboolean", "builtins", "infinite", "nan", "isfinite", "isinfinite", "isnan", "isnormal", "startswith",
+    "endswith", "ltrimstr", "rtrimstr", "trimstr", "trim", "ltrim", "rtrim", "ascii_downcase", "ascii_upcase", "split",
+    "test", "sub", "gsub", "format", "@text", "@json", "@html", "@uri", "@base64", "@csv", "@tsv", "@sh", "floor", "ceil",
+    "round", "trunc", "sqrt", "log", "log2", "log10", "exp", "exp2", "exp10", "sin", "cos", "tan", "fabs", "pow", "fmin",
+    "fmax", "fmod", "todate", "todateiso8601", "fromdate", "fromdateiso8601", "strftime", "strptime", "year", "month",
+    "day", "hour", "minute", "second", "millisecond", "weekday", "epoch_ms", "datetime_add", "datetime_diff",
+    "signature", "source", "calls", "captures",
+})
+
+#: Builtins whose outputs are their input's parts, or new values made of them, whatever their arguments give.
+_PART_BUILTINS = frozenset({
+    "to_entries", "from_entries", "pick", "transpose", "flatten", "combinations", "sort", "sort_by", "group_by", "unique",
+    "unique_by", "min", "max", "min_by", "max_by", "reverse",
+})
+
+#: Builtins whose outputs are their input itself, or nothing of it.
+_SELECTING_BUILTINS = frozenset({
+    "select", "arrays", "objects", "iterables", "booleans", "numbers", "strings", "nulls", "values", "scalars", "normals",
+    "finites", "abs",
+})
+
+#: Builtins whose outputs hold what they are given otherwise, by ``name/arity``: ``"parts"``, as
+#: :data:`_PART_BUILTINS`'; ``"input"``, as :data:`_SELECTING_BUILTINS`'; ``"last"``, their last argument's outputs;
+#: ``"each"``, each of their input's parts through their argument, in a new value; ``"first"``, their first
+#: argument's outputs, in a new value.
+_BUILTINS_BY_ARITY = {
+    "first/0": "parts", "last/0": "parts", "nth/1": "parts", "add/0": "parts", "INDEX/1": "parts",
+    "recurse/0": "input",
+    "first/1": "last", "last/1": "last", "nth/2": "last", "limit/2": "last", "skip/2": "last",
+    "map/1": "each", "map_values/1": "each", "with_entries/1": "each",
+    "add/1": "first", "INDEX/2": "first",
+}
+
+
+def _builtin_holds(name: str, arity: int) -> str | None:
+    """How a builtin's outputs hold what it is given, by its name and arity.
+
+    ``"scalar"``, nothing of it; ``"parts"``, its input's parts, or new values
+    made of them (``sort``, ``to_entries``); ``"input"``, its input itself, or
+    nothing of it (``select``, ``numbers``); ``"last"``, its last argument's
+    outputs (``first(f)``, ``limit(n; f)``); ``"each"``, each of its input's
+    parts through its argument, in a new value (``map(f)``); ``"first"``, its
+    first argument's outputs, in a new value (``add(f)``, ``INDEX(src; f)``);
+    or ``None``, any of it.
+    """
+    by_arity = _BUILTINS_BY_ARITY.get(f"{name}/{arity}")
+    if by_arity is not None:
+        return by_arity
+    if name in _SCALAR_BUILTINS:
+        return "scalar"
+    if name in _PART_BUILTINS:
+        return "parts"
+    if name in _SELECTING_BUILTINS:
+        return "input"
+    return None
+
+
+def _pattern_holds(pattern: JqPattern, source: str, into: dict[str, str]) -> None:
+    """What each variable a pattern binds holds of the state, the pattern taking a value that holds ``source``.
+
+    A variable takes the value itself; one in an array or object pattern, a part of it.
+    """
+    if pattern.type == "variable":
+        into[pattern.value] = source
+        return
+    if pattern.type == "array":
+        for item in pattern.value:
+            _pattern_holds(item, _read_from(source), into)
+        return
+    for entry in pattern.value:
+        if entry["value"].type == "none":
+            into[entry["key"]] = _read_from(source)
+        else:
+            _pattern_holds(entry["value"].value, _read_from(source), into)
+
+
+def _state_held_by(n: JqNode, input_held: str, variables: dict[str, str], defs: dict[str, Any]) -> str:  # noqa: C901
+    """What of a fold's state a filter's outputs may hold, given what its input may hold.
+
+    How an update that sets a key of the state in place knows its value never
+    holds the state. It reads the filter as written, and is conservative: what
+    it cannot follow, a ``def`` written inside the filter, or a def or builtin
+    it does not know given a value that may hold the state, holds anything.
+
+    Args:
+        n: The filter.
+        input_held: What its input may hold of the state.
+        variables: What the variables bound inside the filter hold of the
+            state; any other was bound before the state was made, and holds
+            nothing of it.
+        defs: The defs and filter parameters in scope, by ``name/arity``,
+            which a call names before a builtin of the same name.
+
+    Returns:
+        What its outputs may hold of the state.
+    """
+    def held(node: JqNode, source: str = input_held, scope: dict[str, str] = variables) -> str:
+        return _state_held_by(node, source, scope, defs)
+
+    kind = n.type
+    v = n.value
+    if kind in ("identity", "descend"):
+        return input_held
+    if kind in ("literal", "string", "format", "negate", "break"):
+        return "nothing"
+    if kind == "variable":
+        return variables.get(v, "nothing")
+    if kind in ("field", "index", "slice", "iterate"):
+        # An index's key and a slice's bounds are only read: what is read is part of the target.
+        return _read_from(held(v["target"]))
+    if kind == "pipe":
+        return held(v["right"], held(v["left"]))
+    if kind in ("comma", "alternative"):
+        return _most(held(v["left"]), held(v["right"]))
+    if kind == "binary":
+        # A comparison or a logical operator gives a boolean; arithmetic, an operand as it is or a new value of their
+        # parts.
+        op = v["op"]
+        if op in ("and", "or") or op in _COMPARISONS:
+            return "nothing"
+        return _most(held(v["left"]), held(v["right"]))
+    if kind == "array":
+        return "nothing" if v.type == "none" else _holding(held(v.value))
+    if kind == "object":
+        out = "nothing"
+        for entry in v:
+            # `{$v}` holds the variable; `{name}` and `{"\(k)"}`, the input's value at the key.
+            if entry["value"].type == "some":
+                value = held(entry["value"].value)
+            elif entry["key"].type == "variable":
+                value = variables.get(entry["key"].value, "nothing")
+            else:
+                value = _read_from(input_held)
+            out = _most(out, _holding(value))
+        return out
+    if kind == "if":
+        out = held(v["otherwise"].value) if v["otherwise"].type == "some" else input_held
+        for branch in v["branches"]:
+            out = _most(out, held(branch["then"]))
+        return out
+    if kind == "try":
+        # The handler runs on the error's message, a string.
+        if v["catch"].type == "some":
+            return _most(held(v["body"]), held(v["catch"].value, "nothing"))
+        return held(v["body"])
+    if kind == "label":
+        return held(v["body"])
+    if kind == "bind":
+        # A name holds what the pattern that binds it gives it; another pattern binds it null.
+        source = held(v["source"])
+        bound: dict[str, str] = {}
+        for pattern in v["patterns"]:
+            one: dict[str, str] = {}
+            _pattern_holds(pattern, source, one)
+            for name, h in one.items():
+                bound[name] = _most(bound.get(name, "nothing"), h)
+        return held(v["body"], input_held, {**variables, **bound})
+    if kind in ("reduce", "foreach"):
+        scope = dict(variables)
+        _pattern_holds(v["pattern"], held(v["source"]), scope)
+        # The fold's own state: what `init` gives, then what its update gives on it, until that settles.
+        state = held(v["init"])
+        while True:
+            nxt = _most(state, held(v["update"], state, scope))
+            if nxt == state:
+                break
+            state = nxt
+        if kind == "reduce":
+            return state
+        extract = v["extract"]
+        return state if extract.type == "none" else held(extract.value, state, scope)
+    if kind == "call":
+        args = v["args"]
+        name = v["name"]
+        holds = None if f"{name}/{len(args)}" in defs else _builtin_holds(name, len(args))
+        if holds == "scalar":
+            return "nothing"
+        if holds == "parts":
+            return _read_from(input_held)
+        if holds == "input":
+            return input_held
+        if holds == "last":
+            return held(args[-1])
+        if holds == "each":
+            return "anything" if input_held == "anything" else _holding(held(args[0], "nothing"))
+        if holds == "first":
+            return _holding(held(args[0]))
+        # A def, a filter parameter or another builtin, given nothing of the state, gives nothing of it.
+        given_nothing = input_held == "nothing" and all(held(arg, "nothing") == "nothing" for arg in args)
+        return "nothing" if given_nothing else "anything"
+    if kind == "update":
+        # An update gives its input rebuilt, or as it is.
+        children = [child.node for child in jq_children(n) if child.node is not None]
+        given_nothing = input_held == "nothing" and all(held(child, "nothing") == "nothing" for child in children)
+        return "nothing" if given_nothing else "anything"
+    return "anything"  # a def written inside the filter
 
 
 # ─── The translation ────────────────────────────────────────────────────────
