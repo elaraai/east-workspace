@@ -1,6 +1,10 @@
 # e3 — East Execution Engine
 # Dependencies are managed by pnpm from the monorepo root.
 
+# The checkout's paths: its root, and where east-node-std's suites are
+# (EAST_NODE_STD_IR), which e3-web's Chromium compliance spec runs
+include ../../paths.mk
+
 .PHONY: all build build-integration test test-packages test-integration test-integration-shard lint clean dev link e2e-stack job-launcher install-job help
 
 # Default target
@@ -71,7 +75,6 @@ e2e-stack:
 	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py-std
 	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py-cli
 
-REPO_ROOT := $(abspath $(CURDIR)/../..)
 JOB_SOURCE := native/e3-job
 JOB_BUILD := $(JOB_SOURCE)/build
 # Where e3-core finds the launcher in this checkout: the workspace

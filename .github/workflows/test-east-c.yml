@@ -23,8 +23,10 @@ concurrency:
 jobs:
   # Export the compliance IR once. It's plain serialized East IR — identical on
   # every platform — so there's no reason to re-run the (Unix-only) TS export
-  # tooling on the Windows/macOS legs, where its `VAR=val node` / `/tmp` idioms
-  # don't survive npm's cmd.exe script shell. Export here, share as artifacts.
+  # tooling on the Windows/macOS legs, where its `VAR=val node` / `${VAR:?}`
+  # idioms don't survive npm's cmd.exe script shell. Export here, through make
+  # (the root paths.mk puts each corpus under the workspace's tmp/), and share
+  # them as artifacts.
   export-ir:
     name: Export test IR
     runs-on: ubuntu-latest
@@ -40,17 +42,17 @@ jobs:
         run: pnpm install
       - name: Export IR (east + east-node-std)
         run: |
-          pnpm --filter @elaraai/east run test:export
-          pnpm --filter @elaraai/east-node-std run test:export
+          make -C libs/east test-export
+          make -C libs/east-node test-export-std
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
-          path: /tmp/east-test-ir/
+          path: tmp/east-test-ir/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: ir-std
-          path: /tmp/east-node-std/
+          path: tmp/east-node-std/
           if-no-files-found: error
 
   test-east-c:
@@ -240,14 +242,15 @@ jobs:
         with:
           go-version: "1.22"
 
+      # Where the root paths.mk has `make leak-check-all` read them
       - uses: actions/download-artifact@v4
         with:
           name: ir-east
-          path: /tmp/east-test-ir
+          path: tmp/east-test-ir
       - uses: actions/download-artifact@v4
         with:
           name: ir-std
-          path: /tmp/east-node-std
+          path: tmp/east-node-std
 
       # The std corpus includes the fetch suite, which needs a live httpbin.
       - name: Start httpbin (go-httpbin :8085)
@@ -267,9 +270,13 @@ jobs:
 
       # The gates again, this time against the ASan build run_leak_check.sh
       # just produced — the value-layout gate exercises slab reclamation and
-      # the shared-`none` cache, whose lifetimes only ASan/LSan can judge.
+      # the shared-`none` cache, whose lifetimes only ASan/LSan can judge. The
+      # corpus gates among them read the export from EAST_TEST_IR_DIR, as
+      # make would set it.
       - name: east-c gates under ASan
         working-directory: libs/east-c
+        env:
+          EAST_TEST_IR_DIR: ${{ github.workspace }}/tmp/east-test-ir
         run: ctest --test-dir build-asan --output-on-failure
 
   lint-east-c:

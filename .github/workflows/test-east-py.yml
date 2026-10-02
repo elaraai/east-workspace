@@ -39,35 +39,37 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
-      # The TS export tooling is Unix-only (VAR=val node, /tmp); run it once here
-      # and share via artifacts so the win/mac legs don't re-run it.
+      # The TS export tooling is Unix-only (VAR=val node, ${VAR:?}); run it once
+      # here, through make (the root paths.mk puts each corpus under the
+      # workspace's tmp/), and share via artifacts so the win/mac legs don't
+      # re-run it.
       - name: Export IR (east + east-node-std + east-py-datascience)
         run: |
-          pnpm --filter @elaraai/east run test:export
-          pnpm --filter @elaraai/east run export:examples
-          pnpm --filter @elaraai/east-node-std run test:export
-          pnpm --filter @elaraai/east-py-datascience run test:export
+          make -C libs/east test-export
+          make -C libs/east export-examples
+          make -C libs/east-node test-export-std
+          make -C libs/east-py test-export
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
-          path: /tmp/east-test-ir/
+          path: tmp/east-test-ir/
           if-no-files-found: error
       # Every *.examples.ts example as IR + inputs + returns — the examples leg
       # of the IR → python → IR conformance round trip (#627).
       - uses: actions/upload-artifact@v4
         with:
           name: ir-examples
-          path: /tmp/east-examples-ir/
+          path: tmp/east-examples-ir/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: ir-std
-          path: /tmp/east-node-std/
+          path: tmp/east-node-std/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: ir-datascience
-          path: /tmp/east-py-datascience/
+          path: tmp/east-py-datascience/
           if-no-files-found: error
 
   test-east-py:
@@ -144,22 +146,15 @@ jobs:
       # example (#627). EAST_CONFORMANCE_REQUIRED=1 makes a missing IR
       # directory a failure rather than a skip — the conformance legs used to
       # skip silently wherever the temp dir did not match their default path,
-      # which is every OS but Linux. The exported corpus is staged into the
-      # temp dir the compliance-driven suites read (python's gettempdir, so the
-      # path agrees with the MSYS-rewritten one on Windows), the query suites'
-      # directories with it (test_compliance.py's SUITE_SUBDIRECTORIES, #987),
-      # so this run and a local one run the same suites; the conformance legs
-      # read the downloaded artifacts directly.
+      # which is every OS but Linux. Every suite reads the downloaded artifacts
+      # through the variables make would otherwise set.
       - name: Run east-py tests (full pytest sweep)
         working-directory: libs/east-py/packages/east-py
         env:
-          IR_SRC: ${{ github.workspace }}/ir-east
           EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
           EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
           EAST_CONFORMANCE_REQUIRED: "1"
-        run: |
-          uv run python tests/test_compliance.py --stage "$IR_SRC"
-          uv run pytest tests -q --no-cov
+        run: uv run pytest tests -q --no-cov
 
       # `run`'s lazy inputs and `exec`'s stdin lifeline against the
       # checked-in cross-runner fixtures, and `exec` against the runner
@@ -375,12 +370,12 @@ jobs:
       - name: Start test services
         run: docker compose -f docker/services/docker-compose.yml --profile services up -d --wait
 
+      # Into EAST_NODE_IO_IR, which the root paths.mk sets for this make and the
+      # compliance run's alike
       - name: Export test IR from east-node-io
         working-directory: libs/east-node
         run: make test-export-io
         timeout-minutes: 5
-        env:
-          EXPORT_TEST_IR: /tmp/east-node-io
 
       - name: Install C build dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev

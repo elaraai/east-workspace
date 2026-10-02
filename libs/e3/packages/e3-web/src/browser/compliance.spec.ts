@@ -8,8 +8,8 @@
  * Chromium leg of what east-web-std's own `compliance.spec.ts` runs in Node.
  *
  * `make -C libs/east-node test-export-std` exports the suite to
- * `EAST_NODE_STD_IR`, or to /tmp/east-node-std when that is not set, and this
- * reads it from the same place. The harness serves the export, and a page
+ * `EAST_NODE_STD_IR`, which the root `paths.mk` sets to this checkout's
+ * `tmp/east-node-std`, and this reads it from the same place. The harness serves the export, and a page
  * runs the suite of each module east-web-std provides. Each module is a test
  * here, which fails listing every East test that failed, with its message. A
  * canary shows the page reports a failure as one, and every suite in the
@@ -31,9 +31,9 @@ import { fileURLToPath } from 'node:url';
 import { SUITES, suiteFile, type ComplianceModules, type EastTestRecord, type SuiteRun } from './compliance.js';
 import { Harness, type HarnessPage } from './harness.js';
 
-/** Where the export is: `EAST_NODE_STD_IR`, or where east-node-std writes it
- *  when that is not set. */
-const IR_DIR = process.env.EAST_NODE_STD_IR ?? '/tmp/east-node-std';
+/** Where the export is: `EAST_NODE_STD_IR`, which the root `paths.mk` sets to
+ *  this checkout's `tmp/east-node-std` when this runs through make. */
+const IR_DIR = process.env.EAST_NODE_STD_IR;
 
 /** Where the Fetch suite sends its requests. */
 const HTTPBIN = 'http://localhost:8085';
@@ -84,15 +84,22 @@ describe('east-node-std\'s compliance suite over east-web-std, in Chromium', () 
   let page: HarnessPage;
   /** The modules the page runs the suites of, and those it leaves out */
   let modules: ComplianceModules;
+  /** The export's directory, once `before` has found it */
+  let irDir: string;
 
   before(async () => {
-    if (!existsSync(IR_DIR)) {
+    if (IR_DIR === undefined) {
       throw new Error(
-        `nothing at ${IR_DIR}: export east-node-std's compliance suite with \`make -C libs/east-node test-export-std\`, ` +
-          'which writes to EAST_NODE_STD_IR when it is set and to /tmp/east-node-std otherwise',
+        'EAST_NODE_STD_IR is unset: run it through make (`make -C libs/e3 test`), which sets it to this checkout\'s tmp/east-node-std',
       );
     }
-    harness = await Harness.open({ entries, directories: { [SUITES]: IR_DIR } });
+    if (!existsSync(IR_DIR)) {
+      throw new Error(
+        `nothing at ${IR_DIR}: export east-node-std's compliance suite with \`make -C libs/east-node test-export-std\``,
+      );
+    }
+    irDir = IR_DIR;
+    harness = await Harness.open({ entries, directories: { [SUITES]: irDir } });
     page = await harness.newPage('compliance');
     modules = await page.call<ComplianceModules>('modules');
   });
@@ -128,7 +135,7 @@ describe('east-node-std\'s compliance suite over east-web-std, in Chromium', () 
   });
 
   it('every suite in the export is one east-web-std runs or leaves out', () => {
-    const exported = readdirSync(IR_DIR).filter((file) => file.endsWith('.json')).sort();
+    const exported = readdirSync(irDir).filter((file) => file.endsWith('.json')).sort();
     assert.deepEqual(exported, [...modules.provided, ...modules.notProvided].map(suiteFile).sort());
   });
 

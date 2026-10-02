@@ -23,7 +23,8 @@ import { conformanceCases, runCase } from "./jq-conformance/run.js";
 import { checkPair, matrixPairs } from "./query-types/run.js";
 import { QUERY_CORPUS } from "./query.corpus.js";
 
-const CORPUS_DIR = process.env["EAST_TEST_IR_DIR"] ?? "/tmp/east-test-ir";
+// The exported corpus, which the root paths.mk names when the run goes through make
+const CORPUS_DIR = process.env["EAST_TEST_IR_DIR"];
 const REQUIRED = process.env["EAST_CONFORMANCE_REQUIRED"] === "1";
 
 /**
@@ -69,15 +70,19 @@ describe("the constructs of translated queries (X2)", () => {
   // `make test-export` runs this spec while the other specs write the corpus
   // it reads: a run that exports checks nothing, and the run after it checks.
   const exporting = process.env["EXPORT_TEST_IR"] !== undefined;
-  const present = existsSync(CORPUS_DIR);
-  if (REQUIRED && !present && !exporting) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but no exported IR corpus in ${CORPUS_DIR}`);
-  const skip = exporting ? "this run is exporting the IR corpus" : !present && `no exported IR corpus in ${CORPUS_DIR}`;
+  const present = CORPUS_DIR !== undefined && existsSync(CORPUS_DIR);
+  const missing = CORPUS_DIR === undefined
+    ? "EAST_TEST_IR_DIR is unset: run it through make (make -C libs/east test)"
+    : `no exported IR corpus in ${CORPUS_DIR}`;
+  if (REQUIRED && !present && !exporting) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but ${missing}`);
+  const skip = exporting ? "this run is exporting the IR corpus" : !present && missing;
 
   test("every construct a translation uses is exercised by a compliance suite not about queries", { skip }, () => {
+    const dir = CORPUS_DIR!;
     const covered = new Set<string>();
-    const suites = readdirSync(CORPUS_DIR).filter(f => f.endsWith(".json") && !QUERY_SUITES.has(f)).sort();
-    assert.ok(suites.length > 0, `no compliance suites in ${CORPUS_DIR}`);
-    for (const file of suites) constructsOf(decodeIR(JSON.parse(readFileSync(join(CORPUS_DIR, file), "utf-8")).ir) as IR, covered);
+    const suites = readdirSync(dir).filter(f => f.endsWith(".json") && !QUERY_SUITES.has(f)).sort();
+    assert.ok(suites.length > 0, `no compliance suites in ${dir}`);
+    for (const file of suites) constructsOf(decodeIR(JSON.parse(readFileSync(join(dir, file), "utf-8")).ir) as IR, covered);
 
     // Each construct, and the first translation that uses it.
     const used = new Map<string, string>();

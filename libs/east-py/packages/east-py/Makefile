@@ -1,11 +1,21 @@
 # east-py — Core Python runtime for East
 # Python deps managed by uv from east-py root.
 
-.PHONY: test repl lint lint-fix format typecheck check clean build publish dev build-cython bench coverage pre-commit pre-commit-update help
+# The checkout's paths: the exported corpora the compliance and conformance
+# suites read (EAST_TEST_IR_DIR, EAST_EXAMPLES_IR_DIR), and the checkout's
+# east-node CLI the three-way sweep runs (EAST_NODE_CLI)
+include ../../../../paths.mk
+
+.PHONY: test test-file repl lint lint-fix format typecheck check clean build publish dev build-cython bench coverage pre-commit pre-commit-update help
 
 ## Run test suite
 test:
 	uv run pytest --durations=0 -s
+
+## Run specific test file (or any pytest arguments) against the checkout's corpora
+test-file:
+	@test -n "$(FILE)" || (echo "Usage: make test-file FILE=tests/test_compliance.py" && exit 1)
+	uv run pytest $(FILE) -q --no-cov
 
 ## Start Python REPL with east loaded
 repl:
@@ -72,6 +82,7 @@ help:
 	@echo "east-py (core Python runtime)"
 	@echo ""
 	@echo "  test          - Run tests"
+	@echo "  test-file     - Run one test file: make test-file FILE=tests/test_compliance.py"
 	@echo "  lint          - Run linter"
 	@echo "  format        - Format code"
 	@echo "  typecheck     - Type check"

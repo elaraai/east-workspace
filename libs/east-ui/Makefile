@@ -1,6 +1,9 @@
 # east-ui — UI packages and VS Code extension
 # Dependencies are managed by pnpm from the monorepo root.
 
+# The checkout's paths: where east-ui's suites are exported (EAST_UI_TEST_IR)
+include ../../paths.mk
+
 ## Discover every example pathKey by walking `packages/east-ui/test/`.
 ## A file at `test/buttons/button.examples.ts` becomes the key `buttons/button`,
 ## which maps 1:1 to `make east-ui-examples-html-buttons/button`. Re-evaluated
@@ -22,7 +25,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build test test-group lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
+.PHONY: build test test-group test-export lint showcase build-showcase design probe-slice probe-collections clean extension extension-install extension-uninstall examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) help
@@ -53,6 +56,11 @@ endif
 ## Run one of CI's test groups, as its job does (GROUP=components, ir or rest)
 test-group:
 	pnpm -r $(TEST_GROUP_$(GROUP)) run test
+
+## Export east-ui's suites as IR to EAST_UI_TEST_IR, this checkout's
+## tmp/east-ui-tests
+test-export:
+	pnpm --filter @elaraai/east-ui run test:export
 
 ## Run linting for all packages
 lint:
@@ -207,6 +215,7 @@ help:
 	@echo "  build             - Build all packages"
 	@echo "  test              - Run tests"
 	@echo "  test-group GROUP=components|ir|rest - Run one of CI's three test groups"
+	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"
 	@echo "  design            - Serve the design system's download (app_design_system/, read-only) on :5174"

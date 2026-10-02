@@ -437,8 +437,8 @@ East-text and JSON values stay logical decimals/bools — no value-wire change.
 > Dependency reality: **TS is authoritative → east-c mirrors → east-py bridge links east-c
 > source** (`east-py` `make install` recompiles east-c into the Cython extension). TS (`libs/
 > east`) has **no** dependency on the east-c native build. `test:export` runs `rm -rf
-> /tmp/east-test-ir` first, so `/tmp` is **not** a durable freeze — the only durable copy is the
-> committed fixture.
+> "$EAST_TEST_IR_DIR"` (the checkout's `tmp/east-test-ir`) first, so the export is **not** a
+> durable freeze — the only durable copy is the committed fixture.
 >
 > **Per-lib gate discipline:** the test gates below are the correctness floor; ALSO run each
 > touched lib's lint before moving on — `libs/east`: `make lint`; `libs/east-c`: `make lint`;
@@ -449,7 +449,7 @@ East-text and JSON values stay logical decimals/bools — no value-wire change.
 ```
 mkdir -p libs/east-c/packages/east-c/tests/fixtures/legacy-ir
 cd libs/east && make test-export
-cp /tmp/east-test-ir/Vector.json /tmp/east-test-ir/Matrix.json \
+cp ../../tmp/east-test-ir/Vector.json ../../tmp/east-test-ir/Matrix.json \
    ../east-c/packages/east-c/tests/fixtures/legacy-ir/
 git add libs/east-c/packages/east-c/tests/fixtures/legacy-ir   # must be committed
 ```
@@ -465,7 +465,7 @@ TS green AND new corpus (incl. `VectorDType.json`) emitted. **TS green before to
 ```
 cd libs/east-c && make build && make test-east-c
 ./packages/east-c/scripts/run_compliance.sh packages/east-c/tests/fixtures/legacy-ir
-make leak-check        # ASAN over the new corpus (/tmp/east-test-ir)
+make leak-check        # ASAN over the new corpus (EAST_TEST_IR_DIR)
 ```
 New corpus AND frozen legacy fixture pass; no leaks.
 

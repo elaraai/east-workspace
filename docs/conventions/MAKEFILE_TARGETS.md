@@ -33,7 +33,7 @@ Run from the workspace root (`/home/crambelsoupy/src/east-workspace/`):
 | `make services-up` | Start Docker services (Postgres, MySQL, MongoDB, Redis, MinIO, FTP, SFTP, httpbin) for integration tests. |
 | `make services-down` | Stop the services. |
 | `make services-status` | Show service status. |
-| `make test-export` | Export IR JSON from east + east-node + east-py for cross-runtime compliance tests. Required before east-c/east-py/east-web compliance runs. |
+| `make test-export` | Export IR JSON from east + east-node + east-py for cross-runtime compliance tests, each corpus into its directory under the checkout's `tmp/` (§4). Required before east-c/east-py/east-web compliance runs. |
 | `make test-all` | `services-up` + `test-export` + `test` + east-web compliance + east-c tests + east-py tests + `services-down`. |
 | `make clean` | Remove all build artifacts. |
 
@@ -54,12 +54,12 @@ Lib-specific extras (run `make help` in each):
 
 | Lib | Notable extras |
 |---|---|
-| `libs/east` | `make query-corpus` (rewrite the checked-in query fixtures `test/fixtures/query-corpus.beast2` and `query-fixture.beast2` from their sources; their specs fail while either is stale), `make query-types` (rewrite `test/fixtures/query-types.json`, jq 1.8.1's runs of the query type matrix — jq on the PATH — and `devdocs/QUERY.md` §16.5's tables), `make query-types-tables` (the tables alone, from the checked-in runs), `make paged-weights` (rewrite `test/fixtures/paged-weights.beast2`, the decoded weights every runtime's pager cache is held to; its spec fails while it is stale) |
+| `libs/east` | `make test-export` (the describeEast suites as IR, into `EAST_TEST_IR_DIR`), `make export-examples` (every example as IR, into `EAST_EXAMPLES_IR_DIR`), `make query-corpus` (rewrite the checked-in query fixtures `test/fixtures/query-corpus.beast2` and `query-fixture.beast2` from their sources; their specs fail while either is stale), `make query-types` (rewrite `test/fixtures/query-types.json`, jq 1.8.1's runs of the query type matrix — jq on the PATH — and `devdocs/QUERY.md` §16.5's tables), `make query-types-tables` (the tables alone, from the checked-in runs), `make paged-weights` (rewrite `test/fixtures/paged-weights.beast2`, the decoded weights every runtime's pager cache is held to; its spec fails while it is stale) |
 | `libs/e3` | `make test-packages` and `make test-integration` (the two halves of `make test`), `make test-integration-shard SHARD=n` (one of the three integration shards CI runs side by side), `make e2e-stack` (the local stack the environment e2e installs), `make install-job` (the Windows job launcher) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
-| `libs/east-web` | `make test-compliance` (east-node-std's exported compliance suite over east-web-std, from `/tmp/east-node-std`; `make test` exports it first) |
-| `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627) |
-| `libs/east-ui` | `make design` (serve the design system's read-only download, `app_design_system/`, on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all`, `make test-group GROUP=components\|ir\|rest` (one of the three test groups CI runs side by side; together they run every package's tests once), `make test-responsive` (the showcase's Playwright suite over the built showcase, exactly as CI runs it; `SHARD=n/8` runs one CI shard) |
+| `libs/east-web` | `make test-compliance` (east-node-std's exported compliance suite over east-web-std, from `EAST_NODE_STD_IR`; `make test` exports it first) |
+| `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627); in `packages/east-py`, `make test-file FILE=…` (one test file, or any pytest arguments, against the exported corpora) |
+| `libs/east-ui` | `make test-export` (east-ui's suites as IR, into `EAST_UI_TEST_IR`), `make design` (serve the design system's read-only download, `app_design_system/`, on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all`, `make test-group GROUP=components\|ir\|rest` (one of the three test groups CI runs side by side; together they run every package's tests once), `make test-responsive` (the showcase's Playwright suite over the built showcase, exactly as CI runs it; `SHARD=n/8` runs one CI shard) |
 
 **Every `make build` type-checks.** A package built by `tsc` type-checks as
 it builds. A package bundled by vite or esbuild strips types without
@@ -71,7 +71,32 @@ fails `make build`. A new bundled package does the same (#589).
 
 ---
 
-## 4. When to use `pnpm` directly
+## 4. Shared paths (`paths.mk`)
+
+The root `paths.mk` holds the paths every Makefile shares, so no script,
+spec or test works one out itself (#1114):
+
+- `REPO_ROOT`, the checkout's root;
+- each exported test corpus, under the checkout's own `tmp/` (gitignored):
+  `EAST_TEST_IR_DIR`, `EAST_EXAMPLES_IR_DIR`, `EAST_NODE_STD_IR`,
+  `EAST_NODE_IO_IR`, `EAST_DATASCIENCE_IR_DIR`, `EAST_UI_TEST_IR` and
+  `E3_UI_SHOWCASE_TEST_IR`;
+- `EAST_NODE_CLI`, the checkout's own east-node CLI, which east-py's
+  three-way sweep runs.
+
+The root Makefile and every lib's include it (`include paths.mk`, `include
+../../paths.mk`; a package's, `include ../../../../paths.mk`). Each variable
+is exported to the recipes, and a value already in the environment wins. So
+two checkouts on one machine each export and gate against their own corpora.
+
+Nothing else defaults a path. A `test:export` script refuses to run without
+its variable, and a spec or test that reads a corpus skips without it (or
+fails, where it never skips), saying to run it through make. A new corpus
+gets its variable in `paths.mk`.
+
+---
+
+## 5. When to use `pnpm` directly
 
 Almost never. The exceptions:
 
@@ -85,7 +110,7 @@ Everything else flows through `make`.
 
 ---
 
-## 5. Adding a new target
+## 6. Adding a new target
 
 When you add a new make target to a lib's Makefile, also:
 

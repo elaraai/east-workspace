@@ -391,8 +391,9 @@ is the single place it is declared.
 
 ### Compliance Tests (`tests/test_compliance.py`)
 
-The TypeScript specs are export-only: `pnpm run test:export` writes one IR
-file per spec to `/tmp/east-py-datascience`. Python replays them through
+The TypeScript specs are export-only: `make test-export` writes one IR file
+per spec to `EAST_DATASCIENCE_IR_DIR` — the checkout's
+`tmp/east-py-datascience`, which the root `paths.mk` sets. Python replays them through
 east-py's core runner (`packages/east-py/tests/test_compliance.py -p
 east_py_datascience`), which registers this package's `platform` and asserts
 every exported test; a message pinned by a spec (`Assert.throws(..., /regex/)`)
@@ -400,8 +401,8 @@ must keep its wording on the Python side.
 
 `tests/test_compliance.py` is a thin pytest wrapper: one parametrized case per
 IR file, each run in a subprocess so a native crash in one library cannot
-take the rest down. It reads `EAST_DATASCIENCE_IR_DIR` (default
-`/tmp/east-py-datascience`) and skips when nothing has been exported.
+take the rest down. It reads `EAST_DATASCIENCE_IR_DIR`, which make supplies,
+and skips when it is unset or nothing has been exported.
 
 ```bash
 cd libs/east-py && make test-east-py-datascience EAST_QUIET=1   # export + replay (the canonical run)

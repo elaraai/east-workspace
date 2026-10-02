@@ -8,10 +8,11 @@
  * test page (`compliance.page.ts`) and its spec (`compliance.spec.ts`) share.
  *
  * `make -C libs/east-node test-export-std` writes east-node-std's East test
- * suites as IR, one JSON file per module's suite, to `EAST_NODE_STD_IR` (or
- * `/tmp/east-node-std`). The spec has the harness serve that directory under
- * {@link SUITES}; the page loads a module's suite from there, runs it over
- * east-web-std, and answers what each of its East suites and tests did.
+ * suites as IR, one JSON file per module's suite, to `EAST_NODE_STD_IR` (the
+ * root `paths.mk` sets it to this checkout's `tmp/east-node-std`). The spec
+ * has the harness serve that directory under {@link SUITES}; the page loads a
+ * module's suite from there, runs it over east-web-std, and answers what each
+ * of its East suites and tests did.
  *
  * @packageDocumentation
  */

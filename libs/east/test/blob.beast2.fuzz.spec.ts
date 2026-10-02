@@ -13,7 +13,7 @@
  * with every kind switched on — nested, shared and randomly-bodied recursion,
  * type values as leaves — and each sample value's bytes are computed here, in
  * TypeScript, from the type built in code, then baked into the test as a hex
- * literal. The suite is exported to /tmp/east-test-ir and replayed by the
+ * literal. The suite is exported to EAST_TEST_IR_DIR and replayed by the
  * east-c and east-py compliance harnesses, which encode the same value under
  * the type they read from the IR — the carried type a runner holds — so a
  * divergence in the type section or the value bytes fails there.

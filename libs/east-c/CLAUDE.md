@@ -20,7 +20,7 @@ See `../../docs/conventions/MAKEFILE_TARGETS.md` for the full target list.
 
 ## Compliance tests
 
-IR JSON test files are exported from the TypeScript `east` package and live in `/tmp/east-test-ir/`.
+IR JSON test files are exported from the TypeScript `east` package into `EAST_TEST_IR_DIR` — the root `paths.mk` sets it to the checkout's `tmp/east-test-ir`, and supplies it to every target here.
 
 ```bash
 # Export IR from the TS side first (from the workspace root)
@@ -31,8 +31,8 @@ make test-east-c       # east-c core
 make test-east-c-std   # east-c-std
 make test-all          # gates + both
 
-# Run a single compliance test
-./build/packages/east-c/test_compliance /tmp/east-test-ir/Array.json
+# Run a single compliance test (the checkout's export, from libs/east-c)
+./build/packages/east-c/test_compliance ../../tmp/east-test-ir/Array.json
 
 # ASan/LSan over the whole corpus — the oracle for any lifetime change
 REBUILD=1 make leak-check-all
