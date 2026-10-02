@@ -12,7 +12,7 @@ import assert from 'node:assert';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
+import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, equalFor, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
@@ -29,6 +29,7 @@ import { computeHash } from './objects.js';
 import { computeHash as nodeComputeHash } from './objects-node.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
+import { ExecutionStatusBeforeReasonsType } from './upgrades/execution-stop-reasons.js';
 import {
   HeldLogStore, createTestRepo, removeTestRepo, createTempDir, removeTempDir, logsAtEachEnd, readZipEntries, withLogStore, withRelease,
   writeZip, zipBytes, zipEqual,
@@ -166,6 +167,7 @@ describe('packages', () => {
       const executionId = '0190a0b0-5555-7000-8000-000000000000';
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
+        reason: { kind: variant('aborted', null), message: 'cancelled' },
       }));
       const crafted = await writeZip(join(tempDir, 'crafted.zip'), [
         ...await readZipEntries(zipPath),
@@ -205,7 +207,10 @@ describe('packages', () => {
       const zipPath = join(tempDir, 'ran.zip');
       await e3.export(e3.package('ran', '1.0.0'), zipPath);
       const [task, inputs, executionId] = ['c'.repeat(64), 'd'.repeat(64), '0190a0b0-7777-7000-8000-000000000000'];
-      const status = variant('cancelled', { executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false });
+      const status = variant('cancelled', {
+        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
+        reason: { kind: variant('aborted', null), message: 'cancelled' },
+      });
       const at = `executions/${task}/${inputs}/${executionId}`;
       const crafted = await writeZip(join(tempDir, 'with-logs.zip'), [
         ...await readZipEntries(zipPath),
@@ -237,6 +242,30 @@ describe('packages', () => {
         assert.strictEqual((await storage.logs.read(testRepo, task, inputs, executionId, stream)).data, whole[stream], `the ${stream} log is written once`);
       }
       assert.deepStrictEqual(await storage.refs.executionGet(testRepo, task, inputs, executionId), status);
+    });
+
+    it('carries the executions a zip an earlier release exported into the current form, a stopped one\'s reason unrecorded, as an upgrade carries a repository\'s', async () => {
+      const zipPath = join(tempDir, 'earlier.zip');
+      await e3.export(e3.package('earlier', '1.0.0'), zipPath);
+      const [task, inputs] = ['c'.repeat(64), 'd'.repeat(64)];
+      const own = { inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false };
+      const succeeded = variant('success', { ...own, executionId: '0190a0b0-9999-7000-8000-000000000001', outputHash: 'e'.repeat(64), peakBytes: none, plan: none });
+      const cancelled = variant('cancelled', { ...own, executionId: '0190a0b0-9999-7000-8000-000000000002' });
+      const interrupted = variant('interrupted', { ...own, executionId: '0190a0b0-9999-7000-8000-000000000003', pid: 7n });
+      const encodeEarlier = encodeBeast2For(ExecutionStatusBeforeReasonsType);
+      const earlier = await writeZip(join(tempDir, 'earlier-statuses.zip'), withRelease(new Map([
+        ...await readZipEntries(zipPath),
+        ...[succeeded, cancelled, interrupted].map((status): [string, Buffer] =>
+          [`executions/${task}/${inputs}/${status.value.executionId}/status.beast2`, Buffer.from(encodeEarlier(status))]),
+      ]), '1.0.84'));
+
+      await packageImport(storage, testRepo, earlier);
+      const equal = equalFor(ExecutionStatusType);
+      const unrecorded = { kind: variant('unrecorded', null), message: '' };
+      for (const status of [succeeded, variant('cancelled', { ...cancelled.value, reason: unrecorded }), variant('interrupted', { ...interrupted.value, reason: unrecorded })]) {
+        const filed = await storage.refs.executionGet(testRepo, task, inputs, status.value.executionId);
+        assert.ok(filed !== null && equal(filed, status), `the ${status.type} is filed in the current form`);
+      }
     });
 
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {

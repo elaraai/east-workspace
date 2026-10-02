@@ -38,10 +38,10 @@ function repo(): FakeApi {
         logs: { stdout: STDOUT, stderr: STDERR },
         executions: [
             // Two attempts under one inputs hash (a retry after a failure): both are rows.
-            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-07T18:10:00Z', completedAt: some('2026-09-07T18:10:31Z'), duration: some(31_000n), exitCode: some(0n), peakBytes: some(BigInt(Math.round(2.8 * GB))) },
-            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('failed', null), startedAt: '2026-09-07T18:03:21Z', completedAt: some('2026-09-07T18:03:23Z'), duration: some(2_100n), exitCode: some(2n), peakBytes: some(BigInt(Math.round(1.2 * GB))) },
-            { inputsHash: '4be1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbba9', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-08T11:42:10Z', completedAt: some('2026-09-08T11:42:48Z'), duration: some(38_400n), exitCode: some(0n), peakBytes: some(BigInt(Math.round(2.9 * GB))) },
-            { inputsHash: 'e0d2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccc77', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('error', null), startedAt: '2026-09-06T08:00:00Z', completedAt: none, duration: none, exitCode: none, peakBytes: none },
+            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-07T18:10:00Z', completedAt: some('2026-09-07T18:10:31Z'), duration: some(31_000n), exitCode: some(0n), peakBytes: some(BigInt(Math.round(2.8 * GB))), reason: none },
+            { inputsHash: '1c07aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3f', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('failed', null), startedAt: '2026-09-07T18:03:21Z', completedAt: some('2026-09-07T18:03:23Z'), duration: some(2_100n), exitCode: some(2n), peakBytes: some(BigInt(Math.round(1.2 * GB))), reason: none },
+            { inputsHash: '4be1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbba9', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('success', null), startedAt: '2026-09-08T11:42:10Z', completedAt: some('2026-09-08T11:42:48Z'), duration: some(38_400n), exitCode: some(0n), peakBytes: some(BigInt(Math.round(2.9 * GB))), reason: none },
+            { inputsHash: 'e0d2cccccccccccccccccccccccccccccccccccccccccccccccccccccccccc77', inputHashes: ['0a44eeee', '7be2ffff'], status: variant('error', null), startedAt: '2026-09-06T08:00:00Z', completedAt: none, duration: none, exitCode: none, peakBytes: none, reason: none },
         ] as never,
     });
     api.task('main', {

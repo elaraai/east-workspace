@@ -610,9 +610,14 @@ class WebRefStore implements RefStore {
   }
 
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
-    checkExecution(taskHash, inputsHash, executionId);
-    const data = await this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
+    const data = await this.executionReadBytes(repo, taskHash, inputsHash, executionId);
     return data === null ? null : statusOf(taskHash, inputsHash, data);
+  }
+
+  /** Reads the attempt's record as it is. */
+  async executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null> {
+    checkExecution(taskHash, inputsHash, executionId);
+    return this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {

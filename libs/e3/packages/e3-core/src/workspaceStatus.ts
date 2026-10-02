@@ -19,6 +19,7 @@ import {
   decodePackageObject,
   WorkspaceRecordType,
   pathToString,
+  type StopReason,
   type TaskObject,
   type TreePath,
   type Structure,
@@ -98,6 +99,10 @@ export interface TaskStatusInfo {
    *  the status comes from reached — the one the output came from, or the
    *  failure — or `null` when it recorded none, or while it runs */
   peakBytes: number | null;
+  /** Why the latest attempt over the task's current inputs stopped, when it
+   *  was cancelled or interrupted and the task therefore reads `ready`;
+   *  `null` otherwise */
+  stopped: StopReason | null;
 }
 
 /**
@@ -258,6 +263,7 @@ export async function workspaceStatus(
   const taskIsStale = new Map<string, boolean>();
   const taskStatus = new Map<string, TaskStatus>();
   const taskPeak = new Map<string, number | null>();
+  const taskStopped = new Map<string, StopReason | null>();
 
   // First pass: determine which tasks have valid cached executions.
   // Tasks are independent here (computeTaskStatus reads nothing cross-task),
@@ -278,13 +284,15 @@ export async function workspaceStatus(
       return [taskName, computed] as const;
     })
   );
-  for (const [taskName, { status, peakBytes }] of firstPass) {
+  for (const [taskName, { status, peakBytes, stopped }] of firstPass) {
     taskStatus.set(taskName, status);
     taskPeak.set(taskName, peakBytes ?? null);
+    taskStopped.set(taskName, stopped ?? null);
     taskIsStale.set(taskName, status.type !== 'up-to-date');
   }
 
-  // Second pass: mark tasks as waiting if their upstream is stale
+  // Second pass: mark tasks as waiting if their upstream is stale. A task that
+  // waits no longer reads ready for its stopped attempt, so its reason goes.
   for (const [taskName] of taskNodes) {
     const currentStatus = taskStatus.get(taskName)!;
     if (currentStatus.type === 'ready') {
@@ -296,6 +304,7 @@ export async function workspaceStatus(
             type: 'waiting',
             reason: `Waiting for task '${depName}'`,
           });
+          taskStopped.set(taskName, null);
           break;
         }
       }
@@ -340,6 +349,7 @@ export async function workspaceStatus(
       output: pathToString(node.outputPath),
       dependsOn: taskDependsOn.get(taskName) ?? [],
       peakBytes: taskPeak.get(taskName) ?? null,
+      stopped: taskStopped.get(taskName) ?? null,
     });
   }
 
@@ -396,7 +406,9 @@ function collectDatasetPaths(
 
 /**
  * Compute the status of a task, and the peak memory of the execution it comes
- * from: the one its output came from, or its failure.
+ * from: the one its output came from, or its failure; or, for a task that
+ * reads ready because its latest attempt was cancelled or interrupted, why
+ * that attempt stopped.
  */
 async function computeTaskStatus(
   storage: StorageBackend,
@@ -407,7 +419,7 @@ async function computeTaskStatus(
   outputToTask: Map<string, string>,
   _taskNodes: Map<string, TaskNode>,
   _taskIsStale: Map<string, boolean>
-): Promise<{ status: TaskStatus; peakBytes?: number }> {
+): Promise<{ status: TaskStatus; peakBytes?: number; stopped?: StopReason }> {
   // First, check if execution is in progress
   const inProgressStatus = await checkInProgress(storage, runner, repo, node.hash);
   if (inProgressStatus) {
@@ -496,9 +508,10 @@ async function computeTaskStatus(
 
     case 'cancelled':
     case 'interrupted':
-      // e3 stopped the execution, or its orchestrator exited, before the task
-      // finished: it neither succeeded nor failed, and can run again
-      return { status: { type: 'ready' } };
+      // e3 stopped the execution, or it can no longer finish, before the task
+      // finished: it neither succeeded nor failed, and can run again. Its
+      // record says why.
+      return { status: { type: 'ready' }, stopped: execStatus.value.reason };
 
     case 'success': {
       // Execution succeeded - check if workspace output matches
@@ -532,7 +545,9 @@ async function computeTaskStatus(
 /**
  * Check if an execution is currently in progress for a task.
  *
- * Looks for a 'running' execution status the runner says can still finish.
+ * Looks for a 'running' execution status the runner says can still finish:
+ * whose judgement is `true`, where `false` and a host's reason both say it
+ * cannot.
  */
 async function checkInProgress(
   storage: StorageBackend,
@@ -549,7 +564,7 @@ async function checkInProgress(
     // A split task's units are recorded under its hash too; while they run,
     // the task's own execution is recorded running, from when it started.
     if (status.type === 'running' && !status.value.unit) {
-      if (await runner.executionAlive(storage, taskHash, inHash, status.value)) {
+      if (Object.is(await runner.executionAlive(storage, taskHash, inHash, status.value), true)) {
         return {
           type: 'in-progress',
           pid: Number(status.value.pid),

@@ -9,7 +9,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -17,7 +17,10 @@ import {
   readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus } from '@elaraai/e3-types';
+import type { BackendDamage } from './contract/index.js';
 import { openZip } from './package-files.js';
+import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
+import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
 import type { LogChunk, LogStore, RefStore, StorageBackend } from './storage/interfaces.js';
 import { ZipWriter } from './zip.js';
@@ -245,6 +248,44 @@ export function logsAtEachEnd(refs: RefStore, logs: LogStore): LogAtEnd[] {
     return write(repo, taskHash, inputsHash, executionId, status);
   };
   return found;
+}
+
+/**
+ * Leaves a local repository's execution records in bytes of a test's
+ * choosing, as a crash, a hand edit or an earlier release leaves a status
+ * file: what the contract suites' cases of such a record need of a local
+ * repository.
+ *
+ * @param repo - The repository's path
+ * @returns What leaves its records so
+ */
+export function localDamage(repo: string): BackendDamage {
+  return {
+    execution: (taskHash, inputsHash, executionId, bytes) => {
+      const dir = executionPath(repo, taskHash, inputsHash, executionId);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'status.beast2'), bytes ?? 'not a record');
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * Leaves an in-memory repository's execution records in bytes of a test's
+ * choosing (`damageExecution`): what the contract suites' cases of such a
+ * record need of the in-memory backend.
+ *
+ * @param storage - The backend
+ * @param repo - The repository
+ * @returns What leaves its records so
+ */
+export function inMemoryDamage(storage: InMemoryStorage, repo: string): BackendDamage {
+  return {
+    execution: (taskHash, inputsHash, executionId, bytes) => {
+      storage.refs.damageExecution(repo, taskHash, inputsHash, executionId, bytes);
+      return Promise.resolve();
+    },
+  };
 }
 
 /**

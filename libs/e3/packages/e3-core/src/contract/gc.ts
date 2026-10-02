@@ -222,6 +222,7 @@ export function gcTests(setup: BackendSetup): void {
         for (const [over, interrupted, plan] of [[resumable, idAt(now - 60_000, 3), resumes], [abandoned, idAt(old, 4), abandons]] as const) {
           await storage.refs.executionWrite(repo, split, over, interrupted, variant('interrupted', {
             executionId: interrupted, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), pid: 1n, unit: false,
+            reason: { kind: variant('yielded', null), message: 'interrupted: the run yielded mid-stage' },
           }));
           await storage.refs.executionPlanWrite(repo, split, over, plan);
         }
@@ -631,6 +632,7 @@ export function gcTests(setup: BackendSetup): void {
         const interrupted = uuidv7();
         await storage.refs.executionWrite(repo, taskHash, inputs, interrupted, variant('interrupted', {
           executionId: interrupted, inputHashes: [], startedAt: new Date(), completedAt: new Date(), pid: 1n, unit: false,
+          reason: { kind: variant('yielded', null), message: 'interrupted: the run yielded mid-stage' },
         }));
         const piece = await storage.objects.write(repo, encodeBeast2For(StringType)('a piece of the input'));
         const plan = await storage.objects.write(repo, encodeUnitPlan({

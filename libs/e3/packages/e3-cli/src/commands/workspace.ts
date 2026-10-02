@@ -342,6 +342,7 @@ export const workspaceCommand = {
             output: t.output,
             dependsOn: t.dependsOn,
             peakBytes: t.peakBytes.type === 'some' ? Number(t.peakBytes.value) : null,
+            stopped: t.stopped.type === 'some' ? t.stopped.value : null,
           })),
           summary: {
             datasets: {

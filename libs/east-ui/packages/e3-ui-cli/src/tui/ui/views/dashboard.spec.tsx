@@ -33,7 +33,7 @@ const GB = 1024 ** 3;
 
 /** A task of the status result, with the peak of the execution its status comes from. */
 const task = (name: string, status: unknown, dependsOn: string[], inputs: string[], peak: number | null = null) =>
-    ({ name, hash: `hash-${name}`, status, inputs, output: `.tasks.${name}.output`, dependsOn, peakBytes: peak !== null ? some(BigInt(Math.round(peak))) : none });
+    ({ name, hash: `hash-${name}`, status, inputs, output: `.tasks.${name}.output`, dependsOn, peakBytes: peak !== null ? some(BigInt(Math.round(peak))) : none, stopped: none });
 
 /** A dataset of the status result. */
 const dataset = (path: string, status: string, hash: string | null, producedBy: string | null) =>

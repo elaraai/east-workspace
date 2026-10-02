@@ -111,6 +111,7 @@ function convertTaskStatus(info: CoreTaskStatusInfo): TaskStatusInfo {
     output: info.output,
     dependsOn: info.dependsOn,
     peakBytes: info.peakBytes === null ? none : some(BigInt(info.peakBytes)),
+    stopped: info.stopped === null ? none : some(info.stopped),
   };
 }
 

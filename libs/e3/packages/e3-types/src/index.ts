@@ -185,6 +185,8 @@ export {
 
 // Execution status
 export {
+  StopReasonType,
+  type StopReason,
   ExecutionStatusType,
   type ExecutionStatus,
   decodeExecutionStatus,

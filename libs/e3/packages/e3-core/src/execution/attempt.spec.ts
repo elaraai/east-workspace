@@ -11,6 +11,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { equalFor, variant } from '@elaraai/east';
+import { StopReasonType } from '@elaraai/e3-types';
 import { ExecutionAttempt } from './attempt.js';
 import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
@@ -64,6 +66,17 @@ describe('an execution attempt', () => {
       }]);
     });
   }
+
+  it('records why a cancelled attempt stopped: aborted, the cause its log\'s last line names', async () => {
+    const { storage, ids, attempt, whole } = await heldAttempt();
+    const cause = 'cancelled: e3 stopped the runner because the run was aborted';
+    const result = await attempt.recordStopped('cancelled', cause);
+    assert.equal(result.cancelled, true);
+    const record = await storage.refs.executionGet(REPO, TASK, ids.inHash, ids.executionId);
+    assert.ok(record?.type === 'cancelled', `the record is ${record?.type}`);
+    assert.ok(equalFor(StopReasonType)(record.value.reason, { kind: variant('aborted', null), message: cause }));
+    assert.equal(whole('stderr'), `e3: ${cause}\n`);
+  });
 
   it('records an attempt whose owner cannot be recorded error once its log is flushed, and throws what the owner\'s write threw', async () => {
     const { storage, ends, ids, attempt, whole } = await heldAttempt();

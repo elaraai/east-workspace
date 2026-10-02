@@ -36,6 +36,7 @@ import {
 } from '@elaraai/east';
 
 import { StructureType, TreePathType } from './structure.js';
+import { StopReasonType } from './execution.js';
 import { IntakeFileType } from './intake.js';
 import { RunnerType } from './runner.js';
 import { TaskBodyType, TaskInputType, TaskOutputType, TaskPartitionType, TaskRoleType } from './task.js';
@@ -565,6 +566,9 @@ export const DatasetStatusInfoType = StructType({
  * @property peakBytes - The highest peak resident memory, in bytes, a runner
  *   of the execution the status comes from reached: the one the output came
  *   from, or the failure; `none` when it recorded none, or while it runs
+ * @property stopped - Why the latest attempt over the task's current inputs
+ *   stopped, when it was cancelled or interrupted and the task therefore reads
+ *   `ready`; `none` otherwise
  */
 export const TaskStatusInfoType = StructType({
   name: StringType,
@@ -574,6 +578,7 @@ export const TaskStatusInfoType = StructType({
   output: StringType,
   dependsOn: ArrayType(StringType),
   peakBytes: OptionType(IntegerType),
+  stopped: OptionType(StopReasonType),
 });
 
 /**
@@ -915,8 +920,9 @@ export const ApiDataflowExecutionStateType = StructType({
 
 /**
  * Execution status for history listing: `cancelled` when e3 stopped the
- * execution because its run was aborted, `interrupted` when the orchestrator
- * that owned it exited before it finished.
+ * execution because the signal it ran under was aborted, `interrupted` when
+ * it can no longer finish — its runner and its owner are gone, its host says
+ * so, or its run yielded mid-stage. Each says why in its item's `reason`.
  */
 export const ExecutionHistoryStatusType = VariantType({
   running: NullType,
@@ -939,6 +945,7 @@ export const ExecutionHistoryStatusType = VariantType({
  * @property exitCode - Process exit code (if failed)
  * @property peakBytes - The highest peak resident memory, in bytes, a runner
  *   of the execution reached, when it succeeded or failed and one reported it
+ * @property reason - Why it stopped, when it was cancelled or interrupted
  */
 export const ExecutionListItemType = StructType({
   inputsHash: StringType,
@@ -949,6 +956,7 @@ export const ExecutionListItemType = StructType({
   duration: OptionType(IntegerType),
   exitCode: OptionType(IntegerType),
   peakBytes: OptionType(IntegerType),
+  reason: OptionType(StopReasonType),
 });
 
 // =============================================================================

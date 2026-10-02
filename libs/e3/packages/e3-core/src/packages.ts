@@ -20,7 +20,6 @@ import {
   EnvironmentSpecType,
   compareReleases,
   environmentSpecObjectHashes,
-  decodeExecutionStatus,
   decodeFunctionObject,
   decodeMigrationObject,
   decodeMutationObject,
@@ -38,6 +37,7 @@ import { readRecordState } from './records.js';
 import { withRunningWork } from './running-work.js';
 import type { StorageBackend } from './storage/interfaces.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
+import { decodeExecutionStatusCarried } from './upgrades/execution-stop-reasons.js';
 import {
   ZipSourceError, ZipWriter, openZip, zipSinkOf, zipSourceOf, type ZipEntry, type ZipReader, type ZipSource, type ZipWritten,
 } from './zip.js';
@@ -259,7 +259,10 @@ export async function packageRead(
  * executions come next: each one's logs written whole and flushed
  * (`LogStore.flush`) before its status, so a reader that finds the status
  * reads the whole log, and an import stopped between the two writes the logs
- * again whole. The package ref is written last, once all it names is in.
+ * again whole. A status an earlier release exported is carried into the
+ * current form, as a repository's upgrades carry a stored one
+ * ({@link decodeExecutionStatusCarried}). The package ref is written last,
+ * once all it names is in.
  *
  * Nothing names what an import writes, or finds, until its package ref does,
  * so it holds the repository's running work ({@link withRunningWork}): gc
@@ -343,7 +346,7 @@ async function importZip(
     // finds the status reads the whole log. An import stopped between the two
     // left logs and no status, and the logs are written again whole.
     const statusData = files.get('status.beast2');
-    const status = statusData === undefined ? null : decodeExecutionStatus(statusData);
+    const status = statusData === undefined ? null : decodeExecutionStatusCarried(statusData);
     await storage.logs.remove(repo, taskHash, inputsHash, executionId);
     for (const stream of ['stdout', 'stderr'] as const) {
       const logData = files.get(`${stream}.txt`);
@@ -639,6 +642,7 @@ export async function packageZipOpenFrom(
         workspaceWrite: refuse('write a workspace'),
         workspaceRemove: refuse('remove a workspace'),
         executionGet: refs.executionGet.bind(refs),
+        executionReadBytes: refs.executionReadBytes.bind(refs),
         executionWrite: refuse('write an execution'),
         executionDelete: refuse('delete an execution'),
         executionListIds: refs.executionListIds.bind(refs),
