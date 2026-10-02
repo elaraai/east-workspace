@@ -81,11 +81,14 @@ jobs:
       # e3-ui-cli's query-plans spec sends its calls to every stock runner on
       # PATH: east-node, which the package holds, and east-c, the runner the
       # query builder sends (#1093). Build this tree's east-c as the east-c
-      # workflow does, Release, but its CLI alone, and put it on PATH.
+      # workflow does, Release, but its CLI alone, and put it on PATH — in the
+      # group that runs e3-ui-cli's tests only.
       - name: Install east-c build deps
+        if: matrix.group == 'rest'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
 
       - name: Build east-c (for e3-ui-cli's query plans)
+        if: matrix.group == 'rest'
         working-directory: libs/east-c
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -94,6 +97,7 @@ jobs:
 
       # The spec skips a runner it cannot find: hold here that it will find east-c.
       - name: east-c on PATH
+        if: matrix.group == 'rest'
         run: east-c version
 
       - name: Build east-py-datascience TypeScript (dependency)
