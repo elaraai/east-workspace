@@ -126,7 +126,18 @@ export async function functionCall(
 // Workspace-scoped named functions (package resolved from the deployment)
 // =============================================================================
 
-/** List the deployed package's functions. */
+/**
+ * List the deployed package's functions.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace whose deployed package holds the functions
+ * @param options - Request options including auth token
+ * @returns Each function's name and signature
+ * @throws {ApiError} `workspace_not_deployed` for a workspace nothing is
+ *   deployed to, and `workspace_not_found`
+ * @throws {AuthError} On 401 Unauthorized
+ */
 export async function workspaceFunctionList(
   url: string,
   repo: string,
@@ -136,7 +147,19 @@ export async function workspaceFunctionList(
   return get(url, wsBase(repo, ws), ArrayType(FunctionSignatureType), options);
 }
 
-/** Describe a function of the deployed package. */
+/**
+ * Describe a function of the deployed package.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param ws - The workspace whose deployed package holds the function
+ * @param fn - Function name
+ * @param options - Request options including auth token
+ * @returns The function's signature
+ * @throws {ApiError} `workspace_not_deployed` for a workspace nothing is
+ *   deployed to, and `workspace_not_found`
+ * @throws {AuthError} On 401 Unauthorized
+ */
 export async function workspaceFunctionDescribe(
   url: string,
   repo: string,
@@ -163,7 +186,8 @@ export async function workspaceFunctionDescribe(
  * @param options - Request options including auth token
  * @returns The call's terminal result
  * @throws {ApiError} `permission_denied` (`path` `runner`) when the caller may
- *   not run the function on the runner the request names
+ *   not run the function on the runner the request names, and
+ *   `workspace_not_found` / `workspace_not_deployed`
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function workspaceFunctionCall(
