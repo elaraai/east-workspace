@@ -70,6 +70,21 @@ suite (`make test-responsive`, `packages/east-ui-showcase/tests/responsive/`):
 a visual change lands with a visual invariant there. Never read a
 screenshot.
 
+### Where the code departs from the design system
+
+The design system is followed everywhere but here, where the user has ruled
+it wrong. These departures are deliberate: an audit, a review or a
+re-download never moves the code back towards the design system's text.
+
+- **No dialogs.** The design system routes destructive confirmations and
+  its one modal through `<Dialog>`, and keeps a `<CommandPalette>`. East has
+  neither: no dialogs, no command palette and no portal modals.
+  Confirmations, edits and pickers are anchored popovers, built from the
+  design system's popover and slice-edit cards
+  (`guidelines/cards/parts-popover.html`, `parts-slice-edit.html`).
+  `Dialog`, `CommandPalette` and `Dialog.open` are being removed; `Drawer`
+  stays for now. Popovers render through a portal, as they always have.
+
 ## Plugin skills (DO NOT EDIT casually)
 
 - `packages/east-ui/SKILL.md` → `east:east-ui`
