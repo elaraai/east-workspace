@@ -8,10 +8,12 @@
  * and the manifest writer's lifetimes.
  *
  * Usage: test_beast2_corpus [corpus-dir] [scratch-dir]
- *   (defaults: /tmp/east-test-ir/beast2_corpus, and the working directory)
+ *   (defaults: $EAST_TEST_IR_DIR/beast2_corpus, and the working directory)
  *
- * Exits 77 (ctest SKIP) when the corpus is absent — `make test-export` in
- * libs/east writes it beside the compliance IR.
+ * EAST_TEST_IR_DIR is set by the root paths.mk when this runs through make
+ * (`make -C libs/east-c unit`). Exits 77 (ctest SKIP) when it is unset or the
+ * corpus is absent — `make test-export` in libs/east writes it beside the
+ * compliance IR.
  */
 
 #include <east/compat.h>
@@ -416,7 +418,18 @@ static void run_file(const char *corpus, const char *file, void (*check)(EastVal
 
 int main(int argc, char **argv)
 {
-    const char *corpus = argc > 1 ? argv[1] : "/tmp/east-test-ir/beast2_corpus";
+    char default_corpus[1024];
+    const char *corpus = argc > 1 ? argv[1] : NULL;
+    if (!corpus) {
+        const char *ir = getenv("EAST_TEST_IR_DIR");
+        if (!ir || !*ir) {
+            printf("SKIP: EAST_TEST_IR_DIR is unset (run it through make: make -C libs/east-c "
+                   "unit)\n");
+            return SKIP_EXIT_CODE;
+        }
+        snprintf(default_corpus, sizeof(default_corpus), "%s/beast2_corpus", ir);
+        corpus = default_corpus;
+    }
     const char *scratch = argc > 2 ? argv[2] : ".";
 
     char probe[1200];

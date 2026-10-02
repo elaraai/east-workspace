@@ -1,6 +1,9 @@
 # east-web — the browser's platform packages
 # Dependencies are managed by pnpm from the monorepo root.
 
+# The checkout's paths: where east-node-std's suites are (EAST_NODE_STD_IR)
+include ../../paths.mk
+
 .PHONY: build test test-compliance lint clean help
 
 ## Build the project
@@ -16,8 +19,9 @@ test:
 	pnpm run test:compliance
 
 ## Run east-node-std's exported compliance suite over east-web-std, from
-## /tmp/east-node-std (`make -C ../east-node test-export-std`, or the root's
-## `make test-export`, writes it)
+## EAST_NODE_STD_IR, this checkout's tmp/east-node-std
+## (`make -C ../east-node test-export-std`, or the root's `make test-export`,
+## writes it)
 test-compliance:
 	pnpm run test:compliance
 

@@ -5,6 +5,12 @@
 # Each package's CMakeLists.txt locates the monorepo root via pnpm-workspace.yaml
 # and add_subdirectory's east-c directly — no EAST_C_SOURCE_DIR env var needed.
 
+# The checkout's paths: the exported corpora the compliance runs and the
+# conformance suites read (EAST_TEST_IR_DIR, EAST_EXAMPLES_IR_DIR,
+# EAST_NODE_STD_IR, EAST_NODE_IO_IR, EAST_DATASCIENCE_IR_DIR), and the
+# checkout's east-node CLI the three-way sweep runs (EAST_NODE_CLI)
+include ../../paths.mk
+
 # Build the native Cython extensions with the Ninja generator on every OS. On
 # Windows this avoids scikit-build's default multi-config Visual Studio generator,
 # whose deep TryCompile paths overflow MAX_PATH; ninja comes from build-deps (the
@@ -89,7 +95,7 @@ QUIET_FLAG = $(if $(EAST_QUIET),-q)
 # the eager-replay differential and its ratchets, the conformance round trip
 # (#531: these were dormant while only tests/serialization ran).
 test-east-py:
-	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py $(QUIET_FLAG)
+	uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir $(EAST_TEST_IR_DIR) $(QUIET_FLAG)
 	cd packages/east-py && uv run pytest tests -q --no-cov
 
 test-east-py-cli:
@@ -97,22 +103,22 @@ test-east-py-cli:
 
 ## The IR -> python codegen conformance round trip (#627): every exported
 ## compliance-corpus program and every *.examples.ts example prints as python,
-## rebuilds, and normalizes equal (needs /tmp/east-test-ir from `make
+## rebuilds, and normalizes equal (needs EAST_TEST_IR_DIR's export, `make
 ## test-export` in libs/east; exports the examples IR itself).
 test-conformance:
-	@cd ../east && npm run export:examples
+	@$(MAKE) --no-print-directory -C ../east export-examples
 	cd packages/east-py && uv run pytest tests/conformance -q --no-cov
 
 test-east-py-std:
-	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-std -p east_py_std $(QUIET_FLAG)
+	uv run --package elaraai-east-py-std python packages/east-py/tests/test_compliance.py --ir-dir $(EAST_NODE_STD_IR) -p east_py_std $(QUIET_FLAG)
 	cd packages/east-py-std && uv run pytest tests -q --no-cov
 
 test-east-py-io:
-	uv run --package elaraai-east-py-io python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-node-io -p east_py_std -p east_py_io $(QUIET_FLAG)
+	uv run --package elaraai-east-py-io python packages/east-py/tests/test_compliance.py --ir-dir $(EAST_NODE_IO_IR) -p east_py_std -p east_py_io $(QUIET_FLAG)
 
 test-east-py-datascience:
 	@cd packages/east-py-datascience && pnpm run test:export
-	uv run --package elaraai-east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir /tmp/east-py-datascience -p east_py_datascience $(QUIET_FLAG)
+	uv run --package elaraai-east-py-datascience python packages/east-py/tests/test_compliance.py --ir-dir $(EAST_DATASCIENCE_IR_DIR) -p east_py_datascience $(QUIET_FLAG)
 
 ## Run all tests
 test:

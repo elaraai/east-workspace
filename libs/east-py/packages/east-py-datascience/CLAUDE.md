@@ -16,11 +16,14 @@ TypeScript + Python package:
 ```bash
 make build       # tsc
 make test        # export the spec IR, then replay it with pytest
-make test-export # export IR to /tmp/east-py-datascience (for the Python side)
-make test-py     # replay already-exported IR (EAST_DATASCIENCE_IR_DIR overrides the dir)
+make test-export # export IR to EAST_DATASCIENCE_IR_DIR (for the Python side)
+make test-py     # replay already-exported IR from EAST_DATASCIENCE_IR_DIR
 make lint        # eslint + ruff
 make typecheck   # mypy
 ```
+
+`EAST_DATASCIENCE_IR_DIR` is the checkout's `tmp/east-py-datascience`, set by
+the root `paths.mk` — run these through make; a bare `pytest` skips the replay.
 
 The canonical full run is `make test-east-py-datascience EAST_QUIET=1` from
 `libs/east-py` (export + replay through the core runner). After editing a

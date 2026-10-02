@@ -34,16 +34,16 @@ See [`docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFI
 IR JSON test files are exported from the TypeScript [east](https://github.com/elaraai/east-workspace/tree/main/libs/east) project:
 
 ```bash
-# Export IR from TS side (workspace root)
+# Export IR from TS side (workspace root), into the checkout's tmp/east-test-ir
 make test-export
 
-# Run compliance tests
-make compliance        # east-c core
-make compliance-std    # east-c-std (sibling package)
-make compliance-all    # both
+# Run compliance tests (from libs/east-c/)
+make test-east-c       # east-c core
+make test-east-c-std   # east-c-std (sibling package)
+make test-all          # the gates and both
 
-# Single compliance test
-./build/packages/east-c/test_compliance /tmp/east-test-ir/Array.json
+# Single compliance test (from libs/east-c/)
+./build/packages/east-c/test_compliance ../../tmp/east-test-ir/Array.json
 ```
 
 ## Architecture

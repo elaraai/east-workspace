@@ -3,11 +3,13 @@
 This module loads IR test files exported from TypeScript via `npm run test:export`
 and executes them in Python to verify cross-implementation compatibility.
 
-To generate the test IR files:
-    npm run test:export
+To generate the test IR files, into ``E3_UI_SHOWCASE_TEST_IR`` (which the root
+``paths.mk`` sets to this checkout's ``tmp/e3-ui-showcase-tests``):
+    make test
 """
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
@@ -21,13 +23,14 @@ from east.types.types import FunctionType, NullType, StringType
 from east_py_std import platform as std_platform
 from east_py_io import platform as io_platform
 
-# Path where TypeScript exports test IR
-TEST_IR_DIR = Path("/tmp/e3-ui-showcase-tests")
+# Where TypeScript exports test IR, when the run goes through make
+_IR = os.environ.get("E3_UI_SHOWCASE_TEST_IR")
+TEST_IR_DIR = Path(_IR) if _IR else None
 
 
 def get_test_ir_files():
     """Get list of exported test IR JSON files."""
-    if not TEST_IR_DIR.exists():
+    if TEST_IR_DIR is None or not TEST_IR_DIR.exists():
         return []
     files = list(TEST_IR_DIR.glob("*.json"))
     return sorted(files)
@@ -150,10 +153,12 @@ def test_typescript_exported_ir(test_file, test_platforms):
 
 def test_typescript_test_ir_directory_exists():
     """Verify that TypeScript test IR directory exists."""
+    if TEST_IR_DIR is None:
+        pytest.skip("E3_UI_SHOWCASE_TEST_IR is unset: run it through make ('make test').")
     if not TEST_IR_DIR.exists():
         pytest.skip(
             f"Test IR directory {TEST_IR_DIR} not found. "
-            "Run 'npm run test:export' to generate test files."
+            "Run 'make test' to generate test files."
         )
     files = get_test_ir_files()
     assert len(files) > 0, f"No test IR files found in {TEST_IR_DIR}"

@@ -30,10 +30,13 @@ from east.expression.finalize import _node_children
 from east.serialization.json import decode_json_for, encode_json_for
 from east.types.type_of_type import IRType
 
-IR_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
-FILES = sorted(glob.glob(os.path.join(IR_DIR, "*.json")))
+# The exported corpus, which the root paths.mk names when the run goes through make
+IR_DIR = os.environ.get("EAST_TEST_IR_DIR")
+FILES = sorted(glob.glob(os.path.join(IR_DIR, "*.json"))) if IR_DIR else []
 
-pytestmark = pytest.mark.skipif(not FILES, reason=f"no exported IR corpus in {IR_DIR}")
+pytestmark = pytest.mark.skipif(
+    not FILES,
+    reason=f"no exported IR corpus in {IR_DIR}" if IR_DIR else "EAST_TEST_IR_DIR is unset: run it through make")
 
 
 def _json(ir) -> str:

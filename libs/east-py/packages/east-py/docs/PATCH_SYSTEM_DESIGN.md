@@ -538,7 +538,7 @@ cd /home/crambelsoupy/src/east-py/packages/east-py
 uv run pytest tests/test_compliance.py -v -k "patch"
 ```
 
-The TypeScript `test/patch.spec.ts` (1,887 lines) uses `describeEast` which exports IR to `/tmp/east-test-ir/`. The Python compliance runner loads these IR files and executes them against the Python runtime, validating:
+The TypeScript `test/patch.spec.ts` (1,887 lines) uses `describeEast` which exports IR to `EAST_TEST_IR_DIR` (the checkout's `tmp/east-test-ir/`, set by the root `paths.mk`). The Python compliance runner loads these IR files and executes them against the Python runtime, validating:
 
 - All primitive type patches
 - Array LCS diffing with offset tracking

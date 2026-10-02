@@ -1,6 +1,10 @@
 # east-c — C port of the East language runtime
 # Native build via CMake.
 
+# The checkout's paths: its root, and the exported corpora the compliance and
+# corpus gates run (EAST_TEST_IR_DIR, EAST_NODE_STD_IR)
+include ../../paths.mk
+
 .PHONY: build rebuild clean install-cli \
         unit test test-east-c test-east-c-std test-all \
         leak-check leak-check-std leak-check-all bench-cli \
@@ -27,8 +31,6 @@ rebuild: clean build
 clean:
 	@rm -rf build
 
-REPO_ROOT := $(abspath $(CURDIR)/../..)
-
 ## Install east-c CLI to ~/.local/bin and wire the workspace node_modules/.bin
 ## so the e3 runner resolves `east-c` in-repo.
 install-cli: build
@@ -51,18 +53,20 @@ install-cli: build
 
 ## Run the ctest gates (value layout, recursive-type lifecycle, type-to-value
 ## interning, beast2 hardening, platform-signature parity). These need no
-## exported IR, so they run before the compliance suites.
+## exported IR, so they run before the compliance suites; the corpus gates
+## among them run EAST_TEST_IR_DIR's export when there is one, and skip
+## without it.
 unit: build
 	@cd build && ctest --output-on-failure
 
 test-east-c: build
-	@./packages/east-c/scripts/run_compliance.sh
-	@./build/packages/east-c/test_platform_check /tmp/east-test-ir/platform_check || [ $$? -eq 77 ]
-	@./build/packages/east-c/test_beast2_corpus /tmp/east-test-ir/beast2_corpus build || [ $$? -eq 77 ]
-	@cd build/packages/east-c-cli && ./test_cli_exec ./east-c /tmp/east-test-ir/runner_corpus || [ $$? -eq 77 ]
+	@./packages/east-c/scripts/run_compliance.sh $(EAST_TEST_IR_DIR)
+	@./build/packages/east-c/test_platform_check $(EAST_TEST_IR_DIR)/platform_check || [ $$? -eq 77 ]
+	@./build/packages/east-c/test_beast2_corpus $(EAST_TEST_IR_DIR)/beast2_corpus build || [ $$? -eq 77 ]
+	@cd build/packages/east-c-cli && ./test_cli_exec ./east-c $(EAST_TEST_IR_DIR)/runner_corpus || [ $$? -eq 77 ]
 
 test-east-c-std: build
-	@./packages/east-c/scripts/run_compliance.sh /tmp/east-node-std build/packages/east-c-std/test_std_compliance
+	@./packages/east-c/scripts/run_compliance.sh $(EAST_NODE_STD_IR) build/packages/east-c-std/test_std_compliance
 
 ## Run native tests (gates + east-c + east-c-std)
 test: unit test-east-c test-east-c-std
@@ -108,11 +112,11 @@ bench-cli: build
 ## several gates (recursive-type lifecycle, gc pacing/untracking, value
 ## layout) state ASan/LSan as their oracle, which only holds if they run here.
 leak-check:
-	@./packages/east-c/scripts/run_leak_check.sh
+	@./packages/east-c/scripts/run_leak_check.sh $(EAST_TEST_IR_DIR)
 	@ASAN_OPTIONS="detect_leaks=1" ctest --test-dir build-asan --output-on-failure
 
 leak-check-std:
-	@./packages/east-c/scripts/run_leak_check.sh /tmp/east-node-std packages/east-c-std/test_std_compliance
+	@./packages/east-c/scripts/run_leak_check.sh $(EAST_NODE_STD_IR) packages/east-c-std/test_std_compliance
 
 leak-check-all: leak-check leak-check-std
 

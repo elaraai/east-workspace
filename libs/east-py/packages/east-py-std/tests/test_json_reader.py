@@ -9,8 +9,8 @@ The invariant these pin: the reader accepts exactly the documents
 every scalar but DateTime, whose schema is RFC 3339's ``date-time``, so the
 encoder's own output and the RFC 3339 forms are the accept corpus, and the
 historic decoder's tolerances and non-RFC 3339 text the reject corpus. The
-cross-runtime replay of the TypeScript
-suite (``test_compliance.py --ir-dir /tmp/east-node-std``) covers the East-level
+cross-runtime replay of the TypeScript suite (``make test-east-py-std``, which
+runs ``test_compliance.py --ir-dir $EAST_NODE_STD_IR``) covers the East-level
 behaviour; these cover the bridge — that python holds the bytes and the handle
 correctly, and that east-c's strictness is what reaches a python caller.
 """

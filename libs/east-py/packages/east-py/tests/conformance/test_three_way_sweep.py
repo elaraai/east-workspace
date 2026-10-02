@@ -22,12 +22,13 @@ programs on east-node, and ``test_ts_py_roundtrip`` executes IR₂ here.
 The TypeScript leg runs once for the whole sweep: every IR₂ is written to
 a directory (as IR JSON, the form ``east-node`` reads) and one ``east-node
 transpile <dir> -o <ts> --rebuild <ir3>`` prints and rebuilds them all,
-each IR₃ coming back as a beast2 IR bundle. The CLI is found at ``EAST_NODE_CLI`` (the
-path of ``bin/east-node.mjs`` or an installed ``east-node``), else on
-``PATH``; without it the sweep SKIPS — the local default. CI sets
-``EAST_SWEEP_REQUIRED=1``, under which a missing CLI is a collection
-error. ``EAST_CONFORMANCE_SAVE=<dir>`` keeps every printed TypeScript
-module under ``<dir>/ts``.
+each IR₃ coming back as a beast2 IR bundle. The CLI is ``EAST_NODE_CLI``,
+which the root ``paths.mk`` sets to this checkout's ``bin/east-node.mjs`` —
+never ``PATH``'s ``east-node``, a global link to one checkout's CLI that
+would run another checkout's east. Without it the sweep SKIPS — the local
+default outside make. CI sets ``EAST_SWEEP_REQUIRED=1``, under which a
+missing CLI is a collection error. ``EAST_CONFORMANCE_SAVE=<dir>`` keeps
+every printed TypeScript module under ``<dir>/ts``.
 """
 
 from __future__ import annotations
@@ -44,15 +45,23 @@ from east.runtime._compiler_eastc import diff_ir
 from east.serialization.beast2 import decode_beast2_with_header_for
 from east.serialization.json import encode_json_for
 from east.types.type_of_type import IRType
-from tests.conformance.test_ts_py_roundtrip import CORPUS, EXAMPLES, SAVE_DIR, _load, _rebuild
+from tests.conformance.test_ts_py_roundtrip import (
+    CORPUS,
+    CORPUS_WHERE,
+    EXAMPLES,
+    EXAMPLES_WHERE,
+    SAVE_DIR,
+    _load,
+    _rebuild,
+)
 
-EAST_NODE = os.environ.get("EAST_NODE_CLI") or shutil.which("east-node")
+EAST_NODE = os.environ.get("EAST_NODE_CLI")
 REQUIRED = os.environ.get("EAST_SWEEP_REQUIRED") == "1"
 
 if REQUIRED and not EAST_NODE:
     raise RuntimeError(
-        "EAST_SWEEP_REQUIRED=1 but no east-node CLI: set EAST_NODE_CLI to "
-        "libs/east-node/packages/east-node-cli/bin/east-node.mjs (built) or put east-node on PATH")
+        "EAST_SWEEP_REQUIRED=1 but EAST_NODE_CLI is unset: run it through make, which sets it to "
+        "this checkout's libs/east-node/packages/east-node-cli/bin/east-node.mjs (built)")
 
 PROGRAMS: list[tuple[str, str]] = (
     [(f"corpus/{os.path.basename(p)[:-5]}", p) for p in CORPUS]
@@ -96,8 +105,8 @@ def sweep(tmp_path_factory):
     return programs, ts_dir, ir3_dir
 
 
-@pytest.mark.skipif(not EAST_NODE, reason="no east-node CLI (EAST_NODE_CLI unset, east-node not on PATH)")
-@pytest.mark.skipif(not PROGRAMS, reason="no exported IR corpus or examples")
+@pytest.mark.skipif(not EAST_NODE, reason="EAST_NODE_CLI is unset: run it through make")
+@pytest.mark.skipif(not PROGRAMS, reason=f"nothing exported: no IR corpus in {CORPUS_WHERE}, no examples in {EXAMPLES_WHERE}")
 @pytest.mark.parametrize("label", [label for label, _ in PROGRAMS])
 def test_three_way(label, sweep):
     programs, ts_dir, ir3_dir = sweep

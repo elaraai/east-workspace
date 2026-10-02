@@ -129,7 +129,8 @@ them. Run locally, it needs what e3's CI sets up before the package tests
   `pnpm --filter @elaraai/e3-web exec playwright-core install --only-shell chromium`;
 - east-node-std's compliance suite, exported by
   `make -C libs/east-node test-export-std` (from the workspace root) to
-  `EAST_NODE_STD_IR`, or to `/tmp/east-node-std` when that is unset;
+  `EAST_NODE_STD_IR`, which the root `paths.mk` sets to the checkout's
+  `tmp/east-node-std` (run the tests through make, which sets it);
 - httpbin on `:8085`: the workspace root's `make services-up`.
 
 A Chromium spec never skips: when Chromium cannot launch, its `before`

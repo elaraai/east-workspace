@@ -12,11 +12,11 @@ and paths it must not write. Every case is copied and executed with ``exec``,
 its inputs read as the unit's ``decode`` says, and held to TypeScript's
 outputs and outcome — as east-node's and east-c's runners are.
 
-The corpus is read from ``$EAST_TEST_IR_DIR/runner_corpus`` (default
-``/tmp/east-test-ir``), where ``make test-export`` in libs/east writes it
-beside the compliance IR. Without it the tests skip — the local default. CI
-sets ``EAST_CONFORMANCE_REQUIRED=1``, under which a missing corpus is a
-collection error.
+The corpus is read from ``$EAST_TEST_IR_DIR/runner_corpus``, which the root
+``paths.mk`` sets when the run goes through make; ``make test-export`` in
+libs/east writes it beside the compliance IR. Without it the tests skip — the
+local default. CI sets ``EAST_CONFORMANCE_REQUIRED=1``, under which a
+missing corpus is a collection error.
 """
 
 from __future__ import annotations
@@ -31,14 +31,16 @@ import pytest
 from east.serialization.beast2 import decode_beast2_with_header_for, read_beast2_type
 from east.utils.ordering import equal_for
 
-CORPUS_DIR = Path(os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")) / "runner_corpus"
+_TEST_IR_DIR = os.environ.get("EAST_TEST_IR_DIR")
+CORPUS_DIR = Path(_TEST_IR_DIR) / "runner_corpus" if _TEST_IR_DIR else None
+CORPUS_WHERE = str(CORPUS_DIR) if CORPUS_DIR else "EAST_TEST_IR_DIR, which is unset (run it through make)"
 REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 FIXTURES = Path(__file__).parent / "fixtures"
 
-if REQUIRED and not (CORPUS_DIR / "index.beast2").exists():
+if REQUIRED and not (CORPUS_DIR and (CORPUS_DIR / "index.beast2").exists()):
     raise RuntimeError(
-        f"EAST_CONFORMANCE_REQUIRED=1 but no runner corpus in {CORPUS_DIR} "
-        "(`make test-export` in libs/east, or set EAST_TEST_IR_DIR)")
+        f"EAST_CONFORMANCE_REQUIRED=1 but no runner corpus in {CORPUS_WHERE} "
+        "(`make test-export` in libs/east)")
 
 
 def _decode(path: Path):
@@ -47,12 +49,14 @@ def _decode(path: Path):
     return t, decode_beast2_with_header_for(t)(data)
 
 
-CASES = list(_decode(CORPUS_DIR / "index.beast2")[1]) if (CORPUS_DIR / "index.beast2").exists() else []
+CASES = (list(_decode(CORPUS_DIR / "index.beast2")[1])
+         if CORPUS_DIR and (CORPUS_DIR / "index.beast2").exists() else [])
 
 
-@pytest.mark.skipif(not CASES, reason=f"no runner corpus in {CORPUS_DIR}")
+@pytest.mark.skipif(not CASES, reason=f"no runner corpus in {CORPUS_WHERE}")
 @pytest.mark.parametrize("name", CASES)
 def test_a_unit_comes_to_typescripts_outputs_and_outcome(name, tmp_path):
+    assert CORPUS_DIR is not None
     case_type, case = _decode(CORPUS_DIR / name / "case.beast2")
     # A copy per case: a unit writes beside itself.
     unit_dir = tmp_path / name

@@ -10,7 +10,7 @@
  * exactly one byte string — in every runtime. This suite pins those bytes for
  * the value shapes whose encodings have actually diverged between the TS, C
  * and Python backends, and asserts that decoding and re-encoding reproduces
- * them. It is exported to /tmp/east-test-ir and replayed by the east-c and
+ * them. It is exported to EAST_TEST_IR_DIR and replayed by the east-c and
  * east-py compliance harnesses, so a runtime that disagrees fails here rather
  * than silently splitting an e3 object store across two hashes.
  *

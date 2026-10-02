@@ -35,17 +35,17 @@ ctest --output-on-failure
 IR JSON test files are exported from the TypeScript [east](https://github.com/elaraai/east-workspace/tree/main/libs/east) project.
 
 ```bash
-# Generate IR files (from ../east):
-cd ../east && EXPORT_TEST_IR=/tmp/east-test-ir npm run test:export
+# Generate IR files, into the checkout's tmp/east-test-ir (the root paths.mk):
+make -C ../east test-export
 
 # Run all compliance tests:
-./scripts/run_compliance.sh
+make test-east-c
 
 # Run a single compliance test:
-./build/packages/east-c/test_compliance /tmp/east-test-ir/Array.json
+./build/packages/east-c/test_compliance ../../tmp/east-test-ir/Array.json
 
 # Run memory leak checks (ASAN):
-./scripts/run_leak_check.sh
+make leak-check
 ```
 
 ## CLI Usage

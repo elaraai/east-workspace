@@ -1,6 +1,10 @@
 # east-node — Node.js platform packages
 # Dependencies are managed by pnpm from the monorepo root.
 
+# The checkout's paths: where the suites are exported (EAST_NODE_STD_IR,
+# EAST_NODE_IO_IR)
+include ../../paths.mk
+
 .PHONY: build test test-export test-export-std test-export-io lint clean help
 
 ## Build the project
@@ -17,11 +21,12 @@ test-export:
 	pnpm --filter @elaraai/east-node-io run test:export
 
 ## Export test IR from east-node-std only (no Docker services needed), into
-## EAST_NODE_STD_IR when it is set and /tmp/east-node-std otherwise
+## EAST_NODE_STD_IR (this checkout's tmp/east-node-std)
 test-export-std:
 	pnpm --filter @elaraai/east-node-std run test:export
 
-## Export test IR from east-node-io only (requires Docker services)
+## Export test IR from east-node-io only (requires Docker services), into
+## EAST_NODE_IO_IR (this checkout's tmp/east-node-io)
 test-export-io:
 	pnpm --filter @elaraai/east-node-io run test:export
 

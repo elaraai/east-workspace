@@ -196,16 +196,19 @@ Three suites, one contract:
 
 | Suite | Direction | Corpus |
 |---|---|---|
-| `libs/east/src/codegen/codegen.spec.ts` | IR → TypeScript → IR (+ executes on east-node) | hand-written coverage of every node kind; every exported example (`/tmp/east-examples-ir`); every compliance program (`/tmp/east-test-ir`) |
+| `libs/east/src/codegen/codegen.spec.ts` | IR → TypeScript → IR (+ executes on east-node) | hand-written coverage of every node kind; every exported example (`EAST_EXAMPLES_IR_DIR`); every compliance program (`EAST_TEST_IR_DIR`) |
 | `tests/conformance/test_ts_py_roundtrip.py` | IR → python → IR (+ executes on east-c; every corpus program's compliance run compared with the original's) | the same |
 | `tests/conformance/test_three_way_sweep.py` | IR₁ → python → IR₂ → TypeScript (`east-node transpile --rebuild`) → IR₃, `IR₁ ≡ IR₂ ≡ IR₃` (+ IR₃ executes on east-c) | the same |
 
-The corpora are exported once from TypeScript (`make test-export`, `npm run
-export:examples` in `libs/east`) and read by every suite from
-`EAST_TEST_IR_DIR` / `EAST_EXAMPLES_IR_DIR`. Locally a missing corpus SKIPS
-the leg; CI sets `EAST_CONFORMANCE_REQUIRED=1` (and `EAST_SWEEP_REQUIRED=1`
-for the three-way sweep, which also needs the east-node CLI at
-`EAST_NODE_CLI`), under which a missing corpus is a failure — a leg that
+The corpora are exported once from TypeScript (`make test-export`, `make
+export-examples` in `libs/east`) into `EAST_TEST_IR_DIR` /
+`EAST_EXAMPLES_IR_DIR`, and every suite reads them from there. The root
+`paths.mk` sets both to the checkout's own `tmp/`, so make supplies them and
+two checkouts never read each other's. Locally a missing corpus, or an unset
+variable, SKIPS the leg; CI sets `EAST_CONFORMANCE_REQUIRED=1` (and
+`EAST_SWEEP_REQUIRED=1` for the three-way sweep, which also needs the
+east-node CLI at `EAST_NODE_CLI` — `paths.mk` names the checkout's own,
+never `PATH`'s), under which a missing corpus is a failure — a leg that
 silently skipped is how a round trip went unrun before.
 
 ## 5. Recipes

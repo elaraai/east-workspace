@@ -1,3 +1,6 @@
+# The checkout's paths: where the suites are exported (E3_UI_SHOWCASE_TEST_IR)
+include ../../../../paths.mk
+
 DIST := /tmp/east-ui-showcase
 REPO := .repos
 VERSION := $(shell node -p "require('./package.json').version")
