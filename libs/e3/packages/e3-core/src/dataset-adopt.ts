@@ -229,6 +229,8 @@ export async function takeIn(
  *   type the dataset declares
  * @throws {DeliveryRefusedError} When a runner refuses the collection the
  *   store holds whole
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before any
+ *   store is asked
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, the store does not know the
  *   delivery, the intake was aborted, or a garbage collection is running
@@ -271,6 +273,8 @@ export async function datasetAdoptObject(
  *   name
  * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
  *   type the dataset declares
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before any
+ *   store is asked
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, or a garbage collection is running
  */
