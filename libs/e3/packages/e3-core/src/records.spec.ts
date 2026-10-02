@@ -419,6 +419,42 @@ describe('records', () => {
     assert.strictEqual((await recordCompact(storage, repo, ws, 'nope', { actor: 'x' })).kind, 'invalid');
   });
 
+  it('a budget stops a contended compaction\'s retries, as their own window does', async (t) => {
+    const genesis = await storage.datasets.read(repo, ws, 'records/counter');
+    assert.ok(genesis && genesis.type === 'value');
+    const stateHash = genesis.value.hash;
+
+    // The clock moves only as the test moves it: each attempt takes a tenth of
+    // a second of it, so two spend the 200ms budget however slow the machine,
+    // where the 30s retry window would take three hundred. Every attempt loses
+    // its swap to a writer that commits between its read and its write.
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const datasets = storage.datasets;
+    const readVersioned = datasets.readVersioned.bind(datasets);
+    let attempts = 0;
+    datasets.readVersioned = async (r: string, w: string, path: string) => {
+      const read = await readVersioned(r, w, path);
+      attempts++;
+      t.mock.timers.tick(100);
+      await datasets.write(r, w, path, variant('value', {
+        hash: stateHash, versions: new Map([['.records.counter', attempts.toString(16).padEnd(64, '0')]]),
+      }));
+      return read;
+    };
+    let outcome: MutationOutcome;
+    try {
+      outcome = await recordCompact(storage, repo, ws, 'counter', { actor: 'cli:test', budgetMs: 200 });
+    } finally {
+      datasets.readVersioned = readVersioned;
+    }
+    assert.deepStrictEqual(outcome, { kind: 'conflict', attempts: 2 }, 'the budget stopped the retries');
+    assert.strictEqual(attempts, 2, 'no attempt was made once the budget was spent');
+
+    // The budget bounds the retries, and not the first attempt: spent before
+    // it starts, an uncontended compaction still commits.
+    assert.strictEqual((await recordCompact(storage, repo, ws, 'counter', { actor: 'cli:test', budgetMs: 0 })).kind, 'committed');
+  });
+
   it('records the args tuple on a commit and none on $init', async () => {
     const decodeArgs = decodeBeast2For(ArrayType(BlobType));
     await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });

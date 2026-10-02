@@ -33,15 +33,17 @@ const DEFAULT_LIMITS = { timeoutMs: 60_000, maxLogBytes: 64 * 1024 };
 const MAX_TIMEOUT_MS = 10 * 60_000;
 const MAX_LOG_BYTES = 256 * 1024;
 
-/** Wall-clock reserved (ms) below a caller's mutation budget for the final,
- *  non-preemptible commit write + response encode. Best-effort: a very large
- *  remote state write can still overrun, so the budget is a strong-but-not-hard
- *  bound on a typed terminal. Must stay below the smallest supported budget. */
+/** Wall-clock reserved (ms) below a caller's budget for a mutation or a
+ *  compaction, for the final, non-preemptible commit write + response encode.
+ *  Best-effort: a very large remote state write can still overrun, so the
+ *  budget is a strong-but-not-hard bound on a typed terminal. Must stay below
+ *  the smallest supported budget. */
 const MUTATION_BUDGET_HEADROOM_MS = 2_000;
 
-/** Reduce a caller's wall-clock mutation budget by the commit/encode headroom,
- *  flooring at 1ms. Returns undefined when no budget is supplied (the default
- *  local behaviour — no gateway, so no cap). Pure; unit-tested directly. */
+/** Reduce a caller's wall-clock budget for a mutation or a compaction by the
+ *  commit/encode headroom, flooring at 1ms. Returns undefined when no budget is
+ *  supplied (the default local behaviour — no gateway, so no cap). Pure;
+ *  unit-tested directly. */
 export function effectiveBudgetMs(budgetMs: number | undefined): number | undefined {
   if (budgetMs === undefined) return undefined;
   return Math.max(1, budgetMs - MUTATION_BUDGET_HEADROOM_MS);
@@ -163,6 +165,10 @@ export async function callMutationSync(
 /**
  * Compact a record's history, returning the terminal MutationResult of the
  * `$compact` commit.
+ *
+ * @param budgetMs - The host's deadline for the call, such as its request
+ *   timeout. The compaction's retries stop the commit/encode headroom under
+ *   it, and it answers `conflict`; omitted, they run their own window.
  */
 export async function compactRecord(
   storage: StorageBackend,
@@ -170,9 +176,10 @@ export async function compactRecord(
   workspace: string,
   record: string,
   actor: string,
+  budgetMs?: number,
 ): Promise<Response> {
   try {
-    const outcome = await recordCompact(storage, repoPath, workspace, record, { actor });
+    const outcome = await recordCompact(storage, repoPath, workspace, record, { actor, budgetMs: effectiveBudgetMs(budgetMs) });
     return sendSuccess(MutationResultType, outcomeToResult(outcome));
   } catch (err) {
     return sendError(MutationResultType, errorToVariant(err));

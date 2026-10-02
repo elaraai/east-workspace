@@ -17,8 +17,50 @@
  */
 
 import { LocalStorage, recordHistory, summarizeDelta } from '@elaraai/e3-core';
-import { workspaceRecordHistory } from '@elaraai/e3-api-client';
+import { workspaceRecordHistory, type RecordHistoryResult } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
+
+/** One request for a record's history: the commits from `from`, or from the
+ *  head when it is undefined, up to `limit`, or as many as the server answers
+ *  a request that names none with. */
+export type HistoryPage = (limit: number | undefined, from: string | undefined) => Promise<RecordHistoryResult>;
+
+/**
+ * A record's commits over the API, newest first.
+ *
+ * @remarks
+ * A host may answer a request that names no limit with one page of the chain
+ * (e3-api-server's `historyLimit`), so asked for the whole chain, this walks
+ * the pages to its end, each from the last commit's parent. Asked for a
+ * limit, it makes the one request. The walk ends where the chain does: at its
+ * root, at a page the server answers empty, as it answers a link it cannot
+ * read, or before a commit already returned, where a damaged chain loops.
+ *
+ * @param page - Makes one request
+ * @param limit - The most commits to return; the whole chain when undefined
+ * @param from - The commit to start at; the head when undefined
+ * @returns The commits, newest first, each once
+ */
+export async function remoteHistory(
+  page: HistoryPage,
+  limit: number | undefined,
+  from: string | undefined,
+): Promise<RecordHistoryResult['commits']> {
+  const commits: RecordHistoryResult['commits'] = [];
+  const seen = new Set<string>();
+  let next = from;
+  for (;;) {
+    const answered = (await page(limit, next)).commits;
+    for (const commit of answered) {
+      if (seen.has(commit.hash)) return commits;
+      seen.add(commit.hash);
+      commits.push(commit);
+    }
+    const last = answered.at(-1);
+    if (limit !== undefined || last === undefined || last.parent.type !== 'some') return commits;
+    next = last.parent.value;
+  }
+}
 
 interface CommitLine {
   hash: string;
@@ -62,8 +104,9 @@ async function historyRemote(
   baseUrl: string, repo: string, token: string, ws: string, record: string,
   limit: number | undefined, from: string | undefined, delta: boolean,
 ): Promise<void> {
-  const result = await workspaceRecordHistory(baseUrl, repo, ws, record, limit, { token }, from);
-  printCommits(result.commits.map((c) => ({
+  const commits = await remoteHistory(
+    (pageLimit, pageFrom) => workspaceRecordHistory(baseUrl, repo, ws, record, pageLimit, { token }, pageFrom), limit, from);
+  printCommits(commits.map((c) => ({
     hash: c.hash,
     mutation: c.mutation,
     actor: c.actor,
