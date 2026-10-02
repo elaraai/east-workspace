@@ -9,6 +9,7 @@
  * Exercises the graph-free execution path end-to-end against a real server
  * + real east-node runner: list/describe, sync calls, limits
  * (too_large / timed_out), cancellation, both scopes (package + workspace),
+ * the workspace scope's answer for a workspace with no package, or none,
  * runner override — never the custom runtime, and a package the function does
  * not load only for an elevated caller — one-shot with value, dataset and
  * collection-dataset args,
@@ -37,6 +38,7 @@ import {
   decodeBeast2For,
   encodeEastIR,
   equalFor,
+  isValueOf,
   printFor,
   variant,
   some,
@@ -55,6 +57,8 @@ import {
   functionDescribe,
   functionCall,
   workspaceFunctionCall,
+  workspaceFunctionDescribe,
+  workspaceFunctionList,
   oneShotExecute,
   splitCall,
   splitCallExplain,
@@ -67,7 +71,9 @@ import {
   type SplitCallRequest,
   type SplitCallStatus,
 } from '@elaraai/e3-api-client';
-import { ExecuteResultType, PermissionDeniedErrorType, type TreePath } from '@elaraai/e3-types';
+import {
+  ExecuteResultType, PermissionDeniedErrorType, WorkspaceNotDeployedErrorType, WorkspaceNotFoundErrorType, type TreePath,
+} from '@elaraai/e3-types';
 import { Console } from '@elaraai/east-node-std';
 
 import type { TestContext } from '../context.js';
@@ -300,6 +306,35 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       );
       assert.equal(successValue(viaPackage), 9n);
       assert.equal(successValue(viaWorkspace), 9n);
+    });
+
+    it('the workspace-scoped routes answer a workspace with no package, or none at all, as an ApiError the client reads', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+      const base = ctx.config.baseUrl;
+      await ctx.createWorkspace('fn-empty-ws');
+
+      // Each route answers in its own type's envelope, which its client call
+      // decodes: another route's would read as a decode error, not the API's.
+      for (const [ws, code, type] of [
+        ['fn-empty-ws', 'workspace_not_deployed', WorkspaceNotDeployedErrorType],
+        ['fn-no-such-ws', 'workspace_not_found', WorkspaceNotFoundErrorType],
+      ] as const) {
+        for (const [route, call] of [
+          ['list', () => workspaceFunctionList(base, ctx.repoName, ws, opts)],
+          ['describe', () => workspaceFunctionDescribe(base, ctx.repoName, ws, 'add', opts)],
+          ['call', () => workspaceFunctionCall(base, ctx.repoName, ws, 'add', request([encodeInt(4n), encodeInt(5n)]), opts)],
+        ] as const) {
+          await assert.rejects(call(), (err: unknown) => {
+            assert.ok(err instanceof ApiError, `${ws} ${route}: expected an ApiError, got ${err}`);
+            assert.equal(err.code, code, `${ws} ${route}`);
+            assert.ok(isValueOf(err.details, type), `${ws} ${route}: the error names the workspace`);
+            const details = err.details as ValueTypeOf<typeof type>;
+            assert.ok(equalFor(type)(details, { workspace: ws }), `${ws} ${route}: ${printFor(type)(details)}`);
+            return true;
+          });
+        }
+      }
     });
 
     it('a runner override in the request is honoured, with how it reads the inputs', async (t) => {
