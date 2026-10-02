@@ -123,22 +123,38 @@ test.describe("Query builder (#940)", () => {
         });
     });
 
-    test("the toolbar folds by one ladder — Run's keys, Copy jq, the history item — and a narrower frame folds its first steps", async ({ page }) => {
+    test("the toolbar folds by one ladder — Run's keys, Copy jq, the history item — a step each time the frame is narrower than the row's items", async ({ page }) => {
         const builder = await openBuilder(page);
         const toolbar = builder.locator(":scope > [data-slot=toolbar] [data-toolbar]");
         await expect.poll(() => toolbar.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
         // At the mock's 1240px frame nothing folds.
         await expect.poll(() => toolbar.getAttribute("data-toolbar-folds")).toBe("0");
         const ladder = ["run", "copy", "history"];
-        for (const [frame, folds] of [[500, 1], [460, 2], [420, 3]] as const) {
+        const folded = async () => {
+            const keys = await toolbar.evaluate((row) => (row.getAttribute("data-toolbar-state") ?? "").split(";")
+                .map((s) => s.split("=")).filter(([, f]) => !f!.startsWith("0/")).map(([k]) => k!));
+            // The state lists the items in the row's order; they are put in the ladder's.
+            return keys.sort((a, b) => ladder.indexOf(a) - ladder.indexOf(b));
+        };
+        // The frame whose row is exactly as wide as its items, as they are drawn now: their widths and a gap between each two.
+        const fitting = () => builder.evaluate((root) => {
+            const row = root.querySelector(":scope > [data-slot=toolbar] [data-toolbar]")!;
+            const items = [...row.children].map((el) => el.getBoundingClientRect().width);
+            const need = items.reduce((sum, w) => sum + w, 0) + Number.parseFloat(getComputedStyle(row).columnGap) * (items.length - 1);
+            return root.getBoundingClientRect().width - row.getBoundingClientRect().width + need;
+        });
+        const frameTo = async (frame: number) => {
             await builder.evaluate((root, w) => { (root as HTMLElement).style.width = `${w}px`; }, frame);
             await settled(page);
-            await expect.poll(async () => {
-                const folded = await toolbar.evaluate((row) => (row.getAttribute("data-toolbar-state") ?? "").split(";")
-                    .map((s) => s.split("=")).filter(([, f]) => !f!.startsWith("0/")).map(([k]) => k!));
-                // The state lists the items in the row's order; they are put in the ladder's.
-                return folded.sort((a, b) => ladder.indexOf(a) - ladder.indexOf(b));
-            }, { message: `at ${frame}px` }).toEqual(ladder.slice(0, folds));
+        };
+        // Where each step falls is the fonts' to say, so the frames come from the items as measured: a frame
+        // the row's items fit keeps their forms, and one 2px narrower folds the ladder's next step.
+        for (let folds = 0; folds < ladder.length; folds++) {
+            const frame = await fitting();
+            await frameTo(frame);
+            await expect.poll(folded, { message: `at ${frame.toFixed(2)}px, the row's items' width` }).toEqual(ladder.slice(0, folds));
+            await frameTo(frame - 2);
+            await expect.poll(folded, { message: `at ${(frame - 2).toFixed(2)}px` }).toEqual(ladder.slice(0, folds + 1));
         }
     });
 
