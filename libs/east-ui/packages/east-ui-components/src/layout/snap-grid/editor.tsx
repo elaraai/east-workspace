@@ -16,13 +16,15 @@
  * handling, snapping live: a resize lands nowhere. The selection is the
  * host's bound `ui` state, or the canvas's own.
  *
- * The canvas is the builder's frame (#995): one toolbar across its width —
- * the host's start items, the grid chip and the time the source last
- * confirmed an Apply; then the width readout, the zoom, the history item, the
- * design widths and the host's end items — and under it the host's panes
- * beside the canvas column, where the selection bar names the selected tile
- * over the grid panel. The design width and the zoom are the host's bound
- * `view`, or the canvas's own.
+ * The canvas is the builder's frame (#995), laid out by the shared
+ * `BuilderFrame` (#1125): one toolbar across its width — the host's start
+ * items, the grid chip and the time the source last confirmed an Apply; then
+ * the width readout, the zoom, the history item, the design widths and the
+ * host's end items — and under it the panes beside the canvas column, where
+ * the selection bar names the selected tile over the grid panel. A pane is a
+ * host renderer's (a pane the frame draws, or an element of its own), or the
+ * value's East pane, placed as it is. The design width and the zoom are the
+ * host's bound `view`, or the canvas's own.
  *
  * A pane beside the canvas asks it for a change through the bound `ui`
  * (#996): a request for a tile's span, row, height or alignment is taken as
@@ -50,7 +52,8 @@ import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
+import type { ToolbarItem } from "../../toolbar/index.js";
+import { BuilderFrame, type BuilderFramePane } from "../builder-frame/index.js";
 import { historyToolbarItem } from "../../editing/history-item.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import { historyShortcut } from "../../editing/shortcuts.js";
@@ -413,8 +416,11 @@ export interface SnapGridEditorProps {
         start?: ReadonlyArray<ToolbarItem | false | null | undefined> | undefined;
         end?: ReadonlyArray<ToolbarItem | false | null | undefined> | undefined;
     } | undefined;
-    /** The panes beside the canvas, as React — in place of the value's. */
-    panes?: { start?: ReactNode; end?: ReactNode } | undefined;
+    /**
+     * The panes beside the canvas, as React — in place of the value's: each a
+     * pane the frame draws, or an element placed as it is ({@link BuilderFramePane}).
+     */
+    panes?: { start?: BuilderFramePane | undefined; end?: BuilderFramePane | undefined } | undefined;
     /** Draws a tile's content, as React — in place of its East content. */
     renderContent?: ((cell: SnapGridEditorCell) => ReactNode) | undefined;
 }
@@ -918,12 +924,13 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
     const selectedCell = selected !== null ? cellOf.get(selected) : undefined;
     const selectedIcon = selectedCell !== undefined ? getSomeorUndefined(selectedCell.icon) : undefined;
     const selectedMeta = selectedCell !== undefined ? getSomeorUndefined(selectedCell.meta) : undefined;
+    // A SnapGrid's own East panes draw themselves: each is placed as it is.
     const eastPaneStart = getSomeorUndefined(value.panes.start);
     const eastPaneEnd = getSomeorUndefined(value.panes.end);
-    const paneStart = panes?.start ?? (eastPaneStart !== undefined
-        ? <EastChakraComponent value={eastPaneStart} storageKey={`${storageKey}.pane.start`} /> : undefined);
-    const paneEnd = panes?.end ?? (eastPaneEnd !== undefined
-        ? <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> : undefined);
+    const paneStart: BuilderFramePane | undefined = panes?.start ?? (eastPaneStart !== undefined
+        ? { element: <EastChakraComponent value={eastPaneStart} storageKey={`${storageKey}.pane.start`} /> } : undefined);
+    const paneEnd: BuilderFramePane | undefined = panes?.end ?? (eastPaneEnd !== undefined
+        ? { element: <EastChakraComponent value={eastPaneEnd} storageKey={`${storageKey}.pane.end`} /> } : undefined);
 
     return (
         <Box
@@ -933,16 +940,9 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             data-surface={surfaceTag}
             height={parseCssSize(getSomeorUndefined(value.height))}
             maxHeight={parseCssSize(getSomeorUndefined(value.maxHeight))}
-            onKeyDown={onFrameKeyDown}
         >
-            <Box css={styles.toolbarRow} data-snap-grid-toolbar-row="">
-                <Toolbar items={items} />
-            </Box>
-            <Box css={styles.body}>
-                {paneStart !== undefined && (
-                    <Box css={styles.pane} data-snap-grid-pane="start">{paneStart}</Box>
-                )}
-                <Box css={styles.main} data-snap-grid-main="">
+            <BuilderFrame storageKey={`${storageKey}.frame`} toolbar={items} start={paneStart} end={paneEnd} onKeyDown={onFrameKeyDown}>
+                <Box css={styles.column} data-snap-grid-main="">
                     <Box css={styles.selectionBar} data-snap-grid-selection="">
                         {selectedCell !== undefined ? (
                             <>
@@ -1013,10 +1013,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                         </Box>
                     </Box>
                 </Box>
-                {paneEnd !== undefined && (
-                    <Box css={styles.pane} data-snap-grid-pane="end">{paneEnd}</Box>
-                )}
-            </Box>
+            </BuilderFrame>
             <VisuallyHidden role="status" aria-live="polite" aria-atomic="true" data-snap-grid-announce="">{said}</VisuallyHidden>
         </Box>
     );

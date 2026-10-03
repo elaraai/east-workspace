@@ -241,17 +241,17 @@ async function commits(): Promise<string[]> {
 
 /** The toolbar's items, by key, in their order along the row. */
 const toolbarItems = (c: HTMLElement) =>
-    [...c.querySelectorAll("[data-snap-grid-toolbar-row] [data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+    [...c.querySelectorAll("[data-frame-slot=toolbar] [data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
 /** A toolbar item, by its key. */
 const item = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-toolbar-item="${key}"]`)!;
 /** A tile of the canvas. */
 const tile = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-snap-grid-tile="${key}"]`)!;
-/** The palette — the canvas's start pane. */
-const palette = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-snap-grid-pane="start"]')!;
+/** The palette — the canvas's start pane, in its builder frame. */
+const palette = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-frame-slot="start"]')!;
 /** A palette card, by the name on it. */
 const cardOf = (c: HTMLElement, name: string) => within(palette(c)).getByText(name).closest("[data-clickable]") as HTMLElement;
-/** The inspector's pane — the canvas's end pane. */
-const inspectorPane = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-snap-grid-pane="end"]')!;
+/** The inspector's pane — the canvas's end pane, in its builder frame. */
+const inspectorPane = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-frame-slot="end"]')!;
 /** The inspector's body, under its tab row. */
 const inspector = (c: HTMLElement) => inspectorPane(c).querySelector<HTMLElement>("[data-studio-inspector]")!;
 /** A tile's span, as the canvas draws it. */
@@ -414,9 +414,10 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(within(item(container, "widths")).getAllByRole("button").map((b) => [b.textContent, b.getAttribute("aria-pressed")]))
             .toEqual([["Desktop", "true"], ["Tablet", "false"]]);
         expect(["save-template", "preview", "publish"].map((key) => item(container, key).textContent)).toEqual(["Save as template", "Preview", "Publish"]);
-        // Headerless: nothing above the toolbar in the canvas's frame.
-        const editor = container.querySelector("[data-snap-grid-editor]")!;
-        expect(editor.firstElementChild!.hasAttribute("data-snap-grid-toolbar-row")).toBe(true);
+        // Headerless: nothing above the toolbar in the canvas's frame — the builder frame (#1125).
+        const frame = container.querySelector("[data-snap-grid-editor]")!.firstElementChild!;
+        expect(frame.hasAttribute("data-builder-frame")).toBe(true);
+        expect(frame.firstElementChild!.getAttribute("data-frame-slot")).toBe("toolbar");
     }, 30_000);
 
     test("B8: the status is ○ Draft until a page is published, ● Live while its draft is its live layout, Live · edited once they differ, and Template for a template", async () => {
@@ -514,11 +515,11 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
 
     test("B13: the palette and the inspector sit either side of the canvas under the toolbar, and the palette collapses to its rail", async () => {
         const { container } = await mountBuilder();
-        const body = container.querySelector("[data-snap-grid-toolbar-row]")!.nextElementSibling!;
-        expect([...body.children].map((el) => el.getAttribute("data-snap-grid-pane") ?? (el.hasAttribute("data-snap-grid-main") ? "main" : "?")))
-            .toEqual(["start", "main", "end"]);
+        const body = container.querySelector("[data-frame-slot=toolbar]")!.nextElementSibling!;
+        expect([...body.children].map((el) => el.getAttribute("data-frame-slot"))).toEqual(["start", "main", "end"]);
+        expect(body.querySelector('[data-frame-slot="main"] > [data-snap-grid-main]')).not.toBeNull();
         await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Collapse Components" })); });
-        expect(body.querySelector('[data-snap-grid-pane="start"] [data-collapsed]')).not.toBeNull();
+        expect(body.querySelector('[data-frame-slot="start"] [data-collapsed]')).not.toBeNull();
         expect(screen.getByRole("button", { name: "Expand Components" })).toBeTruthy();
         expect(body.querySelector("[data-snap-grid-main] [data-snap-grid-tile]")).not.toBeNull();
     }, 30_000);

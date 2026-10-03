@@ -37,12 +37,14 @@
  * alone; the shared candidate and active frames give way to them, and the
  * shared ⊘ refusal stays.
  *
- * The canvas is the builder's frame (#995): its own bordered panel (the `card`
- * surface), a toolbar row across its width, then its panes beside the canvas
- * column — the selection bar over the sunken column that holds the grid
- * panel. The toolbar's own items — the grid chip, the saved time and the width
- * readout — are the mock's toolbar markup; its zoom is the shared `stepper`
- * and its design widths the shared `seg` strip (#996).
+ * The canvas is the builder's frame (#995), laid out by the shared
+ * `builderFrame` recipe's frame (#1125) — the toolbar row, the panes and main
+ * are its. This recipe draws the canvas's own: its bordered panel around the
+ * frame (the `card` surface), and in main the sunken column that holds the
+ * selection bar over the grid panel. The toolbar's own items — the grid chip,
+ * the saved time and the width readout — are the mock's toolbar markup; its
+ * zoom is the shared `stepper` and its design widths the shared `seg` strip
+ * (#996).
  *
  * @packageDocumentation
  */
@@ -93,7 +95,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
     className: "elara-snap-grid",
     slots: [
         "root", "grid", "row", "cell", "blankBand", "blankBody",
-        "editor", "toolbarRow", "body", "pane", "main",
+        "editor", "column",
         "selectionBar", "selectionIcon", "selectionName", "selectionMeta", "selectionEmpty", "selectionHint",
         "chip", "saved", "readout", "divider", "widthIcon",
         "viewport", "canvas", "ruler", "rulerMark", "bands", "band", "rows", "gap", "gapLine",
@@ -132,38 +134,15 @@ export const snapGridSlotRecipe = defineSlotRecipe({
         },
 
         // ── The builder's canvas (#990) and its frame (#995) ────────────
+        // What holds the builder frame (#1125): the panel the `card` surface borders.
         editor: {
             display: "flex",
             flexDirection: "column",
             minWidth: 0,
             minHeight: 0,
-            bg: "bg.surface",
         },
-        // The toolbar across the frame's width, over the panes and the canvas.
-        toolbarRow: {
-            flex: "none",
-            display: "flex",
-            alignItems: "center",
-            height: "44px",
-            paddingX: "{spacing.4}",
-            borderBottomWidth: "1px",
-            borderBottomStyle: "solid",
-            borderBottomColor: "border.subtle",
-            bg: "bg.surface",
-        },
-        body: {
-            flex: "1",
-            display: "flex",
-            minWidth: 0,
-            minHeight: 0,
-        },
-        // A pane sizes itself — a Dock takes its width, or its rail's.
-        pane: {
-            flex: "none",
-            display: "flex",
-            minHeight: 0,
-        },
-        main: {
+        // The sunken column in the frame's main: the selection bar over the grid panel.
+        column: {
             flex: "1",
             display: "flex",
             flexDirection: "column",

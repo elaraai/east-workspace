@@ -10,19 +10,19 @@
  *
  * - **The target** is the builder's, named by its id. It takes `add`s from
  *   the query library that shares the id (`queryKeys(id).library`, the cards
- *   keyed by the saved query's name) on one cell: the builder's body — the
- *   pane and the results, under the toolbar, above the status line.
+ *   keyed by the saved query's name) on one cell: the builder's frame
+ *   (#1125) — its toolbar, the pane, the results and the status line.
  * - **Its veto** takes a card whose query can open here and refuses any
  *   other: the ⊘ stage. The cell's name is what the drag layer says the drag
  *   rests over, so a refused card's name carries the builder's reason, and the
  *   layer announces it.
  * - **A drop** opens the dropped query.
- * - **Its look** is the `queryBuilder` recipe's `dropTarget` over the body:
+ * - **Its look** is the `queryBuilder` recipe's `dropTarget` over the frame:
  *   armed while a card it takes is dragged, over while one rests on it — pure
  *   CSS on the layer's `data-drop-valid` / `data-drop-active` — with "Drop to
  *   open “{name}”" and "{n} steps.", the name kept from the veto's candidate.
  *
- * Without a `DragLayerProvider` on the page there is no target: the body
+ * Without a `DragLayerProvider` on the page there is no target: the frame
  * renders alone, as it would without one.
  *
  * @packageDocumentation
@@ -38,7 +38,7 @@ import {
 import type { QueryWords } from "./model/words.js";
 import type { Styles } from "./parts.js";
 
-/** The drop target's one cell: the builder's body. */
+/** The drop target's one cell's row: the builder's body, in its frame. */
 const BODY = "body";
 
 /**
@@ -64,18 +64,18 @@ export interface QueryDropTargetProps {
     readonly onOpen: (name: string) => void;
     /** The words. */
     readonly words: QueryWords;
-    /** The builder's body: the pane and the results. */
+    /** The builder's frame: the toolbar, the pane, the results and the status line. */
     readonly children: ReactNode;
 }
 
 /**
- * The builder's body as a drop target for the query library's cards — see the
- * module docs. The builder wraps its body in it: with a drag layer on the page
- * the body sits in the target's zone, which takes the body's place; without
- * one, the body renders alone.
+ * The builder's frame as a drop target for the query library's cards — see
+ * the module docs. The builder wraps its frame in it: with a drag layer on the
+ * page the frame sits in the target's zone, which takes the frame's place;
+ * without one, the frame renders alone.
  *
- * @param props - The builder's id, the refusal and the steps of a query by name, what a drop does, the words and the body ({@link QueryDropTargetProps})
- * @returns The body, in its drop zone when a drag layer is on the page
+ * @param props - The builder's id, the refusal and the steps of a query by name, what a drop does, the words and the frame ({@link QueryDropTargetProps})
+ * @returns The frame, in its drop zone when a drag layer is on the page
  */
 export function QueryDropTarget({ id, refusal, steps, onOpen, words, children }: QueryDropTargetProps): ReactElement {
     const layer = useDragLayerOptional();

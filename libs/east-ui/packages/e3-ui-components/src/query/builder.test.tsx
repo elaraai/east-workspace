@@ -69,15 +69,23 @@ describe("<Query.Builder> — the shell (#935)", () => {
     test("the one toolbar holds the history item; the result's strips under it; the pane its Query, Datasets and Library tabs; the results and the status line", async () => {
         const { container } = await mountBuilder();
         const builder = container.querySelector<HTMLElement>("[data-query-builder]")!;
-        expect([...builder.querySelector("[data-slot=toolbar]")!.querySelectorAll("[data-toolbar-item]")].map(el => el.getAttribute("data-toolbar-item")))
+        expect([...builder.querySelector("[data-frame-slot=toolbar]")!.querySelectorAll("[data-toolbar-item]")].map(el => el.getAttribute("data-toolbar-item")))
             .toEqual(["history", "copy", "save", "run"]);
         expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Query", "Datasets", "Library"]);
         expect(screen.getAllByRole("tab")[0]!.getAttribute("aria-selected")).toBe("true");
         expect(builder.querySelector("[data-query-results]")).not.toBeNull();
         expect(builder.querySelector("[data-query-status]")).not.toBeNull();
-        const part = (el: Element) => el.getAttribute("data-slot")
-            ?? (el.hasAttribute("data-query-strips") ? "strips" : el.hasAttribute("data-query-status") ? "status" : "body");
-        expect([...builder.children].map(part)).toEqual(["toolbar", "strips", "body", "status"]);
+        // Laid out by the builder frame (#1125): the toolbar; the result's strips as its banners; the pane and the
+        // results across its body, the results its main; and the status line as its footer.
+        const frame = builder.querySelector<HTMLElement>("[data-builder-frame]")!;
+        const region = (name: string) => frame.querySelector<HTMLElement>(`:scope > [data-frame-slot="${name}"]`)!;
+        expect([...frame.children].map(el => el.getAttribute("data-frame-slot"))).toEqual(["toolbar", "banners", "body", "footer"]);
+        expect([...region("body").children].map(el => el.getAttribute("data-frame-slot"))).toEqual(["start", "main"]);
+        expect([
+            region("banners").firstElementChild!.hasAttribute("data-query-strips"),
+            region("body").querySelector(':scope > [data-frame-slot="main"]')!.firstElementChild!.hasAttribute("data-query-results"),
+            region("footer").firstElementChild!.hasAttribute("data-query-status"),
+        ]).toEqual([true, true, true]);
     }, 30_000);
 
     test("it draws no border around itself: its recipe's root has none, so a host frames it or places it bare", () => {

@@ -4,9 +4,9 @@
  */
 
 /**
- * `StudioPalette` — the builder's palette (#994), the pane before the canvas:
- * the components a surface lists, grouped by category, and the project's
- * pages, each a tab of one docked pane.
+ * `useStudioPalette` — the builder's palette (#994), the pane before the
+ * canvas: the components a surface lists, grouped by category, and the
+ * project's pages, each a tab of one pane.
  *
  * - **Components.** Every listed component but the deprecated, in the
  *   surface's order, grouped by category, with a Filter menu over category,
@@ -20,19 +20,21 @@
  * - **Collapsed**, the pane is a rail: the expand control, its icon, the
  *   number of components and its name.
  *
- * What a card says is East's (`paletteCards`, `palettePages`); the pane is the
- * dock's, and each tab the Library's.
+ * What a card says is East's (`paletteCards`, `palettePages`). The palette is
+ * a pane description: the canvas's builder frame draws it (#1125), `auto` —
+ * pinned beside the canvas on a desktop, over it on a narrow screen — and
+ * each tab is the Library's.
  *
  * @packageDocumentation
  */
 
-import { memo, useMemo } from "react";
+import { useMemo } from "react";
 import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { PaletteCardType, PalettePageType, StudioComponentType } from "@elaraai/e3-ui/internal";
 import {
-    DockPane,
     EastChakraLibrary,
     useFormatters,
+    type BuilderFrameDock,
     type LibraryItemValue,
     type LibraryValue,
 } from "@elaraai/east-ui-components";
@@ -46,7 +48,7 @@ type PaletteCard = ValueTypeOf<typeof PaletteCardType>;
 /** A page of the project, as East computed it. */
 type PalettePage = ValueTypeOf<typeof PalettePageType>;
 
-/** Props of {@link StudioPalette}. */
+/** What {@link useStudioPalette} lists, and what its clicks do. */
 export interface StudioPaletteProps {
     /** The components the palette offers — the listed, less the deprecated — in the surface's order. */
     components: readonly Component[];
@@ -62,19 +64,20 @@ export interface StudioPaletteProps {
     onSelect: (component: string) => void;
     /** Opens a page of the project. */
     onOpen: (page: string) => void;
-    /** Where the pane and its libraries keep their state. */
+    /** Where the palette's libraries keep their state. */
     storageKey: string;
 }
 
 /**
- * Renders the builder's palette — see the module docs.
+ * The builder's palette, as the pane the canvas's frame draws — see the
+ * module docs.
  *
  * @param props - The components and pages it lists, and what its clicks do
- * @returns The palette's pane
+ * @returns The palette's pane: the Components and Pages tabs, 264px wide
  */
-export const StudioPalette = memo(function StudioPalette({
+export function useStudioPalette({
     components, cards, pages, open, ids, onSelect, onOpen, storageKey,
-}: StudioPaletteProps) {
+}: StudioPaletteProps): BuilderFrameDock {
     const m = useStudioMessages();
     const words = useFormatters();
 
@@ -167,20 +170,14 @@ export const StudioPalette = memo(function StudioPalette({
         toolbar: true,
     }), [ids.pages, pages, open, m, onOpen]);
 
-    return (
-        <DockPane
-            storageKey={`${storageKey}.palette`}
-            icon="shapes"
-            label={m.components()}
-            badge={words.number(components.length)}
-            expandedSize="264px"
-            railSize="44px"
-            side="start"
-            surface="shell"
-            tabs={[
-                { key: "components", label: m.components(), body: <EastChakraLibrary value={componentsLibrary} storageKey={`${storageKey}.palette.components`} /> },
-                { key: "pages", label: m.pages(), body: <EastChakraLibrary value={pagesLibrary} storageKey={`${storageKey}.palette.pages`} /> },
-            ]}
-        />
-    );
-});
+    return useMemo((): BuilderFrameDock => ({
+        label: m.components(),
+        icon: "shapes",
+        badge: words.number(components.length),
+        size: "264px",
+        tabs: [
+            { key: "components", label: m.components(), body: <EastChakraLibrary value={componentsLibrary} storageKey={`${storageKey}.palette.components`} /> },
+            { key: "pages", label: m.pages(), body: <EastChakraLibrary value={pagesLibrary} storageKey={`${storageKey}.palette.pages`} /> },
+        ],
+    }), [m, words, components.length, componentsLibrary, pagesLibrary, storageKey]);
+}

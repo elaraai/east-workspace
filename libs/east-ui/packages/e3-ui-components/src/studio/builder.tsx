@@ -14,9 +14,11 @@
  *   patch through the record's patch write (`saveCells`). Its one toolbar
  *   holds the page's status, the canvas's own items, Save as template, Preview
  *   and Publish; its selection bar names the selected placement.
- * - **The palette** ({@link StudioPalette}) is the pane before it, **the
- *   inspector** ({@link StudioInspector}) the pane after it; the inspector's
- *   edits are requests the canvas takes as one gesture each.
+ * - **The palette** ({@link useStudioPalette}) is the pane before it, **the
+ *   inspector** ({@link StudioInspector}) the body of the pane after it; the
+ *   inspector's edits are requests the canvas takes as one gesture each. Both
+ *   are pane descriptions the canvas's builder frame draws (#1125), `auto`:
+ *   pinned beside the canvas on a desktop, over it on a narrow screen.
  * - **The publish preview** ({@link StudioPublishPreview}) takes the canvas's
  *   place while it shows. The canvas stays mounted, so its drafts stay its own,
  *   and it applies them when the preview asks before it publishes.
@@ -41,12 +43,12 @@ import {
 } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
-    DockPane,
     EmptyStateView,
     SnapGridEditor,
     implementUIComponent,
     useFormatters,
     useTrackedEvaluation,
+    type BuilderFrameDock,
     type SnapGridEditorCell,
     type SnapGridEditorEditing,
     type SnapGridEditorValue,
@@ -57,7 +59,7 @@ import { StudioInspector } from "./inspector.js";
 import { useStudioMessages } from "./messages.js";
 import { useOpenPage, type StudioKey } from "./open-page.js";
 import { StudioLayout, StudioPlacement } from "./page.js";
-import { StudioPalette } from "./palette.js";
+import { useStudioPalette } from "./palette.js";
 import { StudioPublishPreview } from "./publish.js";
 import { StudioSaveTemplate } from "./save-template.js";
 import { studioEast } from "./studio-east.js";
@@ -348,6 +350,10 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
         setUi(NOTHING_SELECTED);
     }, [writeOpen, project]);
     const paletteIds = useMemo(() => ({ components: keys.components, pages: keys.pages }), [keys.components, keys.pages]);
+    const palette = useStudioPalette({
+        components: listed, cards, pages: projectPages, open: open.project === project ? open.page : "", ids: paletteIds,
+        onSelect: selectFirst, onOpen: openPage, storageKey,
+    });
 
     // ── The inspector, after it ──────────────────────────────────────────
     const selection = useMemo(() => east.inspectorSelection(components, [...cells], liveCells, ui.selected),
@@ -359,6 +365,16 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
     }, []);
     const inspector = useMemo(() => ({ selection, onRequest }), [selection, onRequest]);
     const selected = selection.type === "some" ? selection.value : undefined;
+    // One body, 300px wide; its rail names the selected placement, in the brand while there is one.
+    const inspectorPane = useMemo((): BuilderFrameDock => ({
+        label: m.inspector(),
+        icon: "sliders",
+        badge: selected === undefined ? "" : m.spanBadge({ span: words.number(Number(selected.layout.span)) }),
+        active: selected !== undefined,
+        detail: selected === undefined ? m.nothingSelected() : selected.name,
+        size: "300px",
+        body: <StudioInspector value={inspector} />,
+    }), [m, words, selected, inspector]);
 
     // ── The publish preview, in the canvas's place ───────────────────────
     const summary = useMemo(() => (entry === undefined ? undefined
@@ -403,28 +419,7 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                     storageKey={`${storageKey}.canvas`}
                     toolbar={toolbar}
                     renderContent={renderContent}
-                    panes={{
-                        start: (
-                            <StudioPalette components={listed} cards={cards} pages={projectPages}
-                                open={open.project === project ? open.page : ""} ids={paletteIds}
-                                onSelect={selectFirst} onOpen={openPage} storageKey={storageKey} />
-                        ),
-                        end: (
-                            <DockPane
-                                storageKey={`${storageKey}.inspector`}
-                                icon="sliders"
-                                label={m.inspector()}
-                                badge={selected === undefined ? "" : m.spanBadge({ span: words.number(Number(selected.layout.span)) })}
-                                active={selected !== undefined}
-                                detail={selected === undefined ? m.nothingSelected() : selected.name}
-                                expandedSize="300px"
-                                railSize="44px"
-                                side="end"
-                                surface="shell"
-                                body={<StudioInspector value={inspector} />}
-                            />
-                        ),
-                    }}
+                    panes={{ start: palette, end: inspectorPane }}
                 />
             </Box>
             {previewing && preview !== undefined && (

@@ -5,30 +5,33 @@
 
 /**
  * Query builder slot recipe (#935, #936) — the builder as the Query Editor
- * spec draws it: its one toolbar band over the pane and the results, side by
- * side, and the status line under both; and the Query tab's parts — its
- * notices, the source, the shape lines between the steps, the step cards
- * with their rows of words, slots, inputs, chips, adds, removes, groups,
- * feet, notes, code and problem lines, and the foot with Quick add. The
- * builder fills its host and draws no border of its own; a host frames it,
- * or places it bare.
+ * spec draws it, in the shared builder frame (#1125, the `builderFrame`
+ * recipe's): its one toolbar band over the pane and the results, side by
+ * side, and the status line under both. This recipe draws what is the
+ * builder's own: its element around the frame, the status line, a tab of the
+ * pane, and the Query tab's parts — its notices, the source, the shape lines
+ * between the steps, the step cards with their rows of words, slots, inputs,
+ * chips, adds, removes, groups, feet, notes, code and problem lines, and the
+ * foot with Quick add. The builder fills its host and draws no border of its
+ * own; a host frames it, or places it bare.
  *
  * The parts take their sizes from the design system's own: a slot is the
  * `select` trigger, an input the `input`, a jq step's code the `codeBlock`,
  * the buttons the `button` and `iconButton` recipes, the status line's dots
- * the `status` recipe. This recipe adds what those have not: the layout, the
- * dashed and danger states (by data attributes), and the joiner column that
- * lines conditions up. Its toolbar row is the shared `toolbar`'s, its pane
- * the `dock`'s, its history item the `editHistory`'s, Download ▾ the `menu`'s;
- * the jq view and the results are their own recipes' (`jqEditor`,
+ * the `status` recipe. This recipe adds what those have not: the dashed and
+ * danger states (by data attributes), and the joiner column that lines
+ * conditions up. Its toolbar row and its layout are the builder frame's, its
+ * pane the `dock`'s, its history item the `editHistory`'s, Download ▾ the
+ * `menu`'s; the jq view and the results are their own recipes' (`jqEditor`,
  * `queryResults`).
  *
- * Dropping a query in (#939): while a drag layer is on the page, the body sits
- * in its drop zone — the one cell a query library's card drops on — and the
- * target over it is drawn as Studio's canvas draws its end zone: hidden at
- * rest, the dashed brand frame while a card it takes is dragged, and the brand
- * wash with its words while one rests on it, by CSS alone on the drag layer's
- * `data-drop-valid` / `data-drop-active`. The shared ⊘ refusal stays.
+ * Dropping a query in (#939): while a drag layer is on the page, the builder's
+ * frame sits in its drop zone — the one cell a query library's card drops on —
+ * and the target over it is drawn as Studio's canvas draws its end zone:
+ * hidden at rest, the dashed brand frame while a card it takes is dragged, and
+ * the brand wash with its words while one rests on it, by CSS alone on the
+ * drag layer's `data-drop-valid` / `data-drop-active`. The shared ⊘ refusal
+ * stays.
  *
  * @packageDocumentation
  */
@@ -48,7 +51,7 @@ const dashed = {
 export const queryBuilderSlotRecipe = defineSlotRecipe({
     className: "elara-query-builder",
     slots: [
-        "root", "toolbar", "body", "tab", "results", "status",
+        "root", "tab", "status",
         // The toolbar's own items.
         "viewIcon", "copy", "menuLabel", "menuMeta",
         // The Query tab.
@@ -64,7 +67,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         "dropZone", "dropTarget", "dropTitle", "dropMeta",
     ],
     base: {
-        /* As tall as its host lets it be, and unframed; the autocomplete hangs inside it. */
+        /* The builder's element around its frame: as tall as its host lets it be, and unframed; the autocomplete hangs inside it. */
         root: {
             position: "relative",
             display: "flex",
@@ -72,28 +75,6 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             width: "100%",
             height: "100%",
             minHeight: "0",
-            background: "bg.surface",
-            overflow: "hidden",
-        },
-        /* The one toolbar band: the shared toolbar's row. */
-        toolbar: {
-            display: "flex",
-            flexWrap: "nowrap",
-            alignItems: "center",
-            flexShrink: "0",
-            height: "44px",
-            paddingX: "{spacing.4}",
-            background: "bg.surface",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
-            overflow: "clip",
-        },
-        /* The pane before the results. */
-        body: {
-            flex: "1",
-            minHeight: "0",
-            display: "flex",
-            flexDirection: "row",
         },
         /* A tab of the pane: its panel's whole height, on the panel tint the cards stand out on; its parts scroll. */
         tab: {
@@ -104,16 +85,7 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             background: "bg.panel",
         },
-        /* The results beside the pane. */
-        results: {
-            flex: "1",
-            minWidth: "0",
-            minHeight: "0",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-        },
-        /* The status line under the pane and the results. */
+        /* The status line under the pane and the results: the frame's footer, over its own rule. */
         status: {
             display: "flex",
             alignItems: "center",
@@ -552,10 +524,10 @@ export const queryBuilderSlotRecipe = defineSlotRecipe({
         },
 
         /* ── Dropping a query in (#939) ──────────────────────────────────── */
-        /* The body's frame while a drag layer is on the page, in the body's
-         * place: the one cell a query library's card drops on. Its target draws
-         * the armed and over looks, so the shared candidate and active frames
-         * give way to it, as on Studio's canvas; the shared ⊘ refusal stays. */
+        /* Around the builder's frame while a drag layer is on the page: the one
+         * cell a query library's card drops on. Its target draws the armed and
+         * over looks, so the shared candidate and active frames give way to it,
+         * as on Studio's canvas; the shared ⊘ refusal stays. */
         dropZone: {
             position: "relative",
             flex: "1",

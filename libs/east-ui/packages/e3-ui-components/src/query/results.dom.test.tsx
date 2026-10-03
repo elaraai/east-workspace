@@ -69,8 +69,8 @@ function footer() {
 const banners = () => [...document.querySelectorAll<HTMLElement>("[data-query-strips] [role=alert], [data-query-strips] [role=status]")].map((b) => b.textContent ?? "");
 /** The shape lines' words, in order. */
 const shapes = () => [...document.querySelectorAll<HTMLElement>("[data-query-shape-text]")].map((el) => el.textContent);
-/** How the result shows: `table`, `tree`, or none. */
-const shownAs = () => results().querySelector("[data-query-results-view]")?.getAttribute("data-query-results-view") ?? null;
+/** How the result shows: `table`, `tree`, or none — said by the results themselves, the builder frame's main (#1125). */
+const shownAs = () => results().getAttribute("data-query-results-view");
 /** The view strip's buttons, by name. */
 const viewButton = (name: "Visual" | "jq") => within(screen.getByRole("group", { name: "View" })).getByRole("button", { name });
 /** The result view strip's buttons, by name. */
