@@ -17,9 +17,7 @@
 // renameWithRetry. (Behaviourally identical to `fs/promises`.)
 import { promises as fs, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
-import { isNotFoundError } from '../../errors.js';
-import { isUuidv7 } from '../../uuid.js';
-import { isObjectHash } from '../../objects.js';
+import { checkHash, checkId, isNotFoundError } from '../../errors.js';
 
 /**
  * The directory of an execution's attempts, `executions/<taskHash>/<inputsHash>`,
@@ -35,14 +33,14 @@ import { isObjectHash } from '../../objects.js';
  * @param inputsHash - Combined hash of the inputs
  * @param executionId - The attempt's id, for one attempt's directory
  * @returns The directory's path
- * @throws {Error} When a hash or the id is not of its form
+ * @throws {InvalidNameError} When a hash or the id is not of its form
  */
 export function executionPath(repoPath: string, taskHash: string, inputsHash: string, executionId?: string): string {
-  if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
-  if (!isObjectHash(inputsHash)) throw new Error(`'${inputsHash}' is not an inputs hash`);
+  checkHash('task hash', taskHash);
+  checkHash('inputs hash', inputsHash);
   const inputsDir = path.join(repoPath, 'executions', taskHash, inputsHash);
   if (executionId === undefined) return inputsDir;
-  if (!isUuidv7(executionId)) throw new Error(`'${executionId}' is not an execution id`);
+  checkId('execution id', executionId);
   return path.join(inputsDir, executionId);
 }
 
@@ -57,10 +55,10 @@ export function executionPath(repoPath: string, taskHash: string, inputsHash: st
  * @param repoPath - Path to e3 repository
  * @param hash - SHA256 hash of the object
  * @returns Filesystem path: objects/<hash[0..2]>/<hash[2..]>.beast2
- * @throws {Error} When the hash is not a SHA-256 in lowercase hex
+ * @throws {InvalidNameError} When the hash is not a SHA-256 in lowercase hex
  */
 export function objectPath(repoPath: string, hash: string): string {
-  if (!isObjectHash(hash)) throw new Error(`'${hash}' is not an object hash`);
+  checkHash('object hash', hash);
   const dirName = hash.slice(0, 2);
   const fileName = hash.slice(2) + '.beast2';
   return path.join(repoPath, 'objects', dirName, fileName);
@@ -91,10 +89,10 @@ export function gcDir(repoPath: string): string {
  * @param repoPath - Path to the e3 repository
  * @param hash - SHA256 hash of the object
  * @returns The note's path
- * @throws {Error} When the hash is not a SHA-256 in lowercase hex
+ * @throws {InvalidNameError} When the hash is not a SHA-256 in lowercase hex
  */
 export function unreachableNotePath(repoPath: string, hash: string): string {
-  if (!isObjectHash(hash)) throw new Error(`'${hash}' is not an object hash`);
+  checkHash('object hash', hash);
   return path.join(gcDir(repoPath), 'unreachable', hash.slice(0, 2), hash.slice(2));
 }
 
@@ -106,10 +104,11 @@ export function unreachableNotePath(repoPath: string, hash: string): string {
  * @param run - The run's id, a UUIDv7
  * @param name - The part's name: lowercase letters, digits and dots
  * @returns The path
- * @throws {Error} When the run is no UUIDv7, or the name is not of its form
+ * @throws {InvalidNameError} When the run is no UUIDv7
+ * @throws {Error} When the part's name is not of its form
  */
 export function gcRunPath(repoPath: string, run: string, name?: string): string {
-  if (!isUuidv7(run)) throw new Error(`'${run}' is not a gc run's id`);
+  checkId('gc run id', run);
   const runDir = path.join(gcDir(repoPath), 'runs', run);
   if (name === undefined) return runDir;
   if (!/^[a-z0-9][a-z0-9.]*$/.test(name)) throw new Error(`'${name}' is not the name of a gc run's part`);

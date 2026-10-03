@@ -101,8 +101,10 @@ export class LocalLogStore implements LogStore {
   }
 
   /** Holds nothing to flush: an append is in the log's file once it
-   *  resolves. */
-  flush(): Promise<void> {
+   *  resolves. The attempt's names are checked all the same, as every method
+   *  checks them ({@link executionPath}). */
+  async flush(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    executionPath(repo, taskHash, inputsHash, executionId);
     return Promise.resolve();
   }
 

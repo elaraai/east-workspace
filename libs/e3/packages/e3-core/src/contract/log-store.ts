@@ -13,6 +13,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { uuidv7 } from '../uuid.js';
+import { MALFORMED_HASHES, MALFORMED_IDS, hashRefusal, idRefusal, type Refusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 const TASK = 'a'.repeat(64);
@@ -102,6 +103,24 @@ export function logStoreTests(setup: BackendSetup): void {
       assert.deepEqual(await storage.logs.read(repo, TASK, INPUTS, id, 'stdout'), EMPTY);
       assert.deepEqual(await storage.logs.read(repo, TASK, INPUTS, id, 'stderr'), EMPTY);
       assert.equal((await storage.logs.read(repo, TASK, INPUTS, other, 'stdout')).data, 'kept');
+    });
+
+    it('refuses an attempt named by a hash or an id that is not of its form, naming it, before it reads or writes anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      const id = uuidv7();
+      const attempts: Array<[string, string, string, Refusal]> = [
+        ...MALFORMED_HASHES.flatMap((malformed): Array<[string, string, string, Refusal]> => [
+          [malformed, INPUTS, id, hashRefusal('task hash', malformed)],
+          [TASK, malformed, id, hashRefusal('inputs hash', malformed)],
+        ]),
+        ...MALFORMED_IDS.map((malformed): [string, string, string, Refusal] => [TASK, INPUTS, malformed, idRefusal('execution id', malformed)]),
+      ];
+      for (const [task, inputs, attempt, refused] of attempts) {
+        await assert.rejects(storage.logs.append(repo, task, inputs, attempt, 'stdout', 'a line\n'), refused);
+        await assert.rejects(storage.logs.read(repo, task, inputs, attempt, 'stdout'), refused);
+        await assert.rejects(storage.logs.flush(repo, task, inputs, attempt), refused);
+        await assert.rejects(storage.logs.remove(repo, task, inputs, attempt), refused);
+      }
     });
   });
 }

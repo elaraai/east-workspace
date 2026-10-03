@@ -45,8 +45,9 @@ const OBJECT_HASH = /^[0-9a-f]{64}$/;
  * @remarks
  * A client names objects by hash — a transfer's delivery, an object it reads —
  * and so does a package being imported, so a store checks one before it becomes
- * a path or a key. Every store checks the same form, so a hash is valid on
- * every backend or on none.
+ * a path or a key, and refuses one that is not of this form with
+ * `InvalidNameError` (`checkHash`). Every store checks the same form, so a hash
+ * is valid on every backend or on none.
  *
  * @param value - The string
  * @returns Whether it is of that form

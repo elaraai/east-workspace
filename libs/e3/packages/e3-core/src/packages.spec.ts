@@ -173,7 +173,7 @@ describe('packages', () => {
         ...await readZipEntries(zipPath),
         [`executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`, Buffer.from(status)],
       ]);
-      await assert.rejects(packageImport(storage, testRepo, crafted), /is not a task hash/);
+      await assert.rejects(packageImport(storage, testRepo, crafted), { name: 'InvalidNameError', kind: 'task hash', value: 'A'.repeat(64) });
     });
 
     it('files no run a zip carries, however it is named: a run\'s history stays where it ran', async () => {

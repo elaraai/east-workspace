@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import { isObjectHash, type StorageBackend, type TransferBackend } from '@elaraai/e3-core/portable';
+import { checkHash, type StorageBackend, type TransferBackend } from '@elaraai/e3-core/portable';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { sendJsonError } from '../errors.js';
 import { DOWNLOAD_REDIRECT_BYTES } from '../handlers/datasets.js';
@@ -16,7 +16,9 @@ import { DOWNLOAD_REDIRECT_BYTES } from '../handlers/datasets.js';
  * A client downloading a collection by its segments reads each segment here.
  * With a transfer backend, an object over {@link DOWNLOAD_REDIRECT_BYTES} is
  * answered as a dataset download is: JSON `{ url }`, which the client fetches
- * directly, so a host whose responses are capped never carries the bytes.
+ * directly, so a host whose responses are capped never carries the bytes. A
+ * hash that is not a SHA-256 in lowercase hex is refused 400 `invalid_name`,
+ * before any store is asked, as every route refuses a malformed name.
  *
  * @param storage - The storage backend the objects are read from
  * @param getRepoPath - Maps a repository name to its path in the backend
@@ -36,14 +38,8 @@ export function createObjectRoutes(
     const repoPath = getRepoPath(repo);
     const hash = c.req.param('hash')!;
 
-    if (!isObjectHash(hash)) {
-      return new Response(JSON.stringify({ error: { type: 'bad_request', message: `invalid hash format: ${hash}` } }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     try {
+      checkHash('object hash', hash);
       if (transferBackend) {
         const { size } = await storage.objects.stat(repoPath, hash);
         if (size > DOWNLOAD_REDIRECT_BYTES) {

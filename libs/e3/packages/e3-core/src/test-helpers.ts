@@ -18,6 +18,7 @@ import {
 } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus } from '@elaraai/e3-types';
 import type { BackendDamage } from './contract/index.js';
+import { checkHash, checkId } from './errors.js';
 import { openZip } from './package-files.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
@@ -151,7 +152,12 @@ export class HeldLogStore implements LogStore {
     return this.written.get(attemptKey(repo, taskHash, inputsHash, executionId))?.[stream] ?? '';
   }
 
-  append(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr', data: string): Promise<void> {
+  /** Holds an append, its attempt's names checked first, as a store that
+   *  gathers appends checks them before it keys anything by them. */
+  async append(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr', data: string): Promise<void> {
+    checkHash('task hash', taskHash);
+    checkHash('inputs hash', inputsHash);
+    checkId('execution id', executionId);
     const key = attemptKey(repo, taskHash, inputsHash, executionId);
     this.held.set(key, [...(this.held.get(key) ?? []), { stream, data }]);
     const written = this.written.get(key) ?? { stdout: '', stderr: '' };

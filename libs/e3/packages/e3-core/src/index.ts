@@ -486,9 +486,11 @@ export {
   RepoLayoutError,
   RepositoryBusyError,
   RepositoryUpgradePendingError,
-  // Names
+  // Names, hashes and ids
   InvalidNameError,
   checkName,
+  checkHash,
+  checkId,
   // Workspace
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
