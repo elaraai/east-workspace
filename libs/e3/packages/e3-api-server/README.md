@@ -189,7 +189,8 @@ applies none: it answers every request to a repository that owes them `503`
 the steps are applied, and calls `onUpgradePending` for each, where the host
 starts its job, once. The job opens the repository with e3-core's
 `repositoryOpen`, which applies them, waiting for work running in it as any
-open does.
+open does. No route applies a step itself: the record route (`getRecord`) only
+reads, and refuses a repository that owes one as the gate does, gate or no.
 
 ```typescript
 app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath, {
@@ -229,6 +230,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | PUT | `/api/repos/:repo` | Create repository (multi-repo mode) |
 | DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on |
 | GET | `/api/repos/:repo/status` | Repository status (counts) |
+| GET | `/api/repos/:repo/record` | The repository's record: the release that last wrote it, and the upgrades it has had. A read, which applies none it owes: without the gate ahead of it, a repository that owes one is refused as the gate refuses it, 503 `repository_upgrade_pending` with `Retry-After` |
 | POST | `/api/repos/:repo/gc` | Start garbage collection (async) |
 | GET | `/api/repos/:repo/gc/:id` | Get GC status |
 

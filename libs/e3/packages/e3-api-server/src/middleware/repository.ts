@@ -16,11 +16,7 @@
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { RepositoryUpgradePendingError, repositoryOpen, type StorageBackend } from '@elaraai/e3-core/portable';
-import { sendJsonError } from '../errors.js';
-
-/** How long, in seconds, a client is told to wait before it asks again of a
- *  repository an upgrade waits on. */
-const UPGRADE_RETRY_AFTER_S = 5;
+import { sendJsonError, sendUpgradePending } from '../errors.js';
 
 /** Whether a request creates or removes a repository. */
 function createsOrRemoves(c: Context): boolean {
@@ -132,11 +128,7 @@ export function createRepositoryGate(
             // The host's to report; the next request calls it again.
           }
         }
-        if (!stopsOrPollsDataflow(c)) {
-          const refused = sendJsonError(err);
-          refused.headers.set('Retry-After', String(UPGRADE_RETRY_AFTER_S));
-          return refused;
-        }
+        if (!stopsOrPollsDataflow(c)) return sendUpgradePending(err);
       }
     }
 
