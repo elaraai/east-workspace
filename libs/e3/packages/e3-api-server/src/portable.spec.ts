@@ -28,7 +28,8 @@ import {
 } from '@elaraai/east';
 import { MockTaskRunner } from '@elaraai/e3-core';
 import {
-  InMemoryStateStore, LocalOrchestrator, workspaceCreate, workspaceDeploy, type TransferBackend,
+  InMemoryStateStore, InvalidNameError, LocalOrchestrator, RepoNotFoundError, RepositoryUpgradePendingError, workspaceCreate, workspaceDeploy,
+  type TransferBackend,
 } from '@elaraai/e3-core/portable';
 import { InMemoryStorage, PORTABLE_PACKAGES, encodeInSegmentsOf, portableWalker, storeSegmentsOf } from '@elaraai/e3-core/test';
 import {
@@ -37,7 +38,7 @@ import {
 import * as portable from './portable.js';
 import * as root from './index.js';
 import {
-  DataflowExecutionStateType, DataflowRequestType, ExecuteResultType, OneShotRequestType, ResponseType, type DataflowExecutionState,
+  DataflowExecutionStateType, DataflowRequestType, ErrorType, ExecuteResultType, OneShotRequestType, ResponseType, type DataflowExecutionState,
 } from './types.js';
 
 /** e3-api-server's sources: the spec runs from `dist/src`. */
@@ -140,6 +141,24 @@ describe('the portable entry', () => {
 
   it('is the package\'s `./portable` export', () => {
     assert.equal(import.meta.resolve('@elaraai/e3-api-server/portable'), new URL('./portable.js', import.meta.url).href);
+  });
+
+  it('answers an e3-core error as every route answers it, for a host\'s own routes: its ErrorType, its status, its JSON, and an owed upgrade as the gate does', async () => {
+    const invalid = new InvalidNameError('workspace', 'a/b', 'holds "/", which a file name cannot');
+    const variantOf = portable.errorToVariant(invalid);
+    const expected = variant('invalid_name', { kind: 'workspace', name: 'a/b', message: invalid.message });
+    assert.ok(equalFor(ErrorType)(variantOf, expected), printFor(ErrorType)(variantOf));
+    assert.equal(portable.errorToHttpStatus(invalid), 400);
+
+    const missing = portable.sendJsonError(new RepoNotFoundError('gone'));
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: { type: 'repository_not_found', message: 'Repository \'gone\' not found' } });
+
+    const owed = new RepositoryUpgradePendingError('owing', ['host-layout-2'], null, true);
+    const pending = portable.sendUpgradePending(owed);
+    assert.equal(pending.status, 503);
+    assert.equal(pending.headers.get('Retry-After'), '5');
+    assert.deepEqual(await pending.json(), { error: { type: 'repository_upgrade_pending', message: owed.message } });
   });
 });
 
