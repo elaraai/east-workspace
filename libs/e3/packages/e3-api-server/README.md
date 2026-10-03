@@ -278,7 +278,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | GET | `/api/repos/:repo/workspaces` | List all workspaces |
 | POST | `/api/repos/:repo/workspaces` | Create workspace |
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
-| GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary) |
+| GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary). With `?path=` (repeated, each a dataset's keypath, `.inputs.x`), only those datasets and the tasks producing them, each as the whole status gives it: a path that names no dataset is left out, and one that is no keypath is refused 400 `bad_request` |
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
 | GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record and index, or why it failed |
 | GET | `/api/repos/:repo/workspaces/:ws/lock` | What holds the workspace exclusively, and how far it says it has got; none when nothing does |

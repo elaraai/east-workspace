@@ -30,6 +30,7 @@ import {
   inputsHash,
 } from './executions.js';
 import { workspaceGetDatasetHash } from './trees.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -103,6 +104,20 @@ export interface TaskStatusInfo {
    *  was cancelled or interrupted and the task therefore reads `ready`;
    *  `null` otherwise */
   stopped: StopReason | null;
+}
+
+/**
+ * What {@link workspaceStatus} answers for.
+ */
+export interface WorkspaceStatusOptions {
+  /**
+   * The datasets to answer for, such as those a UI binds. The answer then
+   * holds those the workspace has, and the tasks that produce them, each with
+   * the status the whole workspace's answer gives it, and its summary counts
+   * them. A path that names no dataset of the workspace — one a redeploy
+   * removed, or a tree — is left out. Every dataset and task when omitted.
+   */
+  paths?: readonly TreePath[];
 }
 
 /**
@@ -191,10 +206,19 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
  * says the execution can still finish ({@link TaskRunner.executionAlive}), and
  * stale once it cannot: the runner that started it knows, wherever it runs.
  *
+ * Asked for named datasets (`options.paths`), it answers those and the tasks
+ * that produce them, and reads no other task's executions: a UI's poll costs
+ * what it binds, not the workspace. It reads every task object either way,
+ * since which task produces which dataset is in its task object. Its reads go
+ * a few at a time — the task objects, the tasks' statuses, the dataset refs —
+ * so a backend whose reads are requests pays its latency a few times over,
+ * not once per object.
+ *
  * @param storage - Storage backend
  * @param runner - The runner the workspace's tasks run on
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
  * @param ws - Workspace name
+ * @param options - The datasets to answer for; every one when omitted
  * @returns Complete status report
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace has no package deployed
@@ -203,7 +227,8 @@ export async function workspaceStatus(
   storage: StorageBackend,
   runner: TaskRunner,
   repo: string,
-  ws: string
+  ws: string,
+  options: WorkspaceStatusOptions = {},
 ): Promise<WorkspaceStatusResult> {
   // Check lock status first
   const lockState = await storage.locks.getState(repo, ws);
@@ -216,18 +241,20 @@ export async function workspaceStatus(
   const pkgData = await storage.objects.read(repo, state.packageHash);
   const pkgObject = decodePackageObject(pkgData);
 
+  // Every task object, a few at a time: which task produces which dataset is
+  // in its task object, whatever the answer is for.
+  const packaged = [...pkgObject.tasks];
+  const taskObjects: TaskObject[] = new Array<TaskObject>(packaged.length);
+  await eachAtMost(packaged.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    taskObjects[i] = decodeTaskObject(await storage.objects.read(repo, packaged[i]![1]));
+  });
+
   // Build task nodes
   const taskNodes = new Map<string, TaskNode>();
   const outputToTask = new Map<string, string>(); // output path -> task name
-  const taskDecoder = decodeTaskObject;
-
-  for (const [taskName, taskHash] of pkgObject.tasks) {
-    const taskData = await storage.objects.read(repo, taskHash);
-    const task = taskDecoder(taskData);
-
-    const outputPathStr = pathToString(task.output.path);
-    outputToTask.set(outputPathStr, taskName);
-
+  packaged.forEach(([taskName, taskHash], i) => {
+    const task = taskObjects[i]!;
+    outputToTask.set(pathToString(task.output.path), taskName);
     taskNodes.set(taskName, {
       name: taskName,
       hash: taskHash,
@@ -235,11 +262,14 @@ export async function workspaceStatus(
       inputPaths: task.inputs.map((input) => input.path),
       outputPath: task.output.path,
     });
-  }
+  });
 
-  // Collect all dataset paths from structure
-  const datasetPaths: TreePath[] = [];
-  collectDatasetPaths(pkgObject.data.structure, [], datasetPaths);
+  // The datasets answered for: every one the structure holds, or those of
+  // them named.
+  const structurePaths: TreePath[] = [];
+  collectDatasetPaths(pkgObject.data.structure, [], structurePaths);
+  const named = options.paths === undefined ? null : new Set(options.paths.map(pathToString));
+  const datasetPaths = named === null ? structurePaths : structurePaths.filter((path) => named.has(pathToString(path)));
 
   // Determine task dependencies
   const taskDependsOn = new Map<string, string[]>();
@@ -255,6 +285,17 @@ export async function workspaceStatus(
     taskDependsOn.set(taskName, deps);
   }
 
+  // The tasks answered for: every one, or those producing the datasets
+  // answered for. Each one's status is computed, and so is each of its direct
+  // upstream tasks', whose staleness makes a ready one wait; no other task's
+  // executions are read.
+  const producers = new Set(datasetPaths.map((path) => outputToTask.get(pathToString(path))));
+  const answered = [...taskNodes.keys()].filter((taskName) => named === null || producers.has(taskName));
+  const computed = new Set(answered);
+  for (const taskName of answered) {
+    for (const depName of taskDependsOn.get(taskName) ?? []) computed.add(depName);
+  }
+
   // Determine which tasks are stale (need to rerun)
   // A task is stale if:
   // 1. No cached execution for current inputs, OR
@@ -267,33 +308,28 @@ export async function workspaceStatus(
 
   // First pass: determine which tasks have valid cached executions.
   // Tasks are independent here (computeTaskStatus reads nothing cross-task),
-  // so run them concurrently — wall clock becomes the slowest task's lookups
-  // instead of the sum over all tasks.
-  const firstPass = await Promise.all(
-    [...taskNodes].map(async ([taskName, node]) => {
-      const computed = await computeTaskStatus(
-        storage,
-        runner,
-        repo,
-        ws,
-        node,
-        outputToTask,
-        taskNodes,
-        taskIsStale
-      );
-      return [taskName, computed] as const;
-    })
-  );
-  for (const [taskName, { status, peakBytes, stopped }] of firstPass) {
+  // so they run a few at a time — wall clock becomes the slowest tasks'
+  // lookups instead of the sum over all tasks.
+  await eachAtMost([...computed], OBJECT_CONCURRENCY, async (taskName) => {
+    const { status, peakBytes, stopped } = await computeTaskStatus(
+      storage,
+      runner,
+      repo,
+      ws,
+      taskNodes.get(taskName)!,
+      outputToTask,
+      taskNodes,
+      taskIsStale
+    );
     taskStatus.set(taskName, status);
     taskPeak.set(taskName, peakBytes ?? null);
     taskStopped.set(taskName, stopped ?? null);
     taskIsStale.set(taskName, status.type !== 'up-to-date');
-  }
+  });
 
   // Second pass: mark tasks as waiting if their upstream is stale. A task that
   // waits no longer reads ready for its stopped attempt, so its reason goes.
-  for (const [taskName] of taskNodes) {
+  for (const taskName of answered) {
     const currentStatus = taskStatus.get(taskName)!;
     if (currentStatus.type === 'ready') {
       // Check if any upstream task is stale
@@ -311,9 +347,10 @@ export async function workspaceStatus(
     }
   }
 
-  // Build dataset status
-  const datasetStatusInfos: DatasetStatusInfo[] = [];
-  for (const datasetPath of datasetPaths) {
+  // Build dataset status, the refs read a few at a time
+  const datasetStatusInfos = new Array<DatasetStatusInfo>(datasetPaths.length);
+  await eachAtMost(datasetPaths.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    const datasetPath = datasetPaths[i]!;
     const pathStr = pathToString(datasetPath);
     const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, datasetPath);
 
@@ -329,18 +366,19 @@ export async function workspaceStatus(
       status = { type: 'up-to-date' };
     }
 
-    datasetStatusInfos.push({
+    datasetStatusInfos[i] = {
       path: pathStr,
       status,
       hash,
       isTaskOutput,
       producedBy: producerTask,
-    });
-  }
+    };
+  });
 
   // Build task status info
   const taskStatusInfos: TaskStatusInfo[] = [];
-  for (const [taskName, node] of taskNodes) {
+  for (const taskName of answered) {
+    const node = taskNodes.get(taskName)!;
     taskStatusInfos.push({
       name: taskName,
       hash: node.hash,

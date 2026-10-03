@@ -181,10 +181,69 @@ export interface ParsePathResult {
  * ```
  */
 export function parsePath(pathStr: string, structure: Structure): ParsePathResult {
-  if (pathStr === '') return { path: [], structure };
-
   const segments: TreePath = [];
   let currentStructure = structure;
+
+  // Each field is checked as it is read, so a field the structure lacks is
+  // refused before a malformed one after it.
+  for (const fieldName of keypathFields(pathStr, 'parsePath')) {
+    if (currentStructure.type === 'value') {
+      throw new Error(`parsePath: cannot descend into dataset at '${pathToString(segments)}'`);
+    }
+
+    // currentStructure.type === 'struct' (only other option after 'value' check)
+    const fields = currentStructure.value;
+    const childStructure = fields.get(fieldName);
+    if (childStructure === undefined) {
+      const available = [...fields.keys()].map(k => printIdentifier(k)).join(', ');
+      throw new Error(`parsePath: field '${fieldName}' not found at '${pathToString(segments)}'. Available: ${available}`);
+    }
+    segments.push(variant('field', fieldName));
+    currentStructure = childStructure;
+  }
+
+  return { path: segments, structure: currentStructure };
+}
+
+/**
+ * Parses an East keypath string into a path, with no structure to check it
+ * against: the inverse of {@link pathToString}.
+ *
+ * @remarks
+ * The syntax is {@link parsePath}'s: `.field` for a simple identifier, and
+ * `` .`field` `` for one that needs quoting, with `` \` `` for a literal
+ * backtick and `\\` for a backslash. Whether the path names anything is the
+ * caller's to judge, as a status asked for named datasets leaves out a path
+ * the workspace does not hold.
+ *
+ * @param pathStr - A keypath string (e.g., ".inputs.sales", or ".inputs.`my field`")
+ * @returns The path; the root's, `[]`, for the empty string
+ *
+ * @throws {Error} When the string is not a keypath, such as one that does not
+ *   start with `.`
+ *
+ * @example
+ * ```ts
+ * parseKeypath('.inputs.sales');
+ * // [field('inputs'), field('sales')]
+ *
+ * parseKeypath(pathToString([variant('field', 'inputs'), variant('field', 'my field')]));
+ * // [field('inputs'), field('my field')]
+ * ```
+ */
+export function parseKeypath(pathStr: string): TreePath {
+  return [...keypathFields(pathStr, 'parseKeypath')].map((fieldName) => variant('field', fieldName));
+}
+
+/**
+ * Reads a keypath string's field names in order, refusing a malformed one when
+ * it reaches it.
+ *
+ * @param pathStr - The keypath string
+ * @param caller - The function a refusal names
+ * @internal
+ */
+function* keypathFields(pathStr: string, caller: string): Generator<string> {
   let pos = 0;
 
   while (pos < pathStr.length) {
@@ -221,29 +280,13 @@ export function parsePath(pathStr: string, structure: Structure): ParsePathResul
       }
 
       if (fieldName.length === 0) {
-        throw new Error(`parsePath: expected identifier after '.' at position ${pos}`);
+        throw new Error(`${caller}: expected identifier after '.' at position ${pos}`);
       }
-
-      // Validate against structure
-      if (currentStructure.type === 'value') {
-        throw new Error(`parsePath: cannot descend into dataset at '${pathToString(segments)}'`);
-      }
-
-      // currentStructure.type === 'struct' (only other option after 'value' check)
-      const fields = currentStructure.value;
-      const childStructure = fields.get(fieldName);
-      if (childStructure === undefined) {
-        const available = [...fields.keys()].map(k => printIdentifier(k)).join(', ');
-        throw new Error(`parsePath: field '${fieldName}' not found at '${pathToString(segments)}'. Available: ${available}`);
-      }
-      segments.push(variant('field', fieldName));
-      currentStructure = childStructure;
+      yield fieldName;
     } else {
-      throw new Error(`parsePath: unexpected character at position ${pos}: '${pathStr[pos]}'`);
+      throw new Error(`${caller}: unexpected character at position ${pos}: '${pathStr[pos]}'`);
     }
   }
-
-  return { path: segments, structure: currentStructure };
 }
 
 /**

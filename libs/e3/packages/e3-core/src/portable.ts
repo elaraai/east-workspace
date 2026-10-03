@@ -222,6 +222,7 @@ export {
   type TaskStatus,
   type DatasetStatusInfo,
   type TaskStatusInfo,
+  type WorkspaceStatusOptions,
   type WorkspaceStatusResult,
 } from './workspaceStatus.js';
 

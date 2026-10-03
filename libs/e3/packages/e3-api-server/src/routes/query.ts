@@ -9,6 +9,7 @@
  */
 
 import type { Context } from 'hono';
+import { parseKeypath, type TreePath } from '@elaraai/e3-types';
 
 /** A whole number as a query spells it: decimal digits, nothing else. */
 const DIGITS = /^\d+$/;
@@ -67,4 +68,32 @@ export function wholeQuery<K extends string>(c: Context, least: Readonly<Record<
     read[name] = value;
   }
   return read;
+}
+
+/**
+ * Reads the dataset paths a query names: each `path` parameter one keypath, as
+ * a status names a dataset (`.inputs.x`, `` .inputs.`my field` ``).
+ *
+ * @remarks
+ * Absent, or given only empty, there are none. One that is not a keypath —
+ * `inputs.x`, `.inputs.` — is refused before any store is asked:
+ * `400 bad_request`, naming it. Whether a path names anything is the route's
+ * to judge.
+ *
+ * @param c - The request's context
+ * @returns The paths given, or `undefined` when none is; or the 400 that
+ *   refuses one
+ */
+export function pathsQuery(c: Context): TreePath[] | undefined | Response {
+  const given = (c.req.queries('path') ?? []).filter((path) => path !== '');
+  if (given.length === 0) return undefined;
+  const paths: TreePath[] = [];
+  for (const path of given) {
+    try {
+      paths.push(parseKeypath(path));
+    } catch (err) {
+      return badQuery(`path must be a dataset's path, as a status names it (.inputs.x), got ${JSON.stringify(path)}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return paths;
 }
