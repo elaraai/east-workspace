@@ -28,7 +28,7 @@ import { ExecutionAttempt, readTaskObject, toTaskResult } from './attempt.js';
 import { probeExecutionCache as probeCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './cache.js';
 import { runIntake } from './intake.js';
 import { getBootId, getPidStartTime, isProcessAlive, processOwner } from './processHelpers.js';
-import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { checkProcessSettings, giveDirectory, marshalInputsToDir, spawnAndCapture, type ProcessSettings } from './processExec.js';
 import { SegmentFetcher } from './segment-fetch.js';
 import { storeDatasetFile } from '../store-collection-file.js';
 import { materializeEnvironment } from './environment.js';
@@ -46,7 +46,11 @@ import { readTestPieceBytesFrom } from './pieces.js';
 export type { ExecuteOptions, ExecutionIds, ExecutionResult } from './cache.js';
 
 declare module './cache.js' {
-  interface ExecuteOptions {
+  /** The local runner's own options: the process's budget, and how the
+   *  execution's processes run — the environment they start from, and the
+   *  user and group they run as ({@link ProcessSettings}), every runner's and
+   *  every environment install's. */
+  interface ExecuteOptions extends ProcessSettings {
     /** The process's budget (see {@link Budget}): a runner spawns only while
      *  its execution holds a core, and a split task's units take cores like any
      *  execution; each unit is granted threads from it, and on Linux and macOS
@@ -78,8 +82,17 @@ export class LocalTaskRunner implements TaskRunner {
    * @param budget - The process's budget: every runner this spawns — a
    *   task's, a unit's, a function call's — takes a core from it, and each
    *   unit is granted threads from it. Absent, spawns are not budgeted.
+   * @param settings - How every process the runner starts runs — task and
+   *   unit runners, function calls, intake units and environment installs: the
+   *   environment it starts from, and the user and group it runs as
+   *   ({@link ProcessSettings}). Absent, this process's own.
+   * @throws {Error} When the settings name a user or group on Windows.
+   * @throws {RangeError} When a user or group id is not a non-negative
+   *   integer.
    */
-  constructor(private readonly repo: string, private readonly budget?: Budget) {}
+  constructor(private readonly repo: string, private readonly budget?: Budget, private readonly settings: ProcessSettings = {}) {
+    checkProcessSettings(settings);
+  }
 
   /** The runners, by command, that could not run an intake unit at all, with
    *  why: not tried again by this runner. */
@@ -106,6 +119,7 @@ export class LocalTaskRunner implements TaskRunner {
       onWaiting: options?.onWaiting,
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
+      ...this.settings,
     }));
   }
 
@@ -126,6 +140,7 @@ export class LocalTaskRunner implements TaskRunner {
       onWaiting: options?.onWaiting,
       onRequeued: options?.onRequeued,
       extraEnv: options?.extraEnv,
+      ...this.settings,
     }));
   }
 
@@ -149,7 +164,7 @@ export class LocalTaskRunner implements TaskRunner {
       if (!options?.storage) {
         throw new Error('runDetached: spec declares an environment but options.storage was not provided');
       }
-      extraBins = await materializeEnvironment(options.storage, this.repo, spec.environment);
+      extraBins = await materializeEnvironment(options.storage, this.repo, spec.environment, this.settings);
     }
     return runDetached(spec, {
       signal: options?.signal,
@@ -163,12 +178,13 @@ export class LocalTaskRunner implements TaskRunner {
       storage: options?.storage,
       repo: this.repo,
       extraEnv: options?.extraEnv,
-    }, this.budget);
+    }, this.budget, this.settings);
   }
 
   /**
    * Takes a delivery in through an `intake` unit on east-c, or on east-node
-   * when e3 finds no east-c, under the runner's budget ({@link runIntake}). An
+   * when e3 finds no east-c, under the runner's budget and settings
+   * ({@link runIntake}). An
    * east-c that cannot run the unit at all is not tried again by this runner.
    */
   async intake(storage: StorageBackend, spec: IntakeSpec, options?: IntakeOptions): Promise<IntakeResult> {
@@ -177,6 +193,7 @@ export class LocalTaskRunner implements TaskRunner {
       budget: this.budget,
       // Anchored at the project, as a task's runner is found.
       runnerSearchDir: path.dirname(this.repo),
+      ...this.settings,
     }, this.intakeUnusable);
   }
 }
@@ -491,6 +508,9 @@ export async function taskExecuteBody(
   // fetcher places it, so the unit downloads what it reads.
   const fetcher = stock && storage.objects.placement === 'download' ? new SegmentFetcher(storage, repo, true) : null;
   try {
+    // The runner writes its output here, as the user it runs as.
+    await giveDirectory(scratchDir, options);
+
     // Step 5: Marshal inputs to scratch dir. A stock runner only ever READS
     // its inputs, so they may share the object's storage, and it opens a
     // collection staged as its manifest, the segments linked beside it. A
@@ -501,7 +521,7 @@ export async function taskExecuteBody(
     const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, staged, {
       link: stock,
       manifests: stock,
-      ...(fetcher !== null && { fetcher }),
+      ...(fetcher !== null && { fetcher, owner: options }),
     });
     const fetching = fetcher !== null && fetcher.size > 0;
     if (fetching) fetcher.start();
@@ -549,7 +569,7 @@ export async function taskExecuteBody(
     let envBins: string[] = [];
     if (task.environment.type === 'some') {
       try {
-        envBins = await materializeEnvironment(storage, repo, task.environment.value);
+        envBins = await materializeEnvironment(storage, repo, task.environment.value, options);
       } catch (err) {
         return await errorResult(`Failed to materialize environment: ${err instanceof Error ? err.message : err}`);
       }
@@ -704,9 +724,10 @@ export async function taskExecuteBody(
     // Step 9: take the output into the store through its door: a collection a
     // stock runner wrote is stored as the runner cut it, a segment at a time,
     // and one a custom command wrote is read and written again; any other
-    // value is linked in as it stands. A multi-gigabyte output never lands on
-    // this process's heap. Done before the scratch cleanup in the `finally`
-    // below.
+    // value is linked in as it stands — copied, when a runner run as another
+    // user wrote it, so no object is that user's file. A multi-gigabyte
+    // output never lands on this process's heap. Done before the scratch
+    // cleanup in the `finally` below.
     let outputHash: string;
     try {
       outputHash = unit !== null
@@ -768,6 +789,9 @@ async function runCommand(
       // (it's hoisted to the workspace root).
       extraBins,
       searchDirs: [path.dirname(attempt.repo), process.cwd()],
+      env: options.env,
+      uid: options.uid,
+      gid: options.gid,
       extraEnv: options.extraEnv,
       // Tee stdout - use storage.logs.append for log persistence
       onStdout: (str) => {

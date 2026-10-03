@@ -35,6 +35,7 @@ import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
+import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -61,13 +62,18 @@ function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
   }
 }
 
-async function run(command: string, args: string[], cwd: string, what: string): Promise<void> {
+/** Runs an install in the build directory, as the settings say: from their
+ *  environment, as is, and as their user and group. */
+async function run(command: string, args: string[], cwd: string, what: string, settings: ProcessSettings): Promise<void> {
   try {
     await execFileAsync(command, args, {
       cwd,
       // npm is npm.cmd on Windows; a shell resolves both.
       shell: process.platform === 'win32',
       maxBuffer: 16 * 1024 * 1024,
+      env: settings.env,
+      uid: settings.uid,
+      gid: settings.gid,
     });
   } catch (err) {
     const stderr = (err as { stderr?: string }).stderr ?? String(err);
@@ -129,13 +135,13 @@ export function nodeLockFilename(lock: Uint8Array): 'package-lock.json' | 'pnpm-
 
 async function buildPython(
   storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string,
+  spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string, settings: ProcessSettings,
 ): Promise<void> {
   await writeBlob(storage, repo, spec.value.pyproject, path.join(buildDir, 'pyproject.toml'));
   await writeBlob(storage, repo, spec.value.lock, path.join(buildDir, 'uv.lock'));
   // Relocatable: the venv is built in a temp sibling and atomically renamed
   // into the cache path — absolute shebangs would break on rename.
-  await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation');
+  await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation', settings);
   // Install the whole locked third-party closure but no first-party code:
   // `--no-install-workspace` skips every workspace member and the root,
   // `--no-install-local` skips any local/path source (a sibling member's
@@ -143,7 +149,7 @@ async function buildPython(
   // from the captured sdists below. Superset of the old
   // `--no-install-project` for a single-project env (verified equivalent).
   await run('uv', ['sync', '--frozen', '--all-packages', '--no-install-workspace', '--no-install-local'],
-    buildDir, 'locked dependency sync');
+    buildDir, 'locked dependency sync', settings);
   if (spec.value.sdists.length > 0) {
     const sdistDir = path.join(buildDir, '.sdists');
     await fs.mkdir(sdistDir);
@@ -164,15 +170,15 @@ async function buildPython(
     // an incomplete capture is a materialization error, never a silent
     // wrong-code env.
     await run('uv', ['pip', 'install', '--python', path.join(buildDir, '.venv'), '--no-deps', ...files],
-      buildDir, 'project sdist install');
+      buildDir, 'project sdist install', settings);
   }
   await run('uv', ['pip', 'check', '--python', path.join(buildDir, '.venv')], buildDir,
-    'environment consistency check');
+    'environment consistency check', settings);
 }
 
 async function buildNode(
   storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string,
+  spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string, settings: ProcessSettings,
 ): Promise<void> {
   await writeBlob(storage, repo, spec.value.packageJson, path.join(buildDir, 'package.json'));
   const lockData = await readFile(storage, repo, spec.value.lock);
@@ -180,10 +186,10 @@ async function buildNode(
   await fs.writeFile(path.join(buildDir, lockName), lockData);
   if (lockName === 'pnpm-lock.yaml') {
     await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], buildDir,
-      'locked dependency install');
+      'locked dependency install', settings);
   } else {
     await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], buildDir,
-      'locked dependency install');
+      'locked dependency install', settings);
   }
   if (spec.value.tarballs.length > 0) {
     const packDir = path.join(buildDir, '.tarballs');
@@ -194,8 +200,11 @@ async function buildNode(
       await writeBlob(storage, repo, spec.value.tarballs[i]!, f);
       files.push(f);
     }
-    await run('npm', ['install', '--no-save', '--no-audit', '--no-fund', ...files], buildDir,
-      'project tarball install');
+    // --ignore-scripts, as every install here: a project's own packages
+    // arrive built — `npm pack` ran `prepack` at capture — and one that
+    // builds a native addon ships it prebuilt.
+    await run('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--ignore-scripts', ...files], buildDir,
+      'project tarball install', settings);
   }
 }
 
@@ -361,7 +370,7 @@ async function retargetWindowsJunctions(buildDir: string, envDir: string): Promi
 
 async function buildWorkspaceNode(
   storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string,
+  spec: Extract<EnvironmentSpec, { type: 'workspace_node' }>, buildDir: string, envDir: string, settings: ProcessSettings,
 ): Promise<void> {
   // v1 supports npm workspaces only; pnpm capture ships later.
   const lockData = await readFile(storage, repo, spec.value.lock);
@@ -388,10 +397,14 @@ async function buildWorkspaceNode(
     }
   }
 
+  // npm installs a dependency a member cannot share in that member's
+  // directory, as the user the install runs as.
+  await giveDirectories(buildDir, settings);
+
   // Frozen install against the verbatim root lock. --ignore-scripts: member
   // code arrives by extraction, already built (prepack ran at capture).
   await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], buildDir,
-    'workspace install');
+    'workspace install', settings);
 
   await retargetWindowsJunctions(buildDir, envDir);
 
@@ -408,6 +421,39 @@ async function buildWorkspaceNode(
 
 async function pathExists(p: string): Promise<boolean> {
   try { await fs.access(p); return true; } catch { return false; }
+}
+
+/** Gives `dir` and every directory under it to the user and group the
+ *  installs run as, so they can write in each; settings that name neither
+ *  give nothing. */
+async function giveDirectories(dir: string, settings: ProcessSettings): Promise<void> {
+  if (settings.uid === undefined && settings.gid === undefined) return;
+  await giveDirectory(dir, settings);
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) await giveDirectories(path.join(dir, entry.name), settings);
+  }
+}
+
+/**
+ * Takes a built environment back from the user its installs ran as: every
+ * file, directory and link in it becomes this process's own. Every execution
+ * of the repository reads an environment, and no runner may change what the
+ * others run.
+ */
+async function takeBack(dir: string): Promise<void> {
+  if (process.getuid === undefined || process.getgid === undefined) return;
+  const uid = process.getuid();
+  const gid = process.getgid();
+  const take = async (at: string): Promise<void> => {
+    // A link is taken itself, never what it names.
+    await fs.lchown(at, uid, gid);
+    for (const entry of await fs.readdir(at, { withFileTypes: true })) {
+      const full = path.join(at, entry.name);
+      if (entry.isDirectory()) await take(full);
+      else await fs.lchown(full, uid, gid);
+    }
+  };
+  await take(dir);
 }
 
 /**
@@ -459,18 +505,31 @@ export async function sweepEnvironments(repo: string, reachable: ReadonlySet<str
  * relative path it is given against that, and a runner resolves a relative
  * PATH entry against its own.
  *
+ * Every install runs as `settings` say ({@link ProcessSettings}): from their
+ * environment as it is, which names the home and caches the installs write,
+ * and as their user and group. That user is given the build directory, and a
+ * workspace's member directories, which the installs write in; once built,
+ * the environment is taken back, every file of it, before it is put in place.
+ * No npm or pnpm install runs a package's lifecycle script.
+ *
  * @param storage - Storage backend holding the spec + blobs
  * @param repo - Repository path (the cache lives at `<repo>/envs/<hash>`),
  *   absolute or relative to the working directory
  * @param envHash - Object hash of the beast2-encoded {@link EnvironmentSpec}
+ * @param settings - How the installs run: their environment, user and group.
+ *   Absent, this process's own.
  * @returns PATH entries for the materialized environment, absolute
- * @throws {Error} for `image` environments (cloud-only) and failed builds
+ * @throws {Error} for `image` environments (cloud-only), failed builds, and
+ *   settings that name a user or group on Windows
+ * @throws {RangeError} When a user or group id is not a non-negative integer.
  */
 export async function materializeEnvironment(
   storage: StorageBackend,
   repo: string,
   envHash: string,
+  settings: ProcessSettings = {},
 ): Promise<string[]> {
+  checkProcessSettings(settings);
   const specData = await storage.objects.read(repo, envHash);
   const spec = decodeEnvironmentSpec(Buffer.from(specData));
 
@@ -510,20 +569,24 @@ export async function materializeEnvironment(
     await fs.rm(buildDir, { recursive: true, force: true });
     await fs.mkdir(buildDir, { recursive: true });
     try {
+      // The installs write here, as the user they run as.
+      await giveDirectory(buildDir, settings);
       switch (spec.type) {
         case 'python':
-          await buildPython(storage, repo, spec, buildDir);
+          await buildPython(storage, repo, spec, buildDir, settings);
           break;
         case 'node':
-          await buildNode(storage, repo, spec, buildDir);
+          await buildNode(storage, repo, spec, buildDir, settings);
           break;
         case 'tools':
           await buildTools(storage, repo, spec, buildDir);
           break;
         case 'workspace_node':
-          await buildWorkspaceNode(storage, repo, spec, buildDir, envDir);
+          await buildWorkspaceNode(storage, repo, spec, buildDir, envDir, settings);
           break;
       }
+      // e3's before any runner reads it.
+      if (settings.uid !== undefined || settings.gid !== undefined) await takeBack(buildDir);
       try {
         await fs.rename(buildDir, envDir);
       } catch {

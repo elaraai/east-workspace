@@ -44,7 +44,7 @@ import { DeliveryRefusedError } from '../errors.js';
 import { storeDatasetFile } from '../store-collection-file.js';
 import { uuidv7 } from '../uuid.js';
 import type { IntakeOptions, IntakeResult, IntakeSpec } from './interfaces.js';
-import { spawnAndCapture, type SpawnAndCaptureResult } from './processExec.js';
+import { giveDirectory, spawnAndCapture, type ProcessSettings, type SpawnAndCaptureResult } from './processExec.js';
 import { callScratchDir } from './scratch.js';
 import { readUnitResult, runnerCommand, stageIntakeUnit, unitArgv, type IntakeUnit, type StockRunner } from './units.js';
 import { unitThreads, type Budget, type Grant, type GuardStop } from './budget.js';
@@ -66,8 +66,10 @@ const EAST_NODE: StockRunner = variant('east_node', { platforms: [], decode: var
 /** The runners a local intake runs on, in the order it tries them. */
 export const INTAKE_CANDIDATES: readonly IntakeCandidate[] = [EAST_C, EAST_NODE].map((runner) => ({ runner, command: runnerCommand(runner) }));
 
-/** Options for {@link runIntake}. */
-export interface RunIntakeOptions extends IntakeOptions {
+/** Options for {@link runIntake}: with how the runner runs — the environment
+ *  it starts from, and the user and group it runs as, who is given the
+ *  intake's scratch directory ({@link ProcessSettings}). */
+export interface RunIntakeOptions extends IntakeOptions, ProcessSettings {
   /** The budget the runner spawns under, taking a core from it; absent, the
    *  spawn is not budgeted. */
   budget?: Budget;
@@ -85,7 +87,8 @@ export interface RunIntakeOptions extends IntakeOptions {
  * @param repo - The repository: its scratch root holds the unit, and its store
  *   what the unit wrote
  * @param spec - The delivery, its declared type, and the run of its segments
- * @param options - Cancellation, the budget and the runner search
+ * @param options - Cancellation, the budget, the runner search, and how the
+ *   runner runs
  * @param unusable - The candidates, by command, that could not run an intake
  *   before, with why: skipped here, and added to when one cannot
  * @param candidates - The runners to try, in order
@@ -94,7 +97,9 @@ export interface RunIntakeOptions extends IntakeOptions {
  * @throws {DeliveryRefusedError} When the runner records the delivery's
  *   refusal.
  * @throws {Error} When no candidate is found or can run the unit, the guard
- *   stopped the runner, or the intake was aborted (an `AbortError`).
+ *   stopped the runner, the intake was aborted (an `AbortError`), or the
+ *   options name a user or group on Windows.
+ * @throws {RangeError} When a user or group id is not a non-negative integer.
  */
 export async function runIntake(
   storage: StorageBackend,
@@ -117,6 +122,8 @@ export async function runIntake(
     const scratchDir = await callScratchDir(repo, uuidv7().replaceAll('-', ''));
     await fs.mkdir(scratchDir, { recursive: true });
     try {
+      // The runner writes what it takes in here, as the user it runs as.
+      await giveDirectory(scratchDir, options);
       return await stageAndRun(storage, repo, spec, options, unusable, candidates, scratchDir, grant);
     } finally {
       try {
@@ -277,6 +284,9 @@ async function spawnIntake(
       signal: options.signal,
       searchDirs,
       stdinLifeline: true,
+      env: options.env,
+      uid: options.uid,
+      gid: options.gid,
       onSpawned: (pid, stop) => {
         if (pid !== null) grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) });
       },
