@@ -122,8 +122,17 @@ e3 task logs <repo> --execution <taskHash>/<inputsHash>/<executionId>   # One ex
 ### Dataflow execution
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--memory <size>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <task>] [-j <n>] [--memory <size>] [--force | --force-task <task>...] [-v]
 ```
+
+`--filter <task>` runs one task, by its exact name, and the tasks it depends
+on. `--force` re-runs every task the run runs, even where the cache holds its
+result; under `--filter`, the filter's task alone. `--force-task <task>`,
+given once for each, re-runs the tasks it names, such as a task whose platform
+function changed or one reading data from outside e3; the tasks downstream re-run when
+its output changes, as they always do. A run given both flags, a task the
+workspace does not have, or a task `--filter` leaves out is refused before
+anything runs.
 
 `-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
 e3 spawns. `-j` is its cores: the runners in flight at once, across the

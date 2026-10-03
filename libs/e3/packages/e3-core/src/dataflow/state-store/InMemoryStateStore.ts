@@ -10,11 +10,12 @@
  * State is lost when the process exits.
  */
 
-import { some } from '@elaraai/east';
-import { executionStateSummary } from '@elaraai/e3-types';
+import { encodeBeast2For, some } from '@elaraai/east';
+import { DataflowExecutionStateType, decodeDataflowExecutionState, executionStateSummary } from '@elaraai/e3-types';
 import type {
   ExecutionStateStore,
   StateWriteOutcome,
+  StoredRunState,
   TaskStatusDetails,
   ExecutionStatusDetails,
 } from './interfaces.js';
@@ -30,6 +31,28 @@ import { cloneExecutionState } from './clone.js';
 // Type helper for mutable state (removes readonly)
 type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]> : T[P] };
 
+const encodeState = encodeBeast2For(DataflowExecutionStateType);
+
+/**
+ * A run's state as the store holds it: the state a write gave it, or the
+ * bytes a `replace` left — what an upgrade step writes, or a test standing in
+ * for an earlier release — which are read as a stored state is.
+ */
+type Held = { readonly state: DataflowExecutionState } | { readonly bytes: Uint8Array };
+
+/** The runs of one workspace of one repository. */
+interface WorkspaceRuns {
+  readonly repo: string;
+  readonly workspace: string;
+  /** Execution ID -> its state */
+  readonly runs: Map<string, Held>;
+}
+
+/** A held run's state: the state itself, or its bytes decoded. */
+function stateOf(held: Held): DataflowExecutionState {
+  return 'state' in held ? held.state : decodeDataflowExecutionState(held.bytes);
+}
+
 /**
  * In-memory state store for testing and simple use cases.
  *
@@ -42,8 +65,8 @@ type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]
  * - No durability guarantees
  */
 export class InMemoryStateStore implements ExecutionStateStore {
-  /** Map of "repo::workspace" -> execution ID -> state */
-  private states = new Map<string, Map<string, DataflowExecutionState>>();
+  /** Map of "repo::workspace" -> the workspace's runs */
+  private states = new Map<string, WorkspaceRuns>();
 
   private makeKey(repo: string, workspace: string): string {
     return `${repo}::${workspace}`;
@@ -53,39 +76,34 @@ export class InMemoryStateStore implements ExecutionStateStore {
   async create(state: DataflowExecutionState): Promise<void> {
     const key = this.makeKey(state.repo, state.workspace);
     if (!this.states.has(key)) {
-      this.states.set(key, new Map());
+      this.states.set(key, { repo: state.repo, workspace: state.workspace, runs: new Map() });
     }
 
-    const wsStates = this.states.get(key)!;
+    const wsStates = this.states.get(key)!.runs;
     if (wsStates.has(state.id)) {
       throw new Error(`Execution ${state.id} already exists in ${key}`);
     }
 
     // Deep clone to prevent external mutation
-    wsStates.set(state.id, cloneExecutionState(state));
+    wsStates.set(state.id, { state: cloneExecutionState(state) });
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
   async read(repo: string, workspace: string, id: string): Promise<DataflowExecutionState | null> {
-    const key = this.makeKey(repo, workspace);
-    const wsStates = this.states.get(key);
-    if (!wsStates) return null;
+    const held = this.states.get(this.makeKey(repo, workspace))?.runs.get(id);
+    if (held === undefined) return null;
 
-    const state = wsStates.get(id);
-    if (!state) return null;
-
-    return cloneExecutionState(state);
+    return cloneExecutionState(stateOf(held));
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
   async readLatest(repo: string, workspace: string): Promise<DataflowExecutionState | null> {
-    const key = this.makeKey(repo, workspace);
-    const wsStates = this.states.get(key);
+    const wsStates = this.states.get(this.makeKey(repo, workspace))?.runs;
     if (!wsStates || wsStates.size === 0) return null;
 
     // An execution's id is its run's UUIDv7, so the latest sorts last.
     const latestId = [...wsStates.keys()].sort().at(-1)!;
-    return cloneExecutionState(wsStates.get(latestId)!);
+    return cloneExecutionState(stateOf(wsStates.get(latestId)!));
   }
 
   /** The summary of the workspace's latest run, from the state it holds. */
@@ -185,25 +203,69 @@ export class InMemoryStateStore implements ExecutionStateStore {
     executionId: string,
     sinceSeq: number
   ): Promise<ExecutionEvent[]> {
-    const key = this.makeKey(repo, workspace);
-    const wsStates = this.states.get(key);
-    if (!wsStates) return [];
-
-    const state = wsStates.get(executionId);
-    if (!state) return [];
+    const held = this.states.get(this.makeKey(repo, workspace))?.runs.get(executionId);
+    if (held === undefined) return [];
 
     // Filter events from inline array
     const sinceSeqBigInt = BigInt(sinceSeq);
-    return state.events.filter(e => e.value.seq > sinceSeqBigInt);
+    return stateOf(held).events.filter(e => e.value.seq > sinceSeqBigInt);
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
   async delete(repo: string, workspace: string, executionId: string): Promise<void> {
-    const key = this.makeKey(repo, workspace);
-    const wsStates = this.states.get(key);
-    if (wsStates) {
-      wsStates.delete(executionId);
+    this.states.get(this.makeKey(repo, workspace))?.runs.delete(executionId);
+  }
+
+  /**
+   * The run states the store holds of a repository, as stored: a state a
+   * write gave it encoded in this release's form, and bytes a `replace` left
+   * as they are. A `replace` leaves its bytes in the run's place.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async readStored(repo: string): Promise<StoredRunState[]> {
+    const stored: StoredRunState[] = [];
+    for (const { repo: of, workspace, runs } of this.states.values()) {
+      if (of !== repo) continue;
+      for (const [id, held] of runs) {
+        stored.push({
+          workspace,
+          bytes: 'state' in held ? encodeState(held.state) : held.bytes,
+          replace: (bytes) => {
+            runs.set(id, { bytes });
+            return Promise.resolve();
+          },
+        });
+      }
     }
+    return stored;
+  }
+
+  /**
+   * Removes a workspace's runs: what the in-memory backend's removal of the
+   * workspace does, as a local repository's removes the workspace's directory.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - Workspace name
+   */
+  removeWorkspace(repo: string, workspace: string): void {
+    this.states.delete(this.makeKey(repo, workspace));
+  }
+
+  /**
+   * Removes a repository's runs: what the in-memory backend's removal of the
+   * repository does.
+   *
+   * @param repo - Repository identifier
+   * @returns How many runs it removed
+   */
+  drop(repo: string): number {
+    let dropped = 0;
+    for (const [key, { repo: of, runs }] of this.states) {
+      if (of !== repo) continue;
+      dropped += runs.size;
+      this.states.delete(key);
+    }
+    return dropped;
   }
 
   /**
@@ -232,13 +294,14 @@ export class InMemoryStateStore implements ExecutionStateStore {
     next: (current: DataflowExecutionState) => DataflowExecutionState
   ): StateWriteOutcome {
     const key = this.makeKey(repo, workspace);
-    const wsStates = this.states.get(key);
-    const current = wsStates?.get(id);
-    if (wsStates === undefined || current === undefined) {
+    const wsStates = this.states.get(key)?.runs;
+    const held = wsStates?.get(id);
+    if (wsStates === undefined || held === undefined) {
       throw new Error(`Execution ${id} not found in ${key}`);
     }
+    const current = stateOf(held);
     if (current.status !== 'running') return 'dropped';
-    wsStates.set(id, cloneExecutionState(next(current)));
+    wsStates.set(id, { state: cloneExecutionState(next(current)) });
     return 'applied';
   }
 }

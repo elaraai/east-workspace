@@ -122,11 +122,12 @@ const task = await taskGet(url, 'production', 'compute');
 ```typescript
 import { dataflowExecuteLaunch, dataflowExecute, dataflowGraph, taskLogs } from '@elaraai/e3-api-client';
 
-// Start execution (non-blocking)
+// Start execution (non-blocking), re-running every task even where cached
 await dataflowExecuteLaunch(url, 'production', { force: true });
 
-// Execute and wait for result (blocking)
-const result = await dataflowExecute(url, 'production', { force: true });
+// Execute and wait for result (blocking), re-running only the tasks named;
+// a filter is one task's exact name, run with the tasks it depends on
+const result = await dataflowExecute(url, 'production', { force: ['import_sales'] });
 // { success: true, executed: 1n, cached: 0n, failed: 0n, tasks: [...], duration: 1.234 }
 
 // Get dependency graph

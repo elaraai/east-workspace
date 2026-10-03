@@ -20,6 +20,7 @@ import { decodeDataflowExecutionState, executionStateSummary } from '@elaraai/e3
 import type {
   ExecutionStateStore,
   StateWriteOutcome,
+  StoredRunState,
   TaskStatusDetails,
   ExecutionStatusDetails,
 } from './interfaces.js';
@@ -258,6 +259,37 @@ export class FileStateStore implements ExecutionStateStore {
         }
       }
     });
+  }
+
+  /**
+   * The run states the store holds, as stored: each workspace's file, whose
+   * run is the workspace's latest. A file is replaced under its lock, as a
+   * run's writes are.
+   */
+  async readStored(_repo: string): Promise<StoredRunState[]> {
+    let workspaces: string[];
+    try {
+      workspaces = await fs.readdir(this.workspacesDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw err;
+    }
+    const stored: StoredRunState[] = [];
+    for (const workspace of workspaces.sort()) {
+      const path = join(this.workspacesDir, workspace, 'execution.beast2');
+      let bytes: Uint8Array;
+      try {
+        bytes = await fs.readFile(path);
+      } catch (err) {
+        // A workspace that has had no run, or an entry that is no workspace's
+        // directory.
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') continue;
+        throw err;
+      }
+      stored.push({ workspace, bytes, replace: (next) => withKeyedLock(path, () => atomicWriteFile(path, next)) });
+    }
+    return stored;
   }
 
   /**

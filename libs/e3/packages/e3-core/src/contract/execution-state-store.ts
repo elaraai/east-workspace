@@ -11,8 +11,10 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { equalFor, none, printFor, some, variant } from '@elaraai/east';
-import { DataflowExecutionStateType, E3_RELEASE, ExecutionStateSummaryType, executionStateSummary } from '@elaraai/e3-types';
+import { encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import {
+  DataflowExecutionStateType, E3_RELEASE, ExecutionStateSummaryType, dataflowForce, decodeDataflowExecutionState, executionStateSummary,
+} from '@elaraai/e3-types';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { DataflowExecutionState } from '../dataflow/types.js';
 import { uuidv7 } from '../uuid.js';
@@ -20,7 +22,7 @@ import { uuidv7 } from '../uuid.js';
 /** A running run's state of one pending task, `etl`, in workspace `ws`. */
 function runningState(repo: string, id: string): DataflowExecutionState {
   return {
-    release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+    release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
     graph: none, graphHash: none,
     tasks: new Map([['etl', {
       name: 'etl', status: 'pending', cached: none, outputHash: none, error: none, exitCode: none,
@@ -29,6 +31,13 @@ function runningState(repo: string, id: string): DataflowExecutionState {
     executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status: 'running', completedAt: none, error: none,
     versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
   };
+}
+
+/** Asserts a run's state is the one expected, whole. */
+function assertState(read: DataflowExecutionState | null, expected: DataflowExecutionState, what: string): void {
+  assert.ok(read !== null, `${what}: the store holds the run`);
+  const print = printFor(DataflowExecutionStateType);
+  assert.ok(equalFor(DataflowExecutionStateType)(read, expected), `${what}: ${print(read)}, not ${print(expected)}`);
 }
 
 /** Asserts a run's state is the one it ended with, whole. */
@@ -65,7 +74,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const { store, repo } = await setup(t);
       const id = uuidv7();
       const state: DataflowExecutionState = {
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date('2026-09-28T00:00:00.000Z'), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date('2026-09-28T00:00:00.000Z'), force: dataflowForce(false), filter: none,
         graph: some({ tasks: [{ name: 'etl', hash: 'a'.repeat(64), inputs: ['.inputs.sales'], output: '.tasks.etl.output', dependsOn: [] }] }),
         graphHash: none,
         tasks: new Map([['etl', {
@@ -91,7 +100,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       assert.equal(await store.readLatest(repo, 'ws'), null);
       const id = uuidv7();
       await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
         status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
         taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
@@ -107,7 +116,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const first = uuidv7();
       const second = uuidv7();
       const earlier: DataflowExecutionState = {
-        release: E3_RELEASE, id: first, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id: first, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none, tasks: new Map(), executed: 1n, cached: 0n, failed: 0n, skipped: 0n,
         status: 'completed', completedAt: some(new Date()), error: none, versionVectors: new Map(), inputSnapshot: new Map(),
         taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
@@ -228,7 +237,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const { store, repo } = await setup(t);
       const id = uuidv7();
       await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
         status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
         taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
@@ -247,7 +256,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const { store, repo } = await setup(t);
       const id = uuidv7();
       await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none,
         tasks: new Map([
           ['ran', {
@@ -287,7 +296,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const { store, repo } = await setup(t);
       const id = uuidv7();
       await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
         status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
         taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
@@ -306,7 +315,7 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       const { store, repo } = await setup(t);
       const id = uuidv7();
       await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
         status: 'completed', completedAt: some(new Date()), error: none, versionVectors: new Map(), inputSnapshot: new Map(),
         taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
@@ -318,11 +327,39 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       assert.equal(await store.readLatest(repo, 'ws'), null);
     });
 
+    it('holds each run\'s state as stored, and stores what a replace gives in its place, whatever the run\'s status: what an upgrade reads and writes', async (t) => {
+      const { store, repo } = await setup(t);
+      assert.deepEqual(await store.readStored(repo), [], 'a repository with no run holds none');
+      // A run that has ended, and one that runs, each a workspace's latest
+      const ended: DataflowExecutionState = { ...runningState(repo, uuidv7()), status: 'completed', completedAt: some(new Date()) };
+      const running: DataflowExecutionState = { ...runningState(repo, uuidv7()), workspace: 'other' };
+      await store.create(ended);
+      await store.create(running);
+
+      const stored = await store.readStored(repo);
+      assert.deepEqual(stored.map(({ workspace }) => workspace).sort(), ['other', 'ws']);
+      const of = async (workspace: string) => (await store.readStored(repo)).find((each) => each.workspace === workspace)!;
+      assertState(decodeDataflowExecutionState((await of('ws')).bytes), ended, 'the ended run, as stored');
+      assertState(decodeDataflowExecutionState((await of('other')).bytes), running, 'the running run, as stored');
+
+      // A replace is taken as given, by a run that has ended too: it changes
+      // the state's form, not the run.
+      const carried: DataflowExecutionState = { ...ended, force: dataflowForce(['etl']) };
+      await (await of('ws')).replace(encodeBeast2For(DataflowExecutionStateType)(carried));
+      assertState(await store.read(repo, 'ws', ended.id), carried, 'the ended run, replaced');
+      assertState(decodeDataflowExecutionState((await of('ws')).bytes), carried, 'and stored so');
+
+      // Bytes of no state are stored as given, and refused when the run is read.
+      await (await of('other')).replace(new TextEncoder().encode('not a run'));
+      assert.deepEqual(new Uint8Array((await of('other')).bytes), new TextEncoder().encode('not a run'));
+      await assert.rejects(store.read(repo, 'other', running.id), /not an execution state/);
+    });
+
     it('answers a read with a state it does not share: a change to one read never reaches the next', async (t) => {
       const { store, repo } = await setup(t);
       const id = uuidv7();
       await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: false, filter: none,
+        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none,
         tasks: new Map([['etl', {
           name: 'etl', status: 'pending', cached: none, outputHash: none, error: none, exitCode: none,

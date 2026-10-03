@@ -15,7 +15,7 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { EastError } from '@elaraai/east/internal';
-import { TreePathType, WorkspaceStateType, PackageObjectType } from '@elaraai/e3-types';
+import { TreePathType, WorkspaceStateType, PackageObjectType, dataflowForceOption } from '@elaraai/e3-types';
 
 import {
   RepositoryStatusType,
@@ -547,7 +547,7 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       async (url: string, repo: string, workspace: string, options: ValueTypeOf<typeof DataflowRequestType>, token: string) => {
         try {
           await dataflowExecuteLaunch(url, repo, workspace, {
-            force: options.force,
+            force: dataflowForceOption(options.force),
             filter: options.filter.value ?? undefined,
           }, requestOptions(token));
           return null;
@@ -564,7 +564,7 @@ export function platformImplementation(options: PlatformImplementationOptions = 
       async (url: string, repo: string, workspace: string, options: ValueTypeOf<typeof DataflowRequestType>, token: string) => {
         try {
           return await dataflowExecute(url, repo, workspace, {
-            force: options.force,
+            force: dataflowForceOption(options.force),
             filter: options.filter.value ?? undefined,
           }, requestOptions(token));
         } catch (err: any) {

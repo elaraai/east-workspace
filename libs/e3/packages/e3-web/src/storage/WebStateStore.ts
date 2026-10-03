@@ -21,11 +21,12 @@ import {
   type ExecutionStateStore,
   type ExecutionStatusDetails,
   type StateWriteOutcome,
+  type StoredRunState,
   type TaskState,
   type TaskStatusDetails,
 } from '@elaraai/e3-core/portable';
 import type { RecordKey, RecordsAdapter, RecordsRead } from './adapters.js';
-import { recordKeys } from './WebStorage.js';
+import { recordKeys } from './record-keys.js';
 
 const encodeState = encodeBeast2For(DataflowExecutionStateType);
 
@@ -192,6 +193,21 @@ export class WebStateStore implements ExecutionStateStore {
       tx.delete(key);
       return Promise.resolve();
     });
+  }
+
+  /**
+   * The run states the store holds of a repository, as stored: every run's,
+   * each its own record, which a `replace` writes over in one transaction.
+   */
+  async readStored(repo: string): Promise<StoredRunState[]> {
+    return (await this.records.scan(recordKeys.kind(repo, 'state'))).map(({ key, value }) => ({
+      workspace: key[3]!,
+      bytes: value,
+      replace: (bytes) => this.records.transact((tx) => {
+        tx.put(key, bytes);
+        return Promise.resolve();
+      }),
+    }));
   }
 
   /**

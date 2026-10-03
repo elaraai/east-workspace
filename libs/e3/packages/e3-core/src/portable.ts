@@ -554,6 +554,7 @@ export {
 export type {
   ExecutionStateStore,
   StateWriteOutcome,
+  StoredRunState,
   TaskStatusDetails,
   ExecutionStatusDetails,
 } from './dataflow/state-store/interfaces.js';

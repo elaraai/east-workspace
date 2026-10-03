@@ -21,7 +21,7 @@
  */
 
 import { variant, some, none } from '@elaraai/east';
-import { E3_RELEASE, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
+import { E3_RELEASE, dataflowForce, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
 import {
@@ -66,9 +66,11 @@ import type {
  * Options for initializing a dataflow execution.
  */
 export interface StepInitializeOptions {
-  /** Force re-execution even if cached (default: false) */
-  force?: boolean;
-  /** Filter to run only specific task(s) by exact name */
+  /** The tasks the run re-executes even where the cache holds their results:
+   *  `true` for every task — under a filter, the filter's task — the names of
+   *  the tasks, or `false` for none (default) */
+  force?: boolean | readonly string[];
+  /** One task's exact name: the run runs it and its dependency closure */
   filter?: string;
 }
 
@@ -87,7 +89,10 @@ export interface StepInitializeOptions {
  *
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace has no package deployed
- * @throws {TaskNotFoundError} If filter specifies a task that doesn't exist
+ * @throws {TaskNotFoundError} If the filter, or a task the run forces, names
+ *   a task that doesn't exist
+ * @throws {DataflowError} If the run forces a task its filter's run set
+ *   leaves out
  */
 export async function stepInitialize(
   storage: StorageBackend,
@@ -96,7 +101,7 @@ export async function stepInitialize(
   executionId: string,
   options: StepInitializeOptions = {}
 ): Promise<InitializeResult> {
-  const force = options.force ?? false;
+  const force = dataflowForce(options.force);
   const filter = options.filter ?? null;
 
   // Build the dependency graph
@@ -109,6 +114,25 @@ export async function stepInitialize(
       // Import here to avoid circular dependency
       const { TaskNotFoundError } = await import('../errors.js');
       throw new TaskNotFoundError(filter);
+    }
+  }
+
+  // Each task the run forces is named as a filter is. One its filter's run
+  // set leaves out would never run, so the start is refused before anything
+  // does, rather than run without it.
+  if (force.type === 'tasks') {
+    const { DataflowError, TaskNotFoundError } = await import('../errors.js');
+    const unknown = force.value.find(name => !graph.tasks.some(t => t.name === name));
+    if (unknown !== undefined) throw new TaskNotFoundError(unknown);
+    if (filter !== null) {
+      const runSet = dataflowGetDependencyClosure(graph, filter);
+      const outside = force.value.filter(name => !runSet.has(name));
+      if (outside.length > 0) {
+        throw new DataflowError(
+          `the run forces ${outside.map(name => `'${name}'`).join(', ')}, which the filter '${filter}' leaves out: ` +
+          `a filtered run runs '${filter}' and the tasks it depends on, and no other`
+        );
+      }
     }
   }
 
@@ -261,20 +285,30 @@ export function stepGetRunSet(state: DataflowExecutionState): Set<string> | null
 /**
  * Decide whether a task's cache should be bypassed (force re-execution).
  *
- * `--force` on its own re-executes every task. Combined with `--filter <task>`
- * it applies to the explicitly named target only — the target's dependencies
- * run from cache — so "re-run just this task" does not re-execute the whole
- * upstream tree. Keeping this scope in one place keeps the cache-bypass
- * decision in {@link stepPrepareTask} and the runner's force flag in agreement.
+ * A run forces none of its tasks, all of them, or the ones it names
+ * (`DataflowForceType`). All of them, under `--filter <task>`, is the named
+ * target only — the target's dependencies run from cache — so "re-run just
+ * this task" does not re-execute the whole upstream tree. Named tasks are
+ * forced wherever they sit in the graph, each time the run launches them, and
+ * their dependents are not: they re-run when a forced task's output changes.
+ * Keeping this scope in one place keeps the cache-bypass decision in
+ * {@link stepPrepareTask} and the runner's force flag in agreement.
  *
  * @param state - Current execution state
  * @param taskName - Name of the task being prepared or executed
  * @returns True if the task must re-execute regardless of a cached result
  */
 export function stepTaskForced(state: DataflowExecutionState, taskName: string): boolean {
-  if (!state.force) return false;
-  const filterValue = state.filter.type === 'some' ? state.filter.value : null;
-  return filterValue === null || taskName === filterValue;
+  switch (state.force.type) {
+    case 'none':
+      return false;
+    case 'all': {
+      const filterValue = state.filter.type === 'some' ? state.filter.value : null;
+      return filterValue === null || taskName === filterValue;
+    }
+    case 'tasks':
+      return state.force.value.includes(taskName);
+  }
 }
 
 /**
@@ -589,8 +623,8 @@ export async function stepPrepareTask(
     validInputHashes.push(hash);
   }
 
-  // Check cache unless this task is force-re-executed. Under a filter, force
-  // applies to the target only, so its dependencies still resolve from cache.
+  // Check cache unless the run forces this task: every task, the filter's
+  // target, or the ones it names (stepTaskForced).
   let cached: PrepareTaskResult['cached'] = null;
   if (!stepTaskForced(state, taskName)) {
     cached = await dataflowCheckCache(

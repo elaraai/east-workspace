@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { variant, some, none } from '@elaraai/east';
-import { E3_RELEASE, executionStateSummary } from '@elaraai/e3-types';
+import { E3_RELEASE, dataflowForce, executionStateSummary } from '@elaraai/e3-types';
 import type { ExecutionEvent, DataflowExecutionState } from './types.js';
 import { coreEventToApiEvent, coreStateToApiState } from './api-compat.js';
 
@@ -23,7 +23,7 @@ function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExe
     repo: 'test-repo',
     workspace: 'ws',
     startedAt: now,
-    force: false,
+    force: dataflowForce(false),
     filter: none,
     graph: none,
     graphHash: none,

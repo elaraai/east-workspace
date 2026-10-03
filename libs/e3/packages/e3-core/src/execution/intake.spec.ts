@@ -89,6 +89,7 @@ describe('a local intake', () => {
     logs: storage.logs,
     repos: storage.repos,
     datasets: storage.datasets,
+    runStates: (at) => storage.runStates(at),
     validateRepository: (at) => storage.validateRepository(at),
   });
 

@@ -6,6 +6,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { StorageBackend, ObjectStore, RefStore, LockService, LogStore, RepoStore, DatasetRefStore, RepositoryUpgrade } from '../interfaces.js';
+import type { ExecutionStateStore } from '../../dataflow/state-store/interfaces.js';
+import { FileStateStore } from '../../dataflow/state-store/FileStateStore.js';
 import { LocalObjectStore } from './LocalObjectStore.js';
 import { LocalRefStore } from './LocalRefStore.js';
 import { LocalLockService } from './LocalLockService.js';
@@ -82,6 +84,17 @@ export class LocalStorage implements StorageBackend {
     this.logs = new LocalLogStore();
     this.datasets = new LocalDatasetRefStore();
     this.repos = new LocalRepoStore(reposDir ?? null, this.refs, this.datasets);
+  }
+
+  /**
+   * The store of a repository's dataflow runs' states: each workspace's
+   * latest run, in `workspaces/<ws>/execution.beast2`.
+   *
+   * @param repo - Path to the e3 repository directory
+   * @returns The repository's run state store
+   */
+  runStates(repo: string): ExecutionStateStore {
+    return new FileStateStore(path.join(repo, 'workspaces'));
   }
 
   /**

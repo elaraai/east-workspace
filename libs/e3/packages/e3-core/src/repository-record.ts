@@ -19,6 +19,7 @@ import { RepoLayoutError, RepositoryBusyError, RepositoryUpgradePendingError } f
 import { withKeyedLock } from './keyed-mutex.js';
 import { withRepositoryHeld } from './running-work.js';
 import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js';
+import { dataflowForceTasks } from './upgrades/dataflow-force-tasks.js';
 import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
 
 /**
@@ -28,6 +29,8 @@ import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
  * @remarks
  * - `execution-stop-reasons`: a stopped execution's record says why it
  *   stopped ({@link executionStopReasons}).
+ * - `dataflow-force-tasks`: a stored dataflow run forces none of its tasks,
+ *   all of them, or the ones it names ({@link dataflowForceTasks}).
  *
  * A release that changes a stored form appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -35,7 +38,7 @@ import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
  *
  * @internal
  */
-export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [executionStopReasons];
+export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [executionStopReasons, dataflowForceTasks];
 
 /** How long an open that owes upgrades waits for work running in the
  *  repository to finish, unless its caller says otherwise. */

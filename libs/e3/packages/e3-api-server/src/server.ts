@@ -293,7 +293,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // run, polled and cancelled through each repository's local orchestrator
   // and the state store it writes
   app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, {
-    getRunner, ...localDataflow(), width: budget.cores, budget,
+    getRunner, ...localDataflow(storage), width: budget.cores, budget,
   }));
 
   // Object routes: /api/repos/:repo/objects/:hash — a large object is answered

@@ -22,6 +22,7 @@
  */
 
 import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';
+import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { LockHolderInfo } from '../errors.js';
 
 // Re-export lock types for consumers of this module
@@ -1301,6 +1302,22 @@ export interface StorageBackend {
 
   /** Per-dataset reference storage (reactive dataflow) */
   readonly datasets: DatasetRefStore;
+
+  /**
+   * The store of a repository's dataflow runs' states: where an orchestrator
+   * running the repository's dataflows keeps each run's state.
+   *
+   * @remarks
+   * A run's state is stored state, kept with the repository's other records,
+   * which a workspace's removal removes ({@link RefStore.workspaceRemove}). A
+   * host that runs dataflows over this backend keeps their states here, so a
+   * repository upgrade that carries a changed form of the state forward reaches
+   * every run's ({@link ExecutionStateStore.readStored}).
+   *
+   * @param repo - Repository identifier
+   * @returns The repository's run state store
+   */
+  runStates(repo: string): ExecutionStateStore;
 
   /**
    * Validate that a repository exists and is properly structured. It reads no

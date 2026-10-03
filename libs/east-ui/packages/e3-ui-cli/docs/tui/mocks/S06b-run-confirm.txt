@@ -33,4 +33,4 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  › /run --force_                       run 6 tasks in main, ignoring the cache · 8 cores, 14 GB    ⏎ run · esc          
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- --force  re-run everything    --filter <glob>  only matching tasks                                                     
+ --force  re-run everything    --force-task <task>  re-run this task    --filter <task>  this task and what it needs    

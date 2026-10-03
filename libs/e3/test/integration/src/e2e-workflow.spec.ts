@@ -556,6 +556,43 @@ describe('reactive caching — change one input, only its tasks recompute', () =
     assert.ok(get.stdout.includes('a2'), `task_a should carry 'a2', got: ${get.stdout}`);
   });
 
+  // --force-task re-runs the tasks it names, as many as are given, and serves
+  // the rest from the cache; a start that cannot do what it says is refused
+  // before anything runs.
+  it('--force-task re-runs only the tasks it names; the rest stay CACHED', async () => {
+    const tasks = ['task_a', 'task_b', 'task_c'].map((name) => {
+      const input = e3.input(name.replace('task_', ''), StringType, variant('value', `${name} in`));
+      return e3.customTask(name, [input], StringType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);
+    });
+    await e3.export(e3.package('forced', '1.0.0', ...tasks), join(testDir, 'forced.zip'));
+
+    await runE3Command(['repo', 'create', repoDir], testDir);
+    await runE3Command(['package', 'import', repoDir, join(testDir, 'forced.zip')], testDir);
+    await runE3Command(['workspace', 'create', repoDir, 'ws'], testDir);
+    await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'forced@1.0.0'], testDir);
+    const first = await runE3Command(['dataflow', 'run', repoDir, 'ws'], testDir);
+    assert.strictEqual(first.exitCode, 0, `the first run failed: ${first.stderr}\n${first.stdout}`);
+
+    const forced = await runE3Command(['dataflow', 'run', repoDir, 'ws', '--force-task', 'task_a', '--force-task', 'task_c'], testDir);
+    assert.strictEqual(forced.exitCode, 0, `the forced run failed: ${forced.stderr}\n${forced.stdout}`);
+    assert.match(forced.stdout, /Force: re-executing task_a, task_c/);
+    assert.match(forced.stdout, /\[DONE\][^\n]*task_a/, 'task_a is forced');
+    assert.match(forced.stdout, /\[DONE\][^\n]*task_c/, 'task_c is forced: each --force-task counts');
+    assert.match(forced.stdout, /\[CACHED\][^\n]*task_b/, 'task_b is served from the cache');
+
+    const refusals: [args: string[], message: RegExp][] = [
+      [['--force', '--force-task', 'task_a'], /^Error: --force forces every task the run runs, and --force-task only the tasks it names: give one or the other$/m],
+      [['--force-task', 'task_d'], /^Error: .*task_d/m],
+      [['--filter', 'task_a', '--force-task', 'task_b'], /^Error: the run forces 'task_b', which the filter 'task_a' leaves out/m],
+    ];
+    for (const [args, message] of refusals) {
+      const refused = await runE3Command(['dataflow', 'run', repoDir, 'ws', ...args], testDir);
+      assert.strictEqual(refused.exitCode, 1, `${args.join(' ')} is refused:\n${refused.stdout}`);
+      assert.match(refused.stderr, message, args.join(' '));
+      assert.doesNotMatch(refused.stdout, /\[(DONE|CACHED|START)\]/, `${args.join(' ')} runs nothing`);
+    }
+  });
+
   // A record is a root dataset written only through mutations; it participates
   // in reactive dataflow exactly like an input. Mutating it must re-run only the
   // tasks that read it. (The mutation reducer runs on the east-node runner, so

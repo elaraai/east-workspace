@@ -66,6 +66,26 @@ export interface ExecutionStatusDetails {
 export type StateWriteOutcome = 'applied' | 'dropped' | 'refused';
 
 /**
+ * A run's state as a store holds it, in whatever form the release that wrote
+ * it wrote: what a repository upgrade step reads, and writes back in another
+ * form.
+ */
+export interface StoredRunState {
+  /** The run's workspace */
+  readonly workspace: string;
+  /** The state's bytes, as stored */
+  readonly bytes: Uint8Array;
+  /**
+   * Stores these bytes in the state's place, whatever the run's status: an
+   * upgrade step's write, which changes the state's form and not the run, so a
+   * run that has ended takes it too.
+   *
+   * @param bytes - The state's bytes, in another form
+   */
+  replace(bytes: Uint8Array): Promise<void>;
+}
+
+/**
  * Interface for persisting and retrieving execution state.
  *
  * Implementations must be thread-safe for concurrent access within a process.
@@ -238,4 +258,20 @@ export interface ExecutionStateStore {
    * @param executionId - Execution ID
    */
   delete(repo: string, workspace: string, executionId: string): Promise<void>;
+
+  /**
+   * Every run state the store holds of a repository, as it holds them: each
+   * one's workspace and bytes, in whatever form the release that wrote it
+   * wrote, and a way to replace them.
+   *
+   * @remarks
+   * A repository upgrade step reads the store through this, since a state an
+   * earlier release wrote does not decode as this release's, and writes each
+   * one it carries forward back through its `replace`. The repository is held
+   * still while a step runs, so no run's loop writes meanwhile.
+   *
+   * @param repo - Repository identifier
+   * @returns The stored states
+   */
+  readStored(repo: string): Promise<StoredRunState[]>;
 }
