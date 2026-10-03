@@ -21,6 +21,13 @@
  * object or value is answered with among them — and none through the global
  * one.
  *
+ * A dataset can move while it is read, and the old value's objects then be
+ * refused: these tests pin that `datasetGet` starts over from the new content,
+ * at most 3 times, and that `datasetGetStream` starts over only before it
+ * returns, raising the move once it has handed out a hash. A dataset that has
+ * not moved raises the read's own error, and a manifest above level 0 is
+ * refused before a segment is read.
+ *
  * A host that serves a value it names by hash — a record's state at a past
  * commit, say — reads it through the same calls: `objectGet` for one object,
  * `collectionGetStream` for a collection by its manifest's hash, and
@@ -30,7 +37,8 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Beast2ManifestWriter, DictType, IntegerType, SortedMap, StringType, compareFor, decodeCollectionManifest, encodeBeast2PagedFor, sha256Hex, variant,
+  Beast2ManifestWriter, DictType, IntegerType, SortedMap, StringType, compareFor, decodeCollectionManifest, encodeBeast2PagedFor, encodeCollectionManifest,
+  sha256Hex, variant,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { datasetFindKey, datasetGet, datasetGetPage, datasetGetStream } from './datasets.js';
@@ -156,11 +164,14 @@ describe('datasetFindKey', () => {
 });
 
 /** A collection as a server stores it — every object by its hash, the
- *  manifest's own among them — and the blob its splice is. */
-function storedCollection(): { objects: Map<string, Uint8Array>; manifest: string; segments: string[]; blob: Uint8Array } {
+ *  manifest's own among them — and the blob its splice is: `length` keys,
+ *  each holding its index plus `first`, so another `first` is another value. */
+function storedCollection(
+  { first = 0, length = 20_000 }: { first?: number; length?: number } = {},
+): { objects: Map<string, Uint8Array>; manifest: string; segments: string[]; blob: Uint8Array } {
   const type = DictType(StringType, IntegerType);
   const value = new SortedMap(
-    Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(6, '0')}`, BigInt(i)] as [string, bigint]),
+    Array.from({ length }, (_, i) => [`k${String(i).padStart(6, '0')}`, BigInt(first + i)] as [string, bigint]),
     compareFor(StringType));
   const objects = new Map<string, Uint8Array>();
   let manifest = '';
@@ -213,6 +224,62 @@ function mockServer(manifest: string, objects: Map<string, Uint8Array>, presigne
   const server = collectionServer(manifest, objects, presigned);
   globalThis.fetch = server.fetch;
   return server;
+}
+
+type StoredCollection = ReturnType<typeof storedCollection>;
+
+/** A server whose dataset moves from one value to the next. */
+interface MovingServer {
+  /** The index of the value the dataset holds. */
+  at: number;
+  /** Every request's URL. */
+  requests: string[];
+  /** Told each object asked for before it is answered; it moves the dataset
+   *  on by setting `at`. */
+  beforeObject: (hash: string) => void;
+  fetch: typeof globalThis.fetch;
+}
+
+/**
+ * A `fetch` serving a dataset that holds `values[at]`, as a host serves a
+ * caller only the objects of the datasets it reads, or as a store does once gc
+ * has collected an old value: the dataset route names the held value's
+ * manifest, which is its content hash too, and the objects route refuses,
+ * `object_not_found`, any object the held value does not name.
+ */
+function movingServer(values: StoredCollection[]): MovingServer {
+  const server: MovingServer = {
+    at: 0,
+    requests: [],
+    beforeObject: () => { /* the dataset holds still */ },
+    fetch: (async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      server.requests.push(url.href);
+      if (url.pathname.includes('/datasets/')) {
+        const { manifest } = values[server.at]!;
+        return new Response(JSON.stringify({ manifest }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-Content-SHA256': manifest },
+        });
+      }
+      const hash = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+      server.beforeObject(hash);
+      const bytes = values[server.at]!.objects.get(hash);
+      if (bytes === undefined) {
+        return new Response(JSON.stringify({ error: { type: 'object_not_found', message: `object ${hash} is no object of the dataset` } }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(bytes, { status: 200, headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
+    }) as typeof globalThis.fetch,
+  };
+  return server;
+}
+
+/** How many times a server's dataset was asked for. */
+function datasetReads(server: MovingServer): number {
+  return server.requests.filter((url) => url.includes('/datasets/')).length;
 }
 
 describe('datasetGet', () => {
@@ -313,6 +380,106 @@ describe('datasetGet through a given fetch', () => {
     assert.equal(result.hash, HASH);
     assert.deepEqual(requests.map((request) => [new URL(request.url).host, request.auth]),
       [['example.test', true], ['bucket.test', false]], 'the URL is fetched without the API\'s auth');
+  });
+});
+
+describe('a read of a dataset that moves while it is read', () => {
+  /** Is `err` the move to `current`, as a pinned page's refusal names it? */
+  const movedTo = (current: string) => (err: unknown): boolean => {
+    assert.ok(err instanceof DatasetHashMismatchError, `expected DatasetHashMismatchError, got ${String(err)}`);
+    assert.equal(err.code, 'dataset_hash_mismatch');
+    assert.equal(err.currentHash, current);
+    return true;
+  };
+
+  it('datasetGet starts over from the new content when the old value\'s objects are refused mid-read, and names that content', async () => {
+    const [before, after] = [storedCollection(), storedCollection({ first: 1 })];
+    const server = movingServer([before, after]);
+    // A run writes the new value while the fourth segment is asked for: it and
+    // every later segment of the old value are refused from then on.
+    server.beforeObject = (hash) => {
+      if (hash === before.segments[3]) server.at = 1;
+    };
+
+    const result = await datasetGet(BASE, 'r', 'ws', lookupPath, { token: null, fetch: server.fetch });
+    assert.deepEqual(result.data, after.blob, 'the new value, with none of the old one\'s bytes');
+    assert.equal(result.hash, after.manifest, 'the hash is the content read');
+    assert.equal(datasetReads(server), 3, 'the read, the check that found it moved, and the read that started over');
+  });
+
+  it('datasetGetStream starts over before it returns, and raises a move once it has returned, never splicing two values', async () => {
+    const [before, after] = [storedCollection(), storedCollection({ first: 1 })];
+    assert.ok(before.segments.length > 12, `the value spans many segments, got ${before.segments.length}`);
+
+    // Moved between the dataset's answer and its manifest's read: nothing has
+    // been returned, so the read starts over.
+    const early = movingServer([before, after]);
+    early.beforeObject = (hash) => {
+      if (hash === before.manifest) early.at = 1;
+    };
+    const restarted = await datasetGetStream(BASE, 'r', 'ws', lookupPath, { token: null, fetch: early.fetch });
+    assert.equal(restarted.hash, after.manifest);
+    const parts: Uint8Array[] = [];
+    for await (const chunk of restarted.chunks) parts.push(chunk);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), after.blob);
+    assert.equal(datasetReads(early), 2, 'the read and the check, whose answer the read starts over from');
+
+    // Moved once a hash and some chunks are out: the chunks end in the move,
+    // and every byte they gave is the old value's.
+    const late = movingServer([before, after]);
+    const { hash, chunks } = await datasetGetStream(BASE, 'r', 'ws', lookupPath, { token: null, fetch: late.fetch });
+    assert.equal(hash, before.manifest);
+    const taken: Uint8Array[] = [];
+    await assert.rejects((async () => {
+      for await (const chunk of chunks) {
+        taken.push(chunk);
+        late.at = 1;
+      }
+    })(), movedTo(after.manifest));
+    const given = new Uint8Array(Buffer.concat(taken));
+    assert.ok(given.length > 0 && given.length < before.blob.length, `some of the value was given, ${given.length} bytes`);
+    assert.deepEqual(given, before.blob.subarray(0, given.length), 'what was given is the old value\'s, and nothing else');
+  });
+
+  it('raises the read\'s own error when the dataset has not moved', async () => {
+    const held = storedCollection();
+    held.objects.delete(held.segments[2]!);
+    const server = movingServer([held]);
+    await assert.rejects(datasetGet(BASE, 'r', 'ws', lookupPath, { token: null, fetch: server.fetch }), (err: unknown) => {
+      assert.ok(err instanceof ApiError && !(err instanceof DatasetHashMismatchError), `expected the refusal itself, got ${String(err)}`);
+      assert.equal(err.code, 'object_not_found');
+      return true;
+    });
+    assert.equal(datasetReads(server), 2, 'the read and the one check');
+  });
+
+  it('gives up after 3 restarts on a dataset that keeps moving, naming the content it holds now', async () => {
+    const values = [0, 1, 2, 3, 4].map((first) => storedCollection({ first, length: 50 }));
+    const server = movingServer(values);
+    // Every read finds the dataset moved on by the time it asks for the manifest.
+    server.beforeObject = (hash) => {
+      if (hash === values[server.at]!.manifest) server.at++;
+    };
+    await assert.rejects(datasetGet(BASE, 'r', 'ws', lookupPath, { token: null, fetch: server.fetch }), movedTo(values[4]!.manifest));
+    assert.deepEqual(server.requests.filter((url) => url.includes('/objects/')),
+      values.slice(0, 4).map((value) => `${BASE}/api/repos/r/objects/${value.manifest}`), 'the read and 3 restarts, each refused its manifest');
+  });
+
+  it('refuses a manifest above level 0 by name, before reading a segment', async () => {
+    const { objects, manifest } = storedCollection();
+    const levelled = encodeCollectionManifest({ ...decodeCollectionManifest(objects.get(manifest)!), level: 1n });
+    const levelledHash = sha256Hex(levelled);
+    objects.set(levelledHash, levelled);
+    const refusal = `the collection ${levelledHash} is a level 1 manifest, whose entries name manifests, not segments: ` +
+      'a newer e3 wrote it, which this client does not read — update @elaraai/e3-api-client';
+
+    const server = collectionServer(levelledHash, objects, new Set());
+    await assert.rejects(collectionGetStream(BASE, 'r', levelledHash, { token: null, fetch: server.fetch }), { message: refusal });
+    assert.deepEqual(server.requests.map((request) => request.url), [`${BASE}/api/repos/r/objects/${levelledHash}`], 'the manifest alone is read');
+
+    // A dataset holding one is refused the same way.
+    await assert.rejects(datasetGet(BASE, 'r', 'ws', lookupPath, { token: null, fetch: collectionServer(levelledHash, objects, new Set()).fetch }),
+      { message: refusal });
   });
 });
 

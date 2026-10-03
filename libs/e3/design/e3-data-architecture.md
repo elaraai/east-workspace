@@ -628,6 +628,12 @@ A host that buffers its responses cannot stream a collection, and caps a respons
 - A collection is then answered with JSON `{ manifest }`, the manifest's hash — the primary's, for an indexed record — with the dataset's own hash in `X-Content-SHA256`. Any other value is answered as before.
 - The client reads the manifest, the header it names and each segment through `GET /api/repos/:repo/objects/<hash>`, a few at a time, and checks each against its hash.
 - It splices them in order (east's `spliceBeast2Segments`) into the bytes the route would have streamed. `datasetGetStream` hands them over a few segments at a time, and `datasetGet` is built on it.
+- A manifest above level 0, whose entries name manifests rather than segments, is refused before a segment is read. Only a newer e3 writes one (`level` is reserved as 0, §3.4), and only a client meets one, since a server or a runner refuses a repository a newer release has upgraded (§3.13).
+
+A dataset can move while it is read: a run writes a new value, and the old value's objects are refused, to a caller the host lets read only the dataset's current value, or collected. A read that fails asks for the dataset again:
+- When the dataset names other content (`X-Content-SHA256`), `datasetGet` starts over from it, at most 3 times, and returns that content's hash.
+- `datasetGetStream` starts over only before it returns. Once it has returned a hash, its chunks end in a `DatasetHashMismatchError` naming the new content, as a pinned page's 409 does, so a caller never takes two values' bytes as one.
+- A dataset that has not moved raises the read's own error.
 
 The objects route answers an object over 1 MB as the dataset route does, with JSON `{ url }`, so a segment's bytes go from object storage to the client. An element larger than the cut rule's target is a segment of its own, so a segment can exceed a response cap.
 
