@@ -41,6 +41,7 @@ export {
   getValuePage,
   type DatasetPageWindow,
   type DatasetPageLimits,
+  type PinnedCache,
 } from './datasets.js';
 
 export {

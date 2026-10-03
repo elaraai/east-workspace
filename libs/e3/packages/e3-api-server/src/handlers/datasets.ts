@@ -275,11 +275,26 @@ export interface DatasetPageWindow {
   join?: boolean;
   /** Content hash the window is addressed against. When it matches the
    *  current value the response is immutable (`Cache-Control: immutable`) —
-   *  the URL is then a pure function of the bytes, so any HTTP cache (edge
-   *  CDN, browser) can hold it forever with zero staleness. A stale hash is
-   *  refused with 409 rather than answered with different bytes, keeping
-   *  caches sound. */
+   *  the URL is then a pure function of the bytes, so a cache can hold it
+   *  forever with zero staleness: the caller's own, or any between, as the
+   *  server's {@link PinnedCache} says. A stale hash is refused with 409
+   *  rather than answered with different bytes, keeping caches sound. */
   hash?: string;
+}
+
+/**
+ * Who may keep a hash-pinned answer, which never changes: `private`, the
+ * caller's own cache alone (a browser's), or `public`, any cache between it
+ * and the server as well (a CDN's). `private` unless a host says otherwise,
+ * since an answer holds the rows of a workspace its caller was let read; a
+ * host whose data any caller may read opts in to `public`.
+ */
+export type PinnedCache = 'private' | 'public';
+
+/** The `Cache-Control` of a hash-pinned answer: kept for a year, never
+ *  revalidated, by the caches {@link PinnedCache} lets keep it. */
+function pinnedCacheControl(cache: PinnedCache | undefined): string {
+  return `${cache ?? 'private'}, max-age=31536000, immutable`;
 }
 
 /** The opener's refusal of a collection stored as one blob, which an older
@@ -293,10 +308,13 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
   });
 }
 
-/** Server-side limits for {@link getDatasetPage} and {@link getValuePage}. */
+/** Server-side limits for {@link getDatasetPage} and {@link getValuePage}, and
+ *  who may keep a pinned window. */
 export interface DatasetPageLimits {
   /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
   byteBudget?: number;
+  /** Who may keep a hash-pinned window (default `private`). */
+  cache?: PinnedCache;
 }
 
 /**
@@ -357,10 +375,10 @@ export async function getDatasetPage(
     }
 
     if (window.index !== undefined) {
-      return await indexPage(storage, repoPath, workspace, treePath, status.hash, window, byteBudget);
+      return await indexPage(storage, repoPath, workspace, treePath, status.hash, window, byteBudget, limits?.cache);
     }
 
-    return await valuePage(storage, repoPath, status.hash, typeValue, window, byteBudget, status.size ?? undefined);
+    return await valuePage(storage, repoPath, status.hash, typeValue, window, byteBudget, limits?.cache, status.size ?? undefined);
   } catch (err) {
     return sendJsonError(err);
   }
@@ -384,7 +402,8 @@ export async function getDatasetPage(
  * @param type - The collection's type: an Array, a Set or a Dict
  * @param window - An element window (`offset`/`limit`) or one writer segment,
  *   and an optional pin
- * @param limits - The page byte budget
+ * @param limits - The page byte budget, and who may keep a pinned window
+ *   (`private` unless it says otherwise)
  * @returns The window, or a JSON error
  */
 export async function getValuePage(
@@ -406,7 +425,7 @@ export async function getValuePage(
     if (window.hash !== undefined && window.hash !== hash) {
       return pageError('dataset_hash_mismatch', `The value is ${hash}, not ${window.hash}`, 409, { 'X-Content-SHA256': hash });
     }
-    return await valuePage(storage, repoPath, hash, type, window, limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT);
+    return await valuePage(storage, repoPath, hash, type, window, limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT, limits?.cache);
   } catch (err) {
     return sendJsonError(err);
   }
@@ -417,6 +436,7 @@ export async function getValuePage(
  * limit under the byte budget, the `X-*` headers, the span of segments the
  * window touches, and its slice.
  *
+ * @param cache - Who may keep the window, when it is pinned
  * @param size - The stored object's size, when the caller knows it
  */
 async function valuePage(
@@ -426,6 +446,7 @@ async function valuePage(
   typeValue: EastTypeValue,
   window: DatasetPageWindow,
   byteBudget: number,
+  cache: PinnedCache | undefined,
   size?: number,
 ): Promise<Response> {
   const kind = typeValue.type;
@@ -471,9 +492,10 @@ async function valuePage(
   const pageHeaders = (pageOffset: number, pageCount: number): Record<string, string> => ({
     'Content-Type': BEAST2_CONTENT_TYPE,
     // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
-    // forever — cacheable at any layer with no invalidation. Unpinned
-    // windows track the mutable current value and must not be cached.
-    'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+    // forever — cacheable with no invalidation, by the caches the server
+    // lets keep them. Unpinned windows track the mutable current value and
+    // must not be cached.
+    'Cache-Control': window.hash !== undefined ? pinnedCacheControl(cache) : 'no-store',
     'X-Content-SHA256': hash,
     // The value's full stored byte size — the page endpoint is then
     // self-describing (no separate status call needed for the header
@@ -571,6 +593,7 @@ async function indexPage(
   stateHash: string,
   window: DatasetPageWindow,
   byteBudget: number,
+  cache: PinnedCache | undefined,
 ): Promise<Response> {
   const refPath = treePath.map((s) => s.value).join('/');
   const resolved = await resolveRecordIndex(storage, repoPath, workspace, refPath, stateHash, window.index!);
@@ -648,7 +671,7 @@ async function indexPage(
     status: 200,
     headers: {
       'Content-Type': BEAST2_CONTENT_TYPE,
-      'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+      'Cache-Control': window.hash !== undefined ? pinnedCacheControl(cache) : 'no-store',
       'X-Content-SHA256': stateHash,
       'X-Total-Bytes': String(index.bytes),
       'X-Total-Elements': String(totalElements),
@@ -763,7 +786,8 @@ function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) =
  * Responds with JSON `{ found, row, count }`: `row` is the match's global
  * element index (for a prefix, the range's first row; for a miss, the
  * key's insertion row), `count` the number of matched rows. Hash-pinned
- * queries are immutable-cacheable exactly like page windows.
+ * queries are immutable-cacheable exactly like page windows, by the caches
+ * `options.cache` lets keep them (`private` unless it says otherwise).
  */
 export async function findDatasetKey(
   storage: StorageBackend,
@@ -771,6 +795,7 @@ export async function findDatasetKey(
   workspace: string,
   treePath: TreePath,
   query: DatasetFindQuery,
+  options: { readonly cache?: PinnedCache } = {},
 ): Promise<Response> {
   try {
     if (treePath.length === 0) {
@@ -1044,7 +1069,7 @@ export async function findDatasetKey(
         'Content-Type': 'application/json',
         // Hash-pinned queries are content-addressed: same URL ⇒ same
         // answer, forever — as for page windows.
-        'Cache-Control': query.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+        'Cache-Control': query.hash !== undefined ? pinnedCacheControl(options.cache) : 'no-store',
         'X-Content-SHA256': status.hash,
       },
     });
