@@ -24,6 +24,7 @@ import { variant, some, none } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
+import { DataflowError, TaskNotFoundError } from '../errors.js';
 import {
   dataflowGetGraph,
   dataflowGetReadyTasks,
@@ -104,37 +105,10 @@ export async function stepInitialize(
   const force = dataflowForce(options.force);
   const filter = options.filter ?? null;
 
-  // Build the dependency graph
+  // Build the dependency graph, and refuse a start that names a task it does
+  // not have, before anything runs.
   const graph = await dataflowGetGraph(storage, repo, workspace);
-
-  // Validate filter
-  if (filter !== null) {
-    const taskExists = graph.tasks.some(t => t.name === filter);
-    if (!taskExists) {
-      // Import here to avoid circular dependency
-      const { TaskNotFoundError } = await import('../errors.js');
-      throw new TaskNotFoundError(filter);
-    }
-  }
-
-  // Each task the run forces is named as a filter is. One its filter's run
-  // set leaves out would never run, so the start is refused before anything
-  // does, rather than run without it.
-  if (force.type === 'tasks') {
-    const { DataflowError, TaskNotFoundError } = await import('../errors.js');
-    const unknown = force.value.find(name => !graph.tasks.some(t => t.name === name));
-    if (unknown !== undefined) throw new TaskNotFoundError(unknown);
-    if (filter !== null) {
-      const runSet = dataflowGetDependencyClosure(graph, filter);
-      const outside = force.value.filter(name => !runSet.has(name));
-      if (outside.length > 0) {
-        throw new DataflowError(
-          `the run forces ${outside.map(name => `'${name}'`).join(', ')}, which the filter '${filter}' leaves out: ` +
-          `a filtered run runs '${filter}' and the tasks it depends on, and no other`
-        );
-      }
-    }
-  }
+  checkDataflowStart(graph, options);
 
   // Compute task output paths (datasets produced by tasks)
   const taskOutputPathsSet = new Set<string>();
@@ -214,6 +188,47 @@ export async function stepInitialize(
   }
 
   return { state, readyTasks };
+}
+
+/**
+ * Refuses a run's start that names a task its graph does not run: a filter
+ * naming no task, a task the run forces that the graph lacks, or one its
+ * filter's run set leaves out, which would never run. The checks
+ * {@link stepInitialize} makes before anything runs, for a host that starts a
+ * run in one process and initializes it in another, and refuses a start in the
+ * first.
+ *
+ * @param graph - The workspace's dataflow graph (`dataflowGetGraph`)
+ * @param options - The run's force and filter
+ * @throws {TaskNotFoundError} When the filter, or a task the run forces, names
+ *   a task the graph lacks
+ * @throws {DataflowError} When the run forces a task its filter's run set
+ *   leaves out
+ */
+export function checkDataflowStart(graph: DataflowGraph, options: StepInitializeOptions): void {
+  const force = dataflowForce(options.force);
+  const filter = options.filter ?? null;
+  if (filter !== null && !graph.tasks.some(t => t.name === filter)) {
+    throw new TaskNotFoundError(filter);
+  }
+
+  // Each task the run forces is named as a filter is. One its filter's run
+  // set leaves out would never run, so the start is refused before anything
+  // does, rather than run without it.
+  if (force.type === 'tasks') {
+    const unknown = force.value.find(name => !graph.tasks.some(t => t.name === name));
+    if (unknown !== undefined) throw new TaskNotFoundError(unknown);
+    if (filter !== null) {
+      const runSet = dataflowGetDependencyClosure(graph, filter);
+      const outside = force.value.filter(name => !runSet.has(name));
+      if (outside.length > 0) {
+        throw new DataflowError(
+          `the run forces ${outside.map(name => `'${name}'`).join(', ')}, which the filter '${filter}' leaves out: ` +
+          `a filtered run runs '${filter}' and the tasks it depends on, and no other`
+        );
+      }
+    }
+  }
 }
 
 // =============================================================================

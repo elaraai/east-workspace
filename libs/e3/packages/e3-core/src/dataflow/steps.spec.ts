@@ -15,6 +15,7 @@ import assert from 'node:assert';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type DataflowForce, type TreePath, type Structure } from '@elaraai/e3-types';
 import {
+  checkDataflowStart,
   stepInvalidateTasks,
   stepDetectInputChanges,
   stepCheckVersionConsistency,
@@ -26,6 +27,9 @@ import {
   stepTaskFailed,
   stepTaskForced,
 } from './steps.js';
+import { DataflowError, TaskNotFoundError } from '../errors.js';
+import * as root from '../index.js';
+import * as portable from '../portable.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
 import type { DataflowGraph } from '../dataflow.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
@@ -184,6 +188,32 @@ describe('stepTaskForced', () => {
   it('forces, under a filter, the filter\'s task for every task, and the tasks named in its run set', () => {
     assert.deepStrictEqual(forced(true, 'model'), ['model'], 'the filter\'s task, and not the one it depends on');
     assert.deepStrictEqual(forced(['extract'], 'model'), ['extract'], 'a task the filter\'s task depends on');
+  });
+});
+
+describe('checkDataflowStart', () => {
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'] },
+      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'] },
+    ],
+  };
+
+  it('refuses a start naming a task the graph lacks, or forcing one its filter leaves out, and lets any other through', () => {
+    const notFound = (task: string) => (err: unknown) => err instanceof TaskNotFoundError && err.task === task;
+    assert.throws(() => checkDataflowStart(graph, { filter: 'forecast' }), notFound('forecast'));
+    assert.throws(() => checkDataflowStart(graph, { force: ['model', 'forecast'] }), notFound('forecast'));
+    assert.throws(() => checkDataflowStart(graph, { force: ['report'], filter: 'model' }), (err: unknown) => err instanceof DataflowError
+      && err.message === 'the run forces \'report\', which the filter \'model\' leaves out: a filtered run runs \'model\' and the tasks it depends on, and no other');
+    for (const options of [{}, { force: true }, { force: ['report'] }, { force: ['extract'], filter: 'model' }, { filter: 'report' }]) {
+      assert.doesNotThrow(() => checkDataflowStart(graph, options), JSON.stringify(options));
+    }
+  });
+
+  it('is the check every entry exports, which a start makes', () => {
+    assert.strictEqual(root.checkDataflowStart, checkDataflowStart);
+    assert.strictEqual(portable.checkDataflowStart, checkDataflowStart);
   });
 });
 
