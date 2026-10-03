@@ -72,6 +72,11 @@ export {
 // Record mutations and history, under the host's deadline and history page
 export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './routes/records.js';
 
+// What a route reads from a query — a window's offset and limit, the dataset
+// paths a status names — and the 400 that refuses one: what a host's own
+// routes read and refuse with, so they answer as upstream's do
+export { badQuery, wholeQuery, pathsQuery, type QueryLeast } from './routes/query.js';
+
 // =============================================================================
 // Handlers
 // =============================================================================
