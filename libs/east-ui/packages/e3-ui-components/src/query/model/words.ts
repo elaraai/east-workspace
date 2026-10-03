@@ -823,8 +823,13 @@ export function byteWords(bytes: number | bigint, words: QueryWords): string {
 
 /** A line of a plan's explanation: a sentence, and the jq it is about. */
 export interface PlanLine {
-    /** What it says: the path and why; what each piece runs, how the pieces combine, a total, what runs once; what every piece reads whole; the pieces; a read that prunes. */
-    readonly kind: "path" | "piece" | "combine" | "total" | "then" | "broadcast" | "pieces" | "pruning";
+    /**
+     * What it says: the path and why; a re-key and its stage (#942); what each
+     * piece runs, what it reads cut at the same keys (#942), how the pieces
+     * combine, a total, what runs once; what every piece reads whole; the
+     * pieces; a read that prunes.
+     */
+    readonly kind: "path" | "rekey" | "piece" | "copartitioned" | "combine" | "total" | "then" | "broadcast" | "pieces" | "pruning";
     /** Its sentence: one that ends with a colon has its jq after it. */
     readonly text: string;
     /** The jq it is about, as the query writes it; `undefined` when it is about none. */
@@ -865,16 +870,19 @@ export function planProgressWords(progress: SplitCallProgress, words: QueryWords
  *
  * @remarks
  * - **The path**, first: a split call over a dataset and what it weighs, more
- *   than one piece; or one call — within one piece, a weight not known, a
- *   split call that could not be made, or the reason the query runs as one
- *   unit, with the jq the reason is about.
- * - **A split's stages**: what each piece runs; how their outputs combine —
- *   rows joined; totals, each by its rule; grouped by a key, each group's
- *   totals combined or its rows collected; the distinct rows; the first row of
- *   each key; a reduce's updates by key, added or the last kept; what runs
- *   once after them; the data sources every piece reads whole; and the
- *   pieces — how far the run has got while it goes, then how many and about
- *   what each weighs.
+ *   than one piece — or what the heaviest dataset cut with it weighs; or one
+ *   call — within one piece, a weight not known, a split call that could not
+ *   be made, or the reason the query runs as one unit, with the jq the reason
+ *   is about. A re-keyed join says so next, and its re-key stage with the join
+ *   key and what the re-keyed rows are estimated to weigh (#942).
+ * - **A split's stages**: what each piece runs; the data sources cut at the
+ *   same keys with it (#942); how their outputs combine — rows joined;
+ *   totals, each by its rule; grouped by a key, each group's totals combined
+ *   or its rows collected; the distinct rows; the first row of each key; a
+ *   reduce's updates by key, added or the last kept; the first rows of a sort
+ *   (#942); what runs once after them; the data sources every piece reads
+ *   whole; and the pieces — how far the run has got while it goes, then how
+ *   many and about what each weighs.
  * - **The reads that prune**, last: a count from a dataset's index, a key
  *   seek, a stream that stops.
  */
@@ -907,8 +915,15 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
                 break;
         }
     } else {
-        say("path", m.planSplit({ over: path.over, bytes: byteWords(path.bytes, words), piece: byteWords(path.pieceBytes, words) }));
+        say("path", m.planSplit({ over: path.over, heaviest: path.heaviest, bytes: byteWords(path.bytes, words), piece: byteWords(path.pieceBytes, words) }));
+        if (path.rekey !== null) {
+            say("rekey", m.planRekey({ name: path.rekey.name }));
+            say("rekey", m.planRekeyStage({ over: path.over, name: path.rekey.name, bytes: byteWords(path.rekey.bytes, words) }), jq(path.rekey.key));
+        }
         say("piece", m.planPiece({ over: path.over }), jq(path.stages.piece));
+        if (path.copartitioned.length > 0) {
+            say("copartitioned", m.planCopartitioned({ over: path.over, names: m.list({ items: path.copartitioned }), n: path.copartitioned.length }));
+        }
         const combine = path.stages.combine;
         switch (combine.kind) {
             case "concat":
@@ -936,6 +951,10 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
             case "reduce":
                 say("combine", m.planCombine({ kind: combine.update === "add" ? "reduceAdd" : "reduceReplace" }), jq(combine.key));
                 break;
+            case "top":
+                // By the key `sort_by` sorts by, or for `sort` by the rows themselves: the sort and the step that keeps its first rows.
+                say("combine", m.planTop({ count: f.number(combine.rows), n: combine.rows }), jq(combine.key ?? combine.range));
+                break;
         }
         if (path.stages.then !== null) say("then", m.planThen(), jq(path.stages.then));
         if (path.broadcast.length > 0) say("broadcast", m.planBroadcast({ names: m.list({ items: path.broadcast }) }));
@@ -952,7 +971,9 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
 /**
  * A plan's read-out, beside a run's: `One call`; `Split call`, with how far it
  * has got while it goes — `Split call · 3 of 12 pieces done` — and how many
- * pieces it cut once e3 says — `Split call · 12 pieces`.
+ * pieces it cut once e3 says — `Split call · 12 pieces`; and a re-keyed join's
+ * two calls the same way — `Re-keyed join · 12 pieces`, the join call's
+ * pieces (#942).
  *
  * @param planned - the run's plan
  * @param words - the words
@@ -961,9 +982,9 @@ export function planWords(explanation: PlanExplanation, words: QueryWords, run: 
  */
 export function planBadge(planned: QueryPlan, words: QueryWords, run: PlanRun = {}): string {
     const m = words.messages;
-    if (planned.kind === "one_shot") return m.planBadge({ split: false, detail: "" });
+    if (planned.kind === "one_shot") return m.planBadge({ kind: "one_shot", detail: "" });
     const detail = run.progress !== undefined ? planProgressWords(run.progress, words)
         : run.pieces !== undefined ? m.planPieceCount({ count: words.formatters.number(run.pieces), n: run.pieces })
             : "";
-    return m.planBadge({ split: true, detail });
+    return m.planBadge({ kind: planned.kind, detail });
 }

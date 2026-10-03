@@ -44,7 +44,7 @@ import {
   isImmutableType, isTypeEqual, type EastType,
 } from "../../types.js";
 import type { CheckJqResult } from "./check.js";
-import { unwrap } from "./shapes.js";
+import { nullablePayload, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode, type JqPattern, type JqRange } from "./spans.js";
 import { addInto } from "./translate-builtins.js";
 import { TranslationError, Translator, parts, type Block, type CallSite, type Emit, type Env, type RootValue, type TranslateJqOptions, type Value } from "./translate.js";
@@ -114,8 +114,70 @@ export interface JqSplitCall {
   readonly stages: JqSplitStages;
   /** The root fields bound before the stream: every piece reads each whole. */
   readonly broadcast: readonly string[];
+  /**
+   * The root fields bound before the stream that the pieces read only at the
+   * row's key: dicts keyed as the dataset is, which a split call partitions
+   * with it, cut at the same keys (#942).
+   */
+  readonly copartitioned: readonly string[];
+  /**
+   * A join the pieces could read by key instead of whole: the split call's
+   * rows re-keyed first, then joined cut at the same keys; `null` when the
+   * query has none (#942).
+   */
+  readonly rekey: JqRekey | null;
   /** The reads that skip what they don't need. */
   readonly pruning: readonly JqPruning[];
+}
+
+/**
+ * A join a split can make by key instead of reading the other side whole in
+ * every piece (#942): when both datasets are large, the rows are first
+ * re-keyed by the join key in a split call of their own, and the query's
+ * split call then reads the re-keyed rows and the other side cut at the same
+ * keys, every row meeting its key in its piece.
+ *
+ * @remarks
+ * Re-keyed rows reach the pieces grouped by key, not in input order, so only
+ * a query whose combine does not depend on the rows' order re-keys: totals
+ * that count, add numbers, take the least or the greatest, test, or unite, a
+ * grouping by such totals, `unique`, and a `reduce` that adds numbers. The
+ * join call's answer is the split's: its output kind, programs and final
+ * function, a Float sum added in another grouping.
+ */
+export interface JqRekey {
+  /** The root field the pieces read by key: the join's other side, a dict. */
+  readonly name: string;
+  /** The join key's jq: a field of the row, each lookup's. */
+  readonly key: JqRange;
+  /** The join key's type: the other side's keys'. */
+  readonly keyType: EastType;
+  /** The re-key call's output: each key's rows, concatenated in input order. */
+  readonly output: { readonly kind: "dict"; readonly type: EastType; merge(): FunctionExpr<any[], any> };
+  /**
+   * The program each piece of the re-key call runs: a function of the
+   * dataset's piece and then `emit`, which sends each row under its key.
+   *
+   * @returns the function
+   */
+  piece(): FunctionExpr<any[], any>;
+  /** The join call's inputs: the split's, the dataset's re-keyed. */
+  readonly inputs: readonly { readonly name: string; readonly type: EastType }[];
+  /**
+   * The program each piece of the join call runs: the split's, over the
+   * re-keyed rows, each key's in turn.
+   *
+   * @returns the function
+   */
+  joinPiece(): FunctionExpr<any[], any>;
+  /**
+   * The join call's final function: the split's, of the assembled output and
+   * then the join call's inputs; `null` when the assembled output is the
+   * result.
+   *
+   * @returns the function, or `null`
+   */
+  joinThen(): FunctionExpr<any[], any> | null;
 }
 
 /**
@@ -159,6 +221,9 @@ export interface JqSplitStages {
  * - `distinct_by`: the first row of each key (`unique_by`).
  * - `reduce`: a `reduce` into a dict, its updates combined by key, added
  *   (`+=`) or the last kept (`=`).
+ * - `top`: the first `rows` rows of a sort (`sort_by(g) | .[:n]`,
+ *   `sort | first`), each piece's kept and merged by the key `g` gives
+ *   (`null` for `sort`, by the row), then by input order (#942).
  */
 export type JqCombine =
   | { readonly kind: "concat" }
@@ -166,7 +231,8 @@ export type JqCombine =
   | { readonly kind: "group"; readonly range: JqRange; readonly key: JqRange; readonly totals: readonly JqTotal[] | null }
   | { readonly kind: "distinct"; readonly range: JqRange }
   | { readonly kind: "distinct_by"; readonly range: JqRange; readonly key: JqRange }
-  | { readonly kind: "reduce"; readonly range: JqRange; readonly key: JqRange; readonly update: "add" | "replace" };
+  | { readonly kind: "reduce"; readonly range: JqRange; readonly key: JqRange; readonly update: "add" | "replace" }
+  | { readonly kind: "top"; readonly range: JqRange; readonly key: JqRange | null; readonly rows: number };
 
 /**
  * One total, and the rule its pieces' parts combine by: `count` counted,
@@ -278,6 +344,12 @@ type RowStep =
 interface Source {
   readonly over: string;
   readonly path: string;
+  /**
+   * The path of the `to_entries` whose entries are the rows, `{key, value}`,
+   * when the dataset is a dict read as its entries (#942); `undefined` when
+   * the rows are its elements, or its values.
+   */
+  readonly entries?: string;
 }
 
 /** A query's row work: its source, what it does to each row, and what the rows are when it ends. */
@@ -320,6 +392,29 @@ function isCall(node: JqNode, name: string, arity: number): node is Node<"call">
 /** Whether a node is `.[]` on its input. */
 function isIterate(node: JqNode): boolean {
   return node.type === "iterate" && !node.value.optional && node.value.target.type === "identity";
+}
+
+/** Whether the value after a node is a dict. */
+function isDict(checked: CheckJqResult, path: string): boolean {
+  return unwrap(typeAfter(checked, path)).type === "Dict";
+}
+
+/**
+ * A dict's entries at a pipeline's step: `to_entries`, a collection of them;
+ * `to_entries[]` or `to_entries | .[]`, a stream of them. The `to_entries`
+ * node's path, the stream's, the last step's, and the index of the step after.
+ */
+function entriesAt(steps: readonly Step[], i: number): { entries: string; stream: string | undefined; end: string; next: number } | undefined {
+  const step = steps[i];
+  if (step?.kind !== "stage") return undefined;
+  const node = step.node;
+  if (node.type === "iterate" && !node.value.optional && isCall(node.value.target, "to_entries", 0)) {
+    return { entries: childPath(step.path, "iterate.target"), stream: step.path, end: step.path, next: i + 1 };
+  }
+  if (!isCall(node, "to_entries", 0)) return undefined;
+  const after = steps[i + 1];
+  if (after?.kind === "stage" && isIterate(after.node)) return { entries: step.path, stream: after.path, end: after.path, next: i + 2 };
+  return { entries: step.path, stream: undefined, end: step.path, next: i + 1 };
 }
 
 // ─── What the query reads, and what it does ─────────────────────────────────
@@ -436,23 +531,44 @@ function findRows(checked: CheckJqResult, program: JqNode): Found {
 
   let source: Source;
   let stream = false;
+  let end = first.path;
   const rowSteps: RowStep[] = [];
   const field = rootField(first.node, true);
   const streamed = rootStream(first.node);
   if (field !== undefined) {
     source = { over: field, path: first.path };
+    // `.D | to_entries`, `.D | to_entries[]`: a dict's entries are the rows (#942).
+    const entries = isDict(checked, first.path) ? entriesAt(steps, i + 1) : undefined;
+    if (entries !== undefined) {
+      source = { ...source, entries: entries.entries };
+      if (entries.stream !== undefined) {
+        rowSteps.push({ kind: "as", path: entries.stream, element: false });
+        stream = true;
+      }
+      end = entries.end;
+      i = entries.next - 1;
+    }
   } else if (streamed !== undefined) {
     source = { over: streamed, path: first.path };
     stream = true;
     rowSteps.push({ kind: "as", path: first.path, element: false });
   } else if (first.node.type === "array" && first.node.value.type === "some") {
-    // `[.D[] | f]`: the stream's outputs, collected.
+    // `[.D[] | f]`, `[.D | to_entries[] | f]`: the stream's outputs, collected.
     const inner = pipeline(first.node.value.value, childPath(first.path, "array.some"));
     const head = inner[0];
-    const over = head?.kind === "stage" ? rootStream(head.node) : undefined;
-    if (over === undefined || head === undefined) return { whole: nestedOrNone(checked, first) };
-    source = { over, path: head.path };
-    rowSteps.push({ kind: "as", path: head.path, element: false }, ...streamSteps(inner.slice(1)), { kind: "as", path: first.path, element: true });
+    if (head?.kind !== "stage") return { whole: nestedOrNone(checked, first) };
+    const over = rootStream(head.node);
+    const dict = rootField(head.node, true);
+    const entries = dict !== undefined && isDict(checked, head.path) ? entriesAt(inner, 1) : undefined;
+    if (over !== undefined) {
+      source = { over, path: head.path };
+      rowSteps.push({ kind: "as", path: head.path, element: false }, ...streamSteps(inner.slice(1)), { kind: "as", path: first.path, element: true });
+    } else if (dict !== undefined && entries?.stream !== undefined) {
+      source = { over: dict, path: head.path, entries: entries.entries };
+      rowSteps.push({ kind: "as", path: entries.stream, element: false }, ...streamSteps(inner.slice(entries.next)), { kind: "as", path: first.path, element: true });
+    } else {
+      return { whole: nestedOrNone(checked, first) };
+    }
   } else if (first.node.type === "reduce" && rootStream(first.node.value.source) !== undefined) {
     // `reduce .D[] as $x (…)`: the reduce combines the dataset's rows.
     const sourcePath = childPath(first.path, "reduce.source");
@@ -467,7 +583,6 @@ function findRows(checked: CheckJqResult, program: JqNode): Found {
   }
 
   i += 1;
-  let end = first.path;
   // The collection's row work: `map`, `flatten`, `[.[] | f]`; or `.[]` making a stream of the dataset.
   while (!stream && i < steps.length) {
     const step = steps[i]!;
@@ -838,6 +953,43 @@ function negated(n: bigint | undefined): bigint | undefined {
   return n === undefined ? undefined : -n;
 }
 
+/**
+ * How many of an array's first elements a step reads, when it reads no others
+ * (#942): `.[:n]` and `.[0:n]` its first `n`, `.[k]` its first `k + 1`,
+ * `first` its first, and a read into one of those (`.[0].id`, `.[:3][1]`) as
+ * many; `undefined` for any other step.
+ */
+function leadingRows(node: JqNode): number | undefined {
+  const count = (n: bigint | undefined): number | undefined => n === undefined || n < 0n || n > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(n);
+  const literal = (option: { type: "none" | "some"; value?: any }): bigint | undefined | null =>
+    option.type === "none" ? null : (option.value as JqNode).type === "literal" ? decodeIndex((option.value as Extract<JqNode, { type: "literal" }>).value) : undefined;
+  if (isCall(node, "first", 0)) return 1;
+  switch (node.type) {
+    case "field":
+      return node.value.target.type === "identity" ? undefined : leadingRows(node.value.target);
+    case "index": {
+      const { index, target } = node.value;
+      if (target.type !== "identity") return readsInput(index) ? undefined : leadingRows(target);
+      const k = index.type === "literal" ? count(decodeIndex(index.value)) : undefined;
+      return k === undefined ? undefined : k + 1;
+    }
+    case "slice": {
+      const { from, target, to } = node.value;
+      if (target.type !== "identity") {
+        const bounds = [from, to].every(b => b.type === "none" || !readsInput(b.value as JqNode));
+        return bounds ? leadingRows(target) : undefined;
+      }
+      // From the start, or a literal index of it; to a literal index.
+      const a = literal(from);
+      const b = literal(to);
+      if (a === undefined || (a !== null && count(a) === undefined) || b === null || b === undefined) return undefined;
+      return count(b);
+    }
+    default:
+      return undefined;
+  }
+}
+
 // ─── Values and zeros ───────────────────────────────────────────────────────
 
 /** An Integer literal's value, or `undefined`. */
@@ -896,7 +1048,21 @@ type Combine =
   | { readonly kind: "group"; readonly path: string; readonly mapPath: string; readonly key: { readonly node: JqNode; readonly path: string; readonly type: EastType }; readonly body: { readonly node: JqNode; readonly path: string }; readonly totals: Totals | null }
   | { readonly kind: "distinct"; readonly path: string }
   | { readonly kind: "distinct_by"; readonly path: string; readonly key: { readonly node: JqNode; readonly path: string; readonly type: EastType } }
-  | { readonly kind: "reduce"; readonly path: string; readonly node: Node<"reduce">; readonly accType: EastType; readonly keyType: EastType; readonly valueType: EastType; readonly update: "add" | "replace" };
+  | { readonly kind: "reduce"; readonly path: string; readonly node: Node<"reduce">; readonly accType: EastType; readonly keyType: EastType; readonly valueType: EastType; readonly update: "add" | "replace" }
+  | { readonly kind: "top"; readonly path: string; readonly keepPath: string; readonly key: SortKey | null; readonly rows: number; readonly element: EastType };
+
+/**
+ * How `sort_by(g)` keys a row, as the translator keys it (`keyed` in
+ * `translate-builtins.ts`): `g`'s one output, or the array of its outputs.
+ */
+interface SortKey {
+  readonly node: JqNode;
+  readonly path: string;
+  /** The key's type: `g`'s type, or an array of it. */
+  readonly type: EastType;
+  /** Whether `g` gives exactly one output. */
+  readonly one: boolean;
+}
 
 /** What a split is made of: its row work, how the rows combine, and the steps after. */
 interface Plan {
@@ -921,7 +1087,8 @@ function typeAfter(checked: CheckJqResult, path: string): EastType {
 function rowTypeOf(checked: CheckJqResult, rows: Rows): EastType {
   const last = [...rows.steps].reverse().find(s => s.kind !== "bind");
   if (last === undefined) {
-    const elements = elementsOf(typeAfter(checked, rows.source.path));
+    // A dict read as its entries: the rows are `to_entries`' elements.
+    const elements = elementsOf(typeAfter(checked, rows.source.entries ?? rows.source.path));
     if (elements === undefined) throw new TranslationError(`.${rows.source.over} is not a collection`);
     return elements.element;
   }
@@ -988,6 +1155,23 @@ function findCombine(checked: CheckJqResult, rows: Rows): { combine: Combine; re
   if (node.type === "reduce") {
     const reduce = reduceOf(checked, node, next.path);
     return reduce === undefined ? undefined : { combine: reduce, rest: rows.after.slice(1) };
+  }
+  // `sort_by(g) | .[:n]`, `sort | first`: the first rows of a sort, each piece's kept (#942).
+  if ((isCall(node, "sort_by", 1) || isCall(node, "sort", 0)) && kind !== "Dict" && after?.kind === "stage") {
+    const kept = leadingRows(after.node);
+    if (kept !== undefined) {
+      const element = parts(typeAfter(checked, next.path)).value;
+      let key: SortKey | null = null;
+      if (node.value.args.length === 1) {
+        const argPath = at("call.args[0]");
+        const sample = checked.resultAt(argPath);
+        const output = checked.typeAt(argPath)?.type;
+        if (sample === null || output === undefined) return undefined;
+        const one = sample.mult.lo === 1 && sample.mult.hi === 1;
+        key = { node: node.value.args[0]!, path: argPath, type: one ? output : ArrayType(output), one };
+      }
+      return { combine: { kind: "top", path: next.path, keepPath: after.path, key, rows: kept, element }, rest: rows.after.slice(1) };
+    }
   }
   const out = { leaves: [] as Leaf[], maps: [] as MapContext[] };
   if (exactlyOne(next.path) && decompose(checked, node, next.path, elements, [], out) && out.leaves.length > 0) {
@@ -1153,6 +1337,364 @@ function pruningOf(checked: CheckJqResult, program: JqNode): JqPruning[] {
   return out;
 }
 
+// ─── Joins (#942) ───────────────────────────────────────────────────────────
+
+/**
+ * What is known where a node of the row work runs: whether `.` is the row as
+ * the dataset gives it, and the variables that hold it, or a field of it.
+ */
+interface RowContext {
+  /** `.` is the row, as the dataset gives it. */
+  readonly row: boolean;
+  /** Variables holding the row, as the dataset gives it. */
+  readonly rows: ReadonlySet<string>;
+  /** Variables holding a field of the row, by the field names from the row to it. */
+  readonly fields: ReadonlyMap<string, readonly string[]>;
+  /** The defs in scope, by `name/arity`: what a call of one reads is not followed. */
+  readonly defs: ReadonlySet<string>;
+}
+
+/** A lookup of a joined dict at a field of the row: the field names from the row to the key, and the key's path. */
+interface Lookup {
+  readonly fields: readonly string[];
+  readonly path: string;
+}
+
+/** Builtins whose arguments run on the call's own input, so `.` in them is what it is at the call. */
+const SAME_INPUT: ReadonlySet<string> = new Set([
+  "select", "has", "in", "contains", "inside", "startswith", "endswith", "ltrimstr", "rtrimstr", "trimstr", "test", "split",
+  "join", "error", "isempty", "first", "last", "nth", "limit", "skip", "index", "rindex", "indices", "range", "IN",
+]);
+
+/** Whether a filter gives its input, or nothing: `.`, `select(f)`, and pipes of them. */
+function keepsInput(node: JqNode): boolean {
+  if (node.type === "identity") return true;
+  if (isCall(node, "select", 1)) return true;
+  return node.type === "pipe" && keepsInput(node.value.left) && keepsInput(node.value.right);
+}
+
+/** The field names from the row to a node's value, when it reads a field of the row: `.a.b` where `.` is the row, `$r.a` where `$r` holds it, `$k` where `$k` holds one. */
+function rowField(node: JqNode, cx: RowContext): readonly string[] | undefined {
+  if (node.type === "variable") return cx.fields.get(node.value);
+  if (node.type !== "field" || node.value.optional) return undefined;
+  const target = node.value.target;
+  if (target.type === "identity") return cx.row ? [node.value.name] : undefined;
+  if (target.type === "variable" && cx.rows.has(target.value)) return [node.value.name];
+  const inner = rowField(target, cx);
+  return inner === undefined ? undefined : [...inner, node.value.name];
+}
+
+/** A context without some variables, which a pattern binds anew. */
+function forgetting(cx: RowContext, names: readonly string[]): RowContext {
+  if (names.length === 0) return cx;
+  return {
+    ...cx,
+    rows: new Set([...cx.rows].filter(v => !names.includes(v))),
+    fields: new Map([...cx.fields].filter(([v]) => !names.includes(v))),
+  };
+}
+
+/** The context in a binding's body: the pattern's variables bound, one holding the row or a field of it when its source does. */
+function binding(cx: RowContext, pattern: JqPattern, source: JqNode): RowContext {
+  const next = forgetting(cx, patternNames(pattern));
+  if (pattern.type !== "variable") return next;
+  if (source.type === "identity" && cx.row) return { ...next, rows: new Set([...next.rows, pattern.value]) };
+  const fields = rowField(source, cx);
+  return fields === undefined || fields.length === 0 ? next : { ...next, fields: new Map([...next.fields, [pattern.value, fields]]) };
+}
+
+/**
+ * Whether every read of `$name` in a node is a lookup at a field of the row:
+ * `$name[.k]`, `$name[$r.k]`, `$name[$k]`, or `$name | has($k)`. Each lookup
+ * is added to `found`. Conservative: what it cannot follow, a def's body or
+ * a builtin whose arguments run on other values, reads `$name` otherwise.
+ */
+function lookupsOnly(node: JqNode, path: string, cx: RowContext, name: string, found: Lookup[]): boolean {
+  const at = (step: string): string => childPath(path, step);
+  const visit = (child: JqNode, step: string, inner: RowContext = cx): boolean => lookupsOnly(child, at(step), inner, name, found);
+  const away: RowContext = { ...cx, row: false };
+  switch (node.type) {
+    case "variable":
+      return node.value !== name;
+    case "index": {
+      const { index, target } = node.value;
+      if (target.type === "variable" && target.value === name) {
+        const fields = rowField(index, cx);
+        if (fields === undefined || fields.length === 0) return false;
+        found.push({ fields, path: at("index.index") });
+        return true;
+      }
+      return visit(target, "index.target") && visit(index, "index.index");
+    }
+    case "pipe": {
+      const { left, right } = node.value;
+      if (left.type === "variable" && left.value === name) {
+        // `$name | has($k)`, perhaps piped on (`| not`): has's key runs on `$name`, so only a variable holding a field of the row is one.
+        let has = right;
+        let hasPath = at("pipe.right");
+        while (has.type === "pipe") {
+          has = has.value.left;
+          hasPath = childPath(hasPath, "pipe.left");
+        }
+        if (!isCall(has, "has", 1) || variablesIn(right).has(name)) return false;
+        const fields = rowField(has.value.args[0]!, away);
+        if (fields === undefined || fields.length === 0) return false;
+        found.push({ fields, path: childPath(hasPath, "call.args[0]") });
+        return true;
+      }
+      return visit(left, "pipe.left") && visit(right, "pipe.right", { ...cx, row: cx.row && keepsInput(left) });
+    }
+    case "bind": {
+      const { body, patterns, source } = node.value;
+      if (!visit(source, "bind.source")) return false;
+      if (patterns.length !== 1) return !variablesIn(body).has(name);
+      // A body where the pattern binds `$name` again reads another value.
+      if (patternNames(patterns[0]!).includes(name)) return true;
+      return visit(body, "bind.body", binding(cx, patterns[0]!, source));
+    }
+    case "reduce": case "foreach": {
+      const v = node.value;
+      if (!visit(v.source, `${node.type}.source`) || !visit(v.init, `${node.type}.init`)) return false;
+      const names = patternNames(v.pattern);
+      if (names.includes(name)) return true;
+      // The update, and an extract, run on the state.
+      const state: RowContext = { ...forgetting(cx, names), row: false };
+      if (!visit(v.update, `${node.type}.update`, state)) return false;
+      return node.type === "reduce" || node.value.extract.type === "none" || visit(node.value.extract.value as JqNode, "foreach.extract.some", state);
+    }
+    case "call": {
+      const { args } = node.value;
+      if (cx.defs.has(`${node.value.name}/${args.length}`)) return args.every(arg => !variablesIn(arg).has(name));
+      const same = SAME_INPUT.has(node.value.name);
+      return args.every((arg, i) => visit(arg, `call.args[${i}]`, same ? cx : away));
+    }
+    case "object":
+      return node.value.every((entry, i) => {
+        if (entry.key.type === "variable" && entry.value.type === "none") return entry.key.value !== name;
+        if (entry.key.type === "computed" && !visit(entry.key.value as JqNode, `object[${i}].key.computed`)) return false;
+        return entry.value.type === "none" || visit(entry.value.value as JqNode, `object[${i}].value.some`);
+      });
+    case "try":
+      // The handler runs on the error's message.
+      return visit(node.value.body, "try.body") && (node.value.catch.type === "none" || visit(node.value.catch.value as JqNode, "try.catch.some", away));
+    case "update":
+      // `|=`'s value runs on each position, the others' on `.`.
+      return visit(node.value.path, "update.path") && visit(node.value.value, "update.value", node.value.op === "|=" ? away : cx);
+    case "def": {
+      if (variablesIn(node.value.body).has(name)) return false;
+      return visit(node.value.rest, "def.rest", { ...cx, defs: new Set([...cx.defs, `${node.value.name}/${node.value.params.length}`]) });
+    }
+    default:
+      return jqChildren(node).every(child => child.node === undefined || visit(child.node, child.step));
+  }
+}
+
+/**
+ * Every lookup the pieces make of a dict bound before the stream to `$name`,
+ * each at a field of the row as the dataset gives it; `undefined` when a
+ * piece reads it otherwise — whole, or at another key — or a later binding
+ * every piece makes reads it.
+ */
+function rowLookups(plan: Plan, name: string): Lookup[] | undefined {
+  const found: Lookup[] = [];
+  const binds = plan.rows.binds;
+  const bound = binds.findIndex(b => patternNames(b.node.value.patterns[0]!).includes(name));
+  if (binds.slice(bound + 1).some(b => variablesIn(b.node.value.source).has(name))) return undefined;
+  let cx: RowContext = { row: true, rows: new Set(), fields: new Map(), defs: new Set() };
+  // The rows are the dataset's own until a step makes others.
+  let intact = true;
+  for (const step of plan.rows.steps) {
+    const here: RowContext = { ...cx, row: intact };
+    switch (step.kind) {
+      case "as":
+        break;
+      case "flatten":
+        intact = false;
+        break;
+      case "map": {
+        const arg = step.node.value.args[0]!;
+        if (!lookupsOnly(arg, childPath(step.path, "call.args[0]"), here, name, found)) return undefined;
+        intact = intact && keepsInput(arg);
+        break;
+      }
+      case "each":
+        if (!lookupsOnly(step.node, step.path, here, name, found)) return undefined;
+        intact = intact && keepsInput(step.node);
+        break;
+      case "bind": {
+        const { patterns, source } = step.node.value;
+        if (!lookupsOnly(source, childPath(step.path, "bind.source"), here, name, found)) return undefined;
+        // From here on `$name` is another value.
+        if (patternNames(patterns[0]!).includes(name)) return found;
+        cx = binding(here, patterns[0]!, source);
+        break;
+      }
+    }
+  }
+  const end: RowContext = { ...cx, row: intact };
+  const c = plan.combine;
+  const visit = (node: JqNode, path: string, inner: RowContext): boolean => lookupsOnly(node, path, inner, name, found);
+  // A total runs on the rows together, never on one row.
+  const totalsRead = (totals: Totals | null): boolean => totals !== null && [...totals.maps.map(m => m.node), ...totals.leaves.map(l => l.node)].some(n => variablesIn(n).has(name));
+  switch (c.kind) {
+    case "totals":
+      return totalsRead(c.totals) ? undefined : found;
+    case "group":
+      return visit(c.key.node, c.key.path, end) && !totalsRead(c.totals) ? found : undefined;
+    case "distinct_by":
+      return visit(c.key.node, c.key.path, end) ? found : undefined;
+    case "top":
+      return c.key === null || visit(c.key.node, c.key.path, end) ? found : undefined;
+    case "reduce": {
+      const v = c.node.value;
+      const names = patternNames(v.pattern);
+      if (names.includes(name)) return found;
+      let inner = forgetting(cx, names);
+      if (intact && v.pattern.type === "variable") inner = { ...inner, rows: new Set([...inner.rows, v.pattern.value]) };
+      const state: RowContext = { ...inner, row: false };
+      return visit(v.init, childPath(c.path, "reduce.init"), { ...cx, row: false }) && visit(v.update, childPath(c.path, "reduce.update"), state) ? found : undefined;
+    }
+    default:
+      return found;
+  }
+}
+
+/**
+ * Whether every binding before the stream that reads a dataset binds it whole
+ * to one variable, `.B as $b`, which the pieces read only at fields of the
+ * row: every lookup, by the field names from the row.
+ */
+function joinedAt(plan: Plan, dataset: string): Lookup[] | undefined {
+  const binds = plan.rows.binds.filter(b => rootFieldsRead(b.node.value.source).includes(dataset));
+  const found: Lookup[] = [];
+  for (const b of binds) {
+    const pattern = b.node.value.patterns[0]!;
+    if (pattern.type !== "variable" || rootField(b.node.value.source, true) !== dataset) return undefined;
+    const lookups = rowLookups(plan, pattern.value);
+    if (lookups === undefined) return undefined;
+    found.push(...lookups);
+  }
+  return found;
+}
+
+/** Whether two lists of field names are the same. */
+function sameFields(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name, i) => name === b[i]);
+}
+
+/** The type of a field a row reads through struct fields alone, or `undefined`. */
+function fieldType(row: EastType, fields: readonly string[]): EastType | undefined {
+  let t: EastType = row;
+  for (const name of fields) {
+    const s = unwrap(t);
+    if (s.type !== "Struct" || !(name in (s.fields as object))) return undefined;
+    t = (s.fields as Record<string, EastType>)[name]!;
+  }
+  return t;
+}
+
+/**
+ * The datasets a split call partitions with the one it is cut from (#942):
+ * dicts keyed as it is, bound before the stream and read by the pieces only at
+ * the row's key — the rows being the dataset's entries, `{key, value}`
+ * (`.A | to_entries | map(… $b[.key] …)`). Cut at the same keys, a piece of
+ * each holds the same keys, so a row's lookup finds in its piece what it
+ * would find in the whole.
+ */
+function copartitionedOf(plan: Plan, inputs: readonly { name: string; type: EastType }[]): string[] {
+  const source = plan.rows.source;
+  if (source.entries === undefined) return [];
+  const A = unwrap(inputs.find(i => i.name === source.over)!.type);
+  if (A.type !== "Dict") return [];
+  const out: string[] = [];
+  for (const dataset of new Set(plan.rows.binds.flatMap(b => rootFieldsRead(b.node.value.source)))) {
+    const B = inputs.find(i => i.name === dataset);
+    if (dataset === source.over || B === undefined) continue;
+    const t = unwrap(B.type);
+    if (t.type !== "Dict" || !isTypeEqual(t.key as EastType, A.key as EastType)) continue;
+    const lookups = joinedAt(plan, dataset);
+    if (lookups === undefined || lookups.length === 0 || !lookups.every(l => sameFields(l.fields, ["key"]))) continue;
+    out.push(dataset);
+  }
+  return out;
+}
+
+/** The field names a node reads from `.`, `.a.b`, or `undefined` for another node. */
+function fieldsRead(node: JqNode): readonly string[] | undefined {
+  if (node.type !== "field" || node.value.optional) return undefined;
+  if (node.value.target.type === "identity") return [node.value.name];
+  const inner = fieldsRead(node.value.target);
+  return inner === undefined ? undefined : [...inner, node.value.name];
+}
+
+/** The node at a path inside a node at another. */
+function nodeAt(node: JqNode, path: string, wanted: string): JqNode | undefined {
+  if (path === wanted) return node;
+  for (const child of jqChildren(node)) {
+    if (child.node === undefined) continue;
+    const at = childPath(path, child.step);
+    if (wanted === at || wanted.startsWith(`${at}.`)) return nodeAt(child.node, at, wanted);
+  }
+  return undefined;
+}
+
+/**
+ * Whether a group's total is order-blind: it counts, adds numbers, takes the
+ * least or the greatest value, tests, or unites — or it is the group's first
+ * or last row read at the group's own key (`.[0].region`, grouped by
+ * `.region`), which every row of the group shares.
+ */
+function leafOrderBlind(leaf: Leaf, group: { readonly body: { readonly node: JqNode; readonly path: string }; readonly key: readonly string[] | undefined } | undefined): boolean {
+  switch (leaf.rule) {
+    case "count": case "any": case "all": case "union":
+      return true;
+    case "min": case "max":
+      // `min_by` and `max_by` keep the first least and the last greatest: on a tie, the order decides.
+      return !(leaf.node.type === "call" && (leaf.node.value.name === "min_by" || leaf.node.value.name === "max_by"));
+    case "add": {
+      const t = unwrap(nullablePayload(unwrap(leaf.type)) ?? leaf.type);
+      return t.type === "Integer" || t.type === "Float" || t.type === "Null";
+    }
+    case "first": case "last": {
+      if (group === undefined || group.key === undefined || leaf.maps.length > 0) return false;
+      // The field reads around the total, from it outward.
+      const read: string[] = [];
+      let path = leaf.path;
+      while (read.length < group.key.length && path.endsWith(".field.target")) {
+        path = path.slice(0, -".field.target".length);
+        const node = nodeAt(group.body.node, group.body.path, path);
+        if (node?.type !== "field" || node.value.optional) return false;
+        read.push(node.value.name);
+      }
+      return sameFields(read, group.key);
+    }
+  }
+}
+
+/**
+ * Whether a combine gives the same answer whatever order its rows come in, as
+ * re-keyed rows come, grouped by their key (#942): totals that are all
+ * order-blind, a grouping by them, `unique`, and a `reduce` that adds numbers.
+ * A Float sum is added in another grouping, as any split's is.
+ */
+function orderBlind(plan: Plan): boolean {
+  const c = plan.combine;
+  switch (c.kind) {
+    case "totals":
+      return c.totals.leaves.every(leaf => leafOrderBlind(leaf, undefined));
+    case "group":
+      return c.totals !== null && c.totals.leaves.every(leaf => leafOrderBlind(leaf, { body: c.body, key: fieldsRead(c.key.node) }));
+    case "distinct":
+      return true;
+    case "reduce": {
+      const t = unwrap(c.valueType);
+      return c.update === "add" && (t.type === "Integer" || t.type === "Float");
+    }
+    default:
+      return false;
+  }
+}
+
 // ─── Building the call ──────────────────────────────────────────────────────
 
 /** The input names and types of a split's programs: the root fields the query reads, as `translateJq` takes them. */
@@ -1172,6 +1714,7 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
   const rangeEnd = plan.rest.length === 0 ? null : spanning(checked, plan.rest[0]!.path, plan.rest[plan.rest.length - 1]!.path);
   // The assembled rows are the result when nothing follows them and they are its type.
   const thenNeeded = !(plan.combine.kind === "concat" && plan.rest.length === 0 && multiplicity === "one" && isTypeEqual(output.type, resultType));
+  const copartitioned = copartitionedOf(plan, inputs);
   return {
     kind: "split",
     over: plan.rows.source.over,
@@ -1185,9 +1728,88 @@ function splitCall(checked: CheckJqResult, plan: Plan, options: SplitJqOptions, 
       combine: combineOf(checked, plan),
       then: rangeEnd,
     },
-    broadcast: [...new Set(plan.rows.binds.flatMap(bind => rootFieldsRead(bind.node.value.source)))],
+    broadcast: [...new Set(plan.rows.binds.flatMap(bind => rootFieldsRead(bind.node.value.source)))].filter(name => !copartitioned.includes(name)),
+    copartitioned,
+    rekey: copartitioned.length > 0 ? null : rekeyOf(checked, plan, inputs, output, resultType, thenNeeded, options),
     pruning,
   };
+}
+
+/**
+ * The re-keyed join a split can make instead of reading a dict whole in every
+ * piece (#942): the one dict, bound before the stream, that the pieces read
+ * only at one field of the row as the dataset gives it — of the dict's key
+ * type — when the combine is order-blind; `null` when there is none, or more
+ * than one.
+ */
+function rekeyOf(
+  checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput,
+  resultType: EastType, thenNeeded: boolean, options: SplitJqOptions,
+): JqRekey | null {
+  const source = plan.rows.source;
+  if (source.entries !== undefined || !orderBlind(plan)) return null;
+  const A = inputs.find(i => i.name === source.over)!;
+  const elements = elementsOf(A.type);
+  if (elements === undefined) return null;
+  const R = elements.element;
+  const joins: { name: string; fields: readonly string[]; key: EastType; range: JqRange }[] = [];
+  for (const dataset of new Set(plan.rows.binds.flatMap(b => rootFieldsRead(b.node.value.source)))) {
+    const B = inputs.find(i => i.name === dataset);
+    if (dataset === source.over || B === undefined) continue;
+    const t = unwrap(B.type);
+    if (t.type !== "Dict") continue;
+    const lookups = joinedAt(plan, dataset);
+    if (lookups === undefined || lookups.length === 0) continue;
+    const fields = lookups[0]!.fields;
+    const key = fieldType(R, fields);
+    if (!lookups.every(l => sameFields(l.fields, fields)) || key === undefined || !isTypeEqual(key, t.key as EastType)) continue;
+    joins.push({ name: dataset, fields, key, range: rangeOf(checked, lookups[0]!.path) });
+  }
+  if (joins.length !== 1) return null;
+  const join = joins[0]!;
+  const Rows = ArrayType(R);
+  const Keyed = DictType(join.key, Rows);
+  const joinInputs = inputs.map(i => i.name === source.over ? { name: i.name, type: Keyed } : i);
+  // Each key's rows, in input order: a re-keyed piece's rows.
+  const rekeyed: SourceRows = (t, $, piece, each) => t.forEach($, piece, ($2, rows) => t.forEach($2, rows, ($3, item) => each($3, item), source.path, "row"), source.path, "rows");
+  return {
+    name: join.name,
+    key: join.range,
+    keyType: join.key,
+    output: { kind: "dict", type: Keyed, merge: () => mergeFunction(checked, join.key, Rows, (t, _$, earlier, later) => t.b("ArrayConcat", [R], [earlier, later], Rows, source.path)) },
+    piece: () => rekeyPiece(checked, A.type, R, join.fields, join.key, source, options),
+    inputs: joinInputs,
+    joinPiece: () => pieceProgram(checked, plan, joinInputs, output, options, rekeyed),
+    joinThen: () => thenNeeded ? thenProgram(checked, plan, joinInputs, output, resultType, options) : null,
+  };
+}
+
+/**
+ * The re-key call's piece program (#942): each row of the piece sent on under
+ * its join key, a key's rows gathered first in the piece's table, appended in
+ * place, since the table alone holds them until it sends them on.
+ */
+function rekeyPiece(checked: CheckJqResult, A: EastType, R: EastType, fields: readonly string[], K: EastType, source: Source, options: SplitJqOptions): FunctionExpr<any[], any> {
+  const Rows = ArrayType(R);
+  return withLocationCapture(false, () => func([A, FunctionType([K, Rows], NullType)], NullType, ($, piece, emit) => {
+    const t = new SplitTranslator(checked, {});
+    const send = ($2: Block, ...args: Expr[]): void => t.stmt($2, t.callFn(emit as Expr, args, source.path));
+    const append: Fold = (t2, $2, earlier, later) => {
+      t2.stmt($2, t2.b("ArrayAppend", [R], [earlier, later], NullType, source.path));
+      return earlier;
+    };
+    const table = pieceTable(t, $, K, { type: Rows, fold: append }, source.path, options, send);
+    t.forEach($, piece as Expr, ($2, item) => {
+      const row = t.bind($2, t.widenTo($2, item, R, source.path), "row");
+      let key = row;
+      for (const name of fields) key = t.field(key, name);
+      const one = t.declare($2, t.emptyArray(R), "rows");
+      t.push($2, one, row, source.path);
+      table.add($2, key, one);
+    }, source.path);
+    table.flush($);
+    return t.null();
+  })) as unknown as FunctionExpr<any[], any>;
 }
 
 /** The root fields a node reads with the root as its input. */
@@ -1210,6 +1832,7 @@ function combineOf(checked: CheckJqResult, plan: Plan): JqCombine {
     case "distinct": return { kind: "distinct", range: rangeOf(checked, c.path) };
     case "distinct_by": return { kind: "distinct_by", range: rangeOf(checked, c.path), key: rangeOf(checked, c.key.path) };
     case "reduce": return { kind: "reduce", range: rangeOf(checked, c.path), key: rangeOf(checked, childPath(c.path, "reduce.update.update.path.index.index")), update: c.update };
+    case "top": return { kind: "top", range: spanning(checked, c.path, c.keepPath), key: c.key === null ? null : rangeOf(checked, c.key.path), rows: c.rows };
   }
 }
 
@@ -1252,7 +1875,36 @@ function outputOf(checked: CheckJqResult, plan: Plan): JqSplitOutput {
       const V = c.valueType;
       return { kind: "dict", type: DictType(K, V), merge: () => mergeFunction(checked, K, V, foldOf(plan, c, V)) };
     }
+    case "top": {
+      // Each piece's first rows with their keys, in order; two pieces' merged, the earlier's first on a tie.
+      const T = ArrayType(topPair(c));
+      return { kind: "fold", type: T, zero: [], combine: () => combineFunction(checked, T, (t, $, a, b) => firstSorted(t, $, t.b("ArrayConcat", [topPair(c)], [a, b], T, c.path), c)) };
+    }
   }
+}
+
+/** A row the first rows of a sort keep, with its key: the pairs `sort_by` sorts. */
+function topPair(c: Extract<Combine, { kind: "top" }>): EastType {
+  return StructType({ key: c.key?.type ?? c.element, value: c.element });
+}
+
+/**
+ * Pairs sorted by their keys, stably, as `sort_by` sorts them, and the first
+ * of them a top keeps.
+ *
+ * @param pairs - an array of {@link topPair}s
+ * @param c - the top
+ * @returns the first `c.rows` pairs in order
+ */
+function firstSorted(t: SplitTranslator, $: Block, pairs: Expr, c: Extract<Combine, { kind: "top" }>): Expr {
+  const Pair = topPair(c);
+  const K = c.key?.type ?? c.element;
+  const A = ArrayType(Pair);
+  const byKey = t.lambda([Pair], K, ["pair"], (_$f, pair) => t.field(pair, "key"), c.path);
+  const sorted = t.bind($, t.b("ArraySort", [Pair, K], [pairs, byKey], A, c.path), "sorted");
+  const size = t.bind($, t.size(sorted, c.path), "size");
+  const end = t.ifValue(t.lt(size, t.int(c.rows), c.path), () => size, () => t.int(c.rows), IntegerType, c.path);
+  return t.b("ArraySlice", [Pair], [sorted, t.int(0), end], A, c.path);
 }
 
 /** How a later value of a key folds into an earlier one: a function of the two, the earlier first, that gives the value. */
@@ -1385,9 +2037,55 @@ function pieceNodes(plan: Plan): JqNode[] {
     case "group": nodes.push(c.key.node, ...leafNodes(c.totals)); break;
     case "distinct_by": nodes.push(c.key.node); break;
     case "reduce": nodes.push(c.node); break;
+    case "top": if (c.key !== null) nodes.push(c.key.node); break;
     default: break;
   }
   return nodes;
+}
+
+/** How a piece's program reads its rows from its piece: each row to `each`. */
+type SourceRows = (t: SplitTranslator, $: Block, piece: Expr, each: ($: Block, item: Expr) => void) => void;
+
+/** A piece's rows as its dataset gives them: its elements or a dict's values, or a dict's entries, `{key, value}`. */
+function datasetRows(checked: CheckJqResult, source: Source): SourceRows {
+  const entries = source.entries;
+  if (entries === undefined) return (t, $, piece, each) => t.forEach($, piece, ($2, item) => each($2, item), source.path);
+  const Entry = parts(typeAfter(checked, entries)).value;
+  const fields = parts(Entry).fields;
+  return (t, $, piece, each) => t.forEach($, piece, ($2, value, key) => each($2, t.bind($2, t.struct(Entry, {
+    key: t.widenTo($2, key!, fields["key"]!, entries),
+    value: t.widenTo($2, value, fields["value"]!, entries),
+  }), "entry")), entries);
+}
+
+/**
+ * A piece's first rows of a sort (#942): each row with its sort key, the
+ * pairs sorted and cut back to the first `rows` once they are twice that, so
+ * the piece holds a bounded number of them, and at the end.
+ */
+function topRows(t: SplitTranslator, $: Block, c: Extract<Combine, { kind: "top" }>): { add($: Block, row: Expr, env: Env): void; result($: Block): Expr } {
+  const Pair = topPair(c);
+  const kept = t.declare($, t.emptyArray(Pair), "top");
+  const most = 2n * BigInt(c.rows) + 64n;
+  return {
+    add: ($2, row, env) => {
+      const value = t.bind($2, t.widenTo($2, row, c.element, c.path), "row");
+      t.push($2, kept, t.struct(Pair, { key: sortKey(t, $2, c, value, env), value }), c.path);
+      t.ifElse($2, t.b("GreaterEqual", [IntegerType], [t.size(kept, c.path), t.int(most)], BooleanType, c.path),
+        $3 => t.assign($3, kept, firstSorted(t, $3, kept, c)), undefined, c.path);
+    },
+    result: $2 => firstSorted(t, $2, kept, c),
+  };
+}
+
+/** A row's sort key, as `sort_by` keys it: the key filter's one output, or the array of its outputs; for `sort`, the row. */
+function sortKey(t: SplitTranslator, $: Block, c: Extract<Combine, { kind: "top" }>, row: Expr, env: Env): Expr {
+  const key = c.key;
+  if (key === null) return row;
+  if (key.one) return t.one(key.node, key.path, $, row, env, key.type);
+  const keys = t.declare($, t.emptyArray(parts(key.type).value), "keys");
+  t.gen(key.node, key.path, $, row, env, ($2, k) => t.push($2, keys, k, c.path));
+  return keys;
 }
 
 /** Generates the elements a total works through, from one row: the row, or the outputs of its maps. */
@@ -1413,8 +2111,12 @@ function rowPartials(t: SplitTranslator, $: Block, totals: Totals, row: Expr, en
   return t.struct(type, Object.fromEntries(accs.map((acc, i) => [`p${i}`, acc])));
 }
 
-/** The program each piece runs: the bindings, the row work over the piece, and what it emits. */
-function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, options: SplitJqOptions): FunctionExpr<any[], any> {
+/**
+ * The program each piece runs: the bindings, the row work over the piece, and
+ * what it emits. `rowsOf` reads the piece's rows: by default as the dataset
+ * gives them; a re-keyed join's, each key's rows in turn.
+ */
+function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name: string; type: EastType }[], output: JqSplitOutput, options: SplitJqOptions, rowsOf: SourceRows = datasetRows(checked, plan.rows.source)): FunctionExpr<any[], any> {
   const emitType = output.kind === "dict" ? FunctionType([parts(output.type).key, parts(output.type).value], NullType)
     : output.kind === "fold" ? FunctionType([output.type], NullType)
     : FunctionType([output.kind === "set" ? parts(output.type).key : parts(output.type).value], NullType);
@@ -1434,9 +2136,11 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
       : c.kind === "distinct_by" || c.kind === "reduce" || (c.kind === "group" && c.totals !== null)
         ? pieceTable(t, $, parts(output.type).key, { type: parts(output.type).value, fold: foldOf(plan, c, parts(output.type).value) }, c.path, options, send)
         : undefined;
+    // The first rows of a sort are kept in the piece, and emitted once.
+    const top = c.kind === "top" ? topRows(t, $, c) : undefined;
     genBinds(t, $, root, binds, emptyEnv(), ($2, env) => {
       const piece = root.fields.get(plan.rows.source.over)!;
-      t.forEach($2, piece, ($3, item) => genRow(t, $3, item, plan.rows.steps, 0, env, ($4, row, scope) => {
+      rowsOf(t, $2, piece, ($3, item) => genRow(t, $3, item, plan.rows.steps, 0, env, ($4, row, scope) => {
         switch (c.kind) {
           case "concat":
             send($4, t.widenTo($4, row, plan.rowType, plan.rows.end));
@@ -1475,10 +2179,14 @@ function pieceProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { nam
             });
             return;
           }
+          case "top":
+            top!.add($4, row, scope);
+            return;
         }
-      }), plan.rows.source.path);
+      }));
     });
     if (c.kind === "totals") send($, t.struct(output.type, Object.fromEntries(folded.map((acc, i) => [`p${i}`, acc]))));
+    if (top !== undefined) send($, top.result($));
     table?.flush($);
     return t.null();
   })) as unknown as FunctionExpr<any[], any>;
@@ -1637,6 +2345,13 @@ function thenProgram(checked: CheckJqResult, plan: Plan, inputs: readonly { name
         case "reduce":
           rest($2, t.bind($2, t.widenTo($2, all, typeAfter(checked, c.path), c.path), "reduced"));
           return;
+        case "top": {
+          // The first rows, in order: the sort's own first rows, which are all the step after it reads.
+          const out = t.declare($2, t.emptyArray(c.element), "sorted");
+          t.forEach($2, all, ($3, pair) => t.push($3, out, t.field(pair, "value"), c.path), c.path, "pair");
+          rest($2, t.bind($2, t.widenTo($2, out, typeAfter(checked, c.path), c.path), "rows"));
+          return;
+        }
         case "totals": {
           const value = withTotals(t, $2, c.totals, all, env, c.node, c.path, plan.cutType);
           rest($2, value);

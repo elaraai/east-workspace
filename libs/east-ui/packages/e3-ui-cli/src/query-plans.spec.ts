@@ -17,11 +17,14 @@
  * - **N3**: each split call answers as the query's one-shot call does —
  *   revenue by region with the customers read whole, the first and the last
  *   row of a key, the least and the last greatest row, the first and the last
- *   total, the distinct values, the top rows, a count of lines — a float to
- *   within rounding, since the pieces add in another grouping; and at two
- *   input sizes, the larger twice the pieces, no unit's peak passes the
- *   runner's baseline plus the RunSorter's cap, and the larger raises no
- *   unit's peak beyond a margin.
+ *   total, the distinct values, the top rows kept in the pieces, a count of
+ *   lines — a float to within rounding, since the pieces add in another
+ *   grouping; and joins (#942): two dicts keyed alike, read only at the row's
+ *   key, cut at the same keys, and a join both of whose sides weigh more than
+ *   one piece re-keyed — two split calls, the second over the first's output
+ *   by its hash. At two input sizes, the larger twice the pieces, no unit's
+ *   peak passes the runner's baseline plus the RunSorter's cap, and the larger
+ *   raises no unit's peak beyond a margin.
  * - **N4**: a relaunch is served from the cache, running no unit; after an
  *   append, only the pieces around it run, and the answer is the one-shot
  *   call's over the new rows.
@@ -63,19 +66,34 @@ const OrderType = StructType({ id: IntegerType, customer_id: StringType, total: 
 const OrdersType = ArrayType(OrderType);
 const CustomerType = StructType({ name: StringType, region: StringType });
 const CustomersType = DictType(StringType, CustomerType);
+/** Each customer's credit limit: a dict keyed as the customers are. */
+const CreditType = DictType(StringType, FloatType);
 type Order = ValueTypeOf<typeof OrderType>;
 
 const ORDERS: TreePath = [variant('field', 'inputs'), variant('field', 'orders')];
 const CUSTOMERS: TreePath = [variant('field', 'inputs'), variant('field', 'customers')];
+const CREDIT: TreePath = [variant('field', 'inputs'), variant('field', 'credit')];
 const ROOT = queryRoot([
     { name: 'orders', path: ORDERS, type: toEastTypeValue(OrdersType) },
     { name: 'customers', path: CUSTOMERS, type: toEastTypeValue(CustomersType) },
+    { name: 'credit', path: CREDIT, type: toEastTypeValue(CreditType) },
 ]);
+/** Each data source's path, by its name. */
+const PATHS: ReadonlyMap<string, TreePath> = new Map([['orders', ORDERS], ['customers', CUSTOMERS], ['credit', CREDIT]]);
 
 /** The smaller input's orders, about 2.5 MB: some 8 pieces at the test's piece size. The larger holds twice as many. */
 const ORDER_COUNT = 40_000;
 /** The customers, and the regions they are in. */
 const CUSTOMER_COUNT = 500;
+/** The customers a re-keyed join reads (#942), some 130 KB as e3 stores them: more than one piece at the test's piece size, so a join of the orders with them is re-keyed. */
+const REKEY_CUSTOMERS = 20_000;
+/**
+ * The customers a join cut at the same keys reads (#942), some 2 MB as e3
+ * stores them — about 7 bytes a customer: as the orders are, many pieces at
+ * the test's piece size, since e3 closes a piece only between a dict's
+ * segments, which its writer cuts at 64 KiB to 8 MiB.
+ */
+const COPARTITIONED_CUSTOMERS = 300_000;
 const REGIONS = ['North', 'South', 'East', 'West', 'Central', 'Coast', 'Inland'];
 /** The pieces e3 aims for, in stored bytes: 64 KiB to 1 MiB, a few segments each. */
 const PIECE_TARGET = 256 * 1024;
@@ -87,20 +105,28 @@ const NO_TOKEN = { token: null };
 /** A customer's id. */
 const customerId = (i: number): string => `C${String(i).padStart(4, '0')}`;
 
-/** The customers, each in a region. */
-function customers(): SortedMap<string, ValueTypeOf<typeof CustomerType>> {
+/** The first `count` customers, each in a region. */
+function customers(count = CUSTOMER_COUNT): SortedMap<string, ValueTypeOf<typeof CustomerType>> {
     return new SortedMap(
-        Array.from({ length: CUSTOMER_COUNT }, (_, i) => [customerId(i), { name: `Customer ${i}`, region: REGIONS[(i * 7) % REGIONS.length]! }] as const),
+        Array.from({ length: count }, (_, i) => [customerId(i), { name: `Customer ${i}`, region: REGIONS[(i * 7) % REGIONS.length]! }] as const),
+        compareFor(StringType),
+    );
+}
+
+/** The first `count` customers' credit limits, but every fifth customer's, which has none. */
+function credit(count: number): SortedMap<string, number> {
+    return new SortedMap(
+        Array.from({ length: count }, (_, i) => i).filter((i) => i % 5 !== 0).map((i) => [customerId(i), ((i * 37) % 1000) + 0.5] as const),
         compareFor(StringType),
     );
 }
 
 /**
  * Orders `first` to `first + n - 1`, their noise seeded by `seed` and each id,
- * so a run writes the same orders: a customer, a total to the cent — so
- * totals tie — and one to four lines.
+ * so a run writes the same orders: one of the first `customerCount` customers,
+ * a total to the cent — so totals tie — and one to four lines.
  */
-function orders(first: number, n: number, seed: number): Order[] {
+function orders(first: number, n: number, seed: number, customerCount = CUSTOMER_COUNT): Order[] {
     return Array.from({ length: n }, (_, j) => {
         const id = first + j;
         let state = ((id * 2654435761) ^ (seed * 0x9e3779b9)) >>> 0 || 7;
@@ -111,7 +137,7 @@ function orders(first: number, n: number, seed: number): Order[] {
         const lines = Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => ({
             sku: `SKU-${Math.floor(rnd() * 300)}`, qty: BigInt(1 + Math.floor(rnd() * 9)), price: Math.round(rnd() * 2000) / 100,
         }));
-        return { id: BigInt(id), customer_id: customerId(Math.floor(rnd() * CUSTOMER_COUNT)), total: Math.round(rnd() * 5000) / 100, lines };
+        return { id: BigInt(id), customer_id: customerId(Math.floor(rnd() * customerCount)), total: Math.round(rnd() * 5000) / 100, lines };
     });
 }
 
@@ -130,9 +156,20 @@ const SPLITS: readonly (readonly [program: string, output: string])[] = [
     // The least row, the last of the greatest — totals tie, and customers repeat — the first and the last total.
     ['.orders | {n: length, lowest: (min_by(.total) | .id), last_greatest: (max_by(.customer_id) | .id), first: (map(.total) | first), last: (map(.total) | .[-1]), any_big: any(.total > 49.5), all_lines: all(.lines | length > 0)}', 'fold'],
     ['.orders | map(.customer_id) | unique', 'set'],
-    ['.orders | map(select(.total > 49.5)) | sort_by(-.total) | .[:20] | map(.id)', 'array'],
+    // The sort's first 20 rows kept in each piece, then across them (#942).
+    ['.orders | map(select(.total > 49.5)) | sort_by(-.total) | .[:20] | map(.id)', 'fold'],
     ['.orders | map(.lines | length) | add', 'fold'],
 ];
+
+/** Joins re-keyed when both sides are large (#942): the orders with the customers, read only at the order's customer. */
+const REKEYED: readonly string[] = [
+    REVENUE_BY_REGION,
+    '.customers as $c | .orders | map($c[.customer_id].region) | unique',
+];
+
+/** A join of two dicts keyed alike, the credit read only at the customer's own key: cut at the same keys (#942). */
+const CREDIT_BY_REGION =
+    '.credit as $l | .customers | to_entries | map({region: .value.region, limit: ($l[.key] // 0)}) | group_by(.region) | map({region: .[0].region, limit: map(.limit) | add, n: length})';
 
 // ─── Reading what came back ──────────────────────────────────────────────────
 
@@ -215,26 +252,35 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
     let server: RepoServerHandle;
     let pieceBytes: string | undefined;
 
-    /** A workspace of the package, its orders and customers set. */
-    async function workspace(name: string, rows: Order[]): Promise<string> {
+    /** A workspace of the package, its orders and the first `customerCount` customers set. */
+    async function workspace(name: string, rows: Order[], customerCount = CUSTOMER_COUNT): Promise<string> {
         await workspaceCreate(storage, repo, name);
         await workspaceDeploy(storage, repo, name, 'orders', '1.0.0');
-        await workspaceSetDataset(storage, repo, name, CUSTOMERS, customers(), CustomersType);
+        await workspaceSetDataset(storage, repo, name, CUSTOMERS, customers(customerCount), CustomersType);
         await workspaceSetDataset(storage, repo, name, ORDERS, rows, OrdersType);
         return name;
     }
 
+    /** A query's plan on a workspace, the data sources named weighed by their statuses, as the builder weighs them. */
+    async function planOf(ws: string, program: string, runner: RunnerValue, weighed: readonly string[]) {
+        const weights = new Map<string, { bytes: number | undefined; rows: number | undefined }>();
+        for (const name of weighed) {
+            const status = await datasetGetStatus(server.apiUrl, server.repo, ws, PATHS.get(name)!, NO_TOKEN);
+            weights.set(name, {
+                bytes: status.size.type === 'some' ? Number(status.size.value) : undefined,
+                rows: status.rows.type === 'some' ? Number(status.rows.value) : undefined,
+            });
+        }
+        const plan = planQuery(program, ROOT, weights, { pieceBytes: PIECE_MIN, runner });
+        if ('result' in plan) assert.fail(`${program} does not check`);
+        return plan.plan;
+    }
+
     /** A query's plan on a workspace, weighed by its orders' status: the test fails unless it is a split call. */
     async function planned(ws: string, program: string, runner: RunnerValue) {
-        const status = await datasetGetStatus(server.apiUrl, server.repo, ws, ORDERS, NO_TOKEN);
-        const weight = {
-            bytes: status.size.type === 'some' ? Number(status.size.value) : undefined,
-            rows: status.rows.type === 'some' ? Number(status.rows.value) : undefined,
-        };
-        const plan = planQuery(program, ROOT, new Map([['orders', weight]]), { pieceBytes: PIECE_MIN, runner });
-        if ('result' in plan) assert.fail(`${program} does not check`);
-        if (plan.plan.kind !== 'split') assert.fail(`${program} planned one call: ${plan.plan.explanation.path.kind === 'one_shot' ? plan.plan.explanation.path.why.kind : ''}`);
-        return plan.plan;
+        const plan = await planOf(ws, program, runner, ['orders']);
+        if (plan.kind !== 'split') assert.fail(`${program} planned ${plan.kind}: ${plan.explanation.path.kind === 'one_shot' ? plan.explanation.path.why.kind : ''}`);
+        return plan;
     }
 
     /** A query's split call on a workspace, its answer read as the builder reads it, and how many pieces e3 cut. */
@@ -260,7 +306,7 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
         mkdirSync(repo);
         repoInit(repo);
         const zip = join(scratch, 'orders.zip');
-        await e3.export(e3.package('orders', '1.0.0', e3.input('orders', OrdersType), e3.input('customers', CustomersType)), zip);
+        await e3.export(e3.package('orders', '1.0.0', e3.input('orders', OrdersType), e3.input('customers', CustomersType), e3.input('credit', CreditType)), zip);
         await packageImport(storage, repo, zip);
         server = await startRepoServer(repo);
     });
@@ -287,6 +333,45 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                     assert.ok(close(want.type, value.value, want.value), `${program}: the split call's answer is the one-shot call's`);
                     // Each dataset it read, pinned at the hash the one-shot call read it at.
                     assert.deepEqual(pinned(got.result), pinned(one), `${program}: the split call read what the one-shot call read`);
+                }
+            });
+
+            it('N3: a join of two dicts keyed alike, read only at the row\'s key, is cut at the same keys and answers as its one-shot call does (#942)', async () => {
+                const ws = await workspace(`copartitioned-${name}`, orders(0, ORDER_COUNT, 5, COPARTITIONED_CUSTOMERS), COPARTITIONED_CUSTOMERS);
+                await workspaceSetDataset(storage, repo, ws, CREDIT, credit(COPARTITIONED_CUSTOMERS), CreditType);
+                const plan = await planOf(ws, CREDIT_BY_REGION, runner, ['customers', 'credit']);
+                if (plan.kind !== 'split' || plan.explanation.path.kind !== 'split') assert.fail(`the join planned ${plan.kind}`);
+                assert.deepEqual([plan.explanation.path.over, plan.explanation.path.copartitioned, plan.explanation.path.broadcast], ['customers', ['credit'], []]);
+                assert.deepEqual(plan.request.args.map((a) => a.partition.type), ['some', 'some'], 'both partitioned: e3 cuts them at the same keys');
+                const explained = await splitCallExplain(server.apiUrl, server.repo, ws, plan.request, NO_TOKEN);
+                assert.ok(Number(explained.pieces) > 4, `the customers are many pieces, not ${explained.pieces}: the heavier weighs ${explained.bytes} bytes`);
+                const answer = await splitCall(server.apiUrl, server.repo, ws, plan.request, NO_TOKEN);
+                const got = queryResultOf(plan.reading, answer.result);
+                const one = await oneShot(ws, CREDIT_BY_REGION, runner);
+                const [value, want] = [decoded(got, 'the join\'s split call'), decoded(one, 'the join\'s one-shot call')];
+                assert.ok(isTypeEqual(value.type, want.type) && close(want.type, value.value, want.value), 'the split call\'s answer is the one-shot call\'s');
+                assert.deepEqual(pinned(got), pinned(one), 'the split call read what the one-shot call read');
+            });
+
+            it('N3: a join both of whose sides weigh more than one piece is re-keyed — the second call over the first\'s output by its hash — and answers as its one-shot call does (#942)', async () => {
+                const ws = await workspace(`rekeyed-${name}`, orders(0, ORDER_COUNT, 6, REKEY_CUSTOMERS), REKEY_CUSTOMERS);
+                for (const program of REKEYED) {
+                    const plan = await planOf(ws, program, runner, ['orders', 'customers']);
+                    if (plan.kind !== 'rekey') assert.fail(`${program} planned ${plan.kind}, not a re-keyed join`);
+                    // The re-key call's answer is asked to be one byte at most: its output is read by its hash.
+                    const first = await splitCall(server.apiUrl, server.repo, ws, plan.first, NO_TOKEN);
+                    assert.equal(first.result.outcome.type, 'too_large', `${program}: the re-key call's answer is its output's hash`);
+                    if (first.output === null) assert.fail(`${program}: the re-key call gave no output`);
+                    const join = plan.join(first.output);
+                    const explained = await splitCallExplain(server.apiUrl, server.repo, ws, join, NO_TOKEN);
+                    assert.ok(Number(explained.pieces) > 4, `${program}: the join is many pieces, not ${explained.pieces}: the heavier weighs ${explained.bytes} bytes`);
+                    const joined = await splitCall(server.apiUrl, server.repo, ws, join, NO_TOKEN);
+                    const got = queryResultOf(plan.reading, plan.answer(first.result, joined.result));
+                    const one = await oneShot(ws, program, runner);
+                    const [value, want] = [decoded(got, `${program}'s re-keyed join`), decoded(one, `${program}'s one-shot call`)];
+                    assert.ok(isTypeEqual(value.type, want.type), `${program}: the re-keyed join answers at the one-shot call's type`);
+                    assert.ok(close(want.type, value.value, want.value), `${program}: the re-keyed join's answer is the one-shot call's`);
+                    assert.deepEqual(pinned(got), pinned(one), `${program}: the re-keyed join read what the one-shot call read`);
                 }
             });
 

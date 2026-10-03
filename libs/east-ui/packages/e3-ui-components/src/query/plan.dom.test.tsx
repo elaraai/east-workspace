@@ -14,12 +14,16 @@
  *   result the one-shot call's; the source counted from its stored rows and
  *   the result by the call, nothing between;
  * - a jq run likewise, the jq as typed;
+ * - a join both of whose sides weigh more than one piece, re-keyed (#942):
+ *   two split calls, the second over the first's output by its hash;
  * - the plan's read-out in the footer, and its explanation in a popover;
  * - a split run's progress while it goes, then its pieces;
  * - a small dataset one call, as the showcase's always are; the plan's
  *   options' own piece; a status that cannot be read; no split call to make;
  * - a new run abandoning a split call by its signal; a split call refused,
- *   and one that never reached the server;
+ *   and one that never reached the server; the run a saved query starts as
+ *   the builder mounts, under React's mount → unmount → mount (`StrictMode`,
+ *   as the showcase's dev server mounts it), started again and answering;
  * - under an `E3Provider` that gives its own `fetch` — e3 running in the page —
  *   a run's status, its split call's launch and polls, and a one-shot call all
  *   go through that `fetch`, with the provider's token, and none reaches the
@@ -38,6 +42,7 @@ import {
     type ExecuteResult,
 } from "@elaraai/e3-types";
 import { formatters } from "@elaraai/east-ui-components";
+import type { SplitCallAnswer } from "@elaraai/e3-api-client";
 import type { QuerySplitCall } from "./hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { byteWords, queryWords } from "./model/words.js";
@@ -61,6 +66,9 @@ const TOP = savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM);
 
 /** A jq query that groups, counts and adds whole numbers: its answer exact however its pieces are cut. */
 const BY_CUSTOMER = ".orders | group_by(.customer_id) | map({customer: .[0].customer_id, n: length, lines: (map(.lines | length) | add)})";
+
+/** A join of the orders with the customers, read only at the order's customer, whose answer the rows' order cannot change: re-keyed when both are large (#942). */
+const BY_REGION = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
 
 /** 1 GiB: the orders weighed as far larger than one piece. */
 const LARGE = 1 << 30;
@@ -174,6 +182,30 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
         expect([footer().count, footer().plan]).toEqual(["8 rows", "Split call · 7 pieces"]);
     }, 30_000);
 
+    test("a join both of whose sides weigh more than one piece is re-keyed (#942): two split calls, the second over the first's output by its hash; the one-shot call's result", async () => {
+        const one = fixtureCall();
+        const split = fixtureSplit({ pieces: 4 });
+        await mountBuilder(one.call, { split: split.split, status: fixtureStatus({ orders: LARGE, customers: LARGE }) });
+        await runJq(BY_REGION);
+        expect([split.requests.length, one.requests.length]).toEqual([2, 0]);
+        // The join call reads the re-key call's output by its hash.
+        expect(split.outputs[0]).not.toBeNull();
+        expect(split.requests[1]!.args.map((a) => a.arg)).toContainEqual(variant("object", split.outputs[0]!));
+        const expected = await oneShot(BY_REGION);
+        const answer = decoded(split.answers[1]!);
+        expect(equalFor(expected.type)(answer.value as never, expected.value as never)).toBe(true);
+        // The pieces are the join call's; what the run read, the orders the re-key call read, then the customers.
+        expect(footer()).toEqual({ count: "5 rows", plan: "Re-keyed join · 4 pieces", run: expect.stringMatching(/^run #1 · /), reads: "reads orders #4f2a1c8d · customers #9b07e3a4" });
+        expect(await explanation()).toEqual([
+            ["path", "Split call over orders: it weighs 1 GB, more than one piece (16 MB).", undefined],
+            ["rekey", "Re-key: both sides large and unaligned — customers weighs more than one piece too.", undefined],
+            ["rekey", "First, orders is re-keyed by this, about 1 GB, and each piece then reads customers cut at the same keys:", ".customer_id"],
+            ["piece", "Each piece of orders runs:", ".orders\n| map($c[.customer_id].region)"],
+            ["combine", "Their distinct rows are kept:", "unique"],
+            ["pieces", "Orders is cut into 4 pieces, about 256 MB each.", undefined],
+        ]);
+    }, 30_000);
+
     test("the plan's explanation: the path and why, what each piece runs, how the pieces combine, what runs once after, what each reads whole, and the pieces", async () => {
         await mountBuilder(fixtureCall().call, { split: fixtureSplit({ pieces: 4 }).split, status: fixtureStatus({ orders: LARGE }) });
         await openQuery(variant("saved", TOP.name));
@@ -187,8 +219,9 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
                 "map(. + {name: $customers[.customer_id].name, region: $customers[.customer_id].region})",
                 "map({order: .id, customer: .name, region, total, shipped: .status.value.date})",
             ].join("\n| ")],
-            ["combine", "Their rows are joined in order.", undefined],
-            ["then", "Then, once, over what they combine to:", "sort_by(-.total)\n| .[:10]"],
+            // The sort's first 10 rows kept in each piece, then across them (#942): never every shipped order.
+            ["combine", "The first 10 rows of the sort are kept, each piece's and then theirs together, by:", "-.total"],
+            ["then", "Then, once, over what they combine to:", ".[:10]"],
             ["broadcast", "Every piece reads customers whole.", undefined],
             ["pieces", "Orders is cut into 4 pieces, about 256 MB each.", undefined],
         ]);
@@ -266,6 +299,15 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
         expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 4 pieces"]);
     }, 30_000);
 
+    test("the run a saved query starts as the builder mounts, under React's mount → unmount → mount: abandoned by the unmount, started again under its number, and answering", async () => {
+        const split = fixtureSplit({ pieces: 4 });
+        await mountBuilder(fixtureCall().call, { split: split.split, status: fixtureStatus({ orders: LARGE }), query: TOP.name, strict: true });
+        expect(banners()).toEqual([]);
+        expect(footer()).toEqual({ count: "10 orders", plan: "Split call · 4 pieces", run: expect.stringMatching(/^run #1 · /), reads: "reads customers #9b07e3a4 · orders #4f2a1c8d" });
+        // The unmount abandoned the run while it weighed the orders, before it called: the one split call is the run's again.
+        expect(split.signals.map((s) => s.aborted)).toEqual([false]);
+    }, 30_000);
+
     test("a split call e3 could not run is Not run, with e3's words; one that never reached the server, Couldn't reach the server", async () => {
         const refusing: QuerySplitCall = async () => { throw new Error("Split call failed: the pieces could not be planned"); };
         await mountBuilder(fixtureCall().call, { split: refusing, status: fixtureStatus({ orders: LARGE }) });
@@ -318,7 +360,7 @@ function givenE3(weights: FixtureWeights): { seen: Seen[]; fetch: typeof globalT
     const status = createInMemorySourceStatus(datasets);
     const oneShot = createInMemoryQueryCall(datasets);
     const split = createInMemorySplitCall(datasets, { pieces: 3 });
-    const jobs = new Map<string, Promise<ExecuteResult>>();
+    const jobs = new Map<string, Promise<SplitCallAnswer>>();
     const respond = (bytes: Uint8Array) => new Response(bytes.slice(), { status: 200 });
     const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(input instanceof Request ? input.url : String(input));
@@ -335,7 +377,8 @@ function givenE3(weights: FixtureWeights): { seen: Seen[]; fetch: typeof globalT
         }
         const job = jobs.get(/\/one-shot\/split\/([^/]+)$/.exec(url.pathname)?.[1] ?? "");
         if (method === "GET" && job !== undefined) {
-            return respond(answerSplitStatus(variant("success", variant("completed", { result: await job, output: none }))));
+            const { result, output } = await job;
+            return respond(answerSplitStatus(variant("success", variant("completed", { result, output: output === null ? none : some(output) }))));
         }
         const dataset = datasets.find((d) => url.pathname.endsWith(`/datasets/${d.path.map((segment) => segment.value).join("/")}`));
         if (url.searchParams.get("status") === "true" && dataset !== undefined) {

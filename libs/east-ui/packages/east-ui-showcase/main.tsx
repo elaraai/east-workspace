@@ -21,9 +21,12 @@ import "@elaraai/e3-ui-components";
 import {
     createInMemoryQueryCall,
     createInMemorySourceStatus,
+    createInMemorySplitCall,
     QueryCallProvider,
     QuerySourceStatusProvider,
+    QuerySplitCallProvider,
     type InMemoryDataset,
+    type QuerySourceStatus,
 } from "@elaraai/e3-ui-components";
 import type { DatasetDef } from "@elaraai/e3";
 import { App } from "./App";
@@ -68,10 +71,27 @@ const queryDatasets = exampleQueryDatasets();
  *  the page runs (#849); a query's call runs its body here. */
 const queryCall = createInMemoryQueryCall(queryDatasets);
 
+/** What a row of the showcase's data weighs in a run's plan: a deployment's
+ *  row, so the builder plans as it would there (#942). */
+const BYTES_PER_ROW = 36 * 2 ** 20;
+
+const inMemoryStatus = createInMemorySourceStatus(queryDatasets);
+
 /** The same inputs' statuses (#941): what each holds and weighs, which a run
- *  of the query builder weighs before it plans. The showcase's datasets are
- *  tiny, so every run plans one call — and its plan says so. */
-const queryStatus = createInMemorySourceStatus(queryDatasets);
+ *  of the query builder weighs before it plans — a collection its rows ×
+ *  {@link BYTES_PER_ROW}, as a deployment's (#942), so a run plans as it
+ *  would there: a split call over a large list, a sort's first rows kept in
+ *  its pieces, a join of two large ones re-keyed. Only the results footer's
+ *  plan read-out shows it; the answers are the in-memory data's. */
+const queryStatus: QuerySourceStatus = async (path) => {
+    const status = await inMemoryStatus(path);
+    return status.rows === undefined ? status : { ...status, bytes: status.rows * BYTES_PER_ROW };
+};
+
+/** The builder's split calls (#941, #942), answered in the browser as e3
+ *  answers them: each over the same inputs, cut into 12 pieces, a re-keyed
+ *  join's second call reading the first's output by its hash. */
+const querySplit = createInMemorySplitCall(queryDatasets, { pieces: 12 });
 
 /* Route at the root: when `?file=<pathKey>` is in the URL we render the
  * isolated stack of cards for that source file *only* — no sidebar, no
@@ -101,11 +121,14 @@ createRoot(document.getElementById("root")!).render(
                             <AppProvider barEnd={<HostBarEnd />} railFooter={<HostRailFooter />}>
                                 <AppErrorBoundary>
                                     {/* The query builder's runs, answered in the browser (#940),
-                                      * each planned over its datasets' statuses (#941). */}
+                                      * each planned over its datasets' statuses (#941) — one
+                                      * call, or split calls (#942). */}
                                     <QueryCallProvider call={queryCall}>
-                                        <QuerySourceStatusProvider status={queryStatus}>
-                                            <Root />
-                                        </QuerySourceStatusProvider>
+                                        <QuerySplitCallProvider call={querySplit}>
+                                            <QuerySourceStatusProvider status={queryStatus}>
+                                                <Root />
+                                            </QuerySourceStatusProvider>
+                                        </QuerySplitCallProvider>
                                     </QueryCallProvider>
                                     {/* The e3 the page runs (#849), once an e3 example has
                                       * started it: e3-ui-components' providers over it, which

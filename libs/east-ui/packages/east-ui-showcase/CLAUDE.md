@@ -22,11 +22,16 @@ its cause, in the example's place (`data-e3-start="failed"`), with a Retry
 that starts e3 again. What loaded before renders at once, so a row the doc
 list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
-The query builder's one-shot calls are answered in the browser (#940):
-`main.tsx` runs each over the e3 example modules' `e3.input` defaults
-(`createInMemoryQueryCall` through a `QueryCallProvider`), each run planned
-over the same inputs' statuses (`createInMemorySourceStatus` through a
-`QuerySourceStatusProvider`, #941) — tiny, so every run is one call.
+The query builder's calls are answered in the browser (#940, #941):
+`main.tsx` runs each over the e3 example modules' `e3.input` defaults — a
+one-shot call through `createInMemoryQueryCall` (a `QueryCallProvider`), a
+split call through `createInMemorySplitCall`, cut into 12 pieces (a
+`QuerySplitCallProvider`). Each run is planned over the same inputs'
+statuses (`createInMemorySourceStatus` through a
+`QuerySourceStatusProvider`), which weigh a collection at 36 MiB a row, as a
+deployment's (#942): a run plans as it would there — a split call over a
+large list, a join of two large ones re-keyed — and only the results
+footer's plan read-out shows it.
 `vite.config.ts` aliases `@elaraai/e3` to the e3-ui-components snapshot
 harness's browser-safe shim: the examples only declare what they bind.
 `@elaraai/e3-ui` is pre-bundled once when the dev server starts, so a change

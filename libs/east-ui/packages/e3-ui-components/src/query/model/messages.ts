@@ -644,12 +644,28 @@ export interface QueryMessages {
     byteSize: (p: { value: string; unit: "B" | "KB" | "MB" | "GB" }) => string;
 
     // ── Plans (#941) ─────────────────────────────────────────────────────
-    /** The plan's read-out in the results' footer — `One call`, `Split call · 12 pieces`, `Split call · 3 of 12 pieces done`. */
-    planBadge: (p: { split: boolean; detail: string }) => string;
+    /**
+     * The plan's read-out in the results' footer — `One call`, `Split call ·
+     * 12 pieces`, `Split call · 3 of 12 pieces done`, `Re-keyed join · 12
+     * pieces` (#942).
+     */
+    planBadge: (p: { kind: "one_shot" | "split" | "rekey"; detail: string }) => string;
     /** The plan's popover's title, and the read-out's name for a screen reader. */
     planTitle: () => string;
-    /** A split call, and why — `Split call over orders: it weighs 1.4 GB, more than one piece (16 MB).` */
-    planSplit: (p: { over: string; bytes: string; piece: string }) => string;
+    /**
+     * A split call, and why — `Split call over orders: it weighs 1.4 GB, more
+     * than one piece (16 MB).`; with a dataset cut at the same keys that weighs
+     * more, `heaviest` names it (#942).
+     */
+    planSplit: (p: { over: string; heaviest: string; bytes: string; piece: string }) => string;
+    /** The datasets cut at the same keys as the one the pieces work through (#942) — `Prices is cut at the same keys as stock: each piece reads only its own keys of it.` */
+    planCopartitioned: (p: { over: string; names: string; n: number }) => string;
+    /** A re-keyed join, and why (#942) — `Re-key: both sides large and unaligned — customers weighs more than one piece too.` */
+    planRekey: (p: { name: string }) => string;
+    /** Its re-key stage, before the join key's jq — `First, orders is re-keyed by this, about 1.4 GB, and each piece then reads customers cut at the same keys:`. */
+    planRekeyStage: (p: { over: string; name: string; bytes: string }) => string;
+    /** The first rows of a sort, kept in each piece then together (#942), before the key's jq — `The first 10 rows of the sort are kept, each piece's and then theirs together, by:`. */
+    planTop: (p: { count: string; n: number }) => string;
     /** One call: it would split over a dataset within one piece — `One call: orders weighs 4 KB, within one piece (16 MB).` */
     planSmall: (p: { over: string; bytes: string; piece: string }) => string;
     /** One call: it would split over a dataset whose weight is not known. */
@@ -1306,9 +1322,21 @@ export const queryMessages: QueryMessages = {
     oneValue: () => "1 value",
     byteSize: ({ value, unit }) => `${value} ${unit}`,
 
-    planBadge: ({ split, detail }) => (split ? (detail === "" ? "Split call" : `Split call · ${detail}`) : "One call"),
+    planBadge: ({ kind, detail }) => {
+        if (kind === "one_shot") return "One call";
+        const word = kind === "rekey" ? "Re-keyed join" : "Split call";
+        return detail === "" ? word : `${word} · ${detail}`;
+    },
     planTitle: () => "How this run reads its data",
-    planSplit: ({ over, bytes, piece }) => `Split call over ${over}: it weighs ${bytes}, more than one piece (${piece}).`,
+    planSplit: ({ over, heaviest, bytes, piece }) => (heaviest === over
+        ? `Split call over ${over}: it weighs ${bytes}, more than one piece (${piece}).`
+        : `Split call over ${over}: ${heaviest}, cut with it, weighs ${bytes}, more than one piece (${piece}).`),
+    planCopartitioned: ({ over, names, n }) => `${capital(names)} ${n === 1 ? "is" : "are"} cut at the same keys as ${over}: each piece reads only its own keys of ${n === 1 ? "it" : "them"}.`,
+    planRekey: ({ name }) => `Re-key: both sides large and unaligned — ${name} weighs more than one piece too.`,
+    planRekeyStage: ({ over, name, bytes }) => `First, ${over} is re-keyed by this, about ${bytes}, and each piece then reads ${name} cut at the same keys:`,
+    planTop: ({ count, n }) => (n === 1
+        ? "The first row of the sort is kept, each piece's and then theirs together, by:"
+        : `The first ${count} rows of the sort are kept, each piece's and then theirs together, by:`),
     planSmall: ({ over, bytes, piece }) => `One call: ${over} weighs ${bytes}, within one piece (${piece}).`,
     planUnweighed: ({ over }) => `One call: what ${over} weighs isn't known.`,
     planUnsplit: ({ message }) => `One call: the split call couldn't be made — ${message}`,

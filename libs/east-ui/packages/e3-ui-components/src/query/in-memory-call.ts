@@ -11,9 +11,11 @@
  * - **A one-shot call** ({@link createInMemoryQueryCall}), which the builder
  *   makes through it when a `QueryCallProvider` hands it over.
  * - **A split call** ({@link createInMemorySplitCall}), run as e3 runs one:
- *   the partitioned dataset cut into pieces, each piece's program run, the
- *   pieces' outputs assembled by the output kind, and the final function run
- *   once — through a `QuerySplitCallProvider`.
+ *   the partitioned dataset cut into pieces — datasets partitioned together
+ *   cut at the same keys — each piece's program run, the pieces' outputs
+ *   assembled by the output kind and kept by their hash, which a later call's
+ *   `object` argument reads, and the final function run once — through a
+ *   `QuerySplitCallProvider`.
  * - **A data source's status** ({@link createInMemorySourceStatus}): what each
  *   dataset holds and weighs — through a `QuerySourceStatusProvider`.
  *
@@ -22,9 +24,10 @@
 
 import {
     ArrayType, DictType, EastError, SetType, SortedMap, SortedSet,
-    compareFor, decodeBeast2, decodeBeast2For, decodeEastIR, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, sha256Hex, variant,
+    compareFor, decodeBeast2, decodeBeast2For, decodeEastIR, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, sha256Hex, variant,
     type EastType,
 } from "@elaraai/east";
+import type { SplitCallAnswer } from "@elaraai/e3-api-client";
 import {
     TreePathType, pathToString,
     type ExecuteResult, type OneShotRequest, type SplitCallProgress, type SplitCallRequest, type TreePath,
@@ -203,6 +206,55 @@ function cut(value: unknown, type: EastType, k: number): unknown[] {
     }
 }
 
+/** The type a value is cut by: its recursive wrapper read through. */
+function opened(type: EastType): EastType {
+    return type.type === "Recursive" ? type.node as EastType : type;
+}
+
+/** A dict cut at fences: its entries below the first, then from each fence up to the next, then from the last on; empty pieces after, to `k`. */
+function cutAt(value: unknown, type: EastType, fences: readonly unknown[], k: number): unknown[] {
+    const compare = compareFor((opened(type) as EastType & { key: EastType }).key);
+    const entries = [...(value as SortedMap<unknown, unknown>).entries()];
+    return Array.from({ length: k }, (_, i) => {
+        if (i > fences.length) return new SortedMap([], compare);
+        const lo = i === 0 ? undefined : fences[i - 1];
+        const hi = i === fences.length ? undefined : fences[i];
+        return new SortedMap(entries.filter(([key]) => (lo === undefined || compare(key, lo) >= 0) && (hi === undefined || compare(key, hi) < 0)), compare);
+    });
+}
+
+/**
+ * The partitioned arguments cut into `k` pieces, by argument: one into runs
+ * of its rows; several, which must be dicts keyed alike, at the same keys —
+ * the first key of each run of the one whose beast2 bytes weigh the most, as
+ * e3 cuts datasets partitioned together by the heaviest.
+ *
+ * @returns the pieces by argument, or why the arguments cannot be cut together
+ */
+function cutTogether(values: readonly unknown[], types: readonly EastType[], partitioned: readonly number[], k: number): Map<number, unknown[]> | string {
+    if (partitioned.length === 1) return new Map([[partitioned[0]!, cut(values[partitioned[0]!], types[partitioned[0]!]!, k)]]);
+    const keys = partitioned.map(i => opened(types[i]!));
+    const first = keys[0]!;
+    if (!keys.every(t => t.type === "Dict" && first.type === "Dict" && isTypeEqual(t.key as EastType, first.key as EastType))) {
+        return "arguments partitioned together are dicts keyed by one type: their pieces are cut at the same keys";
+    }
+    let heaviest = partitioned[0]!;
+    let most = -1;
+    for (const i of partitioned) {
+        const bytes = encodeBeast2For(types[i]!)(values[i] as never).length;
+        if (bytes > most) [heaviest, most] = [i, bytes];
+    }
+    const runs = cut(values[heaviest], types[heaviest]!, k) as SortedMap<unknown, unknown>[];
+    // A run's first key starts its piece; an empty run, and every run after the last key, start none.
+    const fences: unknown[] = [];
+    for (const run of runs.slice(1)) {
+        const start = run.keys().next();
+        if (start.done === true) break;
+        fences.push(start.value);
+    }
+    return new Map(partitioned.map(i => [i, cutAt(values[i], types[i]!, fences, k)]));
+}
+
 /** A stage's progress, as a job reports it. */
 function progress(phase: "partition" | "merge" | "combine", done: number, units: number): SplitCallProgress {
     return { phase: variant(phase, null), done: BigInt(done), units: BigInt(units) };
@@ -231,14 +283,21 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  * - `fold`: every value a piece emits folded with `combine`, starting from
  *   `zero`; then the pieces' partials folded the same way.
  *
+ * Arguments partitioned together — dicts keyed alike (#942) — are cut at the
+ * same keys: the first key of each run of the one whose beast2 bytes weigh
+ * the most. The assembled output is kept by the SHA-256 of its beast2 bytes,
+ * which the answer gives, and a later call of this stand-in reads it by that
+ * hash as an `object` argument, as e3 reads an earlier call's output.
+ *
  * With no `then`, the call's value is the assembled output. Its answer is as a
  * one-shot call's: beast2 at the value's type with each dataset argument
  * pinned at its hash, `failed` for an East error with its places on stderr,
- * `invalid` for an argument naming nothing here or one this stand-in does not
- * take — an object, or more than one partitioned — and `too_large` over the
- * request's `maxResultBytes`. It reports each piece done, then the merge or
- * the fold, to `onProgress`, yielding between pieces, and rejects with the
- * signal's reason once abandoned. The time limit is not kept.
+ * `invalid` for an argument naming nothing here — a dataset, or an object no
+ * call of this stand-in assembled — or for arguments that cannot be cut
+ * together, and `too_large` over the request's `maxResultBytes`. It reports
+ * each piece done, then the merge or the fold, to `onProgress`, yielding
+ * between pieces, and rejects with the signal's reason once abandoned. The
+ * time limit is not kept.
  *
  * @example
  * ```tsx
@@ -250,8 +309,11 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
     const pieces = options.pieces;
     if (!Number.isSafeInteger(pieces) || pieces < 1) throw new RangeError(`createInMemorySplitCall: pieces is ${pieces}, not a whole number of at least 1`);
     const held = hold(datasets);
-    return async (request: SplitCallRequest, { signal, onProgress }): Promise<ExecuteResult> => {
-        // The arguments: a dataset by its path, pinned at its hash; a value as its bytes say.
+    // The outputs the calls assembled, by hash: what a later call's `object` argument reads.
+    const stored = new Map<string, unknown>();
+    return async (request: SplitCallRequest, { signal, onProgress }): Promise<SplitCallAnswer> => {
+        const refused = (message: string): SplitCallAnswer => ({ result: invalid(message), output: null });
+        // The arguments: a dataset by its path, pinned at its hash; an object by its hash; a value as its bytes say.
         const values: unknown[] = [];
         const inputs: ExecuteResult["inputs"] = [];
         const partitioned: number[] = [];
@@ -259,18 +321,17 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
             if (partition.type === "some") partitioned.push(i);
             if (arg.type === "dataset") {
                 const found = held.find(d => samePath(d.path, arg.value));
-                if (found === undefined) return invalid(unassigned(i, arg.value));
+                if (found === undefined) return refused(unassigned(i, arg.value));
                 values.push(found.value);
                 inputs.push({ path: found.path, hash: found.hashOf() });
             } else if (arg.type === "value") {
                 values.push(decodeBeast2(arg.value).value);
             } else {
-                return invalid(`Argument ${i} names an object, which an in-memory split call does not take`);
+                if (!stored.has(arg.value)) return refused(`Object argument ${i} names ${arg.value}, which the repository does not hold`);
+                values.push(stored.get(arg.value));
             }
         }
-        const over = partitioned[0];
-        if (over === undefined) return invalid("a split call partitions at least one of its arguments: its pieces are cut from it");
-        if (partitioned.length > 1) return invalid("an in-memory split call cuts one partitioned argument");
+        if (partitioned.length === 0) return refused("a split call partitions at least one of its arguments: its pieces are cut from it");
 
         const body = compiled(request.bodyIr, "body");
         const emitType = body.inputs.at(-1);
@@ -278,15 +339,17 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
         const emitted = emitType.inputs as EastType[];
         const then = request.then.type === "some" ? compiled(request.then.value, "final function") : undefined;
         const output = request.output;
+        const cuts = cutTogether(values, body.inputs, partitioned, pieces);
+        if (typeof cuts === "string") return refused(cuts);
+        // The assembled output's hash, once the pieces ran: a final function that fails still has it, as e3's job does.
+        let hash: string | null = null;
         try {
-            // Each piece, its program run over it and the other arguments whole.
-            const parts = cut(values[over], body.inputs[over]!, pieces);
+            // Each piece, its program run over its piece of every partitioned argument and the others whole.
             const outputs: unknown[][][] = [];
             onProgress(progress("partition", 0, pieces));
-            for (const [p, part] of parts.entries()) {
+            for (let p = 0; p < pieces; p++) {
                 signal.throwIfAborted();
-                const args = [...values];
-                args[over] = part;
+                const args = values.map((value, i) => cuts.get(i)?.[p] ?? value);
                 const out: unknown[][] = [];
                 body.fn(...args, (...emit: unknown[]) => { out.push(emit); return null; });
                 outputs.push(out);
@@ -345,11 +408,14 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
                     break;
                 }
             }
-            if (then === undefined) return answer(type, assembled, request.limits, inputs);
-            return answer(then.output, then.fn(assembled, ...values), request.limits, inputs);
+            // Kept by its hash, as e3 stores a call's output.
+            hash = sha256Hex(encodeBeast2For(type)(assembled as never));
+            stored.set(hash, assembled);
+            if (then === undefined) return { result: answer(type, assembled, request.limits, inputs), output: hash };
+            return { result: answer(then.output, then.fn(assembled, ...values), request.limits, inputs), output: hash };
         } catch (err) {
             if (!(err instanceof EastError)) throw err;
-            return raised(err, inputs);
+            return { result: raised(err, inputs), output: hash };
         }
     };
 }

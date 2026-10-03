@@ -9,8 +9,10 @@ on:
       - "libs/east-node/**"
       - "libs/east-web/**"
       - "libs/e3/**"
-      # e3-ui-cli's query-plans spec runs its calls on east-c, built here (#1093).
+      # e3-ui-cli's query-plans spec runs its calls on east-c, built here (#1093),
+      # and its query-equivalence spec on east-c and east-py, built here (#942).
       - "libs/east-c/**"
+      - "libs/east-py/**"
       # The East rules gate these packages' lint (#963): a rule change runs it.
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
@@ -24,6 +26,7 @@ on:
       - "libs/east-web/**"
       - "libs/e3/**"
       - "libs/east-c/**"
+      - "libs/east-py/**"
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
@@ -78,11 +81,12 @@ jobs:
         working-directory: libs/e3
         run: make build
 
-      # e3-ui-cli's query-plans spec sends its calls to every stock runner on
-      # PATH: east-node, which the package holds, and east-c, the runner the
-      # query builder sends (#1093). Build this tree's east-c as the east-c
-      # workflow does, Release, but its CLI alone, and put it on PATH — in the
-      # group that runs e3-ui-cli's tests only.
+      # e3-ui-cli's query-plans and query-equivalence specs send their calls to
+      # every stock runner on PATH: east-node, which the package holds, east-c,
+      # the runner the query builder sends (#1093), and east-py (#942). Build
+      # this tree's east-c as the east-c workflow does, Release, but its CLI
+      # alone, and put it on PATH — in the group that runs e3-ui-cli's tests
+      # only.
       - name: Install east-c build deps
         if: matrix.group == 'rest'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
@@ -99,6 +103,33 @@ jobs:
       - name: east-c on PATH
         if: matrix.group == 'rest'
         run: east-c version
+
+      # This tree's east-py, built as the east-py workflow builds it, its CLI
+      # alone put on PATH (not the venv's python): the query-equivalence spec
+      # runs its units on it.
+      - name: Install uv (for e3-ui-cli's query equivalence)
+        if: matrix.group == 'rest'
+        uses: astral-sh/setup-uv@v3
+
+      - name: Build east-py (for e3-ui-cli's query equivalence)
+        if: matrix.group == 'rest'
+        working-directory: libs/east-py
+        env:
+          UV_PYTHON: "3.11"
+          CMAKE_GENERATOR: Ninja
+        run: |
+          uv venv
+          uv pip install scikit-build-core cython numpy setuptools ninja
+          uv sync --all-packages --no-build-isolation \
+            --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
+          mkdir -p "$RUNNER_TEMP/east-py-bin"
+          ln -s "$PWD/.venv/bin/east-py" "$RUNNER_TEMP/east-py-bin/east-py"
+          echo "$RUNNER_TEMP/east-py-bin" >> "$GITHUB_PATH"
+
+      # The spec skips a runner it cannot find: hold here that it will find east-py.
+      - name: east-py on PATH
+        if: matrix.group == 'rest'
+        run: east-py version
 
       - name: Build east-py-datascience TypeScript (dependency)
         working-directory: libs/east-py/packages/east-py-datascience
@@ -126,8 +157,9 @@ jobs:
       - name: Run tests
         working-directory: libs/east-ui
         env:
-          # e3-ui-cli's terminal-UI integration spec: a real embedded e3 API
-          # server over a repository seeded at test time (e3 is built above).
+          # e3-ui-cli's integration specs: the terminal UI, the query plans and
+          # their equivalence, each over a real embedded e3 API server and
+          # repositories seeded at test time (e3 is built above).
           E3_UI_INTEGRATION: "1"
         run: make test-group GROUP=${{ matrix.group }}
 
