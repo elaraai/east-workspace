@@ -416,8 +416,21 @@ interface ServerErrorResponse {
 }
 
 /**
- * Parse error details from response text.
- * Returns an ApiError with the error code from the body if available, otherwise uses fallback.
+ * Read an error answer's body as the `ApiError` the rest of the client throws.
+ *
+ * @remarks
+ * A JSON `{ error: { type, message } }` — what a route that answers JSON, and
+ * the repository gate, refuse with — gives its type as the code and its
+ * message as the details; a JSON `{ message }` gives its message under the
+ * fallback code; any other body is the details under the fallback code. A
+ * client of a host's own route, built on {@link fetchWithAuth}, throws its
+ * refusals through it, so they carry the codes every other client function's
+ * do.
+ *
+ * @param text - The answer's body
+ * @param fallbackCode - The code when the body names none, such as one by the
+ *   answer's HTTP status
+ * @returns The error
  */
 export function parseErrorBody(text: string, fallbackCode: string): ApiError {
   try {

@@ -226,11 +226,20 @@ function casBackoffMs(attempt: number): number {
   return Math.min(2 ** attempt, 64) * (0.5 + Math.random());
 }
 
-interface ResolvedRecord {
+/**
+ * A record of a workspace's deployed package, as {@link resolveRecord} finds it
+ * by name.
+ */
+export interface ResolvedRecord {
+  /** The record's dataset ref path, such as `records/orders`. */
   refPath: string;
+  /** The record's own keypath, which its ref's version vector names its head
+   *  commit under. */
   selfKeypath: string;
   /** The record's type, as the deployed package declares it. */
   type: EastTypeValue;
+  /** Mutation name -> MutationObject hash, as the deployed package declares
+   *  them. */
   mutations: Map<string, string>;
   /** Index name -> RecordIndexObject hash, as the deployed package declares
    *  them. What the state names is what was BUILT; deploy reconciles the two. */
@@ -300,9 +309,25 @@ export async function writeRecordState(storage: StorageBackend, repo: string, st
   }));
 }
 
-/** Resolve a record name in a workspace's deployed package to its ref path,
- *  type and declarations. Returns null if the workspace has no such record. */
-async function resolveRecord(
+/**
+ * Resolve a record by name in a workspace's deployed package: its ref path,
+ * its type and its declarations.
+ *
+ * @remarks
+ * What every record operation resolves its record with, and what a host
+ * resolves one with to label a backup by the record's type, or to check a
+ * state it restores against it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param recordName - The record's name, as the package declares it
+ * @returns The record, or null when the deployed package declares no record
+ *   of the name, or its path names no dataset
+ * @throws {WorkspaceNotFoundError} When the workspace does not exist
+ * @throws {WorkspaceNotDeployedError} When the workspace has no package deployed
+ */
+export async function resolveRecord(
   storage: StorageBackend,
   repo: string,
   ws: string,

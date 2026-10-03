@@ -210,7 +210,19 @@ route uses, so no host keeps a copy of it that falls behind as it grows:
 - `sendUpgradePending` answers a repository that owes upgrades as the gate
   does.
 
-Each is exported from the root and the portable entries.
+A host's own routes over records answer as the record and dataset routes do:
+
+- `mutationResultOf` gives the outcome of a record operation as the
+  `MutationResultType` value the mutation and compact routes answer with,
+  such as a rollback's through e3-core's `recordSystemCommit`;
+- `getValuePage` answers a window of a collection the host names by hash,
+  such as a record's state at a past commit, with the body, the `X-*` headers
+  and the refusals of a dataset's page (`getDatasetPage`).
+
+Each is exported from the root and the portable entries, and each handler from
+`./handlers` too. e3-api-client reads what they answer: `parsePage` a page,
+`parseErrorBody` a JSON refusal, and `objectGet` and `collectionGetStream` a
+value by its hash.
 
 A host whose requests have a time limit gives it to the routes that run a
 program for a request, so that each answers its typed outcome before the host
