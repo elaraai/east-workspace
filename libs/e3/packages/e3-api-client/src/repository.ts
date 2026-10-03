@@ -39,11 +39,18 @@ export async function repoStatus(url: string, repo: string, options: RequestOpti
  * store upgrades it has had, which an open applies to a repository an older
  * release wrote.
  *
+ * @remarks
+ * A read: the server applies no upgrade for it. A repository that owes one the
+ * server has not yet applied is answered 503, which is asked again as its
+ * `Retry-After` says, as long as the retry policy allows.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param options - Request options including auth token
  * @returns The repository's record
- * @throws {ApiError} On application-level errors
+ * @throws {ApiError} `repository_upgrade_pending` when the repository still
+ *   owes an upgrade once the retries are spent; another code on another
+ *   application-level error
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function repoRecord(url: string, repo: string, options: RequestOptions): Promise<RepositoryRecord> {

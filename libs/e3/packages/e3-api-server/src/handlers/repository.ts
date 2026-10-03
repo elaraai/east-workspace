@@ -5,10 +5,12 @@
 
 import { ArrayType, NullType, StringType, none, variant } from '@elaraai/east';
 import { RepositoryRecordType, type GcRequest } from '@elaraai/e3-types';
-import { RepoAlreadyExistsError, RepoNotFoundError, packageList, repositoryOpen, workspaceList } from '@elaraai/e3-core/portable';
+import {
+  RepoAlreadyExistsError, RepoNotFoundError, RepositoryUpgradePendingError, packageList, repositoryOpen, workspaceList,
+} from '@elaraai/e3-core/portable';
 import type { RepoGcStore, StorageBackend } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendSuccessWithStatus, sendError } from '../beast2.js';
-import { errorToVariant } from '../errors.js';
+import { errorToVariant, sendUpgradePending } from '../errors.js';
 import {
   RepositoryStatusType,
   GcStartResultType,
@@ -136,6 +138,14 @@ export async function getStatus(
  * The repository's record: the release of e3 that last wrote it, and the store
  * upgrades it has had.
  *
+ * @remarks
+ * A read: it applies no upgrade the repository owes, and waits on no work
+ * running in it. Behind the repository gate it never finds one owed, since the
+ * gate has applied them or refused the request. Without the gate — a host
+ * that mounts the route bare, or calls this itself — a repository that owes
+ * upgrades is answered as the gate answers it: 503
+ * `repository_upgrade_pending`, with a `Retry-After`.
+ *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
  * @returns The response: the record, or the error
@@ -145,8 +155,9 @@ export async function getRecord(
   repoPath: string
 ): Promise<Response> {
   try {
-    return sendSuccess(RepositoryRecordType, await repositoryOpen(storage, repoPath));
+    return sendSuccess(RepositoryRecordType, await repositoryOpen(storage, repoPath, { apply: false, waitMs: 0 }));
   } catch (err) {
+    if (err instanceof RepositoryUpgradePendingError) return sendUpgradePending(err);
     return sendError(RepositoryRecordType, errorToVariant(err));
   }
 }
