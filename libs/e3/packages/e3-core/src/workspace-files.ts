@@ -64,6 +64,8 @@ const MACHINE_FILES: DeployFiles = {
  * @param pkgName - Package name
  * @param pkgVersion - Package version
  * @param options - Optional settings including external lock
+ * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
+ *   is taken
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws {RecordDeployRefusedError} When a record cannot be carried into the
  *   package: it changed type with no migration, its applied migrations are not

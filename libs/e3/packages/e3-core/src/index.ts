@@ -198,13 +198,18 @@ export {
   resolveRecordIndex,
   recordIndexNames,
   appliedMigrations,
+  resolveRecord,
+  recordLeafType,
   type RecordRef,
   type RecordSystemCommitOptions,
   type RecordSystemCommitTarget,
   type RecordStateRefs,
+  type ResolvedRecord,
   type ResolvedRecordIndex,
   type MutationOutcome,
   type RecordMutateOptions,
+  type RecordCompactOptions,
+  type RecordReindexOptions,
   type RecordMutateLimits,
   type RecordHistoryEntry,
   type RecordSignature,
@@ -375,6 +380,7 @@ export {
   // Types (re-exported from e3-types)
   type DataflowExecutionState,
   type DataflowExecutionStatus,
+  type ExecutionStateSummary,
   type TaskState,
   type TaskStatus as DataflowTaskStatus,
   type ExecutionEvent,
@@ -410,6 +416,8 @@ export {
   type StepInitializeOptions,
   // State store
   type ExecutionStateStore,
+  type StateWriteOutcome,
+  type StoredRunState,
   type TaskStatusDetails,
   type ExecutionStatusDetails,
   InMemoryStateStore,
@@ -417,6 +425,7 @@ export {
   // Orchestrator
   type DataflowOrchestrator,
   type ExecutionHandle,
+  type ExecutionProgress,
   type ExecutionStatus as OrchestratorExecutionStatus,
   type OrchestratorStartOptions,
   type ResumeOptions,
@@ -452,6 +461,7 @@ export {
   type TaskStatus,
   type DatasetStatusInfo,
   type TaskStatusInfo,
+  type WorkspaceStatusOptions,
   type WorkspaceStatusResult,
 } from './workspaceStatus.js';
 
@@ -480,9 +490,11 @@ export {
   RepoLayoutError,
   RepositoryBusyError,
   RepositoryUpgradePendingError,
-  // Names
+  // Names, hashes and ids
   InvalidNameError,
   checkName,
+  checkHash,
+  checkId,
   // Workspace
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -513,6 +525,7 @@ export {
   // Dataflow
   DataflowError,
   DataflowAbortedError,
+  DataflowSupersededError,
   // Generic
   PermissionDeniedError,
   // Helpers

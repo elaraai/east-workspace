@@ -12,7 +12,7 @@
  */
 
 import { encodeBeast2For, some } from '@elaraai/east';
-import { DataflowExecutionStateType, decodeDataflowExecutionState } from '@elaraai/e3-types';
+import { DataflowExecutionStateType, decodeDataflowExecutionState, executionStateSummary, type ExecutionStateSummary } from '@elaraai/e3-types';
 import {
   checkName,
   type DataflowExecutionState,
@@ -20,11 +20,13 @@ import {
   type ExecutionEvent,
   type ExecutionStateStore,
   type ExecutionStatusDetails,
+  type StateWriteOutcome,
+  type StoredRunState,
   type TaskState,
   type TaskStatusDetails,
 } from '@elaraai/e3-core/portable';
 import type { RecordKey, RecordsAdapter, RecordsRead } from './adapters.js';
-import { recordKeys } from './WebStorage.js';
+import { recordKeys } from './record-keys.js';
 
 const encodeState = encodeBeast2For(DataflowExecutionStateType);
 
@@ -104,11 +106,10 @@ function withStatus(
  *
  * @remarks
  * Every change reads the state and writes it back in one transaction, so two
- * tabs changing one run lose neither's change. A run cancelled stays
- * cancelled: a state that is not, written over one that is, is dropped, since
- * a run's loop may persist what it had in memory after a cancel has landed. A
- * workspace's removal, and its repository's, delete its runs' states with its
- * other records.
+ * tabs changing one run lose neither's change. A run that has ended —
+ * completed, failed or cancelled — keeps the state it ended with, whole: every
+ * later write of it is dropped, and answers so. A workspace's removal, and its
+ * repository's, delete its runs' states with its other records.
  *
  * @example
  * ```ts
@@ -144,8 +145,14 @@ export class WebStateStore implements ExecutionStateStore {
     return latest === undefined ? null : decodeDataflowExecutionState(latest.value);
   }
 
-  async update(state: DataflowExecutionState): Promise<void> {
-    await this.change(state.repo, state.workspace, state.id, () => state);
+  /** The summary of the workspace's latest run, from the record of its state. */
+  async readLatestSummary(repo: string, workspace: string): Promise<ExecutionStateSummary | null> {
+    const state = await this.readLatest(repo, workspace);
+    return state === null ? null : executionStateSummary(state);
+  }
+
+  async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {
+    return this.change(state.repo, state.workspace, state.id, () => state);
   }
 
   async updateTaskStatus(
@@ -155,8 +162,8 @@ export class WebStateStore implements ExecutionStateStore {
     task: string,
     status: DataflowTaskStatus,
     details?: TaskStatusDetails,
-  ): Promise<void> {
-    await this.change(repo, workspace, executionId, (state) => withTaskStatus(state, task, status, details));
+  ): Promise<StateWriteOutcome> {
+    return this.change(repo, workspace, executionId, (state) => withTaskStatus(state, task, status, details));
   }
 
   async updateStatus(
@@ -165,12 +172,12 @@ export class WebStateStore implements ExecutionStateStore {
     executionId: string,
     status: 'running' | 'completed' | 'failed' | 'cancelled',
     details?: ExecutionStatusDetails,
-  ): Promise<void> {
-    await this.change(repo, workspace, executionId, (state) => withStatus(state, status, details));
+  ): Promise<StateWriteOutcome> {
+    return this.change(repo, workspace, executionId, (state) => withStatus(state, status, details));
   }
 
-  async recordEvent(repo: string, workspace: string, executionId: string, event: ExecutionEvent): Promise<void> {
-    await this.change(repo, workspace, executionId, (state) => ({ ...state, events: [...state.events, event] }));
+  async recordEvent(repo: string, workspace: string, executionId: string, event: ExecutionEvent): Promise<StateWriteOutcome> {
+    return this.change(repo, workspace, executionId, (state) => ({ ...state, events: [...state.events, event] }));
   }
 
   async getEventsSince(repo: string, workspace: string, executionId: string, sinceSeq: number): Promise<ExecutionEvent[]> {
@@ -189,10 +196,26 @@ export class WebStateStore implements ExecutionStateStore {
   }
 
   /**
+   * The run states the store holds of a repository, as stored: every run's,
+   * each its own record, which a `replace` writes over in one transaction.
+   */
+  async readStored(repo: string): Promise<StoredRunState[]> {
+    return (await this.records.scan(recordKeys.kind(repo, 'state'))).map(({ key, value }) => ({
+      workspace: key[3]!,
+      bytes: value,
+      replace: (bytes) => this.records.transact((tx) => {
+        tx.put(key, bytes);
+        return Promise.resolve();
+      }),
+    }));
+  }
+
+  /**
    * Changes a run's state in one transaction: reads it, and writes what
-   * `next` makes of it, unless that would take a cancelled run back from
-   * cancelled.
+   * `next` makes of it, unless the run has ended — completed, failed or
+   * cancelled — which keeps the state it ended with.
    *
+   * @returns `applied`, or `dropped` when the run has ended
    * @throws {Error} When the store holds no such run, or `next` throws
    */
   private async change(
@@ -200,14 +223,14 @@ export class WebStateStore implements ExecutionStateStore {
     workspace: string,
     id: string,
     next: (state: DataflowExecutionState) => DataflowExecutionState,
-  ): Promise<void> {
+  ): Promise<StateWriteOutcome> {
     const key = stateKey(repo, workspace, id);
-    await this.records.transact(async (tx) => {
+    return this.records.transact(async (tx) => {
       const current = await readState(tx, key);
       if (current === null) throw notFound(repo, workspace, id);
-      const changed = next(current);
-      if (current.status === 'cancelled' && changed.status !== 'cancelled') return;
-      tx.put(key, encodeState(changed));
+      if (current.status !== 'running') return 'dropped';
+      tx.put(key, encodeState(next(current)));
+      return 'applied';
     });
   }
 }

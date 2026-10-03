@@ -21,6 +21,7 @@ import {
   isLockHolderAlive,
   workspaceLockPath,
   EMPTY_LOCK_GRACE_MS,
+  LocalLockService,
 } from './LocalLockService.js';
 import { InvalidNameError, WorkspaceLockError } from '../../errors.js';
 
@@ -149,6 +150,36 @@ describe('LocalLockService', () => {
         syncBuiltinESMExports();
       }
       assert.deepStrictEqual(met, ['open', 'mkdir']);
+    });
+
+    it('waits out a release removing its resource\'s directory, which macOS refuses to create a file in meanwhile', async () => {
+      // On macOS a file created in a directory a release is removing fails
+      // EINVAL at its open: CI's macOS integration run met it, two uploads
+      // holding the repository's tasks lock shared, one releasing as the other
+      // acquired. The race is narrow, so the refusal is made here: each
+      // acquirer meets it once, at its lock file's open.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const { writeFile } = fsPromises;
+      const met: string[] = [];
+      const mockedWriteFile = mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array) => {
+        const resource = path.basename(path.dirname(file));
+        if (resource.startsWith('ws-unlinking') && !met.includes(resource)) {
+          met.push(resource);
+          throw Object.assign(new Error(`EINVAL: invalid argument, open '${file}'`), { code: 'EINVAL', syscall: 'open', path: file });
+        }
+        return writeFile(file, data);
+      });
+      syncBuiltinESMExports();
+      try {
+        const exclusive = await acquireWorkspaceLock(repoPath, 'ws-unlinking', variant('deployment', null));
+        await exclusive.release();
+        const shared = await acquireWorkspaceLock(repoPath, 'ws-unlinking-shared', variant('dataset_write', null), { mode: 'shared' });
+        await shared.release();
+      } finally {
+        mockedWriteFile.mock.restore();
+        syncBuiltinESMExports();
+      }
+      assert.deepStrictEqual(met, ['ws-unlinking', 'ws-unlinking-shared']);
     });
 
     it('counts only its own resource\'s shared holders, not those of a resource its name begins', async () => {
@@ -352,6 +383,42 @@ describe('LocalLockService', () => {
         for (const lock of granted) await lock.release();
         assert.ok(granted.length <= 1, `attempt ${i}: the exclusive and the shared lock were both granted`);
       }
+    });
+  });
+
+  describe('LocalLockService.acquire', () => {
+    it('answers null for a lock another holds, and every other failure as itself, never as a held lock', async () => {
+      const service = new LocalLockService();
+      const held = await service.acquire(repoPath, 'ws-held', variant('deployment', null));
+      assert.ok(held);
+      try {
+        assert.strictEqual(await service.acquire(repoPath, 'ws-held', variant('deployment', null)), null);
+        assert.strictEqual(await service.acquire(repoPath, 'ws-held', variant('dataset_write', null), { mode: 'shared' }), null);
+      } finally {
+        await held.release();
+      }
+
+      // A filesystem error is no holder's lock: the caller sees it, and does
+      // not report a holder that is not there (a gc, for the tasks lock).
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const { writeFile } = fsPromises;
+      const mockedWriteFile = mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array) => {
+        if (path.basename(path.dirname(file)) === 'ws-failing') {
+          throw Object.assign(new Error(`EIO: i/o error, open '${file}'`), { code: 'EIO', syscall: 'open', path: file });
+        }
+        return writeFile(file, data);
+      });
+      syncBuiltinESMExports();
+      try {
+        await assert.rejects(service.acquire(repoPath, 'ws-failing', variant('deployment', null)), { code: 'EIO' });
+        await assert.rejects(service.acquire(repoPath, 'ws-failing', variant('dataset_write', null), { mode: 'shared' }), { code: 'EIO' });
+      } finally {
+        mockedWriteFile.mock.restore();
+        syncBuiltinESMExports();
+      }
+
+      // As is a name no path can hold.
+      await assert.rejects(service.acquire(repoPath, '../elsewhere', variant('deployment', null)), InvalidNameError);
     });
   });
 });

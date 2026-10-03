@@ -38,7 +38,8 @@ A PR that changes a wire says which kind it changes.
   named upgrade step that rewrites a repository's records into the new form.
   A change to a record's East type is every backend's, and its step goes
   through the storage backend (`REPOSITORY_UPGRADES` in e3-core's
-  `repository-record.ts`); a change to one backend's own layout — a local
+  `repository-record.ts`), a dataflow run's state through the backend's
+  run-state store (`StorageBackend.runStates`); a change to one backend's own layout — a local
   repository's files, the cloud's items — is that backend's step
   (`StorageBackend.upgrades`). A step is idempotent — it leaves a record
   already in the new form as it is — and once released it is never edited,

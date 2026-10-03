@@ -22,6 +22,7 @@ import {
   RepoAlreadyExistsError,
   RepoLayoutError,
   RepoStatusConflictError,
+  checkHash,
   checkName,
   isNotFoundError,
 } from '../../errors.js';
@@ -389,8 +390,10 @@ export class LocalRepoStore implements RepoStore {
   }
 
   /** Deletes each object, and then its unreachable note: one a failure leaves
-   *  is dropped by the backend's sweep. */
+   *  is dropped by the backend's sweep. A batch naming a hash that is not of
+   *  its form deletes nothing. */
   async gcDeleteObjects(repo: string, hashes: string[]): Promise<void> {
+    for (const hash of hashes) checkHash('object hash', hash);
     const objectsDir = path.join(repo, 'objects');
 
     for (const hash of hashes) {
@@ -413,6 +416,7 @@ export class LocalRepoStore implements RepoStore {
   }
 
   async gcNoteUnreachable(repo: string, hashes: readonly string[], at: number): Promise<number[]> {
+    for (const hash of hashes) checkHash('object hash', hash);
     const sinces: number[] = new Array<number>(hashes.length);
     await eachAtMost(hashes.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
       sinces[i] = await noteUnreachable(repo, hashes[i]!, at);
@@ -421,6 +425,7 @@ export class LocalRepoStore implements RepoStore {
   }
 
   async gcClearUnreachable(repo: string, hashes: readonly string[]): Promise<void> {
+    for (const hash of hashes) checkHash('object hash', hash);
     await eachAtMost(hashes, OBJECT_CONCURRENCY, (hash) => clearUnreachableNote(repo, hash));
   }
 

@@ -66,10 +66,13 @@ describe('complete', () => {
         assert.deepEqual(complete('/dataset fore', catalogue).map(x => x.insert), ['/dataset .tasks.forecast.output']);
     });
 
-    test('/run completes its flags, skipping the ones already given', () => {
-        assert.deepEqual(complete('/run ', catalogue).map(x => x.cells[1]), ['--force', '--filter <glob>']);
-        assert.deepEqual(complete('/run --force ', catalogue).map(x => x.cells[1]), ['--filter <glob>']);
-        assert.deepEqual(complete('/run --f', catalogue).map(x => x.insert), ['/run --force ', '/run --filter ']);
+    test('/run completes its flags, skipping the ones already given and the ones they rule out', () => {
+        assert.deepEqual(complete('/run ', catalogue).map(x => x.cells[1]), ['--force', '--filter <task>', '--force-task <task>']);
+        // --force rules out --force-task, and --force-task --force; only --force-task repeats.
+        assert.deepEqual(complete('/run --force ', catalogue).map(x => x.cells[1]), ['--filter <task>']);
+        assert.deepEqual(complete('/run --force-task ingest ', catalogue).map(x => x.cells[1]), ['--filter <task>', '--force-task <task>']);
+        assert.deepEqual(complete('/run --filter forecast ', catalogue).map(x => x.cells[1]), ['--force', '--force-task <task>']);
+        assert.deepEqual(complete('/run --f', catalogue).map(x => x.insert), ['/run --force ', '/run --force-task ', '/run --filter ']);
         assert.deepEqual(complete('/run fore', catalogue), []);
     });
 

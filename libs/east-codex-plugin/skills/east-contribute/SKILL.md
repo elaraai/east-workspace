@@ -81,7 +81,7 @@ Title prefixes are literal scopes. Map to the directory, then load the per-packa
 | `east-py:` | `libs/east-py/packages/east-py{,-std,-io,-datascience}` | `east-py` / `east-py-std` / `east-py-io` / `east-py-datascience` |
 | `e3` | `libs/e3` | `e3` |
 | `east-ui` / `causal` | `libs/east-ui/packages/{east-ui,e3-ui,e3-ui-cli}` | `east-ui` / `e3-ui` / `e3-ui-cli` |
-| `east-c` | `libs/east-c` | **no per-API skill** — read `libs/east-c/CLAUDE.md`, use `make compliance` |
+| `east-c` | `libs/east-c` | **no per-API skill** — read `libs/east-c/CLAUDE.md`, use `make test-east-c` |
 | dev-tooling | `libs/{east-diagnostics,eslint-plugin-east,tsserver-plugin-east,east-codex-plugin}` | none — read the lib's README/CLAUDE.md |
 
 **Blast radius (run the union locally — CI will).** A change to a core lib triggers downstream workflows via `paths:` filters:
@@ -124,7 +124,7 @@ Heuristic: always `make build` the union; run a downstream lib's **tests** when 
 | Durable dataflow, datasets, CLI, content-addressing | `libs/e3` (e3-core/cli/types/api-*) | `e3` | SKILL + grep `libs/e3/packages/*/src` |
 | ML / optimization / Bayesian / simulation (Python) | `east-py-datascience` | `east-py-datascience` | index / SKILL |
 | Python runtime / std / io | `east-py{,-std,-io}` | `east-py*` | SKILL + grep (not indexed) |
-| C runtime / IR execution / serialization | `libs/east-c` | — | grep `libs/east-c/**/src` + headers; `make compliance` |
+| C runtime / IR execution / serialization | `libs/east-c` | — | grep `libs/east-c/**/src` + headers; `make test-east-c` |
 | UI components / tags / decision surfaces | `east-ui`, `e3-ui` | `east-ui` / `e3-ui` | index / SKILL |
 | Headless render / screenshot of a component or surface (CLI + programmatic) | `east-ui/packages/e3-ui-cli` | `e3-ui-cli` | SKILL + grep `libs/east-ui/packages/e3-ui-cli/src` |
 | Dev tooling: diagnostics, eslint/tsserver plugin, scaffolds, Codex plugin | `east-diagnostics`, `eslint-plugin-east`, `tsserver-plugin-east`, `create`, `east-codex-plugin` | — | grep that lib's `src` + README |
@@ -286,12 +286,12 @@ make test
 make lint       # the authoritative East-idiom gate (east/east-rules) + ruff + clang-format
 # scope to one lib while iterating:
 cd libs/<lib> && make build && make test && make lint
-cd libs/<lib> && make help        # lib-specific extras (e3: make fuzz; east-c: make compliance; east-py: make typecheck/check/coverage)
+cd libs/<lib> && make help        # lib-specific extras (e3: make fuzz; east-c: make test-east-c; east-py: make typecheck/check/coverage)
 ```
 
 - **Local `dist/` is gitignored + built locally — a stale tree FAKES regressions.** Each package's `dist/` lags the *pulled source*, so a half-built tree throws phantom errors in files you never touched: a new export missing from `east/dist`, an `implicit-any` on a test `$`, a `value is not iterable` in beast2 serialization, an unresolved import. **When a build/test fails in a file you did not edit, suspect a stale tree FIRST** — don't blame your change. Before concluding anything is broken: **clean-rebuild the entire dependency chain** (`make clean && make build`, or at minimum `rm -rf` the `dist/` + `*.tsbuildinfo` of east → east-node → e3 → east-ui and rebuild them *in order*), and run **`pnpm install`** (a declared dep like `leaflet` may be unfetched). Then prove any remaining failure is pre-existing by stashing your diff (`git stash`) and re-running — a failure identical with your changes absent is not yours.
 - **Integration tests** (east-node-io, east-py-io) need Docker: `make services-up` … `make services-down` (or `make test-all` for the full sweep).
-- **east-c / east-py compliance** replay TS-exported IR — run `make test-export` first (root export → `/tmp/east-test-ir/`; datascience exports to `/tmp/east-py-datascience`). Then `cd libs/east-c && make compliance` / `cd libs/east-py && make check`.
+- **east-c / east-py compliance** replay TS-exported IR — run `make test-export` first: each corpus lands under the checkout's own `tmp/`, where the root `paths.mk` points every gate (`EAST_TEST_IR_DIR` → `tmp/east-test-ir`, `EAST_DATASCIENCE_IR_DIR` → `tmp/east-py-datascience`, …). Then `cd libs/east-c && make test-east-c` / `cd libs/east-py && make check` — through make, which sets those variables; a gate run outside make skips its corpus or stops, saying to run it through make.
 - **Address every injected `<east-code-review>` diagnostic** and every downstream lib in the blast radius.
 - **Cross-platform**: CI runs east/east-c/east-py/east-node-std/create on ubuntu + macos-14 + windows-latest under Git Bash. Don't assume Linux-only paths, `/tmp`, `MAX_PATH`, or `cmd.exe` shell.
 

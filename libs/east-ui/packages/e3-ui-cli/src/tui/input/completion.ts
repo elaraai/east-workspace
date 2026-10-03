@@ -134,8 +134,11 @@ export function complete(text: string, catalogue: Catalogue): Candidate[] {
         case 'repo':
             return byKind(['repo']);
         case 'run': {
+            // A flag given is offered again only if it repeats, and a flag is
+            // not offered beside the one it cannot be given with.
             const used = new Set(words.slice(1));
-            return rank(partial, RUN_FLAGS.filter(f => !used.has(f.flag.split(' ')[0]!)), f => f.flag)
+            const offered = RUN_FLAGS.filter(f => (f.repeats === true || !used.has(f.flag.split(' ')[0]!)) && (f.conflicts === undefined || !used.has(f.conflicts)));
+            return rank(partial, [...offered], f => f.flag)
                 .filter(() => partial === '' || partial.startsWith('-'))
                 .map(f => ({ kind: 'flag' as const, insert: `/run ${[...words.slice(1, body.endsWith(' ') ? undefined : -1), f.flag.split(' ')[0]!].join(' ')} `, cells: ['/run', f.flag, f.hint] }));
         }

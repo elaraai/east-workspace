@@ -9,17 +9,21 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
   readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus } from '@elaraai/e3-types';
+import type { BackendDamage } from './contract/index.js';
+import { checkHash, checkId } from './errors.js';
 import { openZip } from './package-files.js';
+import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
+import { executionPath } from './storage/local/localHelpers.js';
 import { repoInit } from './storage/local/repository.js';
-import type { StorageBackend } from './storage/interfaces.js';
+import type { LogChunk, LogStore, RefStore, StorageBackend } from './storage/interfaces.js';
 import { ZipWriter } from './zip.js';
 
 // Re-export InMemoryStorage for test consumers
@@ -103,6 +107,192 @@ export async function storeSegmentsOf(storage: StorageBackend, repo: string, blo
     header: await storage.objects.write(repo, blob.subarray(0, extents.prefixEnd)),
     entries,
   }));
+}
+
+/** The key an attempt's log is held under. */
+function attemptKey(repo: string, taskHash: string, inputsHash: string, executionId: string): string {
+  return JSON.stringify([repo, taskHash, inputsHash, executionId]);
+}
+
+/**
+ * A log store that holds every append until its attempt's log is flushed, as
+ * a store that gathers appends into fewer, larger writes does, and then
+ * writes what it held to the store it wraps.
+ *
+ * @remarks
+ * A read is the wrapped store's: what a reader elsewhere reads, which an
+ * append reaches only once its log is flushed. A test of the order e3 writes
+ * an execution in runs over it: a record of an execution's end written before
+ * its log was flushed finds the log without what was held.
+ */
+export class HeldLogStore implements LogStore {
+  /** What each attempt's log holds unflushed, in the order it was appended. */
+  private readonly held = new Map<string, { stream: 'stdout' | 'stderr'; data: string }[]>();
+  /** Everything appended to each attempt's streams since its log was last
+   *  removed, flushed or not. */
+  private readonly written = new Map<string, { stdout: string; stderr: string }>();
+
+  /**
+   * @param inner - The store a flush writes to, and a read reads
+   */
+  constructor(readonly inner: LogStore) {}
+
+  /**
+   * Everything appended to a stream of an attempt's log since it was last
+   * removed, flushed or not: what a read of it finds once the log is flushed.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   * @param stream - The stream
+   * @returns The stream's text
+   */
+  appended(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr'): string {
+    return this.written.get(attemptKey(repo, taskHash, inputsHash, executionId))?.[stream] ?? '';
+  }
+
+  /** Holds an append, its attempt's names checked first, as a store that
+   *  gathers appends checks them before it keys anything by them. */
+  async append(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr', data: string): Promise<void> {
+    checkHash('task hash', taskHash);
+    checkHash('inputs hash', inputsHash);
+    checkId('execution id', executionId);
+    const key = attemptKey(repo, taskHash, inputsHash, executionId);
+    this.held.set(key, [...(this.held.get(key) ?? []), { stream, data }]);
+    const written = this.written.get(key) ?? { stdout: '', stderr: '' };
+    this.written.set(key, { ...written, [stream]: written[stream] + data });
+    return Promise.resolve();
+  }
+
+  read(
+    repo: string,
+    taskHash: string,
+    inputsHash: string,
+    executionId: string,
+    stream: 'stdout' | 'stderr',
+    options?: { offset?: number; limit?: number },
+  ): Promise<LogChunk> {
+    return this.inner.read(repo, taskHash, inputsHash, executionId, stream, options);
+  }
+
+  /** Writes what the attempt's log holds to the wrapped store, in the order
+   *  it was appended, and flushes the wrapped store's. */
+  async flush(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const key = attemptKey(repo, taskHash, inputsHash, executionId);
+    const held = this.held.get(key) ?? [];
+    this.held.delete(key);
+    for (const { stream, data } of held) await this.inner.append(repo, taskHash, inputsHash, executionId, stream, data);
+    await this.inner.flush(repo, taskHash, inputsHash, executionId);
+  }
+
+  async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    const key = attemptKey(repo, taskHash, inputsHash, executionId);
+    this.held.delete(key);
+    this.written.delete(key);
+    await this.inner.remove(repo, taskHash, inputsHash, executionId);
+  }
+}
+
+/**
+ * A backend that is `storage` with its logs kept by another log store.
+ *
+ * @param storage - The backend
+ * @param logs - The log store it keeps its logs in
+ * @returns The backend
+ */
+export function withLogStore(storage: StorageBackend, logs: LogStore): StorageBackend {
+  return {
+    upgrades: storage.upgrades,
+    objects: storage.objects,
+    refs: storage.refs,
+    locks: storage.locks,
+    logs,
+    repos: storage.repos,
+    datasets: storage.datasets,
+    runStates: (repo) => storage.runStates(repo),
+    validateRepository: (repo) => storage.validateRepository(repo),
+  };
+}
+
+/**
+ * What a reader read of an execution's log as a record of how it ended was
+ * written.
+ */
+export interface LogAtEnd {
+  /** Task object hash */
+  readonly taskHash: string;
+  /** Combined input hashes */
+  readonly inputsHash: string;
+  /** Execution ID (UUIDv7) */
+  readonly executionId: string;
+  /** How it ended, as the record written says */
+  readonly status: ExecutionStatus['type'];
+  /** Its stdout log, whole, as the reader read it */
+  readonly stdout: string;
+  /** Its stderr log, whole, as the reader read it */
+  readonly stderr: string;
+}
+
+/**
+ * Has each write of an execution's record but a `running` one first read the
+ * execution's log, as a reader elsewhere reads it then.
+ *
+ * @param refs - The ref store whose writes are watched: its `executionWrite`
+ *   is replaced
+ * @param logs - The log store the reader reads
+ * @returns What each write found, in the order the writes were made
+ */
+export function logsAtEachEnd(refs: RefStore, logs: LogStore): LogAtEnd[] {
+  const found: LogAtEnd[] = [];
+  const write = refs.executionWrite.bind(refs);
+  refs.executionWrite = async (repo, taskHash, inputsHash, executionId, status) => {
+    if (status.type !== 'running') {
+      const read = async (stream: 'stdout' | 'stderr'): Promise<string> =>
+        (await logs.read(repo, taskHash, inputsHash, executionId, stream, { limit: 1 << 24 })).data;
+      found.push({ taskHash, inputsHash, executionId, status: status.type, stdout: await read('stdout'), stderr: await read('stderr') });
+    }
+    return write(repo, taskHash, inputsHash, executionId, status);
+  };
+  return found;
+}
+
+/**
+ * Leaves a local repository's execution records in bytes of a test's
+ * choosing, as a crash, a hand edit or an earlier release leaves a status
+ * file: what the contract suites' cases of such a record need of a local
+ * repository.
+ *
+ * @param repo - The repository's path
+ * @returns What leaves its records so
+ */
+export function localDamage(repo: string): BackendDamage {
+  return {
+    execution: (taskHash, inputsHash, executionId, bytes) => {
+      const dir = executionPath(repo, taskHash, inputsHash, executionId);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'status.beast2'), bytes ?? 'not a record');
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * Leaves an in-memory repository's execution records in bytes of a test's
+ * choosing (`damageExecution`): what the contract suites' cases of such a
+ * record need of the in-memory backend.
+ *
+ * @param storage - The backend
+ * @param repo - The repository
+ * @returns What leaves its records so
+ */
+export function inMemoryDamage(storage: InMemoryStorage, repo: string): BackendDamage {
+  return {
+    execution: (taskHash, inputsHash, executionId, bytes) => {
+      storage.refs.damageExecution(repo, taskHash, inputsHash, executionId, bytes);
+      return Promise.resolve();
+    },
+  };
 }
 
 /**

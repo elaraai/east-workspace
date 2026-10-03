@@ -817,26 +817,29 @@ static EastValue *regex_replace(EastValue **args, size_t n)
 /*  Print / Parse / JSON / Error builtins                              */
 /* ------------------------------------------------------------------ */
 
-/* Print: value -> East text format string (type-parameterized) */
+/* Print: value -> East text format string (type-parameterized). The text is
+ * taken at its length: a string's NUL is written as itself. */
 static _Thread_local EastType *s_print_east_type = NULL;
 static EastValue *string_print_east_impl(EastValue **args, size_t n)
 {
     (void)n;
-    char *text = east_print_value(args[0], s_print_east_type);
+    size_t len = 0;
+    char *text = east_print_value_len(args[0], s_print_east_type, &len);
     if (!text) return east_string("");
-    EastValue *result = east_string(text);
+    EastValue *result = east_string_len(text, len);
     free(text);
     return result;
 }
 
-/* Parse: East text format string -> value (type-parameterized) */
+/* Parse: East text format string -> value (type-parameterized), read at the
+ * string's length, NUL and all */
 static _Thread_local EastType *s_parse_east_type = NULL;
 static EastValue *string_parse_east_impl(EastValue **args, size_t n)
 {
     (void)n;
-    const char *text = args[0]->data.string.data;
     char *error_msg = NULL;
-    EastValue *result = east_parse_value_with_error(text, s_parse_east_type, &error_msg);
+    EastValue *result = east_parse_value_len(args[0]->data.string.data, args[0]->data.string.len,
+                                             s_parse_east_type, &error_msg);
     if (!result) {
         if (error_msg) {
             char buf[1024];

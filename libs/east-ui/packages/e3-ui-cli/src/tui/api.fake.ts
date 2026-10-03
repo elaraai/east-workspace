@@ -22,6 +22,7 @@ import {
     type DataflowExecutionState,
     type DatasetStatusDetail,
     type ExecutionListItem,
+    type ExecutionStateOptions,
     type ListEntry,
     type LockStatus,
     type RecordCommitInfo,
@@ -39,6 +40,7 @@ import {
 import type { DataManifest, TreePath, WorkspaceState } from '@elaraai/e3-types';
 import { encodeDatasetBlob, indexWindowType } from '@elaraai/e3-types';
 import {
+    IntegerType,
     compareFor,
     decodeBeast2For,
     encodeBeast2For,
@@ -55,6 +57,9 @@ import {
 import { createHash } from 'node:crypto';
 import type { Api } from './api.js';
 import { dottedPath } from './api.js';
+
+/** A poll's cursor, as the call log prints it. */
+const printSeq = printFor(IntegerType);
 
 /** A task's fixture. */
 export interface FakeTask {
@@ -408,6 +413,7 @@ export class FakeApi implements Api {
                 output: this.outputPathOf(t),
                 dependsOn: t.dependsOn,
                 peakBytes: t.peakBytes !== undefined ? some(BigInt(t.peakBytes)) : none,
+                stopped: none,
             }));
             const count = (pred: (t: FakeTask) => boolean) => BigInt(w.tasks.filter(pred).length);
             const dcount = (status: string) => BigInt(datasets.filter(d => d.status.type === status).length);
@@ -673,7 +679,8 @@ export class FakeApi implements Api {
     }
 
     async dataflowExecuteLaunch(ws: string, options: DataflowOptions = {}): Promise<void> {
-        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}`;
+        const force = options.force === true ? ' --force' : options.force === false || options.force === undefined ? '' : options.force.map(task => ` --force-task ${task}`).join('');
+        const flags = `${force}${options.filter != null ? ` --filter ${options.filter}` : ''}`;
         return this.call(`dataflowExecuteLaunch ${ws}${flags}`, () => {
             const w = this.ws(ws);
             if (w.lock !== undefined) throw new ApiError('workspace_locked', { workspace: ws, holder: variant('known', { pid: BigInt(w.lock.pid), acquiredAt: w.lock.acquiredAt, bootId: none, command: some(w.lock.command) }) });
@@ -701,12 +708,21 @@ export class FakeApi implements Api {
         });
     }
 
-    async dataflowExecutePoll(ws: string, offset: number): Promise<DataflowExecutionState> {
-        return this.call(`dataflowExecutePoll ${ws} ${offset}`, () => {
+    /**
+     * The scripted run's state and its events past the cursor, at most `limit`:
+     * an event's place in the run, from 1, is its sequence number, so the
+     * cursor past the events served is the place of the last, or `since` when
+     * none is served, as the server answers.
+     */
+    async dataflowExecutePoll(ws: string, window: ExecutionStateOptions): Promise<DataflowExecutionState> {
+        const since = window.since ?? 0n;
+        return this.call(`dataflowExecutePoll ${ws} ${printSeq(since)}${window.limit !== undefined ? ` limit ${window.limit}` : ''}`, () => {
             const w = this.ws(ws);
             const state = w.execution;
             if (state === null || state === undefined) throw new ApiError('execution_not_found', { task: ws });
             const done = state.events;
+            const from = Math.min(Number(since), done.length);
+            const served = window.limit === undefined ? done.slice(from) : done.slice(from, from + window.limit);
             return {
                 status: variant(state.status, null),
                 startedAt: state.startedAt,
@@ -718,8 +734,8 @@ export class FakeApi implements Api {
                     skipped: BigInt(done.filter(e => e.type === 'input_unavailable').length),
                     duration: state.completedAt !== null ? Date.parse(state.completedAt) - Date.parse(state.startedAt) : 0,
                 }),
-                events: done.slice(offset),
-                totalEvents: BigInt(done.length),
+                events: served,
+                nextSeq: served.length === 0 ? since : BigInt(from + served.length),
                 budget: this.budget !== null ? some(this.budget) : none,
                 waiting: state.waiting ?? [],
                 splits: state.splits ?? [],

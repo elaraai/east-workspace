@@ -1,7 +1,8 @@
 #!/bin/bash
 # Run all compliance tests with ASAN leak detection.
 # Usage: ./packages/east-c/scripts/run_leak_check.sh [test-ir-dir] [test-binary-relative-path]
-#   Defaults to /tmp/east-test-ir and packages/east-c/test_compliance
+#   Defaults to $EAST_TEST_IR_DIR (which the root paths.mk sets when this runs
+#   through make) and packages/east-c/test_compliance
 #
 # Builds in build-asan/ with AddressSanitizer + LeakSanitizer,
 # then runs each compliance test and reports which ones leak.
@@ -11,8 +12,13 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/../../.."
 BUILD_DIR="${PROJECT_DIR}/build-asan"
-IR_DIR="${1:-/tmp/east-test-ir}"
+IR_DIR="${1:-${EAST_TEST_IR_DIR:-}}"
 TEST_BIN="${BUILD_DIR}/${2:-packages/east-c/test_compliance}"
+
+if [ -z "$IR_DIR" ]; then
+    echo "Error: no IR directory: pass one, or run it through make (make -C libs/east-c leak-check), which sets EAST_TEST_IR_DIR"
+    exit 1
+fi
 
 # Build with ASAN if needed
 if [ ! -x "$TEST_BIN" ] || [ "${REBUILD:-}" = "1" ]; then

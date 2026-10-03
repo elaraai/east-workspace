@@ -8,38 +8,31 @@ Output matches east-c's run_compliance.sh. Usage:
   python tests/test_compliance.py           # parallel, verbose (default)
   python tests/test_compliance.py -q        # parallel, summary only
   python tests/test_compliance.py Array     # single file, verbose
+
+The corpus is ``--ir-dir``, or ``EAST_TEST_IR_DIR``, which the root
+``paths.mk`` sets to this checkout's ``tmp/east-test-ir`` when the run goes
+through make (``make -C libs/east-py test-east-py``).
 """
 
 import io
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 
-def _resolve_ir_dir(s: str | Path) -> Path:
-    # The TS / east-c / bash sides write IR under `/tmp/<name>`. On POSIX that's
-    # literal `/tmp`. On Windows the writers run via Git Bash, which MSYS-rewrites
-    # `/tmp/...` to `%TEMP%/...` when spawning native processes — so the files
-    # land in `tempfile.gettempdir()/<name>`. Python doesn't get that MSYS
-    # rewrite; `Path('/tmp/x')` on Windows resolves literally to `C:\tmp\x`.
-    # Translate `/tmp/<name>` here so reads line up with where everyone else
-    # writes. No-op on POSIX (gettempdir is `/tmp`).
-    p = Path(s)
-    try:
-        rel = p.relative_to("/tmp")
-    except ValueError:
-        return p
-    return Path(tempfile.gettempdir()) / rel
+def _test_ir_dir() -> Path | None:
+    """The exported corpus ``EAST_TEST_IR_DIR`` names, or None when it is unset."""
+    s = os.environ.get("EAST_TEST_IR_DIR")
+    return Path(s) if s else None
 
 
-TEST_IR_DIR = _resolve_ir_dir("/tmp/east-test-ir")
+TEST_IR_DIR = _test_ir_dir()
 
 
 def get_test_ir_files(ir_dir: Path | None = None):
     d = ir_dir or TEST_IR_DIR
-    if not d.exists():
+    if d is None or not d.exists():
         return []
     return sorted(d.glob("*.json"))
 
@@ -225,13 +218,19 @@ def main():
     parser = argparse.ArgumentParser(description="East compliance test runner")
     parser.add_argument("file", nargs="?", help="Single IR file or stem name")
     parser.add_argument("-q", "--quiet", action="store_true", help="Summary only")
-    parser.add_argument("--ir-dir", type=_resolve_ir_dir, default=TEST_IR_DIR, help="IR directory")
+    parser.add_argument("--ir-dir", type=Path, default=TEST_IR_DIR,
+                        help="IR directory (default: EAST_TEST_IR_DIR)")
     parser.add_argument("-p", "--platform", action="append", default=[], help="Platform module(s) to import")
     args = parser.parse_args()
 
     quiet = args.quiet or env_quiet
     ir_dir = args.ir_dir
     platform_modules = args.platform
+
+    if ir_dir is None and not (args.file and Path(args.file).exists()):
+        print("Error: EAST_TEST_IR_DIR is unset: pass --ir-dir, "
+              "or run it through make (make -C libs/east-py test-east-py)")
+        sys.exit(1)
 
     # Single file mode
     if args.file:

@@ -64,6 +64,46 @@ const result = await dataflowExecute(storage, repoPath, 'dev', { force: true });
 // Non-blocking execution
 const handle = await dataflowStart(storage, repoPath, 'dev');
 ```
+
+### The local runner's processes
+
+Every process a local runner starts is started under the runner's settings:
+task and unit runners, function calls, intake units, and environment
+installs.
+
+```typescript
+import { LocalTaskRunner, resolveBudget } from '@elaraai/e3-core';
+
+const runner = new LocalTaskRunner(repoPath, resolveBudget(), {
+  // In place of this process's own environment: e3 still puts its bins ahead
+  // of PATH and sets its own variables, and a call's extraEnv comes after
+  env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/home/tasks' },
+  // Another user and group (POSIX), which e3 needs root to start them as
+  uid: 1500,
+  gid: 1500,
+});
+```
+
+- **`env`** replaces this process's environment for every process. An
+  install runs with it as it is, so it names the home and caches the
+  installs write.
+- **`uid` and `gid`** are POSIX alone, and refused on Windows. e3 must run
+  as root, or hold `CAP_SETUID`, `CAP_SETGID`, `CAP_CHOWN`, `CAP_KILL` and
+  `CAP_DAC_OVERRIDE`.
+  - e3 gives the user each directory it makes for a process to write in:
+    an execution's or a call's scratch directory, the segment directory of
+    an input its runner asks for, an intake's, and an environment's build
+    directory.
+  - What a process only reads stays e3's: a staged input is a link to an
+    object, which never changes hands.
+  - What e3 keeps of what the user wrote is e3's own: an output is stored
+    as a copy, never linked, and a built environment is taken back before
+    any runner reads it.
+  - The repository's directories must let the user pass through to its
+    scratch directory and its environments.
+- **No install runs a lifecycle script.** A project's own packages arrive
+  built: `npm pack` runs `prepack` when the package is exported.
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

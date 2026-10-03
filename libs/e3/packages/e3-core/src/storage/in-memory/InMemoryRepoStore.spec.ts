@@ -180,7 +180,7 @@ describe('InMemoryRepoStore', () => {
     it('deletes every record of the repository in one batch, counting them', async () => {
       await store.create('my-repo');
       await storage.refs.packageWrite('my-repo', 'pkg', '1.0.0', 'a'.repeat(64));
-      await storage.logs.append('my-repo', 'b'.repeat(64), 'c'.repeat(64), 'id', 'stdout', 'a log');
+      await storage.logs.append('my-repo', 'b'.repeat(64), 'c'.repeat(64), '0190a0b0-6666-7000-8000-000000000000', 'stdout', 'a log');
       const result = await store.deleteRefsBatch('my-repo');
 
       assert.strictEqual(result.status, 'done');

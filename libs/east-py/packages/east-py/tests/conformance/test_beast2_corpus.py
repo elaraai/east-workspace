@@ -13,11 +13,11 @@ that crosses into python and back writes TypeScript's bytes, a fold compiled
 from the IR the corpus carries folds as TypeScript's did, and a manifest
 written through the binding is TypeScript's.
 
-The corpus is read from ``$EAST_TEST_IR_DIR/beast2_corpus`` (default
-``/tmp/east-test-ir``), where ``make test-export`` in libs/east writes it
-beside the compliance IR. Without it the tests skip — the local default. CI
-sets ``EAST_CONFORMANCE_REQUIRED=1``, under which a missing corpus is a
-collection error.
+The corpus is read from ``$EAST_TEST_IR_DIR/beast2_corpus``, which the root
+``paths.mk`` sets when the run goes through make; ``make test-export`` in
+libs/east writes it beside the compliance IR. Without it the tests skip — the
+local default. CI sets ``EAST_CONFORMANCE_REQUIRED=1``, under which a
+missing corpus is a collection error.
 """
 
 from __future__ import annotations
@@ -40,16 +40,20 @@ from east.serialization.beast2 import (
 )
 from east.utils.ordering import equal_for
 
-CORPUS_DIR = Path(os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")) / "beast2_corpus"
+_TEST_IR_DIR = os.environ.get("EAST_TEST_IR_DIR")
+CORPUS_DIR = Path(_TEST_IR_DIR) / "beast2_corpus" if _TEST_IR_DIR else None
+CORPUS_WHERE = str(CORPUS_DIR) if CORPUS_DIR else "EAST_TEST_IR_DIR, which is unset (run it through make)"
 REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 
-if REQUIRED and not (CORPUS_DIR / "values.beast2").exists():
+if REQUIRED and not (CORPUS_DIR and (CORPUS_DIR / "values.beast2").exists()):
     raise RuntimeError(
-        f"EAST_CONFORMANCE_REQUIRED=1 but no beast2 corpus in {CORPUS_DIR} "
-        "(`make test-export` in libs/east, or set EAST_TEST_IR_DIR)")
+        f"EAST_CONFORMANCE_REQUIRED=1 but no beast2 corpus in {CORPUS_WHERE} "
+        "(`make test-export` in libs/east)")
 
 
 def _cases(name: str) -> list:
+    if CORPUS_DIR is None:
+        return []
     path = CORPUS_DIR / f"{name}.beast2"
     if not path.exists():
         return []
@@ -70,7 +74,7 @@ def _write_all(directory: Path, prefix: str, blobs) -> list[Path]:
     return paths
 
 
-@pytest.mark.skipif(not VALUES, reason=f"no beast2 corpus in {CORPUS_DIR}")
+@pytest.mark.skipif(not VALUES, reason=f"no beast2 corpus in {CORPUS_WHERE}")
 @pytest.mark.parametrize("case", VALUES, ids=[c["name"] for c in VALUES])
 def test_a_value_writes_typescripts_bytes(case, tmp_path):
     t = read_beast2_type(case["value"])
@@ -99,7 +103,7 @@ class _Run:
         pass
 
 
-@pytest.mark.skipif(not RUNS, reason=f"no beast2 corpus in {CORPUS_DIR}")
+@pytest.mark.skipif(not RUNS, reason=f"no beast2 corpus in {CORPUS_WHERE}")
 @pytest.mark.parametrize("case", RUNS, ids=[c["name"] for c in RUNS])
 def test_an_emission_sequence_closes_and_merges_typescripts_runs(case, tmp_path):
     t = read_beast2_type(case["merged"])
@@ -128,7 +132,7 @@ def test_an_emission_sequence_closes_and_merges_typescripts_runs(case, tmp_path)
     assert out.read_bytes() == case["merged"], "the runs merged"
 
 
-@pytest.mark.skipif(not MERGES, reason=f"no beast2 corpus in {CORPUS_DIR}")
+@pytest.mark.skipif(not MERGES, reason=f"no beast2 corpus in {CORPUS_WHERE}")
 @pytest.mark.parametrize("case", MERGES, ids=[c["name"] for c in MERGES])
 def test_sorted_inputs_merge_to_typescripts_bytes(case, tmp_path):
     paths = _write_all(tmp_path, "input", case["inputs"])

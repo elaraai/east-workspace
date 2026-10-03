@@ -32,6 +32,10 @@ jobs:
       # east's test script uses single-quoted globs + `&&`; pnpm runs package
       # scripts via cmd.exe on Windows by default, so force a POSIX shell.
       npm_config_script_shell: bash
+      # Where the root paths.mk puts the corpora, for the steps that run pnpm
+      # directly (Windows runners have no make)
+      EAST_TEST_IR_DIR: ${{ github.workspace }}/tmp/east-test-ir
+      EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/tmp/east-examples-ir
 
     steps:
       - uses: actions/checkout@v4
@@ -56,14 +60,14 @@ jobs:
         run: pnpm --filter @elaraai/east run lint
 
       # The codegen round-trip legs (#628) read the exported compliance corpus
-      # and examples (/tmp/east-test-ir, /tmp/east-examples-ir). The export
+      # and examples (EAST_TEST_IR_DIR, EAST_EXAMPLES_IR_DIR). The export
       # tooling is Unix-only, so the corpora are exported on Linux — where the
       # legs are REQUIRED — and the legs skip on the other OSes.
       - name: Export IR corpora (Linux only)
         if: runner.os == 'Linux'
         run: |
-          pnpm --filter @elaraai/east run test:export
-          pnpm --filter @elaraai/east run export:examples
+          make -C libs/east test-export
+          make -C libs/east export-examples
 
       - name: Run tests
         env:

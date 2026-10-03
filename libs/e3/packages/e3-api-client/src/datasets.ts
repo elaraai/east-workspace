@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ArrayType, NullType, StringType, decodeBeast2For, encodeBeast2For, spliceBeast2Segments } from '@elaraai/east';
+import { ArrayType, IntegerType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, printFor, spliceBeast2Segments } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import { BEAST2_CONTENT_TYPE, E3_RELEASE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import { computeHash } from './util.js';
@@ -93,12 +93,18 @@ export async function datasetListAt(
  * carries more than one segment, so a server that cannot stream a response
  * still serves a collection of any size.
  *
+ * A dataset that moves while it is read, so that the old value's objects can
+ * no longer be fetched, is read again from its new content, up to 3 times.
+ * The hash returned is the content the bytes are.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param path - Path to the dataset (e.g., ['inputs', 'config'])
  * @param options - Request options including auth token
- * @returns Raw BEAST2 bytes
+ * @returns Raw BEAST2 bytes, the content hash they are, and their size
+ * @throws {DatasetHashMismatchError} When the dataset is still moving after
+ *   the restarts; its `currentHash` names the content it holds now
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -109,21 +115,32 @@ export async function datasetGet(
   path: TreePath,
   options: RequestOptions
 ): Promise<{ data: Uint8Array; hash: string; size: number }> {
-  const { hash, chunks } = await datasetGetStream(url, repo, workspace, path, options);
-  const parts: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of chunks) {
-    parts.push(chunk);
-    size += chunk.length;
+  const restarts = { left: MOVED_RESTARTS };
+  for (;;) {
+    const { hash, chunks } = await openDataset(url, repo, workspace, path, options, restarts);
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for await (const chunk of chunks) {
+        parts.push(chunk);
+        size += chunk.length;
+      }
+    } catch (err) {
+      // The chunks raise a move once they have given bytes out; this read
+      // holds those alone, so it starts over from the new content.
+      if (!(err instanceof DatasetHashMismatchError) || restarts.left === 0) throw err;
+      restarts.left--;
+      continue;
+    }
+    if (parts.length === 1) return { data: parts[0]!, hash, size };
+    const data = new Uint8Array(size);
+    let at = 0;
+    for (const part of parts) {
+      data.set(part, at);
+      at += part.length;
+    }
+    return { data, hash, size };
   }
-  if (parts.length === 1) return { data: parts[0]!, hash, size };
-  const data = new Uint8Array(size);
-  let at = 0;
-  for (const part of parts) {
-    data.set(part, at);
-    at += part.length;
-  }
-  return { data, hash, size };
 }
 
 /**
@@ -138,12 +155,27 @@ export async function datasetGet(
  * and a collection's manifest read, before this returns, so a refusal throws
  * here rather than from the chunks.
  *
+ * The chunks are always the content of the hash returned. A read that fails
+ * asks for the dataset again, and a dataset that has moved (a run wrote a new
+ * value, and the old one's objects can no longer be fetched) is treated by
+ * where the read had got to:
+ * - before this returns, the read starts over from the new content, up to 3
+ *   times;
+ * - once it has returned, the chunks throw a {@link DatasetHashMismatchError}
+ *   naming the content the dataset holds now, as a pinned page does, and the
+ *   caller starts over.
+ *
+ * A dataset that has not moved raises the read's own error.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param path - Path to the dataset (e.g., ['inputs', 'config'])
  * @param options - Request options including auth token
  * @returns The value's content hash, as the server names it, and its bytes in order
+ * @throws {DatasetHashMismatchError} When the dataset is still moving after
+ *   the restarts, and from the chunks when it moves once this has returned;
+ *   its `currentHash` names the content the dataset holds now
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -154,6 +186,55 @@ export async function datasetGetStream(
   path: TreePath,
   options: RequestOptions
 ): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }> {
+  return openDataset(url, repo, workspace, path, options, { left: MOVED_RESTARTS });
+}
+
+/** How many times a read of a dataset starts over when the dataset moves
+ *  while it is read. */
+const MOVED_RESTARTS = 3;
+
+/**
+ * Open a dataset's value for reading, as {@link datasetGetStream} does. A read
+ * that meets a moved dataset before this returns starts over, taking one of
+ * `restarts`, which a caller that starts over itself shares.
+ */
+async function openDataset(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  options: RequestOptions,
+  restarts: { left: number },
+): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }> {
+  let answer = await requestDataset(url, repo, workspace, path, options);
+  for (;;) {
+    const hash = answer.headers.get('X-Content-SHA256') ?? '';
+    const moved = (): Promise<globalThis.Response | null> => movedFrom(url, repo, workspace, path, hash, options);
+    try {
+      const opened = await answerChunks(url, repo, answer, hash, options);
+      return { hash: opened.hash, chunks: raiseMoves(opened.chunks, hash, moved) };
+    } catch (err) {
+      const current = await moved();
+      if (current === null) throw err;
+      if (restarts.left === 0) {
+        await discard(current);
+        throw movedError(hash, current);
+      }
+      restarts.left--;
+      answer = current;
+    }
+  }
+}
+
+/** Ask for a dataset's value as a read by segments does: answered with a
+ *  collection's manifest, a large value's URL, or any other value's bytes. */
+async function requestDataset(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  options: RequestOptions,
+): Promise<globalThis.Response> {
   const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?segments=true`,
@@ -172,15 +253,28 @@ export async function datasetGetStream(
     }
     throw error;
   }
+  return response;
+}
 
+/**
+ * The bytes a dataset's answer names, and the content hash they are: a
+ * collection's segments, read through the objects route and spliced; a large
+ * value's download; or the answer's own body. A collection's manifest, and a
+ * large value's download, are fetched before this returns.
+ */
+async function answerChunks(
+  url: string,
+  repo: string,
+  answer: globalThis.Response,
+  hash: string,
+  options: RequestOptions,
+): Promise<{ hash: string; chunks: AsyncIterable<Uint8Array> }> {
   // A JSON answer names a collection's manifest, or the URL a large value is
   // downloaded from.
-  const hash = response.headers.get('X-Content-SHA256') ?? '';
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (contentType.includes('application/json')) {
-    const body = await response.json() as { manifest: string } | { url: string };
+  if ((answer.headers.get('Content-Type') ?? '').includes('application/json')) {
+    const body = await answer.json() as { manifest: string } | { url: string };
     if ('manifest' in body) {
-      return { hash, chunks: await collectionChunks(url, repo, body.manifest, options) };
+      return { hash, chunks: await collectionGetStream(url, repo, body.manifest, options) };
     }
     const redirectResponse = await requestFetch(options)(body.url, {
       method: 'GET',
@@ -191,7 +285,62 @@ export async function datasetGetStream(
     }
     return { hash: redirectResponse.headers.get('X-Content-SHA256') ?? hash, chunks: bodyChunks(redirectResponse) };
   }
-  return { hash, chunks: bodyChunks(response) };
+  return { hash, chunks: bodyChunks(answer) };
+}
+
+/**
+ * Ask for a dataset again after a read of it failed.
+ *
+ * @returns The new answer when the dataset names content other than `hash`.
+ *   `null` when it does not, or when it cannot be asked for: the read's own
+ *   error is the one to raise then.
+ */
+async function movedFrom(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  hash: string,
+  options: RequestOptions,
+): Promise<globalThis.Response | null> {
+  let answer: globalThis.Response;
+  try {
+    answer = await requestDataset(url, repo, workspace, path, options);
+  } catch {
+    return null;
+  }
+  if ((answer.headers.get('X-Content-SHA256') ?? '') !== hash) return answer;
+  await discard(answer);
+  return null;
+}
+
+/** A read's chunks, a failure among them raised as a move when `moved` finds
+ *  the dataset holds other content than `hash` now. */
+async function* raiseMoves(
+  chunks: AsyncIterable<Uint8Array>,
+  hash: string,
+  moved: () => Promise<globalThis.Response | null>,
+): AsyncGenerator<Uint8Array> {
+  try {
+    yield* chunks;
+  } catch (err) {
+    const current = await moved();
+    if (current === null) throw err;
+    await discard(current);
+    throw movedError(hash, current);
+  }
+}
+
+/** The error a read raises when the dataset it reads has moved on from `hash`
+ *  to the content its new answer names. */
+function movedError(hash: string, current: globalThis.Response): DatasetHashMismatchError {
+  const now = current.headers.get('X-Content-SHA256');
+  return new DatasetHashMismatchError(`the dataset moved from ${hash} to ${now ?? 'content it names no hash of'} while it was read`, now);
+}
+
+/** Release an answer whose body is not read. */
+async function discard(answer: globalThis.Response): Promise<void> {
+  await answer.body?.cancel().catch(() => { /* an unread body */ });
 }
 
 /** A response's body as it arrives; the rest is cancelled when the reader stops early. */
@@ -219,14 +368,43 @@ async function* bodyChunks(response: globalThis.Response): AsyncGenerator<Uint8A
 /** How many of a collection's objects are fetched at a time. */
 const SEGMENT_CONCURRENCY = 8;
 
+const integerEqual = equalFor(IntegerType);
+const printInteger = printFor(IntegerType);
+
 /**
- * A collection's value, a chunk at a time: the objects its manifest names,
- * fetched a few at a time ahead of a splice that takes them in order, into the
- * blob the dataset route would stream. The manifest is read before this
- * returns; the segments as the chunks are taken.
+ * Get a stored collection by its manifest's hash, as raw BEAST2 bytes, a chunk
+ * at a time: what {@link datasetGetStream} streams a collection dataset as, of
+ * a value a caller names by hash — a record's state at a past commit, say.
+ *
+ * @remarks
+ * The objects the manifest names are fetched through the objects route a few
+ * at a time, each checked against its hash ({@link objectGet}), ahead of a
+ * splice that takes them in order into the blob the dataset route would
+ * stream. The manifest is read before this returns, so a refusal throws here;
+ * the segments are read as the chunks are taken. A value that is not a
+ * collection is one object: read it with {@link objectGet}. The caller tells
+ * the two apart by the value's type.
+ *
+ * A manifest above level 0, whose entries name other manifests rather than
+ * segments, is refused before a segment is read. Only a newer e3 writes one,
+ * and splicing its child manifests as segments would hand out bytes that are
+ * no value.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param manifestHash - The hash of the collection's segment manifest
+ * @param options - Request options including auth token
+ * @returns The collection's bytes in order
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws {Error} When the manifest is above level 0
  */
-async function collectionChunks(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<AsyncIterable<Uint8Array>> {
+export async function collectionGetStream(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<AsyncIterable<Uint8Array>> {
   const manifest = decodeCollectionManifest(await objectGet(url, repo, manifestHash, options));
+  if (!integerEqual(manifest.level, 0n)) {
+    throw new Error(`the collection ${manifestHash} is a level ${printInteger(manifest.level)} manifest, whose entries name manifests, not segments: ` +
+      'a newer e3 wrote it, which this client does not read — update @elaraai/e3-api-client');
+  }
   return (async function* () {
     const pending: Promise<Uint8Array>[] = [];
     let next = 0;
@@ -252,11 +430,25 @@ async function collectionChunks(url: string, repo: string, manifestHash: string,
 }
 
 /**
- * An object's bytes, read through the objects route and checked against the
- * hash they were asked by. A large object is answered with a URL, fetched
- * without the API's auth: it may be presigned.
+ * Get an object by its hash: its bytes, read through the objects route and
+ * checked against the hash they were asked by.
+ *
+ * @remarks
+ * A large object is answered with a URL, which is fetched without the API's
+ * auth, since it may be presigned. A stored collection is many objects: read
+ * it with {@link collectionGetStream}.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param hash - The object's hash
+ * @param options - Request options including auth token
+ * @returns The object's bytes
+ * @throws {ApiError} On application-level errors, such as an object the
+ *   repository does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws {Error} When the bytes that arrive do not hash to `hash`
  */
-async function objectGet(url: string, repo: string, hash: string, options: RequestOptions): Promise<Uint8Array> {
+export async function objectGet(url: string, repo: string, hash: string, options: RequestOptions): Promise<Uint8Array> {
   const response = await fetchWithAuth(`${url}/api/repos/${encodeURIComponent(repo)}/objects/${hash}`, {
     method: 'GET',
     headers: { 'Accept': BEAST2_CONTENT_TYPE },
@@ -391,6 +583,21 @@ export async function datasetGetPage(
     throw error;
   }
 
+  return parsePage(response);
+}
+
+/**
+ * Read a page answer: its bytes, and its window as its `X-*` headers place it.
+ *
+ * @remarks
+ * What {@link datasetGetPage} reads its answer with, and what a client of a
+ * host's own route reads a page of a value it serves with, as e3-api-server's
+ * `getValuePage` answers it.
+ *
+ * @param response - A successful page answer
+ * @returns The page
+ */
+export async function parsePage(response: globalThis.Response): Promise<DatasetPage> {
   const buffer = await response.arrayBuffer();
   const intHeader = (name: string): number => {
     const value = response.headers.get(name);

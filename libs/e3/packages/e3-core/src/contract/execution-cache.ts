@@ -5,15 +5,15 @@
 
 /**
  * The execution cache's contract, over any backend: what its probe serves,
- * and a `running` record it rewrites as interrupted only when the judgement
- * it is given says the execution cannot finish — a split task's driver
- * probing each unit with its own.
+ * and a `running` record it rewrites as interrupted, with why, only when the
+ * judgement it is given says the execution cannot finish — a split task's
+ * driver probing each unit with its own.
  */
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { DictType, IntegerType, SortedMap, compareFor, encodeBeast2For, none, some, variant } from '@elaraai/east';
-import { TASK_OBJECT_KIND, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
+import { DictType, IntegerType, SortedMap, compareFor, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
+import { StopReasonType, TASK_OBJECT_KIND, TaskObjectType, type StopReason, type TaskObject } from '@elaraai/e3-types';
 import { executeSplitTask } from '../execution/engine.js';
 import type { ExecutionLiveness } from '../execution/interfaces.js';
 import { probeExecutionCache, type ExecutionResult } from '../execution/LocalTaskRunner.js';
@@ -43,7 +43,7 @@ async function recordRunningElsewhere(storage: StorageBackend, repo: string, tas
 
 /** A liveness that answers `answer` for every execution, and counts what it
  *  was asked of. */
-function liveness(answer: boolean): { alive: ExecutionLiveness; asked: string[] } {
+function liveness(answer: boolean | StopReason): { alive: ExecutionLiveness; asked: string[] } {
   const asked: string[] = [];
   return {
     asked,
@@ -109,8 +109,7 @@ export function executionCacheTests(setup: BackendSetup): void {
       const served = await probeExecutionCache(storage, repo, taskHash, inHash, liveness(true).alive);
       assert.deepEqual([served?.executionId, served?.outputHash, served?.cached, served?.peakBytes], [succeeded, 'c'.repeat(64), true, 1024]);
 
-      // A later millisecond, so the failed attempt's id sorts after the success's.
-      await new Promise((resolve) => setTimeout(resolve, 2));
+      // Minted after the success's, so its id sorts after it.
       const failed = uuidv7();
       await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', {
         executionId: failed, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
@@ -130,7 +129,7 @@ export function executionCacheTests(setup: BackendSetup): void {
       assert.deepEqual(asked, [inHash]);
     });
 
-    it('rewrites an execution the liveness it is given says cannot finish as interrupted, keeping whether it is a unit', async (t) => {
+    it('rewrites an execution the liveness it is given says cannot finish as interrupted, keeping whether it is a unit, its runner and owner gone', async (t) => {
       const { storage, repo } = await setup(t);
       const executionId = await recordRunningElsewhere(storage, repo, taskHash, inHash, true);
 
@@ -138,6 +137,27 @@ export function executionCacheTests(setup: BackendSetup): void {
       const latest = await storage.refs.executionGetLatest(repo, taskHash, inHash);
       assert.ok(latest?.type === 'interrupted', `the record is ${latest?.type}`);
       assert.deepEqual([latest.value.executionId, latest.value.pid, latest.value.unit], [executionId, HOST_B.runner, true]);
+      const ownerGone: StopReason = {
+        kind: variant('owner_gone', null), message: 'interrupted: its runner and the process or browser tab that owned it are gone',
+      };
+      assert.ok(equalFor(StopReasonType)(latest.value.reason, ownerGone), `the record says why: ${latest.value.reason.kind.type}`);
+      const stderr = await storage.logs.read(repo, taskHash, inHash, executionId, 'stderr');
+      assert.equal(stderr.data, `e3: ${ownerGone.message}\n`, 'and so does its log\'s last line');
+    });
+
+    it('records the reason the liveness it is given says an execution cannot finish for, as given, and writes it as its log\'s last line', async (t) => {
+      const { storage, repo } = await setup(t);
+      const executionId = await recordRunningElsewhere(storage, repo, taskHash, inHash, false);
+      await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', 'what the runner wrote before its host stopped it\n');
+      const host: StopReason = { kind: variant('host', 'OutOfMemoryError'), message: 'the container running it ran out of memory' };
+
+      assert.equal(await probeExecutionCache(storage, repo, taskHash, inHash, liveness(host).alive), null);
+      const latest = await storage.refs.executionGetLatest(repo, taskHash, inHash);
+      assert.ok(latest?.type === 'interrupted', `the record is ${latest?.type}`);
+      assert.ok(equalFor(StopReasonType)(latest.value.reason, host), 'the host\'s reason is recorded as given');
+      assert.equal(latest.value.unit, false);
+      const stderr = await storage.logs.read(repo, taskHash, inHash, executionId, 'stderr');
+      assert.equal(stderr.data, `what the runner wrote before its host stopped it\ne3: ${host.message}\n`);
     });
 
     it('hands a split task\'s unit running on another host to its executor as it is, once, when the driver\'s liveness says it can finish', async (t) => {

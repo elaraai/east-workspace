@@ -251,6 +251,17 @@ jobs:
         timeout-minutes: 25
         run: make test-packages
 
+      # A runner whose processes run as another user needs e3 to run as root,
+      # so the package tests skip e3-core's spec of one. It runs here under
+      # sudo, switching to the user sudo names: the runner's own, which owns
+      # the checkout the runner CLIs are found in. sudo resets PATH, so the
+      # job's is passed on, with its node.
+      - name: Run the spec of processes run as another user, as root (POSIX)
+        if: matrix.shard == 'packages' && runner.os != 'Windows'
+        working-directory: libs/e3
+        timeout-minutes: 10
+        run: sudo env "PATH=$PATH" make test-as-another-user
+
       - name: Stop httpbin (e3-web's browser specs)
         if: always() && matrix.shard == 'packages'
         run: |

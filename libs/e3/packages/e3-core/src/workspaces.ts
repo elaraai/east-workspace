@@ -43,6 +43,7 @@ import {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  checkName,
   lockStateToHolderInfo,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
@@ -254,17 +255,25 @@ export async function workspaceGetPackage(
  * ends, so it has no status to read meanwhile; its lock says a deploy holds it,
  * and how far the deploy has got with its file sources and its records.
  *
+ * The name is a workspace's, checked as one before the lock store is asked: a
+ * lock's resource may hold `#` and `~`, which join the parts of lock names, so
+ * `main#dataflow` — the lock a run of main's dataflow holds — would otherwise
+ * be read as the lock of a workspace that cannot exist.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param name - Workspace name
  * @returns The lock's state and what its holder last reported, or null when
  *   nothing holds the workspace exclusively
+ * @throws {InvalidNameError} When the name is no workspace's: it holds `#` or
+ *   `~`, or a character a file name cannot hold
  */
 export async function workspaceLockStatus(
   storage: StorageBackend,
   repo: string,
   name: string,
 ): Promise<LockStatus | null> {
+  checkName('workspace', name);
   const state = await storage.locks.getState(repo, name);
   if (state === null) return null;
   const progress = await storage.locks.getProgress(repo, name);
@@ -520,6 +529,8 @@ const NO_FILES: DeployFiles = {
  * @param pkgName - Package name
  * @param pkgVersion - Package version
  * @param options - Optional settings including external lock
+ * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
+ *   is taken
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws {RecordDeployRefusedError} When a record cannot be carried into the
  *   package: it changed type with no migration, its applied migrations are not
@@ -556,6 +567,11 @@ export async function workspaceDeployWith(
   options: WorkspaceDeployOptions,
   files: DeployFiles,
 ): Promise<void> {
+  // The name is checked as a workspace's before the lock is taken: a lock's
+  // name may hold the `#` and `~` no workspace's may, so the lock store would
+  // refuse a malformed one, if at all, as a lock's.
+  checkName('workspace', name);
+
   // Acquire lock if not provided externally
   const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;

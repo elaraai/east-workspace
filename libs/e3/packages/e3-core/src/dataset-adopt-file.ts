@@ -168,6 +168,8 @@ export async function objectAdoptFile(
  *   type the dataset declares
  * @throws {DeliveryRefusedError} When a runner refuses the collection the file
  *   holds
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before any
+ *   store is asked
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, the file is missing or unreadable,
  *   it holds a collection the store does not know and no runner was given, or

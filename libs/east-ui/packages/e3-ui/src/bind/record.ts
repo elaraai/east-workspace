@@ -177,8 +177,11 @@ export type RecordOutcomeType = typeof RecordOutcomeType;
  * @property read - The record's current committed state. Reactive — re-fires
  *   when a mutation commits (the dataset cache refreshes the record's bytes).
  * @property status - Per-dataset freshness signal — see {@link DatasetStatusType}.
- * @property history - The commit chain, newest first; `none` until the first
- *   load completes, then the cached chain (refreshed after each commit).
+ * @property history - The commit chain, newest first, as far as one request is
+ *   answered: all of it, unless the server's host pages a record's history
+ *   (e3-api-server's `historyLimit`), when it is the newest page; `none` until
+ *   the first load completes, then the cached chain (refreshed after each
+ *   commit).
  * @property mutate - The write surface: one fire-and-forget closure per
  *   mutation (typed from its def), plus the shared `pending` / `status` /
  *   `error` / `cancel`.

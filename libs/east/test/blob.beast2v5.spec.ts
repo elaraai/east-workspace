@@ -10,7 +10,7 @@
  * frames, except the deflate fixture). Every runtime's decode entry points
  * dispatch on the magic version byte, so `blob.decodeBeast(T, 'v2')` must
  * decode them identically on the TS, C, and Python backends — this suite is
- * exported to /tmp/east-test-ir and replayed by the east-c and east-py
+ * exported to EAST_TEST_IR_DIR and replayed by the east-c and east-py
  * compliance harnesses. The same segmented-stream bytes are also pinned (as
  * hex) in libs/east's v5/index.spec.ts, east-py's test_beast2_v5.py, and
  * east-c's test_beast2_hardening.c, where encoders are byte-checked as well.

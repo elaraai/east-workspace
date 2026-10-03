@@ -10,11 +10,12 @@
  * (loc_ids, canonical variable and label names, recursive type ids).
  *
  * Three legs: hand-written functions covering every node kind and spelling
- * family; every exported `*.examples.ts` example (`/tmp/east-examples-ir`,
- * `npm run export:examples`), which also executes and must compute its
- * declared `returns`; every compliance-corpus program (`/tmp/east-test-ir`,
- * `npm run test:export`). The two exported legs skip when the directories
- * are absent — the three-way sweep in east-py runs them under CI's
+ * family; every exported `*.examples.ts` example (`EAST_EXAMPLES_IR_DIR`,
+ * `make export-examples`), which also executes and must compute its declared
+ * `returns`; every compliance-corpus program (`EAST_TEST_IR_DIR`, `make
+ * test-export`). The root `paths.mk` sets both to this checkout's `tmp/`. The
+ * two exported legs skip when a variable is unset or nothing is exported
+ * there — the three-way sweep in east-py runs them under CI's
  * `EAST_CONFORMANCE_REQUIRED=1`.
  */
 
@@ -22,7 +23,7 @@ import { describe, test, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -729,9 +730,19 @@ describe("codegen: toSource round trips the builder surface", () => {
 
 // ── the exported corpora ────────────────────────────────────────────────────
 
-const EXAMPLES_DIR = process.env["EAST_EXAMPLES_IR_DIR"] ?? "/tmp/east-examples-ir";
-const CORPUS_DIR = process.env["EAST_TEST_IR_DIR"] ?? "/tmp/east-test-ir";
 const REQUIRED = process.env["EAST_CONFORMANCE_REQUIRED"] === "1";
+
+/**
+ * Where an exported corpus is, from the variable the root `paths.mk` sets:
+ * its directory, or why the leg has nothing to read — the variable unset
+ * (the spec was not run through make) or nothing exported there.
+ */
+function corpusDir(variable: string, what: string): { dir: string; skip: false } | { dir: null; skip: string } {
+  const dir = process.env[variable];
+  if (dir === undefined) return { dir: null, skip: `${variable} is unset: run it through make (make -C libs/east test)` };
+  if (!existsSync(dir)) return { dir: null, skip: `no ${what} in ${dir}` };
+  return { dir, skip: false };
+}
 
 const decodeIR = fromJSONFor(IRType);
 const decodeType = fromJSONFor(EastTypeType);
@@ -745,15 +756,14 @@ function hasPlatform(node: any): boolean {
 }
 
 describe("codegen: every exported example round trips and runs", () => {
-  const present = existsSync(EXAMPLES_DIR);
-  if (REQUIRED && !present) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but no exported examples in ${EXAMPLES_DIR}`);
-  const files: string[] = present
-    ? readdirSync(EXAMPLES_DIR).flatMap(suite =>
-      readdirSync(join(EXAMPLES_DIR, suite)).filter(f => f.endsWith(".json")).map(f => join(EXAMPLES_DIR, suite, f)))
-    : [];
+  const examples = corpusDir("EAST_EXAMPLES_IR_DIR", "exported examples");
+  if (REQUIRED && examples.skip) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but ${examples.skip}`);
+  const root = examples.dir;
+  const files: string[] = root === null ? [] : readdirSync(root).flatMap(suite =>
+    readdirSync(join(root, suite)).filter(f => f.endsWith(".json")).map(f => join(root, suite, f)));
   const rawSeen = new Set<string>();
 
-  test(`round trip (${files.length} examples)`, { skip: !present && `no exported examples in ${EXAMPLES_DIR}` }, async () => {
+  test(`round trip (${files.length} examples)`, { skip: examples.skip }, async () => {
     const labelOf = (file: string): string => `${file.split("/").at(-2)}/${file.split("/").at(-1)!.slice(0, -5)}`;
     await sweep(files, labelOf, async file => {
       const record = JSON.parse(readFileSync(file, "utf-8"));
@@ -776,14 +786,15 @@ describe("codegen: every exported example round trips and runs", () => {
 });
 
 describe("codegen: every compliance-corpus program round trips", () => {
-  const present = existsSync(CORPUS_DIR);
-  if (REQUIRED && !present) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but no exported IR corpus in ${CORPUS_DIR}`);
-  const files = present ? readdirSync(CORPUS_DIR).filter(f => f.endsWith(".json")).sort() : [];
+  const corpus = corpusDir("EAST_TEST_IR_DIR", "exported IR corpus");
+  if (REQUIRED && corpus.skip) throw new Error(`EAST_CONFORMANCE_REQUIRED=1 but ${corpus.skip}`);
+  const root = corpus.dir;
+  const files = root === null ? [] : readdirSync(root).filter(f => f.endsWith(".json")).sort().map(f => join(root, f));
 
-  test(`round trip (${files.length} programs)`, { skip: !present && `no exported IR corpus in ${CORPUS_DIR}` }, async () => {
-    const labelOf = (file: string): string => `corpus/${file.slice(0, -5)}`;
+  test(`round trip (${files.length} programs)`, { skip: corpus.skip }, async () => {
+    const labelOf = (file: string): string => `corpus/${basename(file, ".json")}`;
     await sweep(files, labelOf, async file => {
-      const record = JSON.parse(readFileSync(join(CORPUS_DIR, file), "utf-8"));
+      const record = JSON.parse(readFileSync(file, "utf-8"));
       await roundTrip(decodeIR(record.ir), labelOf(file));
     });
   });

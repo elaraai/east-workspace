@@ -48,10 +48,11 @@ describe('/run and /stop', () => {
         await mounted.press('r');
         let lines = mounted.lines();
         assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main\s+⏎ run · esc/);
-        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks$/);
+        assert.match(lines[35]!, /^ --force  re-run everything    --force-task <task>  re-run this task    --filter <task>  this task and what it needs$/);
         // The flags complete above the box, each whole, its hint after a gap.
-        assert.match(lines[30]!, /^ ▌ \/run\s+--force\s+re-run everything$/);
-        assert.match(lines[31]!, /^   \/run\s+--filter <glob> only matching tasks$/);
+        assert.match(lines[29]!, /^ ▌ \/run\s+--force\s+re-run everything$/);
+        assert.match(lines[30]!, /^   \/run\s+--filter <task>\s+this task and what it needs$/);
+        assert.match(lines[31]!, /^   \/run\s+--force-task <task> re-run this task$/);
         await mounted.type('--force');
         assert.match(mounted.lines()[33]!, /^ › \/run --force_\s+run 6 tasks in main, ignoring the cache\s+⏎ run · esc/);
         await mounted.press(KEY.enter);
@@ -69,7 +70,7 @@ describe('/run and /stop', () => {
         assert.equal(api.calls.filter(c => c.startsWith('dataflowExecuteLaunch')).length, launches);
         assert.match(mounted.lines()[33]!, /^ ›  ◐ a run is already in progress — \/stop first$/);
         // The poll shows it running: settling clears, the pill counts events.
-        const polled = await api.dataflowExecutePoll('main', 0);
+        const polled = await api.dataflowExecutePoll('main', {});
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: polled, events: [...polled.events], startedAt: polled.startedAt });
         assert.equal(mounted.store.getState().data.execution['main']?.settling, false);
         lines = mounted.lines();
@@ -84,12 +85,31 @@ describe('/run and /stop', () => {
         assert.match(lines[33]!, /^ ›  ■ Dataflow cancelled$/);
         assert.match(lines[0]!, new RegExp(`■ STOPPING ${SPIN}  ● CONNECTED$`));
         assert.match(lines[8]!, new RegExp(`^ EXECUTION\\s+■ STOPPING · started just now · 0 of 6 tasks · ${SPIN}$`));
-        const stopped = await api.dataflowExecutePoll('main', 0);
+        const stopped = await api.dataflowExecutePoll('main', {});
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: stopped, events: [...stopped.events], startedAt: stopped.startedAt });
         lines = mounted.lines();
         assert.match(lines[0]!, /^ e3-ui  demo-repo › main\s+● CONNECTED$/);
         assert.match(lines[8]!, /^ LAST EXECUTION\s+■ ABORTED · started just now · \d+\.\ds · executed 0 · cached 0 · failed 0 · skipped 0$/);
         assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces/);
+    });
+
+    test('/run --force-task forces each task it names; /run --filter runs a task and the tasks it needs', async () => {
+        const api = fakeRepo();
+        mounted = await mountApp({ api, view: dashboardView(), actions: await sixTasks(api) });
+        await mounted.press('r');
+        await mounted.type('--force-task ingest --force-task report');
+        assert.match(mounted.lines()[33]!, /^ › \/run --force-task ingest --force-task report_\s+run 6 tasks in main, ignoring the cache for ing…\s+⏎ run · esc$/);
+        await mounted.press(KEY.enter);
+        assert.ok(api.calls.includes('dataflowExecuteLaunch main --force-task ingest --force-task report'), api.calls.join('\n'));
+        // The run has ended when its poll comes back, which ends the launch's settling.
+        const polled = await api.dataflowExecutePoll('main', {});
+        await mounted.dispatch({ type: 'data/execution', ws: 'main', state: polled, events: [...polled.events], startedAt: polled.startedAt });
+        await mounted.press('r');
+        await mounted.type('--filter forecast');
+        assert.match(mounted.lines()[33]!, /^ › \/run --filter forecast_\s+run forecast and the tasks it needs in main\s+⏎ run · esc$/);
+        await mounted.press(KEY.enter);
+        assert.ok(api.calls.includes('dataflowExecuteLaunch main --filter forecast'), api.calls.join('\n'));
+        assert.match(mounted.lines()[33]!, /^ ›  ● Dataflow started · main · forecast and the tasks it needs queued$/);
     });
 
     test('the consequence line names the budget the server gives a run, once its feed has answered', async () => {
@@ -126,7 +146,7 @@ describe('/run and /stop', () => {
         assert.match(mounted.lines()[33]!, /^ ›  ◐ no run in progress$/);
         assert.ok(!api.calls.includes('dataflowCancel main'));
         // Our poll says running, but this server process has no execution to cancel.
-        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], totalEvents: 0n, budget: none, waiting: [], splits: [] };
+        const running = { status: variant('running', null), startedAt: new Date(NOW - 5_000).toISOString(), completedAt: none, summary: none, events: [], nextSeq: 0n, budget: none, waiting: [], splits: [] };
         await mounted.dispatch({ type: 'data/execution', ws: 'main', state: running as never, events: [], startedAt: running.startedAt });
         await mounted.press('x');
         await mounted.press(KEY.enter);

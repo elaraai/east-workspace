@@ -30,7 +30,7 @@ import {
   LockHolderVariantType, LockProgressType, LockStateType,
   type LockHolderVariant, type LockOperation, type LockProgress, type LockState,
 } from '@elaraai/e3-types';
-import { InvalidNameError, WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
+import { WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
 import type { LockHandle, LockService } from '../interfaces.js';
@@ -47,8 +47,8 @@ const UNLINK_MAX_ATTEMPTS = 10;
 
 /** How often a lock file is written again while a release removes its
  *  resource's directory: the removal can land between the making and the
- *  write, and on Windows a directory being removed refuses both until it is
- *  gone. With the backoff between attempts, about two seconds. */
+ *  write, and on Windows and macOS a directory being removed refuses both
+ *  until it is gone. With the backoff between attempts, about two seconds. */
 const DIRECTORY_GONE_ATTEMPTS = 25;
 
 /** The exclusive lock's file in its resource's directory. */
@@ -117,9 +117,11 @@ async function removeIfEmpty(dir: string): Promise<void> {
  * that finds the directory there checks it with a `stat`, and fails `ENOENT`
  * when the release lands between the two. On Windows a directory being
  * removed refuses, until it is gone, to be made or to have anything made in
- * it: both fail `EPERM`, more often while another acquirer lists it. Either
- * way both are made again, a refusal waited out with the backoff of this
- * file's other transient errors.
+ * it: both fail `EPERM`, more often while another acquirer lists it. On macOS
+ * a file created in a directory being removed fails `EINVAL` at its open: two
+ * shared holders of one resource met it in CI, one releasing as the other
+ * acquired. Either way both are made again, a refusal waited out with the
+ * backoff of this file's other transient errors.
  */
 async function writeInto<T>(dir: string, write: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
@@ -127,7 +129,8 @@ async function writeInto<T>(dir: string, write: () => Promise<T>): Promise<T> {
       await fs.mkdir(dir, { recursive: true });
       return await write();
     } catch (err) {
-      const removing = (err as NodeJS.ErrnoException).code === 'ENOENT' || isTransientFsError(err);
+      const code = (err as NodeJS.ErrnoException).code;
+      const removing = code === 'ENOENT' || code === 'EINVAL' || isTransientFsError(err);
       if (!removing || attempt >= DIRECTORY_GONE_ATTEMPTS - 1) throw err;
       await sleep(Math.min(2 ** attempt, 100));
     }
@@ -573,9 +576,12 @@ export class LocalLockService implements LockService {
       });
       return { resource, release: () => handle.release(), report: (progress) => handle.report(progress) };
     } catch (err) {
-      // A name no path can hold is the caller's error, never a held lock.
-      if (err instanceof InvalidNameError) throw err;
-      return null;
+      // Another holder's lock is the one refusal. Anything else — a name no
+      // path can hold, a filesystem error — is the caller's to see, never a
+      // held lock: answering null for it once reported a race in the lock's
+      // own directory as a gc holding the repository.
+      if (err instanceof WorkspaceLockError) return null;
+      throw err;
     }
   }
 

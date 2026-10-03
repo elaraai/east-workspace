@@ -22,6 +22,8 @@ import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
+  checkId,
+  checkName,
 } from '../../errors.js';
 import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
 import { newRepositoryRecord } from '../../repository-record.js';
@@ -132,10 +134,12 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async exists(repo: string): Promise<boolean> {
+    checkName('repository', repo);
     return this.repos.has(repo);
   }
 
   async getMetadata(repo: string): Promise<RepoMetadata | null> {
+    checkName('repository', repo);
     return this.repos.get(repo) ?? null;
   }
 
@@ -144,6 +148,7 @@ export class InMemoryRepoStore implements RepoStore {
   // ===========================================================================
 
   async create(repo: string): Promise<void> {
+    checkName('repository', repo);
     if (this.repos.has(repo)) {
       throw new RepoAlreadyExistsError(repo);
     }
@@ -163,6 +168,7 @@ export class InMemoryRepoStore implements RepoStore {
     status: RepoStatusName,
     expected?: RepoStatusName | RepoStatusName[]
   ): Promise<void> {
+    checkName('repository', repo);
     const current = this.repos.get(repo);
     if (!current) {
       throw new RepoNotFoundError(repo);
@@ -184,6 +190,7 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async remove(repo: string): Promise<void> {
+    checkName('repository', repo);
     // Whatever the batches left goes with it.
     await this.deleteRefsBatch(repo);
     await this.deleteObjectsBatch(repo);
@@ -195,6 +202,7 @@ export class InMemoryRepoStore implements RepoStore {
   // ===========================================================================
 
   async deleteRefsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
+    checkName('repository', repo);
     let deleted = this.records.reduce((sum, store) => sum + store.drop(repo), 0);
     for (const key of [...this.gcRuns.keys()]) {
       if (!key.startsWith(`${repo}\0`)) continue;
@@ -205,6 +213,7 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async deleteObjectsBatch(repo: string, _cursor?: string): Promise<BatchResult> {
+    checkName('repository', repo);
     const hashes = this.objects.gcEntries(repo).map(({ hash }) => hash);
     this.objects.gcDelete(repo, hashes);
     return { status: 'done', deleted: hashes.length };
@@ -247,14 +256,17 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async gcRunWrite(repo: string, run: string, name: string, data: Uint8Array): Promise<void> {
+    checkId('gc run id', run);
     this.gcRuns.set(`${repo}\0${run}\0${name}`, data);
   }
 
   async gcRunRead(repo: string, run: string, name: string): Promise<Uint8Array | null> {
+    checkId('gc run id', run);
     return this.gcRuns.get(`${repo}\0${run}\0${name}`) ?? null;
   }
 
   async gcRunDelete(repo: string, run: string): Promise<void> {
+    checkId('gc run id', run);
     for (const key of [...this.gcRuns.keys()]) {
       if (key.startsWith(`${repo}\0${run}\0`)) this.gcRuns.delete(key);
     }

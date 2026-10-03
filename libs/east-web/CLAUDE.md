@@ -15,7 +15,7 @@ has its own standard platform package — `east-node-std`, `east-c-std`,
 ```bash
 make build            # build
 make test             # the specs, then east-node-std's compliance suite (exported first)
-make test-compliance  # the compliance suite alone, from /tmp/east-node-std
+make test-compliance  # the compliance suite alone, from EAST_NODE_STD_IR (root paths.mk)
 make lint             # eslint
 ```
 

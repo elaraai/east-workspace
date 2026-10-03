@@ -5,7 +5,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { appendFileSync, mkdtempSync, rmSync } from 'fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { LocalLogStore } from './LocalLogStore.js';
@@ -106,6 +106,22 @@ describe('LocalLogStore', () => {
       assert.strictEqual(chunk.data, '');
       assert.strictEqual(chunk.totalSize, 0);
       assert.strictEqual(chunk.complete, true);
+    });
+  });
+
+  describe('streams', () => {
+    it('refuses a stream other than stdout or stderr, reading and writing nothing outside the execution\'s directory', async () => {
+      // A file beside the repository's executions, which a stream naming a way
+      // up out of the execution's directory would reach
+      writeFileSync(join(repo, 'outside.txt'), 'not a log');
+      const outside = '../../../../outside' as 'stdout';
+
+      await assert.rejects(
+        logs.read(repo, TASK_HASH, INPUTS_HASH, EXECUTION_ID, outside),
+        /A log's stream is stdout or stderr, not "\.\.\/\.\.\/\.\.\/\.\.\/outside"/
+      );
+      await assert.rejects(logs.append(repo, TASK_HASH, INPUTS_HASH, EXECUTION_ID, outside, 'written'), /stdout or stderr/);
+      assert.strictEqual(readFileSync(join(repo, 'outside.txt'), 'utf-8'), 'not a log');
     });
   });
 });

@@ -1503,7 +1503,7 @@ cd /home/crambelsoupy/src/east-py/packages/east-py
 uv run pytest tests/test_compliance.py -v -k "vector or matrix"
 ```
 
-The TypeScript `test/vector.spec.ts` (~225 lines, ~25 tests) and `test/matrix.spec.ts` (~206 lines, ~20 tests) use `describeEast` which exports IR to `/tmp/east-test-ir/`. The Python compliance runner loads these IR files and validates:
+The TypeScript `test/vector.spec.ts` (~225 lines, ~25 tests) and `test/matrix.spec.ts` (~206 lines, ~20 tests) use `describeEast` which exports IR to `EAST_TEST_IR_DIR` (the checkout's `tmp/east-test-ir/`, set by the root `paths.mk`). The Python compliance runner loads these IR files and validates:
 
 - Vector creation (zeros, ones, fill, fromArray)
 - Vector element access (get, set, bounds checking)

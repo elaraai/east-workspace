@@ -19,9 +19,22 @@
  * reads, adopting a file, placing an object at a path, the owner and plan
  * records of an execution, the adoption memo — would need a fallback in every
  * caller, and the fallbacks were whole-object reads.
+ *
+ * A method given a name, a hash or an id that is not of its form refuses it
+ * with `InvalidNameError`, naming its kind, before it reads or writes
+ * anything: a repository's, a workspace's, a package's name and version, and a
+ * lock's, which are each one path segment (`checkName`); an object's hash and
+ * an execution's task and inputs hashes, which are SHA-256s in lowercase hex
+ * (`checkHash`); and an execution's, a run's and a gc run's id, which are
+ * UUIDv7s (`checkId`). A batch naming one does nothing of the rest. Every
+ * backend refuses alike, its run state store too, so a server answers
+ * `invalid_name` over any of them; the contract suites pin it. The adoption
+ * memo's read and delete are the exceptions: a key that is not a SHA-256 names
+ * no entry, so a read answers null and a delete does nothing.
  */
 
 import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';
+import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { LockHolderInfo } from '../errors.js';
 
 // Re-export lock types for consumers of this module
@@ -446,6 +459,21 @@ export interface RefStore {
   executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null>;
 
   /**
+   * Read an execution attempt's record as it is stored: its bytes, in the form
+   * the release that wrote it wrote. A repository upgrade reads a record so,
+   * to carry one an earlier release wrote into the current form, which alone
+   * {@link executionGet} reads.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   * @returns The record's bytes, an `ExecutionStatusType` value in beast2, or
+   *   null if there is no record
+   */
+  executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null>;
+
+  /**
    * Write execution status.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
@@ -713,11 +741,18 @@ export interface LockService {
    * (process ID for local, request ID for Lambda, etc.) and writes the lock
    * state.
    *
+   * Null is the answer for a holder, and for nothing else: a caller reports a
+   * null as the resource held (a gc, a deploy, a running dataflow), so any
+   * other failure to take the lock is thrown as itself.
+   *
    * @param repo - Repository identifier
    * @param resource - Resource identifier (e.g., "workspaces/production")
    * @param operation - What operation is acquiring the lock
    * @param options - Lock options (`mode` defaults to `exclusive`)
-   * @returns Lock handle, or null if the lock couldn't be acquired
+   * @returns Lock handle, or null if a current holder's mode excludes it
+   * @throws {InvalidNameError} When the resource is a name the store cannot key
+   *   by
+   * @throws When the store fails to take the lock for any other reason
    */
   acquire(
     repo: string,
@@ -780,10 +815,19 @@ export interface LogChunk {
 /**
  * Log storage for execution stdout/stderr.
  * All methods take `repo` as first parameter to identify the repository.
+ *
+ * @remarks
+ * Once an execution's record says it has ended, its log is whole for every
+ * reader: e3 flushes an attempt's log ({@link LogStore.flush}) after its last
+ * append and before it records how the attempt ended. The one log this cannot
+ * make whole is that of an execution whose host died before its end, which a
+ * later probe records `interrupted`: it is what its store made readable
+ * before the host died.
  */
 export interface LogStore {
   /**
-   * Append data to a log stream.
+   * Append data to a log stream. What it appends is readable by every reader
+   * once the attempt's log is flushed ({@link flush}), or sooner.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -822,6 +866,28 @@ export interface LogStore {
   // Note: The options.limit parameter corresponds to a maximum bytes to read.
   // The returned LogChunk.size indicates actual bytes read.
   // The returned LogChunk.complete indicates if end of file was reached.
+
+  /**
+   * Make both streams of an execution attempt's log readable by every reader,
+   * as they stand once every append made before the flush has resolved.
+   *
+   * @remarks
+   * A store may resolve an append before its data is readable elsewhere: one
+   * whose storage has no append of its own gathers appends into fewer, larger
+   * writes. Such a store writes what it holds of the attempt's log here. e3
+   * records how an attempt ended only once its log is flushed — a runner's
+   * attempt (`ExecutionAttempt`), a split task's own execution (`SplitTask`)
+   * and an execution a package import files — so a reader that finds an
+   * execution ended reads its whole log. A store whose appends are readable
+   * once they resolve, as the local, in-memory and browser stores' are, does
+   * nothing; nor does a flush of a log nothing appended to.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   */
+  flush(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void>;
 
   /**
    * Remove both streams of an execution attempt's logs.
@@ -1248,6 +1314,22 @@ export interface StorageBackend {
 
   /** Per-dataset reference storage (reactive dataflow) */
   readonly datasets: DatasetRefStore;
+
+  /**
+   * The store of a repository's dataflow runs' states: where an orchestrator
+   * running the repository's dataflows keeps each run's state.
+   *
+   * @remarks
+   * A run's state is stored state, kept with the repository's other records,
+   * which a workspace's removal removes ({@link RefStore.workspaceRemove}). A
+   * host that runs dataflows over this backend keeps their states here, so a
+   * repository upgrade that carries a changed form of the state forward reaches
+   * every run's ({@link ExecutionStateStore.readStored}).
+   *
+   * @param repo - Repository identifier
+   * @returns The repository's run state store
+   */
+  runStates(repo: string): ExecutionStateStore;
 
   /**
    * Validate that a repository exists and is properly structured. It reads no

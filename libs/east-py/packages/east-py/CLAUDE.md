@@ -15,9 +15,9 @@ capture**. There are no "kernels", "traces" or "push-downs" here: a test
 
 ## Commands
 
-`make build`, `make test`, `make lint`, `make typecheck`, `make check`,
-`make repl`, `make coverage`, `make bench`, `make build-cython` from this
-directory. See
+`make build`, `make test`, `make test-file`, `make lint`, `make typecheck`,
+`make check`, `make repl`, `make coverage`, `make bench`, `make build-cython`
+from this directory. See
 [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md).
 
 Pytest is run through uv against an editable install — a `.py` edit is live,
@@ -25,10 +25,15 @@ a `.pyx` edit needs `cd ../.. && make reinstall-east-py` (rebuilds the
 extensions). A `pytest … | grep | tail` pipeline's exit code is `tail`'s:
 read the summary line.
 
+The corpus suites read the checkout's exported corpora and east-node CLI
+(`EAST_TEST_IR_DIR`, `EAST_EXAMPLES_IR_DIR`, `EAST_NODE_CLI`), which the root
+`paths.mk` supplies to every target here — so run them through make; a bare
+`uv run pytest` runs the units and skips the corpus suites.
+
 ```bash
-uv run pytest tests -q --no-cov --ignore=tests/conformance   # units + compliance
-uv run pytest tests/test_stdlib.py -q --no-cov -k round        # one file / keyword
-uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
+make test-file FILE="tests --ignore=tests/conformance"   # units + compliance
+make test-file FILE="tests/test_stdlib.py -k round"      # one file / keyword
+make test-file FILE=tests/conformance                    # IR round trip, ~1 min
 ```
 
 ## Architecture
@@ -149,22 +154,24 @@ dynamically typed at the boundary. See `pyproject.toml`.
   `test_expression_*.py`, `test_ts_name_parity.py`, `test_codegen_spellings.py`,
   `test_eager_capture_matrix.py`, …); `tests/serialization/` for the codecs.
 - **Compliance** — `test_compliance.py` runs the TypeScript-exported spec
-  corpus (`/tmp/east-test-ir`, from `cd libs/east && make test-export`)
+  corpus (`EAST_TEST_IR_DIR`, the checkout's `tmp/east-test-ir`, from
+  `cd libs/east && make test-export`)
   through east-c; `test_compliance_eager.py` + `eager_replay.py` replay the
   same corpus through the python surface, builtin by builtin, gated by an
   exact `KNOWN_DIFFS` pin that only ratchets down.
 - **Conformance** (`tests/conformance/`) — `build(print(IR)) ≡ IR` under
   east-c's normalizer for the corpus and for the exported examples
-  (`/tmp/east-examples-ir`, from `pnpm --filter @elaraai/east run
-  export:examples`); every corpus program also runs its compliance suite
+  (`EAST_EXAMPLES_IR_DIR`, the checkout's `tmp/east-examples-ir`, from
+  `cd libs/east && make export-examples`); every corpus program also runs its compliance suite
   on the rebuilt IR and must agree with the original test by test.
   `EAST_CONFORMANCE_REQUIRED=1` fails instead of skipping when a corpus is
   missing (the per-OS CI sweep sets it). About a minute in all.
   `test_three_way_sweep.py` continues the round trip through TypeScript —
   IR₁ → python → IR₂ → `east-node transpile --rebuild` → IR₃, all equal
-  under the normalizer — and needs the built east-node CLI
-  (`EAST_NODE_CLI=…/east-node-cli/bin/east-node.mjs`, or `east-node` on
-  PATH; skips otherwise, `EAST_SWEEP_REQUIRED=1` in its own CI job). The
+  under the normalizer — and needs the checkout's built east-node CLI,
+  `EAST_NODE_CLI` (never `east-node` on PATH, a global link that may run
+  another checkout's east); skips otherwise, `EAST_SWEEP_REQUIRED=1` in its
+  own CI job. The
   contract and construct table: `docs/conventions/EAST_CODEGEN.md`.
 - **Diagnostics** (`tests/diagnostics/`) — the rule corpus: for every rule
   an `ok.py` every rule leaves alone and a `bad.py` whose `# expect: <rule>`

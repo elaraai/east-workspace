@@ -140,7 +140,8 @@ export {
   type SplitCallRunOptions,
 } from './splitCall.js';
 
-// Persistence-free process helpers (shared by tracked + detached paths)
+// Persistence-free process helpers (shared by tracked + detached paths), and
+// how every process e3 starts runs: its environment, user and group
 export {
   marshalInputsToDir,
   stageInput,
@@ -148,6 +149,7 @@ export {
   spawnAndCapture,
   type SpawnAndCaptureOptions,
   type SpawnAndCaptureResult,
+  type ProcessSettings,
 } from './processExec.js';
 
 // A unit's segments placed as its runner reads them, where placing an object

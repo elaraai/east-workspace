@@ -558,6 +558,41 @@ describe("ReactiveDatasetCache — setRefetchInterval", () => {
         // Documented monotonic-shortening behaviour: still 100ms.
         assert.equal(clock.intervals[0]!.intervalMs, 100);
     });
+
+    test("a poll asks the status of the paths it polls and those whose hash it follows, and of no others", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-P");
+        api.seed(ws, schedulePath, bytes(2), "hash-S");
+        api.seed(ws, path("other"), bytes(3), "hash-O");
+        cache.setRefetchInterval(ws, policyPath, 100);
+        cache.watchHash(ws, schedulePath, () => {});
+        await settle();
+        clock.tickAll();
+        await settle();
+        const asked = api.calls.workspaceStatus.at(-1)?.paths;
+        assert.ok(asked !== undefined, "the poll names what it watches");
+        assert.deepEqual(new Set(asked.map(datasetPathToString)), new Set(["policy", "schedule"]));
+    });
+
+    test("a path watched once a poll is in flight waits for the next poll, and is not taken for absent", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-P");
+        api.seed(ws, schedulePath, bytes(2), "hash-S");
+        await cache.preload(ws, schedulePath);
+        const pause = api.pauseNext("workspaceStatus");
+        cache.setRefetchInterval(ws, policyPath, 100); // the poll asks for policy, and is held
+        cache.setRefetchInterval(ws, schedulePath, 100);
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws, schedulePath, (hash) => { heard.push(hash); });
+        pause.resume();
+        await settle();
+        assert.deepEqual(cache.read(ws, schedulePath), bytes(2), "its content is kept");
+        assert.deepEqual(heard, [], "its watch is told nothing yet");
+
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(heard, ["hash-S"], "the next poll answers it");
+    });
 });
 
 // =============================================================================
@@ -777,6 +812,22 @@ describe("createDefaultDatasetApi", () => {
         } finally {
             globalThis.fetch = networkFetch;
         }
+    });
+
+    test("asks the status route for the datasets named, each as a status names it", async () => {
+        const seen: string[] = [];
+        const fetch = (async (input: string | URL | Request) => {
+            seen.push(String(input));
+            return new Response(JSON.stringify({ error: { type: "not_found", message: "not served here" } }), {
+                status: 404,
+                headers: { "Content-Type": "application/json" },
+            });
+        }) as typeof globalThis.fetch;
+        const api = createDefaultDatasetApi("http://e3.test", "default", () => ({ token: null, fetch }));
+
+        await assert.rejects(api.workspaceStatus(ws, [policyPath, path("inputs", "my field")]));
+        assert.equal(seen.length, 1);
+        assert.deepEqual(new URL(seen[0]!).searchParams.getAll("path"), [".policy", ".inputs.`my field`"]);
     });
 });
 

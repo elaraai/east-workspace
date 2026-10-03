@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { variant, some, none } from '@elaraai/east';
-import { E3_RELEASE } from '@elaraai/e3-types';
+import { E3_RELEASE, dataflowForce, executionStateSummary } from '@elaraai/e3-types';
 import type { ExecutionEvent, DataflowExecutionState } from './types.js';
 import { coreEventToApiEvent, coreStateToApiState } from './api-compat.js';
 
@@ -23,7 +23,7 @@ function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExe
     repo: 'test-repo',
     workspace: 'ws',
     startedAt: now,
-    force: false,
+    force: dataflowForce(false),
     filter: none,
     graph: none,
     graphHash: none,
@@ -163,11 +163,11 @@ describe('coreEventToApiEvent', () => {
 });
 
 // =============================================================================
-// coreStateToApiState — totalEvents
+// coreStateToApiState — the events past a cursor, and the cursor past them
 // =============================================================================
 
 describe('coreStateToApiState', () => {
-  it('totalEvents counts only API-visible events', () => {
+  it('serves only the API-visible events, with the cursor past them its caller gives', () => {
     // 5 core events: execution_started, task_ready, task_started, task_completed, execution_completed
     // Only 2 are API-visible: task_started → start, task_completed → complete
     const events: ExecutionEvent[] = [
@@ -191,15 +191,15 @@ describe('coreStateToApiState', () => {
     ];
 
     const state = makeState({ executed: 1n, events });
-    const result = coreStateToApiState(state, events, 2, 1000);
+    const result = coreStateToApiState(state, events, 4n, 1000);
 
     assert.strictEqual(result.events.length, 2);
-    assert.strictEqual(result.totalEvents, 2n);
+    assert.strictEqual(result.nextSeq, 4n);
     assert.strictEqual(result.events[0]?.type, 'start');
     assert.strictEqual(result.events[1]?.type, 'complete');
   });
 
-  it('totalEvents is 0 when all events are internal', () => {
+  it('serves no events when every one is internal, and the cursor past them', () => {
     const events: ExecutionEvent[] = [
       variant('execution_started', {
         seq: 0n, timestamp: now, executionId: '1', totalTasks: 0n,
@@ -211,15 +211,21 @@ describe('coreStateToApiState', () => {
     ];
 
     const state = makeState({ events });
-    const result = coreStateToApiState(state, events, 0, 0);
+    const result = coreStateToApiState(state, events, 1n, 0);
 
     assert.strictEqual(result.events.length, 0);
-    assert.strictEqual(result.totalEvents, 0n);
+    assert.strictEqual(result.nextSeq, 1n);
+  });
+
+  it('answers a run\'s summary as its whole state, which holds the summary', () => {
+    const events: ExecutionEvent[] = [variant('task_started', { seq: 1n, timestamp: now, task: 'build' })];
+    const state = makeState({ executed: 3n, cached: 2n, failed: 1n, skipped: 4n, status: 'failed', events });
+    assert.deepStrictEqual(coreStateToApiState(executionStateSummary(state), events, 1n, 700), coreStateToApiState(state, events, 1n, 700));
   });
 
   it('includes summary only for non-running executions', () => {
     const state = makeState({ status: 'running', completedAt: none });
-    const result = coreStateToApiState(state, [], 0, 500);
+    const result = coreStateToApiState(state, [], 0n, 500);
 
     assert.strictEqual(result.summary, null);
     assert.strictEqual(result.status, 'running');
@@ -227,7 +233,7 @@ describe('coreStateToApiState', () => {
 
   it('maps cancelled status to aborted', () => {
     const state = makeState({ status: 'cancelled' });
-    const result = coreStateToApiState(state, [], 0, 0);
+    const result = coreStateToApiState(state, [], 0n, 0);
 
     assert.strictEqual(result.status, 'aborted');
   });

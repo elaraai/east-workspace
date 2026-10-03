@@ -10,7 +10,9 @@
  * it runs on: the attempt's owner first, then `running`, and then how it ended
  * — `success`, `failed`, `error` or `cancelled` — each saying whether the
  * execution is a unit of a split task. Its log is appended as its runner
- * writes, and a cause e3 stopped it for is the log's last line. The local
+ * writes, and a cause e3 stopped it for is the log's last line; how it ended
+ * is recorded once its log is flushed, so a reader that finds it ended reads
+ * the whole log, whatever store holds it. The local
  * runner writes them for a process on this machine (`LocalTaskRunner.ts`),
  * and another backend's runner for a unit it runs where it runs units, so the
  * records read alike whichever runner wrote them.
@@ -91,6 +93,11 @@ function createLogAppender(append: (data: string) => Promise<void>, stream: 'std
  * record is written once; what it returns is the execution's result, as
  * {@link TaskRunner.execute}'s caller is told it.
  *
+ * An end is recorded after the log is flushed (`LogStore.flush`), so a store
+ * that holds appends makes the whole log readable first. Its runner records
+ * the end once every append of the log has settled, as the local and the
+ * browser's runners do: a flush makes readable what was appended before it.
+ *
  * @example
  * ```ts
  * const attempt = new ExecutionAttempt(storage, repo, taskHash, inputHashes, ids, false);
@@ -154,7 +161,7 @@ export class ExecutionAttempt {
     try {
       if (owner !== null) await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, owner);
     } catch (err) {
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('error', {
+      await this.end(variant('error', {
         executionId,
         inputHashes,
         startedAt,
@@ -196,17 +203,16 @@ export class ExecutionAttempt {
    * @returns The execution's result
    */
   async recordError(message: string, exitCode: number | null = null): Promise<ExecutionResult> {
-    const { storage, repo, taskHash, inputHashes, unit } = this;
+    const { inputHashes, unit } = this;
     const { inHash, executionId, startTime } = this.ids;
-    const status: ExecutionStatus = variant('error', {
+    await this.end(variant('error', {
       executionId,
       inputHashes,
       startedAt: new Date(startTime),
       completedAt: new Date(),
       message,
       unit,
-    });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+    }));
     return {
       inputsHash: inHash,
       executionId,
@@ -226,8 +232,9 @@ export class ExecutionAttempt {
    * <cause>` to its stderr log.
    *
    * @remarks
-   * A log that cannot be appended to is warned of, and the record is written
-   * all the same.
+   * A `cancelled` record's reason is `aborted`, its message the cause. A log
+   * that cannot be appended to, or flushed, is warned of, and the record is
+   * written all the same.
    *
    * @param outcome - How it is recorded
    * @param cause - Why it stopped, as its log and its record say
@@ -244,10 +251,10 @@ export class ExecutionAttempt {
       console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
     }
     const stopped = { executionId, inputHashes, startedAt: new Date(startTime), completedAt: new Date(), unit };
-    const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', stopped)
+    const status: ExecutionStatus = outcome === 'cancelled' ? variant('cancelled', { ...stopped, reason: { kind: variant('aborted', null), message: cause } })
       : outcome === 'error' ? variant('error', { ...stopped, message: cause })
       : variant('failed', { ...stopped, exitCode: -1n, peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)) });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+    await this.end(status);
     return {
       inputsHash: inHash,
       executionId,
@@ -271,9 +278,9 @@ export class ExecutionAttempt {
    * @returns The execution's result
    */
   async recordFailed(exitCode: number | null, error: string | null, peakBytes?: number): Promise<ExecutionResult> {
-    const { storage, repo, taskHash, inputHashes, unit } = this;
+    const { inputHashes, unit } = this;
     const { inHash, executionId, startTime } = this.ids;
-    const status: ExecutionStatus = variant('failed', {
+    await this.end(variant('failed', {
       executionId,
       inputHashes,
       startedAt: new Date(startTime),
@@ -281,8 +288,7 @@ export class ExecutionAttempt {
       exitCode: BigInt(exitCode ?? -1),
       peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
       unit,
-    });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+    }));
     return {
       inputsHash: inHash,
       executionId,
@@ -306,9 +312,9 @@ export class ExecutionAttempt {
    * @returns The execution's result
    */
   async recordSuccess(outputHash: string, peakBytes?: number): Promise<ExecutionResult> {
-    const { storage, repo, taskHash, inputHashes, unit } = this;
+    const { inputHashes, unit } = this;
     const { inHash, executionId, startTime } = this.ids;
-    const status: ExecutionStatus = variant('success', {
+    await this.end(variant('success', {
       executionId,
       inputHashes,
       outputHash,
@@ -317,8 +323,7 @@ export class ExecutionAttempt {
       peakBytes: peakBytes === undefined ? none : some(BigInt(peakBytes)),
       plan: none,
       unit,
-    });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+    }));
     return {
       inputsHash: inHash,
       executionId,
@@ -331,6 +336,25 @@ export class ExecutionAttempt {
       cancelled: false,
       ...(peakBytes !== undefined && { peakBytes }),
     };
+  }
+
+  /**
+   * Records how the attempt ended, once its log is whole for every reader:
+   * the log is flushed (`LogStore.flush`), and then the record written. A log
+   * that cannot be flushed is warned of, and the record is written all the
+   * same, as one that cannot be appended to is.
+   *
+   * @param status - How it ended
+   */
+  private async end(status: ExecutionStatus): Promise<void> {
+    const { storage, repo, taskHash } = this;
+    const { inHash, executionId } = this.ids;
+    try {
+      await storage.logs.flush(repo, taskHash, inHash, executionId);
+    } catch (err) {
+      console.warn(`Failed to flush the log: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
   }
 }
 

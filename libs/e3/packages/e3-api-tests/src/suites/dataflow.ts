@@ -17,7 +17,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, variant } from '@elaraai/east';
+import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, lessFor, variant } from '@elaraai/east';
 import {
   packageImport,
   workspaceCreate,
@@ -52,7 +52,22 @@ import {
 } from '../fixtures.js';
 import { assertDataflowSucceeded, describeDataflowResult } from '../assertions.js';
 import { waitFor } from '../cli.js';
-import type { RequestOptions } from '@elaraai/e3-api-client';
+import type { ExecutionListItem, ExecutionStateOptions, LogOptions, RequestOptions } from '@elaraai/e3-api-client';
+
+/**
+ * Asserts a call is refused `bad_request`, with the message the server gives.
+ *
+ * @param call - The refused call
+ * @param message - The server's message, whole
+ */
+async function rejectsBadRequest(call: Promise<unknown>, message: string): Promise<void> {
+  await assert.rejects(call, (err: unknown) => {
+    assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+    assert.strictEqual(err.code, 'bad_request');
+    assert.strictEqual(err.details, message);
+    return true;
+  });
+}
 
 /** Helper: import package, create workspace, deploy */
 function withDeployed(
@@ -145,6 +160,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withNoExec = withDeployed(setup, createPackageZip, 'noexec-pkg', 'noexec-ws');
   const withCache = withDeployed(setup, createPackageZip, 'cache-pkg', 'cache-ws');
   const withFilter = withDeployed(setup, createDiamondPackageZip, 'filter-pkg', 'filter-ws');
+  const withForced = withDeployed(setup, createDiamondPackageZip, 'forced-pkg', 'forced-ws');
   const withGraph = withDeployed(setup, createDiamondPackageZip, 'graph-pkg', 'graph-ws');
   const withLogPag = withDeployed(setup, createLoggingPackageZip, 'logpag-pkg', 'logpag-ws');
   const withEvtPag = withDeployed(setup, createDiamondPackageZip, 'evtpag-pkg', 'evtpag-ws');
@@ -326,8 +342,9 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Start execution
         await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'diamond-ws', { force: true }, opts);
 
-        // Poll and collect events
+        // Poll and collect events, each poll from the cursor the last gave
         const events: unknown[] = [];
+        let since = 0n;
         const maxWait = 60000;
         const startTime = Date.now();
 
@@ -336,12 +353,13 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
             ctx.config.baseUrl,
             ctx.repoName,
             'diamond-ws',
-            { offset: events.length },
+            { since },
             opts
           );
 
           // Collect new events
           events.push(...state.events);
+          since = state.nextSeq;
 
           if (state.status.type === 'completed' || state.status.type === 'failed') {
             break;
@@ -661,6 +679,32 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(finalStatus, 'aborted');
       });
 
+      it('serves why a cancelled run\'s task stopped, in the task\'s history and its status', async (t) => {
+        const ctx = await withSlow(t);
+        const opts = await ctx.opts();
+        const history = () => taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'slow-ws', 'slow', opts);
+
+        await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
+        // The task's attempt is recorded running before the cancel, so the
+        // cancel stops that attempt.
+        await waitFor(async () => (await history()).some((item) => item.status.type === 'running'), 60000);
+        await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
+
+        const cancelled = (items: ExecutionListItem[]) => items.find((item) => item.status.type === 'cancelled');
+        await waitFor(async () => cancelled(await history()) !== undefined, 60000);
+        const stopped = cancelled(await history());
+        if (stopped?.reason.type !== 'some') assert.fail('a cancelled attempt says why it stopped');
+        assert.strictEqual(stopped.reason.value.kind.type, 'aborted');
+        assert.notStrictEqual(stopped.reason.value.message, '', 'in words, as its log\'s last line does');
+
+        // The task reads ready, naming why its latest attempt stopped.
+        const task = (await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts)).tasks.find((each) => each.name === 'slow');
+        assert.ok(task !== undefined, 'the task is in the status');
+        assert.strictEqual(task.status.type, 'ready');
+        if (task.stopped.type !== 'some') assert.fail('the status names why the task\'s attempt stopped');
+        assert.strictEqual(task.stopped.value.kind.type, 'aborted');
+      });
+
       it('dataflowCancel returns error when no execution is running', async (t) => {
         const ctx = await withSlow(t);
         const opts = await ctx.opts();
@@ -957,6 +1001,54 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
       });
     });
 
+    // A run forces every task, none, or the tasks it names. The diamond's left
+    // and right read the inputs, and merge reads both.
+    describe('forcing named tasks', { concurrency: false }, () => {
+      it('re-runs the tasks a run names, and serves the rest from the cache while their inputs hold', async (t) => {
+        const ctx = await withForced(t);
+        const opts = await ctx.opts();
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'forced-ws', {}, opts), 'first run');
+
+        const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'forced-ws', { force: ['left'] }, opts);
+        assertDataflowSucceeded(result, 'forced run');
+        // left runs again and writes what it wrote before, so merge, which
+        // reads it, is served from the cache as right is.
+        assert.deepStrictEqual(
+          ['left', 'right', 'merge'].map((name) => [name, result.tasks.find((task) => task.name === name)?.cached]),
+          [['left', false], ['right', true], ['merge', true]],
+          describeDataflowResult(result),
+        );
+      });
+
+      it('refuses a start forcing a task the graph lacks, or one the filter leaves out, before anything runs', async (t) => {
+        const ctx = await withForced(t);
+        const opts = await ctx.opts();
+
+        await assert.rejects(dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'forced-ws', { force: ['left', 'no_such_task'] }, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'task_not_found');
+          assert.strictEqual((err.details as { task?: string } | undefined)?.task, 'no_such_task');
+          return true;
+        });
+        await assert.rejects(dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'forced-ws', { force: ['right'], filter: 'left' }, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'dataflow_error');
+          assert.strictEqual(
+            (err.details as { message?: string } | undefined)?.message,
+            "the run forces 'right', which the filter 'left' leaves out: a filtered run runs 'left' and the tasks it depends on, and no other",
+          );
+          return true;
+        });
+
+        // Neither started a run.
+        await assert.rejects(dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'forced-ws', {}, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'execution_not_found');
+          return true;
+        });
+      });
+    });
+
     describe('dependency graph', { concurrency: false }, () => {
       it('dataflowGraph returns correct structure', async (t) => {
         const ctx = await withGraph(t);
@@ -1026,40 +1118,119 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(tail.offset, 14n);
         assert.strictEqual(tail.size, 7n);
         assert.strictEqual(tail.complete, true);
+
+        // A window of no bytes is a window: it reports the log's size, which
+        // is how e3's CLI learns it
+        const probe = await read({ offset: 0, limit: 0 });
+        assert.strictEqual(probe.data, '');
+        assert.strictEqual(probe.size, 0n);
+        assert.strictEqual(probe.totalSize, total);
+      });
+
+      it('refuses a malformed window or stream with bad_request, before it reads a log', async (t) => {
+        const ctx = await withLogPag(t);
+        const opts = await ctx.opts();
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', { force: true }, opts));
+
+        // Through the client, which sends a number as it prints
+        const windows: [LogOptions, string][] = [
+          [{ offset: NaN }, 'offset must be a non-negative integer, got "NaN"'],
+          [{ offset: -1 }, 'offset must be a non-negative integer, got "-1"'],
+          [{ offset: 1.5 }, 'offset must be a non-negative integer, got "1.5"'],
+          [{ limit: NaN }, 'limit must be a non-negative integer, got "NaN"'],
+          [{ limit: -1 }, 'limit must be a non-negative integer, got "-1"'],
+        ];
+        for (const [window, message] of windows) {
+          await rejectsBadRequest(
+            taskLogs(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'log', { stream: 'stdout', ...window }, opts),
+            message,
+          );
+        }
+
+        // As a request spells them: a word; a number past those a number holds
+        // exactly; a stream other than the two a log has, a way out of the
+        // execution among them; and a window for a task there is no log of,
+        // refused before the server looks for one
+        const logs = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/logpag-ws/dataflow/logs`;
+        const headers: Record<string, string> = opts.token ? { 'Authorization': `Bearer ${opts.token}` } : {};
+        const requests: [string, string][] = [
+          ['log?offset=abc', 'offset must be a non-negative integer, got "abc"'],
+          ['log?limit=abc', 'limit must be a non-negative integer, got "abc"'],
+          ['log?offset=99999999999999999999', 'offset must be at most 9007199254740991, got "99999999999999999999"'],
+          ['log?stream=stdin', 'stream must be stdout or stderr, got "stdin"'],
+          [`log?stream=${encodeURIComponent('../../stdout')}`, 'stream must be stdout or stderr, got "../../stdout"'],
+          ['no_such_task?offset=-1', 'offset must be a non-negative integer, got "-1"'],
+        ];
+        for (const [request, message] of requests) {
+          const response = await ctx.fetch(`${logs}/${request}`, { headers });
+          assert.strictEqual(response.status, 400, request);
+          assert.deepStrictEqual(await response.json(), { error: { type: 'bad_request', message } }, request);
+        }
       });
     });
 
     describe('event pagination', { concurrency: false }, () => {
-      it('dataflowExecutePoll supports event offset and limit', async (t) => {
+      it('dataflowExecutePoll serves the events past its cursor, at most its limit, and the cursor past them', async (t) => {
         const ctx = await withEvtPag(t);
         const opts = await ctx.opts();
+        const poll = (stateOptions: ExecutionStateOptions) => dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', stateOptions, opts);
 
         // Execute and wait for completion
         await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts);
 
-        // Get first event only
-        const page1 = await dataflowExecutePoll(
-          ctx.config.baseUrl, ctx.repoName, 'evtpag-ws',
-          { offset: 0, limit: 1 },
-          opts
-        );
-        assert.strictEqual(page1.events.length, 1, 'Should return exactly 1 event');
-        assert.ok(page1.totalEvents >= 3n, `Expected at least 3 total events, got ${page1.totalEvents}`);
+        const before = lessFor(IntegerType);
 
-        // Get second event
-        const page2 = await dataflowExecutePoll(
-          ctx.config.baseUrl, ctx.repoName, 'evtpag-ws',
-          { offset: 1, limit: 1 },
-          opts
-        );
-        assert.strictEqual(page2.events.length, 1, 'Should return exactly 1 event');
+        // Every event, and the cursor past the last
+        const all = await poll({});
+        assert.ok(all.events.length >= 3, `Expected at least 3 events, got ${all.events.length}`);
+        assert.ok(before(0n, all.nextSeq), 'the cursor moved past the events');
 
-        // Events should be different
-        const event1 = page1.events[0];
-        const event2 = page2.events[0];
-        const event1Key = `${event1.type}:${'value' in event1 ? (event1.value as { task: string }).task : ''}`;
-        const event2Key = `${event2.type}:${'value' in event2 ? (event2.value as { task: string }).task : ''}`;
-        assert.notStrictEqual(event1Key, event2Key, 'Paginated events should be different');
+        // A page of one, and the next from its cursor: the events in order
+        const page1 = await poll({ limit: 1 });
+        const page2 = await poll({ since: page1.nextSeq, limit: 1 });
+        assert.deepStrictEqual([...page1.events, ...page2.events], all.events.slice(0, 2), 'the first two events, in order');
+        assert.ok(before(page1.nextSeq, page2.nextSeq), 'each cursor past the events served');
+
+        // A poll that has every event is served none, and its cursor stays
+        const caughtUp = await poll({ since: all.nextSeq });
+        assert.deepStrictEqual([caughtUp.events, caughtUp.nextSeq], [[], all.nextSeq]);
+        assert.strictEqual(caughtUp.status.type, 'completed', 'with the run\'s state');
+      });
+
+      it('refuses a malformed cursor or limit with bad_request; a poll of no events carries the run\'s state', async (t) => {
+        const ctx = await withEvtPag(t);
+        const opts = await ctx.opts();
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts));
+
+        // Through the client, which sends a limit as it prints
+        const windows: [ExecutionStateOptions, string][] = [
+          [{ limit: NaN }, 'limit must be a non-negative integer, got "NaN"'],
+          [{ limit: -1 }, 'limit must be a non-negative integer, got "-1"'],
+          [{ limit: 1.5 }, 'limit must be a non-negative integer, got "1.5"'],
+          [{ since: -1n }, 'since must be a non-negative integer, got "-1"'],
+        ];
+        for (const [window, message] of windows) {
+          await rejectsBadRequest(dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', window, opts), message);
+        }
+
+        // As a request spells them: a word, and a number past those a number
+        // holds exactly
+        const execution = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/evtpag-ws/dataflow/execution`;
+        const headers: Record<string, string> = opts.token ? { 'Authorization': `Bearer ${opts.token}` } : {};
+        const requests: [string, string][] = [
+          ['since=abc', 'since must be a non-negative integer, got "abc"'],
+          ['since=1.5', 'since must be a non-negative integer, got "1.5"'],
+          ['since=99999999999999999999', 'since must be at most 9007199254740991, got "99999999999999999999"'],
+        ];
+        for (const [query, message] of requests) {
+          const response = await ctx.fetch(`${execution}?${query}`, { headers });
+          assert.strictEqual(response.status, 400, query);
+          assert.deepStrictEqual(await response.json(), { error: { type: 'bad_request', message } }, query);
+        }
+
+        const none = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { limit: 0 }, opts);
+        assert.strictEqual(none.status.type, 'completed');
+        assert.deepStrictEqual([none.events, none.nextSeq], [[], 0n], 'no events, and the cursor where it was');
       });
     });
   });

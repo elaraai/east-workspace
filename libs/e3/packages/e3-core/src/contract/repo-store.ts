@@ -17,6 +17,7 @@ import { RepoAlreadyExistsError, RepoNotFoundError, RepoStatusConflictError } fr
 import { REPOSITORY_UPGRADES, repositoryOpen } from '../repository-record.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { MALFORMED_HASHES, MALFORMED_IDS, MALFORMED_NAMES, hashRefusal, idRefusal, nameRefusal } from './malformed.js';
 
 const TASK = 'a'.repeat(64);
 const INPUTS = 'b'.repeat(64);
@@ -126,6 +127,50 @@ export function repoStoreTests(setup: RepositoriesSetup): void {
       assert.deepEqual(await storage.datasets.list(repo, 'ws'), []);
       assert.equal((await storage.logs.read(repo, TASK, INPUTS, id, 'stdout')).totalSize, 0);
       assert.deepEqual(await storage.refs.packageList(repoOf('beta')), [{ name: 'kept', version: '1.0.0' }], 'another repository keeps its own');
+    });
+
+    it('refuses a repository\'s name that cannot be one path segment, naming it, before it reads or writes anything', async (t) => {
+      const { storage } = await setup(t);
+      for (const name of MALFORMED_NAMES['repository']) {
+        const refused = nameRefusal('repository', name);
+        await assert.rejects(storage.repos.exists(name), refused);
+        await assert.rejects(storage.repos.getMetadata(name), refused);
+        await assert.rejects(storage.repos.create(name), refused);
+        await assert.rejects(storage.repos.setStatus(name, 'deleting'), refused);
+        await assert.rejects(storage.repos.remove(name), refused);
+        await assert.rejects(storage.repos.deleteRefsBatch(name), refused);
+        await assert.rejects(storage.repos.deleteObjectsBatch(name), refused);
+      }
+      assert.deepEqual(await storage.repos.list(), [], 'no repository is created');
+    });
+
+    it('refuses gc an object\'s hash or a run\'s id that is not of its form, naming it, before it reads or writes anything', async (t) => {
+      const { storage, repoOf } = await setup(t);
+      await storage.repos.create('alpha');
+      const repo = repoOf('alpha');
+      const start = Date.now();
+      const held = await storage.objects.write(repo, new TextEncoder().encode('an object'));
+      const noted = await storage.objects.write(repo, new TextEncoder().encode('a noted object'));
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [noted], start), [start]);
+
+      for (const malformed of MALFORMED_HASHES) {
+        const refused = hashRefusal('object hash', malformed);
+        // A batch naming one does nothing of the rest
+        await assert.rejects(storage.repos.gcNoteUnreachable(repo, [held, malformed], start), refused);
+        await assert.rejects(storage.repos.gcClearUnreachable(repo, [noted, malformed]), refused);
+        await assert.rejects(storage.repos.gcDeleteObjects(repo, [held, malformed]), refused);
+        await assert.rejects(storage.repos.gcDeleteUnreachable(repo, malformed, start), refused);
+      }
+      assert.deepEqual((await storage.objects.list(repo)).sort(), [held, noted].sort(), 'nothing is deleted');
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [held, noted], start + 1), [start + 1, start],
+        'nothing is noted, and no note cleared');
+
+      for (const malformed of MALFORMED_IDS) {
+        const refused = idRefusal('gc run id', malformed);
+        await assert.rejects(storage.repos.gcRunWrite(repo, malformed, 'roots', new Uint8Array([1])), refused);
+        await assert.rejects(storage.repos.gcRunRead(repo, malformed, 'roots'), refused);
+        await assert.rejects(storage.repos.gcRunDelete(repo, malformed), refused);
+      }
     });
   });
 }

@@ -21,6 +21,12 @@ import { executionPath } from './localHelpers.js';
  */
 export class LocalLogStore implements LogStore {
   private logPath(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: 'stdout' | 'stderr'): string {
+    // The stream names a file of the execution's directory, so a name that is
+    // not one of its two — a caller's unchecked `../…` — is refused here, where
+    // it would become a path, rather than read or written wherever it leads.
+    if (stream !== 'stdout' && stream !== 'stderr') {
+      throw new Error(`A log's stream is stdout or stderr, not ${JSON.stringify(stream)}`);
+    }
     return path.join(executionPath(repo, taskHash, inputsHash, executionId), `${stream}.txt`);
   }
 
@@ -92,6 +98,14 @@ export class LocalLogStore implements LogStore {
       }
       throw err;
     }
+  }
+
+  /** Holds nothing to flush: an append is in the log's file once it
+   *  resolves. The attempt's names are checked all the same, as every method
+   *  checks them ({@link executionPath}). */
+  async flush(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    executionPath(repo, taskHash, inputsHash, executionId);
+    return Promise.resolve();
   }
 
   async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {

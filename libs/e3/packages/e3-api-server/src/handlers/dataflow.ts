@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, OptionType, some, none, variant } from '@elaraai/east';
+import { IntegerType, NullType, OptionType, lessFor, some, none, variant } from '@elaraai/east';
 import {
   dataflowGetGraph,
   workspaceStatus,
@@ -12,12 +12,14 @@ import {
   ExecutionNotFoundError,
   coreEventToApiEvent,
   coreStatusToApiStatus,
+  type ApiDataflowEvent,
   type WorkspaceStatusResult as CoreWorkspaceStatusResult,
   type DatasetStatusInfo as CoreDatasetStatusInfo,
   type TaskStatusInfo as CoreTaskStatusInfo,
-  type DataflowExecutionState as CoreDataflowExecutionState,
+  type ExecutionEvent as CoreExecutionEvent,
+  type ExecutionStateSummary,
   type DataflowExecutionStatus,
-  type OrchestratorExecutionStatus,
+  type ExecutionProgress,
 } from '@elaraai/e3-core/portable';
 import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
@@ -109,6 +111,7 @@ function convertTaskStatus(info: CoreTaskStatusInfo): TaskStatusInfo {
     output: info.output,
     dependsOn: info.dependsOn,
     peakBytes: info.peakBytes === null ? none : some(BigInt(info.peakBytes)),
+    stopped: info.stopped === null ? none : some(info.stopped),
   };
 }
 
@@ -198,16 +201,18 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  * @param workspace - The workspace whose dataflow runs
  * @param options - The runner the run's tasks and units run on, which holds
  *   the server's budget; the tasks and units the loop keeps in flight, the
- *   orchestrator's own default when absent; and the run's force, filter and
- *   verbosity
- * @returns 202 once the run has started, or the error that stopped it
+ *   orchestrator's own default when absent; what the run forces — `true` for
+ *   every task, or the tasks' names — its filter and its verbosity
+ * @returns 202 once the run has started, or the error that stopped it: a
+ *   forced task the graph does not have is `task_not_found`, and one the
+ *   filter's run set leaves out `dataflow_error`
  */
 export async function startDataflow(
   storage: StorageBackend,
   orchestrator: DataflowOrchestrator,
   repoPath: string,
   workspace: string,
-  options: { runner: TaskRunner; width?: number; force: boolean; filter?: string; verbose?: boolean }
+  options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
     // Start execution via orchestrator (acquires lock internally). The loop
@@ -310,21 +315,87 @@ export async function getTaskLogs(
   }
 }
 
+/** An API-visible event as the poll serves it. */
+function apiEventValue(apiEvent: ApiDataflowEvent): DataflowExecutionState['events'][number] {
+  switch (apiEvent.type) {
+    case 'start':
+      return variant('start', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+      });
+    case 'complete':
+      return variant('complete', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+        duration: apiEvent.duration ?? 0,
+        peakBytes: apiEvent.peakBytes === undefined ? none : some(apiEvent.peakBytes),
+      });
+    case 'cached':
+      return variant('cached', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+      });
+    case 'failed':
+      return variant('failed', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+        duration: apiEvent.duration ?? 0,
+        exitCode: apiEvent.exitCode ?? BigInt(-1),
+      });
+    case 'error':
+      return variant('error', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+        message: apiEvent.message ?? 'Unknown error',
+      });
+    case 'input_unavailable':
+      return variant('input_unavailable', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+        reason: apiEvent.reason ?? 'Upstream task failed',
+      });
+    case 'requeued':
+      // coreEventToApiEvent gives a requeue each of these.
+      return variant('requeued', {
+        task: apiEvent.task,
+        timestamp: apiEvent.timestamp,
+        unit: apiEvent.unit!,
+        reason: variant(apiEvent.requeueReason!, null),
+        peak: apiEvent.peak!,
+        reserves: apiEvent.reserves!,
+      });
+  }
+}
+
+/** Whether one event sequence number comes before another. */
+const seqBefore = lessFor(IntegerType);
+
 /**
  * Get dataflow execution state (for polling).
  *
  * Returns the state of the workspace's latest run, as the state store keeps
- * it, including events for progress tracking: the run in flight, whichever
- * process runs it, or the last to end. Supports offset/limit for paginating
- * events. While the run is in flight, it carries the tasks and units waiting
- * for room and each split task's progress, which the orchestrator running it
- * keeps in memory; and it carries the server's budget when it has one.
+ * it, and its events past the poll's cursor: the run in flight, whichever
+ * process runs it, or the last to end. While the run is in flight, it carries
+ * the tasks and units waiting for room and each split task's progress, which
+ * the orchestrator running it keeps in memory; and it carries the server's
+ * budget when it has one.
+ *
+ * @remarks
+ * The poll reads the run's summary, not its whole state, and reads its events
+ * only when the summary's last is past the cursor, so a poll that has every
+ * event, or asks for none (`limit` 0), reads none. The cursor is the stored
+ * sequence number of the last event the client has (`since`, 0 for none). The
+ * response's `nextSeq` is the cursor past what the poll went through: the API
+ * events it served and the events the API does not show between them, or
+ * `since` when it went through none. The waits and the split tasks' progress
+ * come from the orchestrator's memory, which holds none of a run another
+ * process or instance runs.
  *
  * @param stateStore - The store the repository's runs keep their state in
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
  * @param workspace - The workspace
- * @param options - The window of events to serve
+ * @param options - The poll's cursor, and the most events it is served
  * @param budget - The server's budget, which its runners hold, if any
  * @returns The execution state, or `execution_not_found`
  */
@@ -333,101 +404,42 @@ export async function getDataflowExecution(
   orchestrator: DataflowOrchestrator,
   repoPath: string,
   workspace: string,
-  options: { offset?: number; limit?: number } = {},
+  options: { since?: number; limit?: number } = {},
   budget?: RunnerBudget
 ): Promise<Response> {
-  let coreState: CoreDataflowExecutionState | null;
+  const since = BigInt(options.since ?? 0);
+  let run: ExecutionStateSummary | null;
+  let stored: CoreExecutionEvent[] = [];
   try {
-    coreState = await stateStore.readLatest(repoPath, workspace);
+    run = await stateStore.readLatestSummary(repoPath, workspace);
+    if (run !== null && options.limit !== 0 && seqBefore(since, run.lastSeq)) {
+      stored = await stateStore.getEventsSince(repoPath, workspace, run.id, options.since ?? 0);
+    }
   } catch (err) {
     return sendError(DataflowExecutionStateType, errorToVariant(err));
   }
-  if (!coreState) {
+  if (run === null) {
     return sendError(DataflowExecutionStateType, variant('execution_not_found', {
       task: workspace,
     }));
   }
 
-  // Filter to API-visible events FIRST, then slice: the client advances its
-  // offset by API events RECEIVED, so slicing the unfiltered core list would
-  // re-serve part of the window every time a core-only event (execution
-  // lifecycle, reactive invalidation) sits inside it.
-  const offset = options.offset ?? 0;
-  const visibleEvents = [];
-  for (const event of coreState.events) {
-    const apiEvent = coreEventToApiEvent(event);
-    if (apiEvent !== null) visibleEvents.push(apiEvent);
-  }
-  const totalApiEvents = visibleEvents.length;
-
-  // Apply offset and limit over the API-visible sequence
-  let events = visibleEvents.slice(offset);
-  if (options.limit !== undefined) {
-    events = events.slice(0, options.limit);
-  }
-
-  // Convert page events to East variant format
+  // The API's events past the cursor, at most `limit` of them. The cursor
+  // moves past each event served, and past each the API does not show — a run's
+  // start and end, a split task's stages — up to the next served.
   const apiEvents: DataflowExecutionState['events'] = [];
-  for (const apiEvent of events) {
-    switch (apiEvent.type) {
-      case 'start':
-        apiEvents.push(variant('start', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-        }));
-        break;
-      case 'complete':
-        apiEvents.push(variant('complete', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-          duration: apiEvent.duration ?? 0,
-          peakBytes: apiEvent.peakBytes === undefined ? none : some(apiEvent.peakBytes),
-        }));
-        break;
-      case 'cached':
-        apiEvents.push(variant('cached', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-        }));
-        break;
-      case 'failed':
-        apiEvents.push(variant('failed', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-          duration: apiEvent.duration ?? 0,
-          exitCode: apiEvent.exitCode ?? BigInt(-1),
-        }));
-        break;
-      case 'error':
-        apiEvents.push(variant('error', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-          message: apiEvent.message ?? 'Unknown error',
-        }));
-        break;
-      case 'input_unavailable':
-        apiEvents.push(variant('input_unavailable', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-          reason: apiEvent.reason ?? 'Upstream task failed',
-        }));
-        break;
-      case 'requeued':
-        // coreEventToApiEvent gives a requeue each of these.
-        apiEvents.push(variant('requeued', {
-          task: apiEvent.task,
-          timestamp: apiEvent.timestamp,
-          unit: apiEvent.unit!,
-          reason: variant(apiEvent.requeueReason!, null),
-          peak: apiEvent.peak!,
-          reserves: apiEvent.reserves!,
-        }));
-        break;
+  let nextSeq = since;
+  for (const event of stored) {
+    const apiEvent = coreEventToApiEvent(event);
+    if (apiEvent !== null) {
+      if (options.limit !== undefined && apiEvents.length >= options.limit) break;
+      apiEvents.push(apiEventValue(apiEvent));
     }
+    nextSeq = event.value.seq;
   }
 
   // Convert status to API format
-  const apiStatus = coreStatusToApiStatus(coreState.status as DataflowExecutionStatus);
+  const apiStatus = coreStatusToApiStatus(run.status as DataflowExecutionStatus);
   let status: DataflowExecutionState['status'];
   switch (apiStatus) {
     case 'running':
@@ -445,17 +457,17 @@ export async function getDataflowExecution(
   }
 
   // The run's duration, from its own times: until now while it runs
-  const endTime = coreState.completedAt.type === 'some' ? coreState.completedAt.value.getTime() : Date.now();
-  const duration = endTime - coreState.startedAt.getTime();
+  const endTime = run.completedAt.type === 'some' ? run.completedAt.value.getTime() : Date.now();
+  const duration = endTime - run.startedAt.getTime();
 
   // Build summary if not running
   let summary: DataflowExecutionState['summary'];
-  if (coreState.status !== 'running') {
+  if (run.status !== 'running') {
     summary = some({
-      executed: coreState.executed,
-      cached: coreState.cached,
-      failed: coreState.failed,
-      skipped: coreState.skipped,
+      executed: run.executed,
+      cached: run.cached,
+      failed: run.failed,
+      skipped: run.skipped,
       duration,
     });
   } else {
@@ -463,29 +475,29 @@ export async function getDataflowExecution(
   }
 
   // Get completedAt value (handle Option type)
-  const completedAtValue = coreState.completedAt.type === 'some'
-    ? some(coreState.completedAt.value.toISOString())
+  const completedAtValue = run.completedAt.type === 'some'
+    ? some(run.completedAt.value.toISOString())
     : none;
 
   // The waits and each split task's progress, while the run is in flight:
-  // nothing stores them, so the orchestrator answers them where it runs the
-  // run, and a run that has ended, or that it does not hold, has none.
-  let live: OrchestratorExecutionStatus | null = null;
-  if (coreState.status === 'running') {
+  // nothing stores them, so the orchestrator answers them from its memory
+  // where it runs the run, and has none of a run it does not hold.
+  let live: ExecutionProgress | null = null;
+  if (run.status === 'running') {
     try {
-      live = await orchestrator.getStatus({ id: coreState.id, repo: repoPath, workspace });
+      live = await orchestrator.getProgress({ id: run.id, repo: repoPath, workspace });
     } catch {
-      // Ended since it was read: nothing is waiting.
+      // Nothing is waiting that the poll can say.
     }
   }
 
   const state: DataflowExecutionState = {
     status,
-    startedAt: coreState.startedAt.toISOString(),
+    startedAt: run.startedAt.toISOString(),
     completedAt: completedAtValue,
     summary,
     events: apiEvents,
-    totalEvents: BigInt(totalApiEvents),
+    nextSeq,
     budget: budgetView(budget),
     waiting: live?.waiting ?? [],
     splits: live?.splits ?? [],
@@ -508,7 +520,7 @@ export function getDataflowBudget(budget: RunnerBudget | undefined): Response {
 
 /**
  * Cancel a running dataflow execution: the workspace's latest run, when its
- * state says it is running.
+ * summary says it is running.
  *
  * @param stateStore - The store the repository's runs keep their state in
  * @param orchestrator - The orchestrator that runs the repository's dataflows
@@ -525,14 +537,14 @@ export async function cancelDataflow(
   workspace: string
 ): Promise<Response> {
   try {
-    const state = await stateStore.readLatest(repoPath, workspace);
-    if (state === null || state.status !== 'running') {
+    const run = await stateStore.readLatestSummary(repoPath, workspace);
+    if (run === null || run.status !== 'running') {
       return sendError(NullType, variant('dataflow_error', {
         message: 'No active execution for this workspace',
       }));
     }
 
-    await orchestrator.cancel({ id: state.id, repo: repoPath, workspace });
+    await orchestrator.cancel({ id: run.id, repo: repoPath, workspace });
 
     return sendSuccess(NullType, null);
   } catch (err) {

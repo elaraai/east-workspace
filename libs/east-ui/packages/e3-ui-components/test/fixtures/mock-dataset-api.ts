@@ -23,6 +23,8 @@ function pathKey(workspace: string, path: TreePath): string {
 export interface ApiCall {
     workspace: string;
     path?: TreePath;
+    /** The datasets a status call named. */
+    paths?: readonly TreePath[];
     value?: Uint8Array;
 }
 
@@ -136,14 +138,16 @@ export function createMockDatasetApi(): MockDatasetApi {
             return [];
         },
 
-        async workspaceStatus(workspace) {
-            calls.workspaceStatus.push({ workspace });
+        async workspaceStatus(workspace, paths) {
+            calls.workspaceStatus.push(paths === undefined ? { workspace } : { workspace, paths });
             await gateAndCheck("workspaceStatus");
             const override = statusOverrides.get(workspace);
             if (override) return { datasets: override };
+            // As the server answers: the datasets named, when any are.
+            const named = paths === undefined ? null : new Set(paths.map((path) => pathKey(workspace, path)));
             const datasets: DatasetStatusInfo[] = [];
-            for (const e of seeded.values()) {
-                if (e.workspace !== workspace) continue;
+            for (const [key, e] of seeded) {
+                if (e.workspace !== workspace || (named !== null && !named.has(key))) continue;
                 const segs = e.path.map(p => (p as { value: string }).value).join(".");
                 datasets.push({
                     path: segs ? `.${segs}` : "",

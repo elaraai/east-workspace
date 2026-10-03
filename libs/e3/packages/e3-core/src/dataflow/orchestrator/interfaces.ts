@@ -62,12 +62,31 @@ export interface ExecutionStatus {
 }
 
 /**
+ * What an orchestrator holds in memory of a run in flight, which nothing
+ * stores: the tasks and units waiting for room in the runner's budget, and
+ * each split task's progress through its stage.
+ */
+export interface ExecutionProgress {
+  /** The tasks and units waiting for room, as the runner reports them */
+  waiting: UnitWait[];
+  /** Each split task's progress through its stage */
+  splits: SplitProgress[];
+}
+
+/**
  * Options for starting a dataflow execution.
  */
 export interface OrchestratorStartOptions {
-  /** Force re-execution even if cached (default: false) */
-  force?: boolean;
-  /** Filter to run only specific task(s) by exact name */
+  /**
+   * The tasks the run re-executes even where the cache holds their results:
+   * `true` for every task — under a filter, the filter's task — the names of
+   * the tasks, or `false` for none (default). A named task is forced each time
+   * the run launches it, and its dependents re-run when its output changes. A
+   * start naming a task the graph does not have, or one the filter's run set
+   * leaves out, is refused before anything runs.
+   */
+  force?: boolean | readonly string[];
+  /** One task's exact name: the run runs it and its dependency closure */
   filter?: string;
   /**
    * Pass `-v` to each task's runner (known runtimes only) so it prints
@@ -137,8 +156,9 @@ export interface OrchestratorStartOptions {
  * Options for resuming a yielded (or crashed) execution.
  *
  * Execution config (force, filter) comes from the persisted state and cannot
- * be changed; runtime collaborators (runner, width, callbacks, signal,
- * shouldYield) are provided fresh by the resuming host. The run keeps its
+ * be changed, so a run that yields forces the same tasks once resumed; runtime
+ * collaborators (runner, width, callbacks, signal, shouldYield) are provided
+ * fresh by the resuming host. The run keeps its
  * one id, the execution state's, so its record continues across a yield.
  */
 export type ResumeOptions = OrchestratorStartOptions;
@@ -238,6 +258,22 @@ export interface DataflowOrchestrator {
    * @returns Current status
    */
   getStatus(handle: ExecutionHandle): Promise<ExecutionStatus>;
+
+  /**
+   * Get what the orchestrator holds in memory of a run it runs: its waits
+   * for room and its split tasks' progress.
+   *
+   * @remarks
+   * A poll of the run serves them beside the run's state, which the poll reads
+   * from the state store. Nothing stores them, so a run the orchestrator does
+   * not hold — one another process or another instance runs, or one that has
+   * ended — has none, and the orchestrator reads nothing to say so.
+   *
+   * @param handle - The run's handle
+   * @returns Its waits and its split tasks' progress, or none of either for a
+   *   run the orchestrator does not hold
+   */
+  getProgress(handle: ExecutionHandle): Promise<ExecutionProgress>;
 
   /**
    * Cancel a running dataflow execution.

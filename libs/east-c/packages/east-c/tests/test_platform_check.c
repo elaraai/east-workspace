@@ -5,10 +5,11 @@
  * error message is byte-identical to the TS analyzer's (captured into the
  * sibling .error.txt fixture by libs/east/test/platform_check.spec.ts).
  *
- * Usage: test_platform_check [fixture-dir]   (default /tmp/east-test-ir/platform_check)
+ * Usage: test_platform_check [fixture-dir]   (default $EAST_TEST_IR_DIR/platform_check)
  *
- * Exits 77 (ctest SKIP) when the fixture dir is absent — run
- * `make test-export` at the workspace root first.
+ * EAST_TEST_IR_DIR is set by the root paths.mk when this runs through make
+ * (`make -C libs/east-c unit`). Exits 77 (ctest SKIP) when it is unset or the
+ * fixture dir is absent — run `make test-export` at the workspace root first.
  */
 
 #include <east/east.h>
@@ -200,9 +201,20 @@ static int run_case(const char *dir, const CheckCase *c)
 
 int main(int argc, char **argv)
 {
-    const char *dir = argc > 1 ? argv[1] : "/tmp/east-test-ir/platform_check";
+    char default_dir[1024];
+    const char *dir = argc > 1 ? argv[1] : NULL;
+    if (!dir) {
+        const char *corpus = getenv("EAST_TEST_IR_DIR");
+        if (!corpus || !*corpus) {
+            printf("SKIP: EAST_TEST_IR_DIR is unset (run it through make: make -C libs/east-c "
+                   "unit)\n");
+            return SKIP_EXIT_CODE;
+        }
+        snprintf(default_dir, sizeof(default_dir), "%s/platform_check", corpus);
+        dir = default_dir;
+    }
 
-    char probe[1024];
+    char probe[sizeof(default_dir) + sizeof("/match.json")];
     snprintf(probe, sizeof(probe), "%s/match.json", dir);
     FILE *f = fopen(probe, "rb");
     if (!f) {

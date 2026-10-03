@@ -1,7 +1,11 @@
 # e3 — East Execution Engine
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: all build build-integration test test-packages test-integration test-integration-shard lint clean dev link e2e-stack job-launcher install-job help
+# The checkout's paths: its root, and where east-node-std's suites are
+# (EAST_NODE_STD_IR), which e3-web's Chromium compliance spec runs
+include ../../paths.mk
+
+.PHONY: all build build-integration test test-packages test-as-another-user test-integration test-integration-shard lint clean dev link e2e-stack job-launcher install-job help
 
 # Default target
 all: build
@@ -25,6 +29,12 @@ test: test-packages test-integration
 test-packages:
 	@echo "Running package tests..."
 	pnpm -r --workspace-concurrency=1 --no-bail --filter='./packages/*' run test
+
+## Run e3-core's spec of a runner whose processes run as another user, which
+## the package tests skip: switching users needs root, so it runs under sudo,
+## as the user sudo names (SUDO_UID), once e3-core is built (POSIX)
+test-as-another-user:
+	cd packages/e3-core && E3_TEST_AS_ROOT=1 node --enable-source-maps --test-reporter=spec --test-timeout=480000 --test dist/src/execution/another-user.spec.js
 
 ## Run the integration tests
 test-integration:
@@ -56,10 +66,10 @@ test-integration-shard: build-integration
 	@echo "Running integration shard $(SHARD)..."
 	pnpm --filter e3-integration-tests run test:specs $(INTEGRATION_SHARD_$(SHARD))
 
-## Run all linters
+## Run all linters: every package's, and the integration specs'
 lint:
 	@echo "Linting all packages..."
-	pnpm run lint
+	pnpm -r --filter='./packages/*' --filter='./test/*' run lint
 
 ## Pre-build the local @elaraai stack the environment e2e materializes.
 ## Optional: test/integration/src/localStack.ts builds it on demand. Running it
@@ -71,7 +81,6 @@ e2e-stack:
 	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py-std
 	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py-cli
 
-REPO_ROOT := $(abspath $(CURDIR)/../..)
 JOB_SOURCE := native/e3-job
 JOB_BUILD := $(JOB_SOURCE)/build
 # Where e3-core finds the launcher in this checkout: the workspace
@@ -122,6 +131,7 @@ help:
 	@echo "  build       - Build all packages"
 	@echo "  test        - Run all tests"
 	@echo "  test-packages - Run the unit tests of e3's packages"
+	@echo "  test-as-another-user - Run the spec of processes run as another user (sudo, POSIX)"
 	@echo "  test-integration - Run the integration tests"
 	@echo "  test-integration-shard SHARD=n - Run one of CI's three integration shards"
 	@echo "  build-integration - Compile the integration specs"

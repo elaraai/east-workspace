@@ -69,8 +69,8 @@ export {
   type FunctionRoutesOptions,
 } from './routes/functions.js';
 
-// Record mutations and history
-export { createWorkspaceRecordRoutes } from './routes/records.js';
+// Record mutations and history, under the host's deadline and history page
+export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './routes/records.js';
 
 // =============================================================================
 // Handlers
@@ -88,6 +88,15 @@ export { createRepositoryGate, createSingleRepositoryGate, type RepositoryGateOp
 // What a host's auth sets on a request's context, which the one-shot access by
 // roles and the record routes read
 export type { Identity } from './identity.js';
+
+// =============================================================================
+// Errors, answered as every route answers them
+// =============================================================================
+
+// An e3-core error as the API's `ErrorType`, as its HTTP status and as a JSON
+// answer, and a repository's owed upgrades as the gate answers them: what a
+// host's own routes answer with, so they answer as upstream's do
+export { errorToVariant, errorToHttpStatus, sendJsonError, sendUpgradePending } from './errors.js';
 
 // =============================================================================
 // Wire types and BEAST2 helpers

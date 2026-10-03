@@ -82,7 +82,9 @@ export type {
 } from './types.js';
 
 // HTTP utilities and auth
-export { ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, post, put, del, putEmpty } from './http.js';
+export {
+  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, post, put, del, putEmpty, parseErrorBody,
+} from './http.js';
 export type { RequestOptions, RetryOptions, Response } from './http.js';
 
 // Repository
@@ -121,6 +123,7 @@ export {
   workspaceDeploy,
   workspaceExport,
   type WorkspaceDeployOptions,
+  type WorkspaceStatusQuery,
 } from './workspaces.js';
 
 // Datasets
@@ -137,6 +140,9 @@ export {
   datasetFindKey,
   datasetSet,
   datasetSetStream,
+  objectGet,
+  collectionGetStream,
+  parsePage,
   type DatasetTransferSource,
   type DatasetTransferOptions,
   type DatasetPage,

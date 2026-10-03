@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { none } from '@elaraai/east';
-import { E3_RELEASE } from '@elaraai/e3-types';
+import { E3_RELEASE, dataflowForce } from '@elaraai/e3-types';
 import type { DataflowExecutionState } from '../types.js';
 import { FileStateStore } from './FileStateStore.js';
 
@@ -37,7 +37,7 @@ function makeState(repo: string, workspace: string): DataflowExecutionState {
     repo,
     workspace,
     startedAt: new Date(),
-    force: false,
+    force: dataflowForce(false),
     filter: none,
     graph: none,
     graphHash: none,
@@ -93,7 +93,9 @@ describe('FileStateStore atomic-write rename resilience', () => {
             throw errno(code);
           }
           return realRename(from, to);
-        }, () => store.update(updated));
+        }, async () => {
+          assert.strictEqual(await store.update(updated), 'applied', `${code}: the write landed`);
+        });
 
         assert.strictEqual(failuresLeft, 0, `${code}: both injected failures should have been hit`);
         const read = await store.read(repo, 'ws', state.id);

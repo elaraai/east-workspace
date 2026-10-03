@@ -100,7 +100,8 @@ function calculateDuration(startedAt: Date, completedAt: Date): bigint {
 }
 
 /**
- * One execution as the history lists it.
+ * One execution as the history lists it: a cancelled or interrupted one with
+ * why it stopped.
  */
 function toExecutionListItem(inputsHash: string, status: ExecutionStatus): ExecutionListItem {
   if (status.type === 'success') {
@@ -113,6 +114,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: none,
       peakBytes: status.value.peakBytes,
+      reason: none,
     };
   }
   if (status.type === 'failed') {
@@ -125,6 +127,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: some(status.value.exitCode),
       peakBytes: status.value.peakBytes,
+      reason: none,
     };
   }
   if (status.type === 'cancelled') {
@@ -137,10 +140,11 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       duration: some(calculateDuration(status.value.startedAt, status.value.completedAt)),
       exitCode: none,
       peakBytes: none,
+      reason: some(status.value.reason),
     };
   }
   // An interruption's completedAt is when it was found, not when the runner
-  // stopped, so it has no duration.
+  // stopped, so it has no duration, as an error has none.
   if (status.type === 'error' || status.type === 'interrupted') {
     return {
       inputsHash,
@@ -151,6 +155,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
       duration: none,
       exitCode: none,
       peakBytes: none,
+      reason: status.type === 'interrupted' ? some(status.value.reason) : none,
     };
   }
   // running
@@ -163,6 +168,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
     duration: none,
     exitCode: none,
     peakBytes: none,
+    reason: none,
   };
 }
 

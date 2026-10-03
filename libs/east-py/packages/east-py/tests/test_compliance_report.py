@@ -32,8 +32,11 @@ PASSING = "reads 1963-06-1৪"
 FAILING = "refuses 1963-06-1৪"
 REASON = "expected ४, got ৪"
 
+# The environment the run was given, but for EAST_QUIET: `make test-all` sets
+# it, and a quiet run reports a failing file in one line, where the
+# directory-mode test reads the report whole.
 WINDOWS_STEP = {
-    **os.environ,
+    **{name: value for name, value in os.environ.items() if name != "EAST_QUIET"},
     "PYTHONIOENCODING": "cp1252",
     "PYTHONUTF8": "0",
     "PYTHONCOERCECLOCALE": "0",

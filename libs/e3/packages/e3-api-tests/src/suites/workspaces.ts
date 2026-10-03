@@ -13,8 +13,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import { ArrayType, equalFor, isValueOf, printFor, variant, type ValueTypeOf } from '@elaraai/east';
+import { DatasetStatusInfoType, InvalidNameErrorType, TaskStatusInfoType, type TreePath } from '@elaraai/e3-types';
 import {
   ApiError,
+  fetchWithAuth,
+  parseErrorBody,
   packageImport,
   workspaceList,
   workspaceCreate,
@@ -31,6 +35,43 @@ import {
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createPackageZip, createRolesPackageZip } from '../fixtures.js';
+
+/** Why no workspace's name may hold `c`: it joins the parts of a lock's name. */
+const joinsLockNames = (c: string) => `holds ${JSON.stringify(c)}, which joins the parts of a lock's name`;
+
+/**
+ * Names no workspace can have, each with why, as a refusal says it: a lock's
+ * name (`main#dataflow`, the lock a run of main's dataflow holds), the
+ * characters that join a lock's parts, and one a file name cannot hold.
+ */
+const MALFORMED_WORKSPACE_NAMES = [
+  ['main#dataflow', joinsLockNames('#')],
+  ['a#b', joinsLockNames('#')],
+  ['a~b', joinsLockNames('~')],
+  ['bad:name', `holds ":", which a file name cannot`],
+] as const;
+
+/**
+ * Checks an error is the API's refusal of `name` as no workspace's:
+ * `invalid_name`, whose details name the kind, the name and why.
+ *
+ * @param name - The name refused
+ * @param why - Why, as the refusal's message ends
+ * @returns An `assert.rejects` validator
+ */
+function refusedAsWorkspaceName(name: string, why: string): (err: unknown) => true {
+  return (err) => {
+    assert.ok(err instanceof ApiError, `${name}: expected ApiError, got ${err}`);
+    assert.strictEqual(err.code, 'invalid_name');
+    assert.ok(isValueOf(err.details, InvalidNameErrorType), `${name}: the refusal names the name and why`);
+    const said = err.details as ValueTypeOf<typeof InvalidNameErrorType>;
+    const expected: ValueTypeOf<typeof InvalidNameErrorType> = {
+      kind: 'workspace', name, message: `the workspace name ${JSON.stringify(name)} ${why}`,
+    };
+    assert.ok(equalFor(InvalidNameErrorType)(said, expected), `${name}: refused as ${printFor(InvalidNameErrorType)(said)}`);
+    return true;
+  };
+}
 
 /**
  * Register workspace operation tests.
@@ -118,6 +159,30 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         'a deployed workspace, its deploy done');
     });
 
+    it('workspaceLockStatus refuses a name no workspace can have as invalid_name of a workspace, as every route of a workspace does', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      // No lock is read for any of them: `main#dataflow` in particular is a
+      // lock's name, never a workspace's.
+      for (const [name, why] of MALFORMED_WORKSPACE_NAMES) {
+        await assert.rejects(workspaceLockStatus(ctx.config.baseUrl, ctx.repoName, name, opts), refusedAsWorkspaceName(name, why));
+      }
+    });
+
+    it('workspaceDeploy refuses a name no workspace can have as invalid_name of a workspace when it starts, not as a failed job', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+      const zipPath = await createPackageZip(ctx.tempDir, 'compute-pkg', '1.0.0');
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+
+      // A deploy's job that fails is thrown as an Error: the ApiError is the
+      // start's own answer, before a job is filed.
+      for (const [name, why] of MALFORMED_WORKSPACE_NAMES) {
+        await assert.rejects(workspaceDeploy(ctx.config.baseUrl, ctx.repoName, name, 'compute-pkg@1.0.0', opts), refusedAsWorkspaceName(name, why));
+      }
+    });
+
     describe('with deployed package', { concurrency: false }, () => {
       it('workspaceGet returns deployed state', async (t) => {
         const ctx = await withDeployedPackage(t);
@@ -143,6 +208,45 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(status.tasks[0].name, 'compute');
         // Summary should match
         assert.strictEqual(status.summary.tasks.total, 1n);
+      });
+
+      it('workspaceStatus answers the datasets it is asked for and the tasks producing them, as the whole answer does, leaving out a path no dataset has', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+        const at = (...fields: string[]): TreePath => fields.map((field) => variant('field', field));
+        const DatasetsType = ArrayType(DatasetStatusInfoType);
+        const TasksType = ArrayType(TaskStatusInfoType);
+        const whole = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts);
+
+        const output = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts, {
+          paths: [at('tasks', 'compute', 'output'), at('inputs', 'nope')],
+        });
+        const outputs = whole.datasets.filter((dataset) => dataset.path === '.tasks.compute.output');
+        assert.ok(equalFor(DatasetsType)(output.datasets, outputs), `the output alone: ${printFor(DatasetsType)(output.datasets)}`);
+        assert.ok(equalFor(TasksType)(output.tasks, whole.tasks), `the task producing it: ${printFor(TasksType)(output.tasks)}`);
+        assert.strictEqual(output.summary.datasets.total, 1n);
+        assert.strictEqual(output.summary.tasks.total, 1n);
+
+        const input = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts, { paths: [at('inputs', 'value')] });
+        const inputs = whole.datasets.filter((dataset) => dataset.path === '.inputs.value');
+        assert.ok(equalFor(DatasetsType)(input.datasets, inputs), `the input alone: ${printFor(DatasetsType)(input.datasets)}`);
+        assert.strictEqual(input.tasks.length, 0, 'no task produces an input');
+      });
+
+      it('workspaceStatus refuses a path that is not a keypath as bad_request', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+        // The client prints every path it is given as a keypath, so the
+        // request is made by hand.
+        const response = await fetchWithAuth(
+          `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/deployed-ws/status?path=inputs.value`,
+          { method: 'GET' },
+          opts,
+        );
+        assert.strictEqual(response.status, 400);
+        const refusal = parseErrorBody(await response.text(), 'http_400');
+        assert.strictEqual(refusal.code, 'bad_request');
+        assert.match(String(refusal.details), /^path must be a dataset's path, as a status names it \(\.inputs\.x\), got "inputs\.value"/);
       });
 
       it('taskList returns task info', async (t) => {

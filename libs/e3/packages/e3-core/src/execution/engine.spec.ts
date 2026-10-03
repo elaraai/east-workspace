@@ -18,11 +18,11 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import {
   ArrayType, DictType, IntegerType, SetType, StringType, StructType,
-  East, SortedMap, SortedSet, compareFor, some,
+  East, SortedMap, SortedSet, compareFor, equalFor, some, variant,
   type EastType,
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
-import { decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
+import { StopReasonType, decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
 import { executeSplitTask, probeExecutionCache, taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
 import { SplitTask } from './engine.js';
 import { processOwner } from './processHelpers.js';
@@ -33,7 +33,7 @@ import { uuidv7 } from '../uuid.js';
 import { datasetWrite } from '../trees.js';
 import { packageRead } from '../packages.js';
 import { packageImport } from '../package-files.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
+import { HeldLogStore, createTempDir, createTestRepo, logsAtEachEnd, removeTempDir, removeTestRepo, withLogStore } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -499,6 +499,83 @@ describe('a task split into pieces', () => {
     assert.equal(owned.filter((record) => !record.unit).length, 1, 'the task\'s own execution was recorded running');
     assert.ok(owned.filter((record) => record.unit).length > 4, 'and each of its many pieces');
     assert.deepEqual(owned.filter((record) => !record.owner), [], 'every one after its owner');
+  });
+
+  it('records the task\'s end, and each unit\'s, once its log is flushed, so a reader that finds one ended reads its whole log', async () => {
+    const taskHash = await deploy(e3.streamTask('flushed', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    }));
+    // A store that holds appends until they are flushed, as one that gathers
+    // them into fewer writes does: a reader elsewhere reads what was flushed.
+    const logs = new HeldLogStore(storage.logs);
+    const ends = logsAtEachEnd(storage.refs, logs);
+    const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
+    // Verbose, each unit's runner writes where its time went to its stderr.
+    const result = await taskExecute(withLogStore(storage, logs), repo, taskHash, [input], { verbose: true });
+    assert.equal(result.state, 'success', result.error ?? '');
+
+    const own = ends.filter((end) => end.executionId === result.executionId);
+    assert.deepEqual(own.map(({ status }) => status), ['success']);
+    assert.match(own[0]!.stdout, /^plan pieces=\d+ /, 'the task\'s log names its plan');
+    const units = ends.filter((end) => end.executionId !== result.executionId);
+    assert.ok(units.length > 4 && units.every((end) => end.status === 'success'), 'the pieces and their merge ran');
+    assert.ok(units.every((end) => end.stderr !== ''), 'each unit\'s runner wrote to its log');
+    for (const end of ends) {
+      const whole = (stream: 'stdout' | 'stderr'): string => logs.appended(repo, end.taskHash, end.inputsHash, end.executionId, stream);
+      assert.deepEqual({ stdout: end.stdout, stderr: end.stderr }, { stdout: whole('stdout'), stderr: whole('stderr') },
+        `execution ${end.executionId} was recorded ${end.status} with its whole log readable`);
+    }
+  });
+
+  it('records a task a yielding run suspends interrupted, and one an aborted run stops cancelled, each with why and once its log is flushed', async () => {
+    const taskHash = await deploy(e3.streamTask('suspended', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    }));
+    const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const logs = new HeldLogStore(storage.logs);
+    const ends = logsAtEachEnd(storage.refs, logs);
+    const held = withLogStore(storage, logs);
+    const whole = (executionId: string, stream: 'stdout' | 'stderr'): string => logs.appended(repo, taskHash, inputsHash([input]), executionId, stream);
+
+    // A run that yields leaves the task mid-stage: the plan's line is its log,
+    // and why it stopped the last line of its stderr.
+    const yielded = uuidv7();
+    const suspended = await SplitTask.open(held, repo, taskHash, task, [input], { inHash: inputsHash([input]), executionId: yielded, startTime: Date.now() }, {}, null, null);
+    assert.ok(suspended instanceof SplitTask);
+    await suspended.suspend();
+
+    // An aborted run stops the task, its cause the last line of its stderr.
+    const aborted = uuidv7();
+    const stopped = await SplitTask.open(held, repo, taskHash, task, [input], { inHash: inputsHash([input]), executionId: aborted, startTime: Date.now() }, { signal: AbortSignal.abort() }, null, null);
+    assert.ok(stopped instanceof SplitTask);
+    assert.equal((await stopped.advance([], []))?.cancelled, true);
+
+    const yieldCause = 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again';
+    const abortCause = 'cancelled: e3 stopped the task\'s units because the run was aborted';
+    assert.deepEqual(ends.map(({ executionId, status, stdout, stderr }) => ({ executionId, status, stdout, stderr })), [
+      { executionId: yielded, status: 'interrupted', stdout: whole(yielded, 'stdout'), stderr: `e3: ${yieldCause}\n` },
+      { executionId: aborted, status: 'cancelled', stdout: whole(aborted, 'stdout'), stderr: `e3: ${abortCause}\n` },
+    ]);
+    assert.match(whole(yielded, 'stdout'), /^plan pieces=\d+ /);
+    assert.match(whole(aborted, 'stdout'), /^plan pieces=\d+ /);
+
+    // Each record says why the task stopped, as its log's last line does.
+    const equal = equalFor(StopReasonType);
+    const suspendedRecord = await storage.refs.executionGet(repo, taskHash, inputsHash([input]), yielded);
+    assert.ok(suspendedRecord?.type === 'interrupted' && equal(suspendedRecord.value.reason, { kind: variant('yielded', null), message: yieldCause }));
+    const cancelledRecord = await storage.refs.executionGet(repo, taskHash, inputsHash([input]), aborted);
+    assert.ok(cancelledRecord?.type === 'cancelled' && equal(cancelledRecord.value.reason, { kind: variant('aborted', null), message: abortCause }));
   });
 
   it('roots each stage\'s plan through its sidecar until the task ends, and a later run takes up the stage it names', async () => {

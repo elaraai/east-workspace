@@ -86,6 +86,87 @@ export function collectVenvBins(startDir: string): string[] {
   }
 }
 
+/**
+ * How every process e3 starts runs: the environment it starts from, and the
+ * user and group it runs as.
+ *
+ * @remarks
+ * A host sets them on its runner (`new LocalTaskRunner(repo, budget,
+ * settings)`), which starts every process under them: task and unit runners,
+ * function and one-shot calls, intake units and environment installs.
+ * {@link spawnAndCapture}, `runIntake`, `runDetached` and
+ * `materializeEnvironment` take them too, for a host that calls them itself.
+ *
+ * Another user is POSIX alone. e3 must then run as root, or hold the
+ * capabilities that stand in for it here: `CAP_SETUID` and `CAP_SETGID` to
+ * start a process as the user, `CAP_CHOWN` to give it a directory and take one
+ * back, `CAP_KILL` to stop it, and `CAP_DAC_OVERRIDE` to remove what it wrote.
+ * e3 gives the user each directory it makes for a process to write in: an
+ * execution's or a call's scratch directory, the segment directory of an input
+ * its runner asks for, an intake's, and an environment's build directory. What
+ * a process only reads stays e3's — a staged input is a link to an object, and
+ * the object's file never changes hands — and so does what e3 keeps of what it
+ * wrote: an output is stored as e3's own copy, never linked, and a built
+ * environment is e3's before any runner reads it. The repository's directories
+ * must let the user pass through to its scratch directory and its environment.
+ */
+export interface ProcessSettings {
+  /**
+   * The environment every process starts from, in place of this process's own.
+   *
+   * @remarks
+   * A runner's is `env` with what e3 sets itself: its bins ahead of `env`'s
+   * `PATH`, and its own variables. A caller's `extraEnv` layers on top. An
+   * environment install runs with `env` as it is, so it names a home and the
+   * caches the installs write, where the user runs them as another. Absent,
+   * this process's environment.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  /** The user every process runs as: POSIX alone, and refused on Windows.
+   *  Absent, this process's. */
+  readonly uid?: number;
+  /** The group every process runs as: POSIX alone, and refused on Windows.
+   *  Absent, this process's. */
+  readonly gid?: number;
+}
+
+/**
+ * Refuses settings no process can be started under: a user or group off
+ * POSIX, or an id that names none.
+ *
+ * @param settings - The settings
+ * @throws {Error} When a user or group is given on Windows.
+ * @throws {RangeError} When a user or group id is not a non-negative integer.
+ * @internal
+ */
+export function checkProcessSettings(settings: ProcessSettings): void {
+  for (const [name, id] of [['uid', settings.uid], ['gid', settings.gid]] as const) {
+    if (id === undefined) continue;
+    if (process.platform === 'win32') {
+      throw new Error(`e3 starts a process as another user on POSIX alone: a ${name} is refused on Windows`);
+    }
+    if (!Number.isSafeInteger(id) || id < 0) {
+      throw new RangeError(`a ${name} is a non-negative integer, not ${id}`);
+    }
+  }
+}
+
+/**
+ * Gives a directory e3 made to the user and group its processes run as, so
+ * they can write in it. Settings that name neither give nothing.
+ *
+ * @param dir - The directory
+ * @param settings - The user and group (see {@link ProcessSettings})
+ * @throws {Error} When the settings are refused, or the directory cannot be
+ *   given: e3 may not change its owner.
+ * @internal
+ */
+export async function giveDirectory(dir: string, settings: Pick<ProcessSettings, 'uid' | 'gid'>): Promise<void> {
+  checkProcessSettings(settings);
+  if (settings.uid === undefined && settings.gid === undefined) return;
+  await fs.chown(dir, settings.uid ?? -1, settings.gid ?? -1);
+}
+
 /** Options for {@link marshalInputsToDir}. */
 export interface MarshalInputsOptions {
   /**
@@ -119,6 +200,12 @@ export interface MarshalInputsOptions {
    * says so (its `fetch`), which turns the asking on in its runner.
    */
   fetcher?: SegmentFetcher;
+  /**
+   * The user and group the runner runs as ({@link ProcessSettings}): a
+   * segment directory left to the fetcher is given to them, since the runner
+   * asks for a segment by writing there. Every file staged is left as it is.
+   */
+  owner?: Pick<ProcessSettings, 'uid' | 'gid'>;
 }
 
 /** One object staged at a path, for a runner to read. */
@@ -154,22 +241,25 @@ async function place(storage: StorageBackend, repo: string, placements: readonly
  * segments are spliced into the file here, under their shared header, read
  * {@link OBJECT_CONCURRENCY} ahead of the write, and nothing is left to place.
  * An Array that holds two equal segments names one object twice, which is
- * placed once: a second link onto the first would fail.
+ * placed once: a second link onto the first would fail. Segments left to a
+ * fetcher are asked for in their directory, which is given to the runner's
+ * user.
  */
 async function inputPlacements(
   storage: StorageBackend,
   repo: string,
   dataset: string,
   inputPath: string,
-  manifests: boolean,
+  options: MarshalInputsOptions,
 ): Promise<Placement[]> {
   const { hash, manifest } = await openDatasetObject(storage, repo, dataset);
   if (manifest === null) return [{ hash, dest: inputPath }];
-  if (manifests) {
+  if (options.manifests === true) {
     // The manifest itself, then its segments as sibling files named by
     // hash — the convention every runtime's opener reads.
     const segmentDir = `${inputPath}.segments`;
     await fs.mkdir(segmentDir, { recursive: true });
+    if (options.fetcher !== undefined) await giveDirectory(segmentDir, options.owner ?? {});
     const segments = [...new Set(manifest.entries.map((entry) => entry.hash))];
     return [
       { hash, dest: inputPath },
@@ -210,7 +300,8 @@ async function inputPlacements(
  * @param dataset - The hash of the object the dataset's ref names
  * @param inputPath - Where the input is staged
  * @param options - Whether it may share the object's storage, whether the
- *   runner opens a manifest, and the fetcher its segments are left to
+ *   runner opens a manifest, and the fetcher its segments are left to, with
+ *   the user who asks for them
  */
 export async function stageInput(
   storage: StorageBackend,
@@ -219,7 +310,7 @@ export async function stageInput(
   inputPath: string,
   options: MarshalInputsOptions = {}
 ): Promise<void> {
-  await place(storage, repo, await inputPlacements(storage, repo, dataset, inputPath, options.manifests === true), options);
+  await place(storage, repo, await inputPlacements(storage, repo, dataset, inputPath, options), options);
 }
 
 /**
@@ -236,7 +327,8 @@ export async function stageInput(
  * @param scratchDir - The execution's scratch directory
  * @param inputHashes - Object hashes, in input order
  * @param options - Whether a staged input may share the object's storage,
- *   whether the runner opens a manifest, and the fetcher segments are left to
+ *   whether the runner opens a manifest, and the fetcher segments are left to,
+ *   with the user who asks for them
  * @returns The staged file paths, in input order
  */
 export async function marshalInputsToDir(
@@ -250,11 +342,18 @@ export async function marshalInputsToDir(
   const placements: Placement[] = [];
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    placements.push(...await inputPlacements(storage, repo, inputHashes[i]!, inputPath, options.manifests === true));
+    placements.push(...await inputPlacements(storage, repo, inputHashes[i]!, inputPath, options));
     inputPaths.push(inputPath);
   }
   await place(storage, repo, placements, options);
   return inputPaths;
+}
+
+/** An environment's `PATH`: on Windows, by its name in any case, as Windows
+ *  reads it. */
+function pathOf(env: Readonly<Record<string, string | undefined>>): string | undefined {
+  if (process.platform !== 'win32') return env.PATH;
+  return Object.entries(env).find(([name]) => name.toUpperCase() === 'PATH')?.[1];
 }
 
 /** How long a child e3 stopped is read after it has exited, before its pipes
@@ -422,9 +521,10 @@ function killProcessTree(child: ChildProcess): void {
 }
 
 /**
- * Options for {@link spawnAndCapture}.
+ * Options for {@link spawnAndCapture}: with the environment the child starts
+ * from and the user and group it runs as ({@link ProcessSettings}).
  */
-export interface SpawnAndCaptureOptions {
+export interface SpawnAndCaptureOptions extends ProcessSettings {
   /** Wall-clock limit in ms; on expiry the process group is killed and the
    *  result reports `timedOut: true`. */
   timeoutMs?: number;
@@ -460,12 +560,13 @@ export interface SpawnAndCaptureOptions {
   /** Directories whose ancestor `node_modules/.bin` dirs are prepended to
    *  PATH so runner CLIs resolve (deduped, nearest first). */
   searchDirs?: string[];
-  /** Variables the child's environment gains after `process.env`'s: the
-   *  secrets a runner's platform functions read, say. Runtime-only, so never
-   *  hashed and never logged. They may not set a variable e3 sets itself:
-   *  `PATH`, `E3_RUNNER_SEARCH_DIRS`, or `E3_FETCH_SEGMENTS`, which no runner
-   *  inherits — only a unit's `fetch` turns it on, in its runner's own
-   *  process. The spawn refuses one that does. */
+  /** Variables the child's environment gains after its base's — `env`'s, or
+   *  `process.env`'s: the secrets a runner's platform functions read, say.
+   *  Runtime-only, so never hashed and never logged. They may not set a
+   *  variable e3 sets itself: `PATH`, `E3_RUNNER_SEARCH_DIRS`, or
+   *  `E3_FETCH_SEGMENTS`, which no runner inherits — only a unit's `fetch`
+   *  turns it on, in its runner's own process. The spawn refuses one that
+   *  does. */
   extraEnv?: Readonly<Record<string, string>>;
   /** Called once the child has spawned, with its pid (or null) and the stop
    *  an abort makes, which ends the child's process group and reports
@@ -511,6 +612,10 @@ export interface SpawnAndCaptureResult {
  * optional stdin lifeline pipe a runner spawned with `--exit-with-parent`
  * reads, so it exits with this process.
  *
+ * The child starts from `options.env` in place of this process's environment,
+ * and runs as `options.uid` and `options.gid`, when they are given
+ * ({@link ProcessSettings}).
+ *
  * Process Lifecycle Management
  * ============================
  * On POSIX we use detached: true to create a new process group, allowing us
@@ -537,6 +642,7 @@ export async function spawnAndCapture(
   scratchDir: string,
   options: SpawnAndCaptureOptions = {}
 ): Promise<SpawnAndCaptureResult> {
+  checkProcessSettings(options);
   const [cmd, ...cmdArgs] = args;
   if (!cmd) {
     return {
@@ -612,21 +718,26 @@ export async function spawnAndCapture(
     windowsHide: true,
   };
   const pathSep = process.platform === 'win32' ? ';' : ':';
-  // The caller's variables come after the process's own, and may not set the
-  // ones e3 sets for the runner. Windows compares names case-insensitively.
+  // The child starts from the caller's base environment, or the process's
+  // own. The caller's variables come after it, and may not set the ones e3
+  // sets for the runner. Windows compares names case-insensitively.
   for (const name of Object.keys(options.extraEnv ?? {})) {
     const key = process.platform === 'win32' ? name.toUpperCase() : name;
     if (key === 'PATH' || key === 'E3_RUNNER_SEARCH_DIRS' || key === FETCH_SEGMENTS_ENV) {
       throw new Error(`a runner's environment may not set ${name}, which e3 sets itself`);
     }
   }
+  const base = options.env ?? process.env;
   spawnOpts.env = {
-    ...process.env,
+    ...base,
     ...options.extraEnv,
-    PATH: [...(options.extraBins ?? []).map((bin) => (path.isAbsolute(bin) ? bin : path.resolve(bin))), ...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
+    PATH: [...(options.extraBins ?? []).map((bin) => (path.isAbsolute(bin) ? bin : path.resolve(bin))), ...venvBins, ...projectBins, path.dirname(process.execPath), pathOf(base) ?? '']
       .filter(Boolean)
       .join(pathSep),
   };
+  // The user and group the child runs as, where the caller names them.
+  if (options.uid !== undefined) spawnOpts.uid = options.uid;
+  if (options.gid !== undefined) spawnOpts.gid = options.gid;
   // Only a unit turns segments on demand on, in its runner's own process: one
   // this process holds reaches no runner.
   delete spawnOpts.env[FETCH_SEGMENTS_ENV];

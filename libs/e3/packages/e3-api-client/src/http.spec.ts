@@ -13,7 +13,9 @@
  * which errors/statuses are retried, the idempotency gate, the attempt cap,
  * abort handling, and the backoff/Retry-After policy. A host that answers e3's
  * API itself gives the `fetch` its requests go through: every helper, and
- * every attempt, goes through the given one, called as a plain function.
+ * every attempt, goes through the given one, called as a plain function. A
+ * client of a host's own route reads its refusals with `parseErrorBody`, as
+ * the client's own functions do.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -35,6 +37,8 @@ import {
   ApiError,
   type RetryOptions,
 } from './http.js';
+// Through the root entry, as a host reaches it.
+import { parseErrorBody } from './index.js';
 import { ResponseType } from './types.js';
 
 // Zero-delay policy so the loop tests never actually wait.
@@ -222,6 +226,24 @@ describe('fetchWithRetry: Retry-After wiring', () => {
     assert.equal(m.calls, 2);
     assert.equal(waited, 50, 'the Retry-After (50ms) drove the delay');
   });
+
+  it('waits a Retry-After past the backoff cap by default: the repository gate\'s 5 s', async (t) => {
+    // e3-api-server's gate answers 503 `repository_upgrade_pending` with
+    // `Retry-After: 5` while an upgrade waits. The default policy's own backoff
+    // is capped at 2 s; the server's hint is waited for as it asks.
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+    const m = mockFetch([() => status(503, { 'retry-after': '5' }), ok]);
+    const retrying = fetchWithRetry(URL, { method: 'GET' }, { idempotent: true });
+    await settle();
+    t.mock.timers.tick(4_999);
+    await settle();
+    assert.equal(m.calls, 1, 'not asked again before the server said');
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(m.calls, 2, 'asked again once the server said');
+    assert.equal((await retrying).status, 200);
+  });
 });
 
 // ===========================================================================
@@ -406,10 +428,11 @@ describe('parseRetryAfter', () => {
 });
 
 describe('computeBackoffMs', () => {
-  const cfg = { attempts: 4, baseDelayMs: 100, maxDelayMs: 2000 };
-  it('honours a Retry-After hint, capped at maxDelayMs', () => {
+  const cfg = { attempts: 4, baseDelayMs: 100, maxDelayMs: 2000, maxRetryAfterMs: 30_000 };
+  it('honours a Retry-After hint past the backoff cap, up to maxRetryAfterMs', () => {
     assert.equal(computeBackoffMs(0, cfg, 1500), 1500);
-    assert.equal(computeBackoffMs(0, cfg, 5000), 2000); // capped
+    assert.equal(computeBackoffMs(0, cfg, 5000), 5000); // past maxDelayMs, as the server asked
+    assert.equal(computeBackoffMs(0, cfg, 60_000), 30_000); // capped at maxRetryAfterMs
   });
   it('applies full jitter within [0, exponential ceiling]', () => {
     // attempt 2 → ceiling = min(2000, 100·2^2) = 400.
@@ -419,5 +442,23 @@ describe('computeBackoffMs', () => {
   });
   it('caps the exponential ceiling at maxDelayMs', () => {
     assert.equal(computeBackoffMs(10, cfg, undefined, () => 1), 2000);
+  });
+});
+
+describe('parseErrorBody', () => {
+  it('reads an error answer as the ApiError every client function throws', () => {
+    const cases: Array<[body: string, fallback: string, expected: { code: string; details: unknown }]> = [
+      // What a route that answers JSON, and the repository gate, refuse with.
+      [JSON.stringify({ error: { type: 'repository_upgrade_pending', message: 'retry once it has' } }), 'http_503',
+        { code: 'repository_upgrade_pending', details: 'retry once it has' }],
+      [JSON.stringify({ message: 'no such route' }), 'http_404', { code: 'http_404', details: 'no such route' }],
+      ['Bad Gateway', 'http_502', { code: 'http_502', details: 'Bad Gateway' }],
+      ['', 'http_500', { code: 'http_500', details: undefined }],
+    ];
+    for (const [body, fallback, expected] of cases) {
+      const error = parseErrorBody(body, fallback);
+      assert.ok(error instanceof ApiError, body);
+      assert.deepEqual({ code: error.code, details: error.details }, expected, body);
+    }
   });
 });

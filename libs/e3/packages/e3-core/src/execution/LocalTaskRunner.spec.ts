@@ -5,11 +5,13 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
-import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
+import { ArrayType, BlobType, East, IRType, StringType, encodeBeast2For, equalFor, none, some, toEastTypeValue, variant } from '@elaraai/east';
+import {
+  EnvironmentSpecType, StopReasonType, TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject,
+} from '@elaraai/e3-types';
 
 import { LocalTaskRunner, probeExecutionCache, taskExecute, taskExecuteUnit } from './LocalTaskRunner.js';
 import { collectNodeModulesBins } from './processExec.js';
@@ -17,11 +19,11 @@ import { Budget } from './budget.js';
 import type { MemorySampler } from './memory.js';
 import type { UnitRequeue } from './interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
-import { uuidv7, uuidv7Timestamp } from '../uuid.js';
+import { uuidv7 } from '../uuid.js';
 import { inputsHash } from '../executions.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
-import { createTestRepo, deadPid, removeTestRepo } from '../test-helpers.js';
+import { HeldLogStore, createTestRepo, deadPid, logsAtEachEnd, removeTestRepo, withLogStore } from '../test-helpers.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 describe('collectNodeModulesBins', () => {
@@ -290,14 +292,21 @@ describe('stopped executions', () => {
     });
     const deadProcess = async (): Promise<ExecutionOwner> => ({ pid: BigInt(deadPid()), pidStartTime: 12345n, bootId: await getBootId() });
 
-    it('rewrites a running record whose runner and owner are both gone as interrupted', async () => {
+    it('rewrites a running record whose runner and owner are both gone as interrupted, saying why once its log is flushed', async () => {
       const runner = await deadProcess();
       const executionId = await writeRunning(runner, await deadProcess());
+      // A store that holds appends until they are flushed: the record's write
+      // finds the line that says why readable.
+      const logs = new HeldLogStore(storage.logs);
+      const ends = logsAtEachEnd(storage.refs, logs);
 
-      assert.equal(await probeExecutionCache(storage, repo, taskHash, inHash), null);
+      assert.equal(await probeExecutionCache(withLogStore(storage, logs), repo, taskHash, inHash), null);
       const status = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
-      assert.equal(status?.type, 'interrupted');
-      assert.equal(status?.type === 'interrupted' ? status.value.pid : null, runner.pid);
+      assert.ok(status?.type === 'interrupted', `the record is ${status?.type}`);
+      assert.equal(status.value.pid, runner.pid);
+      const message = 'interrupted: its runner and the process or browser tab that owned it are gone';
+      assert.ok(equalFor(StopReasonType)(status.value.reason, { kind: variant('owner_gone', null), message }), 'its runner and its owner are gone');
+      assert.deepEqual(ends.map((end) => ({ status: end.status, stderr: end.stderr })), [{ status: 'interrupted', stderr: `e3: ${message}\n` }]);
     });
 
     it('leaves a running record alone while its owner lives, while its runner lives, or with no owner', async () => {
@@ -362,10 +371,8 @@ describe('stopped executions', () => {
     }));
     assert.equal((await probeExecutionCache(storage, repo, taskHash, inHash))?.executionId, succeeded, 'the latest attempt, a success, is served');
 
-    // A later millisecond, so the failed attempt's id sorts after the
-    // success's: waited for by the clock the id reads, which a timer's delay
-    // does not promise to have moved
-    while (Date.now() <= uuidv7Timestamp(succeeded).getTime()) await new Promise((resolve) => setTimeout(resolve, 1));
+    // Minted after the success's, so its id sorts after it, in the same
+    // millisecond or a later one
     const failed = uuidv7();
     await storage.refs.executionWrite(repo, taskHash, inHash, failed, variant('failed', {
       executionId: failed, inputHashes: [], startedAt: now, completedAt: now, exitCode: 1n, peakBytes: none, unit: false,
@@ -828,6 +835,163 @@ describe('the caller\'s environment', () => {
         new LocalTaskRunner(repo).execute(storage, taskHash, inputHashes, { extraEnv: { [name]: '/nowhere' } }),
         { message: `a runner's environment may not set ${name}, which e3 sets itself` },
       );
+    }
+  });
+});
+
+describe('the environment and user a runner\'s processes run under', () => {
+  let repo: string;
+  let storage: StorageBackend;
+
+  beforeEach(() => {
+    repo = createTestRepo();
+    storage = new LocalStorage();
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+  });
+
+  /** A custom task whose runner prints what `print` gives it, as JSON, and
+   *  copies its input to its output; in `environment`, when one is given. */
+  async function printingTask(print: string, environment?: string): Promise<{ taskHash: string; inputHashes: string[] }> {
+    const commandFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => ['node', '-e', `process.stdout.write(JSON.stringify(${print})); require("node:fs").copyFileSync(process.argv[1], process.argv[2])`, inputs.get(0n), output],
+    );
+    const task: TaskObject = {
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)) }),
+      runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [], kind: variant('value', null) },
+      role: variant('data', null),
+      environment: environment === undefined ? none : some(environment),
+    };
+    return {
+      taskHash: await objectWrite(repo, encodeBeast2For(TaskObjectType)(task)),
+      inputHashes: [await storage.objects.write(repo, new Uint8Array([1, 2, 3]))],
+    };
+  }
+
+  /** What an execution's runner printed. */
+  const printed = async (taskHash: string, inputHashes: string[], executionId: string): Promise<unknown> =>
+    JSON.parse((await storage.logs.read(repo, taskHash, inputsHash(inputHashes), executionId, 'stdout')).data);
+
+  /** A base environment, with where Windows is installed, which a process
+   *  there needs. */
+  const baseEnv = (variables: Record<string, string>): Record<string, string> => ({
+    ...(process.platform === 'win32' && { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }),
+    ...variables,
+  });
+
+  it('starts a task\'s runner, a unit\'s and a call\'s from the runner\'s base environment, in place of the process\'s own, with the caller\'s variables after it', async () => {
+    const previous = process.env.E3_TEST_SECRET;
+    process.env.E3_TEST_SECRET = 'the process\'s';
+    try {
+      const { taskHash, inputHashes } = await printingTask('process.env.E3_TEST_SECRET ?? "unset"');
+
+      const bare = await new LocalTaskRunner(repo, undefined, { env: baseEnv({}) }).execute(storage, taskHash, inputHashes);
+      assert.equal(bare.state, 'success', bare.error ?? '');
+      assert.equal(await printed(taskHash, inputHashes, bare.executionId), 'unset', 'the process\'s own variables reach no runner');
+
+      const runner = new LocalTaskRunner(repo, undefined, { env: baseEnv({ E3_TEST_SECRET: 'the runner\'s' }) });
+      const unit = await runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false }, { force: true });
+      assert.equal(unit.state, 'success', unit.error ?? '');
+      assert.equal(await printed(taskHash, inputHashes, unit.executionId), 'the runner\'s');
+      const task = await runner.execute(storage, taskHash, inputHashes, { force: true, extraEnv: { E3_TEST_SECRET: 'the caller\'s' } });
+      assert.equal(task.state, 'success', task.error ?? '');
+      assert.equal(await printed(taskHash, inputHashes, task.executionId), 'the caller\'s');
+
+      const call = await runner.runDetached({
+        bodyIr: new Uint8Array([1]),
+        args: [encodeBeast2For(StringType)('the value')],
+        runner: variant('custom', { command: [process.execPath, '-e',
+          'process.stdout.write(process.env.E3_TEST_SECRET ?? "unset"); const a = process.argv; require("node:fs").copyFileSync(a[a.indexOf("-i") + 1], a[a.indexOf("-o") + 1])', '--'] }),
+        limits: { timeoutMs: 30_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+      });
+      assert.equal(call.kind, 'success', call.stderr);
+      assert.equal(call.stdout, 'the runner\'s');
+    } finally {
+      if (previous === undefined) delete process.env.E3_TEST_SECRET;
+      else process.env.E3_TEST_SECRET = previous;
+    }
+  });
+
+  it('installs a task\'s environment and a call\'s from the runner\'s base environment', {
+    skip: process.platform === 'win32' ? 'the stand-in npm is a shell script' : false,
+  }, async () => {
+    // An npm saying what environment it was started from, and leaving what an
+    // install would.
+    const bin = mkdtempSync(path.join(tmpdir(), 'e3-stand-in-npm-'));
+    try {
+      const log = path.join(bin, 'npm.log');
+      writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\nprintf \'%s\\n\' "${E3_TEST_BASE-unset}" >> "$E3_TEST_NPM_LOG"\nmkdir -p node_modules/.bin\n');
+      chmodSync(path.join(bin, 'npm'), 0o755);
+      /** A node environment of the project `name`, which npm installs. */
+      const nodeEnvironment = async (name: string): Promise<string> => storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(variant('node', {
+        packageJson: await storage.objects.write(repo, encodeBeast2For(BlobType)(Buffer.from(JSON.stringify({ name, version: '1.0.0', private: true })))),
+        lock: await storage.objects.write(repo, encodeBeast2For(BlobType)(Buffer.from(JSON.stringify({ name, lockfileVersion: 3 })))),
+        tarballs: [],
+      })));
+      const runner = new LocalTaskRunner(repo, undefined, { env: { PATH: `${bin}:/usr/bin:/bin`, E3_TEST_BASE: 'the runner\'s', E3_TEST_NPM_LOG: log } });
+
+      const { taskHash, inputHashes } = await printingTask('null', await nodeEnvironment('e3-task-environment'));
+      const task = await runner.execute(storage, taskHash, inputHashes);
+      assert.equal(task.state, 'success', task.error ?? '');
+      const call = await runner.runDetached({
+        bodyIr: new Uint8Array([1]),
+        args: [encodeBeast2For(StringType)('the value')],
+        runner: variant('custom', { command: [process.execPath, '-e',
+          'const a = process.argv; require("node:fs").copyFileSync(a[a.indexOf("-i") + 1], a[a.indexOf("-o") + 1])', '--'] }),
+        limits: { timeoutMs: 30_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+        environment: await nodeEnvironment('e3-call-environment'),
+      }, { storage });
+      assert.equal(call.kind, 'success', call.stderr);
+      assert.deepEqual(readFileSync(log, 'utf8').trimEnd().split('\n'), ['the runner\'s', 'the runner\'s'], 'each install ran from the runner\'s base environment');
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a task\'s runner as the user and group the runner is given', {
+    skip: process.getuid === undefined ? 'POSIX alone: Windows starts no process as another user'
+      : process.getuid() === 0 ? 'root may become any user: another-user.spec runs a runner as one' : false,
+  }, async () => {
+    // As this process's own user and group, which an unprivileged process may
+    // become; another-user.spec runs one as another, as root.
+    const ids = [process.getuid!(), process.getgid!()];
+    const { taskHash, inputHashes } = await printingTask('[process.getuid(), process.getgid()]');
+    const result = await new LocalTaskRunner(repo, undefined, { uid: ids[0], gid: ids[1] }).execute(storage, taskHash, inputHashes);
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.deepEqual(await printed(taskHash, inputHashes, result.executionId), ids);
+  });
+
+  it('starts nothing as a user this process may not become: not a task\'s runner, a unit\'s, a call\'s or an intake\'s', {
+    skip: process.getuid === undefined ? 'POSIX alone: Windows starts no process as another user'
+      : process.getuid() === 0 ? 'root may become any user: another-user.spec runs a runner as one' : false,
+  }, async () => {
+    // Each refuses with the permission it lacks: to give the user a directory,
+    // or to become them.
+    const runner = new LocalTaskRunner(repo, undefined, { uid: process.getuid!() + 1 });
+    const { taskHash, inputHashes } = await printingTask('null');
+    await assert.rejects(runner.execute(storage, taskHash, inputHashes), { code: 'EPERM' });
+    await assert.rejects(runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null, own: false }), { code: 'EPERM' });
+    await assert.rejects(runner.runDetached({
+      bodyIr: new Uint8Array([1]),
+      args: [],
+      runner: variant('custom', { command: [process.execPath, '-e', ''] }),
+      limits: { timeoutMs: 30_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+    }), { code: 'EPERM' });
+    const delivery = await storage.objects.write(repo, encodeBeast2For(ArrayType(StringType))(['a row']));
+    await assert.rejects(runner.intake(storage, { source: { object: delivery }, type: toEastTypeValue(ArrayType(StringType)) }), { code: 'EPERM' });
+  });
+
+  it('refuses a user or group on Windows, before it runs anything', { skip: process.platform !== 'win32' ? 'Windows alone' : false }, () => {
+    for (const name of ['uid', 'gid']) {
+      assert.throws(() => new LocalTaskRunner(repo, undefined, { [name]: 1 }),
+        { message: `e3 starts a process as another user on POSIX alone: a ${name} is refused on Windows` });
     }
   });
 });

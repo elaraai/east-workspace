@@ -33,7 +33,7 @@ const GB = 1024 ** 3;
 
 /** A task of the status result, with the peak of the execution its status comes from. */
 const task = (name: string, status: unknown, dependsOn: string[], inputs: string[], peak: number | null = null) =>
-    ({ name, hash: `hash-${name}`, status, inputs, output: `.tasks.${name}.output`, dependsOn, peakBytes: peak !== null ? some(BigInt(Math.round(peak))) : none });
+    ({ name, hash: `hash-${name}`, status, inputs, output: `.tasks.${name}.output`, dependsOn, peakBytes: peak !== null ? some(BigInt(Math.round(peak))) : none, stopped: none });
 
 /** A dataset of the status result. */
 const dataset = (path: string, status: string, hash: string | null, producedBy: string | null) =>
@@ -99,7 +99,7 @@ function fixture(options: { running?: boolean } = {}): Action[] {
     const execution = running
         ? {
             state: {
-                status: variant('running', null), startedAt: iso(12_000), completedAt: none, summary: none, events: [], totalEvents: 5n,
+                status: variant('running', null), startedAt: iso(12_000), completedAt: none, summary: none, events: [], nextSeq: 5n,
                 budget: some({ cores: 8n, memory: BigInt(14 * GB), coresInUse: 4n, memoryInUse: BigInt(Math.round(12.6 * GB)) }),
                 waiting: [{ task: 'forecast', unit: some(piece5), needs: BigInt(Math.round(3.2 * GB)), since: iso(2_000) }],
                 splits: [{ task: 'forecast', merge: none, done: 3n, units: 8n }],
@@ -115,7 +115,7 @@ function fixture(options: { running?: boolean } = {}): Action[] {
         }
         : {
             state: {
-                status: variant('failed', null), startedAt: iso(120_000), completedAt: some(iso(81_600)), summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38_400 }), events: [], totalEvents: 8n,
+                status: variant('failed', null), startedAt: iso(120_000), completedAt: some(iso(81_600)), summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38_400 }), events: [], nextSeq: 8n,
                 budget: some({ cores: 8n, memory: BigInt(14 * GB), coresInUse: 0n, memoryInUse: 0n }),
                 waiting: [],
                 splits: [],
@@ -379,7 +379,7 @@ describe('dashboard model', () => {
         const merge = { merge: some({ level: 1n, levels: 2n }), index: 1n, units: 2n };
         const execution = {
             state: {
-                status: variant('running', null), startedAt: iso(20_000), completedAt: none, summary: none, events: [], totalEvents: 4n,
+                status: variant('running', null), startedAt: iso(20_000), completedAt: none, summary: none, events: [], nextSeq: 4n,
                 budget: some({ cores: 2n, memory: BigInt(4 * GB), coresInUse: 2n, memoryInUse: BigInt(3 * GB) }),
                 waiting: [{ task: 'b', unit: none, needs: 0n, since: iso(5_000) }],
                 splits: [{ task: 'a', merge: some({ level: 1n, levels: 2n }), done: 1n, units: 2n }],

@@ -15,7 +15,7 @@
  * - For success: output hash, timing, peak memory and a split task's last plan
  * - For failed: exit code, timing and peak memory
  * - For error: internal error message and timing
- * - For cancelled and interrupted: how e3, not the task, ended it
+ * - For cancelled and interrupted: how e3, not the task, ended it, and why
  *
  * Every case says whether the execution is a unit of a split task — a piece,
  * or a merge of the pieces' outputs — which is recorded under its task's hash
@@ -31,9 +31,41 @@ import {
   IntegerType,
   BooleanType,
   DateTimeType,
+  NullType,
   ValueTypeOf,
   decodeBeast2For,
 } from '@elaraai/east';
+
+/**
+ * Why an execution stopped without finishing: what a `cancelled` or an
+ * `interrupted` record says, written in the same write as the record.
+ *
+ * - `aborted`: the signal it ran under was aborted — its run was cancelled,
+ *   or the call it ran for ended
+ * - `yielded`: its run yielded mid-stage, and a run resumed takes the stage up
+ *   again
+ * - `owner_gone`: its runner and the process, or the browser tab, that owned
+ *   it are gone
+ * - `host`: a host's own reason, by its code — e3-cloud's for a container
+ *   that stopped, say
+ * - `unrecorded`: it stopped before e3 recorded reasons; only the repository
+ *   upgrade that carried its record forward writes it
+ *
+ * `message` is what e3 wrote as the attempt's log's last line, after its
+ * `e3: `, or the host's words; empty for `unrecorded`.
+ */
+export const StopReasonType = StructType({
+  kind: VariantType({
+    aborted: NullType,
+    yielded: NullType,
+    owner_gone: NullType,
+    host: StringType,
+    unrecorded: NullType,
+  }),
+  message: StringType,
+});
+
+export type StopReason = ValueTypeOf<typeof StopReasonType>;
 
 /** A running execution's process identification. */
 const RunningStatusType = StructType({
@@ -126,10 +158,14 @@ const ErrorStatusType = StructType({
  * - `success`: Task ran and returned exit code 0
  * - `failed`: Task ran and returned non-zero exit code
  * - `error`: e3 execution engine had an internal error (runner not found, output missing, etc.)
- * - `cancelled`: e3 stopped the execution because the run was aborted, before
- *   its runner started or while it ran — not the task's own failure
- * - `interrupted`: the orchestrator that owned the execution exited before it
- *   finished, and its runner is gone too, so nothing will write its outcome
+ * - `cancelled`: e3 stopped the execution because the signal it ran under was
+ *   aborted, before its runner started or while it ran — not the task's own
+ *   failure
+ * - `interrupted`: the execution can no longer finish, and nothing will write
+ *   its outcome: its runner and its owner are gone, its host says it cannot,
+ *   or its run yielded mid-stage
+ *
+ * Each of the two says why it stopped ({@link StopReasonType}).
  *
  * The `running` state includes process identification fields (pid, pidStartTime, bootId)
  * to enable detection of crashed executions. See design/e3-execution.md for details.
@@ -154,6 +190,8 @@ export const ExecutionStatusType = VariantType({
      *  the pieces' outputs — rather than a task's own execution, which the one
      *  unit of a task whose input closes no piece is */
     unit: BooleanType,
+    /** Why it stopped: `aborted` */
+    reason: StopReasonType,
   }),
   interrupted: StructType({
     /** Unique execution ID (UUIDv7) */
@@ -170,6 +208,9 @@ export const ExecutionStatusType = VariantType({
      *  the pieces' outputs — rather than a task's own execution, which the one
      *  unit of a task whose input closes no piece is */
     unit: BooleanType,
+    /** Why it can no longer finish: `owner_gone`, `yielded`, or its host's
+     *  reason */
+    reason: StopReasonType,
   }),
 });
 
@@ -209,8 +250,12 @@ const decodeCurrentStatus = decodeBeast2For(ExecutionStatusType);
  * Decode an execution status.
  *
  * @remarks
- * Stored state, so it changes by hard cutover: a repository an older e3 wrote
- * is re-created rather than read, and this says so.
+ * Stored state, which changes as `docs/conventions/WIRE_MIGRATION.md` says:
+ * this reads the current form alone. A repository's upgrade steps carry its
+ * records into it when an e3 first opens the repository — the stop reasons'
+ * step those from before a stopped execution recorded why — so a record in an
+ * earlier form here is one from before repositories recorded their upgrades,
+ * whose repository is re-created, and this says so.
  *
  * @param data - the stored bytes
  * @returns the status

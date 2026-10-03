@@ -60,6 +60,8 @@ import {
   RepoAlreadyExistsError,
   RepoNotFoundError,
   RepoStatusConflictError,
+  checkHash,
+  checkId,
   checkName,
   completeUtf8Length,
   computeHash,
@@ -71,6 +73,7 @@ import {
   workspaceRoots,
   type BatchResult,
   type DatasetRefStore,
+  type ExecutionStateStore,
   type GcBackendSweepOptions,
   type GcBackendSweepResult,
   type GcObjectEntry,
@@ -94,66 +97,17 @@ import type { BlobKey, BlobsAdapter, FilesAdapter, LocksAdapter, RecordKey, Reco
 import { openIndexedDbRecords } from './indexeddb.js';
 import { MemoryBlobs, MemoryFiles, MemoryLockSpace, openMemoryRecords } from './memory.js';
 import { OpfsBlobs, OpfsFiles, opfsDirectory } from './opfs.js';
+import { recordKeys } from './record-keys.js';
+import { WebStateStore } from './WebStateStore.js';
 import { openWebLocks } from './web-locks.js';
 
 // =============================================================================
 // Where each record is
 // =============================================================================
 
-/**
- * The key of each record `WebStorage` keeps, in its records adapter.
- *
- * @remarks
- * A repository's metadata is `['repos', name]`, and everything else of it is
- * under `['repo', name]`, so its records scan and delete by that prefix. The
- * execution state store over the same records keeps a run's state at
- * {@link recordKeys.state}, which a workspace's removal deletes with its
- * other records.
- */
-export const recordKeys = {
-  /** A repository's metadata */
-  repository: (repo: string): RecordKey => ['repos', repo],
-  /** Every repository's metadata */
-  repositories: (): RecordKey => ['repos'],
-  /** Everything of a repository but its metadata */
-  of: (repo: string): RecordKey => ['repo', repo],
-  /** A kind of a repository's records */
-  kind: (repo: string, kind: string): RecordKey => ['repo', repo, kind],
-  /** The repository record */
-  record: (repo: string): RecordKey => ['repo', repo, 'record'],
-  /** A package's ref: the package object's hash */
-  package: (repo: string, name: string, version: string): RecordKey => ['repo', repo, 'package', name, version],
-  /** A workspace's record */
-  workspace: (repo: string, name: string): RecordKey => ['repo', repo, 'workspace', name],
-  /** An execution attempt's status */
-  execution: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'execution', task, inputs, id],
-  /** An execution attempt's owner */
-  owner: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'owner', task, inputs, id],
-  /** The `$plan` a split task's execution is in */
-  plan: (repo: string, task: string, inputs: string): RecordKey => ['repo', repo, 'plan', task, inputs],
-  /** An entry of the adoption memo */
-  adoption: (repo: string, source: string): RecordKey => ['repo', repo, 'adoption', source],
-  /** A dataflow run's record */
-  run: (repo: string, workspace: string, runId: string): RecordKey => ['repo', repo, 'run', workspace, runId],
-  /** A dataset's ref, and the revision its write minted */
-  dataset: (repo: string, workspace: string, path: string): RecordKey => ['repo', repo, 'dataset', workspace, path],
-  /** A chunk of an execution attempt's log, by the byte of the log it starts
-   *  at, in decimal zero-padded to sixteen digits */
-  log: (repo: string, task: string, inputs: string, id: string, stream: string, start: string): RecordKey =>
-    ['repo', repo, 'log', task, inputs, id, stream, start],
-  /** The state of a resource's exclusive lock */
-  lock: (repo: string, resource: string): RecordKey => ['repo', repo, 'lock', resource],
-  /** What a resource's exclusive holder last reported of its progress */
-  progress: (repo: string, resource: string): RecordKey => ['repo', repo, 'progress', resource],
-  /** An object's entry in the catalogue */
-  object: (repo: string, hash: string): RecordKey => ['repo', repo, 'object', hash],
-  /** A write of an object's blob in flight */
-  pending: (repo: string, blob: string): RecordKey => ['repo', repo, 'pending', blob],
-  /** A part of a gc run in steps */
-  gcRun: (repo: string, run: string, name: string): RecordKey => ['repo', repo, 'gc', run, name],
-  /** A dataflow run's state, as `WebStateStore` keeps it */
-  state: (repo: string, workspace: string, id: string): RecordKey => ['repo', repo, 'state', workspace, id],
-};
+// The key of each record, which the run state store over the same records
+// shares (`record-keys.ts`)
+export { recordKeys };
 
 /** The blob of an object: one per write of its bytes. */
 function blobKey(repo: string, blob: string): BlobKey {
@@ -317,16 +271,16 @@ function referenced(record: ObjectRecord, now: number): Uint8Array {
 }
 
 /**
- * Checks an execution's names are of the forms e3 writes, as a local
- * repository checks them before it makes a path of them.
+ * Checks an execution's names are of the forms e3 writes, as every store
+ * checks them before it makes a path or a key of them.
  *
- * @throws {Error} When a hash is not a SHA-256 in lowercase hex, or the id is
- *   not a UUIDv7
+ * @throws {InvalidNameError} When a hash is not a SHA-256 in lowercase hex, or
+ *   the id is not a UUIDv7
  */
 function checkExecution(taskHash: string, inputsHash: string, executionId?: string): void {
-  if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
-  if (!isObjectHash(inputsHash)) throw new Error(`'${inputsHash}' is not an inputs hash`);
-  if (executionId !== undefined && !isUuidv7(executionId)) throw new Error(`'${executionId}' is not an execution id`);
+  checkHash('task hash', taskHash);
+  checkHash('inputs hash', inputsHash);
+  if (executionId !== undefined) checkId('execution id', executionId);
 }
 
 /** A source's bytes, gathered whole from its chunks. */
@@ -451,6 +405,7 @@ export class WebObjectStore implements ObjectStore {
   }
 
   async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
+    for (const hash of hashes) checkHash('object hash', hash);
     if (hashes.length === 0) return [];
     return this.records.transact(async (tx) => {
       const now = Date.now();
@@ -464,8 +419,10 @@ export class WebObjectStore implements ObjectStore {
     });
   }
 
-  /** An object's entry, or `ObjectNotFoundError`. */
+  /** An object's entry, or `ObjectNotFoundError`; `InvalidNameError` for a
+   *  hash that is not of its form. */
   private async entry(repo: string, hash: string): Promise<ObjectRecord> {
+    checkHash('object hash', hash);
     const record = await readObject(this.records, repo, hash);
     if (record === null) throw new ObjectNotFoundError(hash);
     return record;
@@ -515,6 +472,7 @@ export class WebObjectStore implements ObjectStore {
   }
 
   async exists(repo: string, hash: string): Promise<boolean> {
+    checkHash('object hash', hash);
     return (await readObject(this.records, repo, hash)) !== null;
   }
 
@@ -610,9 +568,14 @@ class WebRefStore implements RefStore {
   }
 
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
-    checkExecution(taskHash, inputsHash, executionId);
-    const data = await this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
+    const data = await this.executionReadBytes(repo, taskHash, inputsHash, executionId);
     return data === null ? null : statusOf(taskHash, inputsHash, data);
+  }
+
+  /** Reads the attempt's record as it is. */
+  async executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null> {
+    checkExecution(taskHash, inputsHash, executionId);
+    return this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
@@ -653,7 +616,7 @@ class WebRefStore implements RefStore {
   }
 
   async executionListForTask(repo: string, taskHash: string): Promise<string[]> {
-    if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
+    checkHash('task hash', taskHash);
     const found = new Set<string>();
     for (const kind of ['execution', 'plan']) {
       for (const key of await this.records.keys([...recordKeys.kind(repo, kind), taskHash])) found.add(key[4]!);
@@ -663,7 +626,7 @@ class WebRefStore implements RefStore {
 
   /** Lists the latest attempt of each of a task's inputs, in one scan of its attempts. */
   async executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
-    if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
+    checkHash('task hash', taskHash);
     const latest = new Map<string, Uint8Array>();
     // In key order, so an inputs' last attempt is its latest.
     for (const { key, value } of await this.records.scan([...recordKeys.kind(repo, 'execution'), taskHash])) latest.set(key[4]!, value);
@@ -702,7 +665,7 @@ class WebRefStore implements RefStore {
   }
 
   async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
-    if (!isObjectHash(sourceHash)) throw new Error(`adoption memo: '${sourceHash}' is not a SHA-256`);
+    checkHash('object hash', sourceHash);
     await writeRecords(this.records, (tx) => tx.put(recordKeys.adoption(repo, sourceHash), encodeHash(manifestHash)));
   }
 
@@ -723,7 +686,7 @@ class WebRefStore implements RefStore {
   /** A run's key, its workspace and id checked. */
   private runKey(repo: string, workspace: string, runId: string): RecordKey {
     checkName('workspace', workspace);
-    if (!isUuidv7(runId)) throw new Error(`'${runId}' is not a run id`);
+    checkId('run id', runId);
     return recordKeys.run(repo, workspace, runId);
   }
 
@@ -992,6 +955,14 @@ class WebLogStore implements LogStore {
     };
   }
 
+  /** Holds nothing to flush: an append is a record of the transaction that
+   *  wrote it, readable by every tab once the append resolves. The attempt's
+   *  names are checked all the same, as every method checks them. */
+  async flush(_repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    checkExecution(taskHash, inputsHash, executionId);
+    return Promise.resolve();
+  }
+
   async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     checkExecution(taskHash, inputsHash, executionId);
     await writeRecords(this.records, (tx) => tx.deletePrefix([...recordKeys.kind(repo, 'log'), taskHash, inputsHash, executionId]));
@@ -1184,6 +1155,7 @@ class WebRepoStore implements RepoStore {
   /** Deletes objects' entries, and then their blobs: a blob a failure leaves
    *  is the backend's sweep's. */
   async gcDeleteObjects(repo: string, hashes: string[]): Promise<void> {
+    for (const hash of hashes) checkHash('object hash', hash);
     const blobs = await this.records.transact(async (tx) => {
       const gone: string[] = [];
       for (const hash of hashes) {
@@ -1198,6 +1170,7 @@ class WebRepoStore implements RepoStore {
   }
 
   async gcNoteUnreachable(repo: string, hashes: readonly string[], at: number): Promise<number[]> {
+    for (const hash of hashes) checkHash('object hash', hash);
     if (hashes.length === 0) return [];
     return this.records.transact(async (tx) => {
       const sinces: number[] = [];
@@ -1217,6 +1190,7 @@ class WebRepoStore implements RepoStore {
   }
 
   async gcClearUnreachable(repo: string, hashes: readonly string[]): Promise<void> {
+    for (const hash of hashes) checkHash('object hash', hash);
     if (hashes.length === 0) return;
     await this.records.transact(async (tx) => {
       for (const hash of hashes) {
@@ -1235,6 +1209,7 @@ class WebRepoStore implements RepoStore {
    * never takes.
    */
   async gcDeleteUnreachable(repo: string, hash: string, since: number): Promise<boolean> {
+    checkHash('object hash', hash);
     const blob = await this.records.transact(async (tx) => {
       const record = await readObject(tx, repo, hash);
       if (record === null || record.unreachableSince.type !== 'some' || Number(record.unreachableSince.value) !== since) return null;
@@ -1248,7 +1223,7 @@ class WebRepoStore implements RepoStore {
 
   /** A gc run's part's key, its run and name checked. */
   private gcRunKey(repo: string, run: string, name: string): RecordKey {
-    if (!isUuidv7(run)) throw new Error(`'${run}' is not a gc run's id`);
+    checkId('gc run id', run);
     if (!/^[a-z0-9][a-z0-9.]*$/.test(name)) throw new Error(`'${name}' is not the name of a gc run's part`);
     return recordKeys.gcRun(repo, run, name);
   }
@@ -1263,7 +1238,7 @@ class WebRepoStore implements RepoStore {
   }
 
   async gcRunDelete(repo: string, run: string): Promise<void> {
-    if (!isUuidv7(run)) throw new Error(`'${run}' is not a gc run's id`);
+    checkId('gc run id', run);
     await writeRecords(this.records, (tx) => tx.deletePrefix([...recordKeys.kind(repo, 'gc'), run]));
   }
 
@@ -1403,6 +1378,8 @@ export class WebStorage implements StorageBackend {
   readonly logs: LogStore;
   readonly repos: RepoStore;
   readonly datasets: DatasetRefStore;
+  /** Every repository's runs' states, in the same records */
+  private readonly states: WebStateStore;
 
   /**
    * @param adapters - The adapters the repositories are kept over
@@ -1415,6 +1392,19 @@ export class WebStorage implements StorageBackend {
     this.logs = new WebLogStore(records);
     this.datasets = new WebDatasetRefStore(records);
     this.repos = new WebRepoStore(records, blobs, this.refs, this.datasets, this.upgrades);
+    this.states = new WebStateStore(records);
+  }
+
+  /**
+   * The store of a repository's dataflow runs' states: a {@link WebStateStore}
+   * over the backend's own records, which keeps each repository's runs under
+   * its records, where a workspace's removal and the repository's take them.
+   *
+   * @param _repo - Repository identifier
+   * @returns The run state store
+   */
+  runStates(_repo: string): ExecutionStateStore {
+    return this.states;
   }
 
   async validateRepository(repo: string): Promise<void> {

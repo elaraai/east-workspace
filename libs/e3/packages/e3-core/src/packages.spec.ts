@@ -12,7 +12,7 @@ import assert from 'node:assert';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
+import { StringType, IntegerType, DictType, StructType, East, decodeBeast2For, encodeBeast2For, equalFor, none, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowRunType, E3_RELEASE, ExecutionStatusType, type RecordIndexPlan, type RecordPlan } from '@elaraai/e3-types';
 import {
@@ -29,8 +29,10 @@ import { computeHash } from './objects.js';
 import { computeHash as nodeComputeHash } from './objects-node.js';
 import { objectRead } from './storage/local/LocalObjectStore.js';
 import { PackageInvalidError, PackageNotFoundError } from './errors.js';
+import { ExecutionStatusBeforeReasonsType } from './upgrades/execution-stop-reasons.js';
 import {
-  createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries, withRelease, writeZip, zipBytes, zipEqual,
+  HeldLogStore, createTestRepo, removeTestRepo, createTempDir, removeTempDir, logsAtEachEnd, readZipEntries, withLogStore, withRelease,
+  writeZip, zipBytes, zipEqual,
 } from './test-helpers.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -165,12 +167,13 @@ describe('packages', () => {
       const executionId = '0190a0b0-5555-7000-8000-000000000000';
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
+        reason: { kind: variant('aborted', null), message: 'cancelled' },
       }));
       const crafted = await writeZip(join(tempDir, 'crafted.zip'), [
         ...await readZipEntries(zipPath),
         [`executions/${'A'.repeat(64)}/${'b'.repeat(64)}/${executionId}/status.beast2`, Buffer.from(status)],
       ]);
-      await assert.rejects(packageImport(storage, testRepo, crafted), /is not a task hash/);
+      await assert.rejects(packageImport(storage, testRepo, crafted), { name: 'InvalidNameError', kind: 'task hash', value: 'A'.repeat(64) });
     });
 
     it('files no run a zip carries, however it is named: a run\'s history stays where it ran', async () => {
@@ -195,6 +198,74 @@ describe('packages', () => {
       assert.strictEqual(result.name, 'runs');
       assert.deepStrictEqual(await storage.refs.dataflowRunList(testRepo, 'main'), []);
       assert.ok(!existsSync(join(testRepo, 'dataflows', 'main')), 'nothing is filed under the workspace name');
+    });
+
+    it('files an execution a zip carries with its logs written whole and flushed before its status, so an import stopped between them is taken up whole', async () => {
+      // A reader that finds the status reads the whole log. An import stopped
+      // before the status left the logs, which the next writes again rather
+      // than after what the first wrote.
+      const zipPath = join(tempDir, 'ran.zip');
+      await e3.export(e3.package('ran', '1.0.0'), zipPath);
+      const [task, inputs, executionId] = ['c'.repeat(64), 'd'.repeat(64), '0190a0b0-7777-7000-8000-000000000000'];
+      const status = variant('cancelled', {
+        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
+        reason: { kind: variant('aborted', null), message: 'cancelled' },
+      });
+      const at = `executions/${task}/${inputs}/${executionId}`;
+      const crafted = await writeZip(join(tempDir, 'with-logs.zip'), [
+        ...await readZipEntries(zipPath),
+        [`${at}/status.beast2`, Buffer.from(encodeBeast2For(ExecutionStatusType)(status))],
+        [`${at}/stdout.txt`, Buffer.from('one\ntwo\n')],
+        [`${at}/stderr.txt`, Buffer.from('e3: cancelled\n')],
+      ]);
+      // The store fails the status's first write; its logs hold appends until
+      // they are flushed, as a store that gathers appends into fewer writes does.
+      const write = storage.refs.executionWrite.bind(storage.refs);
+      let failing = true;
+      storage.refs.executionWrite = (repo, taskHash, inputsHash, id, written) => {
+        if (!failing) return write(repo, taskHash, inputsHash, id, written);
+        failing = false;
+        return Promise.reject(new Error('the store failed the write'));
+      };
+      const logs = new HeldLogStore(storage.logs);
+      const ends = logsAtEachEnd(storage.refs, logs);
+      const importing = withLogStore(storage, logs);
+
+      await assert.rejects(packageImport(importing, testRepo, crafted), /the store failed the write/);
+      assert.strictEqual(await storage.refs.executionGet(testRepo, task, inputs, executionId), null, 'the stopped import wrote no status');
+      await packageImport(importing, testRepo, crafted);
+
+      const whole = { stdout: 'one\ntwo\n', stderr: 'e3: cancelled\n' };
+      assert.deepStrictEqual(ends.map(({ status: written, stdout, stderr }) => ({ status: written, stdout, stderr })),
+        [{ status: 'cancelled', ...whole }, { status: 'cancelled', ...whole }], 'each write of the status found the whole log readable');
+      for (const stream of ['stdout', 'stderr'] as const) {
+        assert.strictEqual((await storage.logs.read(testRepo, task, inputs, executionId, stream)).data, whole[stream], `the ${stream} log is written once`);
+      }
+      assert.deepStrictEqual(await storage.refs.executionGet(testRepo, task, inputs, executionId), status);
+    });
+
+    it('carries the executions a zip an earlier release exported into the current form, a stopped one\'s reason unrecorded, as an upgrade carries a repository\'s', async () => {
+      const zipPath = join(tempDir, 'earlier.zip');
+      await e3.export(e3.package('earlier', '1.0.0'), zipPath);
+      const [task, inputs] = ['c'.repeat(64), 'd'.repeat(64)];
+      const own = { inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false };
+      const succeeded = variant('success', { ...own, executionId: '0190a0b0-9999-7000-8000-000000000001', outputHash: 'e'.repeat(64), peakBytes: none, plan: none });
+      const cancelled = variant('cancelled', { ...own, executionId: '0190a0b0-9999-7000-8000-000000000002' });
+      const interrupted = variant('interrupted', { ...own, executionId: '0190a0b0-9999-7000-8000-000000000003', pid: 7n });
+      const encodeEarlier = encodeBeast2For(ExecutionStatusBeforeReasonsType);
+      const earlier = await writeZip(join(tempDir, 'earlier-statuses.zip'), withRelease(new Map([
+        ...await readZipEntries(zipPath),
+        ...[succeeded, cancelled, interrupted].map((status): [string, Buffer] =>
+          [`executions/${task}/${inputs}/${status.value.executionId}/status.beast2`, Buffer.from(encodeEarlier(status))]),
+      ]), '1.0.84'));
+
+      await packageImport(storage, testRepo, earlier);
+      const equal = equalFor(ExecutionStatusType);
+      const unrecorded = { kind: variant('unrecorded', null), message: '' };
+      for (const status of [succeeded, variant('cancelled', { ...cancelled.value, reason: unrecorded }), variant('interrupted', { ...interrupted.value, reason: unrecorded })]) {
+        const filed = await storage.refs.executionGet(testRepo, task, inputs, status.value.executionId);
+        assert.ok(filed !== null && equal(filed, status), `the ${status.type} is filed in the current form`);
+      }
     });
 
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
@@ -366,6 +437,7 @@ describe('packages', () => {
           await assert.rejects(view.objects.write(testRepo, new Uint8Array([1])), /^Error: a view of a package zip writes nothing, and was asked to write an object$/);
           await assert.rejects(view.refs.packageWrite(testRepo, 'orders', '1.0.0', expected.packageHash), /was asked to write a package ref$/);
           await assert.rejects(view.datasets.write(testRepo, 'main', 'records/orders', variant('unassigned', null)), /was asked to write a dataset ref$/);
+          await assert.rejects(view.logs.flush(testRepo, 'c'.repeat(64), 'd'.repeat(64), '0190a0b0-8888-7000-8000-000000000000'), /was asked to flush a log$/);
         } finally {
           zip.close();
         }

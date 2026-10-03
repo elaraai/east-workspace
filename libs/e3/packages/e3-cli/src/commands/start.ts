@@ -10,6 +10,7 @@
  *   e3 dataflow run . my-workspace
  *   e3 dataflow run . my-workspace --jobs 2 --memory 8G
  *   e3 dataflow run . my-workspace --force
+ *   e3 dataflow run . my-workspace --force-task import_sales --force-task import_stock
  *   e3 dataflow run https://server/repos/myrepo my-workspace
  */
 
@@ -44,12 +45,29 @@ import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js
 const POLL_INTERVAL = 500;
 
 /**
+ * The tasks a run forces, from its flags: `--force` every task the run runs —
+ * under `--filter`, the filter's task — and each `--force-task` the task it
+ * names.
+ *
+ * @param flags - The run's `--force` and `--force-task` flags
+ * @returns `true` for every task, the tasks named, or `undefined` for none
+ * @throws {Error} When given both, which say different things
+ */
+export function forcedTasks(flags: { force?: boolean; forceTask?: readonly string[] }): true | readonly string[] | undefined {
+  if (flags.forceTask === undefined) return flags.force === true ? true : undefined;
+  if (flags.force === true) {
+    throw new Error('--force forces every task the run runs, and --force-task only the tasks it names: give one or the other');
+  }
+  return flags.forceTask;
+}
+
+/**
  * Execute tasks in a workspace.
  */
 export async function startCommand(
   repoArg: string,
   ws: string,
-  options: BudgetFlags & { filter?: string; force?: boolean; verbose?: boolean }
+  options: BudgetFlags & { filter?: string; force?: boolean; forceTask?: string[]; verbose?: boolean }
 ): Promise<void> {
   // Set up abort controller for signal handling
   const controller = new AbortController();
@@ -68,6 +86,7 @@ export async function startCommand(
   process.on('SIGHUP', () => signalHandler('SIGHUP'));
 
   try {
+    const force = forcedTasks(options);
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'remote') refuseRemoteBudget(options);
     // A local run's budget: the cores and memory its runner processes take,
@@ -81,19 +100,21 @@ export async function startCommand(
     if (budget !== null) {
       console.log(`Budget: ${budget.cores} ${budget.cores === 1 ? 'core' : 'cores'}, ${formatSize(budget.memory)}`);
     }
-    if (options.force) {
+    if (force === true) {
       console.log(
         options.filter
           ? `Force: re-executing ${options.filter} (dependencies from cache)`
           : 'Force: re-executing all tasks'
       );
+    } else if (force !== undefined) {
+      console.log(`Force: re-executing ${force.join(', ')}`);
     }
     console.log('');
 
     if (location.type === 'local') {
       await executeLocal(location.path, ws, {
         budget: budget!,
-        force: options.force,
+        force,
         verbose: options.verbose,
         filter: options.filter,
         signal: controller.signal,
@@ -104,7 +125,7 @@ export async function startCommand(
         location.repo,
         ws,
         {
-          force: options.force,
+          force,
           filter: options.filter,
           verbose: options.verbose,
         },
@@ -133,7 +154,8 @@ interface LocalExecuteOptions {
   /** The run's budget: the cores and memory its runner processes take, tasks
    *  and the units of split tasks alike. */
   budget: Budget;
-  force?: boolean;
+  /** The tasks the run forces: `true` for every task, or the tasks named */
+  force?: true | readonly string[];
   verbose?: boolean;
   filter?: string;
   signal: AbortSignal;
@@ -242,7 +264,8 @@ async function executeLocal(
 // =============================================================================
 
 interface RemoteExecuteOptions {
-  force?: boolean;
+  /** The tasks the run forces: `true` for every task, or the tasks named */
+  force?: true | readonly string[];
   filter?: string;
   verbose?: boolean;
 }
@@ -264,20 +287,20 @@ async function executeRemote(
     filter: options.filter,
   }, { token: await getValidToken(baseUrl), verbose: options.verbose });
 
-  // Poll for execution state
-  let eventOffset = 0;
+  // Poll for execution state, each poll from the cursor the last answered
+  let since = 0n;
   let lastStatus: DataflowExecutionState['status']['type'] | null = null;
 
   while (!isAborted()) {
     const state = await dataflowExecutePollRemote(baseUrl, repo, ws, {
-      offset: eventOffset,
+      since,
     }, { token: await getValidToken(baseUrl) });
 
     // Print new events
     for (const event of state.events) {
       printEvent(event);
-      eventOffset++;
     }
+    since = state.nextSeq;
 
     // Check if execution is done
     if (state.status.type !== 'running') {

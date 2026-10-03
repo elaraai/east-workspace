@@ -94,6 +94,29 @@ export function sendJsonError(err: unknown): Response {
   });
 }
 
+/** How long, in seconds, a client is told to wait before it asks again of a
+ *  repository an upgrade waits on. */
+const UPGRADE_RETRY_AFTER_S = 5;
+
+/**
+ * The answer to a request of a repository that owes store upgrades: 503 JSON
+ * `repository_upgrade_pending`, naming the steps and why they wait, with a
+ * `Retry-After`.
+ *
+ * @remarks
+ * The repository gate answers so, and so does a route that opens the
+ * repository itself, whatever its success's type: a client retries the
+ * request, and then raises `repository_upgrade_pending`.
+ *
+ * @param err - The open's refusal
+ * @returns The response
+ */
+export function sendUpgradePending(err: RepositoryUpgradePendingError): Response {
+  const refused = sendJsonError(err);
+  refused.headers.set('Retry-After', String(UPGRADE_RETRY_AFTER_S));
+  return refused;
+}
+
 /**
  * Convert an e3-core error to an API error variant.
  */

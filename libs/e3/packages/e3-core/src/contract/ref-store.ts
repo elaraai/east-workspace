@@ -18,6 +18,7 @@ import {
 } from '@elaraai/e3-types';
 import { ExecutionCorruptError } from '../errors.js';
 import { uuidv7 } from '../uuid.js';
+import { MALFORMED_HASHES, MALFORMED_IDS, MALFORMED_NAMES, hashRefusal, idRefusal, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 const TASK = 'a'.repeat(64);
@@ -26,10 +27,10 @@ const HASH = 'c'.repeat(64);
 const OTHER_HASH = 'd'.repeat(64);
 const AT = new Date('2026-09-28T00:00:00.000Z');
 
-/** Two UUIDv7s, the second sorting after the first. */
-async function twoIds(): Promise<[string, string]> {
+/** Two UUIDv7s minted one after the other, the second sorting after the
+ *  first. */
+function twoIds(): [string, string] {
   const first = uuidv7();
-  await new Promise((resolve) => setTimeout(resolve, 2));
   return [first, uuidv7()];
 }
 
@@ -93,7 +94,7 @@ export function refStoreTests(setup: BackendSetup): void {
     it('keeps every attempt at an execution, the latest sorting last', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.executionGetLatest(repo, TASK, INPUTS), null);
-      const [first, second] = await twoIds();
+      const [first, second] = twoIds();
       const failed: ExecutionStatus = variant('failed', {
         executionId: first, inputHashes: [HASH], startedAt: AT, completedAt: AT, exitCode: 1n, peakBytes: none, unit: false,
       });
@@ -181,7 +182,7 @@ export function refStoreTests(setup: BackendSetup): void {
     it('keeps a workspace\'s runs by id, the latest sorting last, until each is deleted', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.dataflowRunGetLatest(repo, 'ws'), null);
-      const [first, second] = await twoIds();
+      const [first, second] = twoIds();
       const earlier: DataflowRun = {
         runId: first,
         workspaceName: 'ws',
@@ -223,6 +224,100 @@ export function refStoreTests(setup: BackendSetup): void {
       await storage.refs.dataflowRunDelete(repo, 'ws', first);
       assert.equal(await storage.refs.dataflowRunGet(repo, 'ws', first), null);
       assert.deepEqual(await storage.refs.dataflowRunList(repo, 'ws'), [second]);
+    });
+
+    it('refuses a hash or an id that is not of its form, naming it, before it reads or writes anything', async (t) => {
+      // A package being imported names an execution's hashes and an attempt's
+      // id, a client names a run's id and a delivery's hash.
+      const { storage, repo } = await setup(t);
+      const id = uuidv7();
+      const failed: ExecutionStatus = variant('failed', {
+        executionId: id, inputHashes: [HASH], startedAt: AT, completedAt: AT, exitCode: 1n, peakBytes: none, unit: false,
+      });
+      const owner: ExecutionOwner = { pid: 1234n, pidStartTime: 5678n, bootId: 'contract-boot' };
+      const run: DataflowRun = {
+        runId: uuidv7(), workspaceName: 'ws', packageRef: 'pkg@1.0.0', startedAt: AT, completedAt: none,
+        status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
+        summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
+      };
+
+      for (const malformed of MALFORMED_HASHES) {
+        for (const [task, inputs, refused] of [
+          [malformed, INPUTS, hashRefusal('task hash', malformed)],
+          [TASK, malformed, hashRefusal('inputs hash', malformed)],
+        ] as const) {
+          await assert.rejects(storage.refs.executionGet(repo, task, inputs, id), refused);
+          await assert.rejects(storage.refs.executionReadBytes(repo, task, inputs, id), refused);
+          await assert.rejects(storage.refs.executionWrite(repo, task, inputs, id, failed), refused);
+          await assert.rejects(storage.refs.executionDelete(repo, task, inputs, id), refused);
+          await assert.rejects(storage.refs.executionListIds(repo, task, inputs), refused);
+          await assert.rejects(storage.refs.executionGetLatest(repo, task, inputs), refused);
+          await assert.rejects(storage.refs.executionOwnerWrite(repo, task, inputs, id, owner), refused);
+          await assert.rejects(storage.refs.executionOwnerRead(repo, task, inputs, id), refused);
+          await assert.rejects(storage.refs.executionPlanWrite(repo, task, inputs, HASH), refused);
+          await assert.rejects(storage.refs.executionPlanRead(repo, task, inputs), refused);
+        }
+        await assert.rejects(storage.refs.executionListForTask(repo, malformed), hashRefusal('task hash', malformed));
+        await assert.rejects(storage.refs.executionListLatest(repo, malformed), hashRefusal('task hash', malformed));
+        await assert.rejects(storage.refs.adoptionWrite(repo, malformed, HASH), hashRefusal('object hash', malformed));
+        // A key that is no SHA-256 names no entry of the memo
+        assert.equal(await storage.refs.adoptionRead(repo, malformed), null);
+        await storage.refs.adoptionDelete(repo, malformed);
+      }
+
+      for (const malformed of MALFORMED_IDS) {
+        const refused = idRefusal('execution id', malformed);
+        await assert.rejects(storage.refs.executionGet(repo, TASK, INPUTS, malformed), refused);
+        await assert.rejects(storage.refs.executionReadBytes(repo, TASK, INPUTS, malformed), refused);
+        await assert.rejects(storage.refs.executionWrite(repo, TASK, INPUTS, malformed, failed), refused);
+        await assert.rejects(storage.refs.executionDelete(repo, TASK, INPUTS, malformed), refused);
+        await assert.rejects(storage.refs.executionOwnerWrite(repo, TASK, INPUTS, malformed, owner), refused);
+        await assert.rejects(storage.refs.executionOwnerRead(repo, TASK, INPUTS, malformed), refused);
+        await assert.rejects(storage.refs.dataflowRunGet(repo, 'ws', malformed), idRefusal('run id', malformed));
+        await assert.rejects(storage.refs.dataflowRunWrite(repo, 'ws', { ...run, runId: malformed }), idRefusal('run id', malformed));
+        await assert.rejects(storage.refs.dataflowRunDelete(repo, 'ws', malformed), idRefusal('run id', malformed));
+      }
+
+      assert.deepEqual(await storage.refs.executionList(repo), [], 'no execution is written');
+      assert.deepEqual(await storage.refs.adoptionList(repo), [], 'no memo entry is written');
+      assert.deepEqual(await storage.refs.dataflowRunList(repo, 'ws'), [], 'no run is written');
+    });
+
+    it('refuses a package\'s name or version, or a workspace\'s name, that cannot be one path segment, naming it, before it reads or writes anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      const runId = uuidv7();
+      const run: DataflowRun = {
+        runId, workspaceName: 'ws', packageRef: 'pkg@1.0.0', startedAt: AT, completedAt: none,
+        status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
+        summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
+      };
+
+      for (const name of MALFORMED_NAMES['package']) {
+        const refused = nameRefusal('package', name);
+        await assert.rejects(storage.refs.packageResolve(repo, name, '1.0.0'), refused);
+        await assert.rejects(storage.refs.packageWrite(repo, name, '1.0.0', HASH), refused);
+        await assert.rejects(storage.refs.packageRemove(repo, name, '1.0.0'), refused);
+      }
+      for (const version of MALFORMED_NAMES['package version']) {
+        const refused = nameRefusal('package version', version);
+        await assert.rejects(storage.refs.packageResolve(repo, 'pkg', version), refused);
+        await assert.rejects(storage.refs.packageWrite(repo, 'pkg', version, HASH), refused);
+        await assert.rejects(storage.refs.packageRemove(repo, 'pkg', version), refused);
+      }
+      for (const workspace of MALFORMED_NAMES['workspace']) {
+        const refused = nameRefusal('workspace', workspace);
+        await assert.rejects(storage.refs.workspaceRead(repo, workspace), refused);
+        await assert.rejects(storage.refs.workspaceWrite(repo, workspace, new Uint8Array([1])), refused);
+        await assert.rejects(storage.refs.workspaceRemove(repo, workspace), refused);
+        await assert.rejects(storage.refs.dataflowRunGet(repo, workspace, runId), refused);
+        await assert.rejects(storage.refs.dataflowRunWrite(repo, workspace, run), refused);
+        await assert.rejects(storage.refs.dataflowRunList(repo, workspace), refused);
+        await assert.rejects(storage.refs.dataflowRunGetLatest(repo, workspace), refused);
+        await assert.rejects(storage.refs.dataflowRunDelete(repo, workspace, runId), refused);
+      }
+
+      assert.deepEqual(await storage.refs.packageList(repo), [], 'no package ref is written');
+      assert.deepEqual(await storage.refs.workspaceList(repo), [], 'no workspace is written');
     });
   });
 }

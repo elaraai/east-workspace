@@ -37,6 +37,10 @@ export {
   getDataset,
   getDatasetStatus,
   setDataset,
+  getDatasetPage,
+  getValuePage,
+  type DatasetPageWindow,
+  type DatasetPageLimits,
 } from './datasets.js';
 
 export {
@@ -65,4 +69,5 @@ export {
   callMutationSync,
   compactRecord,
   getRecordHistory,
+  mutationResultOf,
 } from './records.js';

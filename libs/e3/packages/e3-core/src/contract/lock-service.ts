@@ -13,6 +13,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { variant } from '@elaraai/east';
 import type { LockProgress } from '@elaraai/e3-types';
+import { InvalidNameError } from '../errors.js';
+import { workspaceLockStatus } from '../workspaces.js';
+import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 /** A deploy's progress: `done` of its three file sources taken in, the next
@@ -119,6 +122,37 @@ export function lockServiceTests(setup: BackendSetup): void {
       const taken = await waiting;
       assert.ok(taken !== null, 'the waiter takes the resource once it is released');
       await taken.release();
+    });
+
+    it("reads a workspace's lock by a workspace's name: a lock's resource no workspace can have is refused, even while it is held", async (t) => {
+      const { storage, repo } = await setup(t);
+      // What a run of main's dataflow holds
+      const held = await storage.locks.acquire(repo, 'main#dataflow', variant('dataflow', null));
+      assert.ok(held !== null);
+      try {
+        for (const name of ['main#dataflow', 'a#b', 'a~b']) {
+          await assert.rejects(workspaceLockStatus(storage, repo, name), (err: unknown) => {
+            assert.ok(err instanceof InvalidNameError, `${name}: ${String(err)}`);
+            assert.equal(err.kind, 'workspace');
+            assert.equal(err.value, name);
+            return true;
+          });
+        }
+        assert.equal(await workspaceLockStatus(storage, repo, 'main'), null, "main's dataflow lock is no lock of main's own");
+      } finally {
+        await held.release();
+      }
+    });
+
+    it('refuses a resource whose name cannot be one path segment, naming it, before it takes or reads anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      for (const resource of MALFORMED_NAMES['lock']) {
+        const refused = nameRefusal('lock', resource);
+        await assert.rejects(storage.locks.acquire(repo, resource, variant('deployment', null)), refused);
+        await assert.rejects(storage.locks.acquire(repo, resource, variant('dataflow', null), { mode: 'shared' }), refused);
+        await assert.rejects(storage.locks.getState(repo, resource), refused);
+        await assert.rejects(storage.locks.getProgress(repo, resource), refused);
+      }
     });
   });
 }

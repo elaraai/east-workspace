@@ -26,7 +26,7 @@ import { pipeline } from 'stream/promises';
 import { constants, createWriteStream } from 'fs';
 import { sha256File } from '@elaraai/e3';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
-import { ObjectNotFoundError, isNotFoundError } from '../../errors.js';
+import { ObjectNotFoundError, checkHash, isNotFoundError } from '../../errors.js';
 import { computeHash } from '../../objects-node.js';
 import { clearUnreachableNote, objectPath } from './localHelpers.js';
 import type { ObjectStore } from '../interfaces.js';
@@ -49,14 +49,16 @@ function isUnsupported(err: unknown): boolean {
 
 /**
  * Places a file at `dest` without reading it into this process: a reflink,
- * else a hard link when the two are on one volume, else one kernel copy.
+ * else a hard link when the two are on one volume and `link` allows it, else
+ * one kernel copy.
  *
  * @param file - The file to place
  * @param dest - Where to place it; a name nothing else uses
  * @param fileDev - The device the file is on
  * @param destDir - The directory `dest` is in
+ * @param link - Whether `dest` may be the file itself, by a hard link
  */
-async function placeFile(file: string, dest: string, fileDev: number, destDir: string): Promise<void> {
+async function placeFile(file: string, dest: string, fileDev: number, destDir: string, link: boolean): Promise<void> {
   // 1. Reflink: zero-copy AND copy-on-write, so the object keeps its bytes
   //    even if the delivery is later overwritten in place. FICLONE_FORCE
   //    (not FICLONE) so a file system without reflinks fails here instead of
@@ -71,7 +73,7 @@ async function placeFile(file: string, dest: string, fileDev: number, destDir: s
 
   // 2. Hard link, when the delivery is on the objects directory's volume.
   try {
-    if ((await fs.stat(destDir)).dev === fileDev) {
+    if (link && (await fs.stat(destDir)).dev === fileDev) {
       await fs.link(file, dest);
       return;
     }
@@ -418,7 +420,10 @@ export class LocalObjectStore implements ObjectStore {
    * reflink shares storage copy-on-write, a hard link shares it outright
    * (see the aliasing note on `ObjectStore.adoptFile`), and a `copyFile`
    * falls back to the kernel's own copy. The delivered file is only ever
-   * opened for reading.
+   * opened for reading. A file another user owns is never linked: the object
+   * would be that user's file, which they could write after it is stored — a
+   * runner run as another user's output, say — so it is copied, by a reflink
+   * where one is free.
    *
    * Every strategy places the file under a staging name, and only a staged
    * file that hashes to the object's hash is renamed into place. The path
@@ -435,9 +440,12 @@ export class LocalObjectStore implements ObjectStore {
    * @param file - Path to the file to adopt
    * @param hash - The file's SHA256 when already known; else read here
    * @returns The object's hash and size
+   * @throws {InvalidNameError} When `hash` is not a SHA-256 in lowercase hex,
+   *   before the file is looked at
    * @throws {Error} When the file placed does not hash to `hash`
    */
   async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
+    if (hash !== undefined) checkHash('object hash', hash);
     const stats = await fs.stat(file);
     if (!stats.isFile()) throw new Error(`Not a file: ${file}`);
     if (hash !== undefined && await objectTouch(repo, hash)) {
@@ -455,7 +463,8 @@ export class LocalObjectStore implements ObjectStore {
     await fs.mkdir(objectsDir, { recursive: true });
     const stagingPath = path.join(objectsDir, stagingName('stage'));
     try {
-      await placeFile(file, stagingPath, stats.dev, objectsDir);
+      const ours = process.getuid === undefined || stats.uid === process.getuid();
+      await placeFile(file, stagingPath, stats.dev, objectsDir, ours);
       const { size } = await fs.stat(stagingPath);
       const digest = await sha256File(stagingPath);
       if (hash !== undefined && digest !== hash) {
@@ -520,8 +529,10 @@ export class LocalObjectStore implements ObjectStore {
   }
 
   /** Re-references each object as {@link objectTouch} does,
-   *  {@link OBJECT_CONCURRENCY} at a time. */
+   *  {@link OBJECT_CONCURRENCY} at a time, once every hash is of its form:
+   *  a batch naming one that is not touches none. */
   async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
+    for (const hash of hashes) checkHash('object hash', hash);
     const held: boolean[] = new Array<boolean>(hashes.length).fill(false);
     await eachAtMost([...hashes.keys()], OBJECT_CONCURRENCY, async (i) => {
       held[i] = await objectTouch(repo, hashes[i]!);

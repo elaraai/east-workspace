@@ -210,7 +210,7 @@ describe('reducer: data', () => {
     test('execution flags settle when the poll shows the run and clear stopping when it stops', () => {
         let s = reduce(start(), { type: 'data/executionFlag', ws: 'main', settling: true });
         assert.equal(s.data.execution['main']?.settling, true);
-        const running = { status: { type: 'running', value: null }, startedAt: 't1', completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], totalEvents: 0n } as never;
+        const running = { status: { type: 'running', value: null }, startedAt: 't1', completedAt: { type: 'none', value: null }, summary: { type: 'none', value: null }, events: [], nextSeq: 0n } as never;
         s = reduce(s, { type: 'data/execution', ws: 'main', state: running, events: [], startedAt: 't1' });
         assert.equal(s.data.execution['main']?.settling, false);
         s = reduce(s, { type: 'data/executionFlag', ws: 'main', stopping: true });

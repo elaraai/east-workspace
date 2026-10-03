@@ -752,11 +752,21 @@ EastValue *east_csv_decode(const char *csv, EastType *type, EastValue *config);
 EastValue *east_csv_decode_with_error(const char *csv, EastType *type, EastValue *config,
                                       char **error_out);
 
-// East text format
+// East text format. A string escapes only `\` and `"`, and a quoted identifier
+// only `\` and `` ` ``; every other character is written as itself, as every
+// runtime prints it — a NUL among them, so text that holds one is read and
+// written with its length, through the _len forms.
 char *east_print_value(EastValue *value, EastType *type);
+// The text and, in *len_out, its length, which counts any NUL it holds.
+char *east_print_value_len(EastValue *value, EastType *type, size_t *len_out);
+// NULL on any text east_parse_value_with_error refuses — an escape the grammar
+// has no meaning for, a field missing or out of order, trailing input — without
+// saying why.
 EastValue *east_parse_value(const char *text, EastType *type);
 // East parse with detailed error message (caller frees *error_out on failure)
 EastValue *east_parse_value_with_error(const char *text, EastType *type, char **error_out);
+// The parse of `len` bytes of text, which may hold a NUL; error_out may be NULL.
+EastValue *east_parse_value_len(const char *text, size_t len, EastType *type, char **error_out);
 char *east_print_type(EastType *type);
 EastType *east_parse_type(const char *text);
 

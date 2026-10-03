@@ -40,7 +40,11 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 
 ## Commands
 
-`make build`, `make test`, `make lint` from this directory. See
+`make build`, `make test`, `make lint` from this directory; `make
+test-export` and `make export-examples` export the compliance corpus and the
+examples as IR, into `EAST_TEST_IR_DIR` and `EAST_EXAMPLES_IR_DIR` — the
+checkout's `tmp/east-test-ir` and `tmp/east-examples-ir`, which the root
+`paths.mk` sets for every gate that reads them. See
 `../../docs/conventions/MAKEFILE_TARGETS.md` for the full target list.
 
 ## See also
@@ -58,5 +62,5 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 - `../../docs/conventions/EAST_CODEGEN.md` — IR ↔ source in both
   languages: the printers' contract, the construct mapping, the three
   round-trip suites (`src/codegen/codegen.spec.ts` reads the exported
-  corpora from `/tmp/east-test-ir` and `/tmp/east-examples-ir`; missing
-  ones skip unless `EAST_CONFORMANCE_REQUIRED=1`).
+  corpora from `EAST_TEST_IR_DIR` and `EAST_EXAMPLES_IR_DIR`, which make
+  supplies; missing ones skip unless `EAST_CONFORMANCE_REQUIRED=1`).

@@ -32,6 +32,8 @@ import {
   isTypeValueEqual,
   readBeast2Type,
   toEastTypeValue,
+  variant,
+  type EastTypeValue,
 } from '@elaraai/east';
 import { E3_RELEASE, compareReleases } from './release.js';
 
@@ -394,6 +396,59 @@ export interface PartitionProgress {
 }
 
 // =============================================================================
+// Forced Tasks
+// =============================================================================
+
+/**
+ * The tasks a dataflow run forces: re-executes even where the execution cache
+ * holds their results.
+ *
+ * - `none`: no task; each is served from the cache when it can be
+ * - `all`: every task the run launches — under a filter, the filter's task
+ * - `tasks`: the tasks named, and no other
+ *
+ * @remarks
+ * A forced task is forced each time the run launches it, so one invalidated
+ * mid-run and launched again is forced again. Its dependents are not forced:
+ * they re-run when its output changes. A run that names a task the graph does
+ * not have, or one its filter's run set leaves out, is refused before anything
+ * runs.
+ */
+export const DataflowForceType = VariantType({
+  none: NullType,
+  all: NullType,
+  tasks: ArrayType(StringType),
+});
+export type DataflowForce = ValueTypeOf<typeof DataflowForceType>;
+
+/**
+ * The tasks a run forces, from the option a caller passes it.
+ *
+ * @param force - `true` for every task, the names of the tasks, or `false` or
+ *   nothing for none
+ * @returns What the run forces
+ */
+export function dataflowForce(force: boolean | readonly string[] | undefined): DataflowForce {
+  if (force === undefined || force === false) return variant('none', null);
+  if (force === true) return variant('all', null);
+  return variant('tasks', [...force]);
+}
+
+/**
+ * The option a run's forced tasks are passed to an orchestrator as.
+ *
+ * @param force - What the run forces
+ * @returns `true` for every task, the names of the tasks, or `false` for none
+ */
+export function dataflowForceOption(force: DataflowForce): boolean | string[] {
+  switch (force.type) {
+    case 'none': return false;
+    case 'all': return true;
+    case 'tasks': return [...force.value];
+  }
+}
+
+// =============================================================================
 // Main Execution State
 // =============================================================================
 
@@ -426,9 +481,10 @@ export const DataflowExecutionStateType = StructType({
   startedAt: DateTimeType,
 
   // Config (immutable after initialization)
-  /** Force re-execution even if cached */
-  force: BooleanType,
-  /** Filter to run only specific task(s) by exact name */
+  /** The tasks the run re-executes even where the cache holds their results
+   *  ({@link DataflowForceType}) */
+  force: DataflowForceType,
+  /** One task's exact name: the run runs it and its dependency closure */
   filter: OptionType(StringType),
 
   // Graph (inline or by reference)
@@ -493,10 +549,16 @@ const decodeState = decodeBeast2For(DataflowExecutionStateType);
  * @param data - the stored state
  * @returns the state
  * @throws {Error} When the state is of another form, naming the release that
- *   wrote it, or the data is not an execution state.
+ *   wrote it, or the data is not an execution state — of another type, or not
+ *   beast2 at all.
  */
 export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutionState {
-  const type = readBeast2Type(data);
+  let type: EastTypeValue;
+  try {
+    type = readBeast2Type(data);
+  } catch (err) {
+    throw new Error(`the data is not an execution state: it is not beast2 (${err instanceof Error ? err.message : `${err as string}`})`, { cause: err });
+  }
   if (isTypeValueEqual(type, STATE_TYPE)) return decodeState(data);
   const { value } = decodeBeast2(data);
   const state = typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
@@ -513,6 +575,66 @@ export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutio
     );
   }
   throw new Error('the data is not an execution state: its type is not the execution state\'s');
+}
+
+/**
+ * A dataflow run's state but its graph, its tasks, its reactive tracking and
+ * its events: what a poll of the run serves but the events, and the sequence
+ * number of its last event, past which a poll reads the events it has not
+ * served.
+ *
+ * @remarks
+ * An execution state store answers it for a workspace's latest run
+ * (`ExecutionStateStore.readLatestSummary`), so a poll reads it rather than
+ * the whole state, which grows with the dataflow and with every event of the
+ * run. A store may keep it beside the state, written with each change of the
+ * state; one that reads the whole state anyway derives it
+ * ({@link executionStateSummary}).
+ */
+export const ExecutionStateSummaryType = StructType({
+  /** The run's id, a UUIDv7 */
+  id: StringType,
+  /** When the run started */
+  startedAt: DateTimeType,
+  /** Number of tasks executed (not from cache) */
+  executed: IntegerType,
+  /** Number of tasks served from cache */
+  cached: IntegerType,
+  /** Number of tasks that failed */
+  failed: IntegerType,
+  /** Number of tasks skipped due to upstream failure */
+  skipped: IntegerType,
+  /** The run's status ({@link DataflowExecutionStatus}) */
+  status: StringType,
+  /** When the run ended */
+  completedAt: OptionType(DateTimeType),
+  /** Why the run failed, when it did */
+  error: OptionType(StringType),
+  /** The sequence number of the run's last event: 0 while it has none */
+  lastSeq: IntegerType,
+});
+export type ExecutionStateSummary = ValueTypeOf<typeof ExecutionStateSummaryType>;
+
+/**
+ * The summary of a run's state ({@link ExecutionStateSummaryType}).
+ *
+ * @param state - The run's state
+ * @returns Its summary: its last event's sequence number is the last event's
+ *   own, however the event was recorded
+ */
+export function executionStateSummary(state: DataflowExecutionState): ExecutionStateSummary {
+  return {
+    id: state.id,
+    startedAt: state.startedAt,
+    executed: state.executed,
+    cached: state.cached,
+    failed: state.failed,
+    skipped: state.skipped,
+    status: state.status,
+    completedAt: state.completedAt,
+    error: state.error,
+    lastSeq: state.events.at(-1)?.value.seq ?? 0n,
+  };
 }
 
 // =============================================================================

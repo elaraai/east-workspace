@@ -160,8 +160,13 @@ of the run in the request's host, and a poll and a cancel read the latest run
 from that store, whichever instance answers them. The dataset transfer routes
 (`createTransferRoutes`) take the transfer backend, whose upload store takes a
 delivery in on the runner it was given: an init adopts only what takes nothing
-in, and answers at once. A route answers for the repository in its URL alone:
-a job, an upload or a run another repository started is not found through it.
+in, and answers at once. A poll reads the latest run's summary from the store
+(`readLatestSummary`), and its events only past the poll's cursor, so a store
+whose reads cost by the byte answers a caught-up poll cheaply; the waits and
+split progress it serves are the orchestrator's (`getProgress`), which has none
+of a run another instance runs. A route answers for the repository in its URL
+alone: a job, an upload or a run another repository started is not found
+through it.
 
 ```typescript
 import { Hono } from 'hono';
@@ -184,13 +189,54 @@ applies none: it answers every request to a repository that owes them `503`
 the steps are applied, and calls `onUpgradePending` for each, where the host
 starts its job, once. The job opens the repository with e3-core's
 `repositoryOpen`, which applies them, waiting for work running in it as any
-open does.
+open does. No route applies a step itself: the record route (`getRecord`) only
+reads, and refuses a repository that owes one as the gate does, gate or no.
 
 ```typescript
 app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath, {
   applyUpgrades: false,
   // The job runs repositoryOpen(storage, getRepoPath(repo))
   onUpgradePending: (repo) => startUpgradeJob(repo),
+}));
+```
+
+A host's own routes answer their errors as these do, with the mapping every
+route uses, so no host keeps a copy of it that falls behind as it grows:
+
+- `errorToVariant` gives an e3-core error as the API's `ErrorType`, which
+  `sendError` answers in BEAST2;
+- `errorToHttpStatus` and `sendJsonError` answer it as JSON, as the gate
+  answers its refusals;
+- `sendUpgradePending` answers a repository that owes upgrades as the gate
+  does.
+
+A host's own routes over records answer as the record and dataset routes do:
+
+- `mutationResultOf` gives the outcome of a record operation as the
+  `MutationResultType` value the mutation and compact routes answer with,
+  such as a rollback's through e3-core's `recordSystemCommit`;
+- `getValuePage` answers a window of a collection the host names by hash,
+  such as a record's state at a past commit, with the body, the `X-*` headers
+  and the refusals of a dataset's page (`getDatasetPage`).
+
+Each is exported from the root and the portable entries, and each handler from
+`./handlers` too. e3-api-client reads what they answer: `parsePage` a page,
+`parseErrorBody` a JSON refusal, and `objectGet` and `collectionGetStream` a
+value by its hash.
+
+A host whose requests have a time limit gives it to the routes that run a
+program for a request, so that each answers its typed outcome before the host
+cuts it off: the function and one-shot routes take `syncDeadlineMs`, and so do
+the record routes, whose mutation and compaction answer `timed_out` or
+`conflict` 2 s under it. The record routes' `historyLimit` is how many commits
+a history request that names no `limit` is answered with; the client pages on
+from the last one's parent. Unset, as on this server, neither is bounded. A
+limit no request could meet is refused when the routes are mounted.
+
+```typescript
+app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner, {
+  syncDeadlineMs: 29_000,  // under a 30 s gateway
+  historyLimit: 1_000,
 }));
 ```
 
@@ -208,6 +254,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | PUT | `/api/repos/:repo` | Create repository (multi-repo mode) |
 | DELETE | `/api/repos/:repo` | Remove repository (multi-repo mode): marked as being removed first, so a request to it is refused from then on |
 | GET | `/api/repos/:repo/status` | Repository status (counts) |
+| GET | `/api/repos/:repo/record` | The repository's record: the release that last wrote it, and the upgrades it has had. A read, which applies none it owes: without the gate ahead of it, a repository that owes one is refused as the gate refuses it, 503 `repository_upgrade_pending` with `Retry-After` |
 | POST | `/api/repos/:repo/gc` | Start garbage collection (async) |
 | GET | `/api/repos/:repo/gc/:id` | Get GC status |
 
@@ -231,7 +278,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | GET | `/api/repos/:repo/workspaces` | List all workspaces |
 | POST | `/api/repos/:repo/workspaces` | Create workspace |
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
-| GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary) |
+| GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary). With `?path=` (repeated, each a dataset's keypath, `.inputs.x`), only those datasets and the tasks producing them, each as the whole status gives it: a path that names no dataset is left out, and one that is no keypath is refused 400 `bad_request` |
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
 | GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record and index, or why it failed |
 | GET | `/api/repos/:repo/workspaces/:ws/lock` | What holds the workspace exclusively, and how far it says it has got; none when nothing does |
@@ -271,7 +318,7 @@ through the objects route and splices them itself, as e3-api-client's
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/repos/:repo/objects/:hash` | An object's bytes; one over 1 MB answers JSON `{ url }` to download it from |
+| GET | `/api/repos/:repo/objects/:hash` | An object's bytes; one over 1 MB answers JSON `{ url }` to download it from; a hash that is no SHA-256 in lowercase hex is refused 400 `invalid_name` |
 | GET | `/api/downloads/:id` | A download a `{ url }` answer names (no `Authorization`) |
 
 ### Dataset transfer
@@ -345,13 +392,22 @@ for the whole job, counted from its launch. A call is polled only through the
 repository and workspace that launched it, and a caller with a platform-free
 grant polls only a platform-free call, or one such a caller launched.
 
+### Records
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations and indexes, with their types |
+| GET | `/api/repos/:repo/workspaces/:ws/records/:rec/history` | Its commits, newest first: `?limit=` of them from `?from=`, the head when absent; with no limit, the whole chain, or the host's page (`historyLimit`) |
+| POST | `/api/repos/:repo/workspaces/:ws/records/:rec/mutations/:mut` | Apply a mutation: `committed`, `invalid`, `failed`, `timed_out` or `conflict`; with an `Idempotency-Key`, a retry answers the first call's commit |
+| POST | `/api/repos/:repo/workspaces/:ws/records/:rec/compact` | Collapse the history to a `$compact` root, the state kept (an elevated role when auth is on) |
+
 ### Execution
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling) |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and a window of its events (`offset`, `limit`), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |
@@ -366,6 +422,7 @@ Response bodies are wrapped in a variant type:
 - `{ type: 'error', value: <error> }` - Operation failed
 
 Error variants include:
+- `invalid_name` - A name, hash or id is not of its form: its kind (a workspace's name, an object's hash, a run's id, …), the value, and why, whichever backend the server runs over
 - `workspace_not_found` - Workspace doesn't exist
 - `workspace_not_deployed` - No package deployed to workspace
 - `workspace_locked` - Workspace is locked by another process

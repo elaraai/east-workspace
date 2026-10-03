@@ -92,6 +92,7 @@ export {
   treePath,
   pathToString,
   parsePath,
+  parseKeypath,
   parseDatasetPath,
   parsePackageRef,
   urlPathToTreePath,
@@ -185,6 +186,8 @@ export {
 
 // Execution status
 export {
+  StopReasonType,
+  type StopReason,
   ExecutionStatusType,
   type ExecutionStatus,
   decodeExecutionStatus,
@@ -233,8 +236,8 @@ export {
 // The release of e3 this build is, which what it keeps and ships records
 export { E3_RELEASE, compareReleases } from './release.js';
 
-// The names e3 makes paths of
-export { type NamedKind, nameProblem } from './names.js';
+// The names e3 makes paths of, and the hashes and ids
+export { type NamedKind, type HashKind, type IdKind, type IdentifierKind, nameProblem } from './names.js';
 
 // Dataset transfer types
 export {
@@ -474,9 +477,16 @@ export {
   ExecutionEventType,
   type ExecutionEvent,
   type PartitionProgress,
+  DataflowForceType,
+  type DataflowForce,
+  dataflowForce,
+  dataflowForceOption,
   DataflowExecutionStateType,
   type DataflowExecutionState,
   decodeDataflowExecutionState,
+  ExecutionStateSummaryType,
+  type ExecutionStateSummary,
+  executionStateSummary,
   // Dataflow run history
   DataflowRunStatusType,
   type DataflowRunStatus,

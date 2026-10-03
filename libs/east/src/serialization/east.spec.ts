@@ -128,7 +128,7 @@ describe('parseFor (value parsing)', () => {
       }
     });
 
-    test('should error on unsupported escape sequence \\n', () => {
+    test('refuses a \\n escape, which the printer never writes: a newline prints as itself', () => {
       const parser = parseFor(StringType);
 
       const result = parser('"hello\\nworld"');
@@ -136,9 +136,10 @@ describe('parseFor (value parsing)', () => {
       if (!result.success) {
         assert.equal(result.error, 'Error occurred because unexpected escape sequence in string (line 1, col 8) while parsing value of type ".String"');
       }
+      assert.equal(printFor(StringType)('hello\nworld'), '"hello\nworld"');
     });
 
-    test('should error on unsupported escape sequence \\t', () => {
+    test('refuses a \\t escape, which the printer never writes: a tab prints as itself', () => {
       const parser = parseFor(StringType);
 
       const result = parser('"hello\\tworld"');
@@ -146,6 +147,7 @@ describe('parseFor (value parsing)', () => {
       if (!result.success) {
         assert.equal(result.error, 'Error occurred because unexpected escape sequence in string (line 1, col 8) while parsing value of type ".String"');
       }
+      assert.equal(printFor(StringType)('hello\tworld'), '"hello\tworld"');
     });
 
     test('should parse datetime', () => {
@@ -727,6 +729,16 @@ describe('printFor and round-trip tests', () => {
         'with "quotes"',
         'with \\backslash',
         'with \\\\double backslash',
+        'ends with a backslash \\',
+        '\\"',
+        // every C0 control character, and DEL
+        Array.from({ length: 32 }, (_, code) => String.fromCharCode(code)).join('') + '\u007f',
+        'line\nbreak\ttab\rreturn',
+        // a character outside the BMP, a lone surrogate (JSON.stringify
+        // writes it as `\ud800`), and the line and paragraph separators
+        '\u{1F600}',
+        '\ud800',
+        '\u2028\u2029',
       ];
 
       for (const value of testValues) {
@@ -735,8 +747,33 @@ describe('printFor and round-trip tests', () => {
         const result = parser(printed);
         assert.equal(result.success, true, `Failed to parse: ${printed}`);
         if (result.success) {
-          assert.ok(equal(result.value, value), `Round-trip failed for: ${value}`);
+          assert.ok(equal(result.value, value), `Round-trip failed for: ${JSON.stringify(value)}`);
         }
+      }
+    });
+
+    test('a string in a struct, as a dict key and in a variant round-trips, control characters and all', () => {
+      const type = StructType({
+        s: StringType,
+        d: DictType(StringType, StringType),
+        v: VariantType({ text: StringType }),
+      });
+      const printer = printFor(type);
+      const parser = parseFor(type);
+      const equal = equalFor(type);
+
+      const value = {
+        s: 'line\nbreak\ttab',
+        d: new SortedMap([['key\nwith\u0001controls', '"quoted" \\']], compareFor(StringType)),
+        v: variant('text', '\u0000\u001f'),
+      };
+      const printed = printer(value);
+      assert.equal(printed, '(s="line\nbreak\ttab", d={"key\nwith\u0001controls":"\\"quoted\\" \\\\"}, v=.text "\u0000\u001f")');
+
+      const result = parser(printed);
+      assert.equal(result.success, true, `Failed to parse: ${printed}`);
+      if (result.success) {
+        assert.ok(equal(result.value, value));
       }
     });
 
@@ -1175,6 +1212,13 @@ describe('printFor and round-trip tests', () => {
         { input: 'hello', expected: '"hello"' },
         { input: 'with "quotes"', expected: '"with \\"quotes\\""' },
         { input: 'with \\backslash', expected: '"with \\\\backslash"' },
+        // Only `\` and `"` are escaped: a control character is written as
+        // itself, as east-c writes it
+        { input: 'a\nb\tc\rd', expected: '"a\nb\tc\rd"' },
+        { input: '\u0000\u001f\u007f', expected: '"\u0000\u001f\u007f"' },
+        // a lone surrogate too, which JSON.stringify writes as `\ud800`
+        { input: '\ud800', expected: '"\ud800"' },
+        { input: '\u2028\u2029', expected: '"\u2028\u2029"' },
       ];
 
       for (const { input, expected } of testCases) {
@@ -1215,6 +1259,33 @@ describe('printFor and round-trip tests', () => {
       assert.equal(result.success, true);
       if (result.success) {
         assert.ok(equal(result.value, value));
+      }
+    });
+
+    test('field and case names holding backslashes and backticks round-trip, wherever they fall and however many', () => {
+      // Each one escaped, not only the first; and one right before the
+      // closing backtick does not hide it
+      assert.equal(printFor(StructType({ 'a\\b\\c': IntegerType }))({ 'a\\b\\c': 1n }), '(`a\\\\b\\\\c`=1)');
+      assert.equal(printFor(StructType({ 'a`b`c': IntegerType }))({ 'a`b`c': 1n }), '(`a\\`b\\`c`=1)');
+
+      for (const name of ['a\\', 'a`', 'a\\b\\c', 'a`b`c', '\\`', '`\\', 'x\\y z', 'line\nbreak']) {
+        const struct = StructType({ [name]: IntegerType });
+        const structValue = { [name]: 1n };
+        const printedStruct = printFor(struct)(structValue);
+        const parsedStruct = parseFor(struct)(printedStruct);
+        assert.equal(parsedStruct.success, true, `${JSON.stringify(name)} printed ${printedStruct}: ${parsedStruct.success ? '' : parsedStruct.error}`);
+        if (parsedStruct.success) {
+          assert.ok(equalFor(struct)(parsedStruct.value, structValue));
+        }
+
+        const cases = VariantType({ [name]: IntegerType, other: NullType });
+        const caseValue = variant(name, 2n);
+        const printedCase = printFor(cases)(caseValue);
+        const parsedCase = parseFor(cases)(printedCase);
+        assert.equal(parsedCase.success, true, `${JSON.stringify(name)} printed ${printedCase}: ${parsedCase.success ? '' : parsedCase.error}`);
+        if (parsedCase.success) {
+          assert.ok(equalFor(cases)(parsedCase.value, caseValue));
+        }
       }
     });
 

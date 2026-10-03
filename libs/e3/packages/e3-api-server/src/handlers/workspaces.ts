@@ -6,7 +6,7 @@
 import { NullType, OptionType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
-  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type WorkspaceDeployRequest,
+  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type TreePath, type WorkspaceDeployRequest,
 } from '@elaraai/e3-types';
 import {
   workspaceList,
@@ -17,6 +17,7 @@ import {
   workspaceStatus,
   packageGetLatestVersion,
   packageResolve,
+  checkName,
   PackageNotFoundError,
   WorkspaceNotDeployedError,
   WorkspaceNotFoundError,
@@ -141,16 +142,20 @@ export async function getWorkspaceLockStatus(
  *   whether an execution recorded running can still finish
  * @param repoPath - Repository identifier
  * @param name - Workspace name
+ * @param paths - The datasets to answer for, such as those a UI binds: the
+ *   answer then holds those the workspace has, and the tasks that produce
+ *   them. The whole workspace when omitted.
  * @returns The response: the status, or the error
  */
 export async function getWorkspaceStatus(
   storage: StorageBackend,
   runner: TaskRunner,
   repoPath: string,
-  name: string
+  name: string,
+  paths?: readonly TreePath[],
 ): Promise<Response> {
   try {
-    const status = await workspaceStatus(storage, runner, repoPath, name);
+    const status = await workspaceStatus(storage, runner, repoPath, name, paths === undefined ? {} : { paths });
     // Convert numbers to bigints for BEAST2 serialization
     const result = {
       workspace: status.workspace,
@@ -175,6 +180,7 @@ export async function getWorkspaceStatus(
         output: t.output,
         dependsOn: t.dependsOn,
         peakBytes: t.peakBytes === null ? none : some(BigInt(t.peakBytes)),
+        stopped: t.stopped === null ? none : some(t.stopped),
       })),
       summary: {
         datasets: {
@@ -268,9 +274,11 @@ export async function deleteWorkspace(
  * A deploy that migrates a record, or builds an index over one, takes as long
  * as the record is large, which outlasts a request. So the deploy runs as a
  * job, in the compute the store dispatches it to: a local server's own
- * process, or a cloud's. The package is resolved first, so a deploy of one the
- * repository does not hold is refused at once, as `package_not_found`, and the
- * job deploys exactly the version resolved.
+ * process, or a cloud's. The workspace's name is checked and the package
+ * resolved before the job is filed, so a deploy to a name no workspace can have
+ * (`invalid_name`), or of a package the repository does not hold
+ * (`package_not_found`), is refused at once and files nothing, and the job
+ * deploys exactly the version resolved.
  *
  * The job never opens a path-initialised input's file: its path is on the
  * machine that exported the package. Each such input is left unassigned, and
@@ -295,6 +303,7 @@ export async function startWorkspaceDeploy(
   deployStore: WorkspaceDeployStore,
 ): Promise<Response> {
   try {
+    checkName('workspace', workspace);
     const { name, version: maybeVersion } = parsePackageRef(request.packageRef);
     const version = maybeVersion ?? await packageGetLatestVersion(storage, repoPath, name);
     if (version === undefined) throw new PackageNotFoundError(name);

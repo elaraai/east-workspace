@@ -33,15 +33,17 @@ const DEFAULT_LIMITS = { timeoutMs: 60_000, maxLogBytes: 64 * 1024 };
 const MAX_TIMEOUT_MS = 10 * 60_000;
 const MAX_LOG_BYTES = 256 * 1024;
 
-/** Wall-clock reserved (ms) below a caller's mutation budget for the final,
- *  non-preemptible commit write + response encode. Best-effort: a very large
- *  remote state write can still overrun, so the budget is a strong-but-not-hard
- *  bound on a typed terminal. Must stay below the smallest supported budget. */
+/** Wall-clock reserved (ms) below a caller's budget for a mutation or a
+ *  compaction, for the final, non-preemptible commit write + response encode.
+ *  Best-effort: a very large remote state write can still overrun, so the
+ *  budget is a strong-but-not-hard bound on a typed terminal. Must stay below
+ *  the smallest supported budget. */
 const MUTATION_BUDGET_HEADROOM_MS = 2_000;
 
-/** Reduce a caller's wall-clock mutation budget by the commit/encode headroom,
- *  flooring at 1ms. Returns undefined when no budget is supplied (the default
- *  local behaviour — no gateway, so no cap). Pure; unit-tested directly. */
+/** Reduce a caller's wall-clock budget for a mutation or a compaction by the
+ *  commit/encode headroom, flooring at 1ms. Returns undefined when no budget is
+ *  supplied (the default local behaviour — no gateway, so no cap). Pure;
+ *  unit-tested directly. */
 export function effectiveBudgetMs(budgetMs: number | undefined): number | undefined {
   if (budgetMs === undefined) return undefined;
   return Math.max(1, budgetMs - MUTATION_BUDGET_HEADROOM_MS);
@@ -69,8 +71,19 @@ function resolveLimits(limits: { type: 'some'; value: ExecuteLimits } | { type: 
   return { timeoutMs: Math.max(1, timeoutMs), maxLogBytes: Math.max(0, maxLogBytes) };
 }
 
-/** Map the e3-core mutation outcome to the wire result. */
-function outcomeToResult(outcome: MutationOutcome): MutationResult {
+/**
+ * The wire result of an e3-core mutation outcome, as the mutation and compact
+ * routes answer it.
+ *
+ * @remarks
+ * A host answers a record operation e3-core exports and no route serves —
+ * `recordSystemCommit` for a rollback or a restore, say — with it, so a
+ * client reads its answer as it reads a mutation's.
+ *
+ * @param outcome - What the operation came to
+ * @returns The `MutationResultType` value
+ */
+export function mutationResultOf(outcome: MutationOutcome): MutationResult {
   switch (outcome.kind) {
     case 'committed':
       return { outcome: variant('committed', { commitHash: outcome.commitHash, stateHash: outcome.stateHash }) };
@@ -154,7 +167,7 @@ export async function callMutationSync(
         verbose: controls.verbose,
       },
     );
-    return sendSuccess(MutationResultType, outcomeToResult(outcome));
+    return sendSuccess(MutationResultType, mutationResultOf(outcome));
   } catch (err) {
     return sendError(MutationResultType, errorToVariant(err));
   }
@@ -163,6 +176,10 @@ export async function callMutationSync(
 /**
  * Compact a record's history, returning the terminal MutationResult of the
  * `$compact` commit.
+ *
+ * @param budgetMs - The host's deadline for the call, such as its request
+ *   timeout. The compaction's retries stop the commit/encode headroom under
+ *   it, and it answers `conflict`; omitted, they run their own window.
  */
 export async function compactRecord(
   storage: StorageBackend,
@@ -170,10 +187,11 @@ export async function compactRecord(
   workspace: string,
   record: string,
   actor: string,
+  budgetMs?: number,
 ): Promise<Response> {
   try {
-    const outcome = await recordCompact(storage, repoPath, workspace, record, { actor });
-    return sendSuccess(MutationResultType, outcomeToResult(outcome));
+    const outcome = await recordCompact(storage, repoPath, workspace, record, { actor, budgetMs: effectiveBudgetMs(budgetMs) });
+    return sendSuccess(MutationResultType, mutationResultOf(outcome));
   } catch (err) {
     return sendError(MutationResultType, errorToVariant(err));
   }

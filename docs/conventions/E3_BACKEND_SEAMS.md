@@ -36,9 +36,9 @@ rest: the logic, the routes and the tests.
 
 | Seam | Declared in | What it gives | e3-core's and e3-api-server's | e3-web's |
 |---|---|---|---|---|
-| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
+| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
 | `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit, and says the largest delivery it takes in whole; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests | `WebTaskRunner`: every unit on a pool of Web Workers (`UnitPool`), each running east's `executeUnit` |
-| `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state and its events | `FileStateStore`, `InMemoryStateStore` | `WebStateStore`, in IndexedDB |
+| `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state and its events, and every run of a repository as stored, which an upgrade step rewrites (`readStored`) | `FileStateStore`, `InMemoryStateStore` | `WebStateStore`, in IndexedDB |
 | `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
 | `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc, split calls | `InMemoryTransferBackend`, the local server's | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB |
 | The route factories | e3-api-server `routes/`, `middleware/repository.ts` | every route, and the gate a request to a repository passes; who may run what through one-shot, and load through a function call's runner override (`OneShotAccess`) | `createServer` mounts them over the local seams | `serveE3` mounts them in the e3 worker (`createWebApp`), with the host's `OneShotAccess` |
@@ -48,14 +48,22 @@ shared code. Whether an execution can still finish is
 `TaskRunner.executionAlive` — which the execution cache's probe asks too,
 through the liveness a driver is given (`ExecuteOptions.executionAlive`,
 `SplitTaskDriver.executionAlive`), so a probe never judges a unit running on
-another host by the processes of the host that probes; whether a lock's holder
+another host by the processes of the host that probes — and why it cannot,
+when the host knows: it answers the host's own `StopReason`, which the probe
+records on the execution as given; how a record is stored, which a shared
+upgrade step reads to carry a record an earlier release wrote into the
+current form, `RefStore.executionReadBytes`, and, for a dataflow run's state,
+the backend's run-state store (`StorageBackend.runStates`), whose runs a step
+reads and rewrites as stored (`ExecutionStateStore.readStored`); whether a lock's holder
 is alive, `LockService.isHolderAlive`; what gc sweeps beside objects and
 records, `RepoStore.gcSweepBackend`; a change to one backend's layout, a step
 in `StorageBackend.upgrades`; how an upload's bytes are taken in,
 `DatasetUploadStore.commit`; where a delivery's rows are walked and written
 again, `TaskRunner.intake`, and the largest delivery it takes in whole,
 `TaskRunner.wholeIntakeLimit`; whether placing an object costs a download,
-`ObjectStore.placement`; what a caller may run through one-shot, or load
+`ObjectStore.placement`; when what an execution appended to its log is
+readable by every reader, `LogStore.flush`, which shared code awaits before it
+records how an execution ended; what a caller may run through one-shot, or load
 through a function call's runner override, the grant the one-shot and function
 routes' `OneShotAccess` gives it, which e3-core's `oneShotExecute` and the
 function handlers apply; whether an object was written or re-referenced
@@ -101,6 +109,18 @@ rule. An execution record that reads but does not decode is answered by
 takes for a record that keeps no output, and prunes as it does any other; any
 other failure stops the prune, and gc with it. The ref-store suite pins the
 error.
+
+**A store refuses a name, a hash or an id that is not of its form.** A
+repository's, a workspace's and a package's name and version, and a lock's,
+are each one path segment; e3 writes an object's hash and an execution's task
+and inputs hashes as SHA-256s in lowercase hex, and an execution's, a run's
+and a gc run's id as UUIDv7s; and a client or a package being imported names
+them all. Each store checks one before it reads or writes anything, with
+e3-core's `checkName`, `checkHash` and `checkId`, which throw
+`InvalidNameError` naming its kind; a batch naming one does nothing of the
+rest. So a server answers `invalid_name` over any backend, and every store's
+suite pins it, the run state store's too. The adoption memo's read and delete
+take a key that is no SHA-256 for one that names no entry.
 
 **A unit downloads what it reads.** Where placing an object is a download, a
 stock runner's collections are staged without their segments, the unit says so
@@ -295,10 +315,11 @@ work too: a write in flight survives it, an object unreachable for less than
 the window survives it, what an execution still running reads survives it, a
 delete that races a re-reference leaves the object, and a mark spread over
 steps reaches what one step does. A case that needs a record the store cannot
-decode asks the setup to damage one (`BackendContext.damage`, a
-`BackendDamage`), and is skipped by a setup that cannot; so a backend whose
-records can be left so gives the hook, or the suite never holds it to
-answering such a record with `ExecutionCorruptError`. e3-core runs every suite
+decode, or one in the form an earlier release wrote, asks the setup to leave
+one in the bytes it gives (`BackendContext.damage`, a `BackendDamage`), and is
+skipped by a setup that cannot; so a backend whose records can be left so
+gives the hook, or the suite never holds it to answering such a record with
+`ExecutionCorruptError`, nor to carrying an earlier release's records forward. e3-core runs every suite
 over `LocalStorage` and `InMemoryStorage` (`stores.spec.ts` is the pattern),
 and another backend runs them over its own by giving its own setup: e3-web
 runs them over `WebStorage` and `WebStateStore` (its own `stores.spec.ts`),

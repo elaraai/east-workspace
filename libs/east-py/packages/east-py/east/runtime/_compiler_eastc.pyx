@@ -1689,16 +1689,23 @@ cpdef object compile_eastc_from_beast2(bytes beast2_data, list platform_list, bi
 # ─── Compile from East text (fast path — no Python round-trip) ───────────
 
 cpdef object compile_eastc_from_east(str east_text, list platform_list, bint is_async):
-    """Compile East IR from East text format — no Python IR round-trip."""
+    """Compile East IR from East text format — no Python IR round-trip.
+
+    The text is read at its length, so a string literal holding a NUL keeps
+    it; text the grammar refuses raises RuntimeError naming why.
+    """
     _ensure_runtime()
 
     cdef _eastc.EastType* ir_type = _eastc.east_ir_type
     cdef bytes text_bytes = east_text.encode("utf-8")
+    cdef char* error = NULL
 
-    cdef _eastc.EastValue* c_ir_val = _eastc.east_parse_value(
-        <const char*>text_bytes, ir_type)
+    cdef _eastc.EastValue* c_ir_val = _eastc.east_parse_value_len(
+        <const char*>text_bytes, len(text_bytes), ir_type, &error)
     if c_ir_val == NULL:
-        raise RuntimeError("east_parse_value failed for IR")
+        message = error.decode("utf-8", "replace") if error != NULL else "the text does not parse"
+        free(error)
+        raise RuntimeError(f"east_parse_value failed for IR: {message}")
 
     return _compile_from_c_ir_val(c_ir_val, platform_list, is_async)
 

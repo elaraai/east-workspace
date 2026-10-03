@@ -13,6 +13,18 @@
 /** What a name names. */
 export type NamedKind = 'repository' | 'workspace' | 'package' | 'package version' | 'lock';
 
+/** What a hash e3 makes a path or a key of names: an object, or an
+ *  execution's task or inputs. */
+export type HashKind = 'object hash' | 'task hash' | 'inputs hash';
+
+/** What an id e3 makes a path or a key of names: an execution attempt, a
+ *  dataflow run, or a gc run in steps. */
+export type IdKind = 'execution id' | 'run id' | 'gc run id';
+
+/** What a hash or an id e3 makes a path or a key of names: not a name, so
+ *  checked for its form rather than by {@link nameProblem}. */
+export type IdentifierKind = HashKind | IdKind;
+
 /** What no name may hold: a path separator, a character a Windows file name
  *  refuses, or a control character. */
 const REFUSED = /[/\\:*?"<>|\u0000-\u001f]/;

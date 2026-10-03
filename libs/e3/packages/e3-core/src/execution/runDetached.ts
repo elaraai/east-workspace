@@ -27,7 +27,7 @@ import { randomBytes } from 'crypto';
 import { encodeBeast2SegmentsFor, readBeast2Manifest, spliceBeast2 } from '@elaraai/east';
 import { manifestByteSize } from '@elaraai/e3-types';
 import type { DetachedResult, DetachedRunOptions, DetachedSpec } from './interfaces.js';
-import { spawnAndCapture, stageInput, type SpawnAndCaptureResult } from './processExec.js';
+import { giveDirectory, spawnAndCapture, stageInput, type ProcessSettings, type SpawnAndCaptureResult } from './processExec.js';
 import { SegmentFetcher } from './segment-fetch.js';
 import { callScratchDir } from './scratch.js';
 import { stageCallUnit, unitArgv } from './units.js';
@@ -56,14 +56,21 @@ import { uuidv7 } from '../uuid.js';
  *   runner spawns only once it holds a core, and its unit is granted threads
  *   from it. Absent, the spawn is not budgeted, and the unit is granted the
  *   CPUs this process may use, up to four.
+ * @param settings - How the runner runs, as the local runner that runs the call
+ *   says: the environment it starts from, and the user and group it runs as,
+ *   who is given the scratch directory ({@link ProcessSettings}). Absent, this
+ *   process's own.
  * @returns The call's value inline, or how it failed
  * @throws {Error} When an argument is a stored dataset and `options` gives no
- *   `storage` and `repo` to stage it from.
+ *   `storage` and `repo` to stage it from, or the settings name a user or
+ *   group on Windows.
+ * @throws {RangeError} When a user or group id is not a non-negative integer.
  */
 export async function runDetached(
   spec: DetachedSpec,
   options: DetachedRunOptions = {},
-  budget?: Budget
+  budget?: Budget,
+  settings: ProcessSettings = {},
 ): Promise<DetachedResult> {
   const scratchDir = options.repo !== undefined
     ? await callScratchDir(options.repo, uuidv7().replaceAll('-', ''))
@@ -81,6 +88,8 @@ export async function runDetached(
     ? new SegmentFetcher(options.storage, options.repo, true)
     : null;
   try {
+    // The runner writes its output here, as the user it runs as.
+    await giveDirectory(scratchDir, settings);
     const program = path.join(scratchDir, 'program.beast2');
     await fs.writeFile(program, spec.bodyIr);
     const inputs: string[] = [];
@@ -96,7 +105,7 @@ export async function runDetached(
         await stageInput(options.storage, options.repo, arg.dataset, input, {
           link: stock,
           manifests: stock,
-          ...(fetcher !== null && { fetcher }),
+          ...(fetcher !== null && { fetcher, owner: settings }),
         });
       }
       inputs.push(input);
@@ -138,6 +147,9 @@ export async function runDetached(
         searchDirs,
         extraBins: options.extraBins,
         stdinLifeline: stock,
+        env: settings.env,
+        uid: settings.uid,
+        gid: settings.gid,
         extraEnv: options.extraEnv,
         onSpawned: (pid, stop) => {
           if (pid !== null) grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) });

@@ -36,10 +36,11 @@ import {
 } from '@elaraai/east';
 
 import { StructureType, TreePathType } from './structure.js';
+import { StopReasonType } from './execution.js';
 import { IntakeFileType } from './intake.js';
 import { RunnerType } from './runner.js';
 import { TaskBodyType, TaskInputType, TaskOutputType, TaskPartitionType, TaskRoleType } from './task.js';
-import { RequeueReasonType, StageUnitType } from './dataflow.js';
+import { DataflowForceType, RequeueReasonType, StageUnitType } from './dataflow.js';
 
 // =============================================================================
 // Error Types
@@ -565,6 +566,9 @@ export const DatasetStatusInfoType = StructType({
  * @property peakBytes - The highest peak resident memory, in bytes, a runner
  *   of the execution the status comes from reached: the one the output came
  *   from, or the failure; `none` when it recorded none, or while it runs
+ * @property stopped - Why the latest attempt over the task's current inputs
+ *   stopped, when it was cancelled or interrupted and the task therefore reads
+ *   `ready`; `none` otherwise
  */
 export const TaskStatusInfoType = StructType({
   name: StringType,
@@ -574,6 +578,7 @@ export const TaskStatusInfoType = StructType({
   output: StringType,
   dependsOn: ArrayType(StringType),
   peakBytes: OptionType(IntegerType),
+  stopped: OptionType(StopReasonType),
 });
 
 /**
@@ -664,11 +669,15 @@ export const TaskDetailsType = StructType({
  * Request to start dataflow execution. The run takes the server's budget of
  * cores and memory, which it shares with everything else the server runs.
  *
- * @property force - Force re-execution of all tasks
- * @property filter - Filter to specific task names (glob pattern)
+ * @property force - The tasks the run re-executes even where the cache holds
+ *   their results: none, all, or the tasks named ({@link DataflowForceType}).
+ *   A start naming a task the graph does not have, or one the filter's run set
+ *   leaves out, is refused before anything runs.
+ * @property filter - One task's exact name: the run runs that task and its
+ *   dependency closure, and no other task
  */
 export const DataflowRequestType = StructType({
-  force: BooleanType,
+  force: DataflowForceType,
   filter: OptionType(StringType),
 });
 
@@ -876,12 +885,20 @@ export const SplitProgressType = StructType({
  * DataflowExecutionStateType in dataflow.ts which stores the full
  * execution state on disk.
  *
+ * A poll names a cursor (`since`), the sequence number of the last event it
+ * has, and is served the run's events past it, at most its `limit`; the
+ * response's `nextSeq` is the cursor of the poll after it. A poll that has
+ * every event reads no event of the run, so a client polls on a timer for the
+ * whole run at the cost of what is new.
+ *
  * @property status - Current execution status
  * @property startedAt - ISO timestamp when execution started
  * @property completedAt - ISO timestamp when execution finished (if done)
  * @property summary - Execution summary (available when complete)
- * @property events - Task events (may be paginated via offset/limit)
- * @property totalEvents - Total number of events (for pagination)
+ * @property events - The run's task events past the poll's cursor, at most
+ *   its limit, in the order they happened
+ * @property nextSeq - The cursor past the events served, which the next poll
+ *   passes as `since`: the poll's own when it served none
  * @property budget - The server's budget now, where it has one: a server whose
  *   runners hold none, as a remote backend's, serves `none`
  * @property waiting - The tasks and units of the run waiting for room, while it
@@ -895,7 +912,7 @@ export const ApiDataflowExecutionStateType = StructType({
   completedAt: OptionType(StringType),
   summary: OptionType(DataflowExecutionSummaryType),
   events: ArrayType(DataflowEventType),
-  totalEvents: IntegerType,
+  nextSeq: IntegerType,
   budget: OptionType(DataflowBudgetType),
   waiting: ArrayType(UnitWaitType),
   splits: ArrayType(SplitProgressType),
@@ -907,8 +924,9 @@ export const ApiDataflowExecutionStateType = StructType({
 
 /**
  * Execution status for history listing: `cancelled` when e3 stopped the
- * execution because its run was aborted, `interrupted` when the orchestrator
- * that owned it exited before it finished.
+ * execution because the signal it ran under was aborted, `interrupted` when
+ * it can no longer finish — its runner and its owner are gone, its host says
+ * so, or its run yielded mid-stage. Each says why in its item's `reason`.
  */
 export const ExecutionHistoryStatusType = VariantType({
   running: NullType,
@@ -931,6 +949,7 @@ export const ExecutionHistoryStatusType = VariantType({
  * @property exitCode - Process exit code (if failed)
  * @property peakBytes - The highest peak resident memory, in bytes, a runner
  *   of the execution reached, when it succeeded or failed and one reported it
+ * @property reason - Why it stopped, when it was cancelled or interrupted
  */
 export const ExecutionListItemType = StructType({
   inputsHash: StringType,
@@ -941,6 +960,7 @@ export const ExecutionListItemType = StructType({
   duration: OptionType(IntegerType),
   exitCode: OptionType(IntegerType),
   peakBytes: OptionType(IntegerType),
+  reason: OptionType(StopReasonType),
 });
 
 // =============================================================================

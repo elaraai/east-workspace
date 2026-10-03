@@ -13,6 +13,11 @@ import { GcRequestType } from '../types.js';
  * Repository routes, mounted at `/api/repos/:repo`: its status, its record,
  * and gc.
  *
+ * @remarks
+ * The record is read, never upgraded: mounted without the repository gate, the
+ * route answers a repository that owes upgrades as the gate does, 503
+ * `repository_upgrade_pending` with a `Retry-After` ({@link getRecord}).
+ *
  * @param storage - Storage backend
  * @param getRepoPath - The repository identifier for a repo name
  * @param transferBackend - Files and dispatches the job gc runs as, and holds

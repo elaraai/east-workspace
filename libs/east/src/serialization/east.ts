@@ -11,6 +11,7 @@ import { SortedSet } from "../containers/sortedset.js";
 import { isVariant, variant } from "../containers/variant.js";
 import { EastTypeValueType, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import { ref } from "../containers/ref.js";
+import { printEastString } from "./east_text.js";
 
 class ParseError extends Error {
   constructor(message: string, public position: number, public path: string = '') {
@@ -234,7 +235,9 @@ export function printFor(
       }
     }
   } else if (type.type === "String") {
-    return (x: string, _ctx?: EastPrintValueContext) => JSON.stringify(x);
+    // Only the escapes the grammar reads, `\\` and `\"`: every other
+    // character, a newline or a tab among them, is written as itself.
+    return (x: string, _ctx?: EastPrintValueContext) => printEastString(x);
   } else if (type.type === "DateTime") {
     return (x: Date, _ctx?: EastPrintValueContext) => x.toISOString().substring(0, 23);
   } else if (type.type === "Blob") {
@@ -827,7 +830,8 @@ const parseString: Parser<string> = (input: string, pos: number, _ctx?: EastPars
           pos += 1;
           rangeStart = pos;
         } else {
-          // TODO we need to (a) deal with escape sequences at least for unprintable characters and (b) safely handle LTR-RTL transition characters
+          // The grammar has these two escapes and no others: a printer writes
+          // every other character, a control character included, as itself.
           throw new ParseError("unexpected escape sequence in string", pos);
         }
       } else {
@@ -1227,7 +1231,9 @@ const parseQuotedIdentifier: Parser<string> = (input: string, pos: number, _ctx?
   let rangeStart = pos;
   let result = "";
 
-  // search through for escape characters, copy string out in ranges
+  // search through for escape characters, copy string out in ranges; an
+  // escaped character is taken whole, so one right before the closing
+  // backtick never hides it
   while (pos < input.length) {
     const char = input[pos];
     if (char === '\\') {
@@ -1236,10 +1242,10 @@ const parseQuotedIdentifier: Parser<string> = (input: string, pos: number, _ctx?
       if (pos < input.length) {
         const char2 = input[pos];
         if (char2 === '\\' || char2 === '`') {
-          rangeStart = pos;
+          result = result + char2;
           pos += 1;
+          rangeStart = pos;
         } else {
-          // TODO we need to (a) deal with escape sequences at least for unprintable characters and (b) safely handle LTR-RTL transition characters
           throw new ParseError("unexpected escape sequence in identifier", pos);
         }
       } else {
@@ -1248,8 +1254,9 @@ const parseQuotedIdentifier: Parser<string> = (input: string, pos: number, _ctx?
     } else if (char === '`') {
       result = result + input.substring(rangeStart, pos);
       return { value: result, position: pos + 1 };
+    } else {
+      pos += 1;
     }
-    pos += 1;
   }
 
   throw new ParseError("unterminated identifier (missing closing `)", pos);

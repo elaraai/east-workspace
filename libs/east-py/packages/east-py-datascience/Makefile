@@ -1,13 +1,17 @@
 # east-py-datascience — hybrid TypeScript + Python package
 # TS deps managed by pnpm from monorepo root. Python deps managed by uv from east-py root.
 
+# The checkout's paths: where the spec IR is exported (EAST_DATASCIENCE_IR_DIR)
+include ../../../../paths.mk
+
 .PHONY: build test test-export test-ts test-py lint typecheck clean help
 
 ## Build the TypeScript project
 build:
 	pnpm run build
 
-## Export the spec IR to /tmp/east-py-datascience (the Python side replays it)
+## Export the spec IR to EAST_DATASCIENCE_IR_DIR, this checkout's
+## tmp/east-py-datascience (the Python side replays it)
 test-export:
 	pnpm run test:export
 
@@ -19,7 +23,7 @@ test: test-export
 test-ts:
 	pnpm run test
 
-## Replay already-exported IR (EAST_DATASCIENCE_IR_DIR, default /tmp/east-py-datascience)
+## Replay already-exported IR (EAST_DATASCIENCE_IR_DIR)
 test-py:
 	uv run pytest
 
@@ -42,7 +46,7 @@ help:
 	@echo ""
 	@echo "  build       - Build TypeScript"
 	@echo "  test        - Export spec IR + replay it with pytest"
-	@echo "  test-export - Export spec IR to /tmp/east-py-datascience"
+	@echo "  test-export - Export spec IR to this checkout's tmp/east-py-datascience"
 	@echo "  test-ts     - Run the TypeScript specs as node tests (export-only)"
 	@echo "  test-py     - Replay already-exported IR with pytest"
 	@echo "  lint        - eslint + ruff"

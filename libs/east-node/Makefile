@@ -1,15 +1,20 @@
 # east-node — Node.js platform packages
 # Dependencies are managed by pnpm from the monorepo root.
 
+# The checkout's paths: where the suites are exported (EAST_NODE_STD_IR,
+# EAST_NODE_IO_IR)
+include ../../paths.mk
+
 .PHONY: build test test-export test-export-std test-export-io lint clean help
 
-## Build the project
+## Build the project: every package, in dependency order
 build:
-	pnpm run build
+	pnpm -r --filter='./packages/*' run build
 
-## Run all tests (builds first)
+## Run all tests (builds first), one package at a time
 test:
-	pnpm run build && pnpm test
+	pnpm -r --filter='./packages/*' run build
+	pnpm -r --workspace-concurrency=1 --filter='./packages/*' run test
 
 ## Export test IR from packages that support it
 test-export:
@@ -17,17 +22,19 @@ test-export:
 	pnpm --filter @elaraai/east-node-io run test:export
 
 ## Export test IR from east-node-std only (no Docker services needed), into
-## EAST_NODE_STD_IR when it is set and /tmp/east-node-std otherwise
+## EAST_NODE_STD_IR (this checkout's tmp/east-node-std)
 test-export-std:
 	pnpm --filter @elaraai/east-node-std run test:export
 
-## Export test IR from east-node-io only (requires Docker services)
+## Export test IR from east-node-io only (requires Docker services), into
+## EAST_NODE_IO_IR (this checkout's tmp/east-node-io)
 test-export-io:
 	pnpm --filter @elaraai/east-node-io run test:export
 
 ## Run linter (builds first)
 lint:
-	pnpm run build && pnpm run lint
+	pnpm -r --filter='./packages/*' run build
+	pnpm -r --filter='./packages/*' run lint
 
 ## Clean build artifacts
 clean:
