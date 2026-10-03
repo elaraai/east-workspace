@@ -25,3 +25,4 @@ export {
   type FunctionRoutesOptions,
 } from './functions.js';
 export { createWorkspaceRecordRoutes, type RecordRoutesOptions } from './records.js';
+export { badQuery, wholeQuery, pathsQuery, type QueryLeast } from './query.js';
