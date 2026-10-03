@@ -12,13 +12,16 @@
  * done, then the merge or the fold, answering as the one-shot call does; an
  * argument naming nothing; a piece's runtime error placed in the jq; the size
  * limit; a dict with no merge refusing a key emitted twice; and a call
- * abandoned by its signal. A data source's status: its rows, its hash and its
- * weight.
+ * abandoned by its signal. Its assembled output kept by its hash (#942),
+ * which a later call's `object` argument reads — a re-keyed join's second
+ * call — and an object no call assembled refused; arguments that cannot be
+ * cut together, or none partitioned, refused. A data source's status: its
+ * rows, its hash and its weight.
  */
 
 import { describe, test, expect } from "vitest";
 import {
-    IntegerType, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, sha256Hex, toEastTypeValue, variant,
+    IntegerType, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, sha256Hex, some, toEastTypeValue, variant,
 } from "@elaraai/east";
 import type { SplitCallProgress } from "@elaraai/e3-types";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
@@ -89,13 +92,16 @@ function splitOf(program: string, maxBytes?: number): Extract<QueryPlan, { kind:
     return planned.plan;
 }
 
-/** A split call run in memory over some pieces: its answer read, and each progress it reported. */
+/** A split call run in memory over some pieces: its answer read, its assembled output's hash, and each progress it reported. */
 async function split(program: string, pieces: number, datasets = DATASETS, maxBytes?: number) {
     const { request, reading } = splitOf(program, maxBytes);
     const progress: SplitCallProgress[] = [];
-    const answer = await createInMemorySplitCall(datasets, { pieces })(request, { signal: new AbortController().signal, onProgress: p => progress.push(p) });
-    return { answer, result: queryResultOf(reading, answer), progress };
+    const { result: answer, output } = await createInMemorySplitCall(datasets, { pieces })(request, { signal: new AbortController().signal, onProgress: p => progress.push(p) });
+    return { answer, output, result: queryResultOf(reading, answer), progress };
 }
+
+/** What a split call is given when nothing abandons it and nobody watches its progress. */
+const QUIET = { signal: new AbortController().signal, onProgress: () => {} };
 
 /** A one-shot call's answer, run in memory over the same datasets. */
 async function oneShot(program: string): Promise<QueryResult> {
@@ -162,10 +168,55 @@ describe("createInMemorySplitCall (#941)", () => {
 
     test("a dict with no merge refuses a key emitted twice, naming it", async () => {
         const { request } = splitOf(".orders | unique_by(.customer_id) | map(.id)");
-        const answer = await createInMemorySplitCall(DATASETS, { pieces: 2 })(
-            { ...request, output: variant("dict", { merge: none }) }, { signal: new AbortController().signal, onProgress: () => {} });
+        const { result: answer, output } = await createInMemorySplitCall(DATASETS, { pieces: 2 })({ ...request, output: variant("dict", { merge: none }) }, QUIET);
         expect(answer.outcome).toEqual(variant("failed", { exitCode: 1n }));
         expect(answer.stderr).toMatch(/^Error: the key "C0\d" is emitted twice, and the dict output has no merge\n$/);
+        // Nothing was assembled: no output to read.
+        expect(output).toBeNull();
+    });
+
+    test("its assembled output is kept by the SHA-256 of its beast2 bytes, which the answer gives — a final function that fails keeps it too (#942)", async () => {
+        // No final function: the answer is the assembled output itself.
+        const plain = await split(".orders | map(.id)", 3);
+        if (plain.answer.outcome.type !== "success") throw new Error(`expected an answer, got ${plain.answer.outcome.type}`);
+        expect(plain.output).toBe(sha256Hex(plain.answer.outcome.value.value));
+        // A final function that raises: the call failed, and the fold it assembled — the same as the call whose final
+        // function answers — is still kept.
+        const failing = await split(".orders | map(.lines | length) | add | . % 0", 3);
+        const added = await split(".orders | map(.lines | length) | add", 3);
+        expect([failing.answer.outcome.type, added.answer.outcome.type]).toEqual(["failed", "success"]);
+        expect(added.output).not.toBeNull();
+        expect(failing.output).toBe(added.output);
+    });
+
+    test("an object argument reads an earlier call's output by its hash, as a re-keyed join's second call does; an object no call assembled is refused (#942)", async () => {
+        const program = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
+        const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
+        if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
+        const p = planned.plan;
+        const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
+        const first = await call(p.first, QUIET);
+        const joined = await call(p.join(first.output!), QUIET);
+        const [got, want] = [valueOf(queryResultOf(p.reading, p.answer(first.result, joined.result))), valueOf(await oneShot(program))];
+        expect(equalFor(want.type)(got.value as never, want.value as never)).toBe(true);
+        // Another stand-in assembled nothing: the hash names nothing it holds.
+        const elsewhere = await createInMemorySplitCall(DATASETS, { pieces: 3 })(p.join(first.output!), QUIET);
+        expect([elsewhere.result.outcome.type, elsewhere.output]).toEqual(["invalid", null]);
+        if (elsewhere.result.outcome.type !== "invalid") throw new Error("expected a refusal");
+        expect(elsewhere.result.outcome.value.diagnostics.map(d => d.message)).toEqual([`Object argument 1 names ${first.output!}, which the repository does not hold`]);
+    });
+
+    test("arguments partitioned together that are not dicts keyed alike are refused, and so is a call that partitions none", async () => {
+        const { request } = splitOf(".customers as $c | .orders | map($c[.customer_id].region) | unique");
+        const refusal = async (partitions: readonly boolean[]) => {
+            const args = request.args.map((a, i) => ({ ...a, partition: partitions[i] === true ? some({ by: [] }) : none }));
+            const { result } = await createInMemorySplitCall(DATASETS, { pieces: 3 })({ ...request, args }, QUIET);
+            if (result.outcome.type !== "invalid") throw new Error(`expected a refusal, got ${result.outcome.type}`);
+            return result.outcome.value.diagnostics.map(d => d.message);
+        };
+        // The customers, a dict, with the orders, a list: no keys to cut them at together.
+        expect(await refusal([true, true])).toEqual(["arguments partitioned together are dicts keyed by one type: their pieces are cut at the same keys"]);
+        expect(await refusal([false, false])).toEqual(["a split call partitions at least one of its arguments: its pieces are cut from it"]);
     });
 
     test("abandoned by its signal, it stops between pieces and rejects with the signal's reason", async () => {

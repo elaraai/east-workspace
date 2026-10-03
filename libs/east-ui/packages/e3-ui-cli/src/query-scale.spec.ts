@@ -11,18 +11,23 @@
  * For each size it runs:
  *
  * - **The data.** The shared fixture's types (`libs/east/test/query.fixture.ts`):
- *   `orders`, an `Array<Order>`, and 100,000 `customers`, generated from fixed
- *   seeds — the same orders at every size, the larger ones going on — and
- *   written as beast2 through the canonical element writer, in the data
- *   directory, kept for the next run.
+ *   `orders`, an `Array<Order>`, 100,000 `customers`, and the `shipments`, one
+ *   for each shipped order, by its id (#942), generated from fixed seeds — the
+ *   same orders at every size, the larger ones going on — and written as beast2
+ *   through the canonical element writer, in the data directory, kept for the
+ *   next run. The generators and the questions are `testing/query-bench.ts`'s,
+ *   which the equivalence suite (`query-equivalence.spec.ts`) asks at a small
+ *   size.
  * - **The oracle.** Each query's answer, computed from the generator in the
  *   same pass as East values — independent of e3, east-c and the translator — a
  *   sum adding the totals in input order, as one unit does.
- * - **The repository.** Both files taken into a workspace (`datasetAdoptFile`),
+ * - **The repository.** The files taken into a workspace (`datasetAdoptFile`),
  *   kept for the next run too.
  * - **The calls.** Each benchmark query planned as the builder plans it
- *   (`planQuery`), as a split call on east-c — whichever `east-c` is first on
- *   PATH — and run in this process through e3-core (`splitCallPrepare`,
+ *   (`planQuery`, every dataset weighed by its file's bytes), as a split call
+ *   on east-c — whichever `east-c` is first on PATH — or, for a join of the
+ *   orders with the shipments, both larger than a piece, as a re-keyed join's
+ *   two (#942), and run in this process through e3-core (`splitCallPrepare`,
  *   `splitCallRun`, `splitCallResult`) with a server's ceilings raised, so a
  *   large size is neither timed out nor too large to answer. Every run is cold:
  *   every execution is forgotten before it, as gc forgets them.
@@ -31,12 +36,13 @@
  * it relatively, since the pieces add in another grouping — and, over two
  * sizes or more, each query's highest piece peak at the largest to a margin
  * over the smallest's: memory flat whatever the size. It times nothing against
- * a budget. It reports, per query, the call's time, the time e3 took to plan
+ * a budget. It reports, per query, the calls' time, the time e3 took to plan
  * the pieces and to run its units, the pieces' work per order per core, the
  * CPU this process and its runners used per order — which what else the
  * machine runs moves least — each piece's peak and the load the run started
  * under, as a markdown table on its output and appended to `report.md` beside
- * the data (`report.jsonl` holds the rows).
+ * the data (`report.jsonl` holds the rows). A re-keyed join's row is both its
+ * calls': their pieces and merges, the times each took, and every peak.
  *
  * With `E3_QUERY_SCALE_ONE_SHOT=1` each query also runs as the one-shot call
  * the builder would make of it, under the one-shot deadline (120 s unless
@@ -52,16 +58,20 @@ import { loadavg, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import {
-    ArrayType, Beast2ElementWriter, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, VariantType,
-    compareFor, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, isVariant, lessFor, none, some, toEastTypeValue, variant,
-    type EastType, type ValueTypeOf,
+    Beast2ElementWriter, FloatType, OptionType, SortedMap, StringType,
+    compareFor, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, isVariant, lessFor, none, some, variant,
+    type EastType, type option,
 } from '@elaraai/east';
-import type { RunnerValue, TreePath } from '@elaraai/e3-types';
+import type { ExecuteResult, RunnerValue, SplitCallRequest } from '@elaraai/e3-types';
 import {
     LocalStorage, LocalTaskRunner, datasetAdoptFile, executionGet, executionList, executionListIds, executionReadLog, oneShotExecute, packageImport,
     pruneHistory, repoInit, resolveBudget, splitCallPrepare, splitCallResult, splitCallRun, workspaceCreate, workspaceDeploy,
 } from '@elaraai/e3-core';
-import { draftPlan, planQuery, prepareQuery, queryResultOf, queryRoot, type QueryResult } from '@elaraai/e3-ui-components/query';
+import { draftPlan, planQuery, prepareQuery, queryResultOf, type QueryResult } from '@elaraai/e3-ui-components/query';
+import {
+    CUSTOMERS, CUSTOMER_COUNT, CustomersType, ORDERS, OrdersType, QUERIES, REGIONS, ROOT, SHIPMENTS, ShipmentsType, THRESHOLD, customerId, customers, orders,
+    shipmentOf,
+} from './testing/query-bench.js';
 
 const enabled = process.env['E3_QUERY_SCALE'] === '1';
 
@@ -110,154 +120,7 @@ const CEILINGS = { timeoutMs: 6 * 3_600_000, maxResultBytes: 4 * 1024 * MiB, max
 /** east-c given no platform package, each collection read lazily: the builder's runner. */
 const EAST_C: RunnerValue = variant('east_c', { platforms: [], decode: variant('lazy', null) });
 
-// ─── The data: the shared fixture's types ────────────────────────────────────
-
-const LineType = StructType({ price: FloatType, qty: IntegerType, sku: StringType });
-const StatusType = VariantType({
-    cancelled: StructType({ reason: StringType }),
-    pending: NullType,
-    shipped: StructType({ date: DateTimeType }),
-});
-const OrderType = StructType({
-    customer_id: StringType,
-    discount: OptionType(FloatType),
-    id: IntegerType,
-    lines: ArrayType(LineType),
-    status: StatusType,
-    total: FloatType,
-});
-const OrdersType = ArrayType(OrderType);
-const CustomerType = StructType({ name: StringType, region: StringType, tier: VariantType({ gold: NullType, standard: NullType }) });
-const CustomersType = DictType(StringType, CustomerType);
-type Order = ValueTypeOf<typeof OrderType>;
-type Customer = ValueTypeOf<typeof CustomerType>;
-
-const ORDERS: TreePath = [variant('field', 'inputs'), variant('field', 'orders')];
-const CUSTOMERS: TreePath = [variant('field', 'inputs'), variant('field', 'customers')];
-const ROOT = queryRoot([
-    { name: 'orders', path: ORDERS, type: toEastTypeValue(OrdersType) },
-    { name: 'customers', path: CUSTOMERS, type: toEastTypeValue(CustomersType) },
-]);
-
-/** The customers, and the share of them in each region. */
-const CUSTOMER_COUNT = 100_000;
-const REGIONS: readonly (readonly [region: string, share: number])[] = [
-    ['NSW', 0.32], ['VIC', 0.26], ['QLD', 0.20], ['WA', 0.10], ['SA', 0.07], ['TAS', 0.02], ['ACT', 0.02], ['NT', 0.01],
-];
-const FIRST = ['Harbour', 'Coastline', 'Ridge', 'Southbank', 'Sunfield', 'Northgate', 'Westend', 'Ironbark', 'Riverbend', 'Granite', 'Bluegum', 'Saltbush'];
-const SECOND = ['Foods', 'Retail', 'Grocers', 'Market', 'Traders', 'Supply', 'Provisions', 'Stores', 'Wholesale', 'Pantry'];
-const REASONS = ['Customer request', 'Out of stock', 'Payment failed'];
-const DISCOUNTS = [0.05, 0.1, 0.15];
-const FIRST_SHIP_DAY_MS = Date.UTC(2025, 9, 1);
-const DAY_MS = 86_400_000;
-const HOUR_MS = 3_600_000;
-
-/** The total the selective queries keep above: about the 99.9th percentile, so about 0.1% of orders pass. */
-const THRESHOLD = 7850;
-
-/** mulberry32: a 32-bit seeded generator, each draw in [0, 1). */
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
-
-/** The catalog: 200 SKUs, cheap fasteners to dear assemblies. */
-function catalog(): (readonly [sku: string, price: number])[] {
-    const draw = mulberry32(941);
-    return Array.from({ length: 200 }, (_, i) => {
-        const cheap = draw() < 0.45;
-        const price = cheap ? Math.round((0.1 + draw() * 4.8) * 100) / 100 : Math.round((5 + draw() * 120) * 100) / 100;
-        return [`SKU-${String(i).padStart(4, '0')}`, price] as const;
-    });
-}
-
-/** A customer's id: its index, zero-padded, so ids sort as their indexes do. */
-const customerId = (i: number): string => `C${String(i).padStart(6, '0')}`;
-
-/**
- * The orders, ids from 1001, each with the index of its customer: a customer
- * drawn skewed (a few buy often), one to five lines, a status and a discount.
- * The first `n` of any count are the same orders.
- */
-function* orders(count: number): Generator<{ order: Order; customer: number }> {
-    const draw = mulberry32(875941);
-    const skus = catalog();
-    for (let i = 0; i < count; i++) {
-        const customer = Math.floor(CUSTOMER_COUNT * draw() ** 1.8);
-        const roll = draw();
-        const lineCount = roll < 0.35 ? 1 : roll < 0.65 ? 2 : roll < 0.85 ? 3 : roll < 0.95 ? 4 : 5;
-        const lines: ValueTypeOf<typeof LineType>[] = [];
-        let gross = 0;
-        for (let j = 0; j < lineCount; j++) {
-            const [sku, price] = skus[Math.floor(draw() * skus.length)]!;
-            const qty = 1 + Math.floor(draw() * (price < 5 ? 400 : 30));
-            gross += qty * price;
-            lines.push({ price, qty: BigInt(qty), sku });
-        }
-        const s = draw();
-        let status: ValueTypeOf<typeof StatusType>;
-        if (s < 0.62) {
-            const days = Math.floor(draw() * 354);
-            const hours = 8 + Math.floor(draw() * 9);
-            status = variant('shipped', { date: new Date(FIRST_SHIP_DAY_MS + days * DAY_MS + hours * HOUR_MS) });
-        } else if (s < 0.86) {
-            status = variant('pending', null);
-        } else {
-            status = variant('cancelled', { reason: REASONS[Math.floor(draw() * REASONS.length)]! });
-        }
-        const discount = draw() < 0.35 ? DISCOUNTS[Math.floor(draw() * DISCOUNTS.length)]! : undefined;
-        yield {
-            order: {
-                customer_id: customerId(customer),
-                discount: discount === undefined ? none : some(discount),
-                id: BigInt(1001 + i),
-                lines,
-                status,
-                total: Math.round(gross * (1 - (discount ?? 0)) * 100) / 100,
-            },
-            customer,
-        };
-    }
-}
-
-/** The customers, in id order, each with the index of its region. */
-function* customers(): Generator<{ id: string; customer: Customer; region: number }> {
-    const draw = mulberry32(100);
-    for (let i = 0; i < CUSTOMER_COUNT; i++) {
-        let r = draw();
-        let region = REGIONS.length - 1;
-        for (let k = 0; k < REGIONS.length; k++) {
-            if (r < REGIONS[k]![1]) {
-                region = k;
-                break;
-            }
-            r -= REGIONS[k]![1];
-        }
-        const name = `${FIRST[Math.floor(draw() * FIRST.length)]} ${SECOND[Math.floor(draw() * SECOND.length)]} ${i}`;
-        yield { id: customerId(i), customer: { name, region: REGIONS[region]![0], tier: variant(draw() < 0.15 ? 'gold' : 'standard', null) }, region };
-    }
-}
-
 // ─── The queries ─────────────────────────────────────────────────────────────
-
-/** The benchmark's queries, each of which splits, and what it splits as. */
-const QUERIES: readonly { readonly id: string; readonly label: string; readonly program: string }[] = [
-    { id: 'q1', label: 'the sum', program: '.orders | map(.total) | add' },
-    { id: 'q2', label: 'four totals', program: '.orders | {n: length, total: (map(.total) | add), any_big: any(.total > 2000), all_lines: all(.lines | length > 0)}' },
-    {
-        id: 'q3', label: 'revenue by region',
-        program: '.customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})',
-    },
-    { id: 'q4', label: 'the distinct ids', program: '.orders | map(.customer_id) | unique' },
-    { id: 'q5', label: 'the reduce', program: 'reduce .orders[] as $o ({}; .[$o.customer_id] += $o.total)' },
-    { id: 'q6', label: 'the ids of the largest 0.1%', program: `.orders | map(select(.total > ${THRESHOLD})) | map(.id)` },
-    { id: 'q6t', label: 'the same, sorted, top 100', program: `.orders | map(select(.total > ${THRESHOLD})) | sort_by(-.total) | .[:100] | map(.id)` },
-];
 
 /** The queries `E3_QUERY_SCALE_QUERIES` names, comma-separated; all when it names none. */
 function queriesOf(text: string | undefined): typeof QUERIES {
@@ -294,18 +157,19 @@ function writeWhole(path: string, write: (sink: (bytes: Uint8Array) => void) => 
     renameSync(partial, path);
 }
 
-/** The files of a size: its orders, the customers every size shares, and each query's answer. */
+/** The files of a size: its orders and their shipments, the customers every size shares, and each query's answer. */
 function filesOf(size: Size) {
     return {
         orders: join(DIR, `orders-${size.label}.beast2`),
+        shipments: join(DIR, `shipments-${size.label}.beast2`),
         customers: join(DIR, 'customers.beast2'),
         oracle: (id: string) => join(DIR, `oracle-${size.label}-${id}.beast2`),
     };
 }
 
 /**
- * Writes a size's orders and the customers, unless they are there, and each
- * query's answer from the same pass over the generator.
+ * Writes a size's orders and their shipments, and the customers, unless they
+ * are there, and each query's answer from the same pass over the generator.
  */
 function ensureData(size: Size): void {
     mkdirSync(DIR, { recursive: true });
@@ -320,7 +184,7 @@ function ensureData(size: Size): void {
             writer.finish();
         });
     }
-    if (existsSync(files.orders) && QUERIES.every((q) => existsSync(files.oracle(q.id)))) return;
+    if (existsSync(files.orders) && existsSync(files.shipments) && QUERIES.every((q) => existsSync(files.oracle(q.id)))) return;
 
     const started = Date.now();
     let n = 0;
@@ -333,12 +197,21 @@ function ensureData(size: Size): void {
     const bought = new Uint8Array(CUSTOMER_COUNT);
     const selected: bigint[] = [];
     const top: { total: number; id: bigint; seq: number }[] = [];
+    // Each carrier's orders and revenue, and the orders not shipped under none: in East's order of the key, as group_by keeps it.
+    const byCarrier = new SortedMap<option<string>, { revenue: number; n: bigint }>([], compareFor(OptionType(StringType)));
     // The queries' comparisons, as East makes them.
     const less = lessFor(FloatType);
-    writeWhole(files.orders, (sink) => {
+    writeWhole(files.orders, (sink) => writeWhole(files.shipments, (shipped) => {
         const writer = new Beast2ElementWriter(OrdersType, sink, { parallel: true });
+        const shipments = new Beast2ElementWriter(ShipmentsType, shipped, { parallel: true });
         for (const { order, customer } of orders(size.orders)) {
             writer.add(order);
+            // The orders come in id order, so the shipments are written in their dict's key order.
+            const shipment = shipmentOf(order);
+            if (shipment !== undefined) shipments.add([order.id, shipment]);
+            const carrier = shipment === undefined ? none : some(shipment.carrier);
+            const was = byCarrier.get(carrier) ?? { revenue: 0, n: 0n };
+            byCarrier.set(carrier, { revenue: was.revenue + order.total, n: was.n + 1n });
             total += order.total;
             if (less(2000, order.total)) anyBig = true;
             if (order.lines.length === 0) allLines = false;
@@ -354,7 +227,8 @@ function ensureData(size: Size): void {
             if (n % 10_000_000 === 0) console.log(`# ${size.label}: ${n} orders written, ${Math.round((Date.now() - started) / 1000)} s`);
         }
         writer.finish();
-    });
+        shipments.finish();
+    }));
 
     // Each answer as an East value, written at the query's result type.
     const ids: string[] = [];
@@ -377,6 +251,7 @@ function ensureData(size: Size): void {
         q5: new SortedMap(sums, compareFor(StringType)),
         q6: selected,
         q6t: top.slice(0, 100).map((row) => row.id),
+        q7: [...byCarrier].map(([carrier, { revenue: sum, n: count }]) => ({ carrier, revenue: sum, n: count })),
     };
     for (const q of QUERIES) writeFileSync(files.oracle(q.id), encodeBeast2For(resultTypeOf(q.program))(answers[q.id] as never));
     console.log(`# ${size.label}: ${n} orders and the oracle written in ${Math.round((Date.now() - started) / 1000)} s`);
@@ -389,31 +264,42 @@ interface RepoMark {
     readonly orders: number;
     /** The orders' file, in bytes: what the planner weighs. */
     readonly bytes: number;
+    /** The customers' file, in bytes. */
+    readonly customersBytes: number;
+    /** The shipments' file, in bytes (#942). */
+    readonly shipmentsBytes: number;
 }
 
 /**
- * A size's repository, its workspace deployed and both files taken in, unless
- * a run made it before: it is whole once its mark is written.
+ * A size's repository, its workspace deployed and the files taken in, unless
+ * a run made it before: it is whole once its mark is written. One made before
+ * the shipments (#942) is made again.
  */
 async function ensureRepo(size: Size, storage: LocalStorage, runner: LocalTaskRunner): Promise<{ repo: string; mark: RepoMark }> {
     const repo = join(DIR, `repo-${size.label}`);
     const markFile = `${repo}.json`;
-    if (existsSync(markFile)) return { repo, mark: JSON.parse(readFileSync(markFile, 'utf8')) as RepoMark };
+    if (existsSync(markFile)) {
+        const kept = JSON.parse(readFileSync(markFile, 'utf8')) as Partial<RepoMark>;
+        if (kept.shipmentsBytes !== undefined) return { repo, mark: kept as RepoMark };
+    }
     const files = filesOf(size);
     rmSync(repo, { recursive: true, force: true });
     mkdirSync(repo, { recursive: true });
     const made = repoInit(repo);
     if (!made.success) throw made.error ?? new Error(`could not make the repository ${repo}`);
     const zip = join(DIR, `package-${size.label}.zip`);
-    await e3.export(e3.package('scale', '1.0.0', e3.input('orders', OrdersType), e3.input('customers', CustomersType)), zip);
+    await e3.export(e3.package('scale', '1.0.0', e3.input('orders', OrdersType), e3.input('customers', CustomersType), e3.input('shipments', ShipmentsType)), zip);
     await packageImport(storage, repo, zip);
     await workspaceCreate(storage, repo, WS);
     await workspaceDeploy(storage, repo, WS, 'scale', '1.0.0');
     const started = Date.now();
     await datasetAdoptFile(storage, repo, WS, CUSTOMERS, files.customers, { runner });
     await datasetAdoptFile(storage, repo, WS, ORDERS, files.orders, { runner });
-    console.log(`# ${size.label}: the orders taken in in ${Math.round((Date.now() - started) / 1000)} s`);
-    const mark: RepoMark = { orders: size.orders, bytes: statSync(files.orders).size };
+    await datasetAdoptFile(storage, repo, WS, SHIPMENTS, files.shipments, { runner });
+    console.log(`# ${size.label}: the orders and their shipments taken in in ${Math.round((Date.now() - started) / 1000)} s`);
+    const mark: RepoMark = {
+        orders: size.orders, bytes: statSync(files.orders).size, customersBytes: statSync(files.customers).size, shipmentsBytes: statSync(files.shipments).size,
+    };
     writeFileSync(markFile, JSON.stringify(mark));
     return { repo, mark };
 }
@@ -533,6 +419,23 @@ async function records(storage: LocalStorage, repo: string) {
     return out;
 }
 
+/** An execution the repository records, as {@link records} gives it. */
+type Execution = Awaited<ReturnType<typeof records>>[number];
+/** When an execution started, in epoch milliseconds. */
+const startOf = (r: Execution): number => r.status.value.startedAt.getTime();
+/** When it ended, in epoch milliseconds: NaN while it runs. */
+const endOf = (r: Execution): number => (r.status.type === 'running' ? NaN : r.status.value.completedAt.getTime());
+
+/**
+ * The most bytes a split call's result is read inline, as a poll reads it: its
+ * request's own limit — a re-key call's is one byte, its output read by its
+ * hash — or the ceiling.
+ */
+function maxResultBytesOf(request: SplitCallRequest): number {
+    const limits = request.limits;
+    return limits.type === 'some' && limits.value.maxResultBytes.type === 'some' ? Number(limits.value.maxResultBytes.value) : CEILINGS.maxResultBytes;
+}
+
 /** The units a split task's log names, each with its kind, how it ended, its duration and its peak. */
 async function unitLines(storage: LocalStorage, repo: string, task: { taskHash: string; inputsHash: string; id: string }): Promise<{ pieces: number; units: UnitLine[] }> {
     const log = await executionReadLog(storage, repo, task.taskHash, task.inputsHash, task.id, 'stdout', { limit: 64 * MiB });
@@ -602,54 +505,88 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
             });
 
             for (const q of queries) {
-                it(`${q.id}, ${q.label}: each cold split call answers as the oracle does`, async () => {
+                it(`${q.id}, ${q.label}: each cold run of its split calls answers as the oracle does`, async () => {
                     const type = resultTypeOf(q.program);
                     const oracle = decodeBeast2For(type)(readFileSync(filesOf(size).oracle(q.id)));
-                    const planned = planQuery(q.program, ROOT, new Map([['orders', { bytes: mark.bytes, rows: mark.orders }]]), {
-                        runner: EAST_C, maxBytes: CEILINGS.maxResultBytes,
-                    });
+                    // Every dataset weighed by its file, as the builder weighs it by its status: a join of the orders with
+                    // the shipments, both larger than a piece, is re-keyed (#942); the customers, within one, are read whole.
+                    const weights = new Map([
+                        ['orders', { bytes: mark.bytes, rows: mark.orders }],
+                        ['customers', { bytes: mark.customersBytes, rows: CUSTOMER_COUNT }],
+                        ['shipments', { bytes: mark.shipmentsBytes, rows: undefined }],
+                    ]);
+                    const planned = planQuery(q.program, ROOT, weights, { runner: EAST_C, maxBytes: CEILINGS.maxResultBytes });
                     if ('result' in planned) assert.fail(`${q.program} does not check`);
                     const plan = planned.plan;
-                    if (plan.kind !== 'split') assert.fail(`${q.program} planned one call`);
+                    if (plan.kind === 'one_shot') assert.fail(`${q.program} planned one call`);
+                    const path = plan.explanation.path;
+                    const splitsAs = plan.kind === 'split' ? plan.request.output.type : `re-key, then ${path.kind === 'split' ? path.output : '?'}`;
                     for (let run = 1; run <= RUNS; run++) {
-                        // Every execution forgotten, as gc forgets them, so the call runs every unit.
+                        // Every execution forgotten, as gc forgets them, so the calls run every unit.
                         await pruneHistory(storage, repo, { keepRuns: 0, keepDays: 0, dryRun: false }, Date.now() + 60_000);
                         const loadAtStart = loadavg()[0]!;
                         const cpuAtStart = cpuSeconds();
                         const started = performance.now();
-                        const launched = await splitCallPrepare(storage, repo, WS, plan.request, { grant: 'any', ceilings: CEILINGS });
-                        if ('outcome' in launched) {
-                            const why = launched.outcome.type === 'invalid' ? launched.outcome.value.diagnostics.map((d) => d.message).join('; ') : launched.outcome.type;
-                            assert.fail(`${q.id}'s split call was refused: ${why}`);
+                        /** A split call, run cold through e3-core: its result, read as a poll answers it, and its assembled output's hash. */
+                        const call = async (request: SplitCallRequest, what: string): Promise<{ result: ExecuteResult; output: string | null }> => {
+                            const launched = await splitCallPrepare(storage, repo, WS, request, { grant: 'any', ceilings: CEILINGS });
+                            if ('outcome' in launched) {
+                                const why = launched.outcome.type === 'invalid' ? launched.outcome.value.diagnostics.map((d) => d.message).join('; ') : launched.outcome.type;
+                                assert.fail(`${q.id}'s ${what} was refused: ${why}`);
+                            }
+                            const outcome = await splitCallRun(storage, runner, repo, launched);
+                            const result = await splitCallResult(storage, repo, outcome, launched.read, maxResultBytesOf(request));
+                            return { result, output: outcome.output.type === 'some' ? outcome.output.value : null };
+                        };
+                        let result: ExecuteResult;
+                        if (plan.kind === 'split') {
+                            result = (await call(plan.request, 'split call')).result;
+                        } else {
+                            // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
+                            const first = await call(plan.first, 're-key call');
+                            const joined = first.output === null ? undefined : (await call(plan.join(first.output), 'join call')).result;
+                            result = plan.answer(first.result, joined);
                         }
-                        const outcome = await splitCallRun(storage, runner, repo, launched);
-                        const result = await splitCallResult(storage, repo, outcome, launched.read, CEILINGS.maxResultBytes);
                         const seconds = (performance.now() - started) / 1000;
                         const cpuAtEnd = cpuSeconds();
-                        const answer = decoded(queryResultOf(plan.reading, result), `${q.id}'s split call`);
-                        assert.ok(isTypeEqual(answer.type, type), `${q.id}: the split call answers at the query's result type`);
+                        const answer = decoded(queryResultOf(plan.reading, result), `${q.id}'s split calls`);
+                        assert.ok(isTypeEqual(answer.type, type), `${q.id}: the split calls answer at the query's result type`);
                         const exact = equalFor(type)(answer.value as never, oracle as never);
-                        assert.ok(exact || close(type, answer.value, oracle), `${q.id}: the split call's answer is the oracle's`);
+                        assert.ok(exact || close(type, answer.value, oracle), `${q.id}: the split calls' answer is the oracle's`);
 
-                        // What ran: the task's own execution, and its units.
+                        // What ran: each split task's own execution — the call's, or a re-keyed join's two — and their units.
                         const made = await records(storage, repo);
-                        const own = made.filter((r) => !r.status.value.unit);
+                        const own = made.filter((r) => !r.status.value.unit).sort((a, b) => startOf(a) - startOf(b));
                         const units = made.filter((r) => r.status.value.unit);
-                        assert.equal(own.length, 1, `${q.id}: one execution of the split task`);
-                        const { pieces: cut, units: lines } = await unitLines(storage, repo, own[0]!);
+                        // Typed: `assert.equal` asserts, so inferring this from `plan`, narrowed around the loop, would be circular.
+                        const calls: number = plan.kind === 'split' ? 1 : 2;
+                        assert.equal(own.length, calls, `${q.id}: one execution of each of its ${calls} split tasks`);
+                        let cut = 0;
+                        const lines: UnitLine[] = [];
+                        for (const task of own) {
+                            const logged = await unitLines(storage, repo, task);
+                            cut += logged.pieces;
+                            lines.push(...logged.units);
+                        }
                         const pieces = lines.filter((u) => u.kind === 'piece');
                         const merges = lines.filter((u) => u.kind !== 'piece');
-                        assert.equal(pieces.length, cut, `${q.id}: the log names every piece the plan cut`);
+                        assert.equal(pieces.length, cut, `${q.id}: the logs name every piece the plans cut`);
                         assert.deepEqual(lines.filter((u) => u.state !== 'completed').map((u) => `${u.kind} ${u.state}`), [], `${q.id}: every unit ran`);
                         const sum = (xs: readonly UnitLine[]): number => xs.reduce((s, u) => s + u.ms, 0) / 1000;
-                        const startOf = (r: (typeof made)[number]): number => r.status.value.startedAt.getTime();
-                        const endOf = (r: (typeof made)[number]): number => (r.status.type === 'running' ? NaN : r.status.value.completedAt.getTime());
-                        const firstUnit = Math.min(...units.map(startOf));
-                        const unitSeconds = (Math.max(...units.map(endOf)) - firstUnit) / 1000;
+                        // Each call's time planning its pieces — from its start to its first unit's — and running its units.
+                        let planSeconds = 0;
+                        let unitSeconds = 0;
+                        for (const task of own) {
+                            const mine = units.filter((u) => startOf(u) >= startOf(task) && endOf(u) <= endOf(task));
+                            assert.ok(mine.length > 0, `${q.id}: a split task ran units`);
+                            const firstUnit = Math.min(...mine.map(startOf));
+                            planSeconds += (firstUnit - startOf(task)) / 1000;
+                            unitSeconds += (Math.max(...mine.map(endOf)) - firstUnit) / 1000;
+                        }
                         const piecePeaks = pieces.map((u) => u.peakMiB).filter((p): p is number => p !== null);
                         const row: SplitRow = {
-                            size: size.label, orders: size.orders, query: q.id, output: plan.request.output.type, run, seconds,
-                            planSeconds: (firstUnit - startOf(own[0]!)) / 1000,
+                            size: size.label, orders: size.orders, query: q.id, output: splitsAs, run, seconds,
+                            planSeconds,
                             unitSeconds,
                             pieces: pieces.length,
                             merges: merges.length,

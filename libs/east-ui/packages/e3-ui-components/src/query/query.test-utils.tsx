@@ -18,6 +18,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { StrictMode } from "react";
 import { act, fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -222,35 +223,42 @@ export interface MountOptions {
     readonly status?: QuerySourceStatus;
     /** The most a dataset may weigh and still be read by one call: a `QueryPlanOptionsProvider` around the builder. */
     readonly pieceBytes?: number;
+    /** The saved query the builder opens first, by name — its payload's `query`, which it runs as it mounts. */
+    readonly query?: string;
+    /** Mounts it under React's `StrictMode`, as the showcase's dev server does: mounted, unmounted and mounted again. */
+    readonly strict?: boolean;
 }
 
 /**
  * Mounts the builder as a surface mounts it: the record and two data sources
  * bound, with a host's one-shot call — under an e3 server's config when one is
- * given, whose dataset statuses the Datasets tab reads (#939); and with a
- * split call, a data source's status and the plan's options, when given (#941).
+ * given, whose dataset statuses the Datasets tab reads (#939); with a split
+ * call, a data source's status and the plan's options, when given (#941); open
+ * on a saved query, and under `StrictMode`, when asked.
  *
  * @param call - How a one-shot call is made
- * @param options - The server's config, and what a run's plan reaches ({@link MountOptions})
+ * @param options - The server's config, what a run's plan reaches, the query it opens and `StrictMode` ({@link MountOptions})
  * @returns The rendered builder
  */
 export async function mountBuilder(call?: QueryCall, options: MountOptions = {}): Promise<RenderResult> {
+    const opening = options.query === undefined ? {} : { query: options.query };
     const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const orders = $.let(bindPagedPinnedPlatformFn([OrdersType], ORDERS, East.value(none, OptionType(StringType)), East.value(false, BooleanType)));
         const customers = $.let(bindPlatformFn([CustomersType], CUSTOMERS, none, variant("direct", null)));
         const record = $.let(recordBindPlatformFn([HandleType], RECORD));
-        return Query.Builder({ queries: record as never, datasets: { orders: orders as never, customers: customers as never } });
+        return Query.Builder({ queries: record as never, datasets: { orders: orders as never, customers: customers as never }, ...opening });
     }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
     let tree = <EastChakraComponent value={program()} storageKey="query-builder" />;
     if (call !== undefined) tree = <QueryCallProvider call={call}>{tree}</QueryCallProvider>;
     if (options.split !== undefined) tree = <QuerySplitCallProvider call={options.split}>{tree}</QuerySplitCallProvider>;
     if (options.status !== undefined) tree = <QuerySourceStatusProvider status={options.status}>{tree}</QuerySourceStatusProvider>;
     if (options.pieceBytes !== undefined) tree = <QueryPlanOptionsProvider pieceBytes={options.pieceBytes}>{tree}</QueryPlanOptionsProvider>;
-    const utils = render(
+    const app = (
         <ChakraProvider value={system}>
             {options.e3 === undefined ? tree : <E3Provider config={options.e3}>{tree}</E3Provider>}
-        </ChakraProvider>,
+        </ChakraProvider>
     );
+    const utils = render(options.strict === true ? <StrictMode>{app}</StrictMode> : app);
     await settle();
     return utils;
 }
@@ -392,8 +400,10 @@ export interface FixtureSplit {
     readonly requests: SplitCallRequest[];
     /** Each request's signal, in order: an abandoned run's is aborted. */
     readonly signals: AbortSignal[];
-    /** Each answer, in the order the requests were made. */
+    /** Each answer's result, in the order the requests were made. */
     readonly answers: ExecuteResult[];
+    /** Each answer's assembled output's hash, in the order the requests were made. */
+    readonly outputs: (string | null)[];
     /** Answers the calls held so far, in the order they were made. */
     readonly release: () => Promise<void>;
 }
@@ -402,7 +412,8 @@ export interface FixtureSplit {
  * A split call answered here, as e3 answers it (#941): the in-memory split
  * call (`createInMemorySplitCall`) over the fixture's orders and customers,
  * the partitioned one cut into `pieces`, recording each request, its signal
- * and its answer.
+ * and its answer — a re-keyed join's two calls among them (#942), the second
+ * reading the first's output by its hash.
  *
  * @param options - `pieces`: how many pieces; `hold`: each call reports half
  *   its pieces done and waits for `release()`, so a test sees it going
@@ -412,12 +423,14 @@ export function fixtureSplit(options: { pieces: number; hold?: boolean }): Fixtu
     const requests: SplitCallRequest[] = [];
     const signals: AbortSignal[] = [];
     const answers: ExecuteResult[] = [];
+    const outputs: (string | null)[] = [];
     const held: (() => void)[] = [];
     const memory = createInMemorySplitCall(fixtureDatasets(), { pieces: options.pieces });
     return {
         requests,
         signals,
         answers,
+        outputs,
         split: async (request: SplitCallRequest, callOptions: QuerySplitCallOptions) => {
             requests.push(request);
             signals.push(callOptions.signal);
@@ -426,8 +439,10 @@ export function fixtureSplit(options: { pieces: number; hold?: boolean }): Fixtu
                 callOptions.onProgress({ phase: variant("partition", null), done: BigInt(Math.floor(options.pieces / 2)), units: BigInt(options.pieces) });
                 await new Promise<void>(resolve => { held.push(resolve); });
             }
-            answers[index] = await memory(request, callOptions);
-            return answers[index];
+            const answer = await memory(request, callOptions);
+            answers[index] = answer.result;
+            outputs[index] = answer.output;
+            return answer;
         },
         release: async () => {
             for (const resolve of held.splice(0)) {

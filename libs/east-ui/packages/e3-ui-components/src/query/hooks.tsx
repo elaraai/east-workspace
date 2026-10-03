@@ -38,7 +38,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { DataSourceType, SavedQueryType } from "@elaraai/e3-ui/internal";
-import { datasetGetStatus, oneShotExecute, splitCall } from "@elaraai/e3-api-client";
+import { datasetGetStatus, oneShotExecute, splitCall, type SplitCallAnswer } from "@elaraai/e3-api-client";
 import {
     pathToString,
     type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallProgress, type SplitCallRequest, type TreePath,
@@ -180,12 +180,15 @@ export interface QuerySplitCallOptions {
 }
 
 /**
- * Makes a split call: the request, answered by the call's result once its job
- * ends — read as a one-shot call's is.
+ * Makes a split call: the request, answered once its job ends by the call's
+ * result — read as a one-shot call's is — and the hash of its assembled
+ * output, which a re-keyed join's second call reads (#942).
  *
- * @param request - The request — a plan's, platform-free (`splitCallRequest`)
+ * @param request - The request — a plan's, platform-free (`splitCallRequest`,
+ *   `rekeyCallRequests`)
  * @param options - The signal that abandons it, and where its progress goes
- * @returns The call's result
+ * @returns The call's result, and its assembled output's hash once its pieces
+ *   ran (`null` before)
  *
  * @remarks
  * It rejects with e3-api-client's `ApiError` or `AuthError` when the server
@@ -193,7 +196,7 @@ export interface QuerySplitCallOptions {
  * `fetch` does, and with any other error when e3 could not run it (a job that
  * ended `failed`); and with the signal's reason once it is abandoned.
  */
-export type QuerySplitCall = (request: SplitCallRequest, options: QuerySplitCallOptions) => Promise<ExecuteResult>;
+export type QuerySplitCall = (request: SplitCallRequest, options: QuerySplitCallOptions) => Promise<SplitCallAnswer>;
 
 const QuerySplitCallContext = createContext<QuerySplitCall | null>(null);
 
@@ -233,8 +236,7 @@ export function useQuerySplitCall(): QuerySplitCall | undefined {
         if (config === null || config.workspace === undefined) return undefined;
         const { apiUrl, workspace } = config;
         const repo = config.repo ?? "default";
-        return async (request, { signal, onProgress }) =>
-            (await splitCall(apiUrl, repo, workspace, request, e3RequestOptions(config), { signal, onProgress })).result;
+        return (request, { signal, onProgress }) => splitCall(apiUrl, repo, workspace, request, e3RequestOptions(config), { signal, onProgress });
     }, [provided, config]);
 }
 

@@ -11,18 +11,22 @@
  * or the options' own; the split call's request, decoded back — each
  * argument's partition, the output kind, its programs and a fold's zero, the
  * runner and the limits — its answer at the type the one-shot translation
- * gives; the visual view's split program, its rows joined and its counts run
- * once after them; and every split, run in memory over 1, 3 and 7 pieces,
- * answering as its one-shot call does.
+ * gives; the visual view's split program, its sort's first rows kept in the
+ * pieces and its counts run once after them; joins (#942) — two dicts keyed
+ * alike cut at the same keys, and a join of two large datasets re-keyed into
+ * two split calls, the second over the first's output by its hash; and every
+ * split, run in memory over 1, 3 and 7 pieces, answering as its one-shot call
+ * does.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
-    ArrayType, DictType, NullType, SetType,
-    checkJq, decodeBeast2, decodeBeast2For, decodeEastIR, equalFor, fromEastTypeValue, isTypeEqual, isVariant, none, some, splitJq, variant, walkIR,
-    type EastType, type EastTypeValue, type SortedMap,
+    ArrayType, DictType, FloatType, IntegerType, NullType, SetType, SortedMap, StringType,
+    checkJq, compareFor, decodeBeast2, decodeBeast2For, decodeEastIR, equalFor, fromEastTypeValue, isTypeEqual, isVariant, none, some, splitJq,
+    toEastTypeValue, variant, walkIR,
+    type EastType, type EastTypeValue,
 } from "@elaraai/east";
 import { PIECE_SIZES, TreePathType, type SplitCallRequest, type TreePath } from "@elaraai/e3-types";
 import { formatters } from "@elaraai/east-ui-components";
@@ -78,14 +82,20 @@ const SPLIT = "Split call over orders: it weighs 1.5 GB, more than one piece (16
 
 /** Each combine kind, and the explanation its split gives. */
 const SPLITS: readonly (readonly [program: string, explanation: string])[] = [
-    // The rows joined, and what runs once after them; or nothing after them.
+    // The rows joined; or a sort's first rows kept, each piece's and then theirs together (#942), and what runs once after.
+    [".orders | map(.id)", [SPLIT, "Each piece of orders runs: «.orders | map(.id)»", "Their rows are joined in order."].join("\n")],
     [".orders | map(select(.total > 500)) | sort_by(-.total) | .[:5]", [
         SPLIT,
         "Each piece of orders runs: «.orders | map(select(.total > 500))»",
-        "Their rows are joined in order.",
-        "Then, once, over what they combine to: «sort_by(-.total) | .[:5]»",
+        "The first 5 rows of the sort are kept, each piece's and then theirs together, by: «-.total»",
+        "Then, once, over what they combine to: «.[:5]»",
     ].join("\n")],
-    [".orders | map(.id)", [SPLIT, "Each piece of orders runs: «.orders | map(.id)»", "Their rows are joined in order."].join("\n")],
+    [".orders | sort_by(.total) | .[0].id", [
+        SPLIT,
+        "Each piece of orders runs: «.orders»",
+        "The first row of the sort is kept, each piece's and then theirs together, by: «.total»",
+        "Then, once, over what they combine to: «.[0].id»",
+    ].join("\n")],
     // Totals, each by its rule.
     [".orders | map(.total) | add", [
         SPLIT, "Each piece of orders runs: «.orders | map(.total)»", "Their totals combine, each by its rule:", "Added up: «add»",
@@ -173,7 +183,8 @@ const WHOLES: readonly (readonly [program: string, explanation: string])[] = [
     ["first(.orders[] | select(.total > 1000)) | .id",
         "One call: it keeps only its first outputs, and one call stops as soon as it has them: «first(.orders[] | select(.total > 1000))»"],
     [".orders | .[0:3]", "One call: it takes rows by their position, and one call reads only as far as it needs: «.[0:3]»"],
-    [".orders | sort_by(.total) | .[0].id", "One call: a step needs every row at once, and no work is done row by row before it: «sort_by(.total)»"],
+    // A sort whose every row the query keeps: no first rows to keep in the pieces.
+    [".orders | sort_by(.total) | reverse", "One call: a step needs every row at once, and no work is done row by row before it: «sort_by(.total)»"],
     [".orders | foreach .[] as $o (0; . + 1)", "One call: a step carries state from row to row: «foreach .[] as $o (0; . + 1)»"],
     [".model as $m | .orders | map(call($m; {price: .total, region: \"NSW\"}))",
         "One call: the work on each row calls a function value, which may call a platform function the runner doesn't load: «call($m; {price: .total, region: \"NSW\"})»"],
@@ -250,7 +261,7 @@ describe("the path, by what the dataset weighs", () => {
     });
 
     test("a query that runs as one unit is one call however much its dataset weighs", () => {
-        expect(plan(".orders | sort_by(.total) | .[0].id", weighing(LARGE)).kind).toBe("one_shot");
+        expect(plan(".orders | sort_by(.total) | reverse", weighing(LARGE)).kind).toBe("one_shot");
     });
 
     test("one call is the one-shot call prepareQuery prepares, as before plans", async () => {
@@ -383,7 +394,7 @@ describe("the request", () => {
 
 // ─── The visual view's split program ─────────────────────────────────────────
 
-describe("the visual view's split program: the query, a rows result counted once its rows are joined", () => {
+describe("the visual view's split program: the query, a rows result counted once its rows are combined", () => {
     /** The default query's canonical program, and the same followed by its counts: what a visual split run sends. */
     const QUERY = [
         ".customers as $customers",
@@ -396,11 +407,11 @@ describe("the visual view's split program: the query, a rows result counted once
     ].join("\n| ");
     const WRAPPED = `${QUERY}\n| {counts: [length], result: .[:1000]}`;
 
-    test("east splits it as the query's rows joined, with the counts run once after them", () => {
+    test("east splits it as the sort's first 10 rows kept in each piece and then across them, with the counts run once after them", () => {
         const split = splitJq(checkJq(WRAPPED, ROOT.type, { root: true }));
         if (split.kind !== "split") throw new Error("expected a split");
-        expect([split.over, split.output.kind, split.stages.combine.kind, split.broadcast]).toEqual(["orders", "array", "concat", ["customers"]]);
-        expect(WRAPPED.slice(split.stages.then!.from, split.stages.then!.to)).toBe("sort_by(-.total)\n| .[:10]\n| {counts: [length], result: .[:1000]}");
+        expect([split.over, split.output.kind, split.stages.combine.kind, split.broadcast]).toEqual(["orders", "fold", "top", ["customers"]]);
+        expect(WRAPPED.slice(split.stages.then!.from, split.stages.then!.to)).toBe(".[:10]\n| {counts: [length], result: .[:1000]}");
     });
 
     test("the plan sends the wrapped program, and explains the query as its author reads it", () => {
@@ -411,8 +422,8 @@ describe("the visual view's split program: the query, a rows result counted once
         expect(explained(p.explanation)).toBe([
             SPLIT,
             "Each piece of orders runs: «.orders\n| map(select(.status.type == \"shipped\") | select(.total >= 100 and (.status.value.date | year) == 2026))\n| map(. + {name: $customers[.customer_id].name, region: $customers[.customer_id].region})\n| map({order: .id, customer: .name, region, total, shipped: .status.value.date})»",
-            "Their rows are joined in order.",
-            "Then, once, over what they combine to: «sort_by(-.total)\n| .[:10]»",
+            "The first 10 rows of the sort are kept, each piece's and then theirs together, by: «-.total»",
+            "Then, once, over what they combine to: «.[:10]»",
             "Every piece reads customers whole.",
         ].join("\n"));
         // What it reads its answer by is the wrapped program's: {counts, result}.
@@ -464,6 +475,9 @@ function decoded(result: QueryResult): { type: EastType; value: unknown } {
     return { type: fromEastTypeValue(answer.type), value: answer.value };
 }
 
+/** What an in-memory split call is given when nothing abandons it and nobody watches its progress. */
+const QUIET = { signal: new AbortController().signal, onProgress: () => {} };
+
 describe("every split, run in memory over 1, 3 and 7 pieces, answers as its one-shot call does", () => {
     const oneShot = createInMemoryQueryCall(IN_MEMORY);
     const samePath = equalFor(TreePathType);
@@ -475,8 +489,8 @@ describe("every split, run in memory over 1, 3 and 7 pieces, answers as its one-
             const want = decoded(expected);
             const { request, reading } = splitOf(program);
             for (const pieces of [1, 3, 7]) {
-                const answer = await createInMemorySplitCall(IN_MEMORY, { pieces })(request, { signal: new AbortController().signal, onProgress: () => {} });
-                const result = queryResultOf(reading, answer);
+                const answer = await createInMemorySplitCall(IN_MEMORY, { pieces })(request, QUIET);
+                const result = queryResultOf(reading, answer.result);
                 const got = decoded(result);
                 expect(isTypeEqual(got.type, want.type), `${pieces} pieces: the type`).toBe(true);
                 expect(close(want.type, got.value, want.value), `${pieces} pieces: the value`).toBe(true);
@@ -485,4 +499,157 @@ describe("every split, run in memory over 1, 3 and 7 pieces, answers as its one-
             }
         });
     }
+});
+
+// ─── Joins: cut at the same keys, or re-keyed (#942) ─────────────────────────
+
+/** The stock held of each SKU and each SKU's price: two dicts keyed alike, as the east split spec's. */
+const StockType = DictType(StringType, IntegerType);
+const PricesType = DictType(StringType, FloatType);
+const STOCK_ROOT = queryRoot([
+    { name: "stock", path: pathOf("stock"), type: toEastTypeValue(StockType) },
+    { name: "prices", path: pathOf("prices"), type: toEastTypeValue(PricesType) },
+]);
+
+/** 37 SKUs in stock, every third unpriced, and 19 priced with none in stock, in memory. */
+const STOCK_IN_MEMORY = (() => {
+    const compare = compareFor(StringType);
+    const sku = (i: number): string => `S${String(i).padStart(3, "0")}`;
+    const stock = new SortedMap<string, bigint>(Array.from({ length: 37 }, (_, i): [string, bigint] => [sku(i * 2), BigInt((i * 7) % 11)]), compare);
+    const prices = new SortedMap<string, number>([
+        ...Array.from({ length: 37 }, (_, i) => i).filter(i => i % 3 !== 0).map((i): [string, number] => [sku(i * 2), ((i * 37) % 100) / 4 + 0.1]),
+        ...Array.from({ length: 19 }, (_, i): [string, number] => [sku(i * 4 + 1), i + 0.5]),
+    ], compare);
+    return [{ path: pathOf("stock"), type: StockType as EastType, value: stock }, { path: pathOf("prices"), type: PricesType as EastType, value: prices }];
+})();
+
+/** Both dicts weighed as large, the prices the heavier: e3 cuts the pieces at their keys. */
+const STOCK_HEAVY: ReadonlyMap<string, SourceWeight> = new Map([["stock", { bytes: LARGE, rows: 37 }], ["prices", { bytes: 2 * LARGE, rows: 56 }]]);
+
+/** Joins of the stock with the prices, read only at the stock's own SKU: cut at the same keys. */
+const COPARTITIONED: readonly string[] = [
+    ".prices as $p | .stock | to_entries | map({sku: .key, worth: (.value * ($p[.key] // 0))}) | sort_by(-.worth) | .[:4]",
+    ".prices as $p | [.stock | to_entries[] | .key as $k | select($p | has($k) | not) | $k]",
+    ".stock as $s | .prices | to_entries | map(select($s[.key] == null) | .key)",
+];
+
+/** Joins of the orders with the customers, read only at the order's customer, whose combine the rows' order cannot change: re-keyed when both are large. */
+const REKEYED: readonly string[] = [
+    ".customers as $c | .orders | map(. + {region: $c[.customer_id].region}) | group_by(.region) | map({region: .[0].region, revenue: map(.total) | add, n: length})",
+    ".customers as $c | .orders | map($c[.customer_id].region) | unique",
+    ".customers as $c | .orders | map(select($c[.customer_id].tier.type == \"gold\") | .total) | add",
+    ".customers as $c | reduce .orders[] as $o ({}; .[$c[$o.customer_id].region // \"?\"] += $o.total)",
+    ".customers as $c | .orders | map({tier: $c[.customer_id].tier.type, total}) | group_by(.tier) | map({tier: .[0].tier, hi: (map(.total) | max), n: length})",
+];
+
+/** The orders and the customers both weighed as large. */
+const BOTH_HEAVY: ReadonlyMap<string, SourceWeight> = new Map([...HEAVY, ["customers", { bytes: LARGE, rows: 8 }]]);
+
+/** A program's re-keyed join; the test fails when it plans otherwise. */
+function rekeyOf(program: string, weights: ReadonlyMap<string, SourceWeight> = BOTH_HEAVY): Extract<QueryPlan, { kind: "rekey" }> {
+    const p = plan(program, weights);
+    if (p.kind !== "rekey") throw new Error(`${program} plans ${p.kind}, not a re-keyed join`);
+    return p;
+}
+
+describe("joins (#942): two dicts keyed alike cut at the same keys, and two large datasets re-keyed", () => {
+    test("a join of two dicts read only at the row's key: both partitioned, cut at the same keys by the heavier, and explained", () => {
+        const planned = planQuery(COPARTITIONED[0]!, STOCK_ROOT, STOCK_HEAVY);
+        if ("result" in planned || planned.plan.kind !== "split") throw new Error("expected a split");
+        const p = planned.plan;
+        expect(explained(p.explanation)).toBe([
+            "Split call over stock: prices, cut with it, weighs 3 GB, more than one piece (16 MB).",
+            "Each piece of stock runs: «.stock | to_entries | map({sku: .key, worth: (.value * ($p[.key] // 0))})»",
+            "Prices is cut at the same keys as stock: each piece reads only its own keys of it.",
+            "The first 4 rows of the sort are kept, each piece's and then theirs together, by: «-.worth»",
+            "Then, once, over what they combine to: «.[:4]»",
+        ].join("\n"));
+        // Both partitioned with no by: e3 cuts them at the same keys, the heavier's.
+        expect(p.request.args).toEqual([
+            { arg: variant("dataset", pathOf("prices")), partition: some({ by: [] }) },
+            { arg: variant("dataset", pathOf("stock")), partition: some({ by: [] }) },
+        ]);
+    });
+
+    for (const program of COPARTITIONED) {
+        test(`cut at the same keys, run in memory over 1, 3 and 7 pieces, it answers as its one-shot call does: ${program}`, async () => {
+            const prepared = prepareQuery(program, STOCK_ROOT);
+            if (!("prepared" in prepared)) throw new Error(`${program} does not check`);
+            const want = decoded(queryResultOf(prepared.prepared, await createInMemoryQueryCall(STOCK_IN_MEMORY)(prepared.prepared.request)));
+            const planned = planQuery(program, STOCK_ROOT, STOCK_HEAVY);
+            if ("result" in planned || planned.plan.kind !== "split") throw new Error(`${program} does not split`);
+            const { request, reading } = planned.plan;
+            expect(request.args.every(a => a.partition.type === "some"), "every argument partitioned").toBe(true);
+            for (const pieces of [1, 3, 7]) {
+                const got = decoded(queryResultOf(reading, (await createInMemorySplitCall(STOCK_IN_MEMORY, { pieces })(request, QUIET)).result));
+                expect(close(want.type, got.value, want.value), `${pieces} pieces`).toBe(true);
+            }
+        });
+    }
+
+    test("a join both of whose sides weigh more than one piece is re-keyed: the re-key call, the join call over its output, and the explanation", () => {
+        const p = rekeyOf(REKEYED[1]!);
+        expect(explained(p.explanation)).toBe([
+            SPLIT,
+            "Re-key: both sides large and unaligned — customers weighs more than one piece too.",
+            "First, orders is re-keyed by this, about 1.5 GB, and each piece then reads customers cut at the same keys: «.customer_id»",
+            "Each piece of orders runs: «.orders | map($c[.customer_id].region)»",
+            "Their distinct rows are kept: «unique»",
+        ].join("\n"));
+        // The re-key call: the orders partitioned, into a dict by the join key, its answer asked to be one byte at most — its output is read by its hash.
+        expect(p.first.args).toEqual([{ arg: variant("dataset", pathOf("orders")), partition: some({ by: [] }) }]);
+        expect([p.first.output.type, p.first.then.type]).toEqual(["dict", "none"]);
+        expect(p.first.limits).toEqual(some({ timeoutMs: none, maxResultBytes: some(1n), maxLogBytes: none }));
+        // The join call: the re-keyed rows by their hash and the customers, both partitioned, into the split's output kind.
+        const hash = "ab".repeat(32);
+        const join = p.join(hash);
+        expect(join.args).toEqual([
+            { arg: variant("dataset", pathOf("customers")), partition: some({ by: [] }) },
+            { arg: variant("object", hash), partition: some({ by: [] }) },
+        ]);
+        expect([join.output.type, join.limits]).toEqual(["set", some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none })]);
+        for (const ir of [p.first.bodyIr, join.bodyIr, ...(join.then.type === "some" ? [join.then.value] : [])]) expect(platformCalls(ir)).toEqual([]);
+        // What the run reads: the orders, which the re-key call reads, then the customers.
+        expect(p.reading.entries.map(e => e.name)).toEqual(["orders", "customers"]);
+    });
+
+    test("the other side within one piece, or not weighed, is read whole by every piece: one split call", () => {
+        const program = REKEYED[1]!;
+        for (const customers of [{ bytes: 4_096, rows: 8 }, { bytes: undefined, rows: 8 }]) {
+            const p = plan(program, new Map([...HEAVY, ["customers", customers]]));
+            if (p.kind !== "split" || p.explanation.path.kind !== "split") throw new Error("expected a split call");
+            expect([p.explanation.path.broadcast, p.explanation.path.rekey]).toEqual([["customers"], null]);
+            expect(p.request.args.map(a => [a.arg.type, a.partition.type])).toEqual([["dataset", "none"], ["dataset", "some"]]);
+        }
+    });
+
+    for (const program of REKEYED) {
+        test(`re-keyed, its two calls run in memory over 1, 3 and 7 pieces — the second over the first's output by its hash — answer as its one-shot call does: ${program}`, async () => {
+            const prepared = prepareQuery(program, ROOT);
+            if (!("prepared" in prepared)) throw new Error(`${program} does not check`);
+            const want = decoded(queryResultOf(prepared.prepared, await createInMemoryQueryCall(IN_MEMORY)(prepared.prepared.request)));
+            const p = rekeyOf(program);
+            for (const pieces of [1, 3, 7]) {
+                const call = createInMemorySplitCall(IN_MEMORY, { pieces });
+                const first = await call(p.first, QUIET);
+                // Its answer too large for one byte, its output kept by its hash.
+                expect([first.result.outcome.type, first.output?.length], `${pieces} pieces: the re-key call`).toEqual(["too_large", 64]);
+                const joined = await call(p.join(first.output!), QUIET);
+                const result = queryResultOf(p.reading, p.answer(first.result, joined.result));
+                const got = decoded(result);
+                expect(isTypeEqual(got.type, want.type), `${pieces} pieces: the type`).toBe(true);
+                expect(close(want.type, got.value, want.value), `${pieces} pieces: the value`).toBe(true);
+                expect(result.inputs.map(i => i.name), `${pieces} pieces: what it read`).toEqual(["orders", "customers"]);
+            }
+        });
+    }
+
+    test("a re-key call that ends without an output is the run's answer, with what it read", async () => {
+        const p = rekeyOf(REKEYED[1]!);
+        const first = await createInMemorySplitCall(IN_MEMORY.filter(d => !equalFor(TreePathType)(d.path, pathOf("orders"))), { pieces: 3 })(p.first, QUIET);
+        expect([first.result.outcome.type, first.output]).toEqual(["invalid", null]);
+        const result = queryResultOf(p.reading, p.answer(first.result, undefined));
+        if (result.outcome.type !== "error") throw new Error(`expected a refusal, got ${result.outcome.type}`);
+        expect(result.outcome.value.map(d => d.message)).toEqual(["no_value: orders has no value yet."]);
+    });
 });

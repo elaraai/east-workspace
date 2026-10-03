@@ -11,6 +11,7 @@
     "bin",
     "dist",
     "!dist/**/*.spec.*",
+    "!dist/testing/**",
     "!dist/tui/testing/**",
     "!dist/tui/api.fake.*",
     "README.md",

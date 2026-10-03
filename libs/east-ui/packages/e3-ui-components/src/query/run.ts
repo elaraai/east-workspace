@@ -21,7 +21,10 @@
  *   split call's progress told as it goes;
  * - **one at a time**: a new run abandons the one before by its signal, and
  *   an abandoned run's answer is dropped when it lands; while it goes, the run
- *   names the data sources it reads;
+ *   names the data sources it reads. The builder going abandons the run in
+ *   flight too, and its coming back — React's mount → unmount → mount, a
+ *   hidden builder shown again — starts it again: a run is never lost, or
+ *   failed, for the builder remounting;
  * - **what came back** ({@link runOutput}): the result's type and value, the
  *   counts, and whether the rows were cut;
  * - **fresh or stale** ({@link canonicalProgram}): a result is fresh while
@@ -38,7 +41,7 @@ import {
     type CheckJqResult, type EastType, type option,
 } from "@elaraai/east";
 import { ApiError, AuthError } from "@elaraai/e3-api-client";
-import type { ExecuteResult, SplitCallProgress } from "@elaraai/e3-types";
+import type { ExecuteResult, SplitCallProgress, SplitCallRequest } from "@elaraai/e3-types";
 import type { QueryCall, QuerySourceStatus, QuerySplitCall } from "./hooks.js";
 import { queryResultOf, type QueryReading, type QueryResult, type QueryRoot } from "./one-shot.js";
 import { draftPlan, weighPlan, type PlanDraft, type PlanOptions, type QueryPlan, type SourceWeight } from "./plan.js";
@@ -251,14 +254,16 @@ function refusedBy(err: unknown, split: boolean): boolean {
 }
 
 /**
- * What the datasets a run plans over weigh, by name: the one a split call
- * would cut, and the source whose stored rows a split visual run counts. A
- * status that cannot be read leaves its dataset's weight unknown.
+ * What the datasets a run plans over weigh, by name: those whose weights
+ * decide its path — the one a split call would cut, those cut at the same keys
+ * with it, and a join's other side (#942) — and the source whose stored rows a
+ * split visual run counts. A status that cannot be read leaves its dataset's
+ * weight unknown.
  */
 async function weigh(draft: PlanDraft, source: string | undefined, root: QueryRoot, status: QuerySourceStatus | undefined): Promise<ReadonlyMap<string, SourceWeight>> {
     const weights = new Map<string, SourceWeight>();
-    if (status === undefined || draft.over === undefined) return weights;
-    const names = [...new Set([draft.over, ...(source === undefined ? [] : [source])])];
+    if (status === undefined || draft.weighs.length === 0) return weights;
+    const names = [...new Set([...draft.weighs, ...(source === undefined ? [] : [source])])];
     await Promise.all(names.map(async (name) => {
         const entry = root.entries.find(e => e.name === name);
         if (entry === undefined) return;
@@ -284,11 +289,20 @@ async function weigh(draft: PlanDraft, source: string | undefined, root: QueryRo
  *
  * @remarks
  * A run checks and splits the query (`draftPlan`); reads the status of the
- * dataset it would cut, when it would cut one; plans the call by what that
- * weighs (`weighPlan`); and makes it. A split call's progress is the run's as
- * e3 reports it, and how many pieces it cut is the partition's units. A split
- * visual run counts the source from its dataset's stored rows, and a rows
- * result's rows from the call; nothing between.
+ * datasets whose weights decide its path, when it would cut one; plans the
+ * call by what they weigh (`weighPlan`); and makes it — a re-keyed join's two
+ * calls one after the other, the second over the first's output (#942). A
+ * split call's progress is the run's as e3 reports it, and how many pieces it
+ * cut is the partition's units — the join call's, for a re-keyed join. A
+ * split visual run counts the source from its dataset's stored rows, and a
+ * rows result's rows from the call; nothing between.
+ *
+ * The builder going — unmounted, or hidden — abandons the run in flight: its
+ * split call stops polling, and its answer is dropped when it lands. Its
+ * coming back starts that run again, under its number: React's development
+ * check of a component's effects, which mounts it, unmounts it and mounts it
+ * again, would otherwise fail the run a saved query starts as it opens, with
+ * the abandoned call's "signal is aborted".
  */
 export function useQueryRun(
     root: QueryRoot | string, seams: QueryRunSeams, onRan?: (result: QueryResult, plan: RunPlan) => void,
@@ -298,16 +312,26 @@ export function useQueryRun(
     const seq = useRef(0);
     // The latest run's abandon: a new run, or the builder going, abandons it.
     const abandon = useRef<AbortController | undefined>(undefined);
-    useEffect(() => () => abandon.current?.abort(), []);
+    // The run in flight, until it answers or fails: what the builder going abandons.
+    const inFlight = useRef<{ readonly n: number; readonly plan: RunPlan } | undefined>(undefined);
+    // The run the builder's going abandoned in flight: what its coming back starts again, under its number.
+    const resume = useRef<{ readonly n: number; readonly plan: RunPlan } | undefined>(undefined);
     const { call, split, status, options } = seams;
-    const run = useCallback((plan: RunPlan) => {
-        const n = ++seq.current;
+    // Starts run `n`: a new one, or one the builder's going abandoned, started again.
+    const start = useCallback((plan: RunPlan, n: number) => {
         abandon.current?.abort();
         const controller = new AbortController();
         abandon.current = controller;
-        const live = (): boolean => seq.current === n;
+        inFlight.current = { n, plan };
+        // The latest run, and not abandoned: an abandoned run started again is a run of the same number.
+        const live = (): boolean => seq.current === n && !controller.signal.aborted;
+        /** The run ends, answered or failed: no longer in flight. */
+        const ended = (next: RunState): void => {
+            if (inFlight.current?.n === n) inFlight.current = undefined;
+            setState(next);
+        };
         const failed = (reason: "unreachable" | "refused", message: string, planned: QueryPlan | undefined): void =>
-            setState({ status: "failed", n, plan, reason, message, at: new Date(), planned });
+            ended({ status: "failed", n, plan, reason, message, at: new Date(), planned });
         if (typeof root === "string") {
             failed("refused", root, undefined);
             return;
@@ -320,7 +344,7 @@ export function useQueryRun(
             return;
         }
         if ("result" in drafted) {
-            setState({ status: "done", n, plan, result: drafted.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined });
+            ended({ status: "done", n, plan, result: drafted.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined });
             return;
         }
         const draft = drafted.draft;
@@ -339,7 +363,7 @@ export function useQueryRun(
                 failed("refused", messageOf(err), planned);
                 return;
             }
-            setState({ status: "done", n, plan, result, output, at: new Date(), ms: performance.now() - started, planned, pieces });
+            ended({ status: "done", n, plan, result, output, at: new Date(), ms: performance.now() - started, planned, pieces });
             if (onRan !== undefined) queueMicrotask(() => onRan(result, plan));
         };
 
@@ -348,9 +372,9 @@ export function useQueryRun(
             if (!live()) return;
             let planned: QueryPlan;
             try {
-                const weighed = weighPlan(draft, draft.over === undefined ? undefined : weights.get(draft.over));
+                const weighed = weighPlan(draft, weights);
                 if ("result" in weighed) {
-                    setState({ status: "done", n, plan, result: weighed.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined });
+                    ended({ status: "done", n, plan, result: weighed.result, output: undefined, at: new Date(), ms: 0, planned: undefined, pieces: undefined });
                     return;
                 }
                 planned = weighed.plan;
@@ -382,16 +406,27 @@ export function useQueryRun(
                 return;
             }
             let pieces: number | undefined;
+            /** A split call, its progress told as it goes. */
+            const send = (request: SplitCallRequest) => split(request, {
+                signal: controller.signal,
+                onProgress: (progress) => {
+                    if (!live()) return;
+                    if (progress.phase.type === "partition") pieces = Number(progress.units);
+                    setState({ status: "running", n, plan, reads, planned, progress, pieces });
+                },
+            });
             let answer: ExecuteResult;
             try {
-                answer = await split(planned.request, {
-                    signal: controller.signal,
-                    onProgress: (progress) => {
-                        if (!live()) return;
-                        if (progress.phase.type === "partition") pieces = Number(progress.units);
-                        setState({ status: "running", n, plan, reads, planned, progress, pieces });
-                    },
-                });
+                if (planned.kind === "split") {
+                    answer = (await send(planned.request)).result;
+                } else {
+                    // A re-keyed join (#942): the re-key call, then the join call over its output, by its hash.
+                    const first = await send(planned.first);
+                    if (!live()) return;
+                    pieces = undefined;
+                    const join = first.output === null ? undefined : (await send(planned.join(first.output))).result;
+                    answer = planned.answer(first.result, join);
+                }
             } catch (err) {
                 if (live()) failed(refusedBy(err, true) ? "refused" : "unreachable", messageOf(err), planned);
                 return;
@@ -403,5 +438,23 @@ export function useQueryRun(
             answered(planned, planned.reading, answer, (result) => runOutput(plan.split, result, known), pieces);
         })();
     }, [root, call, split, status, options, onRan]);
+    const run = useCallback((plan: RunPlan) => start(plan, ++seq.current), [start]);
+    // The latest `start`: what the builder's coming back starts an abandoned run with.
+    const latest = useRef(start);
+    latest.current = start;
+    useEffect(() => {
+        // Coming back starts the run the builder's going abandoned, unless another run has started since.
+        const again = resume.current;
+        resume.current = undefined;
+        if (again !== undefined && seq.current === again.n) latest.current(again.plan, again.n);
+        return () => {
+            // Going abandons the run in flight: its split call stops polling, and its answer is dropped.
+            const going = inFlight.current;
+            if (going === undefined) return;
+            inFlight.current = undefined;
+            resume.current = going;
+            abandon.current?.abort();
+        };
+    }, []);
     return { state, run };
 }
