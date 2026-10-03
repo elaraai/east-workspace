@@ -393,7 +393,8 @@ export {
   type TaskCompletedResult,
   type TaskFailedResult,
   type FinalizeResult,
-  // Step functions
+  // Step functions, and the refusals a start makes before anything runs
+  checkDataflowStart,
   stepInitialize,
   stepGetReady,
   stepPrepareTask,

@@ -530,8 +530,9 @@ export type {
   FinalizeResult,
 } from './dataflow/types.js';
 
-// Step functions
+// Step functions, and the refusals a start makes before anything runs
 export {
+  checkDataflowStart,
   stepInitialize,
   stepGetReady,
   stepPrepareTask,
