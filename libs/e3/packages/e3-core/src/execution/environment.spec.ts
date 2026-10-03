@@ -474,12 +474,14 @@ describe('materializeEnvironment', () => {
   it('runs every install from the base environment it is given, as it is, as its user and group, with no lifecycle script, and takes the build back',
     { skip: process.platform === 'win32' ? 'the stand-in npm is a shell script' : false }, async () => {
       // An npm that says what it was run with and from, and as whom, and
-      // leaves what an install would, with a link whose target is not there.
+      // leaves what an install would: a link whose target is not there, and
+      // a tool anyone may write that runs as its owner.
       const bin = path.join(tmpDir, 'stand-in-npm');
       fs.mkdirSync(bin);
       fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\n' +
         'printf \'%s|%s|%s|%s\\n\' "$*" "${E3_TEST_BASE-unset}" "${E3_TEST_PROCESS_ONLY-unset}" "$(id -u):$(id -g)" >> "$E3_TEST_NPM_LOG"\n' +
-        'mkdir -p node_modules/.bin\nln -sf ../no-such-tool node_modules/.bin/a-tool\n');
+        'mkdir -p node_modules/.bin\nln -sf ../no-such-tool node_modules/.bin/a-tool\n' +
+        'touch node_modules/.bin/another-tool\nchmod 6777 node_modules/.bin/another-tool\n');
       fs.chmodSync(path.join(bin, 'npm'), 0o755);
       const log = path.join(tmpDir, 'stand-in-npm.log');
       const spec = encodeBeast2For(EnvironmentSpecType)(variant('node', {
@@ -516,6 +518,8 @@ describe('materializeEnvironment', () => {
       }
       assert.strictEqual(fs.readlinkSync(path.join(repo, 'envs', envHash, 'node_modules', '.bin', 'a-tool')), '../no-such-tool',
         'taken back, a link and all, whatever it names');
+      assert.strictEqual(fs.statSync(path.join(repo, 'envs', envHash, 'node_modules', '.bin', 'another-tool')).mode & 0o7777, 0o755,
+        'taken back with a mode by which no one else writes it, nor runs as its owner');
     });
 
   it('takes an environment built for another group back before it is put in place: every file of it is this process\'s', {

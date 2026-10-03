@@ -434,23 +434,32 @@ async function giveDirectories(dir: string, settings: ProcessSettings): Promise<
   }
 }
 
+/** The mode bits a built environment's files lose when it is taken back: set
+ *  user and group id, which a chown by root keeps on BSD, and writing by the
+ *  group or anyone. */
+const NOT_TAKEN = 0o6022;
+
 /**
  * Takes a built environment back from the user its installs ran as: every
- * file, directory and link in it becomes this process's own. Every execution
- * of the repository reads an environment, and no runner may change what the
- * others run.
+ * file, directory and link in it becomes this process's own, and no file or
+ * directory keeps a mode by which another may write it or run as its owner.
+ * Every execution of the repository reads an environment, and no runner may
+ * change what the others run.
  */
 async function takeBack(dir: string): Promise<void> {
   if (process.getuid === undefined || process.getgid === undefined) return;
   const uid = process.getuid();
   const gid = process.getgid();
   const take = async (at: string): Promise<void> => {
-    // A link is taken itself, never what it names.
+    // A link is taken itself, never what it names; a link has no mode of its
+    // own to strip.
     await fs.lchown(at, uid, gid);
-    for (const entry of await fs.readdir(at, { withFileTypes: true })) {
-      const full = path.join(at, entry.name);
-      if (entry.isDirectory()) await take(full);
-      else await fs.lchown(full, uid, gid);
+    const { mode } = await fs.lstat(at);
+    if ((mode & fs.constants.S_IFMT) !== fs.constants.S_IFLNK && (mode & NOT_TAKEN) !== 0) {
+      await fs.chmod(at, mode & 0o7777 & ~NOT_TAKEN);
+    }
+    if ((mode & fs.constants.S_IFMT) === fs.constants.S_IFDIR) {
+      for (const name of await fs.readdir(at)) await take(path.join(at, name));
     }
   };
   await take(dir);
