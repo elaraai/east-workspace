@@ -24,7 +24,10 @@ export type ParsedCommand =
     | { name: 'repos' }
     | { name: 'repo'; target: string }
     | { name: 'login'; url: string }
-    | { name: 'run'; force: boolean; filter: string | undefined }
+    /** `force`: `true` re-runs every task the run runs (under a filter, the
+     *  filter's task), a list the tasks it names, `false` none; `filter`: one
+     *  task's exact name, run with the tasks it depends on. */
+    | { name: 'run'; force: boolean | readonly string[]; filter: string | undefined }
     | { name: 'stop' }
     | { name: 'logs'; task: string; stream: 'stdout' | 'stderr' | undefined }
     | { name: 'runs'; task: string }
@@ -65,7 +68,7 @@ export const COMMANDS: readonly { name: CommandName; usage: string; effect: stri
     { name: 'repos', usage: '/repos', effect: 'list the repositories' },
     { name: 'repo', usage: '/repo <path|url>', effect: 'open another repo' },
     { name: 'login', usage: '/login <url>', effect: 'device-flow login' },
-    { name: 'run', usage: '/run [--force] [--filter g]', effect: 'run the dataflow' },
+    { name: 'run', usage: '/run [--force] [--force-task t] [--filter t]', effect: 'run the dataflow' },
     { name: 'stop', usage: '/stop', effect: 'cancel the dataflow' },
     { name: 'logs', usage: '/logs <task> [stderr]', effect: 'open a task\'s stdout / stderr' },
     { name: 'runs', usage: '/runs <task>', effect: 'open a task\'s runs' },
@@ -163,17 +166,23 @@ export function parseCommand(text: string): ParseResult {
         }
         case 'run': {
             let force = false;
+            const tasks: string[] = [];
             let filter: string | undefined;
             for (let i = 0; i < args.length; i++) {
                 const a = args[i]!;
                 if (a === '--force') force = true;
-                else if (a === '--filter') {
+                else if (a === '--force-task' || a.startsWith('--force-task=')) {
+                    const task = a === '--force-task' ? args[++i] : a.slice('--force-task='.length);
+                    if (task === undefined || task === '') return fail('--force-task needs a task');
+                    tasks.push(task);
+                } else if (a === '--filter') {
                     filter = args[++i];
-                    if (filter === undefined) return fail('--filter needs a glob');
+                    if (filter === undefined) return fail('--filter needs a task');
                 } else if (a.startsWith('--filter=')) filter = a.slice('--filter='.length);
-                else return fail(`unknown /run flag ${a} — /run [--force] [--filter <glob>]`);
+                else return fail(`unknown /run flag ${a} — /run [--force] [--force-task <task>] [--filter <task>]`);
             }
-            return { ok: true, command: { name, force, filter } };
+            if (force && tasks.length > 0) return fail('--force forces every task the run runs, and --force-task only the tasks it names: give one or the other');
+            return { ok: true, command: { name, force: tasks.length > 0 ? tasks : force, filter } };
         }
         case 'logs': {
             const task = args[0];
@@ -249,8 +258,11 @@ export function describe(command: ParsedCommand, ctx: DescribeContext): { text: 
     const ws = ctx.workspace ?? '?';
     switch (command.name) {
         case 'run': {
-            const scope = command.filter !== undefined ? `tasks matching ${command.filter}` : `${ctx.taskCount} task${ctx.taskCount === 1 ? '' : 's'}`;
-            const cache = command.force ? ', ignoring the cache' : '';
+            const scope = command.filter !== undefined ? `${command.filter} and the tasks it needs` : `${ctx.taskCount} task${ctx.taskCount === 1 ? '' : 's'}`;
+            // The tasks the cache is ignored for: every one, or those named —
+            // under a filter, `--force` names the filter's task alone.
+            const forced = command.force === true ? (command.filter === undefined ? null : [command.filter]) : command.force === false ? [] : command.force;
+            const cache = forced === null ? ', ignoring the cache' : forced.length === 0 ? '' : `, ignoring the cache for ${forced.join(', ')}`;
             const budget = ctx.budget === null ? '' : ` · ${ctx.budget.cores} core${ctx.budget.cores === 1 ? '' : 's'}, ${formatSize(ctx.budget.memory)}`;
             return { text: ctx.running ? 'a run is already in progress' : `run ${scope} in ${ws}${cache}${budget}`, keys: ctx.running ? 'esc' : '⏎ run · esc' };
         }
@@ -302,8 +314,13 @@ export function hotkeyToCommand(key: string): string | undefined {
     }
 }
 
-/** The flags `/run` accepts and their one-line hints, for the hint bar. */
-export const RUN_FLAGS: readonly { flag: string; hint: string }[] = [
-    { flag: '--force', hint: 're-run everything' },
-    { flag: '--filter <glob>', hint: 'only matching tasks' },
+/**
+ * The flags `/run` accepts and their one-line hints, for the hint bar and
+ * completion: whether a flag may be given again, and the flag it cannot be
+ * given with.
+ */
+export const RUN_FLAGS: readonly { flag: string; hint: string; repeats?: boolean; conflicts?: string }[] = [
+    { flag: '--force', hint: 're-run everything', conflicts: '--force-task' },
+    { flag: '--force-task <task>', hint: 're-run this task', repeats: true, conflicts: '--force' },
+    { flag: '--filter <task>', hint: 'this task and what it needs' },
 ];

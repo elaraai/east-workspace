@@ -62,6 +62,7 @@ describe('touchReachable', () => {
         logs: inner.logs,
         repos: inner.repos,
         datasets: inner.datasets,
+        runStates: (repo) => inner.runStates(repo),
         validateRepository: (repo) => inner.validateRepository(repo),
       },
       reads,

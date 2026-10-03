@@ -25,6 +25,8 @@ import type {
   RepositoryUpgrade,
 } from '../interfaces.js';
 import { completeUtf8Length } from '../utf8.js';
+import { InMemoryStateStore } from '../../dataflow/state-store/InMemoryStateStore.js';
+import type { ExecutionStateStore } from '../../dataflow/state-store/interfaces.js';
 import { InMemoryRepoStore, type InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
 
 /** An object as the in-memory store holds it: its bytes, when it was last
@@ -221,6 +223,12 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   // adoption memo entries keyed by repo/sourceHash
   private adoptions = new Map<string, string>();
 
+  /**
+   * @param runStates - The backend's runs' states, which a workspace's removal
+   *   removes with its records
+   */
+  constructor(private readonly runStates: InMemoryStateStore) {}
+
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
     if (!repoPackages) {
@@ -322,6 +330,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     for (const runId of await this.dataflowRunList(repo, name)) {
       await this.dataflowRunDelete(repo, name, runId);
     }
+    this.runStates.removeWorkspace(repo, name);
   }
 
   // Execution operations (with executionId)
@@ -850,6 +859,8 @@ export class InMemoryStorage implements StorageBackend {
   public readonly logs: InMemoryLogStore;
   public readonly repos: InMemoryRepoStore;
   public readonly datasets: InMemoryDatasetRefStore;
+  /** Every repository's runs' states, in one store */
+  private readonly states: InMemoryStateStore;
 
   /**
    * @param options - `upgrades`: the backend's own upgrades, for a test of
@@ -858,11 +869,23 @@ export class InMemoryStorage implements StorageBackend {
   constructor(options: { upgrades?: RepositoryUpgrade[] } = {}) {
     this.upgrades = options.upgrades ?? [];
     this.objects = new InMemoryObjectStore();
-    this.refs = new InMemoryRefStore();
+    this.states = new InMemoryStateStore();
+    this.refs = new InMemoryRefStore(this.states);
     this.locks = new InMemoryLockService();
     this.logs = new InMemoryLogStore();
     this.datasets = new InMemoryDatasetRefStore();
-    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades, [this.refs, this.datasets, this.logs, this.locks]);
+    this.repos = new InMemoryRepoStore(this.refs, this.datasets, this.objects, this.upgrades, [this.refs, this.datasets, this.logs, this.locks, this.states]);
+  }
+
+  /**
+   * The store of a repository's dataflow runs' states: one store, which keeps
+   * every repository's runs apart by their names.
+   *
+   * @param _repo - Repository identifier
+   * @returns The run state store
+   */
+  runStates(_repo: string): ExecutionStateStore {
+    return this.states;
   }
 
   async validateRepository(repo: string): Promise<void> {
@@ -882,5 +905,6 @@ export class InMemoryStorage implements StorageBackend {
     this.logs.clear();
     this.repos.clear();
     this.datasets.clear();
+    this.states.clear();
   }
 }

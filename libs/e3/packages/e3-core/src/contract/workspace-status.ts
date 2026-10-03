@@ -220,6 +220,7 @@ export function workspaceStatusTests(setup: BackendSetup): void {
         logs: storage.logs,
         repos: storage.repos,
         datasets: storage.datasets,
+        runStates: (r) => storage.runStates(r),
         validateRepository: (r) => storage.validateRepository(r),
       };
 

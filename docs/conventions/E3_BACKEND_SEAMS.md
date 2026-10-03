@@ -36,9 +36,9 @@ rest: the logic, the routes and the tests.
 
 | Seam | Declared in | What it gives | e3-core's and e3-api-server's | e3-web's |
 |---|---|---|---|---|
-| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
+| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
 | `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit, and says the largest delivery it takes in whole; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests | `WebTaskRunner`: every unit on a pool of Web Workers (`UnitPool`), each running east's `executeUnit` |
-| `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state and its events | `FileStateStore`, `InMemoryStateStore` | `WebStateStore`, in IndexedDB |
+| `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state and its events, and every run of a repository as stored, which an upgrade step rewrites (`readStored`) | `FileStateStore`, `InMemoryStateStore` | `WebStateStore`, in IndexedDB |
 | `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
 | `TransferBackend` | e3-core `transfer/interfaces.ts` | uploads and downloads, an upload's commit, and the jobs that outlast a request: import, export, deploy, gc, split calls | `InMemoryTransferBackend`, the local server's | `WebTransferBackend`: staging in OPFS, each job's status a record in IndexedDB |
 | The route factories | e3-api-server `routes/`, `middleware/repository.ts` | every route, and the gate a request to a repository passes; who may run what through one-shot, and load through a function call's runner override (`OneShotAccess`) | `createServer` mounts them over the local seams | `serveE3` mounts them in the e3 worker (`createWebApp`), with the host's `OneShotAccess` |
@@ -52,7 +52,9 @@ another host by the processes of the host that probes — and why it cannot,
 when the host knows: it answers the host's own `StopReason`, which the probe
 records on the execution as given; how a record is stored, which a shared
 upgrade step reads to carry a record an earlier release wrote into the
-current form, `RefStore.executionReadBytes`; whether a lock's holder
+current form, `RefStore.executionReadBytes`, and, for a dataflow run's state,
+the backend's run-state store (`StorageBackend.runStates`), whose runs a step
+reads and rewrites as stored (`ExecutionStateStore.readStored`); whether a lock's holder
 is alive, `LockService.isHolderAlive`; what gc sweeps beside objects and
 records, `RepoStore.gcSweepBackend`; a change to one backend's layout, a step
 in `StorageBackend.upgrades`; how an upload's bytes are taken in,

@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono';
+import { dataflowForceOption } from '@elaraai/e3-types';
 import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend } from '@elaraai/e3-core/portable';
 import {
   startDataflow,
@@ -76,7 +77,7 @@ export function createExecutionRoutes(
     return startDataflow(storage, seams.getOrchestrator(repoPath), repoPath, ws, {
       runner: seams.getRunner(repoPath),
       ...(seams.width !== undefined && { width: seams.width }),
-      force: body.force,
+      force: dataflowForceOption(body.force),
       filter,
       verbose: c.req.query('verbose') === '1',
     });

@@ -77,9 +77,16 @@ export interface ExecutionProgress {
  * Options for starting a dataflow execution.
  */
 export interface OrchestratorStartOptions {
-  /** Force re-execution even if cached (default: false) */
-  force?: boolean;
-  /** Filter to run only specific task(s) by exact name */
+  /**
+   * The tasks the run re-executes even where the cache holds their results:
+   * `true` for every task — under a filter, the filter's task — the names of
+   * the tasks, or `false` for none (default). A named task is forced each time
+   * the run launches it, and its dependents re-run when its output changes. A
+   * start naming a task the graph does not have, or one the filter's run set
+   * leaves out, is refused before anything runs.
+   */
+  force?: boolean | readonly string[];
+  /** One task's exact name: the run runs it and its dependency closure */
   filter?: string;
   /**
    * Pass `-v` to each task's runner (known runtimes only) so it prints
@@ -149,8 +156,9 @@ export interface OrchestratorStartOptions {
  * Options for resuming a yielded (or crashed) execution.
  *
  * Execution config (force, filter) comes from the persisted state and cannot
- * be changed; runtime collaborators (runner, width, callbacks, signal,
- * shouldYield) are provided fresh by the resuming host. The run keeps its
+ * be changed, so a run that yields forces the same tasks once resumed; runtime
+ * collaborators (runner, width, callbacks, signal, shouldYield) are provided
+ * fresh by the resuming host. The run keeps its
  * one id, the execution state's, so its record continues across a yield.
  */
 export type ResumeOptions = OrchestratorStartOptions;

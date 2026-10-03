@@ -160,6 +160,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
   const withNoExec = withDeployed(setup, createPackageZip, 'noexec-pkg', 'noexec-ws');
   const withCache = withDeployed(setup, createPackageZip, 'cache-pkg', 'cache-ws');
   const withFilter = withDeployed(setup, createDiamondPackageZip, 'filter-pkg', 'filter-ws');
+  const withForced = withDeployed(setup, createDiamondPackageZip, 'forced-pkg', 'forced-ws');
   const withGraph = withDeployed(setup, createDiamondPackageZip, 'graph-pkg', 'graph-ws');
   const withLogPag = withDeployed(setup, createLoggingPackageZip, 'logpag-pkg', 'logpag-ws');
   const withEvtPag = withDeployed(setup, createDiamondPackageZip, 'evtpag-pkg', 'evtpag-ws');
@@ -997,6 +998,54 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           assert.ok(err instanceof ApiError, `Expected ApiError, got ${err}`);
           assert.strictEqual(err.code, 'task_not_found');
         }
+      });
+    });
+
+    // A run forces every task, none, or the tasks it names. The diamond's left
+    // and right read the inputs, and merge reads both.
+    describe('forcing named tasks', { concurrency: false }, () => {
+      it('re-runs the tasks a run names, and serves the rest from the cache while their inputs hold', async (t) => {
+        const ctx = await withForced(t);
+        const opts = await ctx.opts();
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'forced-ws', {}, opts), 'first run');
+
+        const result = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'forced-ws', { force: ['left'] }, opts);
+        assertDataflowSucceeded(result, 'forced run');
+        // left runs again and writes what it wrote before, so merge, which
+        // reads it, is served from the cache as right is.
+        assert.deepStrictEqual(
+          ['left', 'right', 'merge'].map((name) => [name, result.tasks.find((task) => task.name === name)?.cached]),
+          [['left', false], ['right', true], ['merge', true]],
+          describeDataflowResult(result),
+        );
+      });
+
+      it('refuses a start forcing a task the graph lacks, or one the filter leaves out, before anything runs', async (t) => {
+        const ctx = await withForced(t);
+        const opts = await ctx.opts();
+
+        await assert.rejects(dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'forced-ws', { force: ['left', 'no_such_task'] }, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'task_not_found');
+          assert.strictEqual((err.details as { task?: string } | undefined)?.task, 'no_such_task');
+          return true;
+        });
+        await assert.rejects(dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'forced-ws', { force: ['right'], filter: 'left' }, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'dataflow_error');
+          assert.strictEqual(
+            (err.details as { message?: string } | undefined)?.message,
+            "the run forces 'right', which the filter 'left' leaves out: a filtered run runs 'left' and the tasks it depends on, and no other",
+          );
+          return true;
+        });
+
+        // Neither started a run.
+        await assert.rejects(dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'forced-ws', {}, opts), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'execution_not_found');
+          return true;
+        });
       });
     });
 

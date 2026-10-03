@@ -679,7 +679,8 @@ export class FakeApi implements Api {
     }
 
     async dataflowExecuteLaunch(ws: string, options: DataflowOptions = {}): Promise<void> {
-        const flags = `${options.force === true ? ' --force' : ''}${options.filter != null ? ` --filter ${options.filter}` : ''}`;
+        const force = options.force === true ? ' --force' : options.force === false || options.force === undefined ? '' : options.force.map(task => ` --force-task ${task}`).join('');
+        const flags = `${force}${options.filter != null ? ` --filter ${options.filter}` : ''}`;
         return this.call(`dataflowExecuteLaunch ${ws}${flags}`, () => {
             const w = this.ws(ws);
             if (w.lock !== undefined) throw new ApiError('workspace_locked', { workspace: ws, holder: variant('known', { pid: BigInt(w.lock.pid), acquiredAt: w.lock.acquiredAt, bootId: none, command: some(w.lock.command) }) });

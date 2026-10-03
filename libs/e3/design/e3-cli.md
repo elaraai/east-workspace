@@ -68,8 +68,16 @@ e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow]   # Tail / page / 
 ## Dataflow
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--memory <size>] [--force]
+e3 dataflow run <repo> <ws> [--filter <task>] [-j <n>] [--memory <size>] [--force | --force-task <task>...]
 ```
+
+`--filter` names one task exactly: the run runs it and its dependency closure.
+`--force` passes over the cache for every task the run runs (under `--filter`,
+the filter's task); `--force-task`, repeated, for the tasks it names, whose
+dependents re-run only when an output changes. The request carries the choice
+as `force: none | all | tasks`, and the run's state keeps it, so a run that
+yields and resumes forces the same tasks. A start naming a task the graph lacks,
+or one the filter's run set leaves out, is refused before anything runs.
 
 `-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
 e3 spawns: `-j` its cores — the runners in flight at once, a task or a unit each

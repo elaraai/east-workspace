@@ -24,6 +24,7 @@ import {
   LockProgressType,
   PackageObjectType,
   WorkspaceRecordType,
+  dataflowForce,
   type DatasetRef,
   type ExecutionStatus,
   type LockProgress,
@@ -64,7 +65,7 @@ function succeeded(executionId: string, output: string): ExecutionStatus {
 /** A run of the workspace's one task, under way. */
 function runState(id: string): DataflowExecutionState {
   return {
-    release: E3_RELEASE, id, repo: REPO, workspace: WORKSPACE, startedAt: AT, force: false, filter: none,
+    release: E3_RELEASE, id, repo: REPO, workspace: WORKSPACE, startedAt: AT, force: dataflowForce(false), filter: none,
     graph: none, graphHash: none,
     tasks: new Map([['greet', {
       name: 'greet', status: 'pending', cached: none, outputHash: none, error: none, exitCode: none,

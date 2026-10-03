@@ -460,7 +460,7 @@ function readsWhole(storage: WebStorage, heard: (hash: string) => void): Storage
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     },
   }) satisfies ObjectStore;
-  return { ...storage, objects, validateRepository: (repo) => storage.validateRepository(repo) };
+  return { ...storage, objects, validateRepository: (repo) => storage.validateRepository(repo), runStates: (repo) => storage.runStates(repo) };
 }
 
 /** How many of a split task's pieces' rows fall at each key's remainder of

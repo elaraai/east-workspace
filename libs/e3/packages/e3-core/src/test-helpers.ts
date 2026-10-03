@@ -204,6 +204,7 @@ export function withLogStore(storage: StorageBackend, logs: LogStore): StorageBa
     logs,
     repos: storage.repos,
     datasets: storage.datasets,
+    runStates: (repo) => storage.runStates(repo),
     validateRepository: (repo) => storage.validateRepository(repo),
   };
 }
