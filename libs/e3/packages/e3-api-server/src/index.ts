@@ -36,3 +36,7 @@ export { createRepositoryGate, createSingleRepositoryGate, type RepositoryGateOp
 // Export BEAST2 helpers for custom integrations
 export { sendSuccess, sendError, sendSuccessWithStatus, decodeBeast2, decodeBody } from './beast2.js';
 
+// Errors, answered as every route answers them: what a host's own routes
+// answer with, so they answer as upstream's do
+export { errorToVariant, errorToHttpStatus, sendJsonError, sendUpgradePending } from './errors.js';
+

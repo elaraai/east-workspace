@@ -200,6 +200,18 @@ app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath, {
 }));
 ```
 
+A host's own routes answer their errors as these do, with the mapping every
+route uses, so no host keeps a copy of it that falls behind as it grows:
+
+- `errorToVariant` gives an e3-core error as the API's `ErrorType`, which
+  `sendError` answers in BEAST2;
+- `errorToHttpStatus` and `sendJsonError` answer it as JSON, as the gate
+  answers its refusals;
+- `sendUpgradePending` answers a repository that owes upgrades as the gate
+  does.
+
+Each is exported from the root and the portable entries.
+
 A host whose requests have a time limit gives it to the routes that run a
 program for a request, so that each answers its typed outcome before the host
 cuts it off: the function and one-shot routes take `syncDeadlineMs`, and so do
