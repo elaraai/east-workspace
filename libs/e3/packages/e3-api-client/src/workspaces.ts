@@ -8,7 +8,9 @@ import {
   WorkspaceStateType,
   type WorkspaceState,
   PackageJobResponseType,
+  pathToString,
   type PackageExportProgress,
+  type TreePath,
 } from '@elaraai/e3-types';
 import type {
   LockStatus, SchemaPolicy, WorkspaceDeployProgress, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult,
@@ -83,23 +85,47 @@ export async function workspaceGet(url: string, repo: string, name: string, opti
   );
 }
 
+/** What {@link workspaceStatus} answers for. */
+export interface WorkspaceStatusQuery {
+  /**
+   * The datasets to answer for, such as those a view binds. The answer then
+   * holds those the workspace has, and the tasks that produce them, each with
+   * the status the whole workspace's answer gives it; a path that names no
+   * dataset of the workspace is left out. The whole workspace when omitted or
+   * empty.
+   */
+  paths?: readonly TreePath[];
+}
+
 /**
  * Get comprehensive workspace status including datasets, tasks, and lock info.
  *
  * Use this to poll for execution progress after calling dataflowExecuteLaunch().
+ * A poll that follows a few datasets asks for those (`query.paths`), and costs
+ * the server what it follows rather than the workspace.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param name - Workspace name
  * @param options - Request options including auth token
+ * @param query - The datasets to answer for; the whole workspace when omitted
  * @returns Workspace status with datasets, tasks, and summary
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
-export async function workspaceStatus(url: string, repo: string, name: string, options: RequestOptions): Promise<WorkspaceStatusResult> {
+export async function workspaceStatus(
+  url: string,
+  repo: string,
+  name: string,
+  options: RequestOptions,
+  query: WorkspaceStatusQuery = {},
+): Promise<WorkspaceStatusResult> {
+  const params = new URLSearchParams();
+  for (const path of query.paths ?? []) params.append('path', pathToString(path));
+  const search = params.toString();
   return get(
     url,
-    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/status`,
+    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(name)}/status${search === '' ? '' : `?${search}`}`,
     WorkspaceStatusResultType,
     options
   );
