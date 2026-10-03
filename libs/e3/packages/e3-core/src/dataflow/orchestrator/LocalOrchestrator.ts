@@ -399,9 +399,11 @@ export interface LocalOrchestratorHost {
  * - Persists state through the provided state store, as each run's one
  *   writer: a write at a time, in the order they were made, each a snapshot of
  *   the state when made. A cancel writes the run's end whole, as its last word.
- *   A run whose write the store drops, another process having ended it, or
- *   refuses, another having moved it on, stops what it runs, launches and
- *   writes nothing more, and fails no task.
+ *   A run whose write the store drops, another process having ended it, stops
+ *   what it runs; one whose write the store refuses, another process having
+ *   moved it on, leaves what it launched to that process — its runners hear
+ *   why they are stopped, a split task is left mid-stage and no completion is
+ *   applied. Either launches and writes nothing more, and fails no task.
  * - Reactive: detects input changes after each task, invalidates and
  *   re-executes affected tasks until fixpoint
  * - Runs a run's tasks on the runner its start names, or else on its host's
@@ -1023,8 +1025,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // A split task the run was aborted before its units could start — its
       // pieces just planned, or its next stage — ends cancelled, as its
-      // units in flight would have.
-      if (checkAborted()) {
+      // units in flight would have; unless another process took the run up,
+      // which takes the task up too.
+      if (checkAborted() && execution.stoppedBy !== 'refused') {
         await this.cancelSplits(storage, repo, execution);
       }
 
@@ -1227,23 +1230,32 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
   /**
    * Stops a run whose writes the store no longer takes — another process ended
-   * it, or moved it on: nothing more of its state is written, what runs is
-   * stopped as a cancel stops it, and nothing more is launched. The loop then
-   * ends it ({@link endStopped}).
+   * it, or moved it on: nothing more of its state is written, and nothing more
+   * is launched. The run's abort reaches what runs: as a cancel stops it, for a
+   * run another process ended; and, for one another process took up, with a
+   * {@link DataflowSupersededError} as its reason, so a runner whose executions
+   * that process attaches to may leave them running. The loop then ends it
+   * ({@link endStopped}).
    */
   private stopped(execution: RunningExecution, outcome: 'dropped' | 'refused'): void {
     execution.stoppedBy ??= outcome;
     execution.ended = true;
     execution.aborted = true;
-    execution.abortController.abort();
+    if (outcome === 'refused') execution.abortController.abort(new DataflowSupersededError(execution.state.id));
+    else execution.abortController.abort();
   }
 
   /**
-   * Ends a run whose writes the store no longer takes: what the loop launched
-   * is stopped and settled, and no task is failed for it. A run another
-   * process cancelled gets its record ended as its state was, while the
-   * record still reads running; one another process moved on gets nothing more
-   * written, its record included.
+   * Ends a run whose writes the store no longer takes, once what the loop
+   * launched has settled, failing no task for it.
+   *
+   * @remarks
+   * A run another process cancelled has what the loop launched stopped as a
+   * cancel stops it, and its record ended as its state was, while the record
+   * still reads running. A run another process moved on is that process's,
+   * and so is what this loop launched: a split task is left mid-stage, its plan
+   * rooted, for that process to take up, no completion is applied, and nothing
+   * more is written, its record included.
    *
    * @throws {DataflowSupersededError} When another process moved the run on
    * @throws {DataflowAbortedError} When another process ended it
@@ -1254,9 +1266,16 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     execution: RunningExecution,
     wsState: WorkspaceState | null
   ): Promise<never> {
-    await this.stopLaunched(storage, repo, execution);
     const { state } = execution;
-    if (execution.stoppedBy === 'refused') throw new DataflowSupersededError(state.id);
+    if (execution.stoppedBy === 'refused') {
+      await Promise.allSettled(execution.runningTasks.values());
+      for (const [taskName, run] of [...execution.splits]) {
+        await run.split.suspend('superseded').catch(() => { /* the task is the other process's to end */ });
+        execution.splits.delete(taskName);
+      }
+      throw new DataflowSupersededError(state.id);
+    }
+    await this.stopLaunched(storage, repo, execution);
     if (wsState !== null) {
       await this.recordCancelledElsewhere(storage, repo, execution, wsState).catch(() => { /* its end is its state's */ });
     }
@@ -1371,6 +1390,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): Promise<void> {
     const { state, options } = execution;
     await execution.mutex.runExclusive(async () => {
+      // A run another process took up completes its tasks there, from the
+      // executions this loop's runners recorded: this loop applies none.
+      if (execution.stoppedBy === 'refused') return;
+
       // Handle task completion
       if (result.state === 'success') {
         // Check if task's inputs changed during execution by comparing
@@ -1600,9 +1623,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await this.completeTask(storage, repo, execution, taskName, prepared, launchMergedVV, outcomeOf(split, startTime));
         return;
       }
-      if (execution.yielded) {
-        // The run yielded while the task was planned: a resumed run takes it up.
-        await split.suspend();
+      if (execution.yielded || execution.stoppedBy === 'refused') {
+        // The run yielded while the task was planned, or another process took
+        // it up: a run that takes the run up takes the task up too.
+        await split.suspend(execution.yielded ? 'yielded' : 'superseded');
         return;
       }
       execution.splits.set(taskName, {
@@ -1666,8 +1690,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       }
       run.inFlight--;
       const more = !run.stopped && !execution.abortController.signal.aborted && run.next < run.split.stage.units.length;
-      // After a yield the task was left mid-stage, for a resumed run.
-      if (run.inFlight > 0 || more || execution.yielded) return;
+      // After a yield the task was left mid-stage, for a resumed run; and so
+      // it is for a run another process took up.
+      if (run.inFlight > 0 || more || execution.yielded || execution.stoppedBy === 'refused') return;
       await this.advanceSplit(storage, repo, execution, taskName, run);
     })()
       .catch(async (err) => {

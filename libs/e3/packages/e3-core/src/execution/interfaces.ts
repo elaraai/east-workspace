@@ -28,7 +28,10 @@ export interface TaskExecuteOptions {
   /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
    *  to stderr. Runtime-only: never affects the task hash or caching. */
   verbose?: boolean;
-  /** AbortSignal for cancellation */
+  /** AbortSignal for cancellation. A dataflow run another process took up —
+   *  its store refused a write as that process's — aborts it with a
+   *  `DataflowSupersededError` as its reason: a runner whose executions that
+   *  process attaches to may leave them running, and settle at once. */
   signal?: AbortSignal;
   /** Callback for stdout data */
   onStdout?: (data: string) => void;

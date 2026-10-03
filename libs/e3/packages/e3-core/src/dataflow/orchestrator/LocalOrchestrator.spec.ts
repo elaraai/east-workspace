@@ -18,11 +18,13 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { East, IntegerType, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowExecutionStateType, PackageObjectType } from '@elaraai/e3-types';
 import { DataflowAbortedError, DataflowSupersededError } from '../../errors.js';
+import { inputsHash } from '../../executions.js';
 import { MockTaskRunner } from '../../execution/MockTaskRunner.js';
+import { readTestPieceBytesFrom } from '../../execution/pieces.js';
 import { packageImport } from '../../package-files.js';
 import { InMemoryStorage } from '../../storage/in-memory/InMemoryStorage.js';
 import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from '../../workspaces.js';
@@ -225,6 +227,75 @@ describe('LocalOrchestrator', () => {
     assert.equal(stored?.status, 'running', 'the run goes on where it was moved on');
     assert.equal(stored?.failed, 0n, 'no task failed for it');
     assert.equal((await storage.refs.dataflowRunGetLatest('repo', 'ws'))?.status.type, 'running', 'its record is the other process\'s to end');
+    assert.ok(await released(storage), 'its locks are released');
+  });
+
+  it('leaves what it launched to a process that took its run up: its runners hear why, a split task is left mid-stage, and no completion is applied', async (t) => {
+    // Pieces of 16 to 256 stored bytes: a piece a segment.
+    readTestPieceBytesFrom(() => '64');
+    t.after(() => readTestPieceBytesFrom(() => undefined));
+    const Rows = DictType(IntegerType, IntegerType);
+    const rows = e3.input('rows', Rows, variant('value', new SortedMap(
+      Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
+    const total = e3.streamTask('total', {
+      inputs: [e3.partition(rows)],
+      output: e3.output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, rows, emit) => {
+      $.for(rows, ($, value) => {
+        $(emit(value));
+      });
+    });
+    const start = e3.input('start', IntegerType, variant('value', 1n));
+    const { storage, tasks } = await deploy(t, 'split', e3.package('split', '1.0.0', rows, total, start, e3.task('early', [start], add), e3.task('late', [start], add)));
+
+    /** The store as shared with another process, which takes the run up once
+     *  `early` completes: this process's writes after that are refused. */
+    class TakenUpStore extends InMemoryStateStore {
+      takenUp = false;
+      override async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {
+        return this.takenUp ? 'refused' : super.update(state);
+      }
+    }
+    const store = new TakenUpStore();
+    const runner = new MockTaskRunner();
+    // The split task's first unit runs until it is stopped, and says why.
+    let unitRunning!: () => void;
+    const running = new Promise<void>((resolve) => { unitRunning = resolve; });
+    const reasons: unknown[] = [];
+    runner.setUnitResult(tasks.get('total')!, async () => {
+      const signal = runner.getUnitCalls().at(-1)!.options!.signal!;
+      unitRunning();
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      reasons.push(signal.reason);
+      return { state: 'error', cached: false, error: 'cancelled: e3 stopped the runner because the run was aborted', cancelled: true };
+    });
+    // `early` completes while the unit runs, once the run is taken up; `late`
+    // completes after that, as a runner left running would report it.
+    runner.setResult(tasks.get('early')!, async () => {
+      await running;
+      store.takenUp = true;
+      return { state: 'success', cached: false, outputHash: outputOf('early') };
+    });
+    runner.setResult(tasks.get('late')!, async () => {
+      await new Promise((resolve) => runner.getCalls().find((call) => call.taskHash === tasks.get('late'))!.options!.signal!
+        .addEventListener('abort', resolve, { once: true }));
+      return { state: 'success', cached: false, outputHash: outputOf('late') };
+    });
+    const orchestrator = new LocalOrchestrator(store);
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner });
+
+    await assert.rejects(orchestrator.wait(handle), (err: unknown) => err instanceof DataflowSupersededError && err.runId === handle.id);
+    assert.ok(reasons.length === 1 && reasons[0] instanceof DataflowSupersededError, 'the unit\'s runner heard that the run was taken up elsewhere');
+    const rowsRef = await storage.datasets.read('repo', 'ws', 'inputs/rows');
+    assert.ok(rowsRef?.type === 'value');
+    const inHash = inputsHash([rowsRef.value.hash]);
+    assert.notEqual(await storage.refs.executionPlanRead('repo', tasks.get('total')!, inHash), null,
+      'the split task\'s plan stays rooted, for the process that took the run up');
+    const left = await storage.refs.executionGetLatest('repo', tasks.get('total')!, inHash);
+    assert.ok(left?.type === 'interrupted', `the split task is left mid-stage, not ended: ${left?.type}`);
+    assert.equal(left.value.reason.message, 'interrupted: another process took the run up mid-stage, and takes the stage up again');
+    assert.equal((await storage.datasets.read('repo', 'ws', 'tasks/late/output'))?.type, 'unassigned',
+      'a completion after the run was taken up is that process\'s to apply');
     assert.ok(await released(storage), 'its locks are released');
   });
 });
