@@ -34,6 +34,19 @@ deliberately not a CI gate — timing on a shared runner is a flaky test.
 Tests are named `perf:` for `--test-name-pattern`. A real-terminal smoke: `script -qfec "stty
 cols 120 rows 36; node dist/cli.js <repo>" /dev/null` with keys piped in.
 
+The query builder's plans run against e3 in three specs: `src/query-plans.spec.ts`
+(`E3_UI_INTEGRATION=1`, in CI) on every stock runner on PATH — CI builds
+east-c for it; `src/query-equivalence.spec.ts` (`E3_UI_INTEGRATION=1`, in CI,
+#942), every corpus query and benchmark question that splits run as one unit
+and as forced pieces, its answers byte-equal (Floats within rounding) and its
+units' bytes identical on east-node, east-c and east-py at `-j 1` and `-j 4` —
+CI builds east-c and east-py for it, this tree's first on PATH; and
+`src/query-scale.spec.ts`, the benchmark at 100 MB to 16 GB
+(`E3_QUERY_SCALE=1`, by hand only, on a Release east-c; the README's "Query
+plans at scale" says how). The benchmark's data and questions are
+`src/testing/query-bench.ts` (test-only, left out of the tarball), which the
+scale and equivalence specs share.
+
 ## Plugin skill
 
 `SKILL.md` backs the `east:e3-ui-cli` plugin skill (the plugin symlinks to

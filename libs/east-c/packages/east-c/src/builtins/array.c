@@ -556,11 +556,17 @@ typedef struct {
 
 /* Portable sort since qsort_r is not universally available */
 static _Thread_local SortCtx *g_sort_ctx = NULL;
+
+/* Order by key, then original position — a stable sort whatever qsort's
+ * algorithm, as the reference's (JavaScript's Array.prototype.sort) is.
+ * MSVC's qsort reorders equal keys. */
 static int sort_compare_global(const void *a, const void *b)
 {
     size_t ia = *(const size_t *)a;
     size_t ib = *(const size_t *)b;
-    return east_value_compare(g_sort_ctx->keys[ia], g_sort_ctx->keys[ib]);
+    int c = east_value_compare(g_sort_ctx->keys[ia], g_sort_ctx->keys[ib]);
+    if (c != 0) return c;
+    return (ia > ib) - (ia < ib);
 }
 
 static EastValue *array_sort_impl(EastValue **args, size_t n)
@@ -609,12 +615,16 @@ static EastValue *array_sort_impl(EastValue **args, size_t n)
 /* east-py's keyless .sort(); not part of the TS builtin set.         */
 /* ================================================================== */
 static _Thread_local EastValue *g_sort_default_arr = NULL;
+
+/* Stable, as ArraySort's order is: equal elements keep their positions. */
 static int sort_default_compare_global(const void *a, const void *b)
 {
     size_t ia = *(const size_t *)a;
     size_t ib = *(const size_t *)b;
-    return east_value_compare(east_array_get(g_sort_default_arr, ia),
-                              east_array_get(g_sort_default_arr, ib));
+    int c = east_value_compare(east_array_get(g_sort_default_arr, ia),
+                               east_array_get(g_sort_default_arr, ib));
+    if (c != 0) return c;
+    return (ia > ib) - (ia < ib);
 }
 
 static EastValue *array_sort_default_impl(EastValue **args, size_t n)

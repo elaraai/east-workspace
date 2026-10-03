@@ -58,7 +58,8 @@ export const primitives_builtins = {
   FloatDivide: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x / y,
   FloatRemainder: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x % y,
   FloatPow: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number, y: number) => x ** y,
-  FloatAbs: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number) => x < 0 ? -x : x,
+  // IEEE 754's abs, as C's fabs: -0.0 gives 0.0.
+  FloatAbs: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number) => Math.abs(x),
   FloatSign: (_loc_id: bigint, _source_map: SourceMap | null) => (x: number) => x > 0 ? 1 : x < 0 ? -1 : 0, // What sign is NaN?
   FloatSqrt: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.sqrt(value),
   FloatLog: (_loc_id: bigint, _source_map: SourceMap | null) => (value: number) => Math.log(value),

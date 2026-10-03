@@ -488,6 +488,10 @@ export {
   type DataflowRun,
 } from './dataflow.js';
 
+// The sizes e3 cuts a split task's input into pieces at, which a caller
+// planning a split call weighs a dataset against
+export { PIECE_SIZES, type PieceSizes } from './pieces.js';
+
 // A split task's unit graph, a stage at a time
 export {
   UNIT_PLAN_KIND,

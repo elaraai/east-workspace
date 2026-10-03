@@ -33,6 +33,40 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   `east/functions.py`; `e3.export` links; contract in
   `../../docs/conventions/EAST_CODEGEN.md` §6.
 - `src/datetime_format/` — format specifiers, printers, parsers.
+- `src/query/` — typed jq queries over East values (#875): the wire types
+  (`types.ts`; python twins `east/query/types.py`), and in `jq/` the lexer,
+  parser and canonical printer (`lexJq`, `parseJq`, `printJq`; node spans in
+  `spans.ts`), whose round-trip law `test/query.parse.spec.ts` holds over the
+  corpus and generated programs, and the checker (`checkJq` in `check.ts`:
+  shapes and multiplicities in `shapes.ts`, every sentence it says in
+  `messages.ts`, the builtin catalog — jq 1.8.1's builtins exactly, each with
+  its typing rule and East definition — in `catalog.ts`, strftime tokens in
+  `strftime.ts`), and the translator (`translateJq` in `translate.ts`, each
+  builtin's rule in `translate-builtins.ts`): a checked program as ordinary
+  East IR, typed from the checker's records (a node the checker's one record
+  cannot serve is checked again for its input's type, `retype`). `East.jq`
+  (`src/expr/query.ts`) translates at build time and emits a call of the
+  `Query` builtin (#1041), which carries the program as written
+  (`QueryCallType`) beside the translation and gives the translation — every
+  runtime implements it as any builtin, and the printers print it back as
+  `East.jq`; `evaluateJq` and `QueryError` (`src/query/evaluate.ts`) are the
+  host entry.
+  Normative spec `devdocs/QUERY.md` (§10 catalog, §12 diagnostics, §13
+  deviations, §15 translation, §18 grammar and canonical text). The shared
+  fixture (`test/query.fixture.ts`) and the corpus (`test/query.corpus.ts`)
+  generate the checked-in `test/fixtures/query-fixture.beast2` and
+  `query-corpus.beast2` (each case's output, and its translation's IR), which
+  the other runtimes read; `make query-corpus` rewrites both, and QUERY.md
+  §10's and §12's generated tables, and a spec fails while any of them is
+  stale. A change to the translator changes the corpus's IR bytes: rewrite
+  it. The type matrix (`test/query-types/`, `test/query.types.spec.ts`,
+  QUERY.md §16.5) runs every shape of East type through every jq program
+  its kind admits, judged by jq 1.8.1's recorded runs
+  (`test/fixtures/query-types.json`: `make query-types`, with jq on the
+  PATH) or by QUERY.md; `make query-types-tables` rewrites §16.5's tables.
+  `make test-export` writes the query suites to `query-conformance/`,
+  `query-types/` and `query-corpus/`, which every runtime's compliance leg
+  runs.
 - `test/` — compliance suite (serializes to IR; runs on any backend).
 - `devdocs/` — living design docs (start with `SERIALIZATION.md`).
 - `example/`, `contrib/` — experiments and scratch (per

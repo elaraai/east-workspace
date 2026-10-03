@@ -5,7 +5,7 @@ description: "East programming language - a statically typed, expression-based l
 
 ## Detailed skill scope
 
-East programming language - a statically typed, expression-based language embedded in TypeScript, compiled to portable IR that runs on Node, C and Python. Use when: (1) writing East functions with East.function() / East.asyncFunction(), (2) defining types (IntegerType, StringType, ArrayType, StructType, VariantType, ...), (3) platform functions with East.platform() / East.asyncPlatform(), (4) compiling and running in-process with East.compile(), (5) East expressions: arithmetic, strings, dates, collections, vectors and matrices, control flow, (6) working with East values from TypeScript: compareFor/equalFor, SortedMap/SortedSet, isValueOf, the East-text, JSON, CSV and beast2 codecs, (7) serializing IR (.toIR(), encodeEastIR) and printing it back as source (East.toSource, east-node transpile), (8) running a program from the command line (east-node / east-c / east-py run, exec, east-c ir), or a runner-protocol unit in a host of your own, such as a browser's worker (executeUnit over a UnitIO, InMemoryUnitIO), (9) calling a function authored in python, or exporting one for python (East.importFunction, East.exportFunctions, east-node export-functions), (10) checking that a module's East functions build (east-node check, east-node lsp), (11) collections larger than memory (Beast2ElementWriter, openBeast2PagesFor, blob.openBeast), (12) JSON Schema contracts (jsonSchemaFor, typeFromJsonSchema).
+East programming language - a statically typed, expression-based language embedded in TypeScript, compiled to portable IR that runs on Node, C and Python. Use when: (1) writing East functions with East.function() / East.asyncFunction(), (2) defining types (IntegerType, StringType, ArrayType, StructType, VariantType, ...), (3) platform functions with East.platform() / East.asyncPlatform(), (4) compiling and running in-process with East.compile(), (5) East expressions: arithmetic, strings, dates, collections, vectors and matrices, control flow, (6) working with East values from TypeScript: compareFor/equalFor, SortedMap/SortedSet, isValueOf, the East-text, JSON, CSV and beast2 codecs, (7) serializing IR (.toIR(), encodeEastIR) and printing it back as source (East.toSource, east-node transpile), (8) running a program from the command line (east-node / east-c / east-py run, exec, east-c ir), or a runner-protocol unit in a host of your own, such as a browser's worker (executeUnit over a UnitIO, InMemoryUnitIO), (9) calling a function authored in python, or exporting one for python (East.importFunction, East.exportFunctions, east-node export-functions), (10) checking that a module's East functions build (east-node check, east-node lsp), (11) collections larger than memory (Beast2ElementWriter, openBeast2PagesFor, blob.openBeast), (12) JSON Schema contracts (jsonSchemaFor, typeFromJsonSchema), (13) asking a question of a value in typed jq (East.jq, checkJq, evaluateJq).
 
 # East Language
 
@@ -169,6 +169,8 @@ Task → What do you need?
     ├─ Patches (East.*) → East.diff(before, after), East.applyPatch(value, patch),
     │   East.composePatch(first, second, type), East.invertPatch(patch, type)
     │
+    ├─ Ask a question of a value in jq → East.jq(input, program, resultType), checked when the program
+    │   builds → "Queries (typed jq)"
     ├─ Work with East values from TypeScript → "Values in TypeScript" (comparators, SortedMap, codecs)
     ├─ Run a program from the shell → "Runners" (east-node / east-c / east-py run, exec, east-c ir)
     ├─ Run a runner-protocol unit in a host of your own (a browser's worker) → executeUnit(unit, io, { platforms })
@@ -336,6 +338,49 @@ takes the type and returns a function (`compareFor(T)(a, b)`).
 | `toJSONFor(T)(value)` · `fromJSONFor(T)(json)` | East JSON as a JavaScript value (`encodeJSONFor` / `decodeJSONFor` as bytes): lossless — an Integer a quoted decimal, a Blob hex, a flat Option (see JSON Schema) |
 | `encodeCsvFor(StructT, config?)(rows)` · `decodeCsvFor(StructT, config?)(blob)` | An array of structs ↔ CSV bytes |
 | `encodeBeast2For(T)(value)` · `decodeBeast2For(T)(blob)` | beast2, the binary form every runtime and e3 store — see below |
+
+## Queries (typed jq)
+
+`East.jq` asks a question of a value in jq, inside an East body. The program is
+parsed, type-checked against the input's East type and translated to ordinary
+IR when the function is built, so it runs on every runner; a mistake is a
+`QueryError` at build time, with the checker's sentence, span and fixes. The
+language is jq 1.8 over East values: `libs/east/devdocs/QUERY.md` in the East
+repository says what each builtin does, and every place East differs from jq.
+
+```typescript
+const Order = StructType({ id: IntegerType, total: FloatType });
+
+const bigOrders = East.function([ArrayType(Order)], ArrayType(IntegerType), ($, orders) =>
+    East.jq(orders, "[.[] | select(.total > 1000) | .id]", ArrayType(IntegerType)));
+
+// An object of inputs is read as an e3 root: `.orders` is that input alone, so a lazy one stays lazy.
+const revenue = East.function([ArrayType(Order)], FloatType, ($, orders) =>
+    East.jq({ orders }, ".orders | map(.total) | add", FloatType));
+```
+
+| Signature | Description | Example |
+|-----------|-------------|---------|
+| **In an East body** |
+| `East.jq<T>(input: Expr \| { [name: string]: Expr }, program: string, resultType: T): ExprType<T>` **❗** | The query's result, an expression of `resultType`: the outputs' type `T` for a query that gives exactly one output, `Option<T>` for at most one, `Array<T>` for any number. Throws `QueryError` when the query does not check, or checks to another type | `East.jq(orders, "map(.total)", ArrayType(FloatType)).sum()` |
+| **Host-side** |
+| `checkJq(program: string, input: EastType, options?: { root?: boolean, tooling?: boolean }): CheckJqResult` | The checker: `query` (the checked `QueryType`, or `null`), `diagnostics` (each a code, a span, one sentence, suggestions and fixes), `elementType`, `multiplicity` (`"one"`, `"maybe"` or `"many"`) | `checkJq(".orders[0].totl", Root).diagnostics[0].message` |
+| `completeJq(text: string, offset: number, input: EastType, options?): JqCompletions \| null` | The completions at a cursor, from the type there: fields, cases, variables, builtins | `completeJq(".orders[0].to", 13, Root)` |
+| `printJq(program: JqNode, options?: { layout?: "line" \| "pipeline" }): PrintedJq` | A program's canonical text, and its nodes' spans; `pipeline` puts each top-level stage on a line of its own | `printJq(checked.query.value.program).text` |
+| `translateJq(checked: CheckJqResult, options?: { maxOutputs?: number, tooling?: boolean }): JqTranslation` **❗** | The translation: `fn()`, an East function of the inputs the query reads (`inputs`), and its `resultType` | `East.compile(translateJq(checked).fn(), [])` |
+| `evaluateJq(program: string \| CheckJqResult, input: unknown, options?: { inputType?, root?, tooling?, platform? }): unknown` **❗** | Checks, translates, compiles (cached) and runs a query over a TypeScript value. Throws `QueryError`: the checker's diagnostics, or one `runtime` diagnostic at the node that raised | `evaluateJq("[.[] \| .id]", orders, { inputType: ArrayType(Order) })` |
+| `splitJq(checked: CheckJqResult, options?: { maxOutputs?: number }): JqSplit` | A query checked as an e3 root, split over one dataset's pieces for an e3 split call: `piece()` each piece runs, the `output` kind its outputs combine by (`array`, `set`, `dict` with `merge()`, `fold` with `zero` and `combine()`), and `then()` over the result; or, `kind: "whole"`, why it runs as one unit. QUERY.md §17.1 | `splitJq(checkJq(".orders \| group_by(.region) \| map(length)", Root, { root: true })).output.kind` |
+
+- **The values are East's.** A Dict is an object keyed by its key type, so
+  `.byId[1035]` looks up an Integer key; a variant reads as `{type, value}`,
+  and `select(.status.type == "shipped")` narrows it; an Option is `null` or
+  its value. `.name` on a struct that lacks the field is an error (`.name?`
+  gives `null`), and so is comparing values of two types.
+- **A lookup can miss**, so `.[i]` and `.[k]` give an `Option`, and
+  `first(f)` gives at most one output, so its result type is `Option<T>`.
+- **In code a query is a call of the `Query` builtin**, which carries the
+  program as written beside its translation: every runtime runs it as any
+  builtin, and `East.toSource` prints it back as `East.jq(…)`.
 
 ## Runners: running a program from the command line
 

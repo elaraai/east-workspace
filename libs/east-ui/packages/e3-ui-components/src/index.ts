@@ -20,6 +20,8 @@ import './decision/journal.js';           // → implementUIComponent(DecisionJo
 import './studio/builder.js';             // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
+import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
+import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -55,6 +57,42 @@ export {
     type StudioMessages,
     type StudioMessagesProviderProps,
 } from './studio/messages.js';
+
+// The query builder and the query library (#875) — each renderer registers
+// itself against its extension on import — their words, how the builder makes
+// a one-shot call, a split call and reads a data source's status, and the
+// query's calls themselves — a one-shot call, a run's plan with its split
+// call (#941), and each answered in memory where there is no server — which a
+// host can make without it, Node included (`@elaraai/e3-ui-components/query`).
+export { EastChakraQueryBuilder, type EastChakraQueryBuilderProps, type QueryFocus, type QueryTab } from './query/builder.js';
+export { EastChakraQueryLibrary, type EastChakraQueryLibraryProps } from './query/library.js';
+export {
+    QueryMessagesProvider,
+    useQueryMessages,
+    useQueryWords,
+    type QueryMessagesProviderProps,
+} from './query/words.js';
+export { queryMessages, type QueryMessages } from './query/model/messages.js';
+export {
+    QueryCallProvider,
+    useQueryCall,
+    type QueryCall,
+    type QueryCallProviderProps,
+    QuerySplitCallProvider,
+    useQuerySplitCall,
+    type QuerySplitCall,
+    type QuerySplitCallOptions,
+    type QuerySplitCallProviderProps,
+    QuerySourceStatusProvider,
+    useQuerySourceStatus,
+    type QuerySourceStatus,
+    type QuerySourceStatusProviderProps,
+    type SourceStatus,
+    QueryPlanOptionsProvider,
+    useQueryPlanOptions,
+    type QueryPlanOptionsProviderProps,
+} from './query/hooks.js';
+export * from './query/calls.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

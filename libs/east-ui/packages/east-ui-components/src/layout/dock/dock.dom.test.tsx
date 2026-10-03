@@ -11,7 +11,9 @@
  *     child's state survives the collapse,
  *   - Esc does NOT collapse (inline content, not a modal — unlike Expandable),
  *   - a State-driven `collapsed` + `onCollapsedChange` round-trips through the
- *     store (the controlled path used by app-style ui() tasks).
+ *     store (the controlled path used by app-style ui() tasks);
+ *   - a host drives `DockPane`'s open tab with `tab` and hears each change
+ *     through `onTabChange` (K1, #935).
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -21,6 +23,7 @@ import { East, BooleanType, NullType, type ValueTypeOf } from "@elaraai/east";
 import { Dock, Text, State, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { EastChakraComponent } from "../../component.js";
+import { DockPane } from "./index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { UIStore } from "../../platform/state-store.js";
@@ -215,5 +218,58 @@ describe("Dock — the pane's tab row and its rail", () => {
         cleanup();
         const card = mount(buildUncontrolled());
         expect(card.container.querySelector("[data-surface=card]")).not.toBeNull();
+    });
+});
+
+describe("DockPane — the open tab, driven by its host (K1, #935)", () => {
+    const tabs = [
+        { key: "query", label: "Query", body: "STEPS" },
+        { key: "datasets", label: "Datasets", body: "SOURCES" },
+        { key: "library", label: "Library", body: "SAVED" },
+    ];
+    const pane = (props: { tab?: string; onTabChange?: (key: string) => unknown }) => (
+        <ChakraProvider value={system}>
+            <DockPane storageKey="dock-tab-test" label="Query" surface="shell" tabs={tabs} {...props} />
+        </ChakraProvider>
+    );
+    const open = (getAllByRole: (role: string) => HTMLElement[]) =>
+        getAllByRole("tab").filter(tab => tab.getAttribute("aria-selected") === "true").map(tab => tab.textContent);
+
+    test("a tab given opens that tab, and the pane follows it when the host changes it", () => {
+        initializeStore(new UIStore());
+        const { getAllByRole, getByText, rerender } = render(pane({ tab: "datasets" }));
+        expect(open(getAllByRole)).toEqual(["Datasets"]);
+        expect(getByText("SOURCES").closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(false);
+        rerender(pane({ tab: "library" }));
+        expect(open(getAllByRole)).toEqual(["Library"]);
+        expect(getByText("SAVED").closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(false);
+        expect(getByText("SOURCES").closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(true);
+    });
+
+    test("a tab opened from the pane is told to the host through onTabChange, after the click, through a microtask", async () => {
+        initializeStore(new UIStore());
+        const told: string[] = [];
+        const { getAllByRole } = render(pane({ tab: "query", onTabChange: (key) => { told.push(key); } }));
+        fireEvent.click(getAllByRole("tab")[2]!);
+        expect(told).toEqual([]);
+        await act(async () => { await Promise.resolve(); });
+        expect(told).toEqual(["library"]);
+        expect(open(getAllByRole)).toEqual(["Library"]);
+        await act(async () => { fireEvent.keyDown(getAllByRole("tab")[2]!, { key: "Home" }); });
+        expect(told).toEqual(["library", "query"]);
+    });
+
+    test("a pane given neither keeps its own open tab, as before, and one given only onTabChange still tells it", async () => {
+        initializeStore(new UIStore());
+        const { getAllByRole, unmount } = render(pane({}));
+        expect(open(getAllByRole)).toEqual(["Query"]);
+        await act(async () => { fireEvent.click(getAllByRole("tab")[1]!); });
+        expect(open(getAllByRole)).toEqual(["Datasets"]);
+        unmount();
+        const told: string[] = [];
+        const again = render(pane({ onTabChange: (key) => { told.push(key); } }));
+        await act(async () => { fireEvent.click(again.getAllByRole("tab")[2]!); });
+        expect(open(again.getAllByRole)).toEqual(["Library"]);
+        expect(told).toEqual(["library"]);
     });
 });

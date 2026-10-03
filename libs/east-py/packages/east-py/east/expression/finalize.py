@@ -171,6 +171,15 @@ def _const_fn_node(param_types: list, body: Expression, out_t: EastType) -> Any:
 
 _CSE_SKIP_KINDS = frozenset({"Value", "Variable"})
 
+#: Builtins whose arguments the pass leaves exactly as they were built. A
+#: call of ``Query`` is ``East.jq``'s (#1041): its query is a constant the IR
+#: analysis requires to BE a constant (a hoisted Let would make it a variable
+#: read, which analysis refuses), and its translation is the function the
+#: translator wrote, as every runtime's translation of the query is. So
+#: nothing inside one binds once or hoists; the call itself is an expression
+#: like any other.
+_CSE_OPAQUE_BUILTINS = frozenset({"Query"})
+
 #: Kinds never hoisted on a SINGLE occurrence (#602). Function values stay
 #: where the trace created them, Error must keep firing exactly where (and as
 #: often as) it was written, Let/Break/Continue are statements not values, and
@@ -438,6 +447,8 @@ def _finalize_ir(top, param_names: set, top_fn=None, cse: bool = True):
         if i in visited:
             return
         visited.add(i)
+        if node.type == "Builtin" and node.value["builtin"] in _CSE_OPAQUE_BUILTINS:
+            return      # its arguments stay as they were built (see _CSE_OPAQUE_BUILTINS)
         reads_only = (node.type == "Builtin"
                       and node.value["builtin"] not in _MUTATING_BUILTINS)
         for child in _node_children(node):

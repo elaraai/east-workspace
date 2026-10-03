@@ -8,7 +8,7 @@ These pin SPELLING behaviour only: which IR node each statement spelling
 builds, how the TypeScript builder's assembly and typing rules apply
 (``Let``/``Assign`` are Null, ``Return``/``Break``/``Continue``/``Error``
 are Never, a branch pads to Null, a body's returned value is its last
-statement, an all-diverging chain is Never, a statement after a diverging
+statement, an all-diverging chain or match is Never, a statement after a diverging
 one is unreachable), that EVERY body receives the block first and what a
 misused or missing block raises, that a function VALUE in a callback slot
 takes no block, and that every built program still executes. What the
@@ -375,6 +375,18 @@ def test_match_statement_rejects_an_unknown_case():
     opt = OptionType(IntegerType)
     with pytest.raises(ExpressionError, match="has no case 'other'"):
         East.function([opt], IntegerType, lambda b, v: b.match_(v, {"other": lambda b, x: None}) and 0)
+
+
+def test_an_all_diverging_match_statement_is_never_and_ends_the_body():
+    opt = OptionType(IntegerType)
+
+    def body(b, v):
+        b.match_(v, {"some": lambda b, x: b.return_(x), "none": lambda b, _n: b.return_(0)})
+
+    built = East.function([opt], IntegerType, body)
+    match = body_of(built)
+    assert match.type == "Match" and match.value["type"].type == "Never"
+    assert built(some(5)) == 5 and built(none) == 0
 
 
 # ── while_ / for_ / break_ / continue_ ───────────────────────────────────────

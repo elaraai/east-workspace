@@ -34,6 +34,7 @@ set(EAST_C_SOURCES
     src/builtins/vector.c
     src/builtins/matrix.c
     src/builtins/patch.c
+    src/builtins/query.c
     src/builtins/tree.c
     src/serialization/json.c
     src/serialization/beast.c
@@ -424,6 +425,18 @@ add_test(NAME paged_value COMMAND test_paged_value)
 add_executable(test_stack_guard tests/test_stack_guard.c)
 target_link_libraries(test_stack_guard east-c)
 add_test(NAME stack_guard COMMAND test_stack_guard)
+
+# Translated queries over paged datasets (#925): the query corpus's
+# translations (libs/east/test/fixtures, checked in) run over the shared
+# fixture's datasets written in small segments and opened paged, each held to
+# the corpus's output, to the segments east_paged_stats says it decoded, and
+# to never hydrating. Queries reach east-c as ordinary IR, so nothing here is
+# query-specific. Run under ASan/LSan for the paged values' lifetimes.
+add_executable(test_query_paged tests/test_query_paged.c)
+target_link_libraries(test_query_paged east-c)
+target_compile_definitions(test_query_paged PRIVATE
+    EAST_QUERY_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../../east/test/fixtures")
+add_test(NAME query_paged COMMAND test_query_paged)
 
 # IR normalization gate (#627): east_ir_normalize is the round-trip equality
 # contract — loc_ids stripped, variables/labels renamed in the TypeScript

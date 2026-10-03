@@ -115,7 +115,50 @@ await renderToPng({
 
 ## Development
 
-`make build`, `make test`, `make lint` from this directory. See [`MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The browser app under `app/` is bundled into `dist/app` by `scripts/build-app.mjs` as the second half of `make build`. The terminal UI lives under `src/tui/` (an Ink app over a reducer store; every view has a frame spec against an in-memory API fake); `E3_UI_INTEGRATION=1 make test` also runs the integration smoke over a real embedded server and a repository seeded at test time.
+`make build`, `make test`, `make lint` from this directory. See [`MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md) for the full target list. The browser app under `app/` is bundled into `dist/app` by `scripts/build-app.mjs` as the second half of `make build`. The terminal UI lives under `src/tui/` (an Ink app over a reducer store; every view has a frame spec against an in-memory API fake); `E3_UI_INTEGRATION=1 make test` also runs the integration smoke over a real embedded server and a repository seeded at test time, the query builder's plans against a real e3 on every runner it finds — east-node, and east-c when it is on PATH (`src/query-plans.spec.ts`) — and their equivalence (`src/query-equivalence.spec.ts`, below).
+
+### Query plans: one unit against pieces
+
+`src/query-equivalence.spec.ts` holds that a plan changes what a query costs, never its answer (#942). Every query of east's corpus that checks over the shared fixture's root as an e3 root, and every question of the benchmark, that the planner splits runs as one one-shot call and as a split call over many small pieces (`E3_TEST_PIECE_BYTES`): the answers are byte-equal, Floats within rounding, and on east-node, east-c and east-py, at `-j 1` and `-j 4`, every piece and merge writes the same bytes. The data is the fixture scaled so each collection is several pieces, and the benchmark's generator at a small size. It runs on every runner it finds, so put this tree's east-c and east-py first on PATH — a runner from another release need not speak this tree's unit protocol:
+
+```bash
+cmake -S ../../../east-c -B ../../../east-c/build -DCMAKE_BUILD_TYPE=Release
+cmake --build ../../../east-c/build --target east-c-cli -j
+(cd ../../../east-py && uv venv && uv pip install scikit-build-core cython numpy setuptools ninja \
+  && CMAKE_GENERATOR=Ninja uv sync --all-packages --no-build-isolation --reinstall-package elaraai-east-py)
+mkdir -p /tmp/east-py-bin && ln -sf "$PWD/../../../east-py/.venv/bin/east-py" /tmp/east-py-bin/east-py
+export PATH="$PWD/../../../east-c/build/packages/east-c-cli:/tmp/east-py-bin:$PWD/node_modules/.bin:$PATH"
+
+npm run build
+E3_UI_INTEGRATION=1 node --enable-source-maps --test-reporter=spec --test dist/query-equivalence.spec.js
+```
+
+### Query plans at scale
+
+`src/query-scale.spec.ts` is the benchmark of the query builder's split calls (#941, #1093, #942), run by hand: `make test` and CI skip it. It writes orders of the shared query fixture's types, seeded, with 100,000 customers and a shipment for each shipped order; computes each benchmark query's answer from the generator as it writes them; takes them into a repository; and runs each query as the builder plans it, every dataset weighed by its file — a split call on east-c, or for the join of the orders with their shipments, both larger than a piece, a re-keyed join's two — in this process through e3-core, with a server's ceilings raised and every execution forgotten first, holding every answer to that oracle. It reports each query's time, the time e3 took to plan the pieces and to run its units, the pieces' work per order per core, the CPU it and its runners used per order, each piece's peak and the load the run started under; a re-keyed join's row is both its calls'.
+
+```bash
+# east-c built Release from this tree, first on PATH — never the -O0 `make build`
+cmake -S ../../../east-c -B ../../../east-c/build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build ../../../east-c/build-release --target east-c-cli -j
+export PATH="$PWD/../../../east-c/build-release/packages/east-c-cli:$PATH"
+
+make build
+E3_QUERY_SCALE=1 E3_QUERY_SCALE_SIZES=1g,4g E3_QUERY_SCALE_DIR=/var/tmp/e3-query-scale \
+  node --test-reporter=spec --test dist/query-scale.spec.js
+```
+
+| Variable | Default | |
+|---|---|---|
+| `E3_QUERY_SCALE` | — | `1` runs it |
+| `E3_QUERY_SCALE_SIZES` | `100m` | `100m`, `1g`, `4g`, `16g` — 2.9, 29, 116 and 463 million orders, about 36 B each stored — or a number of orders, comma-separated |
+| `E3_QUERY_SCALE_DIR` | `$TMPDIR/e3-query-scale` | the data, its repositories and the report, kept between runs: put it on a disk, since 16g takes 17 GB of orders and 1.1 GB of shipments — a shipment's carrier and days follow from its order's id, so they store in under 3 B an order — and as much again in its repository |
+| `E3_QUERY_SCALE_QUERIES` | all | `q1` the sum, `q2` four totals, `q3` revenue by region (the customers read whole), `q4` the distinct customer ids, `q5` a `reduce` by customer, `q6` the ids of the largest 0.1%, `q6t` the same sorted, top 100 (the sort's first rows kept in the pieces), `q7` revenue by carrier, the shipments joined (re-keyed) |
+| `E3_QUERY_SCALE_RUNS` | `1` | cold runs of each query |
+| `E3_QUERY_SCALE_ONE_SHOT` | — | `1` also runs each query as the one-shot call the builder would make, within `E3_QUERY_SCALE_ONE_SHOT_MS` (120 000) |
+| `E3_QUERY_SCALE_NOTE` | — | a line the report heads its tables with: the machine, say |
+
+The budget is e3's own, `E3_JOBS` and `E3_MEMORY` or what the process may use. Each table is printed and appended to `report.md` in the data directory, with the rows in `report.jsonl`. Times move with what else the machine runs: the report names the load each call started under, so run it on a quiet machine and compare runs made back to back; the CPU per order (Linux, from `/proc`) moves least, since a runner waiting for a core uses none. Under a cgroup memory limit, e3's memory guard can stop units that are not short of memory (#1094); run it outside one.
 
 ## Documentation
 

@@ -11,7 +11,6 @@
 #include "east/builtins.h"
 #include "east/values.h"
 #include "east/serialization.h"
-#include <ctype.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,6 +70,30 @@ static size_t utf8_byte_to_cp(const char *s, size_t byte_offset)
         cp++;
     }
     return cp;
+}
+
+/* Decode one UTF-8 codepoint, returning the codepoint and advancing *advance. */
+static uint32_t utf8_decode_cp(const unsigned char *p, size_t *advance)
+{
+    if (*p < 0x80) {
+        *advance = 1;
+        return *p;
+    }
+    if ((*p & 0xE0) == 0xC0) {
+        *advance = 2;
+        return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    }
+    if ((*p & 0xF0) == 0xE0) {
+        *advance = 3;
+        return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    }
+    if ((*p & 0xF8) == 0xF0) {
+        *advance = 4;
+        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
+               ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+    }
+    *advance = 1;
+    return 0xFFFD;
 }
 
 /* Length-aware forward substring search. East strings carry their length and
@@ -228,17 +251,49 @@ static EastValue *string_split(EastValue **args, size_t n)
     return arr;
 }
 
+/* Whether cp is ECMAScript WhiteSpace or a LineTerminator: the code points JS's
+ * trim, trimStart and trimEnd remove, which the TS reference uses. isspace is
+ * ASCII-only and locale-dependent, so it would keep U+00A0, U+3000, U+FEFF… */
+static int js_whitespace(uint32_t cp)
+{
+    if (cp <= 0x20) return cp == 0x20 || (cp >= 0x09 && cp <= 0x0D);
+    return cp == 0xA0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x2028 ||
+           cp == 0x2029 || cp == 0x202F || cp == 0x205F || cp == 0x3000 || cp == 0xFEFF;
+}
+
+/* The byte length of the whitespace code point at s[i], or 0 if it is not one. */
+static size_t js_space_at(const char *s, size_t i, size_t len)
+{
+    const unsigned char *p = (const unsigned char *)s + i;
+    size_t cl = utf8_char_len(p);
+    if (i + cl > len) return 0;
+    size_t advance;
+    return js_whitespace(utf8_decode_cp(p, &advance)) ? cl : 0;
+}
+
+/* The byte length of the whitespace code point ending at s[end], or 0. */
+static size_t js_space_before(const char *s, size_t start, size_t end)
+{
+    const unsigned char *u = (const unsigned char *)s;
+    size_t i = end - 1;
+    while (i > start && (u[i] & 0xC0) == 0x80)
+        i--;
+    if (i + utf8_char_len(u + i) != end) return 0;
+    size_t advance;
+    return js_whitespace(utf8_decode_cp(u + i, &advance)) ? end - i : 0;
+}
+
 static EastValue *string_trim(EastValue **args, size_t n)
 {
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    size_t start = 0;
-    while (start < len && isspace((unsigned char)s[start]))
-        start++;
+    size_t start = 0, cl;
+    while (start < len && (cl = js_space_at(s, start, len)) > 0)
+        start += cl;
     size_t end = len;
-    while (end > start && isspace((unsigned char)s[end - 1]))
-        end--;
+    while (end > start && (cl = js_space_before(s, start, end)) > 0)
+        end -= cl;
     return east_string_len(s + start, end - start);
 }
 
@@ -247,9 +302,9 @@ static EastValue *string_trim_start(EastValue **args, size_t n)
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    size_t start = 0;
-    while (start < len && isspace((unsigned char)s[start]))
-        start++;
+    size_t start = 0, cl;
+    while (start < len && (cl = js_space_at(s, start, len)) > 0)
+        start += cl;
     return east_string_len(s + start, len - start);
 }
 
@@ -258,33 +313,10 @@ static EastValue *string_trim_end(EastValue **args, size_t n)
     (void)n;
     const char *s = args[0]->data.string.data;
     size_t len = args[0]->data.string.len;
-    while (len > 0 && isspace((unsigned char)s[len - 1]))
-        len--;
+    size_t cl;
+    while (len > 0 && (cl = js_space_before(s, 0, len)) > 0)
+        len -= cl;
     return east_string_len(s, len);
-}
-
-/* Decode one UTF-8 codepoint, returning the codepoint and advancing *advance. */
-static uint32_t utf8_decode_cp(const unsigned char *p, size_t *advance)
-{
-    if (*p < 0x80) {
-        *advance = 1;
-        return *p;
-    }
-    if ((*p & 0xE0) == 0xC0) {
-        *advance = 2;
-        return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
-    }
-    if ((*p & 0xF0) == 0xE0) {
-        *advance = 3;
-        return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
-    }
-    if ((*p & 0xF8) == 0xF0) {
-        *advance = 4;
-        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
-               ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
-    }
-    *advance = 1;
-    return 0xFFFD;
 }
 
 /* Encode one codepoint as UTF-8, return bytes written. */
@@ -327,15 +359,53 @@ static void ensure_utf8_locale(void)
     }
 }
 
+/* The letters past U+FFFF that have case, as runs of capitals, each run's small
+ * letters a fixed offset above it: Unicode 17's, as JavaScript's toLowerCase and
+ * toUpperCase map them (the reference). A table rather than towlower/towupper:
+ * Windows' wint_t is 16 bits, so a code point past U+FFFF was cut short there
+ * (U+1D11E came back as U+D11E), and each libc knows another Unicode. */
+static const struct {
+    uint32_t first, last, offset;
+} east_case_runs[] = {
+    {0x10400, 0x10427, 0x28}, /* Deseret */
+    {0x104B0, 0x104D3, 0x28}, /* Osage */
+    {0x10570, 0x1057A, 0x27}, /* Vithkuqi, in four runs */
+    {0x1057C, 0x1058A, 0x27}, /* Vithkuqi */
+    {0x1058C, 0x10592, 0x27}, /* Vithkuqi */
+    {0x10594, 0x10595, 0x27}, /* Vithkuqi */
+    {0x10C80, 0x10CB2, 0x40}, /* Old Hungarian */
+    {0x10D50, 0x10D65, 0x20}, /* Garay */
+    {0x118A0, 0x118BF, 0x20}, /* Warang Citi */
+    {0x16E40, 0x16E5F, 0x20}, /* Medefaidrin */
+    {0x16EA0, 0x16EB8, 0x1B}, /* Beria Erfe */
+    {0x1E900, 0x1E921, 0x22}, /* Adlam */
+};
+
+/* A code point past U+FFFF in the other case: lower-cased when `lower`, else
+ * upper-cased; itself when it has no case. */
+static uint32_t east_cp_case_astral(uint32_t cp, int lower)
+{
+    for (size_t i = 0; i < sizeof(east_case_runs) / sizeof(east_case_runs[0]); i++) {
+        uint32_t first = east_case_runs[i].first;
+        uint32_t last = east_case_runs[i].last;
+        uint32_t offset = east_case_runs[i].offset;
+        if (lower && cp >= first && cp <= last) return cp + offset;
+        if (!lower && cp >= first + offset && cp <= last + offset) return cp - offset;
+    }
+    return cp;
+}
+
 /* ASCII and the Latin-1 Supplement (e.g. é<->É) are mapped locale-independently
  * so the result is identical on every platform — the "C.UTF-8" locale that
  * makes towupper/towlower handle them isn't available on macOS or Windows.
- * Higher code points fall through to towupper/towlower (locale-dependent). */
+ * Code points past U+FFFF are mapped by the table above; the rest of the Basic
+ * Multilingual Plane falls through to towupper/towlower (locale-dependent). */
 static uint32_t east_cp_toupper(uint32_t cp)
 {
     if (cp < 0x80) return (cp >= 'a' && cp <= 'z') ? cp - 0x20u : cp;
     if (cp >= 0x00E0 && cp <= 0x00FE && cp != 0x00F7) return cp - 0x20u; /* à-þ -> À-Þ */
     if (cp == 0x00FF) return 0x0178;                                     /* ÿ -> Ÿ */
+    if (cp > 0xFFFF) return east_cp_case_astral(cp, 0);
     return (uint32_t)towupper((wint_t)cp);
 }
 static uint32_t east_cp_tolower(uint32_t cp)
@@ -343,6 +413,7 @@ static uint32_t east_cp_tolower(uint32_t cp)
     if (cp < 0x80) return (cp >= 'A' && cp <= 'Z') ? cp + 0x20u : cp;
     if (cp >= 0x00C0 && cp <= 0x00DE && cp != 0x00D7) return cp + 0x20u; /* À-Þ -> à-þ */
     if (cp == 0x0178) return 0x00FF;                                     /* Ÿ -> ÿ */
+    if (cp > 0xFFFF) return east_cp_case_astral(cp, 1);
     return (uint32_t)towlower((wint_t)cp);
 }
 

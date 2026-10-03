@@ -208,6 +208,8 @@ await describe("Float", (test) => {
         $(assert.equal(East.value(5).abs(), 5));
         $(assert.equal(East.value(-5).abs(), 5));
         $(assert.equal(East.value(0).abs(), 0));
+        // -0.0's absolute value is 0.0, as C's fabs gives it, in every runtime.
+        $(assert.equal(East.value(-0.0).abs(), 0.0));
 
         // sign() tests
         $(assert.equal(East.value(5).sign(), 1));

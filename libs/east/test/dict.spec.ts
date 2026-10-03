@@ -92,6 +92,7 @@ await describe("Dict", (test) => {
 
     assert.examples(test, {
         dictDelete: ex.dictDelete,
+        dictTryDelete: ex.dictTryDelete,
         dictPop: ex.dictPop,
     });
 
@@ -107,6 +108,12 @@ await describe("Dict", (test) => {
         const d2 = $.let(new Map([[1n, "a"], [2n, "b"], [3n, "c"]]), DictType(IntegerType, StringType))
         $(assert.equal(d2.pop(2n), "b"))
         $(assert.throws(d2.pop(4n), /Dict does not contain key/))
+
+        const d3 = $.let(new Map([[1n, "a"], [2n, "b"], [3n, "c"]]), DictType(IntegerType, StringType))
+        $(assert.equal(d3.tryDelete(2n), true))          // Delete existing value
+        $(assert.equal(d3.tryDelete(2n), false))         // Already gone: no error, nothing deleted
+        $(assert.equal(d3.tryDelete(4n), false))         // Missing key: no error, nothing deleted
+        $(assert.equal(d3, new Map([[1n, "a"], [3n, "c"]])))
 
     });
 

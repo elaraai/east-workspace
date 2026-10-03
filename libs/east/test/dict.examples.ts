@@ -69,7 +69,7 @@ export const dictParse = example({
 });
 
 // ---------------------------------------------------------------------------
-// Mutation: Insert, Delete, Pop
+// Mutation: Insert, Delete, TryDelete, Pop
 // ---------------------------------------------------------------------------
 
 export const dictInsert = example({
@@ -94,6 +94,17 @@ export const dictDelete = example({
     }),
     inputs: [],
     returns: 2n,
+});
+
+export const dictTryDelete = example({
+    keywords: ["dict", "DictType", "tryDelete", "delete", "remove", "mutation"],
+    description: "Try to delete a key from a dict, returning whether it was removed",
+    fn: East.function([], BooleanType, ($) => {
+        const d = $.let(new Map([[1n, "a"], [2n, "b"], [3n, "c"]]), DictType(IntegerType, StringType));
+        return d.tryDelete(2n);
+    }),
+    inputs: [],
+    returns: true,
 });
 
 export const dictPop = example({

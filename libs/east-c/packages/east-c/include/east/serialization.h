@@ -407,13 +407,15 @@ EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
 // east_builtin_get_error).
 EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i);
 // Keyed reads over Set/Dict roots (#481 W2): a binary search over the fences
-// picks the owning segment, that one segment decodes through a small LRU
-// shared with element(), and the in-segment lookup answers. Requires the
-// key-disjoint segments sorted-order writers produce: the first keyed read
-// verifies the fences ascend strictly, and every decoded segment's greatest
-// key is checked against the next fence — violations post "segments are not
-// key-disjoint". get_key returns 1 found (Dict: *value_out retained; Set:
-// membership only), 0 not found, -1 error.
+// picks the owning segment, that one segment decodes through the pager's
+// cache — the one element(), get_keys() and find_sorted() read through — and
+// the in-segment lookup answers. A cached segment decodes frozen, so what a
+// read hands out cannot change what a later read is served (#1129). Requires
+// the key-disjoint segments sorted-order writers produce: the first keyed
+// read verifies the fences ascend strictly, and every decoded segment's
+// greatest key is checked against the next fence — violations post "segments
+// are not key-disjoint". get_key returns 1 found (Dict: *value_out retained;
+// Set: membership only), 0 not found, -1 error.
 int east_beast2_pages_get_key(Beast2Pages *p, EastValue *key, EastValue **value_out);
 // Batched Dict lookup: keys is a Set of the root's key type, walked in one
 // forward merge against the fences so each owning segment decodes once.
@@ -427,11 +429,13 @@ EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys, EastValue
 bool east_beast2_pages_find_sorted(Beast2Pages *p, EastValue *target, bool last, size_t *index_out);
 // Segment i for the streamed compute family over Set/Dict roots (#481 W4):
 // the same disjointness contract as the keyed reads — fences verified
-// strictly ascending on first use, the segment decoded through the shared
-// LRU, and its greatest key checked against the next fence — so a
-// cross-segment fold sees exactly the key-disjoint stream a whole-value
-// decode would produce. Returns a retained value or NULL (message via
-// east_builtin_get_error).
+// strictly ascending on first use, and the segment's greatest key checked
+// against the next fence — so a cross-segment fold sees exactly the
+// key-disjoint stream a whole-value decode would produce. The segment decodes
+// fresh, as segment() does: a scan keeps nothing in the pager's cache, so it
+// never evicts the segments keyed reads keep there (#1129), and the caller
+// owns what it is handed, frozen only when the pager is. Returns a retained
+// value or NULL (message via east_builtin_get_error).
 EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i);
 void east_beast2_pages_free(Beast2Pages *p);
 // The pager's root collection type (borrowed — owned by the pager).
@@ -673,7 +677,8 @@ bool east_beast2_intake_file(const char *path, EastType *type, bool ranged, int6
                              int64_t to, const char *output, bool parallel,
                              EastBeast2IntakeStats *stats);
 
-// The byte budget of a pager's decoded-segment cache (issue #560): the sum of
+// The byte budget of a pager's decoded-segment cache (issue #560), which the
+// keyed and row reads go through; a scan decodes fresh (#1129). The sum of
 // cached segments' decompressed frame lengths stays at or under the budget
 // (the newest segment always caches, even alone over it). Defaults to 64 MiB;
 // the EAST_PAGED_CACHE_BYTES environment variable overrides it at open.

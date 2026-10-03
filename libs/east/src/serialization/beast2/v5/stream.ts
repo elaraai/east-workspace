@@ -1056,10 +1056,11 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
 // =============================================================================
 
 /** Decoded segments retained by a {@link Beast2Pages} for its element and
- *  keyed read paths (mirrors east-c's `B2V5_PAGES_LRU`): a keyed/indexed
- *  read loop over neighbouring rows then decodes each segment once instead
- *  of once per element. Bounded — at most this many decoded segments live
- *  per reader. */
+ *  keyed read paths: a keyed/indexed read loop over neighbouring rows then
+ *  decodes each segment once instead of once per element. Bounded — at most
+ *  this many decoded segments live per reader. A scan never enters it: it
+ *  reads each segment fresh and keeps one at a time. (east-c's pager keeps a
+ *  byte budget of segments instead; #1129 brings the two to one rule.) */
 const SEGMENT_CACHE_CAPACITY = 4;
 
 /** The bytes a fence probe reads first: the frame header plus enough of the
@@ -1128,12 +1129,13 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** The decoder of a manifest's stored fence bytes, built on first use. */
   private manifestFenceDec: ((bytes: Uint8Array) => any) | null = null;
   /** Decoded segments kept hot for the element and keyed read paths, keyed
-   *  by segment index in LRU order (mirrors east-c's `B2V5_PAGES_LRU`).
-   *  Only {@link element} and {@link get} route through it — the public
-   *  {@link segment} stays a fresh decode, so a caller mutating its result
-   *  cannot poison the cache. `first`/`last` carry a Set/Dict segment's key
-   *  range so a hit can maintain the caller's order threading without a
-   *  container walk. */
+   *  by segment index in LRU order. Only {@link element} and {@link get}
+   *  route through it: every scan — {@link segment}, {@link segmentDisjoint},
+   *  {@link slice} — decodes fresh. Its segments decode frozen, so a caller
+   *  cannot change what a later read is served through what one read
+   *  returned (#1129). `first`/`last` carry a Set/Dict segment's key range so
+   *  a hit can maintain the caller's order threading without a container
+   *  walk. */
   private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
   /** Segments decoded so far — see {@link segmentsDecoded}. */
   private decodes = 0;
@@ -1274,8 +1276,10 @@ export class Beast2Pages<T extends EastType = EastType> {
     return this.decodeSegmentCore(i, order);
   }
 
-  /** Seeks to and decodes segment `i`, threading the caller's order state. */
-  private decodeSegmentCore(i: number, order: SegmentOrder | undefined): any {
+  /** Seeks to and decodes segment `i`, threading the caller's order state.
+   *  `freeze` decodes it frozen whatever the pager was opened with: the
+   *  cache's segments are shared by every read they serve (#1129). */
+  private decodeSegmentCore(i: number, order: SegmentOrder | undefined, freeze = false): any {
     if (!this.selfContained) {
       throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
     }
@@ -1287,7 +1291,7 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (n !== this.indexData.counts[i]) {
       throw new Error(`beast2 v5: segment ${i} declares ${n} elements, index says ${this.indexData.counts[i]}`);
     }
-    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: this.platform?.frozen ?? false, ...buildPlatformContext(this.platform) };
+    const ctx: V5DecodeContext = { containers: [], sourceMap: this.sourceMap, frozen: freeze || (this.platform?.frozen ?? false), ...buildPlatformContext(this.platform) };
     const value = this.decodeSegment(reader, ctx, n, order);
     if (reader.offset !== reader.buffer.length) {
       throw new Error(`beast2 v5: ${reader.buffer.length - reader.offset} logical bytes after segment ${i}`);
@@ -1300,7 +1304,8 @@ export class Beast2Pages<T extends EastType = EastType> {
    *  order state exactly as a fresh decode would: a hit replays the
    *  boundary-ascent check against the cached segment's first key and
    *  advances `order` to its last. Serves {@link element} and {@link get}
-   *  only — see {@link segmentCache}. */
+   *  only — see {@link segmentCache} — and decodes frozen, since every read
+   *  the segment serves shares it. */
   private segmentCached(i: number, order: SegmentOrder | undefined): any {
     const hit = this.segmentCache.get(i);
     if (hit !== undefined) {
@@ -1315,7 +1320,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       }
       return hit.seg;
     }
-    const seg = this.decodeSegmentCore(i, order);
+    const seg = this.decodeSegmentCore(i, order, true);
     let first: any;
     let last: any;
     if (this.kind !== "Array") {

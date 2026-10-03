@@ -143,8 +143,13 @@ import { studioBuilderSlotRecipe } from "./slot-recipes/studioBuilder.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
+import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
+import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
+import { queryLibrarySlotRecipe } from "./slot-recipes/queryLibrary.js";
+import { jqEditorSlotRecipe } from "./slot-recipes/jqEditor.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
+import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 
 const config = defineConfig({
     globalCss,
@@ -269,8 +274,13 @@ const config = defineConfig({
             studioInspector: studioInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
+            queryBuilder:    queryBuilderSlotRecipe,
+            queryResults:    queryResultsSlotRecipe,
+            queryLibrary:    queryLibrarySlotRecipe,
+            jqEditor:        jqEditorSlotRecipe,
             stepper:         stepperSlotRecipe,
             toolbar:         toolbarSlotRecipe,
+            queryAutocomplete: queryAutocompleteSlotRecipe,
         },
     },
 });

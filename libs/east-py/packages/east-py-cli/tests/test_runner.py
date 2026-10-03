@@ -136,8 +136,9 @@ def test_what_a_lazy_read_came_to(tmp_path, monkeypatch, capsys):
     out, err = capsys.readouterr()
     assert out.strip() == "200"
     account = re.search(
-        r"input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — its reads "
-        r"land at random beyond the segments kept, so decoding it whole would decode each once", err)
+        r"input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — it read "
+        r"segments again that the pager no longer held \(a scan repeated, or reads at random\); "
+        r"decoding it whole would decode each once, but hold the whole input at once", err)
     assert account is not None, err
     decodes, segments, fences = (int(g) for g in account.groups())
     assert decodes == 200 and segments >= 8 and fences == segments, err

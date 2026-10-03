@@ -42,14 +42,29 @@ export ASAN_OPTIONS="detect_leaks=1:exitcode=42"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# The suites beside the IR directory's own: the query suites, each in a
+# `query-*` directory of its own when the export wrote them — jq 1.8's
+# conformance cases (#924), the type matrix and the query corpus (#987).
+shopt -s nullglob
+SUITES=("$IR_DIR"/*.json "$IR_DIR"/query-*/*.json)
+# An empty export tests nothing: refuse it, as run_compliance.sh does, so the gate is never green over no IR.
+[ "${#SUITES[@]}" -gt 0 ] || { echo "Error: no IR .json files in $IR_DIR (run: make test-export)"; exit 1; }
+
+# A suite's name: its path under the IR directory, so two directories' suites never share one.
+suite_name() {
+    local name="${1#"$IR_DIR"/}"
+    name="${name%.json}"
+    echo "${name//\//__}"
+}
+
 # Run all tests in parallel, capturing both stdout and stderr
 PIDS=()
 FILES=()
-for f in "$IR_DIR"/*.json; do
-    name=$(basename "$f" .json)
+for f in "${SUITES[@]}"; do
+    name=$(suite_name "$f")
     outfile="$TMPDIR/$name.out"
     errfile="$TMPDIR/$name.err"
-    (timeout 60 "$TEST_BIN" "$f" > "$outfile" 2> "$errfile"; echo "EXIT:$?" >> "$outfile") &
+    (timeout "${SUITE_TIMEOUT:-300}" "$TEST_BIN" "$f" > "$outfile" 2> "$errfile"; echo "EXIT:$?" >> "$outfile") &
     PIDS+=($!)
     FILES+=("$outfile")
 done
@@ -67,8 +82,8 @@ LEAK_SUMMARY=""
 CLEAN_SUMMARY=""
 ERROR_SUMMARY=""
 
-for f in "$IR_DIR"/*.json; do
-    name=$(basename "$f" .json)
+for f in "${SUITES[@]}"; do
+    name=$(suite_name "$f")
     outfile="$TMPDIR/$name.out"
     errfile="$TMPDIR/$name.err"
 

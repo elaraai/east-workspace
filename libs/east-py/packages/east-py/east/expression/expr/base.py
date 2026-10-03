@@ -233,7 +233,9 @@ class Expression:
 
     def _typed(self, op: str, value: Any, t: EastType) -> Any:
         v = _lift(value, hint=t)
-        if v.east_type != t:
+        # A value of Never (an error, a jump) never arrives: it stands for any
+        # type, as a TypeScript builtin argument does.
+        if v.east_type != t and v.east_type.type != "Never":
             raise ExpressionError(f".{op}() takes {t.type}, got {v.east_type.type}")
         return v
 

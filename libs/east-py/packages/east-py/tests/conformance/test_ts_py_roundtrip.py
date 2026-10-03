@@ -50,14 +50,21 @@ from east.runtime._compiler_eastc import diff_ir
 from east.codegen import Providers, to_python_source
 from east.serialization.json import decode_json_for, encode_json_for
 from east.types.type_of_type import IRType
+from tests.test_compliance import SUITE_SUBDIRECTORIES, get_test_ir_files, suite_name
 
 CORPUS_DIR = os.environ.get("EAST_TEST_IR_DIR", "/tmp/east-test-ir")
 EXAMPLES_DIR = os.environ.get("EAST_EXAMPLES_IR_DIR", "/tmp/east-examples-ir")
 SAVE_DIR = os.environ.get("EAST_CONFORMANCE_SAVE")
 REQUIRED = os.environ.get("EAST_CONFORMANCE_REQUIRED") == "1"
 
-CORPUS = sorted(glob.glob(os.path.join(CORPUS_DIR, "*.json")))
+# The corpus's suites, the query suites' directories (#924, #987) included, each named by its path under the corpus.
+CORPUS = [str(f) for f in get_test_ir_files(Path(CORPUS_DIR), SUITE_SUBDIRECTORIES)]
 EXAMPLES = sorted(glob.glob(os.path.join(EXAMPLES_DIR, "*", "*.json")))
+
+
+def corpus_name(path: str) -> str:
+    """A corpus suite's name: its path under the corpus, without ``.json``."""
+    return suite_name(Path(path), Path(CORPUS_DIR))
 
 if REQUIRED and not CORPUS:
     raise RuntimeError(
@@ -91,13 +98,13 @@ def _load(path: str):
 
 
 @pytest.mark.skipif(not CORPUS, reason=f"no exported IR corpus in {CORPUS_DIR}")
-@pytest.mark.parametrize("path", CORPUS, ids=[os.path.basename(f) for f in CORPUS])
+@pytest.mark.parametrize("path", CORPUS, ids=[corpus_name(f) for f in CORPUS])
 def test_corpus_program_round_trips(path, tmp_path):
     _raw, ir = _load(path)
-    built, _source = _rebuild(ir, "corpus/" + os.path.basename(path)[:-5])
+    built, _source = _rebuild(ir, "corpus/" + corpus_name(path))
     rebuilt = built._east_ir
     diff = diff_ir(ir, rebuilt)
-    assert diff is None, f"{os.path.basename(path)}: rebuilt IR differs at {diff}"
+    assert diff is None, f"{corpus_name(path)}: rebuilt IR differs at {diff}"
 
     # Identical execution: the two programs' compliance runs agree test by
     # test. Both run in their NORMALIZED form (loc_ids 0, no source map): a

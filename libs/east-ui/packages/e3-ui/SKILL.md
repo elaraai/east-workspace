@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -14,7 +14,7 @@ evidence — not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
 (`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>` and `<Experiment>`, the `Data` and `Func`
-binding helpers, `Studio` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
+binding helpers, `Studio` and `Query` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
 `<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
 browser-safe entry for render-only bundles).
@@ -113,6 +113,11 @@ Task → What do you need?
     │   ├─ The builder: canvas, palette, inspector, preview → <Studio.Builder pages components project env? audience? rollout? id? />
     │   ├─ Templates, pages, and where new pages start      → <Studio.Library pages components project onOpen? id? />
     │   └─ Show one page, live or draft, with no chrome     → <Studio.Page pages components page version? />
+    │
+    ├─ Let users query the bound datasets and save their queries (typed jq)
+    │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, new Map()) + e3.mutation.patch(queries)
+    │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? id? />
+    │   └─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen? id? />
     │
     ├─ Run the Decide loop over reasoning-task decisions
     │   ├─ Union the bound decision views into one handle → Decision.bind([Contract]?, { decisions, judgements })
@@ -645,6 +650,99 @@ export const opsConsole = ui("ops_console", [], East.function([], UIComponentTyp
 - The page draws no border around itself; a solution places it in a layout of
   its own.
 
+### Queries — `<Query.Builder>` and `<Query.Library>`
+
+Operators build **typed jq queries** over the datasets a surface binds — as steps
+in plain words or as jq — see them checked as they edit, run them to read the
+result, and save them. A solution declares one record of saved queries, with
+one write, a patch:
+
+```ts
+export const queries      = e3.record("queries", Query.Types.Saved, new Map());
+export const queriesPatch = e3.mutation.patch(queries);
+```
+
+`Query.Types.Saved` is `Dict<String, SavedQuery>`, by name. A saved query is
+`{ name, description, query, root, saved_at }`: its checked query (a
+`QueryType`, never text to re-parse), the `{ name, path }` of each data source
+it reads, an optional one-sentence description — none shows a sentence
+generated from its steps — and when it was saved. It saves only once it checks.
+The type never depends on the data sources, so adding one runs no migration.
+
+```tsx
+export const builder = ui("query_builder", [], East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const orders    = $.let(Data.bindPaged(d.orders));   // large: paged, never loaded whole
+        const customers = $.let(Data.bind(d.customers));
+        const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
+        return <Query.Builder queries={saved} datasets={{ orders, customers }} />;
+    }}</Reactive>
+)));
+
+export const library = ui("query_library", [], East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const orders    = $.let(Data.bindPaged(d.orders));
+        const customers = $.let(Data.bind(d.customers));
+        const saved     = $.let(Record.bind(d.queries, [d.queriesPatch]));
+        return <Query.Library queries={saved} datasets={{ orders, customers }} />;
+    }}</Reactive>
+)));
+```
+
+`datasets` is the **root**: a query on this surface reads `.orders` and
+`.customers`, and nothing else. Each name must be a jq identifier and each
+value a `Data.bind`, `Data.bindPaged` or `Record.bind` handle; a surface handed
+none, or a name jq can't read, is refused when it is built. The surface's
+manifest follows: the record, its patch and each bound source.
+
+**`<Query.Builder>`** is the builder: one toolbar (the history item, Copy jq,
+Save… and Run ⌘⏎); a pane with three tabs — **Query** (the steps, each a card of
+plain-word slots with its checked shape after it, or the jq in an editor with
+completions and a problems panel; Visual · jq at the top), **Datasets** (the
+bound data sources — a click starts a new query on one) and **Library** (this
+viewer's recent runs and the saved queries — a click opens one); the results
+beside it, a Table or a tree with Download (CSV, BEAST2); and a status line.
+
+- Every edit is checked at once, in the browser, and is one undoable gesture of
+  the history item; Save (Apply) commits the query as one patch of its one entry,
+  and a save drafted on a changed entry is a conflict, never an overwrite.
+- **Run** checks and translates the query in the browser and runs it on e3 as a
+  **one-shot call** over the data sources it reads — or, when the dataset it
+  works through weighs more than one piece (16 MiB), as a **split call** over
+  that dataset's pieces, which e3 runs as a job of pieces and merges —
+  platform-free either way, so a reader can run it. The results' footer says
+  which ("One call", "Split call · 24 pieces"), and a click explains the plan:
+  the path and why, what each piece runs, how the pieces combine and what runs
+  once after them. Opening a saved query runs it; editing never does. Nothing
+  else reads data but a slot's summary, and a run's dataset status before it
+  plans.
+
+| Prop | Meaning |
+|---|---|
+| `queries` | **required** — the record bound with its patch: `Record.bind(queries, [queriesPatch])` |
+| `datasets` | **required** — the data sources a query may read, by the names it reads them: `{ orders, customers }` |
+| `query` | the saved query it opens first, by name; omitted, a new query on the first data source |
+| `id` | names the builder — needed only when one surface holds two, and then given to the library that opens queries in it |
+
+**`<Query.Library>`** is the saved queries, and where new queries start: one
+toolbar (the search over names, descriptions and data sources; Sort · Recent or
+Name; Grid · List; "+ New query on <data source>"); a pane of the data sources
+with their counts, and Recent; and a gallery, each card a wireframe of its query
+— its source and a bar per step — with its name, its description, "orders · 5
+steps · up to 10 orders · saved Tue" and "Open in builder →". It reads no
+dataset: a card draws a query, never its data. A query opens in the builder that
+shares its `id`, and its card drags onto it. A query whose data sources aren't
+bound here says why and doesn't open.
+
+| Prop | Meaning |
+|---|---|
+| `queries` | **required** — the record bound with its patch |
+| `datasets` | **required** — the same data sources the builder reads |
+| `onOpen` | told a query's name when it opens one in the builder — the host shows the builder |
+| `id` | names the builder whose open query it writes — needed only when one surface holds two builders |
+
+Neither draws a border around itself; each fills its parent's height.
+
 ## Rendering surfaces in an app — `<E3Provider>`
 
 A deployed `ui()` task renders in a React app through
@@ -760,6 +858,9 @@ Tested examples live in `test/*.examples.tsx`:
   its components read, the components, the pages record, and the three surfaces
   it mounts — `<Studio.Builder>`, `<Studio.Library>` and a published
   `<Studio.Page>`.
+- `query/query.examples.tsx` — queries as a solution writes them: the shared
+  fixture's datasets, the saved queries record seeded with seven queries, the
+  builder open on three of them and over an empty record, and the library.
 
 ## Related skills
 

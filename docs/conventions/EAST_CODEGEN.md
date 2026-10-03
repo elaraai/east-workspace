@@ -128,18 +128,19 @@ python), so the mapping is one table.
 | `Assign` | `$.assign(x, v)` | `b.assign(x, v)` |
 | `Return` / `Break` / `Continue` / `Error` | `$.return(v)` / `$.break(label)` / `$.continue(label)` / `$.error(m)` | `b.return_(v)` / `b.break_(label)` / `b.continue_(label)` / `b.error(m)` |
 | Null-typed `IfElse` (statement) | `$.if(p, $ => {…}).elseIf(p, …).else(…)` | `b.if_(p, …).else_if(p, …).else_(…)` |
-| Null-typed `Match` | `$.match(v, { case: ($, x) => {…} })` | `b.match_(v, {"case": …})` |
+| Null-typed `Match` (a statement match whose every case diverges is Never-typed in both builders, as the analyzers require; python prints that one as this statement too, TypeScript as the expression `v.match(…)`) | `$.match(v, { case: ($, x) => {…} })` | `b.match_(v, {"case": …})` |
 | `While` / `ForArray` / `ForSet` / `ForDict` | `$.while(p, ($, label) => {…})` / `$.for(coll, ($, value, key, label) => {…})` | `b.while_(…)` / `b.for_(…)` |
 | Null-typed `TryCatch` | `$.try(…).catch(($, message, stack) => {…}).finally(…)` | `b.try_(…).catch(…).finally_(…)` |
 | an expression in statement position | `$(expr)` | `b.do(expr)` |
 | `Value` literal | `1n`, `1.5`, `"s"`, `true`, `null`, `new Date(…)`, `new Uint8Array([…])` | `1`, `1.5`, `'s'`, `True`, `None`, `datetime(…)`, `b'…'` |
-| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | the host literal `{…}` / `variant(c, v)` / `[…]` / `new Set([…])` / `new Map([…])` (`new Map()` when empty — `new Map([])` is a `Map<unknown, unknown>` to the compiler; an empty set stays `new Set([])`, a `Set<never>`) / `ref(v)` / `new Float64Array([…])` / `matrix(…)`, an Option case `some(v)` / `none` — bare in a position the surface types (`xs.concat([1n, 2n])`, `f({ a: 1n })`, a `$.return`, a declared output) and, in a callback's return (its type is inferred from the value), bare when the literal types itself — a struct, a non-empty collection of such — and `East.value(…, T)` otherwise (`none`, `[]`, a `variant`, a `some`) | the python literal `{…}` / `[…]` / `some(v)` / `none` / `variant(c, v)`, bare in a typed position (an assignment, a `b.return_`, a declared return, a call argument) and, in a method's argument or a callback's return, bare when the value lifts on its own — a struct of scalars and expressions; a python list or dict has no element type without a hint — else `East.value(…, T)` / the `East.new_*` constructor (a set always) |
+| `Struct` / `Variant` / `NewArray` / `NewSet` / `NewDict` / `NewRef` / `NewVector` / `NewMatrix` | the host literal `{…}` / `variant(c, v)` / `[…]` / `new Set([…])` / `new Map([…])` (`new Map()` when empty — `new Map([])` is a `Map<unknown, unknown>` to the compiler; an empty set stays `new Set([])`, a `Set<never>`; a Float-keyed set or map holding -0.0 is `new SortedSet([…], compareFor(FloatType))` / `new SortedMap([…], compareFor(FloatType))`, since JavaScript's own fold -0 into 0) / `ref(v)` / `new Float64Array([…])` / `matrix(…)`, an Option case `some(v)` / `none` (`none` over the null literal only; any other payload is `variant("none", v)`) — bare in a position the surface types (`xs.concat([1n, 2n])`, `f({ a: 1n })`, a `$.return`, a declared output) and, in a callback's return (its type is inferred from the value), bare when the literal types itself — a struct, a non-empty collection of such — and `East.value(…, T)` otherwise (`none`, `[]`, a `variant`, a `some`) | the python literal `{…}` / `[…]` / `some(v)` / `none` / `variant(c, v)` (`none` over the null literal only, as in TypeScript), bare in a typed position (an assignment, a `b.return_`, a declared return, a call argument) and, in a method's argument or a callback's return, bare when the value lifts on its own — a struct of scalars and expressions; a python list or dict has no element type without a hint — else `East.value(…, T)` / the `East.new_*` constructor (a set always) |
 | `GetField` | `s.field` (or `s["odd-name"]`) | `s.field` |
 | `Call` / `CallAsync` | `f(args)`; a closure-free Function literal called where it stands hoists to `const _fN = East.function(…)` and is called `_fN(args)` | `f(args)`; a Function literal called where it stands stays inline, `East.function(…)(args)` (an artifact call splices, #470) |
 | expression `IfElse` (one predicate per node) | `p.ifElse($ => a, $ => b)` — more branches nest in the else arm | `East.if_else(…)` |
 | expression `Match` | `v.match({ case: ($, x) => e })`; the match `unwrap` lowers to — one arm returns its variable, every other errors `Variant does not have case <it>` — prints `v.unwrap()` / `v.unwrap("case")` | `v.match({…})`; the `unwrap` match `v.unwrap()` / `v.unwrap('case')` |
 | expression `TryCatch` (no finally) | `Expr.tryCatch(body, ($, message, stack) => e)` | `East.try_catch(…)` |
 | expression `Block` | `Expr.block($ => { …; return e; })` | `East.block(…)` |
+| a `Call` of the `Query` builtin `East.jq` emits (#927, #1041): `Call(Builtin("Query", [F], [<query>, <translation>]), [inputs])`, its query a constant `QueryCallType` | `East.jq(input, "<jq>", T)`: the jq text is `printJq` of the query's program, as written; `T` is `F`'s result; named inputs, as `{ name: value, … }`, take the query's input names. A `Query` whose query is not such a constant prints raw (`East.builtin`) | `East.jq(input, '<jq>', result_type=T)`, named inputs as a dict — the same rule |
 | `As` / `WrapRecursive` / `UnwrapRecursive` | `East.as(v, T)` / `East.wrapRecursive(v, T)` / `v.unwrap()` | `East.as_(v, T)` / `East.wrap_recursive(v, T)` / `v.unwrap()` |
 | `Platform` | the library's export when its module is given — `Compression.Tar.create(args)`, imported (`libraries`); else `const <name> = East.platform(name, [T…], O)`; `<name>(args)`; generic: `East.genericPlatform(…)` called `<name>([T…], args)` | the implementing package's export when its package is given — `gzip_compress(args)`, imported (`providers`), generic called `<name>(T…, args)` with the type arguments spread; else `<name> = East.platform(…)`; `<name>(args)` — the declaration's name is the platform function's (`tar_create`), generic called `<name>([T…], args)` |
 | `Builtin` with a spelling row | the row (`{0}.add({1})`, `East.print({0})`, …) | the row (`{0}.add({1})`, `East.print({0})`, …) |
@@ -178,7 +179,7 @@ plus flags:
 | `exprs` (TS) | slots the surface types `Expr`-only (`merge<T2>(key, value: Expr<T2>, …)`); a literal there prints through `East.value` |
 | `inferred` (TS) | slots whose East type the surface infers from the argument — an unconstrained type parameter (`reduce<T2>(fn, init: T2)`); a construction prints bare there only when it types itself (`0n`, `{ a: x }`; not `[]`, `none`) |
 | `floatOnly` | stdlib constructors the surface declares for Float only (`East.Vector.zeros`); other element types print raw |
-| `adapter` | a host-value argument shape: `regex` (`{R}` = pattern + flags, printed `new RegExp(p, f)` / `re.compile`), `csv` (`{C}` = the options struct, printed as an options object; dropped when every option is `none`) |
+| `adapter` | a host-value argument shape: `regex` (`{R}` = pattern + flags, printed `new RegExp(p, f)` / `re.compile` — raw where JavaScript would re-spell them, as the surface stores the RegExp's `source` and `flags`: `new RegExp("").source` is `(?:)`, a `/` reads back `\/`, flags come back in its own order), `csv` (`{C}` = the options struct, printed as an options object; dropped when every option is `none`) |
 
 The two tables list the same builtins under each language's names; the
 python name-parity test (`tests/test_ts_name_parity.py`) keeps the
@@ -196,9 +197,17 @@ Three suites, one contract:
 
 | Suite | Direction | Corpus |
 |---|---|---|
-| `libs/east/src/codegen/codegen.spec.ts` | IR → TypeScript → IR (+ executes on east-node) | hand-written coverage of every node kind; every exported example (`/tmp/east-examples-ir`); every compliance program (`/tmp/east-test-ir`) |
-| `tests/conformance/test_ts_py_roundtrip.py` | IR → python → IR (+ executes on east-c; every corpus program's compliance run compared with the original's) | the same |
-| `tests/conformance/test_three_way_sweep.py` | IR₁ → python → IR₂ → TypeScript (`east-node transpile --rebuild`) → IR₃, `IR₁ ≡ IR₂ ≡ IR₃` (+ IR₃ executes on east-c) | the same |
+| `libs/east/src/codegen/codegen.spec.ts` | IR → TypeScript → IR (+ executes on east-node) | hand-written coverage of every node kind; every exported example (`/tmp/east-examples-ir`); every compliance program (`/tmp/east-test-ir`), and the query suites beside it (every `query-*` directory: `query-conformance/`, `query-types/`, `query-corpus/`, #987) |
+| `tests/conformance/test_ts_py_roundtrip.py` | IR → python → IR (+ executes on east-c; every corpus program's compliance run compared with the original's) | the same (the query suites as `test_compliance.py`'s `SUITE_SUBDIRECTORIES`) |
+| `tests/conformance/test_three_way_sweep.py` | IR₁ → python → IR₂ → TypeScript (`east-node transpile --rebuild`) → IR₃, `IR₁ ≡ IR₂ ≡ IR₃` (+ IR₃ executes on east-c) | the same as the python round trip |
+
+A query built with `East.jq` is a call of the `Query` builtin, and prints as
+`East.jq(…)` in both languages (#927, #1041). Rebuilding it translates the
+query again: the translation is deterministic (#923) and python's is
+TypeScript's (#926), so the rebuilt IR equals the original under the
+normaliser. The query suites (`query-conformance/`, `query-types/`,
+`query-corpus/`) hold raw translations, and print as the translated code;
+`East_jq.json` holds the builtin.
 
 The corpora are exported once from TypeScript (`make test-export`, `npm run
 export:examples` in `libs/east`) and read by every suite from

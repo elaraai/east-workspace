@@ -27,14 +27,17 @@ from __future__ import annotations
 import pytest
 
 from tests.eager_replay import EagerEvaluator, Report, load_ir
-from tests.test_compliance import TEST_IR_DIR, get_test_ir_files
+from tests.test_compliance import SUITE_SUBDIRECTORIES, TEST_IR_DIR, get_test_ir_files, suite_name
 
 # Builtins the corpus exercises that still route through the funnel — the
 # measured register gap (#452's ratchet): shrinking it is progress, growing
 # it fails here. ArrayGetKeys carries a hand-built getter callback the surface
 # derives from the receiver; the formatted-datetime pair takes a pre-tokenized
-# token array the namespace sugar builds from a format STRING.
-FUNNEL_ONLY = frozenset({"ArrayGetKeys", "DateTimeParseFormat", "DateTimePrintFormat"})
+# token array the namespace sugar builds from a format STRING. Query (#1041)
+# is East.jq's: the surface spells a whole call of it as `East.jq(...)`, never
+# the builtin alone, so the replay runs the builtin as east-c implements it,
+# its query and translation evaluated as any builtin's arguments are.
+FUNNEL_ONLY = frozenset({"ArrayGetKeys", "DateTimeParseFormat", "DateTimePrintFormat", "Query"})
 
 KNOWN_DIFFS: dict[str, tuple[str, frozenset[str]]] = {}
 
@@ -51,7 +54,8 @@ _TOTAL = Report()
 
 def pytest_generate_tests(metafunc):
     if "stem" in metafunc.fixturenames:
-        stems = [f.stem for f in get_test_ir_files()]
+        # Each suite by its path under the IR directory: the query suites (#924, #987) are in directories of their own.
+        stems = [suite_name(f) for f in get_test_ir_files(subdirectories=SUITE_SUBDIRECTORIES)]
         metafunc.parametrize("stem", stems, ids=stems)
 
 

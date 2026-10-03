@@ -16,6 +16,7 @@ import { dict_builtins } from "./dict.js";
 import { vector_builtins } from "./vector.js";
 import { sparse_builtins } from "./sparse.js";
 import { matrix_builtins } from "./matrix.js";
+import { query_builtins } from "./query.js";
 
 /** @internal Every builtin's implementation, keyed by name. */
 export const builtin_evaluators: Record<BuiltinName, BuiltinEvaluator> = {
@@ -31,4 +32,5 @@ export const builtin_evaluators: Record<BuiltinName, BuiltinEvaluator> = {
   ...vector_builtins,
   ...sparse_builtins,
   ...matrix_builtins,
+  ...query_builtins,
 };

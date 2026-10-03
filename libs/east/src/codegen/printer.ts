@@ -30,7 +30,10 @@
  *   Struct / Variant / NewArray / NewSet / NewDict / NewRef / NewVector /
  *   NewMatrix as the host literal — printed by `literalFor(T)`, a factory
  *   over the type (as `compareFor` is) under which a construction nested
- *   anywhere prints bare, an Option case as `some(v)` / `none` — bare
+ *   anywhere prints bare, an Option case as `some(v)` / `none` (`none` only
+ *   over the null literal), a Float-keyed set or map holding -0.0 as East's
+ *   `SortedSet` / `SortedMap` under `compareFor` (JavaScript's own fold -0
+ *   into 0) — bare
  *   wherever the surface types the position (a binding, `$.let(new
  *   Map([...]), T)`; a method's value slot, `xs.concat([1n, 2n])`; a call
  *   argument; a declared return) or the literal types itself (a callback
@@ -38,7 +41,9 @@
  *   type would otherwise be lost (a callback returning `none`, an empty
  *   collection or a general `variant`) — an expression IfElse / Match /
  *   TryCatch / Block through `.ifElse(...)` / `.match({...})` /
- *   `Expr.tryCatch(...)` / `Expr.block(...)`, the match `unwrap` lowers to
+ *   `Expr.tryCatch(...)` / `Expr.block(...)`, a call of the `Query` builtin
+ *   as the `East.jq(input, "<jq>", T)` that built it, read from its query
+ *   (#927, #1041), the match `unwrap` lowers to
  *   as `.unwrap()` / `.unwrap("case")`, a Builtin through its spelling
  *   row (callbacks as `($, ...) => ...` arrows) or the raw
  *   `East.builtin(name, [T...], [args], out)`, an As through `East.as`, a
@@ -83,9 +88,12 @@
 
 import { Expr } from "../expr/expr.js";
 import { isPlatformDeclaration, type PlatformDeclaration } from "../expr/block.js";
-import { toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
-import type { EastType } from "../types.js";
+import { printJq } from "../query/jq/print.js";
+import { QueryCallType } from "../query/types.js";
+import { isTypeValueEqual, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
+import type { EastType, ValueTypeOf } from "../types.js";
 import { IMPORT_PLATFORM } from "../functions.js";
+import { constValueOf } from "../walker.js";
 import { spellingFor, type Spelling } from "./spellings.js";
 import { TYPE_IMPORTS, isOptionValue, objectKey, typeConstructors, typeDoc, typeKey } from "./types.js";
 import {
@@ -136,6 +144,9 @@ const RESERVED = new Set([
   "true", "try", "typeof", "var", "void", "while", "with", "yield", "let", "static",
   "implements", "interface", "package", "private", "protected", "public", "await", "async",
   "arguments", "eval", "East", "Expr", "variant", "ref", "matrix", "undefined", "NaN", "Infinity",
+  // the rest of what a printed module imports: a variable of one of these names
+  // would shadow the import for its whole function (`none` used before `const none`)
+  "some", "none", "SortedSet", "SortedMap", "compareFor", ...TYPE_IMPORTS,
 ]);
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A template slot: an argument, a type parameter, the RegExp or the CSV options. */
@@ -381,6 +392,60 @@ function platformArgument(node: Node): Node {
   if (node.type !== "As") return node;
   const inner = node.value.value as Node;
   return EXPRESSIONS.has(inner.type) ? inner : node;
+}
+
+/**
+ * Whether `new RegExp(pattern, flags)` reads back the same pattern and flags:
+ * JavaScript re-spells some (`new RegExp("").source` is `(?:)`, a `/` reads
+ * back `\/`, flags come back in its own order), and refuses others. A regex
+ * it would change prints raw, so it rebuilds as it was.
+ */
+function regexKeeps(pattern: string, flags: string): boolean {
+  try {
+    const r = new RegExp(pattern, flags);
+    return r.source === pattern && r.flags === flags;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether JavaScript's `Set` or `Map` would fold one of a collection
+ * literal's keys: a Float key of `-0`, which both store as `0`. East keeps
+ * -0.0 apart from 0.0, so such a literal is East's own sorted collection.
+ */
+function foldsKey(key: EastTypeValue, keys: Node[]): boolean {
+  return key.type === "Float" && keys.some(k => k.type === "Value" && Object.is(k.value.value.value, -0));
+}
+
+/** {@link QueryCallType}'s type value, made when the first query is printed. */
+let queryCallType: EastTypeValue | undefined;
+
+/**
+ * The parts of a call of the `Query` builtin (#1041), read from its query,
+ * or `null` for any other node: the program, a root's input names (none for
+ * one input), and the result type, which is the translation's. A query that
+ * is not a constant, or does not fit its call, gives `null`, and the call
+ * prints as it stands.
+ */
+function queryCall(node: Node): { program: string, names: string[] | null, resultType: EastTypeValue } | null {
+  if (node.type !== "Call") return null;
+  const head = node.value.function as Node;
+  if (head.type !== "Builtin" || head.value.builtin !== "Query") return null;
+  if (!isTypeValueEqual((head.value.arguments[0] as Node).value.type, queryCallType ??= toEastTypeValue(QueryCallType))) return null;
+  let query: ValueTypeOf<typeof QueryCallType>;
+  try {
+    query = constValueOf(head.value.arguments[0]) as ValueTypeOf<typeof QueryCallType>;
+  } catch {
+    return null;
+  }
+  const q = query.value;
+  const args = node.value.arguments as Node[];
+  const fn = (head.value.type_parameters as EastTypeValue[])[0];
+  if (fn?.type !== "Function") return null;
+  const names = q.inputs.type === "some" ? q.inputs.value : null;
+  if (args.length !== (names?.length ?? 1)) return null;
+  return { program: printJq(q.program).text, names, resultType: fn.value.output };
 }
 
 /** A structural key for a Function node: two inlined copies of one artifact print once. */
@@ -981,6 +1046,8 @@ class Printer {
         return this.functionExpr(node, scope);
       case "Call":
       case "CallAsync": {
+        const query = this.jqCall(node, scope, pre, d);
+        if (query !== null) return query;
         const head = p.function as Node;
         // the callee's declared inputs type its arguments
         const args = (p.arguments as Node[]).map(a => this.valueDoc(a, scope, pre, d, true));
@@ -1116,11 +1183,16 @@ class Printer {
           : null;
       }
       case "Set": {
-        const elem = child(t.value as EastTypeValue);
+        const keyType = t.value as EastTypeValue;
+        const elem = child(keyType);
         // an empty set stays `new Set([])`: the compiler types it `Set<never>`, which every East slot admits (`new Set()` is a `Set<unknown>`, which none does)
-        return (node, scope, pre, depth) => node.type === "NewSet"
-          ? hug(["new Set(", bracket("[", (node.value.values as Node[]).map(v => elem(v, scope, pre, depth + 1)), "]"), ")"])
-          : null;
+        return (node, scope, pre, depth) => {
+          if (node.type !== "NewSet") return null;
+          const values = node.value.values as Node[];
+          const items = bracket("[", values.map(v => elem(v, scope, pre, depth + 1)), "]");
+          if (foldsKey(keyType, values)) return hug([this.sortedCollection("SortedSet"), items, ", ", this.eastOrder(keyType), ")"]);
+          return hug(["new Set(", items, ")"]);
+        };
       }
       case "Dict": {
         const kv = t.value as { key: EastTypeValue, value: EastTypeValue };
@@ -1131,8 +1203,10 @@ class Printer {
           const entries = node.value.values as { key: Node, value: Node }[];
           // an empty map is `new Map()`: the compiler types `new Map([])` `Map<unknown, unknown>`, which no East slot admits
           if (entries.length === 0) return "new Map()";
-          return hug(["new Map(", bracket("[", entries
-            .map(e => bracket("[", [key(e.key, scope, pre, depth + 1), value(e.value, scope, pre, depth + 1)], "]")), "]"), ")"]);
+          const items = bracket("[", entries
+            .map(e => bracket("[", [key(e.key, scope, pre, depth + 1), value(e.value, scope, pre, depth + 1)], "]")), "]");
+          if (foldsKey(kv.key, entries.map(e => e.key))) return hug([this.sortedCollection("SortedMap"), items, ", ", this.eastOrder(kv.key), ")"]);
+          return hug(["new Map(", items, ")"]);
         };
       }
       case "Struct": {
@@ -1148,13 +1222,15 @@ class Printer {
         return (node, scope, pre, depth) => {
           if (node.type !== "Variant") return null;
           const c = node.value.case as string;
-          if (option && c === "none") {
+          // `none` is the option whose payload is the null literal; a payload computed some other way is spelled as it is
+          if (option && c === "none" && isNullValue(node.value.value)) {
             this.used.add("none");
             return "none";
           }
           const payload = (cases.get(c) ?? asExpr)(node.value.value, scope, pre, depth + 1);
-          this.used.add(option ? "some" : "variant");
-          return option ? ["some", callArgs([payload])] : ["variant", callArgs([JSON.stringify(c), payload])];
+          const some = option && c === "some";
+          this.used.add(some ? "some" : "variant");
+          return some ? ["some", callArgs([payload])] : ["variant", callArgs([JSON.stringify(c), payload])];
         };
       }
       case "Ref": {
@@ -1177,6 +1253,18 @@ class Printer {
         // Never, Function, AsyncFunction, Recursive: no host literal at this position
         return () => null;
     }
+  }
+
+  /** `new SortedSet(` or `new SortedMap(`, imported: East's own collection, for keys JavaScript's would fold. */
+  sortedCollection(name: "SortedSet" | "SortedMap"): string {
+    this.used.add(name);
+    return `new ${name}(`;
+  }
+
+  /** `compareFor(T)`, imported: the order East keeps a key type's values in. */
+  eastOrder(key: EastTypeValue): Doc {
+    this.used.add("compareFor");
+    return ["compareFor(", this.typeRef(key), ")"];
   }
 
   /** A literal-only NewVector / NewMatrix payload as its typed array. */
@@ -1218,11 +1306,27 @@ class Printer {
     return this.callbackExpr(body, [], scope, pre);
   }
 
-  /** An expression arm that must be an Expr: a Block as `Expr.block(...)`,
-   * a literal through `East.value`. */
+  /** An expression arm that must be an Expr: a Block as `Expr.block(...)`, a literal through `East.value`. */
   armExpr(body: Node, scope: Scope, pre: Doc[], depth: number): Doc {
     if (body.type === "Block") return this.blockExpr(body, scope);
     return this.tracedExpr(body, scope, pre, depth);
+  }
+
+  /**
+   * `East.jq(<input>, "<jq>", <result type>)` for a call of the `Query`
+   * builtin (#1041), from its query: its input the call's one argument, or
+   * for a root an object of its input names, each the call's argument in its
+   * place; the jq its program as written; the result type its translation's.
+   * `null` for any other node, which prints as it stands.
+   */
+  jqCall(node: Node, scope: Scope, pre: Doc[], depth: number): Doc | null {
+    const parts = queryCall(node);
+    if (parts === null) return null;
+    const values = (node.value.arguments as Node[]).map(a => this.tracedExpr(a, scope, pre, depth + 1));
+    const input: Doc = parts.names === null
+      ? values[0]!
+      : hug(bracket("{", parts.names.map((name, i): Doc => [objectKey(name), ": ", values[i]!]), "}", " "));
+    return ["East.jq", callArgs([input, JSON.stringify(parts.program), this.typeRef(parts.resultType)])];
   }
 
   /** A Block in expression position: `Expr.block(($) => { ... })`. */
@@ -1280,9 +1384,12 @@ class Printer {
     let regex: string | null = null;
     let csv: string | null = null;
     if (row.adapter === "regex") {
-      // the pattern and flags are String literals: a RegExp literal
+      // the pattern and flags are String literals: a RegExp literal, when
+      // JavaScript keeps them as they are — the surface stores the RegExp's
+      // `source` and `flags`
       const [pat, flags] = [args[1], args[2]];
       if (!pat || !flags || pat.type !== "Value" || flags.type !== "Value") return null;
+      if (!regexKeeps(pat.value.value.value, flags.value.value.value)) return null;
       regex = `new RegExp(${literal(pat.value.value)}, ${literal(flags.value.value)})`;
     }
     if (row.adapter === "csv") {
@@ -1291,6 +1398,11 @@ class Printer {
       if (opts === null) return null;
       csv = opts;
     }
+    // The slot a method template calls on: its receiver, wherever the IR has
+    // it (`{1}.durationMilliseconds({0})` calls on the second argument).
+    const call = parseCallTemplate(row.template);
+    const head = call === null ? null : METHOD_HEAD.exec(call.head);
+    const receiver = head === null ? 0 : Number(head[1]);
     args.forEach((arg, i) => {
       if (row.adapter === "regex" && (i === 1 || i === 2)) { texts.push(""); return; }
       if (row.adapter === "csv" && i === args.length - 1) { texts.push(""); return; }
@@ -1299,14 +1411,14 @@ class Printer {
         texts.push(this.callbackExpr(fp.body, [...fp.parameters], scope, pre));
         return;
       }
-      // The first operand is always an Expr (a literal receiver has no
-      // methods, and the namespace helpers read their first argument's
-      // type), as is every slot the row marks `exprs`; a slot the row marks
-      // `inferred` takes its East type from the argument, so a construction
-      // prints bare only when it types itself; every other slot is typed by
-      // the surface (`SubtypeExprOrValue`, checked against the signatures by
-      // spellings.spec.ts), so a construction prints bare.
-      texts.push(i === 0 || exprs.has(i)
+      // The receiver and the first operand are always Exprs (a literal
+      // receiver has no methods, and the namespace helpers read their first
+      // argument's type), as is every slot the row marks `exprs`; a slot the
+      // row marks `inferred` takes its East type from the argument, so a
+      // construction prints bare only when it types itself; every other slot
+      // is typed by the surface (`SubtypeExprOrValue`, checked against the
+      // signatures by spellings.spec.ts), so a construction prints bare.
+      texts.push(i === 0 || i === receiver || exprs.has(i)
         ? this.tracedExpr(arg, scope, pre, depth)
         : this.valueDoc(arg, scope, pre, depth, !inferred.has(i)));
     });
@@ -1407,7 +1519,7 @@ class Printer {
     // A python artifact's hoisted constants become the body's own consts.
     const fnDoc = this.functionExpr(root, new Scope(null), consts);
     // exactly the names the module uses, in one fixed order
-    const names = ["East", "Expr", "variant", "some", "none", "ref", "matrix", ...TYPE_IMPORTS].filter(n => this.used.has(n));
+    const names = ["East", "Expr", "variant", "some", "none", "ref", "matrix", "SortedSet", "SortedMap", "compareFor", ...TYPE_IMPORTS].filter(n => this.used.has(n));
     const parts: Doc[] = [
       "// Generated by east-node transpile — East IR printed as the East.function",
       "// builder surface. Rebuilding this module yields the same IR (normalized).",

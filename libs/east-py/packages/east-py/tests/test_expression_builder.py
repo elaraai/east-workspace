@@ -67,6 +67,20 @@ def test_declared_output_types_the_root_expression():
     assert build(-1).type == "err"
 
 
+def test_declared_output_is_one_recursive_type_however_its_wrappers_are_numbered():
+    # A recursive type and its canonical copy number their wrappers
+    # differently; the TypeScript analyzer holds them one type, and so does
+    # the builder (#926: East.jq's result type met a fixture's copy).
+    from east.types.type_of_type import canonical_type_value
+    from east.types.types import ArrayType, RecursiveType
+
+    tree = RecursiveType(lambda self: StructType([("children", ArrayType(self)), ("sku", StringType)]))
+    renumbered = canonical_type_value(tree)
+    assert renumbered != tree
+    same = East.function([tree], renumbered, lambda _b, t: t)
+    assert same({"children": [], "sku": "A"})["sku"] == "A"
+
+
 def test_zero_parameter_function():
     assert East.function([], IntegerType, lambda _b: 40 + 2)() == 42
 

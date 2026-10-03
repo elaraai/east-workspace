@@ -124,6 +124,51 @@ export {
     publishSummary,
     publishRefusal,
 } from './studio/index.js';
+
+// The query builder and the query library (#875): their factories and
+// carriers, the payloads the renderers take, the East they call, and the types
+// the step functions take. `Query` here is the internal namespace — the public
+// one, and the saved queries' East.
+export {
+    QueryInternal as Query,
+    QueryAggregateFunctionType,
+    QueryAggregateType,
+    QueryBuilder,
+    QueryBuilderComponent,
+    QueryBuilderPayloadType,
+    QueryLibrary,
+    QueryLibraryComponent,
+    QueryLibraryPayloadType,
+    QueryComparisonType,
+    QueryConditionType,
+    QueryDatePartType,
+    QueryGroupByType,
+    QueryInputType,
+    QueryMatchType,
+    QueryPickFieldType,
+    QueryResultType,
+    QueryRootBoundType,
+    QueryRootEntryType,
+    QuerySortDirectionType,
+    QueryStepInputType,
+    QueryStepType,
+    QueryStepValueType,
+    QueryStepsType,
+    QueriesHandleType,
+    SavedQueriesPatchType,
+    SavedQueriesType,
+    SavedQueryType,
+    queryKeys,
+    rootBound,
+    saveQuery,
+    type QueriesHandle,
+    type QueryBuilderOptions,
+    type QueryInternalNamespace,
+    type QueryLibraryOptions,
+    type QueryNamespace,
+    type QueryTypes,
+} from './query/index.js';
+export { DataSourceType, dataSources, type BoundSource } from './bind/sources.js';
 export {
     Diff,
     DiffComponent,

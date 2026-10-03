@@ -1,0 +1,1811 @@
+{
+  "builtins": [
+    {
+      "name": "empty",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "error",
+      "status": "supported",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "not",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "select",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "first",
+      "status": "supported",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "last",
+      "status": "supported",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "nth",
+      "status": "supported",
+      "arities": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "limit",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "skip",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "isempty",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "range",
+      "status": "supported",
+      "arities": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "recurse",
+      "status": "supported",
+      "arities": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "until",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "while",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "repeat",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "combinations",
+      "status": "supported",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "walk",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "IN",
+      "status": "supported",
+      "arities": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "INDEX",
+      "status": "supported",
+      "arities": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "JOIN",
+      "status": "unavailable",
+      "arities": [
+        2,
+        3,
+        4
+      ],
+      "reason": "its pairs [row, match] hold two types, which one East array cannot"
+    },
+    {
+      "name": "getpath",
+      "status": "unavailable",
+      "arities": [
+        1
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds; write the path as field reads and indexes, .a.b[0]"
+    },
+    {
+      "name": "setpath",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds; write the path as field reads and indexes, .a.b[0]"
+    },
+    {
+      "name": "delpaths",
+      "status": "unavailable",
+      "arities": [
+        1
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds; write the path as field reads and indexes, .a.b[0]"
+    },
+    {
+      "name": "path",
+      "status": "unavailable",
+      "arities": [
+        1
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds"
+    },
+    {
+      "name": "paths",
+      "status": "unavailable",
+      "arities": [
+        0,
+        1
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds"
+    },
+    {
+      "name": "tostream",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds"
+    },
+    {
+      "name": "fromstream",
+      "status": "unavailable",
+      "arities": [
+        1
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds"
+    },
+    {
+      "name": "truncate_stream",
+      "status": "unavailable",
+      "arities": [
+        1
+      ],
+      "reason": "a path array mixes strings and integers, which no one East type holds"
+    },
+    {
+      "name": "del",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "to_entries",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "from_entries",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "with_entries",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "pick",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "transpose",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "length",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "utf8bytelength",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "keys",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "keys_unsorted",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "has",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "in",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "map",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "map_values",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "add",
+      "status": "supported",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "any",
+      "status": "supported",
+      "arities": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "all",
+      "status": "supported",
+      "arities": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "flatten",
+      "status": "supported",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "sort",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "sort_by",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "group_by",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "unique_by",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "min_by",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "max_by",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "unique",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "min",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "max",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "reverse",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "contains",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "inside",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "index",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "rindex",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "indices",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "bsearch",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "join",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "type",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "arrays",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "objects",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "iterables",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "booleans",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "numbers",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "strings",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "nulls",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "values",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "scalars",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "normals",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "finites",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "tostring",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "tojson",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "tonumber",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "toboolean",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "builtins",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "infinite",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "nan",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "isfinite",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "isinfinite",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "isnan",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "isnormal",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "abs",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "fromjson",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "its result has no static type; parse into a known type in the program that runs the query"
+    },
+    {
+      "name": "implode",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin between a string and its code points"
+    },
+    {
+      "name": "explode",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin between a string and its code points"
+    },
+    {
+      "name": "have_decnum",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "it describes jq's build, not the data"
+    },
+    {
+      "name": "have_literal_numbers",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "it describes jq's build, not the data"
+    },
+    {
+      "name": "splits",
+      "status": "unavailable",
+      "arities": [
+        1,
+        2
+      ],
+      "reason": "East regular expressions have no regex split"
+    },
+    {
+      "name": "match",
+      "status": "unavailable",
+      "arities": [
+        1,
+        2
+      ],
+      "reason": "East regular expressions have no capture groups (§13.8)"
+    },
+    {
+      "name": "capture",
+      "status": "unavailable",
+      "arities": [
+        1,
+        2
+      ],
+      "reason": "East regular expressions have no capture groups (§13.8)"
+    },
+    {
+      "name": "scan",
+      "status": "unavailable",
+      "arities": [
+        1,
+        2
+      ],
+      "reason": "East regular expressions have no capture groups (§13.8)"
+    },
+    {
+      "name": "@base64d",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "no East builtin makes a Blob from bytes"
+    },
+    {
+      "name": "@urid",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "no East builtin makes a Blob from bytes"
+    },
+    {
+      "name": "startswith",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "endswith",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "ltrimstr",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "rtrimstr",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "trimstr",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "trim",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "ltrim",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "rtrim",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "ascii_downcase",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "ascii_upcase",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "split",
+      "status": "supported",
+      "arities": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "test",
+      "status": "supported",
+      "arities": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "sub",
+      "status": "supported",
+      "arities": [
+        2,
+        3
+      ]
+    },
+    {
+      "name": "gsub",
+      "status": "supported",
+      "arities": [
+        2,
+        3
+      ]
+    },
+    {
+      "name": "format",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "@text",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@json",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@html",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@uri",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@base64",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@csv",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@tsv",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "@sh",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "floor",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "ceil",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "round",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "trunc",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "sqrt",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "log",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "log2",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "log10",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "exp",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "exp2",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "exp10",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "sin",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "cos",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "tan",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "fabs",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "pow",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "fmin",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "fmax",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "fmod",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "acos",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "acosh",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "asin",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "asinh",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "atan",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "atanh",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "cbrt",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "cosh",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "erf",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "erfc",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "expm1",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "frexp",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "gamma",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "j0",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "j1",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "lgamma",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "lgamma_r",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "log1p",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "logb",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "modf",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "nearbyint",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "rint",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "significand",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "sinh",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "tanh",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "tgamma",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "y0",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "y1",
+      "status": "unavailable",
+      "arities": [
+        0
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "atan2",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "copysign",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "drem",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "fdim",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "hypot",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "jn",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "ldexp",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "nextafter",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "nexttoward",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "remainder",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "scalb",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "scalbln",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "yn",
+      "status": "unavailable",
+      "arities": [
+        2
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "fma",
+      "status": "unavailable",
+      "arities": [
+        3
+      ],
+      "reason": "East has no builtin for it"
+    },
+    {
+      "name": "todate",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "todateiso8601",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "fromdate",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "fromdateiso8601",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "strftime",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "strptime",
+      "status": "supported",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "year",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "month",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "day",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "hour",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "minute",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "second",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "millisecond",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "weekday",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "epoch_ms",
+      "status": "supported",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "datetime_add",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "datetime_diff",
+      "status": "supported",
+      "arities": [
+        2
+      ]
+    },
+    {
+      "name": "gmtime",
+      "status": "not_yet",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "mktime",
+      "status": "not_yet",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "now",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "localtime",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "strflocaltime",
+      "status": "excluded",
+      "arities": [
+        1
+      ]
+    },
+    {
+      "name": "env",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "input",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "inputs",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "input_filename",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "input_line_number",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "stderr",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "halt",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "get_search_list",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "get_prog_origin",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "get_jq_origin",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "modulemeta",
+      "status": "excluded",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "debug",
+      "status": "excluded",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "halt_error",
+      "status": "excluded",
+      "arities": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "call",
+      "status": "supported",
+      "arities": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "name": "signature",
+      "status": "tooling",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "source",
+      "status": "tooling",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "calls",
+      "status": "tooling",
+      "arities": [
+        0
+      ]
+    },
+    {
+      "name": "captures",
+      "status": "tooling",
+      "arities": [
+        0
+      ]
+    }
+  ],
+  "translations": [
+    "@base64",
+    "@csv",
+    "@html",
+    "@json",
+    "@sh",
+    "@text",
+    "@tsv",
+    "@uri",
+    "IN",
+    "INDEX",
+    "abs",
+    "add",
+    "all",
+    "any",
+    "arrays",
+    "ascii_downcase",
+    "ascii_upcase",
+    "booleans",
+    "bsearch",
+    "builtins",
+    "call",
+    "calls",
+    "captures",
+    "ceil",
+    "combinations",
+    "contains",
+    "cos",
+    "datetime_add",
+    "datetime_diff",
+    "day",
+    "del",
+    "empty",
+    "endswith",
+    "epoch_ms",
+    "error",
+    "exp",
+    "exp10",
+    "exp2",
+    "fabs",
+    "finites",
+    "first",
+    "flatten",
+    "floor",
+    "fmax",
+    "fmin",
+    "fmod",
+    "format",
+    "from_entries",
+    "fromdate",
+    "fromdateiso8601",
+    "group_by",
+    "gsub",
+    "has",
+    "hour",
+    "in",
+    "index",
+    "indices",
+    "infinite",
+    "inside",
+    "isempty",
+    "isfinite",
+    "isinfinite",
+    "isnan",
+    "isnormal",
+    "iterables",
+    "join",
+    "keys",
+    "keys_unsorted",
+    "last",
+    "length",
+    "limit",
+    "log",
+    "log10",
+    "log2",
+    "ltrim",
+    "ltrimstr",
+    "map",
+    "map_values",
+    "max",
+    "max_by",
+    "millisecond",
+    "min",
+    "min_by",
+    "minute",
+    "month",
+    "nan",
+    "normals",
+    "not",
+    "nth",
+    "nulls",
+    "numbers",
+    "objects",
+    "pick",
+    "pow",
+    "range",
+    "recurse",
+    "repeat",
+    "reverse",
+    "rindex",
+    "round",
+    "rtrim",
+    "rtrimstr",
+    "scalars",
+    "second",
+    "select",
+    "signature",
+    "sin",
+    "skip",
+    "sort",
+    "sort_by",
+    "source",
+    "split",
+    "sqrt",
+    "startswith",
+    "strftime",
+    "strings",
+    "strptime",
+    "sub",
+    "tan",
+    "test",
+    "to_entries",
+    "toboolean",
+    "todate",
+    "todateiso8601",
+    "tojson",
+    "tonumber",
+    "tostring",
+    "transpose",
+    "trim",
+    "trimstr",
+    "trunc",
+    "type",
+    "unique",
+    "unique_by",
+    "until",
+    "utf8bytelength",
+    "values",
+    "walk",
+    "weekday",
+    "while",
+    "with_entries",
+    "year"
+  ],
+  "formats": [
+    "base64",
+    "csv",
+    "html",
+    "json",
+    "sh",
+    "text",
+    "tsv",
+    "uri"
+  ]
+}

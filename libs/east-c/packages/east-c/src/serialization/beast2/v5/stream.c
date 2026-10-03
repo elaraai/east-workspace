@@ -1358,7 +1358,9 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
  *  check with a real error instead of silently resolving a cross-segment
  *  backref to an empty placeholder. Wrong data is worse than no data.  */
 
-/* Decoded segments kept hot for the element and keyed paths (#481 W2). The
+/* Decoded segments kept hot for the element and keyed paths (#481 W2) — never
+ * for a scan, which reads each segment fresh and keeps one at a time (#1129) —
+ * each decoded frozen, since every read it serves shares it. The
  * window is budgeted in BYTES of decompressed frame — not a slot count — so
  * wide-row tables stay bounded no matter what row grain they were written at
  * (#560): each cached segment is weighted by its frame's decompressed length
@@ -1676,9 +1678,11 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
  * projected path registers skipped containers as sentinel definitions and a
  * REF crossing the projection boundary posts B2V5_PROJ_ALIAS_MSG — the
  * caller retries whole. `weight_out`, when given, receives the segment's
- * decompressed frame length, what the shared cache budgets it by. */
+ * decompressed frame length, what the shared cache budgets it by. `freeze`
+ * decodes the segment frozen whatever the pager was opened as: the cache's
+ * segments are shared by every read they serve (#1129). */
 static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr,
-                                       size_t *weight_out)
+                                       size_t *weight_out, bool freeze)
 {
     if (!p) return NULL;
     /* Self-contained is checked BEFORE the range check: on a cross-aliased
@@ -1711,7 +1715,7 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
     size_t sm_mark = p->sm->num_stacks;
     b2v5_frames_init(&f, view.data, view.len, view.offset);
     b2v5_dec_ctx_init(&ctx, p->sm);
-    ctx.frozen = p->frozen;
+    ctx.frozen = p->frozen || freeze;
     ctx.proj_active = pr != NULL;
 
     if (!b2v5_frames_next(&f)) goto done; /* error already posted */
@@ -1781,14 +1785,14 @@ done:
 
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
 {
-    return pages_decode_segment(p, i, p ? p->proj : NULL, NULL);
+    return pages_decode_segment(p, i, p ? p->proj : NULL, NULL, false);
 }
 
 EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i, const Beast2Projection *pr)
 {
     /* Per-call projections NEVER touch the shared cache: an entry decoded
      * under one mask must not answer an operation needing another. */
-    return pages_decode_segment(p, i, pr, NULL);
+    return pages_decode_segment(p, i, pr, NULL, false);
 }
 
 /* Drops every decoded segment the shared cache holds. */
@@ -1811,9 +1815,12 @@ void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr
 
 /* Fetch segment i through the pager's byte-budgeted shared cache. Returns a
  * RETAINED value (caller releases); the cache keeps its own reference. Only
- * the element and keyed paths route through here — the public segment()
- * stays a fresh decode, so a caller mutating its result cannot poison the
- * cache. Each entry weighs its decompressed frame length. */
+ * the element and keyed reads route through here: every scan reads its
+ * segments fresh (segment(), segment_disjoint() and their projected forms),
+ * keeping one at a time (#1129). A cached segment is shared by every read it
+ * serves, so it decodes frozen, whether or not the pager was opened frozen —
+ * a caller can never change what a later read is served. Each entry weighs
+ * its decompressed frame length. */
 static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
 {
     for (size_t k = 0; k < p->cache_count; k++) {
@@ -1824,7 +1831,7 @@ static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
         }
     }
     size_t bytes = 0;
-    EastValue *seg = pages_decode_segment(p, i, p->proj, &bytes);
+    EastValue *seg = pages_decode_segment(p, i, p->proj, &bytes, true);
     if (!seg) return NULL;
 
     /* Evict least-recently-used entries until the new one fits. */
@@ -2315,7 +2322,12 @@ EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
         return NULL;
     }
     if (!pages_verify_fences(p)) return NULL;
-    EastValue *seg = pages_segment_cached(p, i);
+    /* A scan's segment: decoded fresh and never cached, as an Array scan's
+     * is, so a scan holds one segment at a time and leaves the keyed reads'
+     * cache as it found it (#1129). The fences, verified once per pager, and
+     * the tail guard keep the disjointness contract #494 reads it for: a
+     * cross-segment merge can never double-count a key. */
+    EastValue *seg = pages_decode_segment(p, i, p->proj, NULL, false);
     if (!seg) return NULL;
     if (!pages_tail_guard(p, i, seg)) {
         east_value_release(seg);
@@ -2348,7 +2360,7 @@ EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i
      * verified exactly as in the whole-decode path; the segment itself is a
      * fresh projected decode that never enters the shared cache. */
     if (!pages_verify_fences(p)) return NULL;
-    EastValue *seg = pages_decode_segment(p, i, pr, NULL);
+    EastValue *seg = pages_decode_segment(p, i, pr, NULL, false);
     if (!seg) return NULL;
     if (!pages_tail_guard(p, i, seg)) {
         east_value_release(seg);

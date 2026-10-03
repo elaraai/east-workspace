@@ -44,7 +44,14 @@ from east.runtime._compiler_eastc import diff_ir
 from east.serialization.beast2 import decode_beast2_with_header_for
 from east.serialization.json import encode_json_for
 from east.types.type_of_type import IRType
-from tests.conformance.test_ts_py_roundtrip import CORPUS, EXAMPLES, SAVE_DIR, _load, _rebuild
+from tests.conformance.test_ts_py_roundtrip import (
+    CORPUS,
+    EXAMPLES,
+    SAVE_DIR,
+    _load,
+    _rebuild,
+    corpus_name,
+)
 
 EAST_NODE = os.environ.get("EAST_NODE_CLI") or shutil.which("east-node")
 REQUIRED = os.environ.get("EAST_SWEEP_REQUIRED") == "1"
@@ -55,7 +62,7 @@ if REQUIRED and not EAST_NODE:
         "libs/east-node/packages/east-node-cli/bin/east-node.mjs (built) or put east-node on PATH")
 
 PROGRAMS: list[tuple[str, str]] = (
-    [(f"corpus/{os.path.basename(p)[:-5]}", p) for p in CORPUS]
+    [(f"corpus/{corpus_name(p)}", p) for p in CORPUS]
     + [(f"examples/{os.path.basename(os.path.dirname(p))}/{os.path.basename(p)[:-5]}", p) for p in EXAMPLES])
 
 

@@ -16,7 +16,8 @@
  * only compute over its arguments, the workspace's datasets and values its
  * caller sent; `none` runs nothing. The whole call goes through
  * `StorageBackend` and `TaskRunner`, so every backend shares it: the route of
- * a server, and `e3 query` over a local repository.
+ * a server, which the query builder in e3-ui calls, and a caller in process
+ * over a local repository.
  *
  * @packageDocumentation
  */
@@ -68,8 +69,8 @@ export interface ResolvedLimits {
 /**
  * The most a request may ask for. Each defaults to a server's: a 10-minute
  * timeout, a 1 MiB result and 256 KiB of logs. A caller with no transport
- * between it and the call passes its own: `e3 query` over a local repository,
- * or a chat engine in the API host.
+ * between it and the call passes its own: one in process over a local
+ * repository, or a chat engine in the API host.
  */
 export interface ExecuteCeilings {
   /** The longest timeout a request may ask for, in milliseconds. */

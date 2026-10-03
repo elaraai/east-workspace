@@ -803,8 +803,9 @@ static PagedLoopStep paged_loop_step(EvalResult *body_res, const char *loop_labe
 
 /* Shared driver for the three paged for-loops: walks segments in stream
  * order, binds each element through `bind`, and evaluates the body — one
- * decoded segment live at a time (Array) or the pager's small LRU (Set/Dict
- * via the disjointness-checked read). Owns and releases `subject`. */
+ * decoded segment live at a time, read fresh and released once its elements
+ * are walked. A scan keeps nothing in the pager's cache, so it never evicts
+ * the segments keyed reads keep there (#1129). Owns and releases `subject`. */
 typedef void (*PagedBindFn)(IRNode *node, Environment *iter_env, EastValue *seg, size_t i,
                             size_t global_index);
 

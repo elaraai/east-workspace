@@ -33,9 +33,15 @@ fi
 
 pass=0
 fail=0
-for ir in "$IR_DIR"/*.json; do
-    [ -e "$ir" ] || { echo "Error: no IR .json files in $IR_DIR"; exit 1; }
-    name="$(basename "$ir" .json)"
+# The suites beside the IR directory's own: the query suites, each in a
+# `query-*` directory of its own when the export wrote them — jq 1.8's
+# conformance cases (#924), the type matrix and the query corpus (#987).
+shopt -s nullglob
+suites=("$IR_DIR"/*.json "$IR_DIR"/query-*/*.json)
+[ "${#suites[@]}" -gt 0 ] || { echo "Error: no IR .json files in $IR_DIR"; exit 1; }
+for ir in "${suites[@]}"; do
+    name="${ir#"$IR_DIR"/}"
+    name="${name%.json}"
     echo "── $name ──────────────────────────────────────────"
     if "$TEST_BIN" "$ir"; then
         pass=$((pass + 1))

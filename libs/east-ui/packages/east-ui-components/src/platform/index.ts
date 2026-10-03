@@ -64,7 +64,7 @@ export {
 export { ClipboardImpl } from "./clipboard/index.js";
 
 // Download — browser file downloads
-export { DownloadImpl } from "./download/index.js";
+export { DownloadImpl, downloadFile } from "./download/index.js";
 
 // Share — OS share sheet with clipboard fallback
 export { ShareImpl } from "./share/index.js";

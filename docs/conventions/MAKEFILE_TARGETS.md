@@ -54,6 +54,7 @@ Lib-specific extras (run `make help` in each):
 
 | Lib | Notable extras |
 |---|---|
+| `libs/east` | `make query-corpus` (rewrite the checked-in query fixtures `test/fixtures/query-corpus.beast2` and `query-fixture.beast2` from their sources; their specs fail while either is stale), `make query-types` (rewrite `test/fixtures/query-types.json`, jq 1.8.1's runs of the query type matrix — jq on the PATH — and `devdocs/QUERY.md` §16.5's tables), `make query-types-tables` (the tables alone, from the checked-in runs) |
 | `libs/e3` | `make test-packages` and `make test-integration` (the two halves of `make test`), `make test-integration-shard SHARD=n` (one of the three integration shards CI runs side by side), `make e2e-stack` (the local stack the environment e2e installs), `make install-job` (the Windows job launcher) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
 | `libs/east-web` | `make test-compliance` (east-node-std's exported compliance suite over east-web-std, from `/tmp/east-node-std`; `make test` exports it first) |

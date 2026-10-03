@@ -75,4 +75,5 @@ void east_register_all_builtins(BuiltinRegistry *reg)
     east_register_vector_builtins(reg);
     east_register_matrix_builtins(reg);
     east_register_patch_builtins(reg);
+    east_register_query_builtins(reg);
 }

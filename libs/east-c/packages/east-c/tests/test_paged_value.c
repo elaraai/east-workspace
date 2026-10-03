@@ -377,6 +377,140 @@ static void test_frozen_open(void)
     }
 }
 
+/* A scan of a Set or Dict reads every segment fresh (#1129), as a scan of an
+ * Array does: it keeps one segment at a time and leaves the keyed reads'
+ * cache alone, so a Dict scanned twice decodes each segment twice. Through
+ * the cache, the second scan was served from segments the first had kept —
+ * every one of them, up to the budget — and the scan's memory grew with the
+ * input. */
+static void test_scans_read_fresh(void)
+{
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    size_t len = 0;
+    uint8_t *data = encode_int_dict(300, &len);
+    CHECK(data != NULL, "paged encode failed");
+    if (!data) return;
+    Beast2Pages *pages = east_beast2_pages_new(data, len, dt);
+    CHECK(pages != NULL, "pager open failed");
+    if (!pages) {
+        free(data);
+        return;
+    }
+    size_t count = east_beast2_pages_segment_count(pages);
+    CHECK(count >= 8, "the fixture spans %zu segments, not several", count);
+    size_t entries = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        for (size_t s = 0; s < count; s++) {
+            EastValue *seg = east_beast2_pages_segment_disjoint(pages, s);
+            CHECK(seg != NULL, "scan read of segment %zu failed", s);
+            if (!seg) break;
+            entries += east_dict_len(seg);
+            east_value_release(seg);
+        }
+    }
+    CHECK(entries == 600, "two scans read %zu entries, not 600", entries);
+    size_t decoded = 0;
+    east_beast2_pages_stats(pages, &decoded, NULL);
+    CHECK(decoded == 2 * count,
+          "two scans of %zu segments decoded %zu, not %zu: a scan kept segments", count, decoded,
+          2 * count);
+
+    /* A keyed read still goes through the cache: two reads of one key decode
+     * its segment once. */
+    EastValue *key = east_integer(123);
+    EastValue *out = NULL;
+    CHECK(east_beast2_pages_get_key(pages, key, &out) == 1, "keyed read miss");
+    if (out) east_value_release(out);
+    CHECK(east_beast2_pages_get_key(pages, key, &out) == 1, "second keyed read miss");
+    if (out) east_value_release(out);
+    east_value_release(key);
+    size_t after = 0;
+    east_beast2_pages_stats(pages, &after, NULL);
+    CHECK(after == decoded + 1, "two keyed reads of one key decoded %zu segments, not 1",
+          after - decoded);
+    east_beast2_pages_free(pages);
+    free(data);
+}
+
+/* Every segment the keyed reads' cache holds decodes frozen (#1129), whether
+ * or not the pager was opened frozen: a cached segment is shared by every read
+ * it serves, so a caller changing what one read returned would change what
+ * the next read is served. A fresh segment is the caller's own, and stays as
+ * the pager decodes it. */
+static void test_cached_segments_are_frozen(void)
+{
+    EastType *xs_arr = east_array_type(&east_integer_type);
+    EastType *row = east_struct_type((const char *[]){"xs"}, (EastType *[]){xs_arr}, 1);
+    EastType *nested = east_dict_type(&east_integer_type, row);
+    size_t len = 0;
+    uint8_t *data = encode_nested_dict(40, nested, &len);
+    CHECK(data != NULL, "nested paged encode failed");
+    if (!data) return;
+    /* A pager of its own, not a lazy value: no shape gate, and not frozen —
+     * how a host reads a file through the pager directly. */
+    Beast2Pages *pages = east_beast2_pages_new(data, len, nested);
+    CHECK(pages != NULL, "pager open failed");
+    if (!pages) {
+        free(data);
+        return;
+    }
+    EastValue *key = east_integer(17);
+    EastValue *out = NULL;
+    CHECK(east_beast2_pages_get_key(pages, key, &out) == 1, "keyed read miss");
+    if (out) {
+        EastValue *xs = east_struct_get_field(out, "xs");
+        CHECK(xs != NULL && east_value_frozen(xs), "a keyed read's nested array is not frozen");
+        east_value_release(out);
+    }
+    EastValue *keys = east_set_new(&east_integer_type);
+    east_set_insert(keys, key);
+    EastValue *found = east_beast2_pages_get_keys(pages, keys, NULL);
+    CHECK(found != NULL && east_dict_len(found) == 1, "batched keyed read missed");
+    if (found) {
+        EastValue *xs = east_struct_get_field(east_dict_val_at(found, 0), "xs");
+        CHECK(xs != NULL && east_value_frozen(xs), "a batched read's nested array is not frozen");
+        east_value_release(found);
+    }
+    east_value_release(keys);
+    east_value_release(key);
+
+    /* A scan's segment is fresh, the caller's to keep or change. */
+    EastValue *seg = east_beast2_pages_segment_disjoint(pages, 0);
+    CHECK(seg != NULL, "scan read failed");
+    if (seg) {
+        EastValue *xs = east_struct_get_field(east_dict_val_at(seg, 0), "xs");
+        CHECK(xs != NULL && !east_value_frozen(xs), "a scan's fresh segment came back frozen");
+        east_value_release(seg);
+    }
+    east_beast2_pages_free(pages);
+    free(data);
+
+    /* An Array's row reads go through the same cache. */
+    EastType *rows = east_array_type(xs_arr);
+    EastValue *arr = east_array_new(xs_arr);
+    for (size_t i = 0; i < 40; i++) {
+        EastValue *inner = east_array_new(&east_integer_type);
+        EastValue *v = east_integer((int64_t)i);
+        east_array_push(inner, v);
+        east_value_release(v);
+        east_array_push(arr, inner);
+        east_value_release(inner);
+    }
+    ByteBuffer *buf = encode_in_segments(arr, rows);
+    east_value_release(arr);
+    CHECK(buf != NULL, "array paged encode failed");
+    if (!buf) return;
+    Beast2Pages *apages = east_beast2_pages_new(buf->data, buf->len, rows);
+    CHECK(apages != NULL, "array pager open failed");
+    if (apages) {
+        EastValue *item = east_beast2_pages_element(apages, 21);
+        CHECK(item != NULL && east_value_frozen(item), "an Array row read is not frozen");
+        if (item) east_value_release(item);
+        east_beast2_pages_free(apages);
+    }
+    byte_buffer_free(buf);
+}
+
 /* The platform-call boundary (issue #621): by default a paged argument
  * hydrates whole before the platform function runs (kind-blind C
  * implementations read value union arms directly), and a registration that
@@ -825,6 +959,8 @@ int main(void)
     test_pager_served_reads();
     test_equivalence_and_hydration();
     test_frozen_open();
+    test_scans_read_fresh();
+    test_cached_segments_are_frozen();
     test_platform_boundary();
     test_release_states();
     test_owned_open();

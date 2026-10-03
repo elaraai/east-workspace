@@ -476,8 +476,9 @@ export {
     // Clipboard implementation (auto-registers on import)
     ClipboardImpl,
 
-    // Download implementation (auto-registers on import)
+    // Download implementation (auto-registers on import), and its file save for a host's own downloads
     DownloadImpl,
+    downloadFile,
 
     // Share implementation (auto-registers on import)
     ShareImpl,
@@ -598,3 +599,28 @@ export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js"
 // whose screens keep one toolbar over several galleries.
 export { Toolbar, DEFAULT_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
 export { LibraryLayoutSwitch } from "./collections/library";
+// The editing session (#879) — for sibling renderer packages whose components
+// edit through it themselves, as the query builder does (#935): the session and
+// its React hook, a draft lifted from an entry, the history item for their one
+// toolbar, and the session's words — its error, too, in the surface's (#936).
+export {
+    EditSession,
+    useEditSession,
+    liftDraft,
+    historyToolbarItem,
+    historyShortcut,
+    editingMessages,
+    sessionErrorText,
+    type BatchReadiness,
+    type EditIssue,
+    type EditingMessages,
+    type EditingValue,
+    type EditingWords,
+    type EditSessionBinding,
+    type EditSessionOptions,
+    type EntryUpdate,
+    type EntryVersion,
+    type HistoryAction,
+    type Origin,
+    type Placement,
+} from "./editing/index.js";

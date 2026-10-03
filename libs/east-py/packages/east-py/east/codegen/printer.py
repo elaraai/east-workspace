@@ -43,7 +43,9 @@ body receives, python's ``$``) and the builtin table's
   _bN(b, …)`` helpers when they hold statements — every body takes the
   block first) or the raw ``East.builtin(name, [T...], [args], out)``; an
   unresolved cross-language import (the ``east.importFunction`` Platform
-  node, #628) through ``East.import_function(pkg, name, T)``.
+  node, #628) through ``East.import_function(pkg, name, T)``; a call of the
+  ``Query`` builtin as the ``East.jq(input, '<jq>', result_type=T)`` that
+  built it, read from its query (#927, #1041).
 
 Variables keep their IR names when they are python identifiers — the
 authoring names both builders carry (#639) and TypeScript's ``_N`` for a
@@ -134,6 +136,10 @@ _BLOCK = "b"
 #: The names a printed module imports or binds at module level besides the declarations — never a declaration's name.
 _MODULE_NAMES = frozenset({"East", "variant", "some", "none", "east_null", "recursive_type", "datetime", "timezone",
                            *TYPE_IMPORTS})
+#: The names a body never binds: the module's, and the builtin a NaN or an infinity prints through. A variable of
+#: one of these names would make the name local to its whole function, and so unreachable where the body uses it
+#: first (``b.let(none, T)`` before ``none = b.const(...)``, #987).
+_UNBINDABLE = frozenset({*_MODULE_NAMES, "float"})
 #: The printer's own spelling for a variable it cannot name as the IR does.
 _V_NAME = re.compile(r"v_(\d+)")
 #: A template slot: an argument or a type parameter.
@@ -280,6 +286,40 @@ def _has_statements(body: Any) -> bool:
     return body.type == "Block" or body.type in _STATEMENT_KINDS or body.type == "Error" or (
         body.type in ("IfElse", "Match", "TryCatch") and body.value["type"].type in ("Null", "Never")
     )
+
+
+def _query_call(node: Any) -> tuple[str, list[str] | None, EastType] | None:
+    """The parts of a call of the ``Query`` builtin (#1041), read from its
+    query, or ``None`` for any other node: the program as written, a root's
+    input names (``None`` for one input), and the result type, which is the
+    translation's. A query that is not a constant, or does not fit its call,
+    gives ``None``, and the call prints as it stands."""
+    from east.ir.builders import const_value_of
+    from east.query.jq.print import print_jq
+    from east.query.types import QueryCallType
+    from east.types.types import is_type_equal
+
+    if node.type != "Call":
+        return None
+    head = node.value["function"]
+    if head.type != "Builtin" or head.value["builtin"] != "Query":
+        return None
+    arguments = list(head.value["arguments"])
+    if not arguments or not is_type_equal(arguments[0].value["type"], QueryCallType):
+        return None
+    try:
+        query = const_value_of(arguments[0])
+    except ValueError:
+        return None
+    type_parameters = list(head.value["type_parameters"])
+    fn_type = type_parameters[0] if type_parameters else None
+    if fn_type is None or fn_type.type != "Function":
+        return None
+    inputs = query.value["inputs"]
+    names = list(inputs.value) if inputs.type == "some" else None
+    if len(list(node.value["arguments"])) != (1 if names is None else len(names)):
+        return None
+    return print_jq(query.value["program"]).text, names, fn_type.value["output"]
 
 
 def _def(name: str, names: list[str], lines: list[Doc], decorator: Doc | None = None) -> Doc:
@@ -559,10 +599,10 @@ class _Printer:
         py = ir_name if _ident(ir_name) and not ir_name.startswith("__") else None
         if py == _BLOCK and f"{py}_" not in scope.used:
             py = f"{py}_"  # the author's `b` is the block's name here
-        if py is None or py in scope.used or py in self.reserved:
-            # The builder's own spelling, or a name this scope already
-            # uses: ``v_N`` from one module-wide counter, so the rebuilt
-            # module names the slot the same way and prints to itself.
+        if py is None or py in scope.used or py in self.reserved or py in _UNBINDABLE:
+            # The builder's own spelling, a name this scope already uses, or
+            # a name the module does: ``v_N`` from one module-wide counter, so
+            # the rebuilt module names the slot the same way and prints to itself.
             py = f"v_{self.var_counter}"
             self.var_counter += 1
         scope.names[ir_name] = py
@@ -847,6 +887,9 @@ class _Printer:
         if kind in ("Function", "AsyncFunction"):
             return self.function_expr(node, scope, pre)
         if kind in ("Call", "CallAsync"):
+            query = self.jq_call(node, scope, pre, d)
+            if query is not None:
+                return query
             fn = self.expr(p["function"], scope, pre, d)
             # the callee's declared inputs type its arguments
             args = [self.value_doc(a, scope, pre, d, typed=True) for a in p["arguments"]]
@@ -1028,12 +1071,15 @@ class _Printer:
                 if node.type != "Variant":
                     return None
                 case = node.value["case"]
-                if option and case == "none":
+                # ``none`` is the option whose payload is the null literal; a
+                # payload computed some other way is spelled as it is.
+                if option and case == "none" and _is_null_value(node.value["value"]):
                     self.used.add("none")
                     return "none"
                 payload = cases.get(case, as_expr)(node.value["value"], scope, pre, depth + 1)
-                self.used.add("some" if option else "variant")
-                return ["some", call_args([payload])] if option else ["variant", call_args([repr(case), payload])]
+                some_ = option and case == "some"
+                self.used.add("some" if some_ else "variant")
+                return ["some", call_args([payload])] if some_ else ["variant", call_args([repr(case), payload])]
             return variant_
 
         # Set, Ref, Vector, Matrix, Function, AsyncFunction, Recursive, Never: no python literal here
@@ -1059,6 +1105,22 @@ class _Printer:
         if body.type == "Block":
             return self.block_expr(body, scope, pre)
         return self.expr(body, scope, pre, depth)
+
+    def jq_call(self, node: Any, scope: _Scope, pre: list[Doc], depth: int) -> Doc | None:
+        """``East.jq(<input>, '<jq>', result_type=<R>)`` for a call of the
+        ``Query`` builtin (#1041), from its query: its input the call's one
+        argument, or for a root a dict of its input names, each the call's
+        argument in its place; the jq its program as written; the result type
+        its translation's. ``None`` for any other node, which prints as it
+        stands."""
+        parts = _query_call(node)
+        if parts is None:
+            return None
+        program, names, result_type = parts
+        values = [self.traced_expr(a, scope, pre, depth + 1) for a in node.value["arguments"]]
+        source: Doc = values[0] if names is None else hug(bracket(
+            "{", [[repr(name), ": ", value] for name, value in zip(names, values, strict=True)], "}"))
+        return ["East.jq", call_args([source, repr(program), ["result_type=", self.type_ref(result_type)]])]
 
     def block_expr(self, body: Any, scope: _Scope, pre: list[Doc]) -> Doc:
         """A Block in expression position: ``East.block(lambda b: …)`` /

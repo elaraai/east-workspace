@@ -522,6 +522,48 @@ describe("runner protocol corpus", () => {
             });
         });
 
+        test("a fold of arrays, from a zero written as a manifest directory", () => {
+            // e3 stages a collection as a manifest directory, a fold's zero
+            // among them, and a fold of a collection writes its value as one.
+            // The zero is read whole, as an input decoded whole is: empty, as
+            // a top-n's is, and spanning segments.
+            const Names = ArrayType(StringType);
+            const program = East.function([FunctionType([Names], NullType)], NullType, ($, emit) => {
+                $.for(East.Array.range(0n, 40n), ($, i) => {
+                    $(emit(East.Array.range(0n, 100n).map(($, j) => East.str`e${i}-${j}`)));
+                });
+            }).toIR();
+            const concat = East.function([Names, Names], Names, (_$, acc, value) => acc.concat(value)).toIR();
+            const combine = concat.compile([]) as (acc: string[], value: string[]) => string[];
+            const emitted = emissionsOf(program, [], false) as string[][];
+            const zeros: [dir: string, named: string, zero: string[]][] = [
+                ["fold-arrays-empty-zero", "empty, as a top-n's is", []],
+                ["fold-arrays-zero", "spanning segments", Array.from({ length: 20_000 }, (_, i) => `z${String(i).padStart(7, "0")}`)],
+            ];
+            for (const [dir, named, zero] of zeros) {
+                const files = new Map<string, Uint8Array>([
+                    ["program.beast2", encodeEastIR(program)],
+                    ["concat.beast2", encodeEastIR(concat)],
+                    ["unit.beast2", encodeBeast2For(UnitType)({
+                        work: variant("run", { program: "program.beast2", inputs: [], output: variant("fold", { path: "names.beast2", zero: "zero.beast2", combine: "concat.beast2" }), decode: variant("lazy", null) }),
+                        platforms: [],
+                        threads: 1n,
+                        fetch: false,
+                        result: "result.beast2",
+                    })],
+                ]);
+                addValue(files, "zero.beast2", Names, zero);
+                const out = new Map<string, Uint8Array>();
+                addValue(out, "names.beast2", Names, emitted.reduce((acc, value) => combine(acc, value), zero));
+                if (zero.length > 0) assert.ok(decodeCollectionManifest(files.get("zero.beast2")!).entries.length > 1, "the zero spans segments");
+                cases.push({
+                    dir,
+                    files,
+                    expected: { name: `a fold of arrays, from a zero written as a manifest directory: ${named}`, outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+                });
+            }
+        });
+
         test("a program that raises an error fails with its message and location", () => {
             const program = East.function([IntegerType], IntegerType, ($, x) => {
                 $.if(East.greater(x, 10n), ($) => {
@@ -765,6 +807,38 @@ describe("runner protocol corpus", () => {
                     })],
                 ]),
                 expected: { name: "fold partials, folded in order from zero", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
+            });
+        });
+
+        test("fold partials of arrays, each a manifest directory, folded in order from zero", () => {
+            // A fold of a collection writes each partial as a manifest
+            // directory, and e3 stages its zero as one: an empty array, as a
+            // top-n's is.
+            const Names = ArrayType(StringType);
+            const concat = East.function([Names, Names], Names, (_$, acc, value) => acc.concat(value)).toIR();
+            const combine = concat.compile([]) as (acc: string[], value: string[]) => string[];
+            const partials: string[][] = [
+                Array.from({ length: 20_000 }, (_, i) => `p0-${String(i).padStart(7, "0")}`),
+                [],
+                Array.from({ length: 300 }, (_, i) => `p2-${i}`),
+            ];
+            const files = new Map<string, Uint8Array>([["concat.beast2", encodeEastIR(concat)]]);
+            addValue(files, "zero.beast2", Names, []);
+            partials.forEach((partial, i) => addValue(files, `part-${i}.beast2`, Names, partial));
+            assert.ok(decodeCollectionManifest(files.get("part-0.beast2")!).entries.length > 1, "a partial spans segments");
+            files.set("unit.beast2", encodeBeast2For(UnitType)({
+                work: variant("merge", { parts: partials.map((_, i) => `part-${i}.beast2`), range: none, output: variant("fold", { path: "names.beast2", zero: "zero.beast2", combine: "concat.beast2" }) }),
+                platforms: [],
+                threads: 1n,
+                fetch: false,
+                result: "result.beast2",
+            }));
+            const out = new Map<string, Uint8Array>();
+            addValue(out, "names.beast2", Names, partials.reduce((acc, value) => combine(acc, value), []));
+            cases.push({
+                dir: "merge-folds-arrays",
+                files,
+                expected: { name: "fold partials of arrays, each a manifest directory, folded in order from zero", outcome: variant("ok", null), outputs: [...out].map(([path, bytes]) => ({ path, bytes })), absent: [] },
             });
         });
     });

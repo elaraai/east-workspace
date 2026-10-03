@@ -34,9 +34,10 @@ class RefExpression(Expression):
         """Traced RefUpdate: replace the cell's contents (TS ``update``; yields
         Null). The python read-modify-write spelling ``update(fn)`` — ``fn(b,
         current)`` becoming the new contents — is deprecated: write
-        ``ref.update(f(ref.get()))``."""
+        ``ref.update(f(ref.get()))``. A cell of functions stores the function
+        it is given, as the eager ``EastRef.update`` does."""
         inner_t = self._mutable("update").value
-        if _is_body(value):
+        if _is_body(value) and inner_t.type not in ("Function", "AsyncFunction"):
             import warnings
 
             from east.expression.statements import _frames, _run_block

@@ -478,6 +478,33 @@ await describe("String", (test) => {
         $(assert.equal(East.value("café").upperCase(), "CAFÉ"));
         $(assert.equal(East.value("CAFÉ").lowerCase(), "café"));
         $(assert.equal(East.value("naïve").upperCase(), "NAÏVE"));
+
+        // Past U+FFFF, on every platform: a letter changes case as JavaScript's
+        // does (Deseret U+10400 / U+10428, Adlam U+1E900 / U+1E922), and a
+        // symbol keeps itself (U+1D11E, the G clef)
+        $(assert.equal(East.value("\u{10400}\u{1E900} \u{1D11E}").lowerCase(), "\u{10428}\u{1E922} \u{1D11E}"));
+        $(assert.equal(East.value("\u{10428}\u{1E922} \u{1D11E}").upperCase(), "\u{10400}\u{1E900} \u{1D11E}"));
+    });
+
+    test("String repeat", $ => {
+        $(assert.equal(East.value("abc").repeat(3n), "abcabcabc"));
+        $(assert.equal(East.value("abc").repeat(1n), "abc"));
+        $(assert.equal(East.value("x").repeat(5n), "xxxxx"));
+
+        // A count of zero or less repeats nothing
+        $(assert.equal(East.value("abc").repeat(0n), ""));
+        $(assert.equal(East.value("abc").repeat(-1n), ""));
+        $(assert.equal(East.value("abc").repeat(-9223372036854775808n), ""));
+        $(assert.equal(East.value("").repeat(3n), ""));
+
+        // Whole code points; NUL bytes are ordinary characters (#480)
+        $(assert.equal(East.value("café").repeat(2n), "cafécafé"));
+        $(assert.equal(East.value("🚀").repeat(3n), "🚀🚀🚀"));
+        $(assert.equal(East.value("a\0").repeat(2n), "a\0a\0"));
+
+        // A computed count
+        const count = $.let(East.value(2n));
+        $(assert.equal(East.value("ab").repeat(count.add(1n)), "ababab"));
     });
 
     assert.examples(test, {
@@ -558,6 +585,17 @@ await describe("String", (test) => {
         // Unicode whitespace and content
         $(assert.equal(East.value("  café  ").trim(), "café"));
         $(assert.equal(East.value("  🚀  ").trim(), "🚀"));
+
+        // Whitespace is JavaScript's set on every runtime: the Unicode space
+        // separators, the line and paragraph separators and U+FEFF — not the
+        // ASCII-only set C's isspace knows
+        const spaces = "\t\n\v\f\r          　﻿";
+        $(assert.equal(East.value(`${spaces}東京${spaces}`).trim(), "東京"));
+        $(assert.equal(East.value(`${spaces}東京${spaces}`).trimStart(), `東京${spaces}`));
+        $(assert.equal(East.value(`${spaces}東京${spaces}`).trimEnd(), `${spaces}東京`));
+        $(assert.equal(East.value(spaces).trim(), ""));
+        // U+0085 and U+200B are not whitespace to JavaScript
+        $(assert.equal(East.value("\u0085a​").trim(), "\u0085a​"));
     });
 
     assert.examples(test, {

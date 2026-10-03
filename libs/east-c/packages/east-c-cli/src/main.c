@@ -460,8 +460,9 @@ static void report_input_whole(size_t i, long kb)
  * residency cannot give on a mapping, where the kernel decides how much of a
  * touched file is resident. An operation the pager cannot serve decodes it
  * whole, and says how much resident memory that added; reads that decode
- * segments again land at random beyond the segments the pager keeps. Nothing
- * for an input read whole. */
+ * segments again came back to segments the pager no longer held — a scan
+ * repeated, which keeps no segment it has passed (#1129), or reads at random
+ * beyond the segments the pager keeps. Nothing for an input read whole. */
 static void report_input_reads(size_t i, EastValue *input)
 {
     size_t segments = 0, decoded = 0, fences = 0;
@@ -474,9 +475,10 @@ static void report_input_reads(size_t i, EastValue *input)
                 i, grown);
     } else if (decoded > segments) {
         fprintf(stderr,
-                "  input %zu: %zu segment decodes of its %zu segments, %zu fences probed — its "
-                "reads land at random beyond the segments kept, so decoding it whole would "
-                "decode each once\n",
+                "  input %zu: %zu segment decodes of its %zu segments, %zu fences probed — it "
+                "read segments again that the pager no longer held (a scan repeated, or reads "
+                "at random); decoding it whole would decode each once, but hold the whole input "
+                "at once\n",
                 i, decoded, segments, fences);
     } else {
         fprintf(stderr, "  input %zu: %zu of %zu segments decoded, %zu fences probed\n", i, decoded,
