@@ -18,7 +18,7 @@ import {
 } from '@elaraai/e3-types';
 import { ExecutionCorruptError } from '../errors.js';
 import { uuidv7 } from '../uuid.js';
-import { MALFORMED_HASHES, MALFORMED_IDS, hashRefusal, idRefusal } from './malformed.js';
+import { MALFORMED_HASHES, MALFORMED_IDS, MALFORMED_NAMES, hashRefusal, idRefusal, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 const TASK = 'a'.repeat(64);
@@ -281,6 +281,43 @@ export function refStoreTests(setup: BackendSetup): void {
       assert.deepEqual(await storage.refs.executionList(repo), [], 'no execution is written');
       assert.deepEqual(await storage.refs.adoptionList(repo), [], 'no memo entry is written');
       assert.deepEqual(await storage.refs.dataflowRunList(repo, 'ws'), [], 'no run is written');
+    });
+
+    it('refuses a package\'s name or version, or a workspace\'s name, that cannot be one path segment, naming it, before it reads or writes anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      const runId = uuidv7();
+      const run: DataflowRun = {
+        runId, workspaceName: 'ws', packageRef: 'pkg@1.0.0', startedAt: AT, completedAt: none,
+        status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
+        summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
+      };
+
+      for (const name of MALFORMED_NAMES['package']) {
+        const refused = nameRefusal('package', name);
+        await assert.rejects(storage.refs.packageResolve(repo, name, '1.0.0'), refused);
+        await assert.rejects(storage.refs.packageWrite(repo, name, '1.0.0', HASH), refused);
+        await assert.rejects(storage.refs.packageRemove(repo, name, '1.0.0'), refused);
+      }
+      for (const version of MALFORMED_NAMES['package version']) {
+        const refused = nameRefusal('package version', version);
+        await assert.rejects(storage.refs.packageResolve(repo, 'pkg', version), refused);
+        await assert.rejects(storage.refs.packageWrite(repo, 'pkg', version, HASH), refused);
+        await assert.rejects(storage.refs.packageRemove(repo, 'pkg', version), refused);
+      }
+      for (const workspace of MALFORMED_NAMES['workspace']) {
+        const refused = nameRefusal('workspace', workspace);
+        await assert.rejects(storage.refs.workspaceRead(repo, workspace), refused);
+        await assert.rejects(storage.refs.workspaceWrite(repo, workspace, new Uint8Array([1])), refused);
+        await assert.rejects(storage.refs.workspaceRemove(repo, workspace), refused);
+        await assert.rejects(storage.refs.dataflowRunGet(repo, workspace, runId), refused);
+        await assert.rejects(storage.refs.dataflowRunWrite(repo, workspace, run), refused);
+        await assert.rejects(storage.refs.dataflowRunList(repo, workspace), refused);
+        await assert.rejects(storage.refs.dataflowRunGetLatest(repo, workspace), refused);
+        await assert.rejects(storage.refs.dataflowRunDelete(repo, workspace, runId), refused);
+      }
+
+      assert.deepEqual(await storage.refs.packageList(repo), [], 'no package ref is written');
+      assert.deepEqual(await storage.refs.workspaceList(repo), [], 'no workspace is written');
     });
   });
 }

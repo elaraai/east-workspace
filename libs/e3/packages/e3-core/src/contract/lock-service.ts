@@ -15,6 +15,7 @@ import { variant } from '@elaraai/east';
 import type { LockProgress } from '@elaraai/e3-types';
 import { InvalidNameError } from '../errors.js';
 import { workspaceLockStatus } from '../workspaces.js';
+import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 /** A deploy's progress: `done` of its three file sources taken in, the next
@@ -140,6 +141,17 @@ export function lockServiceTests(setup: BackendSetup): void {
         assert.equal(await workspaceLockStatus(storage, repo, 'main'), null, "main's dataflow lock is no lock of main's own");
       } finally {
         await held.release();
+      }
+    });
+
+    it('refuses a resource whose name cannot be one path segment, naming it, before it takes or reads anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      for (const resource of MALFORMED_NAMES['lock']) {
+        const refused = nameRefusal('lock', resource);
+        await assert.rejects(storage.locks.acquire(repo, resource, variant('deployment', null)), refused);
+        await assert.rejects(storage.locks.acquire(repo, resource, variant('dataflow', null), { mode: 'shared' }), refused);
+        await assert.rejects(storage.locks.getState(repo, resource), refused);
+        await assert.rejects(storage.locks.getProgress(repo, resource), refused);
       }
     });
   });

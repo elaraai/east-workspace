@@ -26,6 +26,7 @@ import type {
   TaskStatus,
   TaskState,
 } from '../types.js';
+import { checkName } from '../../errors.js';
 import { cloneExecutionState } from './clone.js';
 
 // Type helper for mutable state (removes readonly)
@@ -68,7 +69,10 @@ export class InMemoryStateStore implements ExecutionStateStore {
   /** Map of "repo::workspace" -> the workspace's runs */
   private states = new Map<string, WorkspaceRuns>();
 
+  /** A workspace's key, its name refused when it cannot be one path segment,
+   *  as every state store refuses it. */
   private makeKey(repo: string, workspace: string): string {
+    checkName('workspace', workspace);
     return `${repo}::${workspace}`;
   }
 
