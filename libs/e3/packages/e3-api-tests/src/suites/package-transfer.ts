@@ -165,11 +165,13 @@ export function packageTransferTests(setup: TestSetup<TestContext>): void {
       };
       const holds = (c: string) => `holds ${JSON.stringify(c)}, which a file name cannot`;
 
+      // No name holding `/` is sent in a URL here: a front door that decodes
+      // `%2F` before it routes, as an AWS HTTP API does, splits the path, and
+      // its router answers 404 before e3 sees the name. e3-core's store suites
+      // pin that every backend refuses `/` in a name.
       await assert.rejects(packageExport(base, ctx.repoName, 'bad:name', '1.0.0', opts), invalidName('package', 'bad:name', holds(':')));
-      await assert.rejects(packageExport(base, ctx.repoName, 'a/b', '1.0.0', opts), invalidName('package', 'a/b', holds('/')));
       await assert.rejects(packageExport(base, ctx.repoName, 'transfer-pkg', '1:0', opts), invalidName('package version', '1:0', holds(':')));
       await assert.rejects(workspaceExport(base, ctx.repoName, 'bad:name', opts), invalidName('workspace', 'bad:name', holds(':')));
-      await assert.rejects(workspaceExport(base, ctx.repoName, 'a/b', opts), invalidName('workspace', 'a/b', holds('/')));
       await assert.rejects(workspaceExport(base, ctx.repoName, 'a#b', opts),
         invalidName('workspace', 'a#b', `holds "#", which joins the parts of a lock's name`));
     });
