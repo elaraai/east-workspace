@@ -266,6 +266,28 @@ describe('a local intake', () => {
       assert.equal(readFileSync(ran, 'utf8'), 'ran\n', 'the runner that could not run the unit is not tried again');
     });
 
+  it('runs its unit from the base environment it is given, in place of the process\'s own',
+    { skip: process.platform === 'win32' ? 'the stand-in east-node is a shell script' : false }, async () => {
+      // east-node, saying what environment it was started from
+      const seen = join(dir, 'seen');
+      const reporting = join(dir, 'reporting-east-node');
+      writeFileSync(reporting, `#!/bin/sh\nprintf '%s|%s' "\${E3_TEST_BASE-unset}" "\${E3_TEST_PROCESS_ONLY-unset}" > '${seen}'\nexec east-node "$@"\n`);
+      chmodSync(reporting, 0o755);
+      const candidates: IntakeCandidate[] = [{ runner: INTAKE_CANDIDATES[1]!.runner, command: reporting }];
+      const spec = { source: { file: deliver('table.beast2', encodeBeast2PagedFor(TableType)(rows(100))) }, type: toEastTypeValue(TableType) };
+
+      const previous = process.env.E3_TEST_PROCESS_ONLY;
+      process.env.E3_TEST_PROCESS_ONLY = 'the process\'s';
+      try {
+        const taken = await runIntake(storage, repo, spec, { env: { PATH: process.env.PATH ?? '', E3_TEST_BASE: 'the base\'s' } }, new Map(), candidates);
+        assert.equal(taken.hash, await datasetWrite(storage, repo, rows(100), TableType));
+      } finally {
+        if (previous === undefined) delete process.env.E3_TEST_PROCESS_ONLY;
+        else process.env.E3_TEST_PROCESS_ONLY = previous;
+      }
+      assert.equal(readFileSync(seen, 'utf8'), 'the base\'s|unset');
+    });
+
   it('stages its unit only once it holds a core, so an intake waiting for room holds nothing', async () => {
     const staged = (): string[] => (existsSync(scratchRoot(repo)) ? readdirSync(scratchRoot(repo)) : []);
     const budget = new Budget({ cores: 1, memory: 1024 ** 3 }, { sampler: null });
