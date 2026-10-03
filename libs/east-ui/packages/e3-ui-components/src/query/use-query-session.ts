@@ -143,13 +143,18 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
     session.current = edit.session;
     const { version, available, original } = edit;
 
-    // The query as its drafts stand.
-    const entries = useMemo(() => {
-        const drafted = available ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
+    // The query as its drafts stand, this moment: while a gesture may be
+    // recorded, and while a save of them goes — from Apply until the record
+    // reads back as it left it, the drafts it saves are the query, never the
+    // record as it stood before them.
+    const drafts = useCallback((): readonly QueryEntry[] | undefined => {
+        const drafted = available || edit.session.locked ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
         return drafted ?? base?.entries;
-        // A gesture moves the session's version, not its identity.
+    }, [edit.session, available, base]);
+    const entries = useMemo(() => drafts(),
+        // A gesture, and a save's progress, move the session's version, not its identity.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [edit.session, available, base, version]);
+        [drafts, version]);
 
     // A save under a new name opens the query it saved, once its session has
     // acknowledged the commit.
@@ -169,10 +174,7 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
 
     // A gesture is taken against the drafts as they stand when it is made, so
     // two gestures in one event — the jq left, then the query named — compose.
-    const current = useCallback((): readonly QueryEntry[] | undefined => {
-        const drafted = available ? edit.session.applied() as readonly QueryEntry[] | undefined : undefined;
-        return drafted ?? base?.entries;
-    }, [edit.session, available, base]);
+    const current = drafts;
     const gesture = useCallback((next: readonly QueryEntry[], origin: Origin, label: string): boolean => {
         const now = current();
         if (now === undefined) return false;
