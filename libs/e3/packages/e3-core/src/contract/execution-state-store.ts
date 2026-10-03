@@ -18,6 +18,7 @@ import {
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { DataflowExecutionState } from '../dataflow/types.js';
 import { uuidv7 } from '../uuid.js';
+import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 
 /** A running run's state of one pending task, `etl`, in workspace `ws`. */
 function runningState(repo: string, id: string): DataflowExecutionState {
@@ -353,6 +354,26 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       await (await of('other')).replace(new TextEncoder().encode('not a run'));
       assert.deepEqual(new Uint8Array((await of('other')).bytes), new TextEncoder().encode('not a run'));
       await assert.rejects(store.read(repo, 'other', running.id), /not an execution state/);
+    });
+
+    it('refuses a workspace\'s name that cannot be one path segment, naming it, before it reads or writes anything', async (t) => {
+      const { store, repo } = await setup(t);
+      const id = uuidv7();
+      for (const workspace of MALFORMED_NAMES['workspace']) {
+        const refused = nameRefusal('workspace', workspace);
+        const state: DataflowExecutionState = { ...runningState(repo, id), workspace };
+        await assert.rejects(store.create(state), refused);
+        await assert.rejects(store.read(repo, workspace, id), refused);
+        await assert.rejects(store.readLatest(repo, workspace), refused);
+        await assert.rejects(store.readLatestSummary(repo, workspace), refused);
+        await assert.rejects(store.update(state), refused);
+        await assert.rejects(store.updateTaskStatus(repo, workspace, id, 'etl', 'completed'), refused);
+        await assert.rejects(store.updateStatus(repo, workspace, id, 'completed'), refused);
+        await assert.rejects(store.recordEvent(repo, workspace, id, variant('task_started', { seq: 1n, timestamp: new Date(), task: 'etl' })), refused);
+        await assert.rejects(store.getEventsSince(repo, workspace, id, 0), refused);
+        await assert.rejects(store.delete(repo, workspace, id), refused);
+      }
+      assert.deepEqual(await store.readStored(repo), [], 'no run is written');
     });
 
     it('answers a read with a state it does not share: a change to one read never reaches the next', async (t) => {

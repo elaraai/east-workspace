@@ -7,7 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { encodeBeast2For, none, variant } from '@elaraai/east';
 import { ExecutionStatusType, decodeExecutionStatus } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
-import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError, checkHash, checkId } from '../../errors.js';
+import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError, checkHash, checkId, checkName } from '../../errors.js';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
 import type {
   StorageBackend,
@@ -275,7 +275,11 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return repoRuns;
   }
 
+  /** A package's key, its name and version refused when either cannot be one
+   *  path segment, as every store refuses them. */
   private makePackageKey(name: string, version: string): string {
+    checkName('package', name);
+    checkName('package version', version);
     return `${name}@${version}`;
   }
 
@@ -287,7 +291,9 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return `${taskHash}/${inputsHash}`;
   }
 
+  /** A run's key, its workspace's name checked. */
   private makeDataflowRunKey(workspace: string, runId: string): string {
+    checkName('workspace', workspace);
     return `${workspace}/${runId}`;
   }
 
@@ -336,14 +342,17 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async workspaceRead(repo: string, name: string): Promise<Uint8Array | null> {
+    checkName('workspace', name);
     return this.getWorkspaces(repo).get(name) ?? null;
   }
 
   async workspaceWrite(repo: string, name: string, state: Uint8Array): Promise<void> {
+    checkName('workspace', name);
     this.getWorkspaces(repo).set(name, state);
   }
 
   async workspaceRemove(repo: string, name: string): Promise<void> {
+    checkName('workspace', name);
     this.getWorkspaces(repo).delete(name);
     for (const runId of await this.dataflowRunList(repo, name)) {
       await this.dataflowRunDelete(repo, name, runId);
@@ -513,6 +522,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async dataflowRunList(repo: string, workspace: string): Promise<string[]> {
+    checkName('workspace', workspace);
     const prefix = `${workspace}/`;
     const ids: string[] = [];
     for (const key of this.getDataflowRuns(repo).keys()) {
@@ -582,7 +592,10 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
   // What each exclusive holder last reported of its progress
   private progress = new Map<string, LockProgress>();
 
+  /** A lock's key, its resource refused when it cannot be one path segment,
+   *  as every lock service refuses it. */
   private makeLockKey(repo: string, resource: string): string {
+    checkName('lock', resource);
     return `${repo}:${resource}`;
   }
 
@@ -803,11 +816,15 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
   // CAS never misses a concurrent change even when two writes produce equal refs.
   private revCounter = 0;
 
+  /** A ref's key, its workspace's name checked. */
   private makeKey(repo: string, ws: string, path: string): string {
-    return `${repo}:${ws}:${path}`;
+    return `${this.makePrefix(repo, ws)}${path}`;
   }
 
+  /** The prefix of a workspace's refs' keys, its name refused when it cannot
+   *  be one path segment, as every store refuses it. */
   private makePrefix(repo: string, ws: string): string {
+    checkName('workspace', ws);
     return `${repo}:${ws}:`;
   }
 
