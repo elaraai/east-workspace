@@ -535,15 +535,20 @@ export class SplitTask {
   }
 
   /**
-   * Leaves the task mid-stage, for a run that yields: its execution is
-   * recorded `interrupted`, for the reason `yielded`, once the reason is the
-   * last line of its stderr log and the log is flushed, and its plan stays
-   * rooted for the run that takes the stage up again. A task that has ended is
-   * left as it ended.
+   * Leaves the task mid-stage, for a run that yields, or that another process
+   * took up: its execution is recorded `interrupted`, for the reason
+   * `yielded`, once the reason is the last line of its stderr log and the log
+   * is flushed, and its plan stays rooted for the run that takes the stage up
+   * again. A task that has ended is left as it ended.
+   *
+   * @param by - Why the task is left: the run `yielded`, or another process
+   *   took it up (`superseded`), which its log's last line says
    */
-  async suspend(): Promise<void> {
+  async suspend(by: 'yielded' | 'superseded' = 'yielded'): Promise<void> {
     if (!this.running) return;
-    const cause = 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again';
+    const cause = by === 'yielded'
+      ? 'interrupted: the run yielded mid-stage, and a resumed run takes the stage up again'
+      : 'interrupted: another process took the run up mid-stage, and takes the stage up again';
     await this.stoppedLine(cause);
     await this.flushLog();
     await this.storage.refs.executionWrite(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, variant('interrupted', {
