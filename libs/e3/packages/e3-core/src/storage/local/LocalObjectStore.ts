@@ -31,6 +31,11 @@ import { computeHash } from '../../objects-node.js';
 import { clearUnreachableNote, objectPath } from './localHelpers.js';
 import type { ObjectStore } from '../interfaces.js';
 
+/** The mode of an object copied from a file another user owns: readable by
+ *  every runner, written by no one but this process, which never writes an
+ *  object again. */
+const OBJECT_MODE = 0o644;
+
 /** A staging name beside the final object: same directory, so the closing
  *  rename is atomic and `gc` cleans an orphan by its `.partial` suffix. */
 function stagingName(fileName: string): string {
@@ -423,7 +428,9 @@ export class LocalObjectStore implements ObjectStore {
    * opened for reading. A file another user owns is never linked: the object
    * would be that user's file, which they could write after it is stored — a
    * runner run as another user's output, say — so it is copied, by a reflink
-   * where one is free.
+   * where one is free, and the copy made this process's own, with a mode no
+   * one else may write by: a copy keeps its source's owner and mode where this
+   * process may give them.
    *
    * Every strategy places the file under a staging name, and only a staged
    * file that hashes to the object's hash is renamed into place. The path
@@ -463,8 +470,15 @@ export class LocalObjectStore implements ObjectStore {
     await fs.mkdir(objectsDir, { recursive: true });
     const stagingPath = path.join(objectsDir, stagingName('stage'));
     try {
-      const ours = process.getuid === undefined || stats.uid === process.getuid();
+      const ours = process.getuid === undefined || process.getgid === undefined || stats.uid === process.getuid();
       await placeFile(file, stagingPath, stats.dev, objectsDir, ours);
+      if (!ours) {
+        // A copy, which keeps its source's owner and mode where this process
+        // may give them (as root): made this process's own, and no one's to
+        // write, as every object is.
+        await fs.chown(stagingPath, process.getuid!(), process.getgid!());
+        await fs.chmod(stagingPath, OBJECT_MODE);
+      }
       const { size } = await fs.stat(stagingPath);
       const digest = await sha256File(stagingPath);
       if (hash !== undefined && digest !== hash) {

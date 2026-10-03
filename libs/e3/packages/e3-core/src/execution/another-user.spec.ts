@@ -83,13 +83,16 @@ describe('a local runner whose processes run as another user', {
     removeTempDir(dir);
   });
 
-  /** The paths under `root`, and `root`, that are not e3's own, with whose
-   *  they are. */
+  /** The paths under `root`, and `root`, that are not e3's own — another
+   *  user's, or with a mode by which another may write it or run as its
+   *  owner — with whose they are and their mode. */
   function notE3s(root: string): string[] {
     const others: string[] = [];
     const walk = (at: string): void => {
       const stats = lstatSync(at);
-      if (stats.uid !== 0) others.push(`${at} (${stats.uid})`);
+      if (stats.uid !== 0 || (!stats.isSymbolicLink() && (stats.mode & 0o6022) !== 0)) {
+        others.push(`${at} (${stats.uid}, ${(stats.mode & 0o7777).toString(8)})`);
+      }
       if (stats.isDirectory()) for (const name of readdirSync(at)) walk(join(at, name));
     };
     walk(root);
@@ -132,10 +135,12 @@ describe('a local runner whose processes run as another user', {
   }
 
   it('runs a task\'s runner as the user, which writes its output where e3 gave it, and stores the output as e3\'s own file', async () => {
-    // A custom command saying whom it runs as, writing an output no object is yet
+    // A custom command saying whom it runs as, writing an output no object is
+    // yet, which anyone may write and which runs as its owner
     const commandFn = East.function([ArrayType(StringType), StringType], ArrayType(StringType), ($, inputs, output) => [
       'node', '-e',
-      'process.stdout.write(JSON.stringify([process.getuid(), process.getgid()])); require("node:fs").writeFileSync(process.argv[2], "written by " + process.getuid() + " at " + Date.now())',
+      'const fs = require("node:fs"); process.stdout.write(JSON.stringify([process.getuid(), process.getgid()])); ' +
+        'fs.writeFileSync(process.argv[2], "written by " + process.getuid() + " at " + Date.now()); fs.chmodSync(process.argv[2], 0o6777)',
       inputs.get(0n), output,
     ]);
     const task: TaskObject = {
@@ -217,13 +222,15 @@ describe('a local runner whose processes run as another user', {
 
   it('builds an environment as the user, in a build directory and member directories e3 gave it, and takes it back before any runner reads it', async () => {
     // An npm saying whom it ran as, installing as npm does: into the build
-    // directory, and a member's own directory.
+    // directory, and a member's own directory; and leaving a tool anyone may
+    // write and that runs as its owner.
     const bin = join(dir, 'bin');
     mkdirSync(bin);
     writeFileSync(join(bin, 'npm'), '#!/bin/sh\nset -e\n' +
       'echo "$(id -u):$(id -g)" > ran-as\n' +
       'mkdir -p packages/common/node_modules node_modules/.bin node_modules/@acme\n' +
-      'ln -s ../../packages/common node_modules/@acme/common\n');
+      'ln -s ../../packages/common node_modules/@acme/common\n' +
+      'touch node_modules/.bin/a-tool\nchmod 6777 node_modules/.bin/a-tool\n');
     chmodSync(join(bin, 'npm'), 0o755);
     const spec = encodeBeast2For(EnvironmentSpecType)(variant('workspace_node', {
       packageJson: await storage.objects.write(repo, encodeFile(Buffer.from(JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*'] })))),
