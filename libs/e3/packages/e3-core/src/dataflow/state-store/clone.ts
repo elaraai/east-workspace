@@ -10,7 +10,7 @@
  */
 
 import { some } from '@elaraai/east';
-import type { DataflowExecutionState, DataflowGraph, TaskState } from '../types.js';
+import type { DataflowExecutionState, TaskState } from '../types.js';
 
 /**
  * Copies a run's state, sharing nothing the loop changes in place: what a
@@ -20,7 +20,9 @@ import type { DataflowExecutionState, DataflowGraph, TaskState } from '../types.
  * The step functions change a run's state by replacing a task's fields, and
  * the run's counters, and by adding to its maps and its events, never by
  * changing a field's value in place. So each task's state is copied, and each
- * map and list; an event, once added, is never changed, and is shared.
+ * map and list; an event, once added, is never changed, and is shared. The
+ * run's graph is fixed once the run starts, and is shared whole: a write of a
+ * large run copies none of it.
  *
  * @param state - The run's state
  * @returns A copy of it
@@ -29,18 +31,6 @@ export function cloneExecutionState(state: DataflowExecutionState): DataflowExec
   const tasks = new Map<string, TaskState>();
   for (const [name, taskState] of state.tasks) {
     tasks.set(name, { ...taskState } as TaskState);
-  }
-
-  let graph = state.graph;
-  if (state.graph.type === 'some') {
-    const graphValue: DataflowGraph = {
-      tasks: state.graph.value.tasks.map(t => ({
-        ...t,
-        inputs: [...t.inputs],
-        dependsOn: [...t.dependsOn],
-      })),
-    };
-    graph = some(graphValue);
   }
 
   let completedAt = state.completedAt;
@@ -57,7 +47,6 @@ export function cloneExecutionState(state: DataflowExecutionState): DataflowExec
     ...state,
     startedAt: new Date(state.startedAt.getTime()),
     completedAt,
-    graph,
     tasks,
     events: [...state.events],
     versionVectors,
