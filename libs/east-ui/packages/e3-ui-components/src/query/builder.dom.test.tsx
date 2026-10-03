@@ -18,7 +18,8 @@
  * - **U2**: Visual · jq and back — its notes and notices, a syntax error
  *   keeping jq; Copy jq and Run; saving — an update, a rename, a taken name,
  *   a stale entry's refusal at its commit and before it, and a new query
- *   named on its Apply.
+ *   named on its Apply; the steps while a save goes, which are the drafts it
+ *   saves, never the query as it stood before them.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -486,6 +487,28 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         expect(saved.description).toEqual(some("The first ten big orders."));
         expect(statusOf(container).save).toEqual(["saved", "Saved", "Big orders"]);
         expect(container.querySelector("[data-query-save]")!.hasAttribute("data-fresh")).toBe(true);
+    }, 30_000);
+
+    test("the history item's Save: from its click until the record reads back, the steps are the drafts it saves — never the query as it stood before them", async () => {
+        const { container } = await mountBuilder(offlineCall().call);
+        await openQuery(variant("saved", BIG.name));
+        await quickAdd("Keep the first");
+        const steps = () => cardsOf(container).map(titleOf);
+        const drafted = ["Keep rows where", "Keep the first"];
+        expect(steps()).toEqual(drafted);
+        // The record takes the save only once released, so the builder is seen while the save goes.
+        const forward = harness.memory.mutate.bind(harness.memory);
+        let release = (): void => { throw new Error("the save never reached the record"); };
+        harness.memory.mutate = async (ws, record, mutation, request) => {
+            await new Promise<void>((resolve) => { release = resolve; });
+            return forward(ws, record, mutation, request);
+        };
+        await press("Save", builderOf(container).querySelector<HTMLElement>("[data-slot=history]")!);
+        expect([steps(), statusOf(container).save[0]]).toEqual([drafted, "unsaved"]);
+        await act(async () => { release(); });
+        await settle();
+        expect(await committed(harness)).toEqual(["patch", "$init"]);
+        expect([steps(), statusOf(container).save[0]]).toEqual([drafted, "saved"]);
     }, 30_000);
 
     test("a rename: saved under a new name, the query moves to it, and the builder opens it", async () => {

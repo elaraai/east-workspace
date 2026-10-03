@@ -14,9 +14,10 @@
  * pane's foot; the view shown in the brand. The toolbar folds by one ladder —
  * Run's keys, then Copy jq, then the history item. The states by their tokens:
  * a step not finished dashed, a slot with a problem in the danger ink. Save…
- * opens the 320px save popover with the name and the description. The frame is
- * set to the mock's width, 1240px, and every measurement is polled until it
- * holds, on a page at rest.
+ * opens the 320px save popover with the name and the description. The history
+ * item's Save shows the drafts it saves until the record reads back, never the
+ * query as it was before them. The frame is set to the mock's width, 1240px,
+ * and every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test query-builder --project desktop`.
@@ -187,5 +188,31 @@ test.describe("Query builder (#940)", () => {
             fields: [...d.querySelectorAll("input, textarea")].map((e) => e.getAttribute("aria-label")),
             name: (d.querySelector("input") as HTMLInputElement).value,
         }))).toEqual({ w: 320, fields: ["Query name", "What the query answers, in one sentence"], name: "Top shipped orders, 2026" });
+    });
+
+    test("the history item's Save: every state the steps pass through, from its click until the record reads back, is the drafts it saves — never the query as it was before them", async ({ page }) => {
+        const builder = await openBuilder(page);
+        const steps = () => builder.evaluate((root) => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")).join(" · "));
+        const before = await steps();
+        // A draft: a step more at the query's end.
+        await builder.locator("[data-query-foot] button", { hasText: "Keep the first" }).click();
+        await expect.poll(steps).not.toBe(before);
+        const drafted = await steps();
+        await expect(builder.locator("[data-query-save]")).toHaveAttribute("data-query-save", "unsaved");
+        // Every state the steps are drawn in from here, as the page commits it.
+        await builder.evaluate((root) => {
+            const seen: string[] = [];
+            const read = () => [...root.querySelectorAll("[data-step-id]")].map((el) => el.getAttribute("aria-label")).join(" · ");
+            new MutationObserver(() => {
+                const now = read();
+                if (seen.at(-1) !== now) seen.push(now);
+            }).observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
+            (window as unknown as { stepsSeen: string[] }).stepsSeen = seen;
+        });
+        await builder.locator(":scope > [data-slot=toolbar]").getByRole("button", { name: "Save", exact: true }).click();
+        await expect(builder.locator("[data-query-save]")).toHaveAttribute("data-query-save", "saved", { timeout: 20_000 });
+        await settled(page);
+        const seen = await page.evaluate(() => (window as unknown as { stepsSeen: string[] }).stepsSeen);
+        expect(seen.filter((state) => state !== drafted), `the steps went back to ${before}`).toEqual([]);
     });
 });
