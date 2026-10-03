@@ -268,16 +268,33 @@ export interface ReactiveDatasetToPreload {
  * Result of usePreloadReactiveDatasets hook.
  */
 export interface PreloadReactiveDatasetsResult {
-    /** True while preloading */
+    /** True while the first preload is in flight */
     loading: boolean;
-    /** Error if preloading failed */
+    /** The latest failure, while the preload is failing; it is tried again
+     *  until it succeeds */
     error: Error | null;
-    /** Reload all datasets */
+    /** Preload every dataset again, at once */
     reload: () => void;
 }
 
+/** How long a failed preload waits before it is tried again, at first; each
+ *  failure doubles it, up to {@link PRELOAD_RETRY_MAX_MS}. */
+const PRELOAD_RETRY_FIRST_MS = 1_000;
+
+/** The longest a failed preload waits before it is tried again. */
+const PRELOAD_RETRY_MAX_MS = 30_000;
+
 /**
  * Hook to preload reactive datasets before rendering.
+ *
+ * @remarks
+ * A preload that fails is tried again for as long as the hook is mounted, 1 s
+ * after the failure and then doubling up to 30 s, so a view recovers by itself
+ * from a network error, a repository whose upgrade is being applied, or a
+ * dataset that moved while it was read. `error` is the latest failure
+ * meanwhile. It clears as soon as the cache holds every dataset that failed,
+ * whoever brought them in: a status poll that watches a dataset fetches it
+ * once it can be read, usually before the next try.
  *
  * @param datasets - Array of datasets to preload
  * @returns Loading state and error
@@ -320,26 +337,58 @@ export function usePreloadReactiveDatasets(datasets: ReactiveDatasetToPreload[])
             return;
         }
         let cancelled = false;
+        let attempting = false;
+        // The cache keys the last try failed on, while the preload is failing.
+        let failed: string[] = [];
+        let delay = PRELOAD_RETRY_FIRST_MS;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const keys = datasets.map(({ workspace, path }) => datasetCacheKey(workspace, path));
+        const held = (i: number): boolean => cache.has(datasets[i]!.workspace, datasets[i]!.path);
         setLoading(true);
         setError(null);
 
-        Promise.all(
-            datasets.map(({ workspace, path }) => cache.preload(workspace, path))
-        )
-            .then(() => {
-                if (!cancelled) {
+        const attempt = (): void => {
+            clearTimeout(timer);
+            attempting = true;
+            void Promise.allSettled(
+                datasets.map(({ workspace, path }) => cache.preload(workspace, path))
+            ).then((outcomes) => {
+                attempting = false;
+                if (cancelled) return;
+                const failures = outcomes.flatMap((outcome, i) => (outcome.status === "rejected" ? [i] : []));
+                if (failures.length === 0) {
+                    failed = [];
+                    setError(null);
                     setLoading(false);
+                    return;
                 }
-            })
-            .catch((err) => {
-                if (!cancelled) {
-                    setError(err instanceof Error ? err : new Error(String(err)));
-                    setLoading(false);
+                const reason: unknown = (outcomes[failures[0]!] as PromiseRejectedResult).reason;
+                setError(reason instanceof Error ? reason : new Error(String(reason)));
+                setLoading(false);
+                // A dataset that came into the cache while this try failed is in.
+                failed = failures.filter((i) => !held(i)).map((i) => keys[i]!);
+                if (failed.length === 0) {
+                    attempt();
+                    return;
                 }
+                timer = setTimeout(attempt, delay);
+                delay = Math.min(delay * 2, PRELOAD_RETRY_MAX_MS);
             });
+        };
+
+        // A dataset that failed and comes into the cache another way, such as
+        // the status poll of a view that watches it, ends the failure at once.
+        const unsubscribes = keys.map((key, i) => cache.subscribe(key, () => {
+            if (cancelled || attempting || !failed.includes(key) || !held(i)) return;
+            failed = failed.filter((k) => k !== key);
+            if (failed.length === 0) attempt();
+        }));
+        attempt();
 
         return () => {
             cancelled = true;
+            clearTimeout(timer);
+            for (const unsubscribe of unsubscribes) unsubscribe();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cache, datasetsKey, reloadTrigger]);
