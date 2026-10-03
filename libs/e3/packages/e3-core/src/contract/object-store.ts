@@ -10,11 +10,12 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectNotFoundError } from '../errors.js';
 import { computeHash } from '../objects.js';
+import { MALFORMED_HASHES, hashRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 /** A directory for a test's own files, removed when the test ends. */
@@ -105,6 +106,34 @@ export function objectStoreTests(setup: BackendSetup): void {
       assert.deepEqual(await storage.objects.touch(repo, []), []);
       assert.equal(text(await storage.objects.read(repo, hash)), 'touched');
       assert.equal(text(await storage.objects.read(repo, other)), 'touched too');
+    });
+
+    it('refuses a hash that is not a SHA-256 in lowercase hex, naming it, before it reads or writes anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      const dir = scratch(t);
+      const start = Date.now();
+      const held = await storage.objects.write(repo, bytes('held'));
+      // A touch of the held object clears this note: a batch that touched it
+      // before refusing would leave none.
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [held], start), [start]);
+
+      for (const malformed of MALFORMED_HASHES) {
+        const refused = hashRefusal('object hash', malformed);
+        await assert.rejects(storage.objects.read(repo, malformed), refused);
+        await assert.rejects(storage.objects.readRange(repo, malformed, 0, 1), refused);
+        await assert.rejects(storage.objects.exists(repo, malformed), refused);
+        await assert.rejects(storage.objects.stat(repo, malformed), refused);
+        await assert.rejects(storage.objects.materialize(repo, malformed, join(dir, 'placed')), refused);
+        await assert.rejects(storage.objects.touch(repo, [held, malformed]), refused);
+        // Refused before the file is looked at: there is none
+        await assert.rejects(storage.objects.adoptFile(repo, join(dir, 'no such file'), malformed), refused);
+      }
+
+      assert.deepEqual(await storage.objects.list(repo), [held], 'nothing is written');
+      assert.equal(existsSync(join(dir, 'placed')), false, 'nothing is placed');
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [held], start + 1), [start], 'a batch naming one touches none of it');
+      assert.deepEqual(await storage.objects.touch(repo, [held]), [true]);
+      assert.deepEqual(await storage.repos.gcNoteUnreachable(repo, [held], start + 2), [start + 2], 'as a touch of it alone does');
     });
 
     it('places an object\'s bytes at a path, shared or copied', async (t) => {

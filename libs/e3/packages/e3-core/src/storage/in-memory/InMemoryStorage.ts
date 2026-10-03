@@ -7,7 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { encodeBeast2For, none, variant } from '@elaraai/east';
 import { ExecutionStatusType, decodeExecutionStatus } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
-import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError } from '../../errors.js';
+import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError, checkHash, checkId } from '../../errors.js';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
 import type {
   StorageBackend,
@@ -69,6 +69,7 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
+    for (const hash of hashes) checkHash('object hash', hash);
     const repoObjects = this.getRepoObjects(repo);
     return hashes.map((hash) => {
       const object = repoObjects.get(hash);
@@ -95,6 +96,7 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async read(repo: string, hash: string): Promise<Uint8Array> {
+    checkHash('object hash', hash);
     const object = this.getRepoObjects(repo).get(hash);
     if (!object) {
       throw new ObjectNotFoundError(hash);
@@ -103,6 +105,7 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async readRange(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array> {
+    checkHash('object hash', hash);
     const object = this.getRepoObjects(repo).get(hash);
     if (!object) {
       throw new ObjectNotFoundError(hash);
@@ -111,6 +114,7 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
+    if (hash !== undefined) checkHash('object hash', hash);
     const data = new Uint8Array(await readFile(file));
     const digest = await this.write(repo, data);
     if (hash !== undefined && hash !== digest) {
@@ -124,10 +128,12 @@ class InMemoryObjectStore implements ObjectStore {
   }
 
   async exists(repo: string, hash: string): Promise<boolean> {
+    checkHash('object hash', hash);
     return this.getRepoObjects(repo).has(hash);
   }
 
   async stat(repo: string, hash: string): Promise<{ size: number }> {
+    checkHash('object hash', hash);
     const object = this.getRepoObjects(repo).get(hash);
     if (!object) {
       throw new ObjectNotFoundError(hash);
@@ -153,6 +159,7 @@ class InMemoryObjectStore implements ObjectStore {
 
   /** Deletes a repository's objects; one already gone is passed over. */
   gcDelete(repo: string, hashes: readonly string[]): void {
+    for (const hash of hashes) checkHash('object hash', hash);
     const repoObjects = this.getRepoObjects(repo);
     for (const hash of hashes) repoObjects.delete(hash);
   }
@@ -160,6 +167,7 @@ class InMemoryObjectStore implements ObjectStore {
   /** Notes objects unreachable at `at`, keeping a note that stands, and
    *  answers each note's time. */
   gcNote(repo: string, hashes: readonly string[], at: number): number[] {
+    for (const hash of hashes) checkHash('object hash', hash);
     const repoObjects = this.getRepoObjects(repo);
     return hashes.map((hash) => {
       const object = repoObjects.get(hash);
@@ -171,6 +179,7 @@ class InMemoryObjectStore implements ObjectStore {
 
   /** Clears the unreachable notes of objects. */
   gcClear(repo: string, hashes: readonly string[]): void {
+    for (const hash of hashes) checkHash('object hash', hash);
     const repoObjects = this.getRepoObjects(repo);
     for (const hash of hashes) {
       const object = repoObjects.get(hash);
@@ -181,6 +190,7 @@ class InMemoryObjectStore implements ObjectStore {
   /** Deletes an object while its note stands at `since`, and says whether it
    *  did. */
   gcDeleteIf(repo: string, hash: string, since: number): boolean {
+    checkHash('object hash', hash);
     const repoObjects = this.getRepoObjects(repo);
     if (repoObjects.get(hash)?.unreachableSince !== since) return false;
     return repoObjects.delete(hash);
@@ -281,6 +291,14 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return `${workspace}/${runId}`;
   }
 
+  /** Refuses an execution's hashes, and its id when given, that are not of
+   *  their form, as every store does before it makes a key of them. */
+  private checkExecution(taskHash: string, inputsHash: string, executionId?: string): void {
+    checkHash('task hash', taskHash);
+    checkHash('inputs hash', inputsHash);
+    if (executionId !== undefined) checkId('execution id', executionId);
+  }
+
   // Repository record
   async repositoryRead(repo: string): Promise<RepositoryRecord | null> {
     return this.repositories.get(repo) ?? null;
@@ -335,6 +353,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   // Execution operations (with executionId)
   async executionGet(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionStatus | null> {
+    this.checkExecution(taskHash, inputsHash, executionId);
     const held = this.getExecutions(repo).get(this.makeExecutionKey(taskHash, inputsHash, executionId));
     if (held === undefined) return null;
     if ('status' in held) return held.status;
@@ -348,12 +367,14 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   /** Reads a record as a store of bytes would: the bytes a test left, or the
    *  status written, encoded. */
   async executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null> {
+    this.checkExecution(taskHash, inputsHash, executionId);
     const held = this.getExecutions(repo).get(this.makeExecutionKey(taskHash, inputsHash, executionId));
     if (held === undefined) return null;
     return 'bytes' in held ? held.bytes : encodeStatus(held.status);
   }
 
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
+    this.checkExecution(taskHash, inputsHash, executionId);
     this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), { status });
   }
 
@@ -375,12 +396,14 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    this.checkExecution(taskHash, inputsHash, executionId);
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).delete(key);
     this.owners.delete(`${repo}/${key}`);
   }
 
   async executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]> {
+    this.checkExecution(taskHash, inputsHash);
     const prefix = this.makeInputsKey(taskHash, inputsHash) + '/';
     const ids: string[] = [];
     for (const key of this.getExecutions(repo).keys()) {
@@ -413,6 +436,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async executionListForTask(repo: string, taskHash: string): Promise<string[]> {
+    checkHash('task hash', taskHash);
     const seen = new Set<string>();
     for (const key of this.getExecutions(repo).keys()) {
       if (key.startsWith(`${taskHash}/`)) {
@@ -433,14 +457,17 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
+    this.checkExecution(taskHash, inputsHash, executionId);
     this.owners.set(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`, owner);
   }
 
   async executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null> {
+    this.checkExecution(taskHash, inputsHash, executionId);
     return this.owners.get(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`) ?? null;
   }
 
   async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string | null): Promise<void> {
+    this.checkExecution(taskHash, inputsHash);
     const key = `${repo}/${this.makeInputsKey(taskHash, inputsHash)}`;
     if (planHash === null) {
       this.plans.delete(key);
@@ -450,10 +477,12 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {
+    this.checkExecution(taskHash, inputsHash);
     return this.plans.get(`${repo}/${this.makeInputsKey(taskHash, inputsHash)}`) ?? null;
   }
 
   async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
+    checkHash('object hash', sourceHash);
     this.adoptions.set(`${repo}/${sourceHash}`, manifestHash);
   }
 
@@ -474,10 +503,12 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   // Dataflow run operations
   async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
+    checkId('run id', runId);
     return this.getDataflowRuns(repo).get(this.makeDataflowRunKey(workspace, runId)) ?? null;
   }
 
   async dataflowRunWrite(repo: string, workspace: string, run: DataflowRun): Promise<void> {
+    checkId('run id', run.runId);
     this.getDataflowRuns(repo).set(this.makeDataflowRunKey(workspace, run.runId), run);
   }
 
@@ -500,6 +531,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   }
 
   async dataflowRunDelete(repo: string, workspace: string, runId: string): Promise<void> {
+    checkId('run id', runId);
     const key = this.makeDataflowRunKey(workspace, runId);
     this.getDataflowRuns(repo).delete(key);
   }
@@ -677,7 +709,17 @@ class InMemoryLockService implements LockService, InMemoryRepositoryRecords {
 class InMemoryLogStore implements LogStore, InMemoryRepositoryRecords {
   private logs = new Map<string, Uint8Array>();
 
+  /** Refuses an attempt's hashes and id when they are not of their form, as
+   *  every store refuses them before it makes a key of them. */
+  private checkAttempt(taskHash: string, inputsHash: string, executionId: string): void {
+    checkHash('task hash', taskHash);
+    checkHash('inputs hash', inputsHash);
+    checkId('execution id', executionId);
+  }
+
+  /** A log's key, its attempt's names checked. */
   private makeLogKey(repo: string, taskHash: string, inputsHash: string, executionId: string, stream: string): string {
+    this.checkAttempt(taskHash, inputsHash, executionId);
     return `${repo}:${taskHash}:${inputsHash}:${executionId}:${stream}`;
   }
 
@@ -722,9 +764,10 @@ class InMemoryLogStore implements LogStore, InMemoryRepositoryRecords {
     };
   }
 
-  /** Holds nothing to flush: an append is in the log once it resolves. */
-  flush(): Promise<void> {
-    return Promise.resolve();
+  /** Holds nothing to flush: an append is in the log once it resolves. The
+   *  attempt's names are checked all the same, as every method checks them. */
+  async flush(_repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
+    this.checkAttempt(taskHash, inputsHash, executionId);
   }
 
   async remove(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {

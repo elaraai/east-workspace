@@ -9,7 +9,7 @@ import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import { ExecutionOwnerType, ExecutionStatusType, DataflowRunType, RepositoryRecordType, decodeExecutionStatus } from '@elaraai/e3-types';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, RepositoryRecord } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
-import { isNotFoundError, ExecutionCorruptError, checkName } from '../../errors.js';
+import { isNotFoundError, ExecutionCorruptError, checkHash, checkId, checkName } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
 import { isObjectHash } from '../../objects.js';
 import { atomicWriteFile, executionPath } from './localHelpers.js';
@@ -344,7 +344,7 @@ export class LocalRefStore implements RefStore {
   }
 
   async executionListForTask(repo: string, taskHash: string): Promise<string[]> {
-    if (!isObjectHash(taskHash)) throw new Error(`'${taskHash}' is not a task hash`);
+    checkHash('task hash', taskHash);
     const taskDir = path.join(repo, 'executions', taskHash);
 
     try {
@@ -428,9 +428,8 @@ export class LocalRefStore implements RefStore {
   }
 
   async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
-    const entry = this.adoptionPath(repo, sourceHash);
-    if (entry === null) throw new Error(`adoption memo: '${sourceHash}' is not a SHA-256`);
-    await atomicWriteFile(entry, encodeHash(manifestHash));
+    checkHash('object hash', sourceHash);
+    await atomicWriteFile(this.adoptionPath(repo, sourceHash)!, encodeHash(manifestHash));
   }
 
   async adoptionRead(repo: string, sourceHash: string): Promise<string | null> {
@@ -486,7 +485,7 @@ export class LocalRefStore implements RefStore {
   /** A run's record, named by its id, a UUIDv7 — which a package being
    *  imported names, so nothing else becomes a path. */
   private dataflowRunPath(repo: string, workspace: string, runId: string): string {
-    if (!isUuidv7(runId)) throw new Error(`'${runId}' is not a run id`);
+    checkId('run id', runId);
     return path.join(this.dataflowDir(repo, workspace), `${runId}.beast2`);
   }
 

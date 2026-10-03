@@ -292,7 +292,7 @@ through the objects route and splices them itself, as e3-api-client's
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/repos/:repo/objects/:hash` | An object's bytes; one over 1 MB answers JSON `{ url }` to download it from |
+| GET | `/api/repos/:repo/objects/:hash` | An object's bytes; one over 1 MB answers JSON `{ url }` to download it from; a hash that is no SHA-256 in lowercase hex is refused 400 `invalid_name` |
 | GET | `/api/downloads/:id` | A download a `{ url }` answer names (no `Authorization`) |
 
 ### Dataset transfer
@@ -396,6 +396,7 @@ Response bodies are wrapped in a variant type:
 - `{ type: 'error', value: <error> }` - Operation failed
 
 Error variants include:
+- `invalid_name` - A name, hash or id is not of its form: its kind (a workspace's name, an object's hash, a run's id, …), the value, and why, whichever backend the server runs over
 - `workspace_not_found` - Workspace doesn't exist
 - `workspace_not_deployed` - No package deployed to workspace
 - `workspace_locked` - Workspace is locked by another process

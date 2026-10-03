@@ -10,9 +10,13 @@
  * with `if (err instanceof E3Error)` or specific errors with their class.
  */
 
-import { E3_RELEASE, nameProblem, type DatasetTypeMismatch, type LockState, type NamedKind } from '@elaraai/e3-types';
+import {
+  E3_RELEASE, nameProblem, type DatasetTypeMismatch, type HashKind, type IdKind, type IdentifierKind, type LockState, type NamedKind,
+} from '@elaraai/e3-types';
 import type { TaskExecutionResult } from './dataflow.js';
+import { isObjectHash } from './objects.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
+import { isUuidv7 } from './uuid.js';
 
 // =============================================================================
 // Base Error
@@ -119,13 +123,28 @@ export class RepositoryUpgradePendingError extends E3Error {
   }
 }
 
+/** The kinds of hash and id, whose refusal names its form rather than a name. */
+const IDENTIFIER_KINDS: ReadonlySet<NamedKind | IdentifierKind> = new Set<IdentifierKind>([
+  'object hash', 'task hash', 'inputs hash', 'execution id', 'run id', 'gc run id',
+]);
+
 /**
  * Thrown when a name e3 would make a path of — a repository's, a workspace's,
- * a package's name or version, or a lock's — cannot be one path segment.
+ * a package's name or version, or a lock's — cannot be one path segment; or
+ * when a hash or an id it would make a path or a key of — an object's hash, an
+ * execution's task or inputs hash, an execution's, a run's or a gc run's id —
+ * is not of its form.
+ *
+ * @remarks
+ * A server answers it `invalid_name`, with its kind, whichever store refused
+ * it: every backend checks the same forms, before it reads or writes anything
+ * ({@link checkName}, {@link checkHash}, {@link checkId}).
  */
 export class InvalidNameError extends E3Error {
-  constructor(public readonly kind: NamedKind, public readonly value: string, reason: string) {
-    super(`the ${kind} name ${JSON.stringify(value)} ${reason}`);
+  constructor(public readonly kind: NamedKind | IdentifierKind, public readonly value: string, reason: string) {
+    super(IDENTIFIER_KINDS.has(kind)
+      ? `the ${kind} ${JSON.stringify(value)} ${reason}`
+      : `the ${kind} name ${JSON.stringify(value)} ${reason}`);
   }
 }
 
@@ -549,6 +568,31 @@ export function isExistsError(err: unknown): boolean {
 export function checkName(kind: NamedKind, name: string): void {
   const problem = nameProblem(kind, name);
   if (problem !== null) throw new InvalidNameError(kind, name, problem);
+}
+
+/**
+ * Refuses a hash that is not of the form e3 names objects by — a SHA-256 in
+ * lowercase hex ({@link isObjectHash}) — before anything makes a path or a key
+ * of it.
+ *
+ * @param kind - What the hash names
+ * @param hash - The hash
+ * @throws {InvalidNameError} When the hash is not of that form
+ */
+export function checkHash(kind: HashKind, hash: string): void {
+  if (!isObjectHash(hash)) throw new InvalidNameError(kind, hash, 'is not a SHA-256 in lowercase hex');
+}
+
+/**
+ * Refuses an id that is not of the form e3 mints ids in — a UUIDv7
+ * ({@link isUuidv7}) — before anything makes a path or a key of it.
+ *
+ * @param kind - What the id names
+ * @param id - The id
+ * @throws {InvalidNameError} When the id is not a UUIDv7
+ */
+export function checkId(kind: IdKind, id: string): void {
+  if (!isUuidv7(id)) throw new InvalidNameError(kind, id, 'is not a UUIDv7');
 }
 
 /** Wrap unknown errors with context */

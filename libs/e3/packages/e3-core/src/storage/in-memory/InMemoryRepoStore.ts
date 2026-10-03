@@ -22,6 +22,7 @@ import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
   RepoStatusConflictError,
+  checkId,
 } from '../../errors.js';
 import { executionRoots, packageRoots, workspaceRoots } from '../../gc-roots.js';
 import { newRepositoryRecord } from '../../repository-record.js';
@@ -247,14 +248,17 @@ export class InMemoryRepoStore implements RepoStore {
   }
 
   async gcRunWrite(repo: string, run: string, name: string, data: Uint8Array): Promise<void> {
+    checkId('gc run id', run);
     this.gcRuns.set(`${repo}\0${run}\0${name}`, data);
   }
 
   async gcRunRead(repo: string, run: string, name: string): Promise<Uint8Array | null> {
+    checkId('gc run id', run);
     return this.gcRuns.get(`${repo}\0${run}\0${name}`) ?? null;
   }
 
   async gcRunDelete(repo: string, run: string): Promise<void> {
+    checkId('gc run id', run);
     for (const key of [...this.gcRuns.keys()]) {
       if (key.startsWith(`${repo}\0${run}\0`)) this.gcRuns.delete(key);
     }
