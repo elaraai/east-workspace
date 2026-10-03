@@ -25,11 +25,12 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { delimiter, dirname, join, resolve, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
 import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
-import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { collectNodeModulesBins, collectVenvBins, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { SegmentFetcher } from './segment-fetch.js';
 import { unitArgv } from './units.js';
 import { storeDatasetFile } from '../store-collection-file.js';
 import { DatasetSegments } from '../dataset-open.js';
@@ -282,6 +283,28 @@ describe('staging by link or kernel copy', () => {
 
     const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash], { manifests: true });
     assert.deepEqual(readdirSync(`${staged!}.segments`).sort(), [...distinct].map((h) => `${h}.beast2`).sort());
+  });
+
+  it('gives a segment directory left to a fetcher to the runner\'s group, which asks for its segments there, and leaves what is only read as it is', {
+    skip: process.getgroups === undefined ? 'POSIX alone: Windows has no group ids'
+      : process.getgroups().every((group) => group === process.getgid!()) ? 'needs a group this process is a member of besides its own' : false,
+  }, async () => {
+    // A group this process is a member of, which it may give a directory to;
+    // another-user.spec gives one to another user, as root.
+    const group = process.getgroups!().find((member) => member !== process.getgid!())!;
+    const type = DictType(StringType, IntegerType);
+    const fetchedHash = await datasetWrite(storage, testRepo, rowsOf('a', 20_000), type);
+    const linkedHash = await datasetWrite(storage, testRepo, rowsOf('b', 20_000), type);
+
+    const [fetched] = await marshalInputsToDir(storage, testRepo, scratch, [fetchedHash],
+      { manifests: true, fetcher: new SegmentFetcher(storage, testRepo, true), owner: { gid: group } });
+    const linkedDir = join(scratch, 'linked');
+    mkdirSync(linkedDir);
+    const [linked] = await marshalInputsToDir(storage, testRepo, linkedDir, [linkedHash], { manifests: true, owner: { gid: group } });
+
+    assert.equal(statSync(`${fetched!}.segments`).gid, group, 'the runner asks for its segments in a directory of its group');
+    assert.notEqual(statSync(fetched!).gid, group, 'the staged manifest is the object, as it was');
+    assert.notEqual(statSync(`${linked!}.segments`).gid, group, 'segments placed before the runner starts are only read');
   });
 
   it('reads a spliced input\'s segments sixteen ahead of its write, and a download\'s one at a time', async () => {
@@ -549,6 +572,62 @@ describe('a runner\'s command line', () => {
     } finally {
       if (previous === undefined) delete process.env.E3_FETCH_SEGMENTS;
       else process.env.E3_FETCH_SEGMENTS = previous;
+    }
+  });
+
+  it('starts the runner from the caller\'s base environment in place of the process\'s own: e3\'s bins ahead of its PATH, the caller\'s variables after it', async () => {
+    const previous = process.env.E3_TEST_PROCESS_ONLY;
+    process.env.E3_TEST_PROCESS_ONLY = 'the process\'s';
+    try {
+      const bin = join(dir, 'bin');
+      const search = join(dir, 'search');
+      mkdirSync(search);
+      const names = ['E3_TEST_PROCESS_ONLY', 'E3_TEST_BASE', 'E3_TEST_OVERRIDDEN', 'E3_FETCH_SEGMENTS', 'E3_RUNNER_SEARCH_DIRS', 'PATH'];
+      const result = await spawnAndCapture([process.execPath, '-e',
+        `process.stdout.write(JSON.stringify(${JSON.stringify(names)}.map((name) => process.env[name] ?? null)))`], dir, {
+        env: {
+          // Where Windows is installed, which a process there needs
+          ...(process.platform === 'win32' && { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }),
+          E3_TEST_BASE: 'the base\'s',
+          E3_TEST_OVERRIDDEN: 'the base\'s',
+          E3_FETCH_SEGMENTS: '1',
+          PATH: 'the-base-path',
+        },
+        extraEnv: { E3_TEST_OVERRIDDEN: 'the caller\'s' },
+        extraBins: [bin],
+        searchDirs: [search],
+      });
+      assert.equal(result.exitCode, 0, result.stderrTail);
+      const [processOnly, base, overridden, fetch, searchDirs, path] = JSON.parse(result.stdoutTail) as (string | null)[];
+      assert.deepEqual([processOnly, base, overridden, fetch, searchDirs], [null, 'the base\'s', 'the caller\'s', null, search]);
+      assert.deepEqual(path!.split(delimiter),
+        [bin, ...collectVenvBins(search), ...collectNodeModulesBins(search), dirname(process.execPath), 'the-base-path']);
+    } finally {
+      if (previous === undefined) delete process.env.E3_TEST_PROCESS_ONLY;
+      else process.env.E3_TEST_PROCESS_ONLY = previous;
+    }
+  });
+
+  it('runs the runner as the user and group it is given, and fails to start one as a user or group it may not become', {
+    skip: process.getuid === undefined ? 'POSIX alone: Windows starts no process as another user'
+      : process.getuid() === 0 ? 'root may become any user: another-user.spec runs a runner as one' : false,
+  }, async () => {
+    const uid = process.getuid!();
+    const gid = process.getgid!();
+    const own = await spawnAndCapture([process.execPath, '-e', 'process.stdout.write(JSON.stringify([process.getuid(), process.getgid()]))'], dir, { uid, gid });
+    assert.equal(own.exitCode, 0, own.stderrTail);
+    assert.deepEqual(JSON.parse(own.stdoutTail), [uid, gid]);
+    for (const other of [{ uid: uid + 1 }, { gid: gid + 1 }]) {
+      await assert.rejects(spawnAndCapture([process.execPath, '-e', ''], dir, other), { code: 'EPERM' }, `started as ${JSON.stringify(other)}`);
+    }
+  });
+
+  it('refuses a user or group no runner can be started as', async () => {
+    const refusals = process.platform === 'win32'
+      ? [[{ uid: 1 }, 'e3 starts a process as another user on POSIX alone: a uid is refused on Windows'], [{ gid: 1 }, 'e3 starts a process as another user on POSIX alone: a gid is refused on Windows']] as const
+      : [[{ uid: -1 }, 'a uid is a non-negative integer, not -1'], [{ gid: 1.5 }, 'a gid is a non-negative integer, not 1.5']] as const;
+    for (const [settings, message] of refusals) {
+      await assert.rejects(spawnAndCapture([process.execPath, '-e', ''], dir, settings), { message });
     }
   });
 });
