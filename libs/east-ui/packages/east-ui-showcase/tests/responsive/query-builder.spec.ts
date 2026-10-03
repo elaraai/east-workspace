@@ -17,7 +17,11 @@
  * opens the 320px save popover with the name and the description. The history
  * item's Save shows the drafts it saves until the record reads back, never the
  * query as it was before them. The frame is set to the mock's width, 1240px,
- * and every measurement is polled until it holds, on a page at rest.
+ * and every measurement is polled until it holds, on a page at rest. Its
+ * builder frame (#1125 F3): on a desktop the pane is pinned, the results
+ * beside it; on a phone it rests on its rail, and opened it floats over the
+ * results from its edge, the results where they were, under the scrim —
+ * which a tap closes.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test query-builder --project desktop`.
@@ -25,11 +29,15 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
+import { frameAt, tapScrim, type Box } from "./builder-frame";
 
 const HASH = "e3/query/query/queryBuilder";
 
-/** Open the builder example and return the builder, at rest, as wide as the mock's (1240px). */
-async function openBuilder(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
+/**
+ * Open the builder example and return the builder, at rest: as wide as the
+ * mock's (1240px), or, with `null`, as wide as the page lays it out.
+ */
+async function openBuilder(page: Page, theme: "light" | "dark" = "light", width: number | null = 1240): Promise<Locator> {
     await page.goto(`/?theme=${theme}#${HASH}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${HASH}"]`) });
@@ -37,10 +45,16 @@ async function openBuilder(page: Page, theme: "light" | "dark" = "light"): Promi
     const builder = entry.locator("[data-query-builder]").first();
     // Opening a saved query runs it: the builder is at rest once the result shows.
     await expect(builder.locator("[data-query-results-view]")).toBeVisible({ timeout: 20_000 });
-    await builder.evaluate((root) => { (root as HTMLElement).style.width = "1240px"; });
+    if (width !== null) await builder.evaluate((root, w) => { (root as HTMLElement).style.width = `${w}px`; }, width);
     await settled(page);
     return builder;
 }
+
+/** A difference of boxes' edges, to a tenth of a pixel — subtraction leaves float noise. */
+const tenth = (n: number) => Math.round(n * 10) / 10;
+
+/** A box's place within another, to a tenth of a pixel. */
+const within = (box: Box, frame: Box): Box => ({ x: tenth(box.x - frame.x), y: tenth(box.y - frame.y), w: box.w, h: box.h });
 
 /** A part's width within the builder, to the pixel. */
 function width(builder: Locator, selector: string): Promise<number> {
@@ -59,7 +73,7 @@ test.describe("Query builder (#940)", () => {
                     const b = el.getBoundingClientRect();
                     return [Math.round(b.left - r.left), Math.round(b.top - r.top), Math.round(b.width), Math.round(b.height)];
                 };
-                const toolbar = root.querySelector(":scope > [data-slot=toolbar]")!;
+                const toolbar = root.querySelector("[data-builder-frame] > [data-frame-slot=toolbar]")!;
                 const pane = root.querySelector("[data-side=start][data-surface=shell]")!;
                 const style = getComputedStyle(root);
                 return {
@@ -126,7 +140,7 @@ test.describe("Query builder (#940)", () => {
 
     test("the toolbar folds by one ladder — Run's keys, Copy jq, the history item — a step each time the frame is narrower than the row's items", async ({ page }) => {
         const builder = await openBuilder(page);
-        const toolbar = builder.locator(":scope > [data-slot=toolbar] [data-toolbar]");
+        const toolbar = builder.locator("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]");
         await expect.poll(() => toolbar.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
         // At the mock's 1240px frame nothing folds.
         await expect.poll(() => toolbar.getAttribute("data-toolbar-folds")).toBe("0");
@@ -139,7 +153,7 @@ test.describe("Query builder (#940)", () => {
         };
         // The frame whose row is exactly as wide as its items, as they are drawn now: their widths and a gap between each two.
         const fitting = () => builder.evaluate((root) => {
-            const row = root.querySelector(":scope > [data-slot=toolbar] [data-toolbar]")!;
+            const row = root.querySelector("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]")!;
             const items = [...row.children].map((el) => el.getBoundingClientRect().width);
             const need = items.reduce((sum, w) => sum + w, 0) + Number.parseFloat(getComputedStyle(row).columnGap) * (items.length - 1);
             return root.getBoundingClientRect().width - row.getBoundingClientRect().width + need;
@@ -209,10 +223,68 @@ test.describe("Query builder (#940)", () => {
             }).observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
             (window as unknown as { stepsSeen: string[] }).stepsSeen = seen;
         });
-        await builder.locator(":scope > [data-slot=toolbar]").getByRole("button", { name: "Save", exact: true }).click();
+        await builder.locator("[data-builder-frame] > [data-frame-slot=toolbar]").getByRole("button", { name: "Save", exact: true }).click();
         await expect(builder.locator("[data-query-save]")).toHaveAttribute("data-query-save", "saved", { timeout: 20_000 });
         await settled(page);
         const seen = await page.evaluate(() => (window as unknown as { stepsSeen: string[] }).stepsSeen);
         expect(seen.filter((state) => state !== drafted), `the steps went back to ${before}`).toEqual([]);
+    });
+});
+
+test.describe("Query builder — its builder frame on a desktop (#1125 F3)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop width");
+
+    test("the pane is pinned: the results start where the open pane ends; no scrim", async ({ page }) => {
+        const builder = await openBuilder(page);
+        await expect.poll(async () => {
+            const at = await frameAt(builder);
+            const pane = at.start!;
+            return {
+                mode: pane.mode, collapsed: pane.collapsed, end: at.end,
+                resultsFromPane: tenth(at.main.x - (pane.slot.x + pane.slot.w)),
+                // The pane in its slot, in the flow.
+                inSlot: within(pane.sheet, pane.slot),
+                scrim: at.scrim,
+            };
+        }).toEqual({
+            mode: "pinned", collapsed: false, end: null, resultsFromPane: 0,
+            inSlot: { x: 0, y: 0, w: 480, h: expect.any(Number) }, scrim: null,
+        });
+    });
+});
+
+test.describe("Query builder — its builder frame on a phone (#1125 F3)", () => {
+    test.skip(({ isMobile }) => !isMobile, "measured on the phone");
+
+    test("the pane rests on its 44px rail; opened, it covers the results from its edge, full height, the results where they were, under the scrim — and a tap on the scrim closes it", async ({ page }) => {
+        const builder = await openBuilder(page, "light", null);
+        const rest = await frameAt(builder);
+        expect({ mode: rest.start!.mode, collapsed: rest.start!.collapsed, rail: rest.start!.slot.w, scrim: rest.scrim })
+            .toEqual({ mode: "overlay", collapsed: true, rail: 44, scrim: null });
+        const resultsAtRest = within(rest.main, rest.body);
+
+        await builder.getByRole("button", { name: "Expand Query" }).click();
+        await expect.poll(async () => {
+            const at = await frameAt(builder);
+            const pane = at.start!;
+            const sheet = within(pane.sheet, at.body);
+            return {
+                open: !pane.collapsed,
+                // The results where they were, the rail in the flow.
+                results: within(at.main, at.body), rail: pane.slot.w,
+                // The pane from its edge — the frame's — over the results, its full height.
+                fromEdge: sheet.x, overResults: sheet.x + sheet.w > resultsAtRest.x, height: [sheet.y, sheet.h],
+                // The scrim over the results, in the theme's overlay.backdrop.
+                scrim: at.scrim === null ? null : within(at.scrim, at.body),
+                ink: at.ink.scrim === at.ink.backdrop,
+            };
+        }).toEqual({
+            open: true, results: resultsAtRest, rail: 44, fromEdge: 0, overResults: true, height: [0, rest.body.h], scrim: resultsAtRest, ink: true,
+        });
+        await tapScrim(page, builder, "start");
+        await expect.poll(async () => {
+            const at = await frameAt(builder);
+            return { collapsed: at.start!.collapsed, scrim: at.scrim, results: within(at.main, at.body) };
+        }).toEqual({ collapsed: true, scrim: null, results: resultsAtRest });
     });
 });

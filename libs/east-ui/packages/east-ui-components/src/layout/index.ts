@@ -61,6 +61,22 @@ export {
     type EastChakraSnapGridProps,
 } from "./snap-grid/index.js";
 export { DockPane, type DockPaneProps } from "./dock/index.js";
+export {
+    BuilderFrame,
+    placePanes,
+    paneWidths,
+    MIN_MAIN,
+    MIN_SCRIM,
+    NARROW_FRAME,
+    type BuilderFrameProps,
+    type BuilderFramePane,
+    type BuilderFrameDock,
+    type PaneMode,
+    type PanePlacement,
+    type PanePlacements,
+    type PaneWeight,
+    type PaneWidths,
+} from "./builder-frame/index.js";
 export { SnapGridEditor, type SnapGridEditorProps } from "./snap-grid/editor.js";
 export {
     SnapGridMessagesProvider,

@@ -22,13 +22,15 @@
  *   in the one toolbar undoes, redoes and discards, and Apply — the builder's
  *   Save — commits the query as one patch on the record, once it is finished
  *   and checks;
- * - **the layout**: the one toolbar (#936: the history item, Copy jq, Save…
- *   and Run); the pane, a `DockPane` with the tabs Query — Visual · jq at the
- *   top of its body — Datasets and Library, its open tab and its collapse the
- *   builder's to drive; the results beside it, Table · Tree and Download ▾ in
- *   their band, which lines up with the pane's tab row; the result's strips
- *   under the toolbar, the builder's full width; and the status line under
- *   both.
+ * - **the layout**, the shared `BuilderFrame` (#1125): the one toolbar (#936:
+ *   the history item, Copy jq, Save… and Run); the result's strips as its
+ *   banners, under the toolbar, the builder's full width; the pane at its
+ *   start, with the tabs Query — Visual · jq at the top of its body —
+ *   Datasets and Library, its open tab and its collapse the builder's to
+ *   drive, pinned beside the results while they keep their room and over
+ *   them otherwise; the results as main, Table · Tree and Download ▾ in their
+ *   band, which lines up with the pane's tab row; and the status line as its
+ *   footer.
  *
  * The Query tab (#936) edits the open query ({@link useQueryEditor}), its
  * slots' autocomplete hanging inside the builder; Save… names and describes it
@@ -53,9 +55,9 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, DockPane, EmptyStateView, Toolbar, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, usePersistedState,
+    BannerView, BuilderFrame, EmptyStateView, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, usePersistedState,
     useTrackedEvaluation,
-    type EditIssue, type EditSession, type EditingWords,
+    type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
 import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
@@ -427,7 +429,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     const saveState: QuerySaveLine["state"] = base?.saved === undefined ? "new" : session.pending > 0 ? "unsaved" : "saved";
     const save: QuerySaveLine = { state: saveState, fresh: fresh && saveState === "saved", word: m.saveState({ state: saveState }) };
 
-    // ── The layout ──────────────────────────────────────────────────────
+    // ── The layout: the builder frame (#1125) ───────────────────────────
     const toolbar = queryToolbarItems({
         history: historyToolbarItem({ session, words: editingWords, editing: false, onIssue, onAction }),
         copyText: () => editor.program,
@@ -454,39 +456,34 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
                 </Box>
             ),
     }));
+    // The pane: its open tab and its collapse, the builder's to drive.
+    const queryPane: BuilderFrameDock = {
+        label: m.pane(),
+        icon: "diagram-project",
+        badge: words.formatters.number(editor.query.steps.length),
+        // One width whichever view the Query tab shows: the pane never jumps as Visual · jq switches.
+        size: "min(480px, 52%)",
+        tabs,
+        tab,
+        onTabChange,
+        collapsed: pane.collapsed,
+        onCollapsedChange,
+    };
     const popover = editor.popover;
     return (
         <Box ref={setElement} css={styles.root} data-query-builder="" data-query-open={sourceId} data-query-naming={naming ? "" : undefined}
             data-query-focus={focus === undefined ? undefined : focus.entry} onKeyDown={onKeyDown}>
-            <Box css={styles.toolbar} data-slot="toolbar">
-                <Toolbar items={toolbar} />
-            </Box>
-            {/* The result's strips: under the toolbar, the builder's full width. */}
-            <ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />
             <QueryDropTarget id={id} refusal={dropRefusal} steps={dropSteps} onOpen={onDrop} words={words}>
-                <Box css={styles.body}>
-                    <DockPane
-                        storageKey={`${storageKey}.pane`}
-                        icon="diagram-project"
-                        label={m.pane()}
-                        badge={words.formatters.number(editor.query.steps.length)}
-                        side="start"
-                        surface="shell"
-                        // One width whichever view the Query tab shows: the pane never jumps as Visual · jq switches.
-                        expandedSize="min(480px, 52%)"
-                        railSize="44px"
-                        collapsed={pane.collapsed}
-                        onCollapsedChange={onCollapsedChange}
-                        tabs={tabs}
-                        tab={tab}
-                        onTabChange={onTabChange}
-                    />
-                    <Box css={styles.results} data-query-results="">
-                        <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} />
-                    </Box>
-                </Box>
+                <BuilderFrame
+                    storageKey={`${storageKey}.frame`}
+                    toolbar={toolbar}
+                    banners={<ResultStrips state={run} stale={stale} note={note} onDismissNote={onDismissNote} onRunAgain={onRun} words={words} />}
+                    start={queryPane}
+                    footer={<QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />}
+                >
+                    <QueryResults state={run} stale={stale} view={view ?? "table"} words={words} storageKey={storageKey} controls={controls} />
+                </BuilderFrame>
             </QueryDropTarget>
-            <QueryStatusLine check={editor.check} gives={editor.gives} save={save} name={editor.header.name} />
             {popover !== undefined && element !== null && (
                 <SlotAutocomplete key={popover.generation} anchor={popover.slot.anchor} bounds={element}
                     label={popover.label} placeholder={popover.placeholder} hint={popover.hint} empty={popover.empty} keys={popover.keys}

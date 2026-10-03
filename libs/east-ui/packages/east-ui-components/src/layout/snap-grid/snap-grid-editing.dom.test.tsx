@@ -10,8 +10,9 @@
  * card built by `create` and the veto (L12), the keyboard (L15), and every
  * gesture as one transaction of the shared session — undone, redone,
  * discarded and applied as one checked batch (L16). Then the builder's frame
- * (#995): the one toolbar, the zoom and the design widths over a bound view,
- * the selection bar, the saved time, and the panes. Then a pane beside the
+ * (#995), laid out by the shared builder frame (#1125): the one toolbar, the
+ * zoom and the design widths over a bound view, the selection bar, the saved
+ * time, and the panes. Then a pane beside the
  * canvas (#996): the changes it asks for through the bound selection, each
  * one gesture by the canvas's own rules, the rows the author hears the canvas
  * draw, and the history shortcuts from a pane. Then an Apply a screen asks
@@ -431,7 +432,7 @@ describe("L16 — every gesture is one transaction", () => {
 describe("the builder's frame (#995)", () => {
     /** The toolbar's items, by key, in their order along the row. */
     const toolbarItems = (c: HTMLElement) =>
-        [...c.querySelectorAll("[data-snap-grid-toolbar-row] [data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+        [...c.querySelectorAll("[data-frame-slot=toolbar] [data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
     /** A button by its accessible name. */
     const button = (canvas: EditingSnapGrid, name: string) => canvas.getByRole("button", { name }) as HTMLButtonElement;
     /** The canvas's design width — the most it lays out at — and its zoom, as it draws them. */
@@ -519,14 +520,17 @@ describe("the builder's frame (#995)", () => {
         const canvas = await mountSnapGrid({ chrome: true });
         const c = canvas.container;
         const editor = c.querySelector<HTMLElement>("[data-snap-grid-editor]")!;
-        const [row, body] = [...editor.children] as HTMLElement[];
-        expect(row!.hasAttribute("data-snap-grid-toolbar-row")).toBe(true);
-        expect([...body!.children].map((el) => el.getAttribute("data-snap-grid-pane") ?? (el.hasAttribute("data-snap-grid-main") ? "main" : "?")))
-            .toEqual(["start", "main", "end"]);
-        expect(body!.querySelector('[data-snap-grid-pane="start"]')!.textContent).toBe("Palette");
-        expect(body!.querySelector('[data-snap-grid-pane="end"]')!.textContent).toBe("Inspector");
+        // The canvas's frame is the builder frame (#1125), the editor's first child.
+        const frame = editor.firstElementChild as HTMLElement;
+        expect(frame.hasAttribute("data-builder-frame")).toBe(true);
+        const [row, body] = [...frame.children] as HTMLElement[];
+        expect(row!.getAttribute("data-frame-slot")).toBe("toolbar");
+        expect([...body!.children].map((el) => el.getAttribute("data-frame-slot"))).toEqual(["start", "main", "end"]);
+        // The SnapGrid's own East panes, each placed as it is.
+        expect(body!.querySelector('[data-frame-slot="start"]')!.textContent).toBe("Palette");
+        expect(body!.querySelector('[data-frame-slot="end"]')!.textContent).toBe("Inspector");
         // The selection bar sits over the canvas only, not the panes.
-        expect(body!.querySelector("[data-snap-grid-main] > [data-snap-grid-selection]")).not.toBeNull();
+        expect(body!.querySelector('[data-frame-slot="main"] > [data-snap-grid-main] > [data-snap-grid-selection]')).not.toBeNull();
     }, 30_000);
 });
 
@@ -646,7 +650,7 @@ describe("a pane beside the canvas (#996)", () => {
         await clickTile(c, "trend");
         await key(c, { key: "[" }, "trend");
         expect(spanOf(c, "trend")).toBe(7);
-        const pane = c.querySelector<HTMLElement>('[data-snap-grid-pane="end"]')!;
+        const pane = c.querySelector<HTMLElement>('[data-frame-slot="end"]')!;
         await act(async () => { fireEvent.keyDown(pane, { key: "z", ctrlKey: true }); });
         expect(spanOf(c, "trend")).toBe(8);
         await act(async () => { fireEvent.keyDown(pane, { key: "y", ctrlKey: true }); });

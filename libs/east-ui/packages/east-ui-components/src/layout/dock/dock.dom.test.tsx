@@ -13,10 +13,13 @@
  *   - a State-driven `collapsed` + `onCollapsedChange` round-trips through the
  *     store (the controlled path used by app-style ui() tasks);
  *   - a host drives `DockPane`'s open tab with `tab` and hears each change
- *     through `onTabChange` (K1, #935).
+ *     through `onTabChange` (K1, #935);
+ *   - a pane that is not `collapsible` never collapses, and a host-driven
+ *     `collapsed` is drawn in the commit it arrives in (#1125).
  */
 
 import { describe, test, expect, afterEach } from "vitest";
+import { useLayoutEffect, useRef } from "react";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, BooleanType, NullType, type ValueTypeOf } from "@elaraai/east";
@@ -271,5 +274,36 @@ describe("DockPane — the open tab, driven by its host (K1, #935)", () => {
         await act(async () => { fireEvent.click(again.getAllByRole("tab")[2]!); });
         expect(open(again.getAllByRole)).toEqual(["Library"]);
         expect(told).toEqual(["library"]);
+    });
+});
+
+describe("DockPane — collapsible, and a host's collapse (#1125)", () => {
+    test("a pane that is not collapsible has no collapse control and never a rail, whatever its collapsed state says; its body is mounted", () => {
+        initializeStore(new UIStore());
+        const { queryByRole, getByText, container } = render(
+            <ChakraProvider value={system}>
+                <DockPane storageKey="dock-never" label="Query" surface="shell" collapsible={false} collapsed lazy body="STEPS" />
+            </ChakraProvider>,
+        );
+        expect(queryByRole("button", { name: /Query$/ })).toBeNull();
+        expect(container.querySelector("[data-collapsed]")).toBeNull();
+        expect(getByText("Query").hasAttribute("data-selected")).toBe(true);
+        expect(getByText("STEPS").closest("[hidden]")).toBeNull();
+    });
+
+    test("a host-driven collapsed is drawn in the commit it arrives in: a host reading the pane as it lays out sees it", () => {
+        initializeStore(new UIStore());
+        const seen: string[] = [];
+        function Host({ collapsed }: { collapsed: boolean }) {
+            const ref = useRef<HTMLDivElement>(null);
+            useLayoutEffect(() => {
+                seen.push(ref.current!.querySelector("[data-surface]")!.hasAttribute("data-collapsed") ? "rail" : "pane");
+            });
+            return <div ref={ref}><DockPane storageKey="dock-driven" label="Query" collapsed={collapsed} body="STEPS" /></div>;
+        }
+        const view = render(<ChakraProvider value={system}><Host collapsed={false} /></ChakraProvider>);
+        view.rerender(<ChakraProvider value={system}><Host collapsed /></ChakraProvider>);
+        view.rerender(<ChakraProvider value={system}><Host collapsed={false} /></ChakraProvider>);
+        expect(seen).toEqual(["pane", "rail", "pane"]);
     });
 });

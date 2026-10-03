@@ -132,6 +132,73 @@ src/
   utils/                     # RowStateManager, RowSortManager
 ```
 
+## Builder frame
+
+A builder-style component — one toolbar over a pane or two beside a main
+area, as Studio's builder and the query builder are — is laid out with
+`BuilderFrame` (`src/layout/builder-frame/`, #1125), never by hand: it names
+its regions, and the frame lays them out. The frame holds no content of its
+own and draws no outer border, so a host frames it or places it bare. It is a
+React part for renderers, exported as `DockPane` and `Toolbar` are: no East
+component, nothing in east-ui.
+
+```
+┌───────────────────────────────────────────────────────────┐
+│ toolbar   (Toolbar: one row, folding)                     │
+├───────────────────────────────────────────────────────────┤
+│ banners   (in-flow, full width)                           │
+├────────┬────────────────────────────────────────┬─────────┤
+│ start  │ main  (children: always present; its   │   end   │
+│ pane   │        content scrolls itself)         │   pane  │
+├────────┴────────────────────────────────────────┴─────────┤
+│ footer                                                    │
+└───────────────────────────────────────────────────────────┘
+```
+
+- **Props.** `children` is main, the one region every frame has: the room
+  the panes leave, a bounded box its content scrolls in. `toolbar` (the
+  shared `Toolbar`'s items), `banners`, `start`, `end` and `footer` appear
+  only when given. `storageKey` is where each pane keeps its open tab, and
+  its collapsed state when it persists; `minMain` (480px by default) is the
+  narrowest main may get beside pinned panes; `label` is the frame's
+  accessible name; `ref` is its root (the bounds of a popover inside it);
+  `onKeyDown` hears keys from anywhere in the frame, the panes included.
+- **Panes.** A `BuilderFramePane` is either a description the frame draws as
+  a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs`, `tab` /
+  `onTabChange`, `icon`, `badge`, `detail`, `active`, `size` — 320px by
+  default — `mode`, `collapsed` / `defaultCollapsed` / `onCollapsedChange`,
+  `persist`, `collapsible`), or `{ element }`, placed as it is and pinned at
+  its side (a SnapGrid's East `Dock` pane, which draws itself).
+- **Modes.** `pinned`: in the flow; opening it pushes main aside over the
+  design system's `--dur-base` on `--ease-in-out`. `overlay`: its 44px rail
+  stays in the flow, so main never moves; open, the pane floats over main
+  from its edge, full height — never wider than the frame's width less what
+  the other side keeps in the flow (its rail, or a pinned pane), less 48px
+  (`MIN_SCRIM`), so a 48px strip of main always shows beside it, as a
+  phone's drawer leaves one (`paneWidths`, a pure function: on a 324px
+  phone Studio's palette and inspector are each 232px). Esc closes it before
+  anything else in the frame hears it, and puts the focus on its rail; one
+  overlay pane is open at a time. `auto` (the default): pinned while main
+  keeps `minMain` beside the pinned panes, the start pane placed first;
+  overlaid otherwise, and always at 560px and narrower — the frame's own
+  width, not the window's (`placePanes`, a pure function). An `auto` pane
+  that starts to overlay closes, and opens again once it is pinned again,
+  unless it was opened or closed meanwhile. A pane that never collapses is
+  always pinned.
+- **The scrim** covers main while an overlay pane is open for lack of room —
+  an `auto` pane overlaying, or any overlay pane at 560px and narrower — in
+  the theme's `overlay.backdrop`; main takes no pointer, and a tap on the
+  scrim — the strip of it beside the pane, 48px at least — closes the pane.
+  The other pane's rail stays out from under it. A pane its host sets to
+  `overlay` on a wider frame floats over a live main. While a drag is under
+  way an open overlay pane slides off main and its scrim lifts, so it never
+  hides a drop target.
+- **Styles.** The `builderFrame` slot recipe owns every style the frame has.
+  The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,
+  `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
+  host's own recipe keeps what is the host's (the snap grid's canvas column,
+  the query builder's status line).
+
 ## Platform function registration
 
 East programs declare platform functions (e.g. `Clipboard.copy`,

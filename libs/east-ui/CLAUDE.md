@@ -101,4 +101,8 @@ re-download never moves the code back towards the design system's text.
   + [`packages/east-ui/test/CLAUDE.md`](packages/east-ui/test/CLAUDE.md)
   — testing conventions and UI-specific Reactive.Root rules.
 - [`packages/east-ui-components/CLAUDE.md`](packages/east-ui-components/CLAUDE.md)
-  — renderer patterns, the MANDATORY interactive-state pattern.
+  — renderer patterns, the MANDATORY interactive-state pattern, and the
+  builder frame: a builder-style component (one toolbar over panes beside a
+  main area, as Studio's builder and the query builder are) is laid out with
+  `BuilderFrame` — its anatomy, props, pane modes and scrim are in that
+  file's "Builder frame" section.

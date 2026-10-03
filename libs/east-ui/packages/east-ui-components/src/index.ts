@@ -93,6 +93,22 @@ export {
     // The Dock's pane as React — for a host renderer's own panes
     DockPane,
     type DockPaneProps,
+    // The one frame of a builder-style component (#1125): the toolbar, the
+    // banners, the panes either side of main, and the footer
+    BuilderFrame,
+    placePanes,
+    paneWidths,
+    MIN_MAIN,
+    MIN_SCRIM,
+    NARROW_FRAME,
+    type BuilderFrameProps,
+    type BuilderFramePane,
+    type BuilderFrameDock,
+    type PaneMode,
+    type PanePlacement,
+    type PanePlacements,
+    type PaneWeight,
+    type PaneWidths,
     // The SnapGrid's editing canvas and its words (#990)
     SnapGridEditor,
     type SnapGridEditorProps,

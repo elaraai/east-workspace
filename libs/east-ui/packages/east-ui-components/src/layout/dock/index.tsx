@@ -81,6 +81,8 @@ export interface DockPaneProps {
     tabs?: ReadonlyArray<{ key: string; label: string; body: ReactNode }> | undefined;
     /** The body, when the pane has no tabs. */
     body?: ReactNode;
+    /** Whether it collapses at all: `false`, it never collapses — no rail, and no collapse control. `true` by default. */
+    collapsible?: boolean | undefined;
     /** Collapsed, driven by the host; omitted, the pane keeps its own state. */
     collapsed?: boolean | undefined;
     /** Collapsed at first, when the pane keeps its own state. */
@@ -134,7 +136,8 @@ export interface DockPaneProps {
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
  * else toggled by the controls and optionally persisted (keyed by the storage
- * key). The open tab follows it too: seeded from `tab` and synced when `tab`
+ * key). A pane that is not `collapsible` is always expanded, with no collapse
+ * control. The open tab follows it too: seeded from `tab` and synced when `tab`
  * drives it, else kept by the storage key; either way a tab opened from the
  * pane is reported through `onTabChange`. Every body is kept mounted (hidden)
  * while the pane is collapsed, and every tab's while another is open, so a
@@ -157,6 +160,7 @@ export function DockPane(props: DockPaneProps) {
     const keepMounted = props.keepMounted ?? true;
     const lazy = props.lazy ?? false;
     const animated = props.animated ?? false;
+    const collapsible = props.collapsible ?? true;
     const onCollapsedChangeFn = props.onCollapsedChange;
 
     const defaultCollapsed = props.defaultCollapsed ?? false;
@@ -164,9 +168,17 @@ export function DockPane(props: DockPaneProps) {
     const persistKey = `${storageKey}.dock.collapsed`;
 
     // Interactive-state: local state seeded from collapsed ?? defaultCollapsed.
-    const [collapsed, setCollapsed] = useState<boolean>(collapsedProp ?? defaultCollapsed);
-    // Controlled: a State-driven `collapsed` prop pushes into local state.
-    useEffect(() => { if (collapsedProp !== undefined) setCollapsed(collapsedProp); }, [collapsedProp]);
+    const [collapsedState, setCollapsed] = useState<boolean>(collapsedProp ?? defaultCollapsed);
+    // Controlled: a State-driven `collapsed` prop pushes into local state as
+    // it changes — in the render it arrives in, so the pane is never drawn a
+    // frame in its old state (a host frame placing it by that state, #1125).
+    const [drivenCollapsed, setDrivenCollapsed] = useState<boolean | undefined>(collapsedProp);
+    if (collapsedProp !== drivenCollapsed) {
+        setDrivenCollapsed(collapsedProp);
+        if (collapsedProp !== undefined) setCollapsed(collapsedProp);
+    }
+    // A pane that never collapses is expanded whatever its state says.
+    const collapsed = collapsible && collapsedState;
     // Uncontrolled + persist: hydrate once from storage on mount.
     useEffect(() => {
         if (collapsedProp !== undefined || persist === "none") return;
@@ -272,10 +284,11 @@ export function DockPane(props: DockPaneProps) {
     );
 
     // Bodies mount when expanded, or stay mounted (hidden) while collapsed;
-    // `lazy` defers until first expand. With tabs, each tab is a panel and
-    // only the open one shows. The rail and the tab row sit before the
-    // panels, so every child is keyed: a toggle keeps the panels mounted.
-    const bodyMounted = (!collapsed || keepMounted) && (everExpanded || !lazy);
+    // `lazy` defers until first expand — a pane that never collapses is
+    // expanded from the first. With tabs, each tab is a panel and only the
+    // open one shows. The rail and the tab row sit before the panels, so
+    // every child is keyed: a toggle keeps the panels mounted.
+    const bodyMounted = (!collapsed || keepMounted) && (everExpanded || !lazy || !collapsible);
     const panels = !bodyMounted ? null : tabs.length > 0
         ? tabs.map((tab, index) => (
             <ChakraBox
@@ -344,7 +357,7 @@ export function DockPane(props: DockPaneProps) {
                 ) : label !== undefined ? (
                     <ChakraBox as="span" css={styles.tab} data-selected="">{label}</ChakraBox>
                 ) : null}
-                {toggle}
+                {collapsible && toggle}
             </ChakraBox>
             <Fragment key="panels">{panels}</Fragment>
         </ChakraBox>

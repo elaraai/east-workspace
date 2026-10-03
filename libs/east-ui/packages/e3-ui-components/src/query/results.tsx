@@ -5,7 +5,7 @@
 
 /**
  * The results (#938) — beside the pane, the last run's result
- * (`Query Editor Spec.md` §4.11):
+ * (`Query Editor Spec.md` §4.11), the builder frame's main (#1125):
  *
  * - **the band**, at the top, as tall as the pane's tab row, so the two line
  *   up across the builder: the result's controls ({@link resultToolbarItems}),
@@ -263,7 +263,7 @@ export const QueryResults = memo(function QueryResults({ state, stale, view, wor
     }
 
     return (
-        <Box ref={rootRef} css={styles.root} data-query-results-view={output === undefined ? undefined : view} data-width={width}>
+        <Box ref={rootRef} css={styles.root} data-query-results="" data-query-results-view={output === undefined ? undefined : view} data-width={width}>
             <Box css={band.toolbar} role="toolbar" aria-label={m.resultControls()} data-slot="toolbar" data-query-results-bar="">
                 <Toolbar items={controls} />
             </Box>

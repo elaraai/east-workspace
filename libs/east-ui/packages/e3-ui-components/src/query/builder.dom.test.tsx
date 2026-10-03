@@ -150,7 +150,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
     test("B1: the one toolbar — the history item, Copy jq, Save… and Run with its keys at its end; Visual · jq in the Query tab's band; Table · Tree and Download ▾ in the results'", async () => {
         const { container } = await mountBuilder(offlineCall().call);
         await openQuery(variant("saved", TOP.name));
-        const items = [...builderOf(container).querySelector<HTMLElement>("[data-slot=toolbar]")!.querySelectorAll<HTMLElement>("[data-toolbar-item]")];
+        const items = [...builderOf(container).querySelector<HTMLElement>("[data-frame-slot=toolbar]")!.querySelectorAll<HTMLElement>("[data-toolbar-item]")];
         expect(items.map((el) => [el.getAttribute("data-toolbar-item"), el.hasAttribute("data-toolbar-end")])).toEqual([
             ["history", true], ["copy", false], ["save", false], ["run", false],
         ]);
@@ -171,7 +171,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
 
     test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, then the history item; the results' band, Download to its icon, then Table · Tree to its icons", async () => {
         const { container } = await mountBuilder(offlineCall().call);
-        expect(builderOf(container).querySelector("[data-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
+        expect(builderOf(container).querySelector("[data-frame-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 history>1");
         expect(container.querySelector("[data-query-results-bar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("download>1 result-view>1");
     }, 30_000);
 
