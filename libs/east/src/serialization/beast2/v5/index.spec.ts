@@ -630,6 +630,26 @@ describe("Beast2 v5 — Paging", () => {
   test("non-collection types are refused by the paged encoder", () => {
     assert.throws(() => encodeBeast2PagedFor(StringType as any), /Array, Set or Dict/);
   });
+
+  test("a keyed or row read is frozen, so it cannot change what a later read is served (#1129)", () => {
+    // The pager keeps the segment a keyed or row read decodes, for the next
+    // read into it. That segment is shared, so it decodes frozen whatever the
+    // pager was opened with: writing through what one read returned would
+    // change what the next read is served.
+    const DT = DictType(StringType, ArrayType(IntegerType));
+    const pages = openBeast2PagesFor(DT)(encodeBeast2SegmentsFor(DT)([new Map([["a", [1n]], ["b", [2n]]]), new Map([["c", [3n]], ["d", [4n]]])]));
+    const a = pages.get("a") as bigint[];
+    assert.ok(Object.isFrozen(a), "a keyed read's array is frozen");
+    assert.throws(() => a.push(99n), TypeError);
+    assert.deepEqual(pages.get("a"), [1n], "the next read is served the segment as written");
+    // A scan's segment is decoded fresh, and is the caller's own.
+    const scanned = pages.segmentDisjoint(1) as Map<string, bigint[]>;
+    assert.ok(!Object.isFrozen(scanned.get("c")), "a scan's fresh segment is the caller's");
+
+    const AT = ArrayType(ArrayType(IntegerType));
+    const rows = openBeast2PagesFor(AT)(encodeBeast2SegmentsFor(AT)([[[1n], [2n]], [[3n]]]));
+    assert.ok(Object.isFrozen(rows.element(2)), "a row read is frozen");
+  });
 });
 
 // =============================================================================

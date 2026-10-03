@@ -149,11 +149,13 @@ export function reportInputReads(i: number, path: string, value: unknown): void 
  * Prints what reading a lazily opened input came to.
  *
  * An operation the pager cannot serve decoded the input whole, and says what
- * that added to resident memory; reads that decoded segments again, beyond the
- * ones the pager keeps, say so, since decoding the input whole would decode
- * each once; any other reads say the segments they decoded and the fences
- * they probed, and then the bytes they read, against what the input weighs.
- * east-c and east-py say each in the same words, but for the bytes read.
+ * that added to resident memory; reads that decoded segments again — a scan
+ * repeated, which keeps no segment it has passed (#1129), or reads at random
+ * beyond the ones the pager keeps — say so, and that decoding the input whole
+ * would decode each once but hold all of it; any other reads say the segments
+ * they decoded and the fences they probed, and then the bytes they read,
+ * against what the input weighs. east-c and east-py say each in the same
+ * words, but for the bytes read.
  *
  * @param i - the input's position
  * @param path - its file
@@ -167,8 +169,8 @@ export function reportLazyReads(i: number, path: string, stats: Beast2LazyStats,
         console.error(`  input ${i}: decoded whole (an operation the pager cannot serve) — ${formatResident(stats.hydratedBytes)}`);
     } else if (stats.segmentsDecoded > stats.segments) {
         console.error(`  input ${i}: ${stats.segmentsDecoded} segment decodes of its ${stats.segments} segments, ` +
-            `${stats.fencesProbed} fences probed — its reads land at random beyond the segments kept, so decoding it ` +
-            'whole would decode each once');
+            `${stats.fencesProbed} fences probed — it read segments again that the pager no longer held (a scan ` +
+            'repeated, or reads at random); decoding it whole would decode each once, but hold the whole input at once');
     } else {
         console.error(`  input ${i}: ${stats.segmentsDecoded} of ${stats.segments} segments decoded, ${stats.fencesProbed} fences probed — ` +
             `${formatSize(read)} read of ${formatInputSize(path)}`);

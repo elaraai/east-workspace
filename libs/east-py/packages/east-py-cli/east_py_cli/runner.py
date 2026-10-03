@@ -86,7 +86,9 @@ def _report_input_reads(i: int, value: object) -> None:
     cannot give on a mapping, where the kernel decides how much of a touched
     file is resident. An operation the pager cannot serve decodes it whole,
     and says how much resident memory that added; reads that decode segments
-    again land at random beyond the segments the pager keeps."""
+    again came back to segments the pager no longer held — a scan repeated,
+    which keeps no segment it has passed (#1129), or reads at random beyond
+    the segments the pager keeps."""
     from east.runtime._compiler_eastc import paged_value_stats
     from east.serialization._beast2_eastc import _paged_hydrated_bytes
 
@@ -101,8 +103,9 @@ def _report_input_reads(i: int, value: object) -> None:
               f"{_format_resident(grown)}", file=sys.stderr)
     elif decoded > segments:
         print(f"  input {i}: {decoded} segment decodes of its {segments} segments, {fences} fences "
-              "probed — its reads land at random beyond the segments kept, so decoding it whole "
-              "would decode each once", file=sys.stderr)
+              "probed — it read segments again that the pager no longer held (a scan repeated, "
+              "or reads at random); decoding it whole would decode each once, but hold the whole "
+              "input at once", file=sys.stderr)
     else:
         print(f"  input {i}: {decoded} of {segments} segments decoded, {fences} fences probed",
               file=sys.stderr)
