@@ -102,6 +102,14 @@ a few at a time, checks each against its hash, and splices them into the value's
 bytes, so no response carries more than one segment and a server whose host
 caps its responses still serves a collection of any size.
 
+A dataset that moves while it is read (a run writes a new value, and the old
+one's objects can no longer be fetched) is read again. `datasetGet` starts over
+from the new content, at most 3 times, and returns its hash.
+`datasetGetStream` starts over only before it returns. Once it has returned a
+hash, its chunks end in a `DatasetHashMismatchError` naming the content the
+dataset holds now (`currentHash`), and the caller starts over. A manifest above
+level 0, which only a newer e3 writes, is refused, naming the update to make.
+
 A value named by its hash rather than by a dataset, such as a record's state at
 a past commit, is read through the objects route the same way:
 `collectionGetStream` streams a collection by its manifest's hash, and
