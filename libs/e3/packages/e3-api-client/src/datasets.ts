@@ -180,7 +180,7 @@ export async function datasetGetStream(
   if (contentType.includes('application/json')) {
     const body = await response.json() as { manifest: string } | { url: string };
     if ('manifest' in body) {
-      return { hash, chunks: await collectionChunks(url, repo, body.manifest, options) };
+      return { hash, chunks: await collectionGetStream(url, repo, body.manifest, options) };
     }
     const redirectResponse = await requestFetch(options)(body.url, {
       method: 'GET',
@@ -220,12 +220,28 @@ async function* bodyChunks(response: globalThis.Response): AsyncGenerator<Uint8A
 const SEGMENT_CONCURRENCY = 8;
 
 /**
- * A collection's value, a chunk at a time: the objects its manifest names,
- * fetched a few at a time ahead of a splice that takes them in order, into the
- * blob the dataset route would stream. The manifest is read before this
- * returns; the segments as the chunks are taken.
+ * Get a stored collection by its manifest's hash, as raw BEAST2 bytes, a chunk
+ * at a time: what {@link datasetGetStream} streams a collection dataset as, of
+ * a value a caller names by hash — a record's state at a past commit, say.
+ *
+ * @remarks
+ * The objects the manifest names are fetched through the objects route a few
+ * at a time, each checked against its hash ({@link objectGet}), ahead of a
+ * splice that takes them in order into the blob the dataset route would
+ * stream. The manifest is read before this returns, so a refusal throws here;
+ * the segments are read as the chunks are taken. A value that is not a
+ * collection is one object: read it with {@link objectGet}. The caller tells
+ * the two apart by the value's type.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param manifestHash - The hash of the collection's segment manifest
+ * @param options - Request options including auth token
+ * @returns The collection's bytes in order
+ * @throws {ApiError} On application-level errors
+ * @throws {AuthError} On 401 Unauthorized
  */
-async function collectionChunks(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<AsyncIterable<Uint8Array>> {
+export async function collectionGetStream(url: string, repo: string, manifestHash: string, options: RequestOptions): Promise<AsyncIterable<Uint8Array>> {
   const manifest = decodeCollectionManifest(await objectGet(url, repo, manifestHash, options));
   return (async function* () {
     const pending: Promise<Uint8Array>[] = [];
@@ -252,11 +268,25 @@ async function collectionChunks(url: string, repo: string, manifestHash: string,
 }
 
 /**
- * An object's bytes, read through the objects route and checked against the
- * hash they were asked by. A large object is answered with a URL, fetched
- * without the API's auth: it may be presigned.
+ * Get an object by its hash: its bytes, read through the objects route and
+ * checked against the hash they were asked by.
+ *
+ * @remarks
+ * A large object is answered with a URL, which is fetched without the API's
+ * auth, since it may be presigned. A stored collection is many objects: read
+ * it with {@link collectionGetStream}.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param hash - The object's hash
+ * @param options - Request options including auth token
+ * @returns The object's bytes
+ * @throws {ApiError} On application-level errors, such as an object the
+ *   repository does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ * @throws {Error} When the bytes that arrive do not hash to `hash`
  */
-async function objectGet(url: string, repo: string, hash: string, options: RequestOptions): Promise<Uint8Array> {
+export async function objectGet(url: string, repo: string, hash: string, options: RequestOptions): Promise<Uint8Array> {
   const response = await fetchWithAuth(`${url}/api/repos/${encodeURIComponent(repo)}/objects/${hash}`, {
     method: 'GET',
     headers: { 'Accept': BEAST2_CONTENT_TYPE },
@@ -391,6 +421,21 @@ export async function datasetGetPage(
     throw error;
   }
 
+  return parsePage(response);
+}
+
+/**
+ * Read a page answer: its bytes, and its window as its `X-*` headers place it.
+ *
+ * @remarks
+ * What {@link datasetGetPage} reads its answer with, and what a client of a
+ * host's own route reads a page of a value it serves with, as e3-api-server's
+ * `getValuePage` answers it.
+ *
+ * @param response - A successful page answer
+ * @returns The page
+ */
+export async function parsePage(response: globalThis.Response): Promise<DatasetPage> {
   const buffer = await response.arrayBuffer();
   const intHeader = (name: string): number => {
     const value = response.headers.get(name);

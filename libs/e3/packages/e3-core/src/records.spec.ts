@@ -17,14 +17,16 @@ import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { RecordIndexObjectType } from '@elaraai/e3-types';
+import { RecordIndexObjectType, decodePackageObject } from '@elaraai/e3-types';
 import type { Structure, TreePath } from '@elaraai/e3-types';
+import * as root from './index.js';
+import * as portable from './portable.js';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
 import { summarizeDelta } from './record-apply.js';
 import { repoGc } from './gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
-import { WorkspaceLockError, lockStateToHolderInfo } from './errors.js';
+import { WorkspaceLockError, WorkspaceNotDeployedError, WorkspaceNotFoundError, lockStateToHolderInfo } from './errors.js';
 import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
@@ -1179,6 +1181,36 @@ describe('record indexes', () => {
     assert.strictEqual(resolved.windowType.type, 'Array');
     assert.strictEqual(await resolveRecordIndex(storage, repo, ws, 'records/plans', ref.value.hash, 'nope'), null);
     assert.deepStrictEqual(await recordIndexNames(storage, repo, ref.value.hash), ['by_status']);
+  });
+
+  it('resolves a record by name through either entry: its path, its type and its declarations', async () => {
+    // A host labels a backup with a record's type, or checks a state it
+    // restores against it, with the resolution every record operation uses.
+    const resolved = await root.resolveRecord(storage, repo, ws, 'plans');
+    assert.ok(resolved !== null);
+    assert.strictEqual(resolved.refPath, 'records/plans');
+    assert.strictEqual(resolved.selfKeypath, '.records.plans');
+    assert.ok(isTypeValueEqual(resolved.type, toEastTypeValue(PlansType)), 'the type the package declares');
+    assert.deepStrictEqual(new Set(resolved.mutations.keys()), new Set(['seed', 'seed_many', 'retitle']));
+    assert.deepStrictEqual([...resolved.indexes.keys()], ['by_status']);
+    assert.strictEqual(resolved.indexes.get('by_status'), (await state()).indexes.get('by_status')!.index,
+      'the declaration the deploy built the index under');
+
+    assert.strictEqual(await root.resolveRecord(storage, repo, ws, 'nope'), null, 'a name the package does not declare');
+    await assert.rejects(root.resolveRecord(storage, repo, 'nope', 'plans'), WorkspaceNotFoundError);
+    await workspaceCreate(storage, repo, 'bare');
+    await assert.rejects(root.resolveRecord(storage, repo, 'bare', 'plans'), WorkspaceNotDeployedError);
+
+    // The leaf's type, read from the package's structure by ref path.
+    const { structure } = decodePackageObject(
+      await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, ws)).hash)).data;
+    assert.ok(isTypeValueEqual(root.recordLeafType(structure, 'records/plans')!, resolved.type));
+    assert.strictEqual(root.recordLeafType(structure, 'records'), undefined, 'a struct is no leaf');
+    assert.strictEqual(root.recordLeafType(structure, 'records/nope'), undefined, 'a path the structure does not hold');
+
+    // A host in a page reaches the same two through the portable entry.
+    assert.strictEqual(portable.resolveRecord, root.resolveRecord);
+    assert.strictEqual(portable.recordLeafType, root.recordLeafType);
   });
 
   it('keeps every object an index names reachable through gc', async () => {

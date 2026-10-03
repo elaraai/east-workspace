@@ -102,6 +102,14 @@ a few at a time, checks each against its hash, and splices them into the value's
 bytes, so no response carries more than one segment and a server whose host
 caps its responses still serves a collection of any size.
 
+A value named by its hash rather than by a dataset, such as a record's state at
+a past commit, is read through the objects route the same way:
+`collectionGetStream` streams a collection by its manifest's hash, and
+`objectGet` reads any other value, which is one object. The caller picks by
+the value's type. A client of a host's own routes reads a page with
+`parsePage`, as `datasetGetPage` reads its own, and a JSON refusal with
+`parseErrorBody`, so it throws the `ApiError` codes the rest of the client does.
+
 ### Tasks
 
 ```typescript
