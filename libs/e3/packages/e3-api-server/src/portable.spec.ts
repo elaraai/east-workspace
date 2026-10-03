@@ -32,7 +32,7 @@ import {
 } from '@elaraai/e3-core/portable';
 import { InMemoryStorage, PORTABLE_PACKAGES, encodeInSegmentsOf, portableWalker, storeSegmentsOf } from '@elaraai/e3-core/test';
 import {
-  BEAST2_CONTENT_TYPE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, type RunnerValue, type Structure, type TreePath,
+  BEAST2_CONTENT_TYPE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, dataflowForce, type RunnerValue, type Structure, type TreePath,
 } from '@elaraai/e3-types';
 import * as portable from './portable.js';
 import * as root from './index.js';
@@ -291,7 +291,7 @@ describe('an app mounted from the portable entry alone', () => {
     const started = await app.request(`/api/repos/${REPO}/workspaces/${WS}/dataflow`, {
       method: 'POST',
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
-      body: encodeBeast2For(DataflowRequestType)({ force: false, filter: none }),
+      body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
     });
     assert.equal(started.status, 202);
     assert.deepEqual(decodeBeast2For(ResponseType(NullType))(await bytes(started)), variant('success', null));

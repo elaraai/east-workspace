@@ -165,9 +165,11 @@ export interface DataflowResult {
  * Options for dataflow execution.
  */
 export interface DataflowOptions {
-  /** Force re-execution even if cached (default: false) */
-  force?: boolean;
-  /** Filter to run only specific task(s) by exact name */
+  /** The tasks the run re-executes even where the cache holds their results:
+   *  `true` for every task — under a filter, the filter's task — the names of
+   *  the tasks, or `false` for none (default) */
+  force?: boolean | readonly string[];
+  /** One task's exact name: the run runs it and its dependency closure */
   filter?: string;
   /** External workspace lock to use. */
   lock?: LockHandle;

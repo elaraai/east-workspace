@@ -414,6 +414,7 @@ export {
   // State store
   type ExecutionStateStore,
   type StateWriteOutcome,
+  type StoredRunState,
   type TaskStatusDetails,
   type ExecutionStatusDetails,
   InMemoryStateStore,

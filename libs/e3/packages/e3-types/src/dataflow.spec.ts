@@ -12,8 +12,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, DictType, StringType, StructType, encodeBeast2For, none, some, variant } from '@elaraai/east';
-import { decodeDataflowExecutionState } from './dataflow.js';
+import { ArrayType, DictType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import { DataflowForceType, decodeDataflowExecutionState } from './dataflow.js';
 import { E3_RELEASE } from './release.js';
 
 /** Version 1, written by the released e3: task `double` completed, `sum`
@@ -150,8 +150,9 @@ const STATE_V5 = Buffer.from(
 );
 
 /** The version 5 state, as release 1.0.79 writes it: the release in place of
- *  the version. */
-const STATE = Buffer.from(
+ *  the version. Its `force` is a Boolean, which a repository upgrade carries
+ *  forward (`dataflow-force-tasks`). */
+const STATE_1_0_79 = Buffer.from(
   'iUVhc3QNCgUAngsoKQEFBAAIAgRub25lAwRzb21lAAoACQUEbmFtZQAEaGFzaAAGaW5wdXRzBQZvdXRwdXQACWRlcGVuZHNP' +
   'bgUKBgkBBXRhc2tzBwgCBG5vbmUDBHNvbWUICAIEbm9uZQMEc29tZQICCAIEbm9uZQMEc29tZQsIAgRub25lAwRzb21lAQkC' +
   'CmlucHV0c0hhc2gAC2V4ZWN1dGlvbklkAAgCBG5vbmUDBHNvbWUOCQsEbmFtZQAGc3RhdHVzAAZjYWNoZWQKCm91dHB1dEhh' +
@@ -180,6 +181,37 @@ const STATE = Buffer.from(
   'base64',
 );
 
+/** The release 1.0.79 state as release 1.0.85 writes it: `force` names the
+ *  tasks the run forces, `double`. */
+const STATE = Buffer.from(
+  'iUVhc3QNCgUAsgspKgEFAAoACAMDYWxsAgRub25lAgV0YXNrcwMIAgRub25lAgRzb21lAAkFBG5hbWUABGhhc2gABmlucHV0' +
+  'cwMGb3V0cHV0AAlkZXBlbmRzT24DCgYJAQV0YXNrcwcIAgRub25lAgRzb21lCAQIAgRub25lAgRzb21lCgIIAgRub25lAgRz' +
+  'b21lDAgCBG5vbmUCBHNvbWUBCQIKaW5wdXRzSGFzaAALZXhlY3V0aW9uSWQACAIEbm9uZQIEc29tZQ8JCwRuYW1lAAZzdGF0' +
+  'dXMABmNhY2hlZAsKb3V0cHV0SGFzaAUFZXJyb3IFCGV4aXRDb2RlDQlzdGFydGVkQXQOC2NvbXBsZXRlZEF0DghkdXJhdGlv' +
+  'bg0EcGxhbgUJZXhlY3V0aW9uEAsAEQsAAAsAEwkDA3NlcQwJdGltZXN0YW1wAQZyZWFzb24FCQgDc2VxDAl0aW1lc3RhbXAB' +
+  'B3N1Y2Nlc3MKCGV4ZWN1dGVkDAZjYWNoZWQMBmZhaWxlZAwHc2tpcHBlZAwIZHVyYXRpb24MCQQDc2VxDAl0aW1lc3RhbXAB' +
+  'C2V4ZWN1dGlvbklkAAp0b3RhbFRhc2tzDAkFA3NlcQwJdGltZXN0YW1wAQRwYXRoAAxwcmV2aW91c0hhc2gAB25ld0hhc2gA' +
+  'CQcDc2VxDAl0aW1lc3RhbXABBHRhc2sABmNhY2hlZAoKb3V0cHV0SGFzaAAIZHVyYXRpb24MCXBlYWtCeXRlcw0JBANzZXEM' +
+  'CXRpbWVzdGFtcAEEdGFzawAMY29uZmxpY3RQYXRoAAkGA3NlcQwJdGltZXN0YW1wAQR0YXNrAAVlcnJvcgUIZXhpdENvZGUN' +
+  'CGR1cmF0aW9uDAkEA3NlcQwJdGltZXN0YW1wAQR0YXNrAAZyZWFzb24ACQUDc2VxDAl0aW1lc3RhbXABBHRhc2sABWxldmVs' +
+  'DAZsZXZlbHMMCQYDc2VxDAl0aW1lc3RhbXABBHRhc2sABWxldmVsDAZsZXZlbHMMBXVuaXRzDAkDA3NlcQwJdGltZXN0YW1w' +
+  'AQR0YXNrAAkEA3NlcQwJdGltZXN0YW1wAQR0YXNrAAVjYXVzZQAJBANzZXEMCXRpbWVzdGFtcAEEdGFzawAGcGllY2VzDAkC' +
+  'BWxldmVsDAZsZXZlbHMMCAIEbm9uZQIEc29tZSIJAwVtZXJnZSMFaW5kZXgMBXVuaXRzDAgDBmJ1ZGdldAIDY2FwAgdtYWNo' +
+  'aW5lAgkHA3NlcQwJdGltZXN0YW1wAQR0YXNrAAR1bml0JAZyZWFzb24lBHBlYWsMCHJlc2VydmVzDAgPE2V4ZWN1dGlvbl9j' +
+  'YW5jZWxsZWQVE2V4ZWN1dGlvbl9jb21wbGV0ZWQWEWV4ZWN1dGlvbl9zdGFydGVkFw1pbnB1dF9jaGFuZ2VkGA50YXNrX2Nv' +
+  'bXBsZXRlZBkNdGFza19kZWZlcnJlZBoLdGFza19mYWlsZWQbEHRhc2tfaW52YWxpZGF0ZWQcFHRhc2tfbWVyZ2VfY29tcGxl' +
+  'dGVkHRJ0YXNrX21lcmdlX3N0YXJ0ZWQeCnRhc2tfcmVhZHkfDHRhc2tfc2tpcHBlZCAKdGFza19zcGxpdCEMdGFza19zdGFy' +
+  'dGVkHw11bml0X3JlcXVldWVkJgonCRcHcmVsZWFzZQACaWQABHJlcG8ACXdvcmtzcGFjZQAJc3RhcnRlZEF0AQVmb3JjZQQG' +
+  'ZmlsdGVyBQVncmFwaAkJZ3JhcGhIYXNoBQV0YXNrcxIIZXhlY3V0ZWQMBmNhY2hlZAwGZmFpbGVkDAdza2lwcGVkDAZzdGF0' +
+  'dXMAC2NvbXBsZXRlZEF0DgVlcnJvcgUOdmVyc2lvblZlY3RvcnMUDWlucHV0U25hcHNob3QTD3Rhc2tPdXRwdXRQYXRocwMK' +
+  'cmVleGVjdXRlZAwGZXZlbnRzKAhldmVudFNlcQwBAAHvBpkCYzPUM9CzMFUxMLQ0SDRIMtC1AAJdcwMDIAtEADEcsBSlFuQz' +
+  'lRc3PDl96n0aEwMjW0p+aVJOKgMDIwMTlO2QSCFgYOTUy8wrKC0p1qtg4NUrSSzOLtaD2cNcXJrrkEIhYGBEM5YLygUajuQn' +
+  'BrifoBRncn5uQU5qSWoKIwOjQzKFABhoFz6DwpFxQfMZECUBNDSJQkBMNBqCAhGEuTPz4guK8tOLUouLQd5l/DAJ5BAggynV' +
+  'FOh7oBB7UWleXmZeOkgaOWIc0igEQONRIwE5DoD2MjFBEhlx6ZKXBRKU0IhiYYMEKSwqKY4rCcaGhoYEXg5IAIHCjocLwWbh' +
+  '4zmwCMZhYGJhACqeBtIxjZGTb8ImmAwTExMDHwA=',
+  'base64',
+);
+
 const NEW_FORM = 'a change to the execution state\'s type is a new form: ship a repository upgrade step that carries a repository\'s states into it, move this state to the refusals, and add one the new form writes';
 
 describe('decodeDataflowExecutionState', () => {
@@ -195,7 +227,9 @@ describe('decodeDataflowExecutionState', () => {
   it('reads a state in this release\'s form', () => {
     assert.doesNotThrow(() => decodeDataflowExecutionState(STATE), NEW_FORM);
     const state = decodeDataflowExecutionState(STATE);
-    assert.equal(state.release, '1.0.79');
+    assert.equal(state.release, '1.0.85');
+    const forced = variant('tasks', ['double']);
+    assert.ok(equalFor(DataflowForceType)(state.force, forced), `it forces double, not ${printFor(DataflowForceType)(state.force)}`);
     assert.deepEqual(state.tasks.get('sum')!.plan, some('e5'));
     assert.deepEqual(state.tasks.get('sum')!.execution, none);
     assert.deepEqual(state.tasks.get('double')!.execution, some({ inputsHash: 'b'.repeat(64), executionId: '0190a0b0-8888-7000-8000-000000000001' }));
@@ -209,6 +243,13 @@ describe('decodeDataflowExecutionState', () => {
       seq: 6n, timestamp: new Date('2026-01-02T03:04:04.000Z'), task: 'sum', unit: { merge: none, index: 1n, units: 2n },
       reason: variant('budget', null), peak: 150n * 1024n ** 2n, reserves: 150n * 1024n ** 2n,
     });
+  });
+
+  it('refuses a state an earlier release wrote, which a repository upgrade carries forward: release 1.0.79\'s Boolean force', () => {
+    assert.throws(
+      () => decodeDataflowExecutionState(STATE_1_0_79),
+      { message: `the execution state was written by e3 1.0.79, in a form this e3, ${E3_RELEASE}, does not read — re-create the repository: deploy again and import its data again` },
+    );
   });
 
   it('refuses a state a newer release wrote, naming it', () => {
@@ -229,8 +270,9 @@ describe('decodeDataflowExecutionState', () => {
     );
   });
 
-  it('refuses data that is not an execution state', () => {
+  it('refuses data that is not an execution state: a value of another type, or bytes that are not beast2', () => {
     const other = encodeBeast2For(StructType({ id: StringType }))({ id: '7' });
-    assert.throws(() => decodeDataflowExecutionState(other), /not an execution state/);
+    assert.throws(() => decodeDataflowExecutionState(other), { message: 'the data is not an execution state: its type is not the execution state\'s' });
+    assert.throws(() => decodeDataflowExecutionState(new TextEncoder().encode('not a run')), /^Error: the data is not an execution state: it is not beast2 \(/);
   });
 });

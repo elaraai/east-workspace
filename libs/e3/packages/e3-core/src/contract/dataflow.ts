@@ -15,18 +15,19 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, none, some, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { PackageObjectType } from '@elaraai/e3-types';
+import { DataflowForceType, PackageObjectType, dataflowForce } from '@elaraai/e3-types';
 import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
-import { DataflowAbortedError } from '../errors.js';
+import { DataflowAbortedError, DataflowError, TaskNotFoundError } from '../errors.js';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageImport } from '../package-files.js';
 import { workspaceSetDataset } from '../trees.js';
+import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceGetPackage } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
 import type { BackendContext, BackendSetup } from './setup.js';
@@ -42,6 +43,27 @@ function scratch(t: TestContext): string {
  *  gives, or one in memory. */
 function stateStoreOf(context: BackendContext): ExecutionStateStore {
   return context.stateStore ?? new InMemoryStateStore();
+}
+
+/**
+ * Deploys a chain of three tasks over one input to workspace `ws`: `extract`,
+ * `model` over what `extract` writes, and `report` over what `model` writes.
+ *
+ * @returns Each task's hash
+ */
+async function deployChain(t: TestContext, { storage, repo }: BackendContext): Promise<{ extract: string; model: string; report: string }> {
+  const sales = e3.input('sales', IntegerType, variant('value', 1n));
+  const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
+  const extract = e3.task('extract', [sales], add);
+  const model = e3.task('model', [extract.output], add);
+  const report = e3.task('report', [model.output], add);
+  const zip = join(scratch(t), 'chain.zip');
+  await e3.export(e3.package('chain', '1.0.0', sales, extract, model, report), zip);
+  await packageImport(storage, repo, zip);
+  await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'chain', '1.0.0');
+  const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+  return { extract: deployed.tasks.get('extract')!, model: deployed.tasks.get('model')!, report: deployed.tasks.get('report')! };
 }
 
 /**
@@ -121,6 +143,121 @@ export function dataflowTests(setup: BackendSetup): void {
       assert.deepEqual(runner.getCalls(), [], 'the runner was not asked');
       const run = await storage.refs.dataflowRunGet(repo, 'ws', result.runId);
       assert.equal(run?.taskExecutions.get('doubled')?.executionId, executionId, 'the run names the execution it was served from');
+    });
+
+    it('forces the tasks a run names and no other: what depends on one runs again when its output changes, and the rest is served from the cache', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { extract, model, report } = await deployChain(t, context);
+      // `model` reads what changes outside e3, as a task a schedule forces
+      // does: each run of it answers anew.
+      const runner = new MockTaskRunner();
+      let models = 0;
+      runner.setResult(extract, { state: 'success', cached: false, outputHash: 'extract-out' });
+      runner.setResult(model, () => ({ state: 'success', cached: false, outputHash: `model-v${++models}` }));
+      runner.setResult(report, (inputs) => ({ state: 'success', cached: false, outputHash: `report-of-${inputs[0]}` }));
+      const first = new LocalOrchestrator(stateStoreOf(context));
+      await first.wait(await first.start(storage, repo, 'ws', { runner }));
+      // Each attempt of the first run, recorded as a runner records a success:
+      // the cache holds every task's output over its inputs.
+      const outputs = new Map([[extract, 'extract-out'], [model, 'model-v1'], [report, 'report-of-model-v1']]);
+      for (const { taskHash, inputHashes } of runner.getCalls()) {
+        const executionId = uuidv7();
+        await storage.refs.executionWrite(repo, taskHash, inputsHash(inputHashes), executionId, variant('success', {
+          executionId, inputHashes, outputHash: outputs.get(taskHash)!, startedAt: new Date(), completedAt: new Date(),
+          peakBytes: none, plan: none, unit: false,
+        }));
+      }
+      runner.clearCalls();
+
+      const stateStore = stateStoreOf(context);
+      const second = new LocalOrchestrator(stateStore);
+      const handle = await second.start(storage, repo, 'ws', { runner, force: ['model'] });
+      const result = await second.wait(handle);
+
+      assert.equal(result.success, true);
+      assert.deepEqual([result.executed, result.cached], [2, 1]);
+      assert.deepEqual(runner.getCalls().map(({ taskHash, options }) => [taskHash, options?.force]), [[model, true], [report, false]],
+        'model is forced though the cache holds its output, and report runs over what it wrote; extract is served from the cache');
+      const written = await storage.datasets.read(repo, 'ws', 'tasks/report/output');
+      assert.ok(written?.type === 'value' && written.value.hash === 'report-of-model-v2');
+      const state = await stateStore.read(repo, 'ws', handle.id);
+      assert.ok(state !== null, 'the store holds the run');
+      assert.ok(equalFor(DataflowForceType)(state.force, dataflowForce(['model'])),
+        `the run's state names the tasks it forces, not ${printFor(DataflowForceType)(state.force)}`);
+    });
+
+    it('refuses, before anything runs, a run that forces a task the graph does not have, or one its filter leaves out', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { extract, model } = await deployChain(t, context);
+      const runner = new MockTaskRunner();
+      const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+
+      await assert.rejects(orchestrator.start(storage, repo, 'ws', { runner, force: ['model', 'forecast'] }), (err: unknown) => {
+        assert.ok(err instanceof TaskNotFoundError, `a TaskNotFoundError, not ${String(err)}`);
+        assert.equal(err.task, 'forecast');
+        return true;
+      });
+      await assert.rejects(orchestrator.start(storage, repo, 'ws', { runner, force: ['extract', 'report'], filter: 'model' }), (err: unknown) => {
+        assert.ok(err instanceof DataflowError, `a DataflowError, not ${String(err)}`);
+        assert.equal(err.message,
+          'the run forces \'report\', which the filter \'model\' leaves out: a filtered run runs \'model\' and the tasks it depends on, and no other');
+        return true;
+      });
+      assert.deepEqual(runner.getCalls(), [], 'nothing ran');
+      assert.equal(await storage.refs.dataflowRunGetLatest(repo, 'ws'), null, 'and no run was recorded');
+
+      // The workspace is free: a run forcing a task its filter runs goes ahead.
+      runner.setResult(extract, { state: 'success', cached: false, outputHash: 'extract-out' });
+      runner.setResult(model, { state: 'success', cached: false, outputHash: 'model-out' });
+      const result = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner, force: ['extract'], filter: 'model' }));
+      assert.equal(result.success, true);
+      assert.deepEqual(runner.getCalls().map(({ taskHash, options }) => [taskHash, options?.force]), [[extract, true], [model, false]]);
+    });
+
+    it('forces the same tasks once a run that yielded is resumed', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { extract, model, report } = await deployChain(t, context);
+      const runner = new MockTaskRunner();
+      runner.setResult(extract, { state: 'success', cached: false, outputHash: 'extract-out' });
+      runner.setResult(report, { state: 'success', cached: false, outputHash: 'report-out' });
+      // model holds until released, so the run yields with it in flight; the
+      // resumed run launches it again.
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      let settled!: () => void;
+      const abandoned = new Promise<void>((resolve) => { settled = resolve; });
+      runner.setResult(model, async () => {
+        await held;
+        settled();
+        return { state: 'success', cached: false, outputHash: 'model-out' };
+      });
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      // The run yields once extract has run, as a host near its time limit asks.
+      let yielding = false;
+      const handle = await orchestrator.start(storage, repo, 'ws', {
+        runner,
+        force: ['model'],
+        shouldYield: () => yielding,
+        onTaskComplete: ({ name }) => { if (name === 'extract') yielding = true; },
+      });
+      assert.equal((await orchestrator.wait(handle)).yielded, true);
+      assert.deepEqual(runner.getCalls().map(({ taskHash, options }) => [taskHash, options?.force]), [[extract, false], [model, true]],
+        'the run yielded with model, which it forces, in flight');
+      const yielded = await stateStore.read(repo, 'ws', handle.id);
+      assert.ok(yielded !== null && equalFor(DataflowForceType)(yielded.force, dataflowForce(['model'])),
+        'the state the run yielded with names the tasks it forces');
+      release();
+      await abandoned;
+      runner.clearCalls();
+
+      const resumed = await orchestrator.resume(storage, repo, 'ws', handle.id, { runner });
+      assert.equal((await orchestrator.wait(resumed)).success, true);
+      assert.deepEqual(runner.getCalls().map(({ taskHash, options }) => [taskHash, options?.force]), [[model, true], [report, false]],
+        'resumed, the run forces model, as it was started to');
     });
 
     it('skips what depends on a task that failed, and records the run failed', async (t) => {

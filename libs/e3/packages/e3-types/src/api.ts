@@ -40,7 +40,7 @@ import { StopReasonType } from './execution.js';
 import { IntakeFileType } from './intake.js';
 import { RunnerType } from './runner.js';
 import { TaskBodyType, TaskInputType, TaskOutputType, TaskPartitionType, TaskRoleType } from './task.js';
-import { RequeueReasonType, StageUnitType } from './dataflow.js';
+import { DataflowForceType, RequeueReasonType, StageUnitType } from './dataflow.js';
 
 // =============================================================================
 // Error Types
@@ -669,11 +669,15 @@ export const TaskDetailsType = StructType({
  * Request to start dataflow execution. The run takes the server's budget of
  * cores and memory, which it shares with everything else the server runs.
  *
- * @property force - Force re-execution of all tasks
- * @property filter - Filter to specific task names (glob pattern)
+ * @property force - The tasks the run re-executes even where the cache holds
+ *   their results: none, all, or the tasks named ({@link DataflowForceType}).
+ *   A start naming a task the graph does not have, or one the filter's run set
+ *   leaves out, is refused before anything runs.
+ * @property filter - One task's exact name: the run runs that task and its
+ *   dependency closure, and no other task
  */
 export const DataflowRequestType = StructType({
-  force: BooleanType,
+  force: DataflowForceType,
   filter: OptionType(StringType),
 });
 

@@ -307,10 +307,12 @@ program
       .description('Execute the workspace dataflow')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
-      .option('--filter <pattern>', 'Only run tasks matching pattern')
+      .option('--filter <task>', 'Run only this task, by its exact name, and the tasks it depends on')
       .option(...JOBS)
       .option(...MEMORY)
-      .option('--force', 'Force re-execution even if cached')
+      .option('--force', "Re-execute every task the run runs, even where the cache holds its result (with --filter, the filter's task)")
+      .option('--force-task <task>', 'Re-execute this task, by its exact name, even where the cache holds its result; repeat it for each task to force',
+        (task: string, tasks: string[] | undefined): string[] => [...(tasks ?? []), task])
       .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .action(withDefaultRepo(startCommand))
   );

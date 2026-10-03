@@ -88,9 +88,10 @@ export function launchFailureText(err: unknown, ws: string, now: number, g: Glyp
  *
  * @param controller - The controller
  * @param ws - The workspace
- * @param options - `--force`, `--filter`
+ * @param options - The tasks the run forces (`--force` every one, the
+ *   `--force-task`s those named), and its `--filter` task
  */
-export async function startRun(controller: Controller, ws: string, options: { force: boolean; filter: string | undefined }): Promise<void> {
+export async function startRun(controller: Controller, ws: string, options: { force: boolean | readonly string[]; filter: string | undefined }): Promise<void> {
     const s = controller.state();
     const g = controller.deps.glyphs;
     if (isRunLive(s, ws)) {
@@ -114,7 +115,7 @@ export async function startRun(controller: Controller, ws: string, options: { fo
         return;
     }
     const taskCount = s.data.status[ws]?.result.tasks.length ?? 0;
-    const queued = options.filter !== undefined ? `tasks matching ${options.filter} queued` : `${taskCount} task${taskCount === 1 ? '' : 's'} queued`;
+    const queued = options.filter !== undefined ? `${options.filter} and the tasks it needs queued` : `${taskCount} task${taskCount === 1 ? '' : 's'} queued`;
     controller.toast(`Dataflow started ${g.sep} ${ws} ${g.sep} ${queued}`, 'pos');
     controller.deps.feeds.fire(`execution:${ws}`);
     controller.deps.feeds.fire(`status:${ws}`);

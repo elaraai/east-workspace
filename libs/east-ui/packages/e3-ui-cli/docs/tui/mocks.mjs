@@ -228,7 +228,7 @@ write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓
 // S06b — run confirmation lives IN the command bar (no dialog), with the budget the server gives the run
 write('S06b-run-confirm', dashboard({
   command: ' > /run --force_                       run 6 tasks in main, ignoring the cache · 8 cores, 14 GB    ⏎ run · esc',
-  footer: FOOTER('--force  re-run everything    --filter <glob>  only matching tasks', ''),
+  footer: FOOTER('--force  re-run everything    --force-task <task>  re-run this task    --filter <task>  this task and what it needs', ''),
 }));
 
 // S07 — command completion (fzf-style list grows upward from the bar)
@@ -481,7 +481,7 @@ function taskShell({ tab = 'Output', body, command = CMD_IDLE, footer, running =
     col('/task <name>       open a task', '?  help          q  quit', '↑↓ j k  move        → l  expand'),
     col('/input <name>      open an input', 'esc  back        ⌫  back', '← h  collapse       ⏎  toggle'),
     col('/workspace <name>  switch workspace', 'tab ⇧tab  next/prev tab', '⇧←  collapse subtree'),
-    col('/run [--force] [--filter g]  run', '1 2 3  tabs', 'pgup pgdn ^u ^d  page'),
+    col('/run [--force] [--filter t]  run', '1 2 3  tabs', 'pgup pgdn ^u ^d  page'),
     col('/stop              cancel the dataflow', 'r  run    x  stop', 'gg G  top / bottom'),
     col('/logs <task> [stderr]', 'w  workspaces', 's  save .beast2'),
     col('/runs <task>', 'R  refresh now', ''),

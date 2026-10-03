@@ -97,7 +97,7 @@ confirmation is the same command re-run with `--force`.
 |---|---|
 | `/task <name>` · `/input <name>` · `/record <name>` · `/dataset <path>` | open a task / input / record / dataset (`.inputs.x`, `.tasks.x.output`, `.records.x`) |
 | `/workspace <name>` · `/workspaces` · `/repos` · `/repo <path\|url>` | switch workspace · the lists · open another repository |
-| `/run [--force] [--filter <glob>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); it runs under the server's budget — for a local repository, the embedded server's `-j` / `--memory` |
+| `/run [--force \| --force-task <task>…] [--filter <task>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them): `--force` re-runs every task (under `--filter`, its task), `--force-task`, repeated, the tasks it names; `--filter` runs one task, by its exact name, and the tasks it depends on. It runs under the server's budget — for a local repository, the embedded server's `-j` / `--memory` |
 | `/logs <task> [stderr]` · `/runs <task>` | a task's stdout (or stderr) / run history |
 | `/find <key>` · `/goto <row\|N%>` · `/save [file] [--force]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump by row or percent; write the `.beast2` bytes (`.log` for logs) |
 | `/index <name>` · `/index primary` | in a record: page through one of its indexes, where `/find` searches the index's key and `/goto` counts its entries; or its rows again |

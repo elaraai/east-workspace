@@ -40,7 +40,7 @@ A local repository is served by an embedded `@elaraai/e3-api-server` for the ses
 | Type | Effect |
 |---|---|
 | `/task <name>` · `/input <name>` · `/record <name>` · `/workspace <name>` · `/repo <path\|url>` | open things; plain text without `/` fuzzy-jumps to any of them |
-| `/run [--force] [--filter <glob>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); the header pill and the execution panel follow it live, with the cores and memory the server's budget holds |
+| `/run [--force \| --force-task <task>…] [--filter <task>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them): `--force` re-runs every task, `--force-task` the tasks it names, `--filter` one task by its exact name with the tasks it depends on; the header pill and the execution panel follow it live, with the cores and memory the server's budget holds |
 | `/find <key>` · `/goto <row\|N%>` · `/save [file]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump; write the `.beast2` bytes |
 | `/index <name>` · `/index primary` | in a record: page through one of its indexes (`/find` then searches the index's key), or its rows again |
 | `e` `a` `x` `t` · `⏎ APPLY` · `esc DISCARD` | in an input: edit a leaf, add, remove, tag / set; the commit bar sums the pending changes |

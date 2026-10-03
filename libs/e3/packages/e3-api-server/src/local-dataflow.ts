@@ -5,17 +5,16 @@
 
 /**
  * The local server's dataflow wiring: a LocalOrchestrator for each repository
- * it serves, over a FileStateStore in the repository's workspaces directory.
- * The dataflow routes run, poll and cancel a repository's dataflows through
- * them, as a cloud's routes do through its own.
+ * it serves, over the repository's run state store — a local repository's
+ * file per workspace. The dataflow routes run, poll and cancel a repository's
+ * dataflows through them, as a cloud's routes do through its own.
  */
 
-import { join } from 'node:path';
 import {
   LocalOrchestrator,
-  FileStateStore,
   type DataflowOrchestrator,
   type ExecutionStateStore,
+  type StorageBackend,
 } from '@elaraai/e3-core';
 import type { DataflowSeams } from './routes/executions.js';
 
@@ -24,16 +23,22 @@ import type { DataflowSeams } from './routes/executions.js';
  * each made as its repository is first asked for and kept for the server's
  * life, so a poll or a cancel reaches the run its start began.
  *
+ * @remarks
+ * The state store is the backend's own (`StorageBackend.runStates`), so the
+ * runs the orchestrator keeps are the ones a repository upgrade carries
+ * forward.
+ *
+ * @param storage - The server's storage backend
  * @returns The seams' getters, for the dataflow routes
  */
-export function localDataflow(): Pick<DataflowSeams, 'getOrchestrator' | 'getStateStore'> {
-  const stateStores = new Map<string, FileStateStore>();
+export function localDataflow(storage: StorageBackend): Pick<DataflowSeams, 'getOrchestrator' | 'getStateStore'> {
+  const stateStores = new Map<string, ExecutionStateStore>();
   const orchestrators = new Map<string, LocalOrchestrator>();
 
   const getStateStore = (repoPath: string): ExecutionStateStore => {
     let store = stateStores.get(repoPath);
     if (store === undefined) {
-      store = new FileStateStore(join(repoPath, 'workspaces'));
+      store = storage.runStates(repoPath);
       stateStores.set(repoPath, store);
     }
     return store;

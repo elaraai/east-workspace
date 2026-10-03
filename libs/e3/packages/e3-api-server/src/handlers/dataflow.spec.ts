@@ -20,7 +20,7 @@ import {
   type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
 } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { BEAST2_CONTENT_TYPE, E3_RELEASE } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, E3_RELEASE, dataflowForce } from '@elaraai/e3-types';
 import { createExecutionRoutes } from '../routes/executions.js';
 import { createServer } from '../server.js';
 import { DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, ResponseType } from '../types.js';
@@ -28,7 +28,7 @@ import { DataflowBudgetType, DataflowExecutionStateType, DataflowRequestType, Re
 /** A run's state, of no tasks, in workspace `main` of `test-repo`. */
 function runState(id: string, status: 'running' | 'completed' | 'failed' | 'cancelled'): DataflowExecutionState {
   return {
-    release: E3_RELEASE, id, repo: 'test-repo', workspace: 'main', startedAt: new Date(Date.now() - 1000), force: false, filter: none,
+    release: E3_RELEASE, id, repo: 'test-repo', workspace: 'main', startedAt: new Date(Date.now() - 1000), force: dataflowForce(false), filter: none,
     graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status,
     completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n,
     events: [], eventSeq: 0n,
@@ -64,6 +64,7 @@ function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore
       return inner.getEventsSince(repo, workspace, id, since);
     },
     delete: (repo, workspace, id) => inner.delete(repo, workspace, id),
+    readStored: (repo) => inner.readStored(repo),
   };
   return { store, reads };
 }
@@ -76,7 +77,7 @@ describe('dataflow routes', () => {
     const orchestrator: DataflowOrchestrator = {
       start: async (_storage, repo, workspace) => {
         await stateStore.create({
-          release: E3_RELEASE, id: 'run-1', repo, workspace, startedAt: new Date(Date.now() - 1000), force: false, filter: none,
+          release: E3_RELEASE, id: 'run-1', repo, workspace, startedAt: new Date(Date.now() - 1000), force: dataflowForce(false), filter: none,
           graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status: 'running',
           completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n,
           events: [], eventSeq: 0n,
@@ -110,7 +111,7 @@ describe('dataflow routes', () => {
     })).arrayBuffer()));
     const poll = async () => decodeState(new Uint8Array(await (await app.request('/api/repos/r/workspaces/main/dataflow/execution')).arrayBuffer()));
 
-    assert.equal((await post('', encodeBeast2For(DataflowRequestType)({ force: false, filter: none }))).type, 'success');
+    assert.equal((await post('', encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }))).type, 'success');
     const running = await poll();
     if (running.type !== 'success') assert.fail(`the poll was refused: ${running.value.type}`);
     assert.equal(running.value.status.type, 'running');
@@ -151,7 +152,7 @@ describe('dataflow routes', () => {
     const response = await app.request('/api/repos/r/workspaces/main/dataflow', {
       method: 'POST',
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
-      body: encodeBeast2For(DataflowRequestType)({ force: false, filter: none }),
+      body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
     });
     assert.equal(response.status, 202);
     assert.equal(decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer())).type, 'success');

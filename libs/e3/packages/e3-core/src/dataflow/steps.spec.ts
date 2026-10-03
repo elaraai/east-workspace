@@ -13,7 +13,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { some, none, variant, StringType, encodeBeast2For } from '@elaraai/east';
-import { E3_RELEASE, type TreePath, type Structure } from '@elaraai/e3-types';
+import { E3_RELEASE, dataflowForce, type DataflowForce, type TreePath, type Structure } from '@elaraai/e3-types';
 import {
   stepInvalidateTasks,
   stepDetectInputChanges,
@@ -24,6 +24,7 @@ import {
   stepTaskMergeCompleted,
   stepTaskCompleted,
   stepTaskFailed,
+  stepTaskForced,
 } from './steps.js';
 import type { DataflowExecutionState, TaskState, Mutable } from './types.js';
 import type { DataflowGraph } from '../dataflow.js';
@@ -52,6 +53,8 @@ function makeState(
     taskOutputPaths: string[];
     executed: bigint;
     cached: bigint;
+    force: DataflowForce;
+    filter: string;
   }>,
 ): DataflowExecutionState {
   return {
@@ -60,8 +63,8 @@ function makeState(
     repo: overrides?.repo ?? '/tmp/test-repo',
     workspace: overrides?.workspace ?? 'test-ws',
     startedAt: new Date(),
-    force: false,
-    filter: none,
+    force: overrides?.force ?? dataflowForce(false),
+    filter: overrides?.filter === undefined ? none : some(overrides.filter),
     graph: some(graph),
     graphHash: none,
     tasks,
@@ -151,6 +154,36 @@ describe('stepYield', () => {
 
     assert.deepStrictEqual(reset, []);
     assert.strictEqual(state.tasks.get('task-a')!.status, 'pending');
+  });
+});
+
+describe('stepTaskForced', () => {
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'extract', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'model', hash: 'hash-b', inputs: ['.out_a'], output: '.out_b', dependsOn: ['extract'] },
+      { name: 'report', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['model'] },
+    ],
+  };
+
+  /** The tasks a run that forces `force`, under `filter`, forces. */
+  function forced(force: boolean | string[], filter?: string): string[] {
+    const tasks = new Map(graph.tasks.map((task) => [task.name, makeTaskState(task.name, 'pending')] as const));
+    const state = makeState(graph, tasks, { force: dataflowForce(force), ...(filter !== undefined && { filter }) });
+    return graph.tasks.map((task) => task.name).filter((name) => stepTaskForced(state, name));
+  }
+
+  it('forces no task, every task, or the tasks named, and no other', () => {
+    assert.deepStrictEqual(forced(false), []);
+    assert.deepStrictEqual(forced(true), ['extract', 'model', 'report']);
+    assert.deepStrictEqual(forced(['model']), ['model'], 'a named task, and not the task it depends on, nor its dependent');
+    assert.deepStrictEqual(forced(['report', 'extract']), ['extract', 'report']);
+    assert.deepStrictEqual(forced([]), [], 'naming none forces none');
+  });
+
+  it('forces, under a filter, the filter\'s task for every task, and the tasks named in its run set', () => {
+    assert.deepStrictEqual(forced(true, 'model'), ['model'], 'the filter\'s task, and not the one it depends on');
+    assert.deepStrictEqual(forced(['extract'], 'model'), ['extract'], 'a task the filter\'s task depends on');
   });
 });
 

@@ -38,13 +38,18 @@ describe('parseCommand', () => {
 
     test('/run flags', () => {
         assert.deepEqual(ok('/run'), { name: 'run', force: false, filter: undefined });
-        assert.deepEqual(ok('/run --force --filter fore*'), { name: 'run', force: true, filter: 'fore*' });
-        assert.deepEqual(ok('/run --filter=fore*'), { name: 'run', force: false, filter: 'fore*' });
+        assert.deepEqual(ok('/run --force --filter forecast'), { name: 'run', force: true, filter: 'forecast' });
+        assert.deepEqual(ok('/run --filter=forecast'), { name: 'run', force: false, filter: 'forecast' });
+        // --force-task names a task to force, as often as it is given.
+        assert.deepEqual(ok('/run --force-task ingest --force-task=features'), { name: 'run', force: ['ingest', 'features'], filter: undefined });
+        assert.equal(bad('/run --force --force-task ingest'), '--force forces every task the run runs, and --force-task only the tasks it names: give one or the other');
+        assert.match(bad('/run --force-task'), /--force-task needs a task/);
+        assert.match(bad('/run --force-task='), /--force-task needs a task/);
         // The server's budget decides how much runs at once: a run sets none.
         assert.match(bad('/run --jobs 2'), /unknown \/run flag --jobs/);
         assert.match(bad('/run --concurrency 2'), /unknown \/run flag --concurrency/);
-        assert.match(bad('/run --filter'), /needs a glob/);
-        assert.match(bad('/run --bogus'), /unknown \/run flag --bogus/);
+        assert.match(bad('/run --filter'), /--filter needs a task/);
+        assert.match(bad('/run --bogus'), /unknown \/run flag --bogus — \/run \[--force\] \[--force-task <task>\] \[--filter <task>\]/);
         assert.deepEqual(ok('/stop'), { name: 'stop' });
     });
 
@@ -96,7 +101,7 @@ describe('parseCommand', () => {
         for (const c of COMMANDS) {
             const sample = c.usage
                 .replace('<name>', 'x').replace('<path>', '.a').replace('<path|url>', './r').replace('<url>', 'https://h')
-                .replace('[--force] [--filter g]', '--force').replace('<task> [stderr]', 't').replace('<task>', 't')
+                .replace('[--force] [--force-task t] [--filter t]', '--force-task t --filter t').replace('<task> [stderr]', 't').replace('<task>', 't')
                 .replace('<key|prefix|f1|f2>', 'k').replace('<row|N%>', '5').replace('[file]', '').replace('[key]', '');
             assert.ok(parseCommand(sample).ok, `${sample} parses`);
         }
@@ -107,7 +112,11 @@ describe('describe', () => {
     const ctx = { workspace: 'main', taskCount: 6, running: false, dirty: 0, budget: null };
     test('spells the /run consequence the design shows', () => {
         assert.deepEqual(describeCommand(ok('/run --force'), ctx), { text: 'run 6 tasks in main, ignoring the cache', keys: '⏎ run · esc' });
-        assert.equal(describeCommand(ok('/run --filter fo*'), ctx).text, 'run tasks matching fo* in main');
+        // A filter runs its task and the tasks it depends on, and --force
+        // forces the filter's task alone.
+        assert.equal(describeCommand(ok('/run --filter forecast'), ctx).text, 'run forecast and the tasks it needs in main');
+        assert.equal(describeCommand(ok('/run --force --filter forecast'), ctx).text, 'run forecast and the tasks it needs in main, ignoring the cache for forecast');
+        assert.equal(describeCommand(ok('/run --force-task ingest --force-task features'), ctx).text, 'run 6 tasks in main, ignoring the cache for ingest, features');
         // The server's budget, once it has answered.
         assert.equal(describeCommand(ok('/run'), { ...ctx, budget: { cores: 8, memory: 14 * 1024 ** 3 } }).text, 'run 6 tasks in main · 8 cores, 14 GB');
         assert.equal(describeCommand(ok('/run --force'), { ...ctx, budget: { cores: 1, memory: 512 * 1024 ** 2 } }).text, 'run 6 tasks in main, ignoring the cache · 1 core, 512 MB');

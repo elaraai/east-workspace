@@ -702,6 +702,23 @@ export async function packageZipOpenFrom(
         remove: refuse('remove a dataset ref'),
         removeAll: refuse('remove a workspace\'s dataset refs'),
       },
+      runStates: (repo) => {
+        const states = storage.runStates(repo);
+        return {
+          create: refuse('start a run'),
+          read: states.read.bind(states),
+          readLatest: states.readLatest.bind(states),
+          readLatestSummary: states.readLatestSummary.bind(states),
+          update: refuse('write a run\'s state'),
+          updateTaskStatus: refuse('write a run\'s state'),
+          updateStatus: refuse('write a run\'s state'),
+          recordEvent: refuse('write a run\'s state'),
+          getEventsSince: states.getEventsSince.bind(states),
+          delete: refuse('delete a run\'s state'),
+          readStored: async (of) => (await states.readStored(of))
+            .map(({ workspace, bytes }) => ({ workspace, bytes, replace: refuse('replace a run\'s state') })),
+        };
+      },
       validateRepository: storage.validateRepository.bind(storage),
     };
   };

@@ -71,6 +71,7 @@ import {
   workspaceRoots,
   type BatchResult,
   type DatasetRefStore,
+  type ExecutionStateStore,
   type GcBackendSweepOptions,
   type GcBackendSweepResult,
   type GcObjectEntry,
@@ -94,66 +95,17 @@ import type { BlobKey, BlobsAdapter, FilesAdapter, LocksAdapter, RecordKey, Reco
 import { openIndexedDbRecords } from './indexeddb.js';
 import { MemoryBlobs, MemoryFiles, MemoryLockSpace, openMemoryRecords } from './memory.js';
 import { OpfsBlobs, OpfsFiles, opfsDirectory } from './opfs.js';
+import { recordKeys } from './record-keys.js';
+import { WebStateStore } from './WebStateStore.js';
 import { openWebLocks } from './web-locks.js';
 
 // =============================================================================
 // Where each record is
 // =============================================================================
 
-/**
- * The key of each record `WebStorage` keeps, in its records adapter.
- *
- * @remarks
- * A repository's metadata is `['repos', name]`, and everything else of it is
- * under `['repo', name]`, so its records scan and delete by that prefix. The
- * execution state store over the same records keeps a run's state at
- * {@link recordKeys.state}, which a workspace's removal deletes with its
- * other records.
- */
-export const recordKeys = {
-  /** A repository's metadata */
-  repository: (repo: string): RecordKey => ['repos', repo],
-  /** Every repository's metadata */
-  repositories: (): RecordKey => ['repos'],
-  /** Everything of a repository but its metadata */
-  of: (repo: string): RecordKey => ['repo', repo],
-  /** A kind of a repository's records */
-  kind: (repo: string, kind: string): RecordKey => ['repo', repo, kind],
-  /** The repository record */
-  record: (repo: string): RecordKey => ['repo', repo, 'record'],
-  /** A package's ref: the package object's hash */
-  package: (repo: string, name: string, version: string): RecordKey => ['repo', repo, 'package', name, version],
-  /** A workspace's record */
-  workspace: (repo: string, name: string): RecordKey => ['repo', repo, 'workspace', name],
-  /** An execution attempt's status */
-  execution: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'execution', task, inputs, id],
-  /** An execution attempt's owner */
-  owner: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'owner', task, inputs, id],
-  /** The `$plan` a split task's execution is in */
-  plan: (repo: string, task: string, inputs: string): RecordKey => ['repo', repo, 'plan', task, inputs],
-  /** An entry of the adoption memo */
-  adoption: (repo: string, source: string): RecordKey => ['repo', repo, 'adoption', source],
-  /** A dataflow run's record */
-  run: (repo: string, workspace: string, runId: string): RecordKey => ['repo', repo, 'run', workspace, runId],
-  /** A dataset's ref, and the revision its write minted */
-  dataset: (repo: string, workspace: string, path: string): RecordKey => ['repo', repo, 'dataset', workspace, path],
-  /** A chunk of an execution attempt's log, by the byte of the log it starts
-   *  at, in decimal zero-padded to sixteen digits */
-  log: (repo: string, task: string, inputs: string, id: string, stream: string, start: string): RecordKey =>
-    ['repo', repo, 'log', task, inputs, id, stream, start],
-  /** The state of a resource's exclusive lock */
-  lock: (repo: string, resource: string): RecordKey => ['repo', repo, 'lock', resource],
-  /** What a resource's exclusive holder last reported of its progress */
-  progress: (repo: string, resource: string): RecordKey => ['repo', repo, 'progress', resource],
-  /** An object's entry in the catalogue */
-  object: (repo: string, hash: string): RecordKey => ['repo', repo, 'object', hash],
-  /** A write of an object's blob in flight */
-  pending: (repo: string, blob: string): RecordKey => ['repo', repo, 'pending', blob],
-  /** A part of a gc run in steps */
-  gcRun: (repo: string, run: string, name: string): RecordKey => ['repo', repo, 'gc', run, name],
-  /** A dataflow run's state, as `WebStateStore` keeps it */
-  state: (repo: string, workspace: string, id: string): RecordKey => ['repo', repo, 'state', workspace, id],
-};
+// The key of each record, which the run state store over the same records
+// shares (`record-keys.ts`)
+export { recordKeys };
 
 /** The blob of an object: one per write of its bytes. */
 function blobKey(repo: string, blob: string): BlobKey {
@@ -1414,6 +1366,8 @@ export class WebStorage implements StorageBackend {
   readonly logs: LogStore;
   readonly repos: RepoStore;
   readonly datasets: DatasetRefStore;
+  /** Every repository's runs' states, in the same records */
+  private readonly states: WebStateStore;
 
   /**
    * @param adapters - The adapters the repositories are kept over
@@ -1426,6 +1380,19 @@ export class WebStorage implements StorageBackend {
     this.logs = new WebLogStore(records);
     this.datasets = new WebDatasetRefStore(records);
     this.repos = new WebRepoStore(records, blobs, this.refs, this.datasets, this.upgrades);
+    this.states = new WebStateStore(records);
+  }
+
+  /**
+   * The store of a repository's dataflow runs' states: a {@link WebStateStore}
+   * over the backend's own records, which keeps each repository's runs under
+   * its records, where a workspace's removal and the repository's take them.
+   *
+   * @param _repo - Repository identifier
+   * @returns The run state store
+   */
+  runStates(_repo: string): ExecutionStateStore {
+    return this.states;
   }
 
   async validateRepository(repo: string): Promise<void> {

@@ -4,6 +4,7 @@
  */
 
 import { IntegerType, NullType, OptionType, none, printFor, some, variant } from '@elaraai/east';
+import { dataflowForce } from '@elaraai/e3-types';
 import type { LogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
 import {
   LogChunkType,
@@ -19,9 +20,13 @@ import { get, post, verboseQuery, ApiError, type RequestOptions } from './http.j
  * of cores and memory.
  */
 export interface DataflowOptions {
-  /** Force re-execution of all tasks */
-  force?: boolean;
-  /** Filter to specific task names */
+  /** The tasks the run re-executes even where the cache holds their results:
+   *  `true` for every task — under a filter, the filter's task — the names of
+   *  the tasks, or `false` for none (default). A start naming a task the graph
+   *  does not have (`task_not_found`), or one the filter's run leaves out
+   *  (`dataflow_error`), is refused before anything runs. */
+  force?: boolean | readonly string[];
+  /** One task's exact name: the run runs it and its dependency closure */
   filter?: string;
 }
 
@@ -65,7 +70,7 @@ export async function dataflowExecuteLaunch(
         url,
         verboseQuery(`/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow`, options),
         {
-          force: dataflowOptions.force ?? false,
+          force: dataflowForce(dataflowOptions.force),
           filter: dataflowOptions.filter != null ? some(dataflowOptions.filter) : none,
         },
         DataflowRequestType,

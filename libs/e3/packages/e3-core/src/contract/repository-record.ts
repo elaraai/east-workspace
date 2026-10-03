@@ -13,15 +13,19 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IntegerType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
+import { IntegerType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { E3_RELEASE, ExecutionStatusType, WorkspaceRecordType, decodeExecutionStatus, type StopReason } from '@elaraai/e3-types';
+import {
+  DataflowExecutionStateType, E3_RELEASE, ExecutionStatusType, WorkspaceRecordType, dataflowForce, decodeExecutionStatus,
+  type DataflowExecutionState, type DataflowForce, type StopReason,
+} from '@elaraai/e3-types';
 import { ExecutionCorruptError, RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageImport } from '../package-files.js';
 import { recordHistory, recordSystemCommit } from '../records.js';
 import { REPOSITORY_UPGRADES, repositoryOpen } from '../repository-record.js';
 import { withRunningWork } from '../running-work.js';
+import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType } from '../upgrades/dataflow-force-tasks.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType } from '../upgrades/execution-stop-reasons.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate } from '../workspaces.js';
@@ -333,6 +337,85 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         assert.deepEqual(writes, []);
       } finally {
         storage.refs.executionWrite = write;
+      }
+    });
+
+    it('carries every dataflow run an earlier release stored into the form that names the tasks a run forces, and leaves the rest as they are', async (t) => {
+      const { storage, repo } = await setup(t);
+      const record = await repositoryOpen(storage, repo);
+      // A repository an earlier release wrote, which has not had the upgrade.
+      const before = { release: '1.0.84', upgrades: record.upgrades.filter(({ name }) => name !== DATAFLOW_FORCE_TASKS) };
+      await storage.refs.repositoryWrite(repo, before);
+
+      // A run in each of four workspaces, each the workspace's latest, as
+      // every store keeps one: two an earlier release stored, one that forced
+      // its tasks and ended and one that forced none and is left running; one
+      // in the current form; and one in neither, which a crash left.
+      const run = (workspace: string, force: DataflowForce, status: string): DataflowExecutionState => ({
+        release: '1.0.84', id: uuidv7(), repo, workspace, startedAt: new Date(1_000), force, filter: none,
+        graph: some({ tasks: [{ name: 'etl', hash: 'a'.repeat(64), inputs: ['.inputs.sales'], output: '.tasks.etl.output', dependsOn: [] }] }),
+        graphHash: none, tasks: new Map(), executed: 1n, cached: 0n, failed: 0n, skipped: 0n, status,
+        completedAt: status === 'running' ? none : some(new Date(2_000)), error: none, versionVectors: new Map(),
+        inputSnapshot: new Map([['.inputs.sales', 'b'.repeat(64)]]), taskOutputPaths: ['.tasks.etl.output'], reexecuted: 0n,
+        events: [variant('task_started', { seq: 1n, timestamp: new Date(1_500), task: 'etl' })], eventSeq: 1n,
+      });
+      const forced = run('forced', dataflowForce(true), 'completed');
+      const unforced = run('unforced', dataflowForce(false), 'running');
+      const current = run('current', dataflowForce(['etl']), 'completed');
+      const crashed = run('crashed', dataflowForce(false), 'failed');
+      for (const state of [forced, unforced, current, crashed]) await storage.runStates(repo).create(state);
+      const stored = async (workspace: string) => (await storage.runStates(repo).readStored(repo)).find((each) => each.workspace === workspace)!;
+      const encodeEarlier = encodeBeast2For(DataflowStateBeforeForceTasksType);
+      await (await stored('forced')).replace(encodeEarlier({ ...forced, force: true }));
+      await (await stored('unforced')).replace(encodeEarlier({ ...unforced, force: false }));
+      await (await stored('crashed')).replace(new TextEncoder().encode('not a run'));
+      const currentBytes = new Uint8Array((await stored('current')).bytes);
+      await assert.rejects(storage.runStates(repo).read(repo, 'forced', forced.id), /written by e3 1\.0\.84/,
+        'before the upgrade, a run in the earlier form does not read');
+
+      // What the opens write, by workspace: each stored run's replace, through
+      // every store the backend gives the upgrade.
+      const replaced: string[] = [];
+      const watched = new WeakSet<object>();
+      const runStates = storage.runStates.bind(storage);
+      storage.runStates = (of) => {
+        const store = runStates(of);
+        if (!watched.has(store)) {
+          watched.add(store);
+          const readStored = store.readStored.bind(store);
+          store.readStored = async (r) => (await readStored(r)).map((each) => ({
+            ...each,
+            replace: (bytes: Uint8Array) => {
+              replaced.push(each.workspace);
+              return each.replace(bytes);
+            },
+          }));
+        }
+        return store;
+      };
+      try {
+        const opened = await repositoryOpen(storage, repo);
+        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: DATAFLOW_FORCE_TASKS, release: E3_RELEASE }]);
+        assert.deepEqual([...replaced].sort(), ['forced', 'unforced'], 'every run in the earlier form is rewritten, and no other');
+
+        const equal = equalFor(DataflowExecutionStateType);
+        const print = printFor(DataflowExecutionStateType);
+        for (const [state, force] of [[forced, dataflowForce(true)], [unforced, dataflowForce(false)]] as const) {
+          const read = await runStates(repo).read(repo, state.workspace, state.id);
+          const carried = { ...state, force };
+          assert.ok(read !== null && equal(read, carried), `the ${state.workspace} run reads as it was, forcing ${force.type}: ${read === null ? 'none' : print(read)}`);
+        }
+        assert.deepEqual(new Uint8Array((await stored('current')).bytes), currentBytes, 'a run in the current form is left as it is');
+        assert.deepEqual(new Uint8Array((await stored('crashed')).bytes), new TextEncoder().encode('not a run'), 'a run in neither form is left as it is');
+
+        // Cut short by a crash, the upgrade runs again whole, and rewrites
+        // nothing it carried.
+        replaced.length = 0;
+        await storage.refs.repositoryWrite(repo, before);
+        await repositoryOpen(storage, repo);
+        assert.deepEqual(replaced, []);
+      } finally {
+        storage.runStates = runStates;
       }
     });
   });

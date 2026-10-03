@@ -201,16 +201,18 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  * @param workspace - The workspace whose dataflow runs
  * @param options - The runner the run's tasks and units run on, which holds
  *   the server's budget; the tasks and units the loop keeps in flight, the
- *   orchestrator's own default when absent; and the run's force, filter and
- *   verbosity
- * @returns 202 once the run has started, or the error that stopped it
+ *   orchestrator's own default when absent; what the run forces — `true` for
+ *   every task, or the tasks' names — its filter and its verbosity
+ * @returns 202 once the run has started, or the error that stopped it: a
+ *   forced task the graph does not have is `task_not_found`, and one the
+ *   filter's run set leaves out `dataflow_error`
  */
 export async function startDataflow(
   storage: StorageBackend,
   orchestrator: DataflowOrchestrator,
   repoPath: string,
   workspace: string,
-  options: { runner: TaskRunner; width?: number; force: boolean; filter?: string; verbose?: boolean }
+  options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
     // Start execution via orchestrator (acquires lock internally). The loop
