@@ -20,6 +20,11 @@
  * `fetch`, every request of a download goes through it — the URLs a large
  * object or value is answered with among them — and none through the global
  * one.
+ *
+ * A host that serves a value it names by hash — a record's state at a past
+ * commit, say — reads it through the same calls: `objectGet` for one object,
+ * `collectionGetStream` for a collection by its manifest's hash, and
+ * `parsePage` for a page of it, which `datasetGetPage` reads its own with.
  */
 
 import { describe, it, afterEach } from 'node:test';
@@ -30,6 +35,8 @@ import {
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { datasetFindKey, datasetGet, datasetGetPage, datasetGetStream } from './datasets.js';
 import { ApiError, AuthError, DatasetHashMismatchError } from './http.js';
+// Through the root entry, as a host reaches them.
+import { collectionGetStream, objectGet, parsePage } from './index.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -306,5 +313,80 @@ describe('datasetGet through a given fetch', () => {
     assert.equal(result.hash, HASH);
     assert.deepEqual(requests.map((request) => [new URL(request.url).host, request.auth]),
       [['example.test', true], ['bucket.test', false]], 'the URL is fetched without the API\'s auth');
+  });
+});
+
+describe('a stored value, by its hash', () => {
+  it('streams a collection by its manifest\'s hash through the objects route alone, spliced into the value\'s blob', async () => {
+    refuseGlobalFetch();
+    const { objects, manifest, segments, blob } = storedCollection();
+    const server = collectionServer(manifest, objects, new Set([segments[1]!]));
+
+    const chunks = await collectionGetStream(BASE, 'r', manifest, { token: 'tok', fetch: server.fetch });
+    assert.deepEqual(server.requests.map((request) => request.url), [`${BASE}/api/repos/r/objects/${manifest}`],
+      'the manifest is read before the chunks are taken');
+    const parts: Uint8Array[] = [];
+    for await (const chunk of chunks) parts.push(chunk);
+    assert.deepEqual(new Uint8Array(Buffer.concat(parts)), blob);
+    assert.equal(server.requests.length, segments.length + 3, 'the manifest, the header, each segment and the URL');
+    assert.deepEqual(server.requests.filter((request) => request.url.includes('/datasets/')), [], 'no dataset is asked for');
+  });
+
+  it('reads one object by its hash, following a URL answer without the API\'s auth', async () => {
+    refuseGlobalFetch();
+    const { objects, manifest, segments } = storedCollection();
+    const server = collectionServer(manifest, objects, new Set([segments[1]!]));
+    const options = { token: 'tok', fetch: server.fetch };
+
+    assert.deepEqual(await objectGet(BASE, 'r', segments[0]!, options), objects.get(segments[0]!));
+    assert.deepEqual(await objectGet(BASE, 'r', segments[1]!, options), objects.get(segments[1]!));
+    assert.deepEqual(server.requests, [
+      { url: `${BASE}/api/repos/r/objects/${segments[0]}`, auth: true },
+      { url: `${BASE}/api/repos/r/objects/${segments[1]}`, auth: true },
+      { url: `https://bucket.test/${segments[1]}`, auth: false },
+    ]);
+  });
+
+  it('refuses an object that does not hash to its name, and throws a refusal as the ApiError the server names', async () => {
+    const { objects, manifest, segments } = storedCollection();
+    const cut = objects.get(segments[2]!)!.subarray(0, 100);
+    objects.set(segments[2]!, cut);
+    const server = collectionServer(manifest, objects, new Set());
+    await assert.rejects(objectGet(BASE, 'r', segments[2]!, { token: null, fetch: server.fetch }), {
+      message: `object ${segments[2]} arrived as ${sha256Hex(cut)}: the download was cut short or corrupted`,
+    });
+
+    const missing = (async () => new Response(JSON.stringify({ error: { type: 'object_not_found', message: `object ${HASH} not found` } }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch;
+    await assert.rejects(objectGet(BASE, 'r', HASH, { token: null, fetch: missing }), (err: unknown) => {
+      assert.ok(err instanceof ApiError, `expected ApiError, got ${String(err)}`);
+      assert.equal(err.code, 'object_not_found');
+      return true;
+    });
+  });
+
+  it('reads a page answer\'s window from its headers, as datasetGetPage reads its own', async () => {
+    const data = Uint8Array.from([1, 2, 3]);
+    const headers = {
+      'Content-Type': BEAST2_CONTENT_TYPE,
+      'X-Content-SHA256': HASH,
+      'X-Total-Bytes': '123456',
+      'X-Total-Elements': '8000',
+      'X-Total-Exactness': 'exact',
+      'X-Segment-Count': '80',
+      'X-Page-Offset': '900',
+      'X-Page-Count': '200',
+    };
+    const expected = { data, totalElements: 8000, totalBytes: 123456, totalExact: true, segmentCount: 80, offset: 900, count: 200, hash: HASH };
+    assert.deepEqual(await parsePage(new Response(data, { status: 200, headers })), expected);
+    mockFetch(() => new Response(data, { status: 200, headers }));
+    assert.deepEqual(await datasetGetPage(BASE, 'r', 'ws', lookupPath, { offset: 900, limit: 200 }, { token: null }), expected);
+
+    // A header the answer leaves out reads as nothing there.
+    assert.deepEqual(await parsePage(new Response(new Uint8Array(), { status: 200, headers: { 'X-Total-Exactness': 'upper-bound' } })), {
+      data: new Uint8Array(), totalElements: 0, totalBytes: 0, totalExact: false, segmentCount: 0, offset: 0, count: 0, hash: '',
+    });
   });
 });

@@ -222,12 +222,13 @@ let nextStorageId = 0;
  *  it reads segment objects through, and a manifest names objects that exist
  *  in the repository it was read from and nowhere else — so two backends, or
  *  two repositories, that happen to hold the same bytes under the same name
- *  must not share an entry. */
+ *  must not share an entry. `size` is the object's, when the caller knows it;
+ *  the opener reads it on a miss otherwise. */
 async function cachedSegments(
   storage: StorageBackend,
   repoPath: string,
   hash: string,
-  size: number,
+  size?: number,
 ): Promise<DatasetSegments> {
   let backendId = storageIds.get(storage);
   if (backendId === undefined) {
@@ -251,9 +252,9 @@ async function cachedSegments(
   return segments;
 }
 
-/** Window addressing for {@link getDatasetPage}: an element window
- *  (`offset`/`limit`) or one writer segment (`segment`), optionally pinned
- *  to a content hash. */
+/** Window addressing for {@link getDatasetPage} and {@link getValuePage}: an
+ *  element window (`offset`/`limit`) or one writer segment (`segment`),
+ *  optionally pinned to a content hash. */
 export interface DatasetPageWindow {
   offset?: number;
   limit?: number;
@@ -292,6 +293,12 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
   });
 }
 
+/** Server-side limits for {@link getDatasetPage} and {@link getValuePage}. */
+export interface DatasetPageLimits {
+  /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
+  byteBudget?: number;
+}
+
 /**
  * Get one window of a collection dataset as raw BEAST2 bytes.
  *
@@ -307,13 +314,10 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
  * windows verify the segment fences first and reject non-canonical ones as
  * corrupt). A collection stored as one blob is an older e3's and is refused as
  * `dataset_not_indexed`, naming the fix — there is no whole-decode fallback.
+ *
+ * The window is the stored value's ({@link getValuePage}): the dataset's
+ * status and pin are checked here first, and an index window is a record's.
  */
-/** Server-side limits for {@link getDatasetPage}. */
-export interface DatasetPageLimits {
-  /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
-  byteBudget?: number;
-}
-
 export async function getDatasetPage(
   storage: StorageBackend,
   repoPath: string,
@@ -356,131 +360,195 @@ export async function getDatasetPage(
       return await indexPage(storage, repoPath, workspace, treePath, status.hash, window, byteBudget);
     }
 
-    const segmentMode = window.segment !== undefined;
-    if (segmentMode && (window.offset !== undefined || window.limit !== undefined)) {
-      return pageError('bad_request', 'Pass either segment or offset/limit, not both');
-    }
-    if (segmentMode && (!Number.isInteger(window.segment) || window.segment! < 0)) {
-      return pageError('bad_request', `segment must be a non-negative integer, got ${window.segment}`);
-    }
-    const offset = window.offset ?? 0;
-    const requestedLimit = window.limit ?? PAGE_DEFAULT_LIMIT;
-    if (!segmentMode && (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(requestedLimit) || requestedLimit < 1)) {
-      return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
-    }
-
-    const objectSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
-
-    let segments: DatasetSegments;
-    try {
-      segments = await cachedSegments(storage, repoPath, status.hash, objectSize);
-    } catch (err) {
-      // Only the opener's refusal of a blob-stored collection means "not
-      // indexed". Anything else (storage I/O, a missing or corrupt object) is
-      // a real failure and must surface as one.
-      const message = err instanceof Error ? err.message : String(err);
-      if (!BLOB_REFUSAL.test(message)) throw err;
-      return pageError('dataset_not_indexed', message);
-    }
-
-    const segmentCount = segments.segmentCount;
-    const totalElements = segments.elementCount;
-    const totalBytes = segments.bytes;
-    const cumulative = segments.cumulative;
-
-    // The byte budget turns the requested element limit into an effective one
-    // using the dataset's average element size, so pages stay bounded even for
-    // very wide rows.
-    const effectiveLimit = (): number => {
-      const avgBytes = totalElements > 0 ? totalBytes / totalElements : 1;
-      const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
-      return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
-    };
-
-    const pageHeaders = (pageOffset: number, pageCount: number): Record<string, string> => ({
-      'Content-Type': BEAST2_CONTENT_TYPE,
-      // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
-      // forever — cacheable at any layer with no invalidation. Unpinned
-      // windows track the mutable current value and must not be cached.
-      'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
-      'X-Content-SHA256': status.hash!,
-      // The value's full stored byte size — the page endpoint is then
-      // self-describing (no separate status call needed for the header
-      // line); Content-Length remains the page's own bytes.
-      'X-Total-Bytes': String(totalBytes),
-      'X-Total-Elements': String(totalElements),
-      // Always exact: Array counts index stream order, and v5 Set/Dict
-      // segments are disjoint ranges of the canonical value.
-      'X-Total-Exactness': 'exact',
-      'X-Segment-Count': String(segmentCount),
-      'X-Page-Offset': String(pageOffset),
-      'X-Page-Count': String(pageCount),
-    });
-
-    // The touched segment span [from, to) and the window placement.
-    let from: number;
-    let to: number;
-    let limit = 0;
-    if (segmentMode) {
-      const seg = window.segment!;
-      if (seg >= segmentCount) {
-        return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
-      }
-      from = seg;
-      to = seg + 1;
-    } else {
-      limit = effectiveLimit();
-      if (offset >= totalElements) {
-        from = 0;
-        to = 0; // empty window past the end
-      } else {
-        from = 0;
-        while (cumulative[from]! <= offset) from++;
-        const lastRow = Math.min(offset + limit, totalElements) - 1;
-        to = from;
-        while (cumulative[to]! <= lastRow) to++;
-        to++;
-      }
-    }
-
-    const windowBlob = await segments.span(from, to);
-    const pages = openBeast2PagesFor(typeValue)(windowBlob);
-
-    let windowValue: unknown;
-    let pageOffset: number;
-    let pageCount: number;
-    if (segmentMode) {
-      try {
-        windowValue = pages.segment(0);
-      } catch (err) {
-        return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
-      }
-      pageCount = segments.counts[from]!;
-      pageOffset = from === 0 ? 0 : cumulative[from - 1]!;
-    } else {
-      const base = from > 0 ? cumulative[from - 1]! : 0;
-      try {
-        windowValue = pages.slice(to > from ? offset - base : 0, limit);
-      } catch (err) {
-        return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
-      }
-      pageCount = kind === 'Array'
-        ? (windowValue as unknown[]).length
-        : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
-      pageOffset = offset;
-    }
-
-    const body = encodeBeast2For(typeValue)(windowValue);
-    return new Response(body, {
-      status: 200,
-      headers: {
-        ...pageHeaders(pageOffset, pageCount),
-        'Content-Length': String(body.byteLength),
-      },
-    });
+    return await valuePage(storage, repoPath, status.hash, typeValue, window, byteBudget, status.size ?? undefined);
   } catch (err) {
     return sendJsonError(err);
   }
+}
+
+/**
+ * Get one window of a stored collection by its hash, as raw BEAST2 bytes: the
+ * window a dataset page serves, of a value a host names itself — a record's
+ * state at a past commit, say.
+ *
+ * @remarks
+ * The body, the `X-*` headers and the refusals are a dataset page's
+ * ({@link getDatasetPage}): `X-Content-SHA256` is `hash`, and a window pinned
+ * to it (`window.hash`) is answered immutable, as content-addressed, while a
+ * pin to any other hash is refused with 409. An index window is a record
+ * dataset's, which a value has none of.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param hash - The stored collection's hash: the segment manifest it is kept as
+ * @param type - The collection's type: an Array, a Set or a Dict
+ * @param window - An element window (`offset`/`limit`) or one writer segment,
+ *   and an optional pin
+ * @param limits - The page byte budget
+ * @returns The window, or a JSON error
+ */
+export async function getValuePage(
+  storage: StorageBackend,
+  repoPath: string,
+  hash: string,
+  type: EastTypeValue,
+  window: DatasetPageWindow,
+  limits?: DatasetPageLimits,
+): Promise<Response> {
+  try {
+    const kind = type.type;
+    if (kind !== 'Array' && kind !== 'Set' && kind !== 'Dict') {
+      return pageError('dataset_not_pageable', `Paged reads address Array, Set or Dict values; this value holds ${kind}`);
+    }
+    if (window.index !== undefined) {
+      return pageError('bad_request', 'An index window pages a record dataset; a value has no index to page');
+    }
+    if (window.hash !== undefined && window.hash !== hash) {
+      return pageError('dataset_hash_mismatch', `The value is ${hash}, not ${window.hash}`, 409, { 'X-Content-SHA256': hash });
+    }
+    return await valuePage(storage, repoPath, hash, type, window, limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT);
+  } catch (err) {
+    return sendJsonError(err);
+  }
+}
+
+/**
+ * One window of a stored collection of a collection's type: the effective
+ * limit under the byte budget, the `X-*` headers, the span of segments the
+ * window touches, and its slice.
+ *
+ * @param size - The stored object's size, when the caller knows it
+ */
+async function valuePage(
+  storage: StorageBackend,
+  repoPath: string,
+  hash: string,
+  typeValue: EastTypeValue,
+  window: DatasetPageWindow,
+  byteBudget: number,
+  size?: number,
+): Promise<Response> {
+  const kind = typeValue.type;
+  const segmentMode = window.segment !== undefined;
+  if (segmentMode && (window.offset !== undefined || window.limit !== undefined)) {
+    return pageError('bad_request', 'Pass either segment or offset/limit, not both');
+  }
+  if (segmentMode && (!Number.isInteger(window.segment) || window.segment! < 0)) {
+    return pageError('bad_request', `segment must be a non-negative integer, got ${window.segment}`);
+  }
+  const offset = window.offset ?? 0;
+  const requestedLimit = window.limit ?? PAGE_DEFAULT_LIMIT;
+  if (!segmentMode && (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(requestedLimit) || requestedLimit < 1)) {
+    return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
+  }
+
+  let segments: DatasetSegments;
+  try {
+    segments = await cachedSegments(storage, repoPath, hash, size);
+  } catch (err) {
+    // Only the opener's refusal of a blob-stored collection means "not
+    // indexed". Anything else (storage I/O, a missing or corrupt object) is
+    // a real failure and must surface as one.
+    const message = err instanceof Error ? err.message : String(err);
+    if (!BLOB_REFUSAL.test(message)) throw err;
+    return pageError('dataset_not_indexed', message);
+  }
+
+  const segmentCount = segments.segmentCount;
+  const totalElements = segments.elementCount;
+  const totalBytes = segments.bytes;
+  const cumulative = segments.cumulative;
+
+  // The byte budget turns the requested element limit into an effective one
+  // using the value's average element size, so pages stay bounded even for
+  // very wide rows.
+  const effectiveLimit = (): number => {
+    const avgBytes = totalElements > 0 ? totalBytes / totalElements : 1;
+    const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
+    return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
+  };
+
+  const pageHeaders = (pageOffset: number, pageCount: number): Record<string, string> => ({
+    'Content-Type': BEAST2_CONTENT_TYPE,
+    // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
+    // forever — cacheable at any layer with no invalidation. Unpinned
+    // windows track the mutable current value and must not be cached.
+    'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
+    'X-Content-SHA256': hash,
+    // The value's full stored byte size — the page endpoint is then
+    // self-describing (no separate status call needed for the header
+    // line); Content-Length remains the page's own bytes.
+    'X-Total-Bytes': String(totalBytes),
+    'X-Total-Elements': String(totalElements),
+    // Always exact: Array counts index stream order, and v5 Set/Dict
+    // segments are disjoint ranges of the canonical value.
+    'X-Total-Exactness': 'exact',
+    'X-Segment-Count': String(segmentCount),
+    'X-Page-Offset': String(pageOffset),
+    'X-Page-Count': String(pageCount),
+  });
+
+  // The touched segment span [from, to) and the window placement.
+  let from: number;
+  let to: number;
+  let limit = 0;
+  if (segmentMode) {
+    const seg = window.segment!;
+    if (seg >= segmentCount) {
+      return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
+    }
+    from = seg;
+    to = seg + 1;
+  } else {
+    limit = effectiveLimit();
+    if (offset >= totalElements) {
+      from = 0;
+      to = 0; // empty window past the end
+    } else {
+      from = 0;
+      while (cumulative[from]! <= offset) from++;
+      const lastRow = Math.min(offset + limit, totalElements) - 1;
+      to = from;
+      while (cumulative[to]! <= lastRow) to++;
+      to++;
+    }
+  }
+
+  const windowBlob = await segments.span(from, to);
+  const pages = openBeast2PagesFor(typeValue)(windowBlob);
+
+  let windowValue: unknown;
+  let pageOffset: number;
+  let pageCount: number;
+  if (segmentMode) {
+    try {
+      windowValue = pages.segment(0);
+    } catch (err) {
+      return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
+    }
+    pageCount = segments.counts[from]!;
+    pageOffset = from === 0 ? 0 : cumulative[from - 1]!;
+  } else {
+    const base = from > 0 ? cumulative[from - 1]! : 0;
+    try {
+      windowValue = pages.slice(to > from ? offset - base : 0, limit);
+    } catch (err) {
+      return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
+    }
+    pageCount = kind === 'Array'
+      ? (windowValue as unknown[]).length
+      : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
+    pageOffset = offset;
+  }
+
+  const body = encodeBeast2For(typeValue)(windowValue);
+  return new Response(body, {
+    status: 200,
+    headers: {
+      ...pageHeaders(pageOffset, pageCount),
+      'Content-Length': String(body.byteLength),
+    },
+  });
 }
 
 /**

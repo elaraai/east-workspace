@@ -71,8 +71,19 @@ function resolveLimits(limits: { type: 'some'; value: ExecuteLimits } | { type: 
   return { timeoutMs: Math.max(1, timeoutMs), maxLogBytes: Math.max(0, maxLogBytes) };
 }
 
-/** Map the e3-core mutation outcome to the wire result. */
-function outcomeToResult(outcome: MutationOutcome): MutationResult {
+/**
+ * The wire result of an e3-core mutation outcome, as the mutation and compact
+ * routes answer it.
+ *
+ * @remarks
+ * A host answers a record operation e3-core exports and no route serves —
+ * `recordSystemCommit` for a rollback or a restore, say — with it, so a
+ * client reads its answer as it reads a mutation's.
+ *
+ * @param outcome - What the operation came to
+ * @returns The `MutationResultType` value
+ */
+export function mutationResultOf(outcome: MutationOutcome): MutationResult {
   switch (outcome.kind) {
     case 'committed':
       return { outcome: variant('committed', { commitHash: outcome.commitHash, stateHash: outcome.stateHash }) };
@@ -156,7 +167,7 @@ export async function callMutationSync(
         verbose: controls.verbose,
       },
     );
-    return sendSuccess(MutationResultType, outcomeToResult(outcome));
+    return sendSuccess(MutationResultType, mutationResultOf(outcome));
   } catch (err) {
     return sendError(MutationResultType, errorToVariant(err));
   }
@@ -180,7 +191,7 @@ export async function compactRecord(
 ): Promise<Response> {
   try {
     const outcome = await recordCompact(storage, repoPath, workspace, record, { actor, budgetMs: effectiveBudgetMs(budgetMs) });
-    return sendSuccess(MutationResultType, outcomeToResult(outcome));
+    return sendSuccess(MutationResultType, mutationResultOf(outcome));
   } catch (err) {
     return sendError(MutationResultType, errorToVariant(err));
   }

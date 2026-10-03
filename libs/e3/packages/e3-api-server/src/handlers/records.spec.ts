@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { IntegerType, compareFor, encodeBeast2For, decodeBeast2For, equalFor, printFor, toEastTypeValue, variant, some, none } from '@elaraai/east';
 import { MockTaskRunner, recordHistory, uuidv7 } from '@elaraai/e3-core';
-import type { StorageBackend, TaskExecuteOptions, TaskResult } from '@elaraai/e3-core';
+import type { MutationOutcome, StorageBackend, TaskExecuteOptions, TaskResult } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import {
   BEAST2_CONTENT_TYPE,
@@ -30,6 +30,8 @@ import {
 } from '@elaraai/e3-types';
 import { createWorkspaceRecordRoutes, type RecordRoutesOptions } from '../routes/records.js';
 import { effectiveBudgetMs } from './records.js';
+// Through the handlers entry, as a host reaches it.
+import { mutationResultOf } from './index.js';
 import {
   ResponseType,
   MutationResultType,
@@ -313,6 +315,29 @@ describe('record routes', () => {
     for (const historyLimit of [0, 1.5, NaN]) {
       assert.throws(() => createWorkspaceRecordRoutes(storage, () => REPO, () => runner, { historyLimit }),
         { name: 'RangeError', message: `historyLimit must be a positive whole number of commits, got ${historyLimit}` });
+    }
+  });
+});
+
+describe('mutationResultOf', () => {
+  it('answers every outcome as the mutation and compact routes answer it', () => {
+    // A host answers a record operation no route serves — a rollback through
+    // recordSystemCommit, say — with it, so a client reads the answer as it
+    // reads a mutation's.
+    const commitHash = 'a'.repeat(64);
+    const stateHash = 'b'.repeat(64);
+    const stale = 'update of "p-7", whose row no longer matches the patch';
+    const cases: Array<[MutationOutcome, MutationResult]> = [
+      [{ kind: 'committed', commitHash, stateHash }, { outcome: variant('committed', { commitHash, stateHash }) }],
+      [{ kind: 'invalid', message: 'record \'nope\' not found' }, { outcome: variant('invalid', { message: 'record \'nope\' not found' }) }],
+      [{ kind: 'failed', exitCode: 3, stderr: 'the tail' }, { outcome: variant('failed', { exitCode: 3n, stderr: 'the tail' }) }],
+      [{ kind: 'timed_out', ms: 50, stderr: 'slow reducer' }, { outcome: variant('timed_out', { ms: 50n, stderr: 'slow reducer' }) }],
+      [{ kind: 'conflict', attempts: 2 }, { outcome: variant('conflict', { attempts: 2n, detail: none }) }],
+      [{ kind: 'conflict', attempts: 1, detail: stale }, { outcome: variant('conflict', { attempts: 1n, detail: some(stale) }) }],
+    ];
+    for (const [outcome, expected] of cases) {
+      const result = mutationResultOf(outcome);
+      assert.ok(mutationResultEqual(result, expected), `${outcome.kind}: ${printMutationResult(result)}`);
     }
   });
 });

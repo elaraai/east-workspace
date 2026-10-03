@@ -33,7 +33,9 @@ import {
   BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, decodeCollectionManifest, indexCollectionType, indexWindowType,
 } from '@elaraai/e3-types';
 import { ResponseType } from '../types.js';
-import { findDatasetKey, getDataset, getDatasetPage, setDataset, type DatasetFindQuery } from './datasets.js';
+import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
+// The page handlers through the handlers entry, as a host reaches them.
+import { getDatasetPage, getValuePage, type DatasetPageWindow } from './index.js';
 
 /**
  * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
@@ -521,6 +523,60 @@ describe('getDatasetPage (segment reads)', () => {
 });
 
 const LookupType = DictType(StringType, IntegerType);
+
+describe('getValuePage (a stored value, by its hash)', () => {
+  it('answers each window of a value with the body and headers a page of a dataset holding it answers with', async () => {
+    const storage = new InMemoryStorage();
+    const rows = makeRows(2500);
+    const hash = await seedRowsDataset(storage, encodeInSegmentsOf(RowsType, 100)(rows));
+    const windows: DatasetPageWindow[] = [
+      { offset: 900, limit: 200 },
+      { offset: 2400, limit: 1000 },
+      { offset: 5000, limit: 10 },
+      { segment: 3 },
+      { offset: 0, limit: 5, hash },
+    ];
+    for (const window of windows) {
+      const byDataset = await getDatasetPage(storage, REPO, WS, rowsPath, window);
+      const byValue = await getValuePage(storage, REPO, hash, toEastTypeValue(RowsType), window);
+      assert.equal(byValue.status, 200, `${JSON.stringify(window)}: ${await byValue.clone().text()}`);
+      assert.deepEqual(Object.fromEntries(byValue.headers), Object.fromEntries(byDataset.headers), JSON.stringify(window));
+      assert.deepEqual(new Uint8Array(await byValue.arrayBuffer()), new Uint8Array(await byDataset.arrayBuffer()), JSON.stringify(window));
+    }
+  });
+
+  it('pages a value no dataset holds, and refuses a stale pin, a type it cannot page and an index window', async () => {
+    const storage = new InMemoryStorage();
+    await storage.repos.create(REPO);
+    const lookup = lookupOf(500);
+    const hash = await datasetWrite(storage, REPO, lookup, LookupType);
+    const type = toEastTypeValue(LookupType);
+
+    const page = await getValuePage(storage, REPO, hash, type, { offset: 100, limit: 50, hash });
+    assert.equal(page.status, 200, await page.clone().text());
+    assert.equal(page.headers.get('X-Content-SHA256'), hash);
+    assert.match(page.headers.get('Cache-Control') ?? '', /immutable/, 'a window pinned to the value is content-addressed');
+    assert.equal(page.headers.get('X-Total-Elements'), '500');
+    assert.equal(page.headers.get('X-Page-Offset'), '100');
+    assert.equal(page.headers.get('X-Page-Count'), '50');
+    const window = decodeBeast2For(LookupType)(new Uint8Array(await page.arrayBuffer()));
+    assert.ok(equalFor(LookupType)(window, new SortedMap([...lookup].slice(100, 150), compareFor(StringType))),
+      'the window is the value\'s rows 100..149');
+
+    /** A refusal's status and JSON error. */
+    const refusal = async (response: Response): Promise<{ status: number; type: string; sha: string | null }> => ({
+      status: response.status,
+      type: (await response.json() as { error: { type: string } }).error.type,
+      sha: response.headers.get('X-Content-SHA256'),
+    });
+    assert.deepEqual(await refusal(await getValuePage(storage, REPO, hash, type, { offset: 0, limit: 10, hash: '0'.repeat(64) })),
+      { status: 409, type: 'dataset_hash_mismatch', sha: hash }, 'a pin to another hash names the value\'s');
+    assert.deepEqual(await refusal(await getValuePage(storage, REPO, hash, toEastTypeValue(StringType), { offset: 0 })),
+      { status: 400, type: 'dataset_not_pageable', sha: null });
+    assert.deepEqual(await refusal(await getValuePage(storage, REPO, hash, type, { index: 'by_due' })),
+      { status: 400, type: 'bad_request', sha: null }, 'an index window is a record dataset\'s');
+  });
+});
 const IntLookupType = DictType(IntegerType, StringType);
 const TagsType = SetType(StringType);
 const lookupPath = [variant('field', 'inputs'), variant('field', 'lookup')];
