@@ -92,6 +92,7 @@ export {
   treePath,
   pathToString,
   parsePath,
+  parseKeypath,
   parseDatasetPath,
   parsePackageRef,
   urlPathToTreePath,

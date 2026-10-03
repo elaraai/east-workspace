@@ -17,7 +17,7 @@
  * just hand-written execution records against a deployed workspace.
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { variant, East, IntegerType } from '@elaraai/east';
@@ -33,6 +33,8 @@ import { workspaceGetDatasetHash } from './trees.js';
 import { workspaceGetTask } from './tasks.js';
 import { inputsHash } from './executions.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
+import { MockTaskRunner } from './execution/MockTaskRunner.js';
+import { OBJECT_CONCURRENCY } from './concurrency.js';
 import { getBootId, getPidStartTime, processOwner } from './execution/processHelpers.js';
 import { uuidv7 } from './uuid.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -53,6 +55,70 @@ describe('over the in-memory backend', () => {
     const storage = new InMemoryStorage();
     await storage.repos.create('repo');
     return { storage, repo: 'repo' };
+  });
+});
+
+describe('workspaceStatus\'s reads', () => {
+  // One after another, a backend whose reads are requests pays its latency
+  // once per object; all at once, a wide workspace's poll floods it.
+
+  /** A workspace the package of `items` is deployed to, over the in-memory
+   *  backend. */
+  const deployedWith = async (t: TestContext, items: Parameters<typeof e3.package>[2][]): Promise<InMemoryStorage> => {
+    const dir = createTempDir();
+    t.after(() => removeTempDir(dir));
+    const zip = join(dir, 'wide.zip');
+    await e3.export(e3.package('wide', '1.0.0', ...items), zip);
+    const storage = new InMemoryStorage();
+    await storage.repos.create('repo');
+    await packageImport(storage, 'repo', zip);
+    await workspaceCreate(storage, 'repo', 'ws');
+    await workspaceDeploy(storage, 'repo', 'ws', 'wide', '1.0.0');
+    return storage;
+  };
+
+  /** Watches a method of `target`: the most calls of it in flight at once. */
+  const peakOf = (target: object, method: string): { peak: number } => {
+    const original = (target as Record<string, (...args: unknown[]) => Promise<unknown>>)[method]!.bind(target);
+    const seen = { peak: 0 };
+    let inFlight = 0;
+    (target as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+      inFlight++;
+      seen.peak = Math.max(seen.peak, inFlight);
+      try {
+        return await original(...args);
+      } finally {
+        inFlight--;
+      }
+    };
+    return seen;
+  };
+
+  it('read the task objects and the tasks\' statuses a few at a time, never more than 16 at once', async (t) => {
+    const seed = e3.input('seed', IntegerType, variant('value', 1n));
+    const storage = await deployedWith(t, Array.from({ length: 40 }, (_, i) =>
+      e3.task(`t${i}`, [seed], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)))));
+    const objects = peakOf(storage.objects, 'read');
+    const statuses = peakOf(storage.refs, 'executionListLatest');
+
+    const status = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
+    assert.equal(status.tasks.length, 40);
+    for (const [name, { peak }] of [['task objects', objects], ['tasks\' statuses', statuses]] as const) {
+      assert.ok(peak > 1 && peak <= OBJECT_CONCURRENCY, `${name}: ${peak} at once`);
+    }
+  });
+
+  it('read the dataset refs a few at a time, never more than 16 at once', async (t) => {
+    // One task, whose own refs are read one at a time, beside forty inputs: what
+    // reads refs side by side is the datasets' own pass.
+    const inputs = Array.from({ length: 40 }, (_, i) => e3.input(`in${i}`, IntegerType, variant('value', 0n)));
+    const storage = await deployedWith(t, [...inputs,
+      e3.task('one', [inputs[0]!], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)))]);
+    const refs = peakOf(storage.datasets, 'read');
+
+    const status = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
+    assert.equal(status.datasets.length, 41);
+    assert.ok(refs.peak > 1 && refs.peak <= OBJECT_CONCURRENCY, `dataset refs: ${refs.peak} at once`);
   });
 });
 

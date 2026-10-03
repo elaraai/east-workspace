@@ -60,9 +60,9 @@ const WORKSPACE_STATUS = encodeBeast2For(ResponseType(WorkspaceStatusResultType)
     },
 }));
 
-/** Answers the workspace's status route. */
+/** Answers the workspace's status route, whatever datasets it names. */
 const statusRoute = (url: string): Response | undefined =>
-    url.endsWith("/workspaces/w/status") ? new Response(WORKSPACE_STATUS.slice(), { status: 200 }) : undefined;
+    new URL(url).pathname.endsWith("/workspaces/w/status") ? new Response(WORKSPACE_STATUS.slice(), { status: 200 }) : undefined;
 
 type Outcome = "fail" | "read";
 

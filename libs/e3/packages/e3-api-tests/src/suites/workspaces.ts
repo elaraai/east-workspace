@@ -13,10 +13,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { equalFor, isValueOf, printFor, type ValueTypeOf } from '@elaraai/east';
-import { InvalidNameErrorType } from '@elaraai/e3-types';
+import { ArrayType, equalFor, isValueOf, printFor, variant, type ValueTypeOf } from '@elaraai/east';
+import { DatasetStatusInfoType, InvalidNameErrorType, TaskStatusInfoType, type TreePath } from '@elaraai/e3-types';
 import {
   ApiError,
+  fetchWithAuth,
+  parseErrorBody,
   packageImport,
   workspaceList,
   workspaceCreate,
@@ -206,6 +208,45 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(status.tasks[0].name, 'compute');
         // Summary should match
         assert.strictEqual(status.summary.tasks.total, 1n);
+      });
+
+      it('workspaceStatus answers the datasets it is asked for and the tasks producing them, as the whole answer does, leaving out a path no dataset has', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+        const at = (...fields: string[]): TreePath => fields.map((field) => variant('field', field));
+        const DatasetsType = ArrayType(DatasetStatusInfoType);
+        const TasksType = ArrayType(TaskStatusInfoType);
+        const whole = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts);
+
+        const output = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts, {
+          paths: [at('tasks', 'compute', 'output'), at('inputs', 'nope')],
+        });
+        const outputs = whole.datasets.filter((dataset) => dataset.path === '.tasks.compute.output');
+        assert.ok(equalFor(DatasetsType)(output.datasets, outputs), `the output alone: ${printFor(DatasetsType)(output.datasets)}`);
+        assert.ok(equalFor(TasksType)(output.tasks, whole.tasks), `the task producing it: ${printFor(TasksType)(output.tasks)}`);
+        assert.strictEqual(output.summary.datasets.total, 1n);
+        assert.strictEqual(output.summary.tasks.total, 1n);
+
+        const input = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', opts, { paths: [at('inputs', 'value')] });
+        const inputs = whole.datasets.filter((dataset) => dataset.path === '.inputs.value');
+        assert.ok(equalFor(DatasetsType)(input.datasets, inputs), `the input alone: ${printFor(DatasetsType)(input.datasets)}`);
+        assert.strictEqual(input.tasks.length, 0, 'no task produces an input');
+      });
+
+      it('workspaceStatus refuses a path that is not a keypath as bad_request', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+        // The client prints every path it is given as a keypath, so the
+        // request is made by hand.
+        const response = await fetchWithAuth(
+          `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/deployed-ws/status?path=inputs.value`,
+          { method: 'GET' },
+          opts,
+        );
+        assert.strictEqual(response.status, 400);
+        const refusal = parseErrorBody(await response.text(), 'http_400');
+        assert.strictEqual(refusal.code, 'bad_request');
+        assert.match(String(refusal.details), /^path must be a dataset's path, as a status names it \(\.inputs\.x\), got "inputs\.value"/);
       });
 
       it('taskList returns task info', async (t) => {

@@ -123,6 +123,7 @@ export {
   workspaceDeploy,
   workspaceExport,
   type WorkspaceDeployOptions,
+  type WorkspaceStatusQuery,
 } from './workspaces.js';
 
 // Datasets

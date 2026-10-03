@@ -89,7 +89,10 @@ export interface DatasetApi {
     launchDataflow(workspace: string): Promise<void>;
     listRoot(workspace: string): Promise<string[]>;
     listAt(workspace: string, path: TreePath): Promise<string[]>;
-    workspaceStatus(workspace: string): Promise<{ datasets: DatasetStatusInfo[] }>;
+    /** A workspace's status, for the datasets `paths` names: the answer holds
+     *  those of them the workspace has, each with its hash and status. Every
+     *  dataset when omitted. The cache's poll names what it watches. */
+    workspaceStatus(workspace: string, paths?: readonly TreePath[]): Promise<{ datasets: DatasetStatusInfo[] }>;
 }
 
 /**
@@ -125,8 +128,8 @@ export function createDefaultDatasetApi(
         async listAt(workspace, path) {
             return datasetListAt(apiUrl, repo, workspace, path, getOptions());
         },
-        async workspaceStatus(workspace) {
-            return workspaceStatus(apiUrl, repo, workspace, getOptions());
+        async workspaceStatus(workspace, paths) {
+            return workspaceStatus(apiUrl, repo, workspace, getOptions(), paths === undefined ? {} : { paths });
         },
     };
 }
@@ -737,9 +740,14 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             epochsAtStart.set(key, this.writeEpochs.get(key) ?? 0);
         }
 
+        // Ask for what the poll watches and nothing else of the workspace: the
+        // paths whose content it reconciles, and those whose hash it follows.
+        // A UI binding a few datasets costs the server those, not the
+        // workspace's status.
+        const watched = new Set([...poller.paths.keys(), ...(this.hashWatches.get(workspace)?.keys() ?? [])]);
         let status;
         try {
-            status = await this.api.workspaceStatus(workspace);
+            status = await this.api.workspaceStatus(workspace, [...watched].map((pathStr) => this.stringToPath(pathStr)));
         } catch (error) {
             console.error(`Failed to poll workspace status for ${workspace}:`, error);
             return;
@@ -753,7 +761,10 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
 
         // Hash watches hear the hashes first: they fetch nothing, and a
         // watcher that throws must not cost the content paths their update.
+        // A path watched since the request was made was not asked for, so the
+        // answer says nothing of it: the next poll does.
         for (const [pathStr, callbacks] of this.hashWatches.get(workspace) ?? []) {
+            if (!watched.has(pathStr)) continue;
             const info = infoByPath.get(pathStr ? `.${pathStr}` : "");
             const hash = info?.hash?.type === "some" ? info.hash.value : null;
             for (const [onHash, told] of [...callbacks]) {
@@ -778,6 +789,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
 
         this.batch(() => {
             for (const pathStr of poller.paths.keys()) {
+                if (!watched.has(pathStr)) continue; // not asked for: the next poll
                 const e3Path = pathStr ? `.${pathStr}` : "";
                 const info = infoByPath.get(e3Path);
                 const key = pathStr ? `${workspace}.${pathStr}` : workspace;

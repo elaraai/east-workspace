@@ -22,6 +22,7 @@ import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
 import type { GetRunner } from './functions.js';
+import { pathsQuery } from './query.js';
 
 /**
  * Workspace routes, mounted at `/api/repos/:repo/workspaces`.
@@ -66,12 +67,16 @@ export function createWorkspaceRoutes(
     return getWorkspace(storage, repoPath, ws);
   });
 
-  // GET /api/repos/:repo/workspaces/:ws/status - Get comprehensive workspace status
+  // GET /api/repos/:repo/workspaces/:ws/status - Get comprehensive workspace
+  // status; with `path` (repeated), only the datasets named and the tasks
+  // that produce them
   app.get('/:ws/status', (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
-    return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws);
+    const paths = pathsQuery(c);
+    if (paths instanceof Response) return paths;
+    return getWorkspaceStatus(storage, getRunner(repoPath), repoPath, ws, paths);
   });
 
   // GET /api/repos/:repo/workspaces/:ws/lock - What holds the workspace, and how far it has got

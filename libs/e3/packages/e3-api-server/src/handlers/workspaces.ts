@@ -6,7 +6,7 @@
 import { NullType, OptionType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
-  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type WorkspaceDeployRequest,
+  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type TreePath, type WorkspaceDeployRequest,
 } from '@elaraai/e3-types';
 import {
   workspaceList,
@@ -142,16 +142,20 @@ export async function getWorkspaceLockStatus(
  *   whether an execution recorded running can still finish
  * @param repoPath - Repository identifier
  * @param name - Workspace name
+ * @param paths - The datasets to answer for, such as those a UI binds: the
+ *   answer then holds those the workspace has, and the tasks that produce
+ *   them. The whole workspace when omitted.
  * @returns The response: the status, or the error
  */
 export async function getWorkspaceStatus(
   storage: StorageBackend,
   runner: TaskRunner,
   repoPath: string,
-  name: string
+  name: string,
+  paths?: readonly TreePath[],
 ): Promise<Response> {
   try {
-    const status = await workspaceStatus(storage, runner, repoPath, name);
+    const status = await workspaceStatus(storage, runner, repoPath, name, paths === undefined ? {} : { paths });
     // Convert numbers to bigints for BEAST2 serialization
     const result = {
       workspace: status.workspace,

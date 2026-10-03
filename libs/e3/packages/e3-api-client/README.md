@@ -73,6 +73,11 @@ const status = await workspaceStatus(url, 'production');
 const workspaces = await workspaceList(url);
 ```
 
+A view that follows a few datasets asks for those alone:
+`workspaceStatus(url, repo, ws, options, { paths })` answers the datasets
+named that the workspace has, and the tasks producing them, each as the whole
+status gives it. It costs the server what the view binds, not the workspace.
+
 ### Datasets
 
 ```typescript
