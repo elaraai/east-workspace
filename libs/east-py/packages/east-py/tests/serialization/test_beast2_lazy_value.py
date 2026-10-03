@@ -35,7 +35,11 @@ from east import (
     type_of,
 )
 from east.runtime.errors import EastError
-from east.serialization.beast2 import open_beast2_file, write_beast2_file
+from east.serialization.beast2 import (
+    encode_beast2_segments_for,
+    open_beast2_file,
+    write_beast2_file,
+)
 from tests.segments import write_in_segments
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
@@ -93,6 +97,25 @@ class TestValueSemantics:
                 s.add(9)
             with pytest.raises(EastError, match="read-only view"):
                 s.union_in_place(EastSet(IntegerType, [2]))
+
+    def test_what_a_read_returns_cannot_change_the_file(self, tmp_path):
+        # A keyed read is served from the segment the pager keeps for the next
+        # read into it, so what it returns is frozen: writing through it would
+        # change what every later read is served (#1129). A scan reads its
+        # segments fresh, so changing what it returns leaves the file as
+        # written.
+        nested = DictType(StringType, ArrayType(IntegerType))
+        path = tmp_path / "nested.beast2"
+        path.write_bytes(encode_beast2_segments_for(nested)(
+            [{"a": [1], "b": [2]}, {"c": [3], "d": [4]}, {"e": [5], "f": [6]}]))
+        with open_beast2_file(path, nested) as f:
+            with pytest.raises(EastError, match="cannot mutate a frozen value"):
+                f["a"].push_last(99)
+            assert list(f["a"]) == [1]
+            for key, value in f.items():
+                if key == "c":
+                    value.push_last(77)
+            assert list(f["c"]) == [3]
 
     def test_inherited_eager_methods_answer_via_iteration(self, tmp_path):
         # No segment-streamed override — the inherited eager method converts

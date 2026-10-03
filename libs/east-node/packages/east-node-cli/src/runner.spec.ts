@@ -223,7 +223,7 @@ describe('lazy inputs', () => {
 
     const err = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true));
     assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 50n);
-    const account = /input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — its reads land at random beyond the segments kept, so decoding it whole would decode each once/.exec(err);
+    const account = /input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — it read segments again that the pager no longer held \(a scan repeated, or reads at random\); decoding it whole would decode each once, but hold the whole input at once/.exec(err);
     assert.ok(account !== null, `the reads' account:\n${err}`);
     assert.deepEqual(account.slice(1).map(Number), [50, 5, 5], 'every read decoded its segment, and the fences were probed once');
 

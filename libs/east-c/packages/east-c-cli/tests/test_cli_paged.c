@@ -24,8 +24,8 @@
  *      and it is skipped where it measures nothing — on Windows both runs read
  *      the file whole, and a sanitizer build's shadow memory dominates RSS;
  *   3. what a lazy read came to — an operation the pager cannot serve decodes
- *      the input whole and says what that came to, and reads that land at
- *      random beyond the segments the pager keeps say so;
+ *      the input whole and says what that came to, and reads that decode
+ *      segments again, beyond the segments the pager keeps, say so;
  *   4. manifests — a manifest-rooted input, as e3 stages one, pages over its
  *      directory's segment files: one segment decoded for a keyed read, the
  *      input weighed by its segments rather than the manifest's own file;
@@ -377,8 +377,9 @@ static void test_paged_account(const char *bin, const char *fixtures, const char
         CHECK(parsed && decodes == 200 && segments >= 8 && fences == segments,
               "the scattered reads' account (%lu decodes, %lu segments, %lu fences):\n%s", decodes,
               segments, fences, err);
-        CHECK(strstr(err, "its reads land at random beyond the segments kept, so decoding it "
-                          "whole would decode each once") != NULL,
+        CHECK(strstr(err, "it read segments again that the pager no longer held (a scan "
+                          "repeated, or reads at random); decoding it whole would decode each "
+                          "once, but hold the whole input at once") != NULL,
               "the account does not say decoding it whole would decode each segment once:\n%s",
               err);
         free(err);
