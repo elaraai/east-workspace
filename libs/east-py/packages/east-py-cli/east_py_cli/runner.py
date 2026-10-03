@@ -121,6 +121,22 @@ def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> ob
     return freeze_value(type_ptr, load_value(file_path, param_type))
 
 
+def _load_frozen_whole(type_ptr: object, file_path: Path, param_type: Any) -> object:
+    """A value file decoded whole and FROZEN, as east-c's runner reads one: a
+    beast2 file of a collection holding a manifest is the collection it
+    names, its segments in the directory beside it — e3 stages a collection
+    so, and a unit writes one so — and any other file is read as
+    ``_load_frozen_input`` reads it. A run's inputs decoded whole, a fold's
+    zero and a merge's fold partials are all read through here."""
+    from east.runtime._compiler_eastc import load_frozen_manifest, manifest_segment_bytes
+
+    beast2 = Path(file_path).suffix.lower() in (".beast2", ".beast")
+    collection = getattr(param_type, "type", None) in ("Array", "Set", "Dict")
+    if beast2 and collection and manifest_segment_bytes(file_path) is not None:
+        return load_frozen_manifest(type_ptr, file_path)
+    return _load_frozen_input(type_ptr, file_path, param_type)
+
+
 def _compile_ir_file(ir_file: Path, platform_fns: list[PlatformFunction]) -> tuple[Callable, bool]:
     """Compile an IR file straight from its bytes — no Python IR round-trip,
     a single file read — returning the compiled function and whether it is
@@ -175,7 +191,6 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], whole: bool,
     the resident memory it added.
     """
     from east.runtime._compiler_eastc import (
-        load_frozen_manifest,
         manifest_segment_bytes,
         open_manifest_file,
         open_paged_file,
@@ -206,10 +221,7 @@ def _open_inputs(handle: Any, input_files: Sequence[Path], whole: bool,
             inputs.append(opened)
             continue
         before = _resident_bytes() if verbose else 0
-        if weight is not None:
-            inputs.append(load_frozen_manifest(handle._input_types[i], file_path))
-        else:
-            inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
+        inputs.append(_load_frozen_whole(handle._input_types[i], file_path, param_type))
         if verbose:
             _report_input_whole(i, _resident_bytes() - before)
     return inputs, lazy_inputs
@@ -307,7 +319,7 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
               lap: Callable[[str], None], verbose: bool) -> None:
     """A run unit: the program evaluated on its inputs, its output written by
     kind; ``verbose`` gives the account of each input ``run -v`` gives."""
-    from east.runtime._compiler_eastc import _eastc_call, load_frozen_value
+    from east.runtime._compiler_eastc import _eastc_call
     from east.serialization._beast2_eastc import _UnitSinkCore, _write_unit_value
 
     compiled, _ = _compile_ir_file(Path(unit["program"]), platform_fns)
@@ -335,7 +347,7 @@ def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
             merge = _compile_ir_file(Path(output["merge"]), platform_fns)[0]
         if output["kind"] == "fold":
             combine = _compile_ir_file(Path(output["combine"]), platform_fns)[0]
-            zero = load_frozen_value(emit_types[0], Path(output["zero"]).read_bytes())
+            zero = _load_frozen_whole(emit_types[0], Path(output["zero"]), emit_types[0])
         sink = _UnitSinkCore(output["kind"], emit_types, output["path"], merge=merge,
                              combine=combine, zero=zero)
     lap("compile")
@@ -373,7 +385,6 @@ def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
                 lap: Callable[[str], None]) -> None:
     """A merge unit: set or dict parts merged into one run, or fold partials
     folded in order, starting at zero."""
-    from east.runtime._compiler_eastc import load_frozen_value
     from east.serialization._beast2_eastc import _unit_merge_runs, _write_unit_value
 
     output = unit["output"]
@@ -401,10 +412,10 @@ def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
         raise ValueError(
             f"exec: combine: expected a function (T, T) -> T (T = {print_type(value_type)}), "
             f"got ({', '.join(print_type(t) for t in ins)}) -> {print_type(value_type)}")
-    acc = load_frozen_value(value_type, Path(output["zero"]).read_bytes())
+    acc = _load_frozen_whole(value_type, Path(output["zero"]), value_type)
     lap("compile")
     for part in unit["inputs"]:
-        acc = combine(acc, load_frozen_value(value_type, Path(part).read_bytes()))
+        acc = combine(acc, _load_frozen_whole(value_type, Path(part), value_type))
     lap("execute")
     _write_unit_value(value_type, output["path"], acc)
     lap("output")
