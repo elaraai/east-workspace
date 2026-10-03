@@ -240,6 +240,20 @@ app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes
 }));
 ```
 
+A dataset page or key search pinned to the value's hash (`hash=`) never
+changes, so it is answered `Cache-Control: private, max-age=31536000,
+immutable`: the caller's own cache keeps it for good, and no cache between
+keeps a workspace's rows for whoever asks next. A host whose data any caller may
+read lets those caches keep it too, a CDN's among them, with the dataset
+routes' `cache: 'public'`; `getDatasetPage`, `getValuePage` and
+`findDatasetKey` take the same. An answer not pinned is `no-store`.
+
+```typescript
+app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend, {
+  cache: 'public',  // every caller may read every workspace this host serves
+}));
+```
+
 ## API Endpoints
 
 All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:

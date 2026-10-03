@@ -16,6 +16,7 @@ import {
   getDatasetPage,
   getDatasetStatus,
   setDataset,
+  type PinnedCache,
 } from '../handlers/datasets.js';
 import { datasetPathOf } from './dataset-path.js';
 
@@ -25,6 +26,11 @@ export interface DatasetRouteOptions {
    *  4 MiB; deployments with tighter response limits (e.g. Lambda proxy's
    *  6 MB, base64-inflated) pass a smaller budget. */
   pageByteBudget?: number;
+  /** Who may keep a hash-pinned page or key search, which never changes:
+   *  `private`, the caller's own cache alone (the default), or `public`, any
+   *  cache between it and the server as well, for a host whose data any
+   *  caller may read. */
+  cache?: PinnedCache;
 }
 
 /** Parses an integer query param; `undefined` when absent, `NaN` when
@@ -103,7 +109,7 @@ export function createDatasetRoutes(
         ...(to !== undefined && to.length > 0 && { to }),
         ...(index !== undefined && index !== '' && { index }),
         ...(hash !== undefined && hash !== '' && { hash }),
-      });
+      }, { ...(options?.cache !== undefined && { cache: options.cache }) });
     }
     if (page) {
       const hash = c.req.query('hash');
@@ -117,6 +123,7 @@ export function createDatasetRoutes(
       };
       return getDatasetPage(storage, repoPath, ws, treePath, window, {
         ...(options?.pageByteBudget !== undefined && { byteBudget: options.pageByteBudget }),
+        ...(options?.cache !== undefined && { cache: options.cache }),
       });
     }
 

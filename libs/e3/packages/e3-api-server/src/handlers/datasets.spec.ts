@@ -32,10 +32,12 @@ import { InMemoryStorage, encodeInSegmentsOf, storeSegmentsOf } from '@elaraai/e
 import {
   BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, decodeCollectionManifest, indexCollectionType, indexWindowType,
 } from '@elaraai/e3-types';
+import { Hono } from 'hono';
 import { ResponseType } from '../types.js';
+import { createDatasetRoutes } from '../routes/datasets.js';
 import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
 // The page handlers through the handlers entry, as a host reaches them.
-import { getDatasetPage, getValuePage, type DatasetPageWindow } from './index.js';
+import { getDatasetPage, getValuePage, type DatasetPageWindow, type PinnedCache } from './index.js';
 
 /**
  * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
@@ -555,7 +557,7 @@ describe('getValuePage (a stored value, by its hash)', () => {
     const page = await getValuePage(storage, REPO, hash, type, { offset: 100, limit: 50, hash });
     assert.equal(page.status, 200, await page.clone().text());
     assert.equal(page.headers.get('X-Content-SHA256'), hash);
-    assert.match(page.headers.get('Cache-Control') ?? '', /immutable/, 'a window pinned to the value is content-addressed');
+    assert.equal(page.headers.get('Cache-Control'), 'private, max-age=31536000, immutable', 'a window pinned to the value is content-addressed');
     assert.equal(page.headers.get('X-Total-Elements'), '500');
     assert.equal(page.headers.get('X-Page-Offset'), '100');
     assert.equal(page.headers.get('X-Page-Count'), '50');
@@ -706,7 +708,7 @@ describe('findDatasetKey', () => {
 
     const pinned = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0007"', hash });
     assert.equal(pinned.status, 200);
-    assert.match(pinned.headers.get('Cache-Control') ?? '', /immutable/);
+    assert.equal(pinned.headers.get('Cache-Control'), 'private, max-age=31536000, immutable');
     assert.equal(pinned.headers.get('X-Content-SHA256'), hash);
 
     const unpinned = await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0007"' });
@@ -996,5 +998,47 @@ describe('findDatasetKey (through an index)', () => {
     assert.equal(missing.status, 404);
     assert.equal(missing.error.type, 'index_not_found');
     assert.match(missing.error.message, /has no index 'nope' — it has by_due, by_status/);
+  });
+});
+
+describe('who may keep an answer pinned to a hash', () => {
+  it('is the caller\'s own cache alone, unless the host lets any cache keep it: a page, a value\'s page, an index page and a key search', async () => {
+    const storage = new InMemoryStorage();
+    const hash = await seedDataset(storage, encodeInSegmentsOf(LookupType, 97)(lookupOf(500)), 'lookup', LookupType);
+    const records = new InMemoryStorage();
+    await seedIndexedRecord(records, 300);
+    const state = await records.datasets.read(REPO, WS, 'records/plans');
+    assert.ok(state?.type === 'value');
+
+    /** Each pinned answer's Cache-Control, as a host that names `cache` serves it. */
+    const controls = async (cache?: PinnedCache): Promise<(string | null)[]> => {
+      const limits = cache === undefined ? undefined : { cache };
+      const answers = [
+        await getDatasetPage(storage, REPO, WS, lookupPath, { offset: 0, limit: 10, hash }, limits),
+        await getValuePage(storage, REPO, hash, toEastTypeValue(LookupType), { offset: 0, limit: 10, hash }, limits),
+        await getDatasetPage(records, REPO, WS, plansPath, { offset: 0, limit: 10, index: 'by_due', hash: state.value.hash }, limits),
+        await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0007"', hash }, limits ?? {}),
+      ];
+      for (const answer of answers) assert.equal(answer.status, 200, await answer.clone().text());
+      return answers.map((answer) => answer.headers.get('Cache-Control'));
+    };
+    const kept = (by: string): string[] => Array.from({ length: 4 }, () => `${by}, max-age=31536000, immutable`);
+    assert.deepEqual(await controls(), kept('private'));
+    assert.deepEqual(await controls('private'), kept('private'));
+    assert.deepEqual(await controls('public'), kept('public'));
+  });
+
+  it('is what the dataset routes\' options say', async () => {
+    const storage = new InMemoryStorage();
+    const hash = await seedDataset(storage, encodeInSegmentsOf(LookupType, 97)(lookupOf(500)), 'lookup', LookupType);
+    for (const [cache, by] of [[undefined, 'private'], ['public', 'public']] as const) {
+      const app = new Hono();
+      app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, () => REPO, undefined, cache === undefined ? {} : { cache }));
+      for (const query of [`page=true&offset=0&limit=10&hash=${hash}`, `find=true&key="k0007"&hash=${hash}`]) {
+        const answer = await app.request(`/api/repos/${REPO}/workspaces/${WS}/datasets/inputs/lookup?${query}`);
+        assert.equal(answer.status, 200, `${query}: ${await answer.clone().text()}`);
+        assert.equal(answer.headers.get('Cache-Control'), `${by}, max-age=31536000, immutable`, `${cache}: ${query}`);
+      }
+    }
   });
 });
