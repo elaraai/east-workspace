@@ -13,7 +13,8 @@
  * speaks the one protocol version and refuses a request naming another, or
  * none, in the same words, naming its release and the request's. A workspace
  * whose name the URL escapes has its datasets read, written and uploaded like
- * any other, and a name no workspace can have is refused at every door.
+ * any other, and a name no workspace can have is refused at every door, as a
+ * hash that is no SHA-256 is at the objects route and at an upload's init.
  */
 
 import { describe, it } from 'node:test';
@@ -248,6 +249,43 @@ export function datasetTransferTests(setup: TestSetup<TestContext>): void {
       assert.strictEqual(response.headers.get('Content-Type'), 'application/json');
       const body = await response.json() as { error: { type: string; message: string } };
       assert.strictEqual(body.error.type, 'object_not_found');
+    });
+
+    it('GET object endpoint refuses a hash that is not a SHA-256 in lowercase hex as invalid_name, as every route refuses a malformed name', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      for (const hash of ['not-a-hash', 'A'.repeat(64)]) {
+        const response = await ctx.fetch(
+          `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/objects/${hash}`,
+          { headers: { 'Authorization': `Bearer ${opts.token}` } },
+        );
+        assert.strictEqual(response.status, 400, hash);
+        assert.strictEqual(response.headers.get('Content-Type'), 'application/json', hash);
+        assert.deepStrictEqual(await response.json(), {
+          error: { type: 'invalid_name', message: `the object hash ${JSON.stringify(hash)} is not a SHA-256 in lowercase hex` },
+        }, hash);
+      }
+    });
+
+    it('refuses an init naming its delivery by a hash that is not a SHA-256 in lowercase hex as invalid_name of an object hash', async (t) => {
+      const ctx = await withStringPackage(t);
+      const opts = await ctx.opts();
+      const uploadUrl = `${ctx.config.baseUrl}/api/repos/${encodeURIComponent(ctx.repoName)}/workspaces/transfer-ws/datasets/inputs/config/upload`;
+
+      for (const hash of ['not-a-hash', 'A'.repeat(64), `../${'a'.repeat(61)}`]) {
+        const request = encodeBeast2For(TransferUploadRequestType)({ hash, size: 3n });
+        const refused = await transferCall(`${uploadUrl}?protocol=${TRANSFER_PROTOCOL_VERSION}`, 'POST', TransferUploadResponseType, opts, request);
+        assert.strictEqual(refused.type, 'error', `${hash}: the init answered ${refused.type}`);
+        if (refused.type !== 'error') continue;
+        assert.strictEqual(refused.value.type, 'invalid_name', `${hash}: refused as ${refused.value.type}`);
+        assert.ok(isValueOf(refused.value.value, InvalidNameErrorType), `${hash}: the refusal names the hash and why`);
+        const said = refused.value.value as ValueTypeOf<typeof InvalidNameErrorType>;
+        const expected: ValueTypeOf<typeof InvalidNameErrorType> = {
+          kind: 'object hash', name: hash, message: `the object hash ${JSON.stringify(hash)} is not a SHA-256 in lowercase hex`,
+        };
+        assert.ok(equalFor(InvalidNameErrorType)(said, expected), `${hash}: refused as ${printFor(InvalidNameErrorType)(said)}`);
+      }
     });
 
     it('answers an object over the inline limit with a URL to download it from', async (t) => {

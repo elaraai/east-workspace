@@ -19,6 +19,16 @@
  * reads, adopting a file, placing an object at a path, the owner and plan
  * records of an execution, the adoption memo — would need a fallback in every
  * caller, and the fallbacks were whole-object reads.
+ *
+ * A method given a hash or an id that is not of the form e3 writes refuses it
+ * with `InvalidNameError`, naming its kind, before it reads or writes
+ * anything: an object's hash and an execution's task and inputs hashes, which
+ * are SHA-256s in lowercase hex (`checkHash`), and an execution's, a run's and
+ * a gc run's id, which are UUIDv7s (`checkId`). A batch naming one does
+ * nothing of the rest. Every backend refuses alike, so a server answers
+ * `invalid_name` over any of them; the contract suites pin it. The adoption
+ * memo's read and delete are the exceptions: a key that is not a SHA-256 names
+ * no entry, so a read answers null and a delete does nothing.
  */
 
 import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';

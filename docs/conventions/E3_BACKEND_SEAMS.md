@@ -110,6 +110,17 @@ takes for a record that keeps no output, and prunes as it does any other; any
 other failure stops the prune, and gc with it. The ref-store suite pins the
 error.
 
+**A store refuses a hash or an id that is not of its form.** e3 writes an
+object's hash and an execution's task and inputs hashes as SHA-256s in
+lowercase hex, and an execution's, a run's and a gc run's id as UUIDv7s, and a
+client or a package being imported names them too. Each store checks one
+before it reads or writes anything, with e3-core's `checkHash` and `checkId`,
+which throw `InvalidNameError` naming its kind, as `checkName` does a name; a
+batch naming one does nothing of the rest. So a server answers `invalid_name`
+over any backend, and the object, ref, log and repository stores' suites pin
+it. The adoption memo's read and delete take a key that is no SHA-256 for one
+that names no entry.
+
 **A unit downloads what it reads.** Where placing an object is a download, a
 stock runner's collections are staged without their segments, the unit says so
 (its `fetch`), and a `SegmentFetcher` places each segment as the runner asks

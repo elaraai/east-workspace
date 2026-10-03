@@ -27,7 +27,10 @@ describe('objectPath', () => {
     // it holds one of `../../<repo>/objects/...` read another repository's
     // object as its own.
     for (const hash of ['..', `../../other/objects/ab/${'c'.repeat(56)}`, 'A'.repeat(64), 'a'.repeat(63)]) {
-      assert.throws(() => objectPath('/repo', hash), /is not an object hash/, hash);
+      assert.throws(() => objectPath('/repo', hash), {
+        name: 'InvalidNameError', kind: 'object hash', value: hash,
+        message: `the object hash ${JSON.stringify(hash)} is not a SHA-256 in lowercase hex`,
+      }, hash);
     }
     assert.strictEqual(objectPath('/repo', `ab${'c'.repeat(62)}`), join('/repo', 'objects', 'ab', `${'c'.repeat(62)}.beast2`));
   });

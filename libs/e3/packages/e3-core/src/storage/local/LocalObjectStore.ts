@@ -26,7 +26,7 @@ import { pipeline } from 'stream/promises';
 import { constants, createWriteStream } from 'fs';
 import { sha256File } from '@elaraai/e3';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
-import { ObjectNotFoundError, isNotFoundError } from '../../errors.js';
+import { ObjectNotFoundError, checkHash, isNotFoundError } from '../../errors.js';
 import { computeHash } from '../../objects-node.js';
 import { clearUnreachableNote, objectPath } from './localHelpers.js';
 import type { ObjectStore } from '../interfaces.js';
@@ -435,9 +435,12 @@ export class LocalObjectStore implements ObjectStore {
    * @param file - Path to the file to adopt
    * @param hash - The file's SHA256 when already known; else read here
    * @returns The object's hash and size
+   * @throws {InvalidNameError} When `hash` is not a SHA-256 in lowercase hex,
+   *   before the file is looked at
    * @throws {Error} When the file placed does not hash to `hash`
    */
   async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
+    if (hash !== undefined) checkHash('object hash', hash);
     const stats = await fs.stat(file);
     if (!stats.isFile()) throw new Error(`Not a file: ${file}`);
     if (hash !== undefined && await objectTouch(repo, hash)) {
@@ -520,8 +523,10 @@ export class LocalObjectStore implements ObjectStore {
   }
 
   /** Re-references each object as {@link objectTouch} does,
-   *  {@link OBJECT_CONCURRENCY} at a time. */
+   *  {@link OBJECT_CONCURRENCY} at a time, once every hash is of its form:
+   *  a batch naming one that is not touches none. */
   async touch(repo: string, hashes: readonly string[]): Promise<boolean[]> {
+    for (const hash of hashes) checkHash('object hash', hash);
     const held: boolean[] = new Array<boolean>(hashes.length).fill(false);
     await eachAtMost([...hashes.keys()], OBJECT_CONCURRENCY, async (i) => {
       held[i] = await objectTouch(repo, hashes[i]!);

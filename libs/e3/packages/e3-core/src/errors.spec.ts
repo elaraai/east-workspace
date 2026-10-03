@@ -28,11 +28,16 @@ import {
   DataflowError,
   DataflowAbortedError,
   PermissionDeniedError,
+  InvalidNameError,
+  checkHash,
+  checkId,
+  checkName,
   isNotFoundError,
   isPermissionError,
   isExistsError,
   wrapError,
 } from './errors.js';
+import { uuidv7 } from './uuid.js';
 
 describe('errors', () => {
   describe('E3Error base class', () => {
@@ -261,6 +266,35 @@ describe('errors', () => {
       const err = new PermissionDeniedError('/protected/file');
       assert.ok(err.message.includes('/protected/file'));
       assert.strictEqual(err.path, '/protected/file');
+    });
+  });
+
+  describe('checkHash and checkId', () => {
+    it('refuse a hash that is not a SHA-256 in lowercase hex, naming its kind and saying what the form is', () => {
+      for (const kind of ['object hash', 'task hash', 'inputs hash'] as const) {
+        for (const hash of ['not-a-hash', 'A'.repeat(64), 'a'.repeat(63), `../${'a'.repeat(61)}`]) {
+          assert.throws(() => checkHash(kind, hash), (err: unknown) =>
+            err instanceof InvalidNameError && err.kind === kind && err.value === hash &&
+            err.message === `the ${kind} ${JSON.stringify(hash)} is not a SHA-256 in lowercase hex`);
+        }
+        checkHash(kind, 'a'.repeat(64));
+      }
+    });
+
+    it('refuse an id that is not a UUIDv7, naming its kind and saying what the form is', () => {
+      for (const kind of ['execution id', 'run id', 'gc run id'] as const) {
+        for (const id of ['not-an-id', '0190a0b0-0000-4000-8000-000000000000', `../${uuidv7()}`]) {
+          assert.throws(() => checkId(kind, id), (err: unknown) =>
+            err instanceof InvalidNameError && err.kind === kind && err.value === id &&
+            err.message === `the ${kind} ${JSON.stringify(id)} is not a UUIDv7`);
+        }
+        checkId(kind, uuidv7());
+      }
+    });
+
+    it('leave a name\'s refusal saying it is a name', () => {
+      assert.throws(() => checkName('workspace', 'a/b'), (err: unknown) =>
+        err instanceof InvalidNameError && err.kind === 'workspace' && err.message.startsWith('the workspace name "a/b" '));
     });
   });
 

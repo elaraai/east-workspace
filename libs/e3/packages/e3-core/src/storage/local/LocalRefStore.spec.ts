@@ -327,17 +327,18 @@ describe('LocalRefStore records and names', () => {
     // run's id, and a client names a delivery's hash.
     const store = new LocalRefStore();
     const [task, inputs, attempt] = ['a'.repeat(64), 'b'.repeat(64), '0190a0b0-4444-7000-8000-000000000000'];
-    await assert.rejects(store.executionGet(repo, '../../elsewhere', inputs, attempt), /is not a task hash/);
-    await assert.rejects(store.executionListForTask(repo, 'A'.repeat(64)), /is not a task hash/);
-    await assert.rejects(store.executionListIds(repo, task, '..'), /is not an inputs hash/);
-    await assert.rejects(store.executionOwnerWrite(repo, task, inputs, '../attempt', { pid: 1n, pidStartTime: 1n, bootId: 'boot-id' }), /is not an execution id/);
-    await assert.rejects(store.dataflowRunGet(repo, 'main', '../run'), /is not a run id/);
+    const refused = (kind: string, value: string) => ({ name: 'InvalidNameError', kind, value });
+    await assert.rejects(store.executionGet(repo, '../../elsewhere', inputs, attempt), refused('task hash', '../../elsewhere'));
+    await assert.rejects(store.executionListForTask(repo, 'A'.repeat(64)), refused('task hash', 'A'.repeat(64)));
+    await assert.rejects(store.executionListIds(repo, task, '..'), refused('inputs hash', '..'));
+    await assert.rejects(store.executionOwnerWrite(repo, task, inputs, '../attempt', { pid: 1n, pidStartTime: 1n, bootId: 'boot-id' }), refused('execution id', '../attempt'));
+    await assert.rejects(store.dataflowRunGet(repo, 'main', '../run'), refused('run id', '../run'));
     await assert.rejects(store.dataflowRunWrite(repo, 'main', {
       runId: '../../escape', workspaceName: 'main', packageRef: 'pkg@1.0.0', startedAt: new Date(0), completedAt: none,
       status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
       summary: { total: 0n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
-    }), /is not a run id/);
-    await assert.rejects(store.adoptionWrite(repo, '../delivery', 'f'.repeat(64)), /is not a SHA-256/);
+    }), refused('run id', '../../escape'));
+    await assert.rejects(store.adoptionWrite(repo, '../delivery', 'f'.repeat(64)), refused('object hash', '../delivery'));
     await assert.rejects(fs.access(join(repo, '..', 'escape.beast2')), { code: 'ENOENT' });
   });
 
