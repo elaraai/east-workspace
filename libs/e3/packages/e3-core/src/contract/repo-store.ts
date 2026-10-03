@@ -17,7 +17,7 @@ import { RepoAlreadyExistsError, RepoNotFoundError, RepoStatusConflictError } fr
 import { REPOSITORY_UPGRADES, repositoryOpen } from '../repository-record.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { MALFORMED_HASHES, MALFORMED_IDS, hashRefusal, idRefusal } from './malformed.js';
+import { MALFORMED_HASHES, MALFORMED_IDS, MALFORMED_NAMES, hashRefusal, idRefusal, nameRefusal } from './malformed.js';
 
 const TASK = 'a'.repeat(64);
 const INPUTS = 'b'.repeat(64);
@@ -127,6 +127,21 @@ export function repoStoreTests(setup: RepositoriesSetup): void {
       assert.deepEqual(await storage.datasets.list(repo, 'ws'), []);
       assert.equal((await storage.logs.read(repo, TASK, INPUTS, id, 'stdout')).totalSize, 0);
       assert.deepEqual(await storage.refs.packageList(repoOf('beta')), [{ name: 'kept', version: '1.0.0' }], 'another repository keeps its own');
+    });
+
+    it('refuses a repository\'s name that cannot be one path segment, naming it, before it reads or writes anything', async (t) => {
+      const { storage } = await setup(t);
+      for (const name of MALFORMED_NAMES['repository']) {
+        const refused = nameRefusal('repository', name);
+        await assert.rejects(storage.repos.exists(name), refused);
+        await assert.rejects(storage.repos.getMetadata(name), refused);
+        await assert.rejects(storage.repos.create(name), refused);
+        await assert.rejects(storage.repos.setStatus(name, 'deleting'), refused);
+        await assert.rejects(storage.repos.remove(name), refused);
+        await assert.rejects(storage.repos.deleteRefsBatch(name), refused);
+        await assert.rejects(storage.repos.deleteObjectsBatch(name), refused);
+      }
+      assert.deepEqual(await storage.repos.list(), [], 'no repository is created');
     });
 
     it('refuses gc an object\'s hash or a run\'s id that is not of its form, naming it, before it reads or writes anything', async (t) => {

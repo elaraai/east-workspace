@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { equalFor, variant } from '@elaraai/east';
 import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { DatasetRefConflictError } from '../errors.js';
+import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 import type { BackendSetup } from './setup.js';
 
 const HASH = 'c'.repeat(64);
@@ -75,6 +76,21 @@ export function datasetRefStoreTests(setup: BackendSetup): void {
       await assert.rejects(storage.datasets.writeIf(repo, 'ws', SALES, first, unconditional.revision), DatasetRefConflictError,
         'the same ref written again is another revision');
       assert.equal(await storage.datasets.readVersioned(repo, 'ws', 'inputs/none'), null);
+    });
+
+    it('refuses a workspace\'s name that cannot be one path segment, naming it, before it reads or writes anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ref: DatasetRef = variant('unassigned', null);
+      for (const ws of MALFORMED_NAMES['workspace']) {
+        const refused = nameRefusal('workspace', ws);
+        await assert.rejects(storage.datasets.read(repo, ws, SALES), refused);
+        await assert.rejects(storage.datasets.write(repo, ws, SALES, ref), refused);
+        await assert.rejects(storage.datasets.readVersioned(repo, ws, SALES), refused);
+        await assert.rejects(storage.datasets.writeIf(repo, ws, SALES, ref, null), refused);
+        await assert.rejects(storage.datasets.list(repo, ws), refused);
+        await assert.rejects(storage.datasets.remove(repo, ws, SALES), refused);
+        await assert.rejects(storage.datasets.removeAll(repo, ws), refused);
+      }
     });
   });
 }
