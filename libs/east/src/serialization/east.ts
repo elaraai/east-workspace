@@ -59,66 +59,84 @@ function _encodeRelativeRef(currentPath: string[], targetPath: string[]): string
 }
 
 /**
- * Decode a relative reference string and return the target path array.
- * Input like "2#.foo[0]" returns the target path array.
- * Input like "1#" returns the target path array.
+ * Resolve a relative reference string against the current path, to the
+ * punctuated path of its target: "2#.foo[0]" is the current path up two
+ * levels, then `.foo[0]`. The reference's components are taken as the printer
+ * wrote them, whole, so a quoted name or a Dict key's text holding a `.` or a
+ * `]` names what it named.
  */
-function _decodeRelativeRef(refStr: string, currentPath: string[]): string[] {
+function _decodeRelativeRef(refStr: string, currentPath: string[]): string {
   const hashIdx = refStr.indexOf('#');
   if (hashIdx === -1) {
     throw new Error(`Invalid relative reference: ${refStr}`);
   }
 
-  const upLevelStr = refStr.substring(0, hashIdx);
-  const remainingStr = refStr.substring(hashIdx + 1);
-
-  let upLevels: number;
-  try {
-    upLevels = parseInt(upLevelStr);
-  } catch {
-    throw new Error(`Invalid relative reference: ${refStr}`);
-  }
-
-  if (upLevels < 0 || upLevels > currentPath.length) {
+  const upLevels = Number.parseInt(refStr.substring(0, hashIdx), 10);
+  if (Number.isNaN(upLevels) || upLevels > currentPath.length) {
     throw new Error(`Invalid relative reference: going up ${upLevels} levels from depth ${currentPath.length}`);
   }
 
-  // Build target path
-  const targetPath = currentPath.slice(0, currentPath.length - upLevels);
+  return _pathToPunctuated(currentPath.slice(0, currentPath.length - upLevels)) + refStr.substring(hashIdx + 1);
+}
 
-  // Add remaining components if any
-  if (remainingStr.length > 0) {
-    // Parse the remaining punctuated path
-    // Format: .field[0][key] etc.
-    let pos = 0;
-    while (pos < remainingStr.length) {
-      if (remainingStr[pos] === '.') {
-        // Identifier follows
-        pos++;
-        let end = pos;
-        while (end < remainingStr.length && /[a-zA-Z0-9_]/.test(remainingStr[end]!)) {
-          end++;
-        }
-        targetPath.push(`.${remainingStr.substring(pos, end)}`);
-        pos = end;
-      } else if (remainingStr[pos] === '[') {
-        // Bracket expression
-        let end = pos + 1;
-        let depth = 1;
-        while (end < remainingStr.length && depth > 0) {
-          if (remainingStr[end] === '[') depth++;
-          else if (remainingStr[end] === ']') depth--;
-          end++;
-        }
-        targetPath.push(remainingStr.substring(pos, end));
-        pos = end;
+/**
+ * Find where a reference's path ends, from `pos`: the run of components a
+ * printer writes — `.` and a field or case name, bare or quoted in backticks,
+ * and a bracketed array index, Dict key or a Ref's `[]`. A quoted name, and a
+ * string or quoted name in a key, is taken whole, so a `.` or `]` in one does
+ * not end the path.
+ */
+function _scanReferencePath(input: string, pos: number): number {
+  while (pos < input.length) {
+    const ch = input[pos];
+    if (ch === '.') {
+      pos += 1;
+      if (input[pos] === '`') {
+        pos = _skipQuoted(input, pos);
       } else {
-        pos++;
+        while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos]!)) {
+          pos += 1;
+        }
       }
+    } else if (ch === '[') {
+      pos += 1;
+      let depth = 1;
+      while (pos < input.length && depth > 0) {
+        const c = input[pos];
+        if (c === '"' || c === '`') {
+          pos = _skipQuoted(input, pos);
+          continue;
+        }
+        if (c === '[') depth++;
+        else if (c === ']') depth--;
+        pos += 1;
+      }
+    } else {
+      break;
     }
   }
+  return pos;
+}
 
-  return targetPath;
+/**
+ * Find the position after the string or quoted name opening at `pos`: its
+ * closing quote is the first no `\` escapes, and with none it runs to the end
+ * of the input.
+ */
+function _skipQuoted(input: string, pos: number): number {
+  const quote = input[pos];
+  pos += 1;
+  while (pos < input.length) {
+    const c = input[pos];
+    if (c === '\\') {
+      pos += 2;
+    } else if (c === quote) {
+      return pos + 1;
+    } else {
+      pos += 1;
+    }
+  }
+  return input.length;
 }
 
 /**
@@ -359,14 +377,18 @@ export function printFor(
     return ret;
   } else if (type.type === "Variant") {
     const case_printers: Record<string, (value: any, ctx?: EastPrintValueContext) => string> = {};
+    // The path component a back-reference through each case names it by: the
+    // case's name as the text spells it, quoted when it is no plain identifier
+    const case_paths = new Map<string, string>();
     const ret = (x: variant<string, any>, ctx: EastPrintValueContext = { refs: new Map(), currentPath: [] }) => {
       // Add variant case to path
-      ctx.currentPath.push(`.${x.type}`);
+      ctx.currentPath.push(case_paths.get(x.type)!);
       const result = case_printers[x.type]!(x.value, ctx);
       ctx.currentPath.pop();
       return result;
     };
     for (const { name: k, type: t } of type.value) {
+      case_paths.set(k, `.${printIdentifier(k)}`);
       if (t.type === "Null") {
         const prefix = `.${printIdentifier(k)}`;
         case_printers[k] = (_value: any, _ctx?: EastPrintValueContext) => prefix;
@@ -728,31 +750,7 @@ const parseReference = <T>(input: string, pos: number, ctx?: EastParseValueConte
     refStart = pos + 1; // Start after '#'
   }
 
-  let pathEnd = refStart;
-
-  while (pathEnd < input.length) {
-    const ch = input[pathEnd];
-
-    if (ch === '.') {
-      // Dot followed by identifier - keep going until we hit non-identifier char
-      pathEnd++;
-      while (pathEnd < input.length && /[a-zA-Z0-9_]/.test(input[pathEnd]!)) {
-        pathEnd++;
-      }
-    } else if (ch === '[') {
-      // Bracket - find the matching close bracket
-      pathEnd++;
-      let depth = 1;
-      while (pathEnd < input.length && depth > 0) {
-        if (input[pathEnd] === '[') depth++;
-        else if (input[pathEnd] === ']') depth--;
-        pathEnd++;
-      }
-    } else {
-      // Hit something that's not part of the path
-      break;
-    }
-  }
+  const pathEnd = _scanReferencePath(input, refStart);
 
   const refStr = input.substring(pos, pathEnd);
 
@@ -761,8 +759,7 @@ const parseReference = <T>(input: string, pos: number, ctx?: EastParseValueConte
   try {
     if (isRelative) {
       // refStr is like "1#.a" - pass it directly to _decodeRelativeRef
-      const targetPath = _decodeRelativeRef(refStr, ctx.currentPath);
-      targetPathStr = _pathToPunctuated(targetPath);
+      targetPathStr = _decodeRelativeRef(refStr, ctx.currentPath);
     } else {
       // Absolute reference: just use the path part directly (without the leading #)
       targetPathStr = refStr.substring(1);
@@ -1287,6 +1284,10 @@ const parseIdentifier: Parser<string> = (input: string, pos: number, _ctx?: East
 
 const createStructParser = (fields: { name: string, type: EastTypeValue }[], frozen: boolean, typeCtx: EastParseTypeContext): Parser<Record<string, any>> => {
   const fieldNames = fields.map(f => f.name);
+  // The path component a back-reference through each field names it by, as
+  // the printer writes it: `.` and the field's name as the text spells it,
+  // quoted when it is no plain identifier
+  const fieldPaths = fieldNames.map(name => `.${printIdentifier(name)}`);
   const fieldParsers: Parser<any>[] = [];
 
   const ret = (input: string, pos: number, ctx?: EastParseValueContext) => {
@@ -1346,7 +1347,7 @@ const createStructParser = (fields: { name: string, type: EastTypeValue }[], fro
 
       const parser = fieldParsers[fieldIndex]!;
       // Track path for struct fields
-      const fieldPath = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(fieldName) ? `.${fieldName}` : `[${JSON.stringify(fieldName)}]`;
+      const fieldPath = fieldPaths[fieldIndex]!;
       if (ctx) ctx.currentPath.push(fieldPath);
       try {
         const { value: fieldValue, position: valuePos} = parser(input, pos, ctx);
@@ -1417,6 +1418,9 @@ const createStructParser = (fields: { name: string, type: EastTypeValue }[], fro
 const createVariantParser = (cases: { name: string, type: EastTypeValue }[], frozen: boolean, typeCtx: EastParseTypeContext): Parser<variant> => {
   const caseParsers: Record<string, Parser<any>> = {};
   const caseNames = cases.map(c => c.name);
+  // The path component a back-reference through each case names it by, as the
+  // printer writes it
+  const casePaths = new Map(caseNames.map(name => [name, `.${printIdentifier(name)}`]));
 
   const ret = (input: string, pos: number, ctx?: EastParseValueContext) => {
     pos = consumeWhitespace(input, pos);
@@ -1439,8 +1443,10 @@ const createVariantParser = (cases: { name: string, type: EastTypeValue }[], fro
     }
 
     const { value: caseName, position: casePos } = parseIdentifier(input, pos, ctx);
-    const valueParser = caseParsers[caseName];
-    if (valueParser === undefined) {
+    // One of the type's own cases, never a name an object inherits (`toString`)
+    const casePath = casePaths.get(caseName);
+    const valueParser = casePath === undefined ? undefined : caseParsers[caseName];
+    if (valueParser === undefined || casePath === undefined) {
       throw new ParseError(`unknown variant case .${printIdentifier(caseName)}, expected one of: ${caseNames.map(c => `.${printIdentifier(c)}`).join(', ')}`, pos);
     }
 
@@ -1448,7 +1454,7 @@ const createVariantParser = (cases: { name: string, type: EastTypeValue }[], fro
     const v = variant(caseName, undefined);
 
     // Parse the value with case name in path
-    if (ctx) ctx.currentPath.push(`.${caseName}`);
+    if (ctx) ctx.currentPath.push(casePath);
     try {
       const { value: caseValue, position: valuePos } = valueParser(input, casePos, ctx);
       // Mutate the variant's value field
@@ -1459,7 +1465,7 @@ const createVariantParser = (cases: { name: string, type: EastTypeValue }[], fro
       return { value: v, position: valuePos };
     } catch (e) {
       if (e instanceof ParseError) {
-        const newPath = `.${caseName}` + (e.path ? e.path : '');
+        const newPath = casePath + (e.path ? e.path : '');
         throw new ParseError(e.message, e.position, newPath);
       }
       throw e;
@@ -2134,7 +2140,7 @@ function parseInferredStruct(input: string, startPos: number, frozen: boolean): 
     pos = consumeWhitespace(input, pos + 1);
 
     // Parse field value and infer type
-    const fieldPath = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(fieldName) ? `.${fieldName}` : `[${JSON.stringify(fieldName)}]`;
+    const fieldPath = `.${printIdentifier(fieldName)}`;
     try {
       const fieldValue = parseInferredValue(input, pos, frozen);
       fields[fieldName] = fieldValue.type;
@@ -2209,7 +2215,7 @@ function parseInferredVariant(input: string, startPos: number, frozen: boolean):
       finalPos = dataResult.position;
     } catch (e) {
       if (e instanceof ParseError) {
-        const newPath = `.${caseName}` + (e.path ? e.path : '');
+        const newPath = `.${printIdentifier(caseName)}` + (e.path ? e.path : '');
         throw new ParseError(e.message, e.position, newPath);
       }
       throw e;

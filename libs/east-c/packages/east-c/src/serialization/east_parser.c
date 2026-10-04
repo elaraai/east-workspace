@@ -11,6 +11,7 @@
 #include "east/serialization.h"
 #include "east/types.h"
 #include "east/values.h"
+#include "east_text.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -174,6 +175,62 @@ static Token2 scan_quoted_identifier(const char *text, size_t len, size_t *pos, 
     t.line = start_line;
     t.column = start_col;
     return t;
+}
+
+/* The position after the string or quoted name opening at text[pos]: its
+ * closing quote is the first no `\` escapes, and with none it runs to the end
+ * of the text. */
+static size_t skip_quoted(const char *text, size_t len, size_t pos)
+{
+    char quote = text[pos++];
+    while (pos < len) {
+        if (text[pos] == '\\')
+            pos += 2;
+        else if (text[pos] == quote)
+            return pos + 1;
+        else
+            pos++;
+    }
+    return len;
+}
+
+/* Where a back-reference's path ends, from text[pos]: the run of components a
+ * printer writes - `.` and a field or case name, bare or quoted in backticks,
+ * and a bracketed array index, Dict key or a Ref's `[]`. A quoted name, and a
+ * string or quoted name in a key, is taken whole, so a `.` or `]` in one does
+ * not end the path; as the TypeScript parser scans one. */
+static size_t scan_reference_path(const char *text, size_t len, size_t pos)
+{
+    while (pos < len) {
+        char c = text[pos];
+        if (c == '.') {
+            pos++;
+            if (pos < len && text[pos] == '`') {
+                pos = skip_quoted(text, len, pos);
+            } else {
+                while (pos < len && (isalnum((unsigned char)text[pos]) || text[pos] == '_'))
+                    pos++;
+            }
+        } else if (c == '[') {
+            pos++;
+            int depth = 1;
+            while (pos < len && depth > 0) {
+                char k = text[pos];
+                if (k == '"' || k == '`') {
+                    pos = skip_quoted(text, len, pos);
+                    continue;
+                }
+                if (k == '[')
+                    depth++;
+                else if (k == ']')
+                    depth--;
+                pos++;
+            }
+        } else {
+            break;
+        }
+    }
+    return pos;
 }
 
 /* Simplified re-implementation of tokenizer for parser self-containment.
@@ -347,8 +404,9 @@ static TokenArr2 tokenize2(const char *text, size_t len)
             }
         }
 
-        /* String */
-        else if (c == '"' || c == '\'') {
+        /* String: double-quoted, as the grammar has it - a `'` is no quote,
+         * and is refused below as any character the grammar has no use for */
+        else if (c == '"') {
             char quote = c;
             ADV2();
             size_t bcap = 64, blen = 0;
@@ -500,57 +558,22 @@ static TokenArr2 tokenize2(const char *text, size_t len)
                 t.line = sl;
                 t.column = sc;
 
-                /* Check for backreference: integer immediately followed by # */
-                if (pos < len && text[pos] == '#' && !has_t && !memchr(buf, '.', blen) &&
-                    !memchr(buf, ':', blen)) {
-                    buf[blen++] = '#';
-                    if (blen >= bcap) {
-                        bcap *= 2;
+                /* Check for backreference: a count of levels, digits alone,
+                 * immediately followed by # */
+                bool levels = blen > 0;
+                for (size_t k = 0; k < blen && levels; k++)
+                    levels = isdigit((unsigned char)buf[k]);
+                if (pos < len && text[pos] == '#' && levels) {
+                    /* The # and the path after it, which ends where
+                     * scan_reference_path says */
+                    size_t end = scan_reference_path(text, len, pos + 1);
+                    if (blen + (end - pos) + 1 > bcap) {
+                        bcap = blen + (end - pos) + 1;
                         buf = realloc(buf, bcap);
                     }
-                    ADV2();
-                    /* Consume path components: .identifier or [content] */
-                    while (pos < len) {
-                        char cc = CUR2();
-                        if (cc == '.') {
-                            if (blen >= bcap - 1) {
-                                bcap *= 2;
-                                buf = realloc(buf, bcap);
-                            }
-                            buf[blen++] = cc;
-                            ADV2();
-                            while (pos < len && (isalnum((unsigned char)CUR2()) || CUR2() == '_')) {
-                                if (blen >= bcap - 1) {
-                                    bcap *= 2;
-                                    buf = realloc(buf, bcap);
-                                }
-                                buf[blen++] = CUR2();
-                                ADV2();
-                            }
-                        } else if (cc == '[') {
-                            int depth2 = 1;
-                            if (blen >= bcap - 1) {
-                                bcap *= 2;
-                                buf = realloc(buf, bcap);
-                            }
-                            buf[blen++] = cc;
-                            ADV2();
-                            while (pos < len && depth2 > 0) {
-                                cc = CUR2();
-                                if (cc == '[')
-                                    depth2++;
-                                else if (cc == ']')
-                                    depth2--;
-                                if (blen >= bcap - 1) {
-                                    bcap *= 2;
-                                    buf = realloc(buf, bcap);
-                                }
-                                buf[blen++] = cc;
-                                ADV2();
-                            }
-                        } else {
-                            break;
-                        }
+                    while (pos < end) {
+                        buf[blen++] = CUR2();
+                        ADV2();
                     }
                     buf[blen] = '\0';
                     t.type = TOK_BACKREF;
@@ -766,7 +789,7 @@ static bool ts2_match(TokStream2 *ts, EastTokenType2 type)
 
 typedef struct {
     EastValue *value;
-    char **path;
+    EastPathComponent *path;
     size_t path_len;
     size_t path_cap;
 } ParseRefEntry;
@@ -775,26 +798,30 @@ typedef struct {
     ParseRefEntry *refs;
     size_t ref_count;
     size_t ref_cap;
-    char **path;
+    EastPathComponent *path;
     size_t path_depth;
     size_t path_cap;
 } ParseContext;
 
-static void pctx_push_path(ParseContext *ctx, const char *component)
+/* Push a component, which the context owns from here and frees on its pop */
+static void pctx_push_path(ParseContext *ctx, EastPathComponent component)
 {
-    if (!ctx) return;
+    if (!ctx) {
+        free(component.text);
+        return;
+    }
     if (ctx->path_depth >= ctx->path_cap) {
         size_t new_cap = ctx->path_cap ? ctx->path_cap * 2 : 8;
-        ctx->path = realloc(ctx->path, new_cap * sizeof(char *));
+        ctx->path = realloc(ctx->path, new_cap * sizeof(EastPathComponent));
         ctx->path_cap = new_cap;
     }
-    ctx->path[ctx->path_depth++] = strdup(component);
+    ctx->path[ctx->path_depth++] = component;
 }
 
 static void pctx_pop_path(ParseContext *ctx)
 {
     if (ctx && ctx->path_depth > 0) {
-        free(ctx->path[--ctx->path_depth]);
+        free(ctx->path[--ctx->path_depth].text);
     }
 }
 
@@ -810,9 +837,9 @@ static void pctx_register(ParseContext *ctx, EastValue *val)
     e->value = val;
     e->path_len = ctx->path_depth;
     e->path_cap = ctx->path_depth ? ctx->path_depth : 0;
-    e->path = e->path_cap ? malloc(e->path_cap * sizeof(char *)) : NULL;
+    e->path = e->path_cap ? malloc(e->path_cap * sizeof(EastPathComponent)) : NULL;
     for (size_t i = 0; i < ctx->path_depth; i++) {
-        e->path[i] = strdup(ctx->path[i]);
+        e->path[i] = east_text_component(ctx->path[i].text, ctx->path[i].len);
     }
 }
 
@@ -821,110 +848,86 @@ static void pctx_free(ParseContext *ctx)
     if (!ctx) return;
     for (size_t i = 0; i < ctx->ref_count; i++) {
         for (size_t j = 0; j < ctx->refs[i].path_len; j++) {
-            free(ctx->refs[i].path[j]);
+            free(ctx->refs[i].path[j].text);
         }
         free(ctx->refs[i].path);
     }
     free(ctx->refs);
     for (size_t i = 0; i < ctx->path_depth; i++) {
-        free(ctx->path[i]);
+        free(ctx->path[i].text);
     }
     free(ctx->path);
 }
 
-/* Resolve a backreference token like "1#.a" or "2#[0]" */
-static EastValue *pctx_resolve_backref(TokStream2 *ts, ParseContext *ctx)
+typedef struct ParseErr ParseErr;
+static void pe_set(ParseErr *e, char *msg, int line, int col);
+
+/* Resolve a backreference token like "1#.a" or "2#[0]": the container
+ * registered at the current path up its count of levels, then down its
+ * components as written. Those are matched against each container's own laid
+ * end to end, never split apart, so a quoted name or a key's text holding a
+ * `.` or a `]` names what it named. A reference to no container is refused,
+ * with the TypeScript parser's message. */
+static EastValue *pctx_resolve_backref(TokStream2 *ts, ParseContext *ctx, ParseErr *err)
 {
     Token2 *tok = ts2_cur(ts);
     if (!tok || tok->type != TOK_BACKREF || !ctx || !tok->text) return NULL;
     ts2_adv(ts);
 
     const char *ref_str = tok->text;
-    const char *hash = strchr(ref_str, '#');
+    const char *hash = memchr(ref_str, '#', tok->text_len);
     if (!hash) return NULL;
+    int ref_len = (int)tok->text_len;
 
-    int up_levels = 0;
+    /* The count of levels, read no further than the current depth */
+    size_t up_levels = 0;
     for (const char *p = ref_str; p < hash; p++) {
-        up_levels = up_levels * 10 + (*p - '0');
-    }
-
-    if (up_levels > (int)ctx->path_depth) return NULL;
-    size_t target_base = ctx->path_depth - (size_t)up_levels;
-
-    /* Parse remaining path components after # */
-    const char *remaining = hash + 1;
-    size_t rem_cap = 8;
-    char **rem_comps = malloc(rem_cap * sizeof(char *));
-    size_t num_rem = 0;
-
-    const char *p = remaining;
-    while (*p) {
-        if (*p == '.') {
-            const char *start = p;
-            p++;
-            while (*p && (isalnum((unsigned char)*p) || *p == '_'))
-                p++;
-            size_t clen = (size_t)(p - start);
-            if (num_rem >= rem_cap) {
-                rem_cap *= 2;
-                rem_comps = realloc(rem_comps, rem_cap * sizeof(char *));
+        up_levels = up_levels * 10 + (size_t)(*p - '0');
+        if (up_levels > ctx->path_depth) {
+            if (err) {
+                size_t mlen = 120 + 2 * tok->text_len;
+                char *msg = malloc(mlen);
+                snprintf(msg, mlen,
+                         "invalid reference %.*s: Invalid relative reference: going up %.*s "
+                         "levels from depth %zu",
+                         ref_len, ref_str, (int)(hash - ref_str), ref_str, ctx->path_depth);
+                pe_set(err, msg, tok->line, tok->column);
             }
-            rem_comps[num_rem] = malloc(clen + 1);
-            memcpy(rem_comps[num_rem], start, clen);
-            rem_comps[num_rem][clen] = '\0';
-            num_rem++;
-        } else if (*p == '[') {
-            const char *start = p;
-            p++;
-            int depth = 1;
-            while (*p && depth > 0) {
-                if (*p == '[')
-                    depth++;
-                else if (*p == ']')
-                    depth--;
-                p++;
-            }
-            size_t clen = (size_t)(p - start);
-            if (num_rem >= rem_cap) {
-                rem_cap *= 2;
-                rem_comps = realloc(rem_comps, rem_cap * sizeof(char *));
-            }
-            rem_comps[num_rem] = malloc(clen + 1);
-            memcpy(rem_comps[num_rem], start, clen);
-            rem_comps[num_rem][clen] = '\0';
-            num_rem++;
-        } else {
-            p++;
+            return NULL;
         }
     }
+    size_t base = ctx->path_depth - up_levels;
+    const char *rest = hash + 1;
+    size_t rest_len = tok->text_len - (size_t)(rest - ref_str);
 
-    size_t target_len = target_base + num_rem;
-
-    /* Find matching ref entry */
     for (size_t i = 0; i < ctx->ref_count; i++) {
         ParseRefEntry *e = &ctx->refs[i];
-        if (e->path_len != target_len) continue;
+        if (e->path_len < base) continue;
 
         bool match = true;
-        for (size_t j = 0; j < target_base && match; j++) {
-            if (strcmp(e->path[j], ctx->path[j]) != 0) match = false;
+        for (size_t j = 0; j < base && match; j++) {
+            match = east_text_component_equal(&e->path[j], &ctx->path[j]);
         }
-        for (size_t j = 0; j < num_rem && match; j++) {
-            if (strcmp(e->path[target_base + j], rem_comps[j]) != 0) match = false;
+        size_t at = 0;
+        for (size_t j = base; j < e->path_len && match; j++) {
+            const EastPathComponent *c = &e->path[j];
+            match =
+                c->len <= rest_len - at && (c->len == 0 || memcmp(rest + at, c->text, c->len) == 0);
+            at += c->len;
         }
 
-        if (match) {
-            for (size_t j = 0; j < num_rem; j++)
-                free(rem_comps[j]);
-            free(rem_comps);
+        if (match && at == rest_len) {
             east_value_retain(e->value);
             return e->value;
         }
     }
 
-    for (size_t j = 0; j < num_rem; j++)
-        free(rem_comps[j]);
-    free(rem_comps);
+    if (err) {
+        size_t mlen = 40 + tok->text_len;
+        char *msg = malloc(mlen);
+        snprintf(msg, mlen, "undefined reference %.*s", ref_len, ref_str);
+        pe_set(err, msg, tok->line, tok->column);
+    }
     return NULL;
 }
 
@@ -946,12 +949,12 @@ EastValue *east_parse_value(const char *text, EastType *type)
 /*  Error-enhanced parser                                              */
 /* ================================================================== */
 
-typedef struct {
+struct ParseErr {
     char *message; /* e.g. "expected null, got '1'" */
     char *path;    /* e.g. "[1].fieldname" or NULL */
     int line;
     int column;
-} ParseErr;
+};
 
 static void pe_init(ParseErr *e)
 {
@@ -1318,7 +1321,7 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_ARRAY: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
         EastType *elem_type = type->data.element;
         if (!ts2_match(ts, TOK_LBRACKET)) {
             if (err) pe_set(err, strdup("expected '[' to start array"), tok->line, tok->column);
@@ -1331,8 +1334,8 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
             size_t idx = 0;
             for (;;) {
                 char idx_buf[24];
-                snprintf(idx_buf, sizeof(idx_buf), "[%zu]", idx);
-                if (ctx) pctx_push_path(ctx, idx_buf);
+                int idx_len = snprintf(idx_buf, sizeof(idx_buf), "[%zu]", idx);
+                if (ctx) pctx_push_path(ctx, east_text_component(idx_buf, (size_t)idx_len));
 
                 ParseErr inner = {0};
                 EastValue *elem = parse_val_err(ts, elem_type, ctx, err ? &inner : NULL, input);
@@ -1370,7 +1373,7 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_SET: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
         EastType *elem_type = type->data.element;
         if (!ts2_match(ts, TOK_LBRACE)) {
             if (err) pe_set(err, strdup("expected '{' to start set"), tok->line, tok->column);
@@ -1420,7 +1423,7 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_DICT: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
         EastType *key_type = type->data.dict.key;
         EastType *val_type = type->data.dict.value;
 
@@ -1479,27 +1482,29 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
             }
             ts2_adv(ts);
 
-            /* Build path for value: [keyStr] */
-            char *key_str = east_print_value(k, key_type);
-            size_t vpath_len = strlen(key_str) + 4;
-            char *val_path = malloc(vpath_len);
-            snprintf(val_path, vpath_len, "[%s]", key_str);
+            /* The value's path component: `[`, the key's text as every
+             * printer writes it, `]` */
+            size_t key_len = 0;
+            char *key_str = east_print_value_len(k, key_type, &key_len);
+            EastPathComponent val_path =
+                east_text_key_component(key_str ? key_str : "", key_str ? key_len : 0);
+            free(key_str);
 
+            if (ctx) pctx_push_path(ctx, east_text_component(val_path.text, val_path.len));
             ParseErr inner2 = {0};
             EastValue *v = parse_val_err(ts, val_type, ctx, err ? &inner2 : NULL, input);
+            if (ctx) pctx_pop_path(ctx);
             if (!v) {
                 if (err && inner2.message) {
-                    pe_prepend_path(&inner2, val_path);
+                    pe_prepend_path(&inner2, val_path.text ? val_path.text : "");
                     *err = inner2;
                 }
-                free(val_path);
-                free(key_str);
+                free(val_path.text);
                 east_value_release(k);
                 east_value_release(dict);
                 return NULL;
             }
-            free(val_path);
-            free(key_str);
+            free(val_path.text);
 
             east_dict_set(dict, k, v);
             east_value_release(k);
@@ -1627,10 +1632,10 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
             }
             ts2_adv(ts);
 
-            /* Parse field value */
-            char path_buf[256];
-            snprintf(path_buf, sizeof(path_buf), ".%s", name_tok->text);
-            if (ctx) pctx_push_path(ctx, path_buf);
+            /* Parse field value: its path component is `.` and the name as
+             * the text spells it, as every printer writes it */
+            EastPathComponent field_path = east_text_name_component(expected_name);
+            if (ctx) pctx_push_path(ctx, east_text_component(field_path.text, field_path.len));
 
             ParseErr inner = {0};
             values[fi] = parse_val_err(ts, type->data.struct_.fields[fi].type, ctx,
@@ -1638,15 +1643,17 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
             if (ctx) pctx_pop_path(ctx);
             if (!values[fi]) {
                 if (err && inner.message) {
-                    pe_prepend_path(&inner, path_buf);
+                    pe_prepend_path(&inner, field_path.text ? field_path.text : "");
                     *err = inner;
                 }
+                free(field_path.text);
                 for (size_t i = 0; i < nf; i++)
                     if (values[i]) east_value_release(values[i]);
                 free(names);
                 free(values);
                 return NULL;
             }
+            free(field_path.text);
 
             /* Look for comma or closing paren */
             Token2 *sep = ts2_cur(ts);
@@ -1797,25 +1804,30 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
                     snprintf(msg, len, "expected null, got %s", got);
                     free(got);
                     pe_set(err, msg, next->line, next->column);
-                    char path_buf[256];
-                    snprintf(path_buf, sizeof(path_buf), ".%s", case_name);
-                    pe_prepend_path(err, path_buf);
+                    EastPathComponent case_path = east_text_name_component(case_name);
+                    pe_prepend_path(err, case_path.text ? case_path.text : "");
+                    free(case_path.text);
                 }
                 return NULL;
             }
         } else {
-            char path_buf[256];
-            snprintf(path_buf, sizeof(path_buf), ".%s", case_name);
+            /* The case's path component names it as the text spells it, as
+             * every printer writes it */
+            EastPathComponent case_path = east_text_name_component(case_name);
+            if (ctx) pctx_push_path(ctx, east_text_component(case_path.text, case_path.len));
 
             ParseErr inner = {0};
             case_value = parse_val_err(ts, case_type, ctx, err ? &inner : NULL, input);
+            if (ctx) pctx_pop_path(ctx);
             if (!case_value) {
                 if (err && inner.message) {
-                    pe_prepend_path(&inner, path_buf);
+                    pe_prepend_path(&inner, case_path.text ? case_path.text : "");
                     *err = inner;
                 }
+                free(case_path.text);
                 return NULL;
             }
+            free(case_path.text);
         }
 
         EastValue *result = east_variant_new(case_name, case_value, type);
@@ -1824,13 +1836,30 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_REF: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx);
-        if (!ts2_match(ts, TOK_AMPERSAND)) return NULL;
-        EastValue *inner = parse_val_err(ts, type->data.element, ctx, err, input);
-        if (!inner) return NULL;
-        EastValue *ref = east_ref_new(inner);
-        east_value_release(inner);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
+        if (!ts2_match(ts, TOK_AMPERSAND)) {
+            if (err) pe_set(err, strdup("expected '&' to start ref"), tok->line, tok->column);
+            return NULL;
+        }
+        /* Registered before its content, as the printer registers it, so a
+         * back-reference in the content to the Ref itself reads back; the
+         * content is a step down from it, `[]` */
+        EastValue *ref = east_ref_new(east_null());
         if (ctx) pctx_register(ctx, ref);
+        if (ctx) pctx_push_path(ctx, east_text_component("[]", 2));
+        ParseErr inner = {0};
+        EastValue *content = parse_val_err(ts, type->data.element, ctx, err ? &inner : NULL, input);
+        if (ctx) pctx_pop_path(ctx);
+        if (!content) {
+            if (err && inner.message) {
+                pe_prepend_path(&inner, "[]");
+                *err = inner;
+            }
+            east_value_release(ref);
+            return NULL;
+        }
+        east_ref_set(ref, content);
+        east_value_release(content);
         return ref;
     }
 
