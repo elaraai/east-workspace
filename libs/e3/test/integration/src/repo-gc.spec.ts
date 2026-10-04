@@ -10,7 +10,9 @@
  * It collects a repository, keeping what its workspace references, and refuses
  * while a dataflow run holds a workspace's dataflow lock or an ad-hoc `e3 run`
  * holds the repository's task lock — a run and gc never overlap, so the slices
- * and unit outputs a run writes before rooting them need no rooting.
+ * and unit outputs a run writes before rooting them need no rooting. It takes
+ * the local runner's judgement of what still runs: an attempt recorded running
+ * that cannot finish is pruned as any that ended.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -118,5 +120,22 @@ describe('e3 repo gc', () => {
     assert.equal(finished.exitCode, 0, `${finished.stderr}\n${finished.stdout}`);
     const gc = await runE3Command(['repo', 'gc', repo, '--min-age', '0'], dir);
     assert.equal(gc.exitCode, 0, `${gc.stderr}\n${gc.stdout}`);
+  });
+
+  it('prunes an attempt recorded running that the local runner says cannot finish, as any that ended', async () => {
+    // Recorded running long ago by a runner that never had a pid, with no
+    // owner: nothing will ever write its outcome
+    const [task, inputs] = ['a'.repeat(64), 'b'.repeat(64)];
+    const old = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const time = old.toString(16).padStart(12, '0');
+    const executionId = `${time.slice(0, 8)}-${time.slice(8)}-7000-8000-000000000001`;
+    await storage.refs.executionWrite(repo, task, inputs, executionId, variant('running', {
+      executionId, inputHashes: [], startedAt: new Date(old), pid: -1n, pidStartTime: -1n, bootId: 'boot-id', unit: false,
+    }));
+
+    const gc = await runE3Command(['repo', 'gc', repo, '--min-age', '0'], dir);
+    assert.equal(gc.exitCode, 0, `${gc.stderr}\n${gc.stdout}`);
+    assert.match(gc.stdout, /Executions deleted: 1$/m);
+    assert.deepEqual(await storage.refs.executionListIds(repo, task, inputs), []);
   });
 });

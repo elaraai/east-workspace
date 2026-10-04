@@ -444,6 +444,7 @@ class InMemoryRepoGcStore implements RepoGcStore {
   constructor(
     private readonly storage?: StorageBackend,
     private readonly getRepoPath?: (repo: string) => string,
+    private readonly getRunner?: (repoPath: string) => TaskRunner,
   ) {}
 
   async create(id: string, record: RepoGcJob): Promise<void> {
@@ -485,10 +486,13 @@ class InMemoryRepoGcStore implements RepoGcStore {
       return;
     }
 
-    // gc runs in this process, and outlives the request that started it.
+    // gc runs in this process, and outlives the request that started it. Its
+    // history prune takes the runner's judgement of what still runs.
+    const repoPath = this.getRepoPath(repo);
+    const runner = this.getRunner?.(repoPath);
     void handleProcessGc(
-      { storage: this.storage, gcStore: this },
-      { id, repo: this.getRepoPath(repo) },
+      { storage: this.storage, gcStore: this, ...(runner !== undefined && { runner }) },
+      { id, repo: repoPath },
     ).catch(() => {
       // Error already recorded in job status by handleProcessGc
     }).finally(() => {
@@ -590,9 +594,10 @@ export interface InMemoryTransferBackendOptions {
   /**
    * The runner, for a repository's path, that a deploy job runs its
    * migrations and index builds on, an upload's commit its intake units, and a
-   * split call its units. Without one, a deploy that owes either is refused
-   * before it writes anything, a commit of a collection the store does not
-   * know fails, and a split call fails.
+   * split call its units, and whose judgement of what still runs gc's history
+   * prune takes. Without one, a deploy that owes either is refused before it
+   * writes anything, a commit of a collection the store does not know fails, a
+   * split call fails, and gc keeps every execution recorded running.
    */
   getRunner?: (repoPath: string) => TaskRunner;
   /**
@@ -628,7 +633,7 @@ export class InMemoryTransferBackend implements TransferBackend {
     this.packageImport = new InMemoryPackageImportStore(baseUrl, options.storage, options.getRepoPath);
     this.packageExport = new InMemoryPackageExportStore(baseUrl, options.storage, options.getRepoPath);
     this.workspaceDeploy = new InMemoryWorkspaceDeployStore(options.storage, options.getRepoPath, options.getRunner);
-    this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath);
+    this.repoGc = new InMemoryRepoGcStore(options.storage, options.getRepoPath, options.getRunner);
     this.splitCall = new InMemorySplitCallStore(options.storage, options.getRepoPath, options.getRunner);
   }
 

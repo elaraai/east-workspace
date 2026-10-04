@@ -165,7 +165,7 @@ export async function probeExecutionCache(
 ): Promise<ExecutionResult | null> {
   const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
   if (status?.type === 'running') {
-    await repairInterruptedExecution(storage, repo, taskHash, inHash, status.value, alive);
+    await interruptStale(storage, repo, taskHash, inHash, status.value, alive);
     return null;
   }
   if (status?.type !== 'success') {
@@ -200,23 +200,51 @@ const OWNER_GONE: StopReason = {
  * log's last line, which is flushed before the record is written. A log that
  * cannot be appended to, or flushed, is warned of, and the record is written
  * all the same.
+ *
+ * @remarks
+ * What the cache's probe does with the latest attempt it finds running, and
+ * gc's history prune with every attempt it finds running.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @param inHash - Combined inputs hash
+ * @param running - The attempt's `running` record
+ * @param alive - Whether it can still finish, as the runner that started it
+ *   judges it
+ * @param write - Whether to record it: `false` answers what it would be
+ *   recorded as, and writes nothing, as a dry run does
+ * @returns The `interrupted` status it is recorded as once it cannot finish,
+ *   or `null` while it can
+ * @internal
  */
-async function repairInterruptedExecution(
+export async function interruptStale(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inHash: string,
   running: RunningExecution,
   alive: ExecutionLiveness,
-): Promise<void> {
+  write = true,
+): Promise<ExecutionStatus | null> {
   const answer = await alive(storage, taskHash, inHash, running);
   let reason: StopReason;
   switch (answer) {
-    case true: return;
+    case true: return null;
     case false: reason = OWNER_GONE; break;
     default: reason = answer;
   }
   const { executionId } = running;
+  const status: ExecutionStatus = variant('interrupted', {
+    executionId,
+    inputHashes: running.inputHashes,
+    startedAt: running.startedAt,
+    completedAt: new Date(),
+    pid: running.pid,
+    unit: running.unit,
+    reason,
+  });
+  if (!write) return status;
   try {
     await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${reason.message}\n`);
   } catch (err) {
@@ -227,14 +255,6 @@ async function repairInterruptedExecution(
   } catch (err) {
     console.warn(`Failed to flush the log: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const status: ExecutionStatus = variant('interrupted', {
-    executionId,
-    inputHashes: running.inputHashes,
-    startedAt: running.startedAt,
-    completedAt: new Date(),
-    pid: running.pid,
-    unit: running.unit,
-    reason,
-  });
   await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+  return status;
 }

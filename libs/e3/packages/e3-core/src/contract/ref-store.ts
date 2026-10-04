@@ -11,7 +11,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import { ArrayType, OptionType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import {
   DataflowRunType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType, RepositoryUpgradeProgressType, dataflowForce,
   type DataflowRun, type ExecutionOwner, type ExecutionStatus, type RepositoryUpgradeProgress,
@@ -64,6 +64,23 @@ async function assertRunning(
   const actual = [...await listed].sort(byInputs);
   const wanted = [...expected].sort(byInputs);
   assert.ok(sameRunning(actual, wanted), `${message}: ${printRunning(actual)}, where ${printRunning(wanted)} was expected`);
+}
+
+/** What `executionListAttempts` answers, as East values: each attempt's id,
+ *  and its status, `none` for a record that does not decode. */
+const AttemptsType = ArrayType(StructType({ executionId: StringType, status: OptionType(ExecutionStatusType) }));
+const sameAttempts = equalFor(AttemptsType);
+const printAttempts = printFor(AttemptsType);
+
+/** Asserts an execution's attempts are those expected, in that order. */
+function assertAttempts(
+  listed: Array<{ executionId: string; status: ExecutionStatus | null }>,
+  expected: Array<[string, ExecutionStatus | null]>,
+  message: string,
+): void {
+  const actual = listed.map(({ executionId, status }) => ({ executionId, status: status === null ? none : some(status) }));
+  const wanted = expected.map(([executionId, status]) => ({ executionId, status: status === null ? none : some(status) }));
+  assert.ok(sameAttempts(actual, wanted), `${message}: ${printAttempts(actual)}, where ${printAttempts(wanted)} was expected`);
 }
 
 /**
@@ -260,6 +277,39 @@ export function refStoreTests(setup: BackendSetup): void {
       assert.deepEqual(await storage.refs.executionListIds(repo, TASK, INPUTS), [id]);
     });
 
+    it('answers every attempt at an execution with its status in one read, the latest last', async (t) => {
+      const { storage, repo } = await setup(t);
+      const attempts = () => storage.refs.executionListAttempts(repo, TASK, INPUTS);
+      assertAttempts(await attempts(), [], 'an execution never run has none');
+      const [first, second] = twoIds();
+      const third = uuidv7();
+      const failed: ExecutionStatus = variant('failed', {
+        executionId: second, inputHashes: [HASH], startedAt: AT, completedAt: AT, exitCode: 1n, peakBytes: none, unit: false,
+      });
+      await storage.refs.executionWrite(repo, TASK, INPUTS, third, running(third));
+      await storage.refs.executionWrite(repo, TASK, INPUTS, first, succeeded(first));
+      await storage.refs.executionWrite(repo, TASK, INPUTS, second, failed);
+      const elsewhere = uuidv7();
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, elsewhere, succeeded(elsewhere));
+      assertAttempts(await attempts(), [[first, succeeded(first)], [second, failed], [third, running(third)]],
+        'each, in the order of its id, whatever the order of the writes, and none of another execution');
+
+      await storage.refs.executionDelete(repo, TASK, INPUTS, second);
+      assertAttempts(await attempts(), [[first, succeeded(first)], [third, running(third)]], 'one deleted is gone');
+    });
+
+    it('answers null for an attempt whose record does not decode, which it still lists', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record that does not decode');
+      const [first, second] = twoIds();
+      for (const id of [first, second]) await storage.refs.executionWrite(repo, TASK, INPUTS, id, succeeded(id));
+      await damage.execution(TASK, INPUTS, first);
+      // gc takes it for an attempt that keeps nothing, where a failure to read
+      // it stops gc
+      assertAttempts(await storage.refs.executionListAttempts(repo, TASK, INPUTS), [[first, null], [second, succeeded(second)]],
+        'the attempt, with no status');
+    });
+
     it('keeps an attempt\'s owner, and deletes it with the attempt', async (t) => {
       const { storage, repo } = await setup(t);
       const id = uuidv7();
@@ -379,6 +429,7 @@ export function refStoreTests(setup: BackendSetup): void {
           await assert.rejects(storage.refs.executionWrite(repo, task, inputs, id, failed), refused);
           await assert.rejects(storage.refs.executionDelete(repo, task, inputs, id), refused);
           await assert.rejects(storage.refs.executionListIds(repo, task, inputs), refused);
+          await assert.rejects(storage.refs.executionListAttempts(repo, task, inputs), refused);
           await assert.rejects(storage.refs.executionGetLatest(repo, task, inputs), refused);
           await assert.rejects(storage.refs.executionOwnerWrite(repo, task, inputs, id, owner), refused);
           await assert.rejects(storage.refs.executionOwnerRead(repo, task, inputs, id), refused);

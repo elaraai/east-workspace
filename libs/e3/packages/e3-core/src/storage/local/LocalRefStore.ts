@@ -354,6 +354,23 @@ export class LocalRefStore implements RefStore {
     }
   }
 
+  /** Lists the attempts' directories, and reads each one's status file. */
+  async executionListAttempts(repo: string, taskHash: string, inputsHash: string): Promise<Array<{ executionId: string; status: ExecutionStatus | null }>> {
+    const ids = await this.executionListIds(repo, taskHash, inputsHash);
+    const attempts = await Promise.all(ids.map(async (executionId) => {
+      const data = await this.executionReadBytes(repo, taskHash, inputsHash, executionId);
+      if (data === null) return null; // deleted meanwhile
+      let status: ExecutionStatus | null;
+      try {
+        status = decodeExecutionStatus(data);
+      } catch {
+        status = null;
+      }
+      return { executionId, status };
+    }));
+    return attempts.filter((attempt): attempt is { executionId: string; status: ExecutionStatus | null } => attempt !== null);
+  }
+
   async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
     const ids = await this.executionListIds(repo, taskHash, inputsHash);
     if (ids.length === 0) {

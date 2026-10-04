@@ -24,7 +24,7 @@ import { packageExport, packageImportFrom, type PackageExportOptions, type Packa
 import { workspaceDeploy, workspaceExport, type WorkspaceExportOptions, type WorkspaceExportResult } from '../workspaces.js';
 import { withRunningWork } from '../running-work.js';
 import type { LockHandle, StorageBackend } from '../storage/interfaces.js';
-import type { TaskRunner } from '../execution/interfaces.js';
+import type { RunningExecution, TaskRunner } from '../execution/interfaces.js';
 import { splitCallExplain, splitCallReference, splitCallRun, type SplitCallTask } from '../execution/splitCall.js';
 import { openZip, zipSinkOf, zipSourceOf, type ZipReader, type ZipSource } from '../zip.js';
 import type { PackageExportStore, PackageImportStore, RepoGcStore, SplitCallStore, WorkspaceDeployStore } from './interfaces.js';
@@ -428,6 +428,11 @@ export async function handleProcessDeploy(
 export interface ProcessGcDeps {
   storage: StorageBackend;
   gcStore: RepoGcStore;
+  /** The repository's runner, whose judgement of whether an execution
+   *  recorded running can still finish (`TaskRunner.executionAlive`) gc's
+   *  history prune takes: one that cannot is recorded interrupted, and pruned.
+   *  Without one, every execution recorded running is kept. */
+  runner?: TaskRunner;
 }
 
 /** Input for handleProcessGc. */
@@ -442,7 +447,8 @@ export interface ProcessGcInput {
  * Gets the job, runs gc over its repository as it was asked to, and updates
  * the status to what gc did, or to why it failed.
  *
- * @param deps - Storage backend and gc store
+ * @param deps - Storage backend, gc store, and the repository's runner, whose
+ *   judgement of what still runs the history's prune takes
  * @param input - Job ID and repository identifier
  *
  * @throws Re-throws gc's error once the job is recorded `failed`
@@ -451,7 +457,7 @@ export async function handleProcessGc(
   deps: ProcessGcDeps,
   input: ProcessGcInput,
 ): Promise<void> {
-  const { storage, gcStore } = deps;
+  const { storage, gcStore, runner } = deps;
   const { id, repo } = input;
 
   const record = await gcStore.get(id);
@@ -461,7 +467,10 @@ export async function handleProcessGc(
   const [minAge, keepRuns, keepDays] = [record.request.minAge, record.request.keepRuns, record.request.keepDays]
     .map((option) => (option.type === 'some' ? Number(option.value) : undefined));
   try {
-    const result = await repoGc(storage, repo, { dryRun, minAge, keepRuns, keepDays });
+    const result = await repoGc(storage, repo, {
+      dryRun, minAge, keepRuns, keepDays,
+      ...(runner !== undefined && { executionAlive: (s: StorageBackend, task: string, inputs: string, running: RunningExecution) => runner.executionAlive(s, task, inputs, running) }),
+    });
     await gcStore.updateStatus(id, {
       status: variant('succeeded', null),
       stats: some({

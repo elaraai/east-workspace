@@ -13,14 +13,18 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DictType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import {
+  BooleanType, DictType, East, IntegerType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, equalFor, none,
+  printFor, some, variant,
+} from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  FunctionObjectType, PackageObjectType, UNIT_PLAN_KIND, WorkspaceRecordType, decodeCollectionManifest, decodeMigrationObject,
-  decodeRecordObject, encodeUnitPlan, type PackageObject, type WorkspaceState,
+  FunctionObjectType, GcResultType, PackageObjectType, StopReasonType, UNIT_PLAN_KIND, WorkspaceRecordType, decodeCollectionManifest,
+  decodeMigrationObject, decodeRecordObject, encodeUnitPlan, type DataflowRun, type PackageObject, type StopReason, type WorkspaceState,
 } from '@elaraai/e3-types';
 import { readDatasetWhole } from '../dataset-open.js';
 import { GcReadError, ObjectNotFoundError } from '../errors.js';
+import type { ExecutionLiveness } from '../execution/interfaces.js';
 import { inputsHash } from '../executions.js';
 import { GcStepType, collectAllRoots, repoGc, repoGcStep, touchReachable, type GcResult, type GcStep, type GcStepOptions } from '../gc.js';
 import { pruneHistory } from '../history.js';
@@ -307,28 +311,77 @@ export function gcTests(setup: BackendSetup): void {
         assert.equal(real.deletedExecutions, 0, 'read, the plan keeps its unit');
       });
 
-      it('deletes nothing while an execution\'s record cannot be read', async (t) => {
+      it('deletes nothing while an execution\'s attempts cannot be read, held or in steps', async (t) => {
         const { storage, repo } = await setup(t);
         const task = 'a'.repeat(64);
-        const [gone, unread] = [idAt(old, 1), idAt(old, 2)];
-        for (const [inputs, executionId] of [['1'.repeat(64), gone], ['2'.repeat(64), unread]] as const) {
+        const [decided, unread] = ['1'.repeat(64), '2'.repeat(64)];
+        const gone = idAt(old, 1);
+        for (const [inputs, executionId] of [[decided, gone], [unread, idAt(old, 2)]] as const) {
           await storage.refs.executionWrite(repo, task, inputs, executionId, variant('failed', {
             executionId, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), exitCode: 1n, peakBytes: none, unit: false,
           }));
         }
 
         const refs = storage.refs;
-        const executionGet = refs.executionGet;
-        refs.executionGet = (r, taskHash, inputs, executionId) => (executionId === unread
+        const listAttempts = refs.executionListAttempts;
+        refs.executionListAttempts = (r, taskHash, inputs) => (equalFor(StringType)(inputs, unread)
           ? Promise.reject(slowDown())
-          : executionGet.call(refs, r, taskHash, inputs, executionId));
+          : listAttempts.call(refs, r, taskHash, inputs));
+        const refused = new RegExp(`^Error: gc deletes nothing while it cannot read the executions of ${task}/${unread}: Please reduce your request rate\\.$`);
         try {
-          await assert.rejects(repoGc(storage, repo, { minAge: 0, keepDays: 7 }),
-            new RegExp(`^Error: gc deletes nothing while it cannot read the execution ${task}/${'2'.repeat(64)}/${unread}: Please reduce your request rate\\.$`));
+          await assert.rejects(repoGc(storage, repo, { minAge: 0, keepDays: 7 }), refused);
+          // A step an identity: the first is decided, a step before the read
+          // of the second fails
+          await assert.rejects(gcBeside(storage, repo, { windowMs: HOUR, minAge: 0, keepDays: 7, pruneMs: 0, concurrency: 1 }), refused);
         } finally {
-          refs.executionGet = executionGet;
+          refs.executionListAttempts = listAttempts;
         }
-        assert.deepEqual(await storage.refs.executionListIds(repo, task, '1'.repeat(64)), [gone], 'nothing was decided without it');
+        assert.deepEqual(await storage.refs.executionListIds(repo, task, decided), [gone], 'nothing was deleted without it');
+      });
+
+      it('records an attempt its runner says cannot finish interrupted, as the cache\'s probe does, and prunes it as any that ended', async (t) => {
+        const { storage, repo } = await setup(t);
+        const task = 'a'.repeat(64);
+        const recent = now - 60_000;
+        const [ownerGone, hostStopped, longGone, live] = [idAt(recent, 1), idAt(recent, 2), idAt(old, 3), idAt(old, 4)];
+        const inputsOf = new Map([[ownerGone, '1'.repeat(64)], [hostStopped, '2'.repeat(64)], [longGone, '3'.repeat(64)], [live, '4'.repeat(64)]]);
+        for (const [executionId, inputs] of inputsOf) {
+          await storage.refs.executionWrite(repo, task, inputs, executionId, variant('running', {
+            executionId, inputHashes: [], startedAt: new Date(old), pid: 1n, pidStartTime: 1n, bootId: 'boot-id', unit: false,
+          }));
+        }
+        // The runner's judgement: one can still finish, a host stopped one,
+        // and the owners of the rest are gone
+        const stopped: StopReason = { kind: variant('host', 'container_stopped'), message: 'interrupted: its container stopped' };
+        const answers = new Map<string, boolean | StopReason>([[live, true], [hostStopped, stopped]]);
+        const executionAlive: ExecutionLiveness = (_storage, _task, _inputs, running) => Promise.resolve(answers.get(running.executionId) ?? false);
+        const statusOf = (executionId: string) => storage.refs.executionGet(repo, task, inputsOf.get(executionId)!, executionId);
+
+        const unjudged = await repoGc(storage, repo, { minAge: 0, keepDays: 7 });
+        assert.equal(unjudged.deletedExecutions, 0, 'without a judgement, every attempt recorded running is kept');
+
+        const dry = await repoGc(storage, repo, { minAge: 0, keepDays: 7, dryRun: true, executionAlive });
+        assert.equal(dry.deletedExecutions, 1, 'a dry run decides as if each that cannot finish were recorded so: the one long ago goes');
+        for (const executionId of inputsOf.keys()) assert.equal((await statusOf(executionId))?.type, 'running', 'and writes nothing');
+
+        // Beside running work, each that cannot finish is recorded so, with why
+        // and its log's last line saying it, and the one long ago goes
+        const result = await repoGc(storage, repo, { minAge: 0, keepDays: 7, retention: { windowMs: HOUR }, executionAlive });
+        assert.equal(result.deletedExecutions, 1);
+        assert.deepEqual(await storage.refs.executionListIds(repo, task, inputsOf.get(longGone)!), []);
+        const ownersGone: StopReason = {
+          kind: variant('owner_gone', null), message: 'interrupted: its runner and the process or browser tab that owned it are gone',
+        };
+        for (const [executionId, reason] of [[ownerGone, ownersGone], [hostStopped, stopped]] as const) {
+          const status = await statusOf(executionId);
+          assert.ok(status?.type === 'interrupted' && equalFor(StopReasonType)(status.value.reason, reason),
+            `${executionId} is recorded interrupted, saying why: ${status === null ? 'none' : status.type}`);
+          const log = await storage.logs.read(repo, task, inputsOf.get(executionId)!, executionId, 'stderr');
+          assert.equal(log.data, `e3: ${reason.message}\n`);
+        }
+        assert.equal((await statusOf(live))?.type, 'running', 'one that can still finish is kept as it is');
+        assert.deepEqual((await storage.refs.executionListRunning(repo, task)).map(({ inputsHash: inputs }) => inputs), [inputsOf.get(live)],
+          'and is all the task runs');
       });
 
       it('takes an execution whose record does not decode for one that keeps nothing, and deletes it', async (t) => {
@@ -1056,6 +1109,163 @@ export function gcTests(setup: BackendSetup): void {
             name: 'RangeError', message: `gc: the retention window must be a whole number of milliseconds greater than zero, got ${windowMs}`,
           });
         }
+      });
+
+      it('refuses a prune step\'s bound, or a width, it cannot run by', async (t) => {
+        const { storage, repo } = await setup(t);
+        for (const pruneMs of [-1, 1.5]) {
+          await assert.rejects(repoGcStep(storage, repo, null, { windowMs: HOUR, pruneMs }), {
+            name: 'RangeError', message: `gc: pruneMs must be a whole number of zero or more, got ${pruneMs}`,
+          });
+        }
+        for (const concurrency of [0, 1.5]) {
+          await assert.rejects(repoGcStep(storage, repo, null, { windowMs: HOUR, concurrency }), {
+            name: 'RangeError', message: `gc: concurrency must be a whole number greater than zero, got ${concurrency}`,
+          });
+        }
+      });
+
+      it('prunes the history in steps as short as the host bounds them to, deciding every identity before it deletes any', async (t) => {
+        const { storage, repo } = await setup(t);
+        const start = Date.now();
+        const old = start - 30 * DAY;
+        const split = 'b'.repeat(64);
+        const success = (executionId: string, plan: string | null, unit: boolean) => variant('success', {
+          executionId, inputHashes: [], outputHash: 'e'.repeat(64), startedAt: new Date(old), completedAt: new Date(old), peakBytes: none,
+          plan: plan === null ? none : some(plan), unit,
+        });
+        // Two split tasks' successes a kept run used, each naming its pieces'
+        // units in its plan: the first sorts before its units, which are
+        // decided in later steps than its plan is read, and the second after
+        // its own, decided in earlier steps
+        const units: string[] = [];
+        const used: DataflowRun['taskExecutions'] = new Map();
+        for (const [n, inputs] of ['0'.repeat(64), 'f'.repeat(64)].entries()) {
+          const pieces = [`${n}1`, `${n}2`].map((piece) => piece.padEnd(64, 'a'));
+          const plan = await storage.objects.write(repo, encodeUnitPlan({
+            kind: UNIT_PLAN_KIND, task: split, inputs, stage: variant('pieces', pieces.map((piece) => [piece])), previous: none, peakBytes: none,
+          }));
+          const succeeded = idAt(old, n);
+          await storage.refs.executionWrite(repo, split, inputs, succeeded, success(succeeded, plan, false));
+          used.set(`split${n}`, { executionId: succeeded, taskHash: split, inputsHash: inputs, cached: false, outputVersions: new Map(), executionCount: 1n });
+          units.push(...pieces.map((piece) => inputsHash([piece])));
+        }
+        // Each unit's success, long ago; a unit no plan names; and a task's
+        // success no run used
+        const unkept = inputsHash(['9'.repeat(64)]);
+        for (const [n, unit] of [...units, unkept].entries()) {
+          const id = idAt(old, 10 + n);
+          await storage.refs.executionWrite(repo, split, unit, id, success(id, null, true));
+        }
+        const [loose, looseInputs] = ['c'.repeat(64), '5'.repeat(64)];
+        await storage.refs.executionWrite(repo, loose, looseInputs, idAt(old, 20), success(idAt(old, 20), null, false));
+        // The kept run, the workspace's latest, and two before it, which go
+        await storage.refs.workspaceWrite(repo, 'main', encodeBeast2For(WorkspaceRecordType)(none));
+        for (const [runId, taskExecutions] of [[idAt(old, 28), new Map()], [idAt(old, 29), new Map()], [idAt(old, 30), used]] as const) {
+          await storage.refs.dataflowRunWrite(repo, 'main', {
+            runId, workspaceName: 'main', packageRef: 'history@1.0.0', startedAt: new Date(old), completedAt: none,
+            status: variant('completed', {}), inputVersions: new Map(), outputVersions: none, taskExecutions,
+            summary: { total: 2n, completed: 2n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
+          });
+        }
+        const identities = units.length + 4;
+
+        // What the prune reads and deletes, in order, and what each step reads
+        // and deletes of the runs
+        const refs = storage.refs;
+        const calls: string[] = [];
+        let [reads, runDeletes] = [0, 0];
+        const [list, listAttempts, executionDelete, runDelete] = [refs.executionList, refs.executionListAttempts, refs.executionDelete, refs.dataflowRunDelete];
+        refs.executionList = (r) => {
+          calls.push('list');
+          return list.call(refs, r);
+        };
+        refs.executionListAttempts = (r, task, inputs) => {
+          calls.push('read');
+          reads++;
+          return listAttempts.call(refs, r, task, inputs);
+        };
+        refs.executionDelete = (r, task, inputs, id) => {
+          calls.push('delete');
+          return executionDelete.call(refs, r, task, inputs, id);
+        };
+        refs.dataflowRunDelete = (r, workspace, runId) => {
+          runDeletes++;
+          return runDelete.call(refs, r, workspace, runId);
+        };
+        const encode = encodeBeast2For(GcStepType);
+        const decode = decodeBeast2For(GcStepType);
+        const bounded: GcStepOptions = { ...at(start), keepRuns: 1, pruneMs: 0, concurrency: 1 };
+        const kinds: string[] = [];
+        let step: GcStep | null = null;
+        let result: GcResult;
+        try {
+          for (;;) {
+            assert.ok(kinds.length < 500, 'the run ends');
+            [reads, runDeletes] = [0, 0];
+            const next = await repoGcStep(storage, repo, step === null ? null : decode(encode(step)), bounded);
+            assert.ok(reads <= 1 && runDeletes <= 1, `a step reads the attempts of a batch of identities, and deletes a batch of runs, here one: ${reads}, ${runDeletes}`);
+            result = next.result;
+            if (next.step === null) break;
+            kinds.push(next.step.type);
+            step = next.step;
+          }
+        } finally {
+          refs.executionList = list;
+          refs.executionListAttempts = listAttempts;
+          refs.executionDelete = executionDelete;
+          refs.dataflowRunDelete = runDelete;
+        }
+
+        assert.ok(kinds.filter((kind) => kind === 'trim').length > identities, `steps: ${kinds.join(', ')}`);
+        assert.deepEqual(calls.filter((call) => call === 'list'), ['list'], 'the identities are listed once');
+        assert.equal(calls.filter((call) => call === 'read').length, identities, 'and each one\'s attempts read once');
+        assert.ok(calls.lastIndexOf('read') < calls.indexOf('delete'), 'every identity is decided before an attempt is deleted');
+        assert.deepEqual([result.deletedExecutions, result.deletedRuns], [2, 2]);
+        for (const unit of units) assert.equal((await storage.refs.executionListIds(repo, split, unit)).length, 1, `unit ${unit} is kept`);
+        assert.deepEqual(await storage.refs.executionListIds(repo, split, unkept), []);
+        assert.deepEqual(await storage.refs.executionListIds(repo, loose, looseInputs), []);
+        assert.deepEqual(await storage.refs.dataflowRunList(repo, 'main'), [idAt(old, 30)]);
+      });
+
+      it('goes on with a step an earlier release kept, every case of which reads as itself', async (t) => {
+        const { storage, repo } = await setup(t);
+        const start = Date.now();
+        await storage.objects.write(repo, bytes('swept by a run an earlier release began'));
+        // The step as releases before the history's prune went in steps kept it
+        const run = { run: StringType, dryRun: BooleanType, result: GcResultType };
+        const EarlierStepType = VariantType({
+          mark: StructType(run),
+          marking: StructType({ ...run, generation: IntegerType }),
+          sweep: StructType({ ...run, cursor: OptionType(StringType) }),
+          finish: StructType(run),
+        });
+        const encodeEarlier = encodeBeast2For(EarlierStepType);
+        const printEarlier = printFor(EarlierStepType);
+        const decode = decodeBeast2For(GcStepType);
+        const print = printFor(GcStepType);
+
+        // A run begun as such a release began one: its history pruned, and
+        // the roots it kept kept, the mark next
+        const begun = (await repoGcStep(storage, repo, null, at(start))).step;
+        assert.ok(begun?.type === 'mark', `the first step, unbounded, prunes everything: ${begun?.type}`);
+        const fields = begun.value;
+        for (const earlier of [
+          variant('mark', fields),
+          variant('marking', { ...fields, generation: 2n }),
+          variant('sweep', { ...fields, cursor: some('a page') }),
+          variant('finish', fields),
+        ] as const) {
+          assert.equal(print(decode(encodeEarlier(earlier))), printEarlier(earlier));
+        }
+        let step: GcStep | null = decode(encodeEarlier(variant('mark', fields)));
+        let result: GcResult;
+        do {
+          const next = await repoGcStep(storage, repo, step, at(start));
+          result = next.result;
+          step = next.step;
+        } while (step !== null);
+        assert.equal(result.skippedYoung, 1, 'the run goes on to its end');
       });
     });
 

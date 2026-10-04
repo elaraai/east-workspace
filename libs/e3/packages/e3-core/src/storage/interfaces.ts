@@ -545,6 +545,26 @@ export interface RefStore {
   executionListIds(repo: string, taskHash: string, inputsHash: string): Promise<string[]>;
 
   /**
+   * List every attempt at a (taskHash, inputsHash) pair, each with its status,
+   * in one call: what gc's history prune reads of each execution it decides.
+   *
+   * @remarks
+   * As {@link executionListIds} and {@link executionGet} of each would answer
+   * them, a store whose reads are requests answering them in one: an attempt
+   * whose record is there and does not decode answers `null`, where
+   * {@link executionGet} throws `ExecutionCorruptError`, and an attempt
+   * deleted between the listing and its read is left out. Any other failure to
+   * read is thrown, since gc decides nothing without the record.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @returns Each attempt's id and status, the ids sorted lexicographically
+   *   ascending, so the latest is last
+   */
+  executionListAttempts(repo: string, taskHash: string, inputsHash: string): Promise<Array<{ executionId: string; status: ExecutionStatus | null }>>;
+
+  /**
    * Get the latest execution status (lexicographically greatest executionId).
    * @param repo - Repository identifier
    * @param taskHash - Task object hash

@@ -48,7 +48,9 @@ shared code. Whether an execution can still finish is
 `TaskRunner.executionAlive` — which the execution cache's probe asks too,
 through the liveness a driver is given (`ExecuteOptions.executionAlive`,
 `SplitTaskDriver.executionAlive`), so a probe never judges a unit running on
-another host by the processes of the host that probes — and why it cannot,
+another host by the processes of the host that probes, and gc's history prune
+through the liveness its host gives it (`GcOptions.executionAlive`,
+`GcStepOptions.executionAlive`) — and why it cannot,
 when the host knows: it answers the host's own `StopReason`, which the probe
 records on the execution as given; how a record is stored, which a shared
 upgrade step reads to carry a record an earlier release wrote into the
@@ -90,9 +92,21 @@ for gone (`readTouched`). What an
 execution still running reads is a root, as a success's output is
 (`executionStatusRoots`), since a unit reads its inputs' segments as it goes.
 The run goes in steps a host spreads over invocations: each returns the next
-as an East value (`GcStepType`), and the `RepoStore` keeps the mark between
-them (`gcRunWrite`). The mark reads many objects at once (`concurrency`), and a
-host whose invocations have a time limit bounds each mark step (`markMs`): the
+as an East value (`GcStepType`), and the `RepoStore` keeps what the history's
+prune decided, and the mark, between them (`gcRunWrite`). A case the step type
+gains is named to sort after every case before it, so a step an earlier
+release kept still reads as itself. A host whose invocations have a time limit
+bounds each prune step (`pruneMs`): the prune goes on in `trim` steps — what
+the workspaces keep, a workspace a unit; the identities, listed once and
+decided a batch a unit, each one's attempts read in one call
+(`RefStore.executionListAttempts`); then their deletes, a batch a unit — and
+decides every identity before it deletes any, so a unit a later batch's split
+task names is never deleted. Given the runner's judgement (`executionAlive`),
+it records an attempt recorded running that cannot finish interrupted, as the
+probe does, and prunes it as any that ended; without one, it keeps every
+attempt recorded running. The mark reads many objects at once (`concurrency`,
+the width of the prune's batches too), and such a host bounds each mark step
+(`markMs`): the
 mark goes on in `marking` steps, each keeping a generation of the run's parts
 of its own, so a step run again starts from what it started from. The sweep
 leaves unnoted what was written after the run began, which a later run notes
@@ -105,10 +119,11 @@ run writes nothing, and a delete by gc holding the repository still
 (`ObjectNotFoundError`) says the object names nothing; a host that drives gc's
 mark itself (`markReachable`) reads through `gcObjectReaders`, which keeps that
 rule. An execution record that reads but does not decode is answered by
-`RefStore.executionGet` with `ExecutionCorruptError`, which the history's prune
-takes for a record that keeps no output, and prunes as it does any other; any
-other failure stops the prune, and gc with it. The ref-store suite pins the
-error.
+`RefStore.executionGet` with `ExecutionCorruptError`, and by
+`RefStore.executionListAttempts`, which the history's prune reads, with no
+status: the prune takes it for a record that keeps no output, and prunes it as
+it does any other; any other failure stops the prune, and gc with it. The
+ref-store suite pins both.
 
 **A store refuses a name, a hash or an id that is not of its form.** A
 repository's, a workspace's and a package's name and version, and a lock's,
@@ -316,8 +331,9 @@ cleanup with `t.after`; most take a `BackendSetup`, which gives a backend and
 a repository created in it. gc's suite holds a backend to gc beside running
 work too: a write in flight survives it, an object unreachable for less than
 the window survives it, what an execution still running reads survives it, a
-delete that races a re-reference leaves the object, and a mark spread over
-steps reaches what one step does. A case that needs a record the store cannot
+delete that races a re-reference leaves the object, a prune spread over steps
+decides every identity before it deletes any, and a mark spread over steps
+reaches what one step does. A case that needs a record the store cannot
 decode, or one in the form an earlier release wrote, asks the setup to leave
 one in the bytes it gives (`BackendContext.damage`, a `BackendDamage`), and is
 skipped by a setup that cannot; so a backend whose records can be left so

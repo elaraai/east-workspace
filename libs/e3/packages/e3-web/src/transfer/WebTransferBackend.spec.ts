@@ -631,4 +631,33 @@ describe('WebTransferBackend', () => {
     assert.ok(job?.status.stats.type === 'some' && job.status.stats.value.deletedObjects >= 1n, 'it deleted the object nothing reaches');
     assert.equal(await tab.storage.objects.exists(REPO, unreached), false, 'the object is gone');
   });
+
+  it('runs a gc job on the judgement of the repository\'s runner: an attempt recorded running that no tab owns is recorded interrupted, and pruned', async () => {
+    const tab = await openTab(newOrigin());
+    await tab.storage.repos.create(REPO);
+    // Recorded running long ago, with no owner: no tab's session can finish it
+    const [task, inputs] = ['a'.repeat(64), 'b'.repeat(64)];
+    const old = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const time = old.toString(16).padStart(12, '0');
+    const executionId = `${time.slice(0, 8)}-${time.slice(8)}-7000-8000-000000000001`;
+    await tab.storage.refs.executionWrite(REPO, task, inputs, executionId, variant('running', {
+      executionId, inputHashes: [], startedAt: new Date(old), pid: 0n, pidStartTime: 0n, bootId: 'a-closed-tab', unit: false,
+    }));
+    const id = crypto.randomUUID();
+    await tab.transfer.repoGc.create(id, {
+      repo: REPO,
+      request: { dryRun: false, minAge: some(0n), keepRuns: none, keepDays: none },
+      status: { status: variant('running', null), stats: none, error: none },
+      createdAt: new Date(),
+    });
+    await tab.transfer.repoGc.execute(id, REPO);
+    const job = await until(async () => {
+      const found = await tab.transfer.repoGc.get(id);
+      return found === null || found.status.status.type !== 'running' ? found : null;
+    }, 'the gc job to end', 5_000);
+    const stats = job?.status.stats;
+    assert.ok(stats?.type === 'some', `gc succeeded: ${job?.status.error.type === 'some' ? job.status.error.value : ''}`);
+    assert.equal(stats.value.deletedExecutions, 1n, 'the attempt no tab owns went');
+    assert.deepEqual(await tab.storage.refs.executionListIds(REPO, task, inputs), []);
+  });
 });
