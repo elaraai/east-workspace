@@ -37,10 +37,12 @@ function runState(id: string, status: 'running' | 'completed' | 'failed' | 'canc
 
 /**
  * A state store that records the reads made of it, as a poll makes them: of
- * the whole state, of a run's summary, and of its events.
+ * the whole state, of a run's summary, and of its events, with the most
+ * events each read of them asks for.
  */
-function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore; reads: string[] } {
+function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore; reads: string[]; limits: (number | undefined)[] } {
   const reads: string[] = [];
+  const limits: (number | undefined)[] = [];
   const store: ExecutionStateStore = {
     create: (state) => inner.create(state),
     read: (repo, workspace, id) => {
@@ -59,14 +61,15 @@ function countingStore(inner: ExecutionStateStore): { store: ExecutionStateStore
     updateTaskStatus: (repo, workspace, id, task, status, details) => inner.updateTaskStatus(repo, workspace, id, task, status, details),
     updateStatus: (repo, workspace, id, status, details) => inner.updateStatus(repo, workspace, id, status, details),
     recordEvent: (repo, workspace, id, event) => inner.recordEvent(repo, workspace, id, event),
-    getEventsSince: (repo, workspace, id, since) => {
+    getEventsSince: (repo, workspace, id, since, limit) => {
       reads.push('getEventsSince');
-      return inner.getEventsSince(repo, workspace, id, since);
+      limits.push(limit);
+      return inner.getEventsSince(repo, workspace, id, since, limit);
     },
     delete: (repo, workspace, id) => inner.delete(repo, workspace, id),
     readStored: (repo) => inner.readStored(repo),
   };
-  return { store, reads };
+  return { store, reads, limits };
 }
 
 describe('dataflow routes', () => {
@@ -160,7 +163,7 @@ describe('dataflow routes', () => {
     assert.equal(waits, 0);
   });
 
-  it('poll a run by its cursor: the API\'s events past it, at most a limit, and the cursor past them, reading the run\'s summary and no more than its new events', async () => {
+  it('poll a run by its cursor: the API\'s events past it, at most a limit, and the cursor past them, reading the run\'s summary and its events a page of the limit at a time', async () => {
     const { store, reads } = countingStore(new InMemoryStateStore());
     const at = new Date(0);
     // Seven events, three the API does not show: the run's start and end, and
@@ -198,9 +201,11 @@ describe('dataflow routes', () => {
     });
     assert.deepEqual(await poll('?since=7'), { events: [], nextSeq: 7n, reads: ['readLatestSummary'] }, 'a poll that has every event reads none');
     assert.deepEqual(await poll('?limit=0'), { events: [], nextSeq: 0n, reads: ['readLatestSummary'] }, 'nor does one that asks for none');
-    assert.deepEqual(await poll('?limit=1'), { events: ['start etl'], nextSeq: 2n, reads: ['readLatestSummary', 'getEventsSince'] });
+    assert.deepEqual(await poll('?limit=1'), {
+      events: ['start etl'], nextSeq: 2n, reads: ['readLatestSummary', 'getEventsSince', 'getEventsSince'],
+    }, 'a page of one at a time, past the run\'s start, which the API does not show');
     assert.deepEqual(await poll('?since=2&limit=2'), {
-      events: ['complete etl', 'start report'], nextSeq: 5n, reads: ['readLatestSummary', 'getEventsSince'],
+      events: ['complete etl', 'start report'], nextSeq: 5n, reads: ['readLatestSummary', 'getEventsSince', 'getEventsSince'],
     }, 'the cursor moves past an event the API does not show between two it serves');
     assert.deepEqual(await poll('?since=5'), { events: ['failed report'], nextSeq: 7n, reads: ['readLatestSummary', 'getEventsSince'] });
 
@@ -210,7 +215,7 @@ describe('dataflow routes', () => {
   });
 
   it('poll a run of more events than a poll is served: at most 1,000, however many it asks for, with the run\'s id and its last event, which say what a poll left', async () => {
-    const store = new InMemoryStateStore();
+    const { store, limits } = countingStore(new InMemoryStateStore());
     const at = new Date(0);
     await store.create({
       ...runState('run-1', 'completed'),
@@ -236,6 +241,39 @@ describe('dataflow routes', () => {
     assert.deepEqual(await poll('?limit=5000'), { runId: 'run-1', served: 1_000, first: 't1', nextSeq: 1_000n, lastSeq: 1_500n }, 'one that names a larger');
     assert.deepEqual(await poll('?since=1000'), { runId: 'run-1', served: 500, first: 't1001', nextSeq: 1_500n, lastSeq: 1_500n }, 'the rest, from the cursor it left');
     assert.deepEqual(await poll('?limit=0'), { runId: 'run-1', served: 0, first: null, nextSeq: 0n, lastSeq: 1_500n }, 'a poll of no events sees where the run\'s events end');
+    assert.deepEqual(limits, [1_000, 1_000, 1_000], 'each poll asks the store for no more events than it serves');
+  });
+
+  it('poll a run whose events the API mostly does not show: a page of the limit at a time, at most eight, and the rest over the polls after', async () => {
+    const { store, limits } = countingStore(new InMemoryStateStore());
+    const at = new Date(0);
+    // Twenty tasks made ready, which the API does not show, and two started
+    await store.create({
+      ...runState('run-1', 'completed'),
+      completedAt: some(at),
+      events: [
+        ...Array.from({ length: 20 }, (_, i) => variant('task_ready', { seq: BigInt(i + 1), timestamp: at, task: `t${i + 1}` })),
+        variant('task_started', { seq: 21n, timestamp: at, task: 't1' }),
+        variant('task_started', { seq: 22n, timestamp: at, task: 't2' }),
+      ],
+      eventSeq: 22n,
+    });
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(store),
+      getStateStore: () => store,
+    }));
+    const decodeState = decodeBeast2For(ResponseType(DataflowExecutionStateType));
+    const poll = async (query: string) => {
+      limits.length = 0;
+      const answer = decodeState(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/main/dataflow/execution${query}`)).arrayBuffer()));
+      if (answer.type !== 'success') assert.fail(`the poll ${query} was refused: ${answer.value.type}`);
+      return { events: answer.value.events.map((event) => event.value.task), nextSeq: answer.value.nextSeq, pages: limits.length };
+    };
+
+    assert.deepEqual(await poll('?limit=2'), { events: [], nextSeq: 16n, pages: 8 }, 'eight pages of two, none of them shown: the cursor past them');
+    assert.deepEqual(await poll('?since=16&limit=2'), { events: ['t1', 't2'], nextSeq: 22n, pages: 3 }, 'the rest, from that cursor');
   });
 
   it('poll a run up to the last event its summary names: one the run records after the summary is read is the next poll\'s', async () => {

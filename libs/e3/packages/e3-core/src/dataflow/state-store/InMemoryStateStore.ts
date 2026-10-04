@@ -28,6 +28,7 @@ import type {
 } from '../types.js';
 import { checkName } from '../../errors.js';
 import { cloneExecutionState } from './clone.js';
+import { compareEventSeqs, eventsSince, planEventAppend, segmentBefore, stateWithoutEvents } from './events.js';
 
 // Type helper for mutable state (removes readonly)
 type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]> : T[P] };
@@ -41,12 +42,18 @@ const encodeState = encodeBeast2For(DataflowExecutionStateType);
  */
 type Held = { readonly state: DataflowExecutionState } | { readonly bytes: Uint8Array };
 
+/** A run's events, apart from its state: each segment's bytes, by its first
+ *  event's sequence number. */
+type Segments = Map<bigint, Uint8Array>;
+
 /** The runs of one workspace of one repository. */
 interface WorkspaceRuns {
   readonly repo: string;
   readonly workspace: string;
   /** Execution ID -> its state */
   readonly runs: Map<string, Held>;
+  /** Execution ID -> its events */
+  readonly events: Map<string, Segments>;
 }
 
 /** A held run's state: the state itself, or its bytes decoded. */
@@ -54,12 +61,32 @@ function stateOf(held: Held): DataflowExecutionState {
   return 'state' in held ? held.state : decodeDataflowExecutionState(held.bytes);
 }
 
+/** A run's state as the store keeps it: a copy, without its events, which it
+ *  keeps apart. */
+function withoutEvents(state: DataflowExecutionState): DataflowExecutionState {
+  return cloneExecutionState(stateWithoutEvents(state));
+}
+
+/** Appends events to a run's segments, as every store does
+ *  ({@link planEventAppend}), with nothing in between. */
+function appendEvents(segments: Segments, events: readonly ExecutionEvent[]): void {
+  const held = [...segments.keys()].sort(compareEventSeqs);
+  const before = segmentBefore(held, events);
+  const bytes = before === null ? undefined : segments.get(before);
+  const { remove, put } = planEventAppend(held, before === null || bytes === undefined ? null : { first: before, bytes }, events);
+  for (const first of remove) segments.delete(first);
+  for (const segment of put) segments.set(segment.first, segment.bytes);
+}
+
 /**
  * In-memory state store for testing and simple use cases.
  *
  * @remarks
  * - Thread-safe for concurrent access within a single process: each change
- *   reads, changes and keeps a run's state with nothing in between
+ *   reads, changes and keeps a run's state, and appends its events, with
+ *   nothing in between
+ * - Keeps a run's events apart from its state, in segments, as every store
+ *   does
  * - A run that has ended keeps the state it ended with: every later write is
  *   dropped
  * - State is lost on process exit
@@ -76,20 +103,31 @@ export class InMemoryStateStore implements ExecutionStateStore {
     return `${repo}::${workspace}`;
   }
 
+  /** A run's segments, made when it is first given events. */
+  private static segmentsOf(ws: WorkspaceRuns, id: string): Segments {
+    let segments = ws.events.get(id);
+    if (segments === undefined) {
+      segments = new Map();
+      ws.events.set(id, segments);
+    }
+    return segments;
+  }
+
   // eslint-disable-next-line @typescript-eslint/require-await
   async create(state: DataflowExecutionState): Promise<void> {
     const key = this.makeKey(state.repo, state.workspace);
     if (!this.states.has(key)) {
-      this.states.set(key, { repo: state.repo, workspace: state.workspace, runs: new Map() });
+      this.states.set(key, { repo: state.repo, workspace: state.workspace, runs: new Map(), events: new Map() });
     }
 
-    const wsStates = this.states.get(key)!.runs;
-    if (wsStates.has(state.id)) {
+    const ws = this.states.get(key)!;
+    if (ws.runs.has(state.id)) {
       throw new Error(`Execution ${state.id} already exists in ${key}`);
     }
 
-    // Deep clone to prevent external mutation
-    wsStates.set(state.id, { state: cloneExecutionState(state) });
+    // A copy, so no change made outside reaches it; its events kept apart.
+    appendEvents(InMemoryStateStore.segmentsOf(ws, state.id), state.events);
+    ws.runs.set(state.id, { state: withoutEvents(state) });
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -197,45 +235,50 @@ export class InMemoryStateStore implements ExecutionStateStore {
     executionId: string,
     event: ExecutionEvent
   ): Promise<StateWriteOutcome> {
-    return this.change(repo, workspace, executionId, (current) => ({ ...current, events: [...current.events, event] }));
+    return this.change(repo, workspace, executionId, (current) => ({ ...current, events: [event] }));
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async getEventsSince(
     repo: string,
     workspace: string,
     executionId: string,
-    sinceSeq: number
+    sinceSeq: number,
+    limit?: number
   ): Promise<ExecutionEvent[]> {
-    const held = this.states.get(this.makeKey(repo, workspace))?.runs.get(executionId);
-    if (held === undefined) return [];
-
-    // Filter events from inline array
-    const sinceSeqBigInt = BigInt(sinceSeq);
-    return stateOf(held).events.filter(e => e.value.seq > sinceSeqBigInt);
+    const segments = this.states.get(this.makeKey(repo, workspace))?.events.get(executionId);
+    if (segments === undefined) return [];
+    const held = [...segments.keys()].sort(compareEventSeqs);
+    return eventsSince(held, (first) => Promise.resolve(segments.get(first) ?? null), BigInt(sinceSeq), limit);
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
   async delete(repo: string, workspace: string, executionId: string): Promise<void> {
-    this.states.get(this.makeKey(repo, workspace))?.runs.delete(executionId);
+    const ws = this.states.get(this.makeKey(repo, workspace));
+    ws?.runs.delete(executionId);
+    ws?.events.delete(executionId);
   }
 
   /**
    * The run states the store holds of a repository, as stored: a state a
    * write gave it encoded in this release's form, and bytes a `replace` left
-   * as they are. A `replace` leaves its bytes in the run's place.
+   * as they are. A `replace` leaves its bytes in the run's place, and
+   * `writeEvents` a segment among the run's events.
    */
   // eslint-disable-next-line @typescript-eslint/require-await
   async readStored(repo: string): Promise<StoredRunState[]> {
     const stored: StoredRunState[] = [];
-    for (const { repo: of, workspace, runs } of this.states.values()) {
-      if (of !== repo) continue;
-      for (const [id, held] of runs) {
+    for (const ws of this.states.values()) {
+      if (ws.repo !== repo) continue;
+      for (const [id, held] of ws.runs) {
         stored.push({
-          workspace,
+          workspace: ws.workspace,
           bytes: 'state' in held ? encodeState(held.state) : held.bytes,
           replace: (bytes) => {
-            runs.set(id, { bytes });
+            ws.runs.set(id, { bytes });
+            return Promise.resolve();
+          },
+          writeEvents: (runId, segment) => {
+            InMemoryStateStore.segmentsOf(ws, runId).set(segment.first, segment.bytes);
             return Promise.resolve();
           },
         });
@@ -280,14 +323,15 @@ export class InMemoryStateStore implements ExecutionStateStore {
   }
 
   /**
-   * Changes a run's state at once — read, changed and kept, with nothing in
-   * between — unless the run has ended, which keeps the state it ended with.
+   * Changes a run's state at once — read, changed and kept, its new events
+   * appended, with nothing in between — unless the run has ended, which keeps
+   * the state it ended with.
    *
    * @param repo - Repository identifier
    * @param workspace - Workspace name
    * @param id - Execution ID
    * @param next - The run's next state, from its current one, which it may
-   *   not change
+   *   not change: the events it holds are appended to the run's
    * @returns `applied`, or `dropped` when the run has ended
    * @throws {Error} When the store holds no such run, or `next` throws
    */
@@ -298,14 +342,16 @@ export class InMemoryStateStore implements ExecutionStateStore {
     next: (current: DataflowExecutionState) => DataflowExecutionState
   ): StateWriteOutcome {
     const key = this.makeKey(repo, workspace);
-    const wsStates = this.states.get(key)?.runs;
-    const held = wsStates?.get(id);
-    if (wsStates === undefined || held === undefined) {
+    const ws = this.states.get(key);
+    const held = ws?.runs.get(id);
+    if (ws === undefined || held === undefined) {
       throw new Error(`Execution ${id} not found in ${key}`);
     }
     const current = stateOf(held);
     if (current.status !== 'running') return 'dropped';
-    wsStates.set(id, { state: cloneExecutionState(next(current)) });
+    const state = next(current);
+    appendEvents(InMemoryStateStore.segmentsOf(ws, id), state.events);
+    ws.runs.set(id, { state: withoutEvents(state) });
     return 'applied';
   }
 }

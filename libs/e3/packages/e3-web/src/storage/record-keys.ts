@@ -19,8 +19,8 @@ import type { RecordKey } from './adapters.js';
  * A repository's metadata is `['repos', name]`, and everything else of it is
  * under `['repo', name]`, so its records scan and delete by that prefix. The
  * execution state store over the same records keeps a run's state at
- * {@link recordKeys.state}, which a workspace's removal deletes with its
- * other records.
+ * {@link recordKeys.state}, and its events at {@link recordKeys.events}, which
+ * a workspace's removal deletes with its other records.
  */
 export const recordKeys = {
   /** A repository's metadata */
@@ -67,4 +67,8 @@ export const recordKeys = {
   gcRun: (repo: string, run: string, name: string): RecordKey => ['repo', repo, 'gc', run, name],
   /** A dataflow run's state, as `WebStateStore` keeps it */
   state: (repo: string, workspace: string, id: string): RecordKey => ['repo', repo, 'state', workspace, id],
+  /** A dataflow run's events, as `WebStateStore` keeps them apart from its
+   *  state: a segment of them under each key it extends this by, its first
+   *  event's sequence number in decimal zero-padded to twenty digits */
+  events: (repo: string, workspace: string, id: string): RecordKey => ['repo', repo, 'event', workspace, id],
 };

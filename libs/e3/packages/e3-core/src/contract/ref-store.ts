@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { equalFor, none, some, variant } from '@elaraai/east';
 import {
-  DataflowRunType, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType, RepositoryUpgradeProgressType,
+  DataflowRunType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType, RepositoryUpgradeProgressType, dataflowForce,
   type DataflowRun, type ExecutionOwner, type ExecutionStatus, type RepositoryUpgradeProgress,
 } from '@elaraai/e3-types';
 import { ExecutionCorruptError } from '../errors.js';
@@ -84,7 +84,7 @@ export function refStoreTests(setup: BackendSetup): void {
       assert.deepEqual(await storage.refs.packageList(repo), [{ name: 'pkg', version: '2.0.0' }]);
     });
 
-    it('keeps a workspace\'s record, and removes it with its runs', async (t) => {
+    it('keeps a workspace\'s record, and removes it with its runs, their states and their events', async (t) => {
       const { storage, repo } = await setup(t);
       assert.equal(await storage.refs.workspaceRead(repo, 'ws'), null);
       await storage.refs.workspaceWrite(repo, 'ws', new Uint8Array([1, 2, 3]));
@@ -103,11 +103,22 @@ export function refStoreTests(setup: BackendSetup): void {
         taskExecutions: new Map(),
         summary: { total: 1n, completed: 0n, cached: 0n, failed: 0n, skipped: 0n, reexecuted: 0n },
       });
+      // The run's state, and its events, in the backend's run state store
+      const states = storage.runStates(repo);
+      await states.create({
+        release: E3_RELEASE, id: runId, repo, workspace: 'ws', startedAt: AT, force: dataflowForce(false), filter: none,
+        graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status: 'running',
+        completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [], reexecuted: 0n,
+        events: [variant('task_started', { seq: 1n, timestamp: AT, task: 'etl' })], eventSeq: 1n,
+      });
+      assert.equal((await states.getEventsSince(repo, 'ws', runId, 0)).length, 1);
 
       await storage.refs.workspaceRemove(repo, 'ws');
       assert.equal(await storage.refs.workspaceRead(repo, 'ws'), null);
       assert.deepEqual(await storage.refs.workspaceList(repo), []);
       assert.deepEqual(await storage.refs.dataflowRunList(repo, 'ws'), [], 'its runs go with it');
+      assert.equal(await states.readLatest(repo, 'ws'), null, 'and their states');
+      assert.deepEqual(await states.getEventsSince(repo, 'ws', runId, 0), [], 'and their events');
     });
 
     it('keeps every attempt at an execution, the latest sorting last', async (t) => {

@@ -146,15 +146,32 @@ class AsyncMutex {
 // =============================================================================
 
 /**
+ * A write of a run's state: a snapshot of it as it stands, carrying the events
+ * the run added since its last write, which the run's state then holds no
+ * more. An event, once added, is never changed, so the write takes them over
+ * rather than copy them, and carries none written before: the store keeps a
+ * run's events apart from its state.
+ *
+ * @param state - The run's state, which the loop goes on changing
+ * @returns The write
+ */
+function takeWrite(state: DataflowExecutionState): DataflowExecutionState {
+  const events = state.events;
+  (state as Mutable<DataflowExecutionState>).events = [];
+  return { ...cloneExecutionState(state), events };
+}
+
+/**
  * A run's one writer of its state: every write of the run goes through it, and
  * reaches the store a write at a time, in the order the writes were made.
  *
  * @remarks
  * A write is a snapshot of the state as it stood when the write was made, so a
  * write waiting its turn carries that state, however the loop changes its own
- * meanwhile. The store never has two of the run's writes at once, which a
- * store that moves a run's state by compare-and-set would refuse as another
- * process's.
+ * meanwhile, and the events the run added since the write before it
+ * ({@link takeWrite}), which the store appends to the run's. The store never
+ * has two of the run's writes at once, which a store that moves a run's state
+ * by compare-and-set would refuse as another process's.
  *
  * Once the store takes a write otherwise than applying it — `dropped`, the run
  * having ended, or `refused`, another process having moved it on — the writer
@@ -184,7 +201,7 @@ class RunWriter {
    * @returns How the store took it
    */
   write(state: DataflowExecutionState): Promise<StateWriteOutcome> {
-    const snapshot = cloneExecutionState(state);
+    const snapshot = takeWrite(state);
     return this.enqueue(() => this.store.update(snapshot));
   }
 
@@ -480,9 +497,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         }
       );
 
-      // Persist initial state
+      // Persist initial state, and its events, which the run's state then
+      // holds no more
       if (this.stateStore) {
-        await this.stateStore.create(state);
+        await this.stateStore.create(takeWrite(state));
       }
 
       return this.beginExecution(storage, repo, state, {
@@ -561,7 +579,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // The write is the resumed run's first: one the store does not take
       // leaves nothing to resume.
       stepYield(state);
-      const resumed = await this.stateStore.update(state);
+      const resumed = await this.stateStore.update(takeWrite(state));
       if (resumed !== 'applied') {
         throw new DataflowError(
           `Cannot resume execution ${executionId}: ${resumed === 'dropped' ? 'it has ended' : 'another process has moved it on'}`

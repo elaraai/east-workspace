@@ -734,7 +734,7 @@ repo/
 ├── metadata.beast2    # its name and status
 ├── objects/           # content-addressed: values, segments, manifests, programs
 ├── packages/          # package refs
-├── workspaces/        # each workspace's state, dataset refs and run state
+├── workspaces/        # each workspace's state, dataset refs, and its latest run's state and events
 ├── dataflows/         # run records
 ├── executions/        # execution attempts: status, owner, logs
 ├── adoptions/         # the manifest each delivered file, or piece of one, became

@@ -8,7 +8,8 @@
  *
  * Abstracts the persistence of execution state, enabling:
  * - InMemoryStateStore: For testing and simple cases
- * - FileStateStore: Local filesystem persistence (workspace/execution.beast2)
+ * - FileStateStore: Local filesystem persistence (workspace/execution.beast2,
+ *   and the run's events beside it)
  * - DynamoDBStateStore: Cloud execution (in e3-aws)
  */
 
@@ -18,6 +19,7 @@ import type {
   ExecutionStateSummary,
   TaskStatus,
 } from '../types.js';
+import type { EventSegment } from './events.js';
 
 /**
  * Details for task status updates.
@@ -83,6 +85,17 @@ export interface StoredRunState {
    * @param bytes - The state's bytes, in another form
    */
   replace(bytes: Uint8Array): Promise<void>;
+  /**
+   * Stores a segment of the run's events apart from its state, as given,
+   * whatever the run's status, over any segment the store holds under the same
+   * first event: an upgrade step's write, which moves a state's events out of
+   * it in the form the step writes, before it replaces the state.
+   *
+   * @param runId - The run's id, which the state names
+   * @param segment - The segment: its first and last events' sequence numbers,
+   *   and its bytes, an array of events in beast2
+   */
+  writeEvents(runId: string, segment: EventSegment): Promise<void>;
 }
 
 /**
@@ -102,6 +115,15 @@ export interface StoredRunState {
  * snapshot of the state as it was then. A store applies writes as they reach
  * it, even ones made at once.
  *
+ * A store keeps a run's events apart from its state, each by its sequence
+ * number. A write of the state hands the store the events the run added since
+ * its last write (`state.events`), which the store appends to the run's,
+ * replacing any it holds from the first of them on, and copying none it holds
+ * before; it keeps the state without them, numbering its last event
+ * (`lastEventSeq`). So a write costs what the run holds, not what it has done,
+ * and a poll reads the events past its cursor ({@link getEventsSince}), not the
+ * state. A state a store holds, or reads back, holds no events.
+ *
  * A run's end is final. Once a run is completed, failed or cancelled, every
  * write of it — a whole state of any status, a status, a task's status, an
  * event — is `dropped`, and the store keeps the state the run ended with,
@@ -110,7 +132,7 @@ export interface StoredRunState {
  */
 export interface ExecutionStateStore {
   /**
-   * Create a new execution state.
+   * Create a new execution state, with the events it holds, kept apart.
    *
    * @param state - The initial execution state (contains repo and workspace)
    * @throws If an execution with the same ID already exists
@@ -123,7 +145,7 @@ export interface ExecutionStateStore {
    * @param repo - Repository identifier
    * @param workspace - Workspace name
    * @param id - Execution ID
-   * @returns The execution state, or null if not found
+   * @returns The execution state, holding no events, or null if not found
    */
   read(repo: string, workspace: string, id: string): Promise<DataflowExecutionState | null>;
 
@@ -132,7 +154,8 @@ export interface ExecutionStateStore {
    *
    * @param repo - Repository identifier
    * @param workspace - Workspace name
-   * @returns The most recent execution state, or null if none exists
+   * @returns The most recent execution state, holding no events, or null if
+   *   none exists
    */
   readLatest(repo: string, workspace: string): Promise<DataflowExecutionState | null>;
 
@@ -142,12 +165,13 @@ export interface ExecutionStateStore {
    *
    * @remarks
    * A poll of the run, and a cancel, read it rather than the whole state,
-   * which grows with the dataflow and with every event of the run. A poll then
-   * reads the events past its cursor ({@link getEventsSince}) only when the
-   * summary's last event is past it. A store that reads the whole state for it
-   * derives it (`executionStateSummary`), as the file, in-memory and browser
-   * stores do; a store whose reads cost by the byte keeps it beside the state,
-   * written with each change.
+   * which grows with the dataflow. A poll then reads the events past its
+   * cursor ({@link getEventsSince}) only when the summary's last event is past
+   * it. A store that reads the whole state for it derives it
+   * (`executionStateSummary`), as the file, in-memory and browser stores do; a
+   * store whose reads cost by the byte keeps it beside the state, written with
+   * each change. Its last event is one the store holds: a store writes a run's
+   * events before the state that numbers them.
    *
    * @param repo - Repository identifier
    * @param workspace - Workspace name
@@ -157,13 +181,15 @@ export interface ExecutionStateStore {
   readLatestSummary(repo: string, workspace: string): Promise<ExecutionStateSummary | null>;
 
   /**
-   * Update the entire execution state.
+   * Update the entire execution state, and append the events it holds — those
+   * the run added since its last write — to the run's.
    *
    * This is used for bulk updates after a sequence of step functions.
    * Implementations may optimize by only writing changed fields.
    *
    * @param state - The updated execution state (contains repo and workspace)
-   * @returns How the store took it: `dropped` once the run has ended
+   * @returns How the store took it: `dropped` once the run has ended, its
+   *   events with it
    */
   update(state: DataflowExecutionState): Promise<StateWriteOutcome>;
 
@@ -209,7 +235,8 @@ export interface ExecutionStateStore {
   ): Promise<StateWriteOutcome>;
 
   /**
-   * Record an event for an execution.
+   * Record an event for an execution: appended to the run's events, its
+   * sequence number the run's last when it is later.
    *
    * Events are used for monitoring and debugging. They are append-only
    * and can be read with getEventsSince().
@@ -231,24 +258,28 @@ export interface ExecutionStateStore {
    * Get events for an execution since a given sequence number.
    *
    * Used for polling/watching execution progress: a poll reads the events
-   * past its cursor, which a store that keeps a run's events apart from its
-   * state answers without reading the rest.
+   * past its cursor, from the run's events, which the store keeps apart from
+   * its state, and reads nothing of the state.
    *
    * @param repo - Repository identifier
    * @param workspace - Workspace name
    * @param executionId - Execution ID
    * @param sinceSeq - Only return events with seq > sinceSeq
-   * @returns Array of events in sequence order
+   * @param limit - The most events to return, the first past the cursor:
+   *   every one unless given
+   * @returns Array of events in sequence order; none for a run the store does
+   *   not hold
    */
   getEventsSince(
     repo: string,
     workspace: string,
     executionId: string,
-    sinceSeq: number
+    sinceSeq: number,
+    limit?: number
   ): Promise<ExecutionEvent[]>;
 
   /**
-   * Delete an execution state.
+   * Delete an execution state, and its events.
    *
    * Used for cleanup after execution completion or for removing
    * abandoned executions.
@@ -267,8 +298,9 @@ export interface ExecutionStateStore {
    * @remarks
    * A repository upgrade step reads the store through this, since a state an
    * earlier release wrote does not decode as this release's, and writes each
-   * one it carries forward back through its `replace`. The repository is held
-   * still while a step runs, so no run's loop writes meanwhile.
+   * one it carries forward back through its `replace`, and a run's events
+   * through its `writeEvents`. The repository is held still while a step runs,
+   * so no run's loop writes meanwhile.
    *
    * @param repo - Repository identifier
    * @returns The stored states

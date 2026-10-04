@@ -11,7 +11,8 @@
  *
  * Key design decisions:
  * - Dates are Date objects (via DateTimeType), not strings
- * - Events stored inline as array (single file, not separate JSONL)
+ * - A run's events are kept apart from its state, so a write of the state
+ *   costs what the run holds, not what it has done
  * - Tasks stored as Dict (not Map) for beast2 compatibility
  */
 
@@ -30,6 +31,7 @@ import {
   decodeBeast2,
   decodeBeast2For,
   isTypeValueEqual,
+  lessFor,
   readBeast2Type,
   toEastTypeValue,
   variant,
@@ -159,12 +161,13 @@ export type RequeueReason = ValueTypeOf<typeof RequeueReasonType>;
 /**
  * Execution events (VariantType for discriminated union).
  *
- * Events track the progress of a dataflow execution and are stored
- * inline in the execution state (not as a separate JSONL file).
+ * Events track the progress of a dataflow execution. A store keeps a run's
+ * events apart from its state, each numbered by its `seq`, and a poll reads
+ * those past its cursor.
  *
  * @remarks
- * Part of the execution state's wire: a reader decodes a state against the
- * whole type it was written with, so a new event is a new form of the state,
+ * A stored form, as the state is: a reader decodes events against the whole
+ * type they were written with, so a new event is a new form of a run's events,
  * which the release that makes it carries repositories into with an upgrade
  * step. Each unit's progress is a callback, {@link PartitionProgress}, and is
  * not persisted.
@@ -459,7 +462,9 @@ export function dataflowForceOption(force: DataflowForce): boolean | string[] {
  *
  * @remarks
  * - Tasks are stored as a Dict (serializes as object, not array of tuples)
- * - Events are stored inline (not as separate JSONL file)
+ * - A run's events are kept apart from it: `events` holds those the run has
+ *   added since its state was last written, which the write hands its store,
+ *   so a state a store holds, or reads back, holds none
  * - Dates are Date objects (via DateTimeType)
  * - Read it back with {@link decodeDataflowExecutionState}, which reads this
  *   form alone. A release that changes it ships a repository upgrade step,
@@ -525,10 +530,13 @@ export const DataflowExecutionStateType = StructType({
   /** Number of tasks re-executed due to input changes */
   reexecuted: IntegerType,
 
-  // Events (inline array)
-  /** All events for this execution */
+  // Events, kept apart
+  /** The events the run has added since its state was last written, in
+   *  order: a write of the state hands them to its store, which keeps a run's
+   *  events apart from its state, so a stored state holds none */
   events: ArrayType(ExecutionEventType),
-  /** Sequence number for next event (auto-increment) */
+  /** The sequence number of the run's last event, which the next event's
+   *  follows: 0 while it has none */
   eventSeq: IntegerType,
 });
 export type DataflowExecutionState = ValueTypeOf<typeof DataflowExecutionStateType>;
@@ -615,12 +623,28 @@ export const ExecutionStateSummaryType = StructType({
 });
 export type ExecutionStateSummary = ValueTypeOf<typeof ExecutionStateSummaryType>;
 
+/** Whether one event sequence number comes before another. */
+const seqBefore = lessFor(IntegerType);
+
+/**
+ * The sequence number of a run's last event, as its state counts it: the
+ * state's own count, or the last event it holds, which a write has not yet
+ * handed its store, when that is later.
+ *
+ * @param state - The run's state
+ * @returns The sequence number: 0 while the run has no event
+ */
+export function lastEventSeq(state: Pick<DataflowExecutionState, 'events' | 'eventSeq'>): bigint {
+  const held = state.events.at(-1)?.value.seq;
+  return held !== undefined && seqBefore(state.eventSeq, held) ? held : state.eventSeq;
+}
+
 /**
  * The summary of a run's state ({@link ExecutionStateSummaryType}).
  *
  * @param state - The run's state
  * @returns Its summary: its last event's sequence number is the last event's
- *   own, however the event was recorded
+ *   own ({@link lastEventSeq}), however the event was recorded
  */
 export function executionStateSummary(state: DataflowExecutionState): ExecutionStateSummary {
   return {
@@ -633,7 +657,7 @@ export function executionStateSummary(state: DataflowExecutionState): ExecutionS
     status: state.status,
     completedAt: state.completedAt,
     error: state.error,
-    lastSeq: state.events.at(-1)?.value.seq ?? 0n,
+    lastSeq: lastEventSeq(state),
   };
 }
 

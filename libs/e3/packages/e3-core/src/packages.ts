@@ -718,7 +718,9 @@ export async function packageZipOpenFrom(
           getEventsSince: states.getEventsSince.bind(states),
           delete: refuse('delete a run\'s state'),
           readStored: async (of) => (await states.readStored(of))
-            .map(({ workspace, bytes }) => ({ workspace, bytes, replace: refuse('replace a run\'s state') })),
+            .map(({ workspace, bytes }) => ({
+              workspace, bytes, replace: refuse('replace a run\'s state'), writeEvents: refuse('write a run\'s events'),
+            })),
         };
       },
       validateRepository: storage.validateRepository.bind(storage),

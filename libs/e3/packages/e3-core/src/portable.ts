@@ -569,6 +569,20 @@ export type {
 } from './dataflow/state-store/interfaces.js';
 export { InMemoryStateStore } from './dataflow/state-store/InMemoryStateStore.js';
 
+// A run's events, as every state store keeps them apart from its state
+export {
+  EVENT_SEGMENT_EVENTS,
+  eventSegment,
+  decodeEventSegment,
+  segmentBefore,
+  planEventAppend,
+  eventsSince,
+  stateWithoutEvents,
+  compareEventSeqs,
+  type EventSegment,
+  type EventAppend,
+} from './dataflow/state-store/events.js';
+
 // Orchestrator
 export {
   stateToStatus,

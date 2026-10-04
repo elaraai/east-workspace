@@ -490,6 +490,7 @@ export {
   ExecutionStateSummaryType,
   type ExecutionStateSummary,
   executionStateSummary,
+  lastEventSeq,
   // Dataflow run history
   DataflowRunStatusType,
   type DataflowRunStatus,

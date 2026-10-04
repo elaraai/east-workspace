@@ -7,9 +7,10 @@
  * The local orchestrator owns the runs it starts: how a run ended is in its
  * state, and a caller that starts a run and never waits on it — a server's
  * route — leaves nothing to handle. It is each run's one writer of its state:
- * a write at a time, each the state as it stood when made; and a run another
- * process ended, or moved on, stops at its next write. The loop's contract
- * over every backend is `contract/dataflow.ts`.
+ * a write at a time, each the state as it stood when made, carrying the events
+ * the run added since the write before; and a run another process ended, or
+ * moved on, stops at its next write. The loop's contract over every backend is
+ * `contract/dataflow.ts`.
  */
 
 import { describe, it, type TestContext } from 'node:test';
@@ -18,7 +19,9 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
+import {
+  ArrayType, DictType, East, IntegerType, SortedMap, compareFor, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, variant,
+} from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { DataflowExecutionStateType, PackageObjectType } from '@elaraai/e3-types';
 import { DataflowAbortedError, DataflowSupersededError } from '../../errors.js';
@@ -169,6 +172,37 @@ describe('LocalOrchestrator', () => {
     assert.ok(store.writes > 32, `the run wrote its state as its tasks started and completed (${store.writes} writes)`);
     assert.equal(store.mostHeld, 1, 'no two of the run\'s writes reached the store at once');
     assert.equal(store.changedWhileHeld, 0, 'no write\'s state changed while the store held it');
+  });
+
+  it('hands its store each event the run adds once, in the write after it, and none it handed before', async (t) => {
+    const { storage, tasks } = await deploy(t, 'chain', chain());
+    const runner = new MockTaskRunner();
+    for (const [name, hash] of tasks) runner.setResult(hash, () => ({ state: 'success', cached: false, outputHash: outputOf(name) }));
+
+    /** A store that records the events each write hands it, by number. */
+    class RecordingStore extends InMemoryStateStore {
+      handed: bigint[] = [];
+      override async create(state: DataflowExecutionState): Promise<void> {
+        this.handed.push(...state.events.map((event) => event.value.seq));
+        return super.create(state);
+      }
+      override async update(state: DataflowExecutionState): Promise<StateWriteOutcome> {
+        this.handed.push(...state.events.map((event) => event.value.seq));
+        return super.update(state);
+      }
+    }
+    const store = new RecordingStore();
+    const orchestrator = new LocalOrchestrator(store);
+    const handle = await orchestrator.start(storage, 'repo', 'ws', { runner });
+    assert.equal((await orchestrator.wait(handle)).success, true);
+
+    const seqs = equalFor(ArrayType(IntegerType));
+    const print = printFor(ArrayType(IntegerType));
+    const stored = (await store.getEventsSince('repo', 'ws', handle.id, 0)).map((event) => event.value.seq);
+    const counted = Array.from({ length: stored.length }, (_, i) => BigInt(i + 1));
+    assert.ok(stored.length > 0 && seqs(stored, counted), `the run's events, numbered from 1: ${print(stored)}`);
+    assert.ok(seqs(store.handed, stored), `each handed once, in order: ${print(store.handed)}`);
+    assert.equal((await store.read('repo', 'ws', handle.id))?.events.length, 0, 'the state the store holds carries none');
   });
 
   it('stops a run another process cancelled at its next write: nothing more launched, no task failed, and its record ended cancelled', async (t) => {

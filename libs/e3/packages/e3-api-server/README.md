@@ -161,8 +161,10 @@ from that store, whichever instance answers them. The dataset transfer routes
 (`createTransferRoutes`) take the transfer backend, whose upload store takes a
 delivery in on the runner it was given: an init adopts only what takes nothing
 in, and answers at once. A poll reads the latest run's summary from the store
-(`readLatestSummary`), and its events only past the poll's cursor, so a store
-whose reads cost by the byte answers a caught-up poll cheaply; the waits and
+(`readLatestSummary`), and its events only past the poll's cursor, a page of
+its limit at a time, from the run's events, which the store keeps apart from
+its state, so a store whose reads cost by the byte answers a caught-up poll
+cheaply, and any poll by what it serves; the waits and
 split progress it serves are the orchestrator's (`getProgress`), which has none
 of a run another instance runs. A route answers for the repository in its URL
 alone: a job, an upload or a run another repository started is not found
