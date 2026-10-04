@@ -29,6 +29,11 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
   `queueMicrotask` for callbacks.
 - East value previews (`EastValueViewer`) use `isValueOf` for runtime
   type dispatch — see the HARD RULE above.
+- A builder-style renderer — Studio's builder, the query builder, and any
+  new one like them — is laid out with east-ui-components' `BuilderFrame`,
+  never by hand. Its anatomy, props and pane modes are in
+  [`../east-ui-components/CLAUDE.md`](../east-ui-components/CLAUDE.md) ›
+  Builder frame.
 
 ## See also
 
