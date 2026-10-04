@@ -613,7 +613,10 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.strictEqual(final!.status, 'cancelled');
       assert.strictEqual(final!.tasks.get('task')!.status, 'pending');
       assert.strictEqual(final!.failed, 0n);
-      assert.ok(!final!.events.some((event) => event.type === 'task_failed'), 'a cancelled task adds no failure event');
+      // The run's events, which its store keeps apart from its state
+      const events = await stateStore.getEventsSince(testRepo, 'test-ws', handle.id, 0);
+      assert.ok(events.some((event) => event.type === 'task_started'), 'the run\'s events are read');
+      assert.ok(!events.some((event) => event.type === 'task_failed'), 'a cancelled task adds no failure event');
     });
 
     it('the caller\'s signal aborts the signal a running task was given', async () => {
@@ -2247,7 +2250,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         'the split task never ran as one execution, and its output fed the task after it');
 
       const final = await stateStore.read(testRepo, 'test-ws', handle.id);
-      const events = final!.events.filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready');
+      const events = (await stateStore.getEventsSince(testRepo, 'test-ws', handle.id, 0))
+        .filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready');
       assert.deepStrictEqual(events.map((event) => event.type), ['task_started', 'task_split', 'task_merge_started', 'task_merge_completed', 'task_completed']);
       const split = events.find((event) => event.type === 'task_split');
       assert.ok(split?.type === 'task_split' && split.value.pieces === BigInt(pieceCalls.length));
@@ -2388,7 +2392,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         'the resumed run took up the merges, and ran no piece again');
       const final = await stateStore.read(testRepo, 'test-ws', handle.id);
       assert.deepStrictEqual(final!.tasks.get('total')!.outputHash, variant('some', 'sum-2'));
-      const stages = final!.events.filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready')
+      const stages = (await stateStore.getEventsSince(testRepo, 'test-ws', handle.id, 0))
+        .filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready')
         .map((event) => event.type);
       assert.deepStrictEqual(stages, ['task_started', 'task_split', 'task_merge_started', 'task_started', 'task_merge_completed', 'task_completed']);
     });
@@ -2499,13 +2504,13 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.deepStrictEqual((await orchestrator.getStatus(handle)).waiting, [], 'nothing waits once the run has ended');
 
       assert.deepStrictEqual(requeued, [['total', second, { reason: 'budget', peak: 3_000, reserves: 3_000 }]]);
-      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
-      const events = final!.events.filter((event) => event.type === 'unit_requeued');
+      const runEvents = await stateStore.getEventsSince(testRepo, 'test-ws', handle.id, 0);
+      const events = runEvents.filter((event) => event.type === 'unit_requeued');
       assert.deepStrictEqual(events.map((event) => {
         const { seq: _seq, timestamp: _timestamp, ...requeue } = event.value;
         return requeue;
       }), [{ task: 'total', unit: second, reason: variant('budget', null), peak: 3_000n, reserves: 3_000n }]);
-      const completed = final!.events.find((event) => event.type === 'task_completed' && event.value.task === 'report');
+      const completed = runEvents.find((event) => event.type === 'task_completed' && event.value.task === 'report');
       assert.deepStrictEqual(completed?.type === 'task_completed' && completed.value.peakBytes, some(5_000n), 'a completed task names its peak');
     });
   });
