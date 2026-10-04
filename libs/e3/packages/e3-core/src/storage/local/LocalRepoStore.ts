@@ -40,7 +40,9 @@ import {
   isTransientFsError,
   noteUnreachable,
   objectPath,
+  renameWithRetry,
   restoreAside,
+  unlinkWithRetry,
   unreachableNoteTime,
 } from './localHelpers.js';
 import { sweepLocalRepository } from './sweep.js';
@@ -438,16 +440,19 @@ export class LocalRepoStore implements RepoStore {
    * touch that found the object before it was moved aside has cleared the
    * note by the second look, which puts the object back; and one that looks
    * after finds nothing, and its writer writes the object again. The object's
-   * directory is left, since a write may be about to stage in it. An object
-   * another handle holds open, which Windows will not move or unlink, is left
-   * for the next sweep.
+   * directory is left, since a write may be about to stage in it.
+   *
+   * Windows will not move or unlink a file another handle holds open, as a
+   * scanner's brief look at a file just written does: the move and the unlink
+   * are tried again as every local rename is ({@link renameWithRetry}), and an
+   * object still held after that is left for the next sweep.
    */
   async gcDeleteUnreachable(repo: string, hash: string, since: number): Promise<boolean> {
     if (await unreachableNoteTime(repo, hash) !== since) return false;
     const file = objectPath(repo, hash);
     const aside = `${file}.${Date.now()}.${Math.random().toString(36).slice(2, 10)}${GC_ASIDE_SUFFIX}`;
     try {
-      await fs.rename(file, aside);
+      await renameWithRetry(file, aside);
     } catch (err) {
       if (isTransientFsError(err)) return false;
       if (!isNotFoundError(err)) throw err;
@@ -459,7 +464,7 @@ export class LocalRepoStore implements RepoStore {
       return false;
     }
     try {
-      await fs.unlink(aside);
+      await unlinkWithRetry(aside);
     } catch (err) {
       // The backend's sweep put it back meanwhile
       if (isNotFoundError(err)) return false;

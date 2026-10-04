@@ -439,9 +439,37 @@ export function isTransientFsError(err: unknown): boolean {
  * @param maxAttempts - Upper bound on retries (≈1.9s total over the default 25)
  */
 export async function renameWithRetry(from: string, to: string, maxAttempts = 25): Promise<void> {
+  await retryTransient(() => fs.rename(from, to), maxAttempts);
+}
+
+/**
+ * Unlink a file, retrying on Windows sharing-violation errors as
+ * {@link renameWithRetry} retries a rename: Windows refuses to delete a file
+ * another handle holds open without sharing its deletion, as a scanner's
+ * brief look at a file just written does. A no-op on POSIX, where the first
+ * attempt always succeeds.
+ *
+ * @param file - The file to unlink
+ * @param maxAttempts - Upper bound on attempts (≈1.9s total over the default 25)
+ */
+export async function unlinkWithRetry(file: string, maxAttempts = 25): Promise<void> {
+  await retryTransient(() => fs.unlink(file), maxAttempts);
+}
+
+/**
+ * Runs a filesystem operation, trying it again while it fails with a
+ * transient sharing violation ({@link TRANSIENT_FS_ERROR_CODES}): the one
+ * retry policy of the local renames and unlinks.
+ *
+ * @param op - The operation
+ * @param maxAttempts - Upper bound on attempts
+ * @throws Any other failure at once, and a transient one once the attempts
+ *   are spent
+ */
+async function retryTransient(op: () => Promise<void>, maxAttempts: number): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
-      await fs.rename(from, to);
+      await op();
       return;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? '';
