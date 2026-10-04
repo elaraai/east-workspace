@@ -34,12 +34,15 @@ import {
   AsyncFunctionType,
   VectorType,
   MatrixType,
+  RefType,
+  type ValueTypeOf,
 } from '../types.js';
 import { compareFor, equalFor } from '../comparison.js';
 import { SortedSet } from '../containers/sortedset.js';
 import { SortedMap } from '../containers/sortedmap.js';
 import { variant } from '../containers/variant.js';
 import { matrix } from '../containers/matrix.js';
+import { ref } from '../containers/ref.js';
 
 
 describe('parseFor (value parsing)', () => {
@@ -148,6 +151,14 @@ describe('parseFor (value parsing)', () => {
         assert.equal(result.error, 'Error occurred because unexpected escape sequence in string (line 1, col 8) while parsing value of type ".String"');
       }
       assert.equal(printFor(StringType)('hello\tworld'), '"hello\tworld"');
+    });
+
+    test('refuses a single-quoted string: the grammar\'s strings are double-quoted, in every runtime', () => {
+      const result = parseFor(StringType)("'hello'");
+      assert.equal(result.success, false);
+      if (!result.success) {
+        assert.equal(result.error, 'Error occurred because expected \'"\', got \'\'\' (line 1, col 1) while parsing value of type ".String"');
+      }
     });
 
     test('should parse datetime', () => {
@@ -1846,6 +1857,102 @@ describe('printFor with aliases', () => {
 
     const result = printer(value);
     assert.equal(result, "[[1, 2], 1#[0], 1#[0]]");
+  });
+});
+
+describe('back-references read back to the one container', () => {
+  const ints = ArrayType(IntegerType);
+
+  /**
+   * `value` prints as `expected`, and reads back equal, with the two
+   * containers `aliases` finds in what it read one and the same.
+   */
+  function readsBack<T extends EastType>(type: T, value: ValueTypeOf<T>, expected: string, aliases: (read: ValueTypeOf<T>) => [unknown, unknown]) {
+    const printed = printFor(type)(value);
+    assert.equal(printed, expected);
+    const result = parseFor(type)(printed);
+    assert.equal(result.success, true, result.success ? '' : result.error);
+    if (result.success) {
+      assert.ok(equalFor(type)(result.value, value), `${expected} reads back equal`);
+      const [first, second] = aliases(result.value);
+      assert.ok(first === second, `${expected} reads back to the one container`);
+    }
+  }
+
+  test('under a quoted field name, the reference after it or in it', () => {
+    const shared = [1n, 2n];
+    readsBack(StructType({ 'a b': ints, c: ints }), { 'a b': shared, c: shared }, '(`a b`=[1, 2], c=1#.`a b`)', read => [read['a b'], read.c]);
+    readsBack(StructType({ c: ints, 'a b': ints }), { c: shared, 'a b': shared }, '(c=[1, 2], `a b`=1#.c)', read => [read['a b'], read.c]);
+    // a name holding a `.`, a `]` and an escaped backtick, which end no path
+    readsBack(StructType({ 'x.y]`': ints, c: ints }), { 'x.y]`': shared, c: shared }, '(`x.y]\\``=[1, 2], c=1#.`x.y]\\``)', read => [read['x.y]`'], read.c]);
+  });
+
+  test('under a Dict key holding a bracket, a quote, a backslash, a backtick or a NUL, or of a struct or variant naming one', () => {
+    const shared = [1n, 2n];
+    const byString = StructType({ d: DictType(StringType, ints), x: ints });
+    readsBack(byString, { d: new SortedMap([['a]b', shared]], compareFor(StringType)), x: shared }, '(d={"a]b":[1, 2]}, x=1#.d["a]b"])', read => [read.d.get('a]b'), read.x]);
+    for (const key of ['[', ']]', 'say "]"', 'back\\', 'back\\]', 'tick`]', 'a\u0000b']) {
+      const text = printFor(StringType)(key);
+      readsBack(byString, { d: new SortedMap([[key, shared]], compareFor(StringType)), x: shared }, `(d={${text}:[1, 2]}, x=1#.d[${text}])`, read => [read.d.get(key), read.x]);
+    }
+
+    // a key's quoted names and strings are taken whole too
+    const KeyStruct = StructType({ 'k]': StringType });
+    const byStruct = StructType({ d: DictType(KeyStruct, ints), x: ints });
+    const structKey = { 'k]': 'v]' };
+    readsBack(byStruct, { d: new SortedMap([[structKey, shared]], compareFor(KeyStruct)), x: shared }, '(d={(`k]`="v]"):[1, 2]}, x=1#.d[(`k]`="v]")])', read => [read.d.get(structKey), read.x]);
+    const KeyCase = VariantType({ 'c]': StringType });
+    const byCase = StructType({ d: DictType(KeyCase, ints), x: ints });
+    const caseKey = variant('c]', '[');
+    readsBack(byCase, { d: new SortedMap([[caseKey, shared]], compareFor(KeyCase)), x: shared }, '(d={.`c]` "[":[1, 2]}, x=1#.d[.`c]` "["])', read => [read.d.get(caseKey), read.x]);
+  });
+
+  test('under a quoted case name', () => {
+    const shared = [1n, 2n];
+    const Cases = VariantType({ 'my case': ints, other: NullType });
+    readsBack(StructType({ v: Cases, x: ints }), { v: variant('my case', shared), x: shared }, '(v=.`my case` [1, 2], x=1#.v.`my case`)', read => [read.v.value, read.x]);
+  });
+
+  test('through a Ref, its content a step down from it, and round a Ref\'s cycle', () => {
+    const shared = [1n, 2n];
+    readsBack(StructType({ r: RefType(ints), x: ints }), { r: ref(shared), x: shared }, '(r=&[1, 2], x=1#.r[])', read => [read.r.value, read.x]);
+
+    // Node = Ref<Array<Node>>, holding itself
+    const Node = RecursiveType(self => RefType(ArrayType(self)));
+    const cell: ValueTypeOf<typeof Node> = ref([]);
+    cell.value.push(cell);
+    const printed = printFor(Node)(cell);
+    assert.equal(printed, '&[2#]');
+    const result = parseFor(Node)(printed);
+    assert.equal(result.success, true, result.success ? '' : result.error);
+    if (result.success) {
+      assert.ok(result.value.value[0] === result.value, 'the cycle reads back to the Ref');
+    }
+  });
+
+  test('a reference to nothing the text holds, or above its root, is refused', () => {
+    const type = StructType({ a: ints, b: ints });
+    const missing = parseFor(type)('(a=[1], b=1#.c)');
+    assert.equal(missing.success, false);
+    if (!missing.success) {
+      assert.equal(missing.error, 'Error occurred because undefined reference 1#.c at .b (line 1, col 11) while parsing value of type ".Struct [(name="a", type=.Array .Integer), (name="b", type=.Array .Integer)]"');
+    }
+    const above = parseFor(type)('(a=[1], b=3#)');
+    assert.equal(above.success, false);
+    if (!above.success) {
+      assert.equal(above.error, 'Error occurred because invalid reference 3#: Invalid relative reference: going up 3 levels from depth 1 at .b (line 1, col 11) while parsing value of type ".Struct [(name="a", type=.Array .Integer), (name="b", type=.Array .Integer)]"');
+    }
+  });
+
+  test('a case is one of the type\'s own, never a name an object inherits', () => {
+    const parse = parseFor(VariantType({ a: IntegerType }));
+    for (const name of ['toString', 'constructor', '__proto__']) {
+      const result = parse(`.${name} 1`);
+      assert.equal(result.success, false, `.${name} is no case`);
+      if (!result.success) {
+        assert.ok(result.error.includes(`unknown variant case .${name}, expected one of: .a`), result.error);
+      }
+    }
   });
 });
 

@@ -16,7 +16,15 @@
  *     parses back at its length, through east_print_value_len and
  *     east_parse_value_len;
  *   - field and case names holding backslashes and backticks — one at the
- *     end, more than one — print every one escaped and parse back.
+ *     end, more than one — print every one escaped and parse back;
+ *   - a string is double-quoted: a single-quoted one is refused, as
+ *     TypeScript refuses it (#1135);
+ *   - a back-reference is written with TypeScript's path components — a
+ *     field or case named as the text spells it, a Dict key's text in
+ *     brackets, a Ref's content a step `[]` down — and reads back to the one
+ *     container, under a quoted name, a key holding `]` or a NUL, and round a
+ *     Ref's cycle; one to nothing is refused with TypeScript's message
+ *     (#1135).
  */
 #include <east/east.h>
 
@@ -78,6 +86,41 @@ static void test_refusals(void)
     refuses(".`a\\x` 1", v, "unexpected escape sequence in identifier");
     refuses(".`a b 1", v, "unterminated identifier (missing closing `)");
     east_type_release(v);
+
+    /* A string is double-quoted: a single-quoted one was once read as one */
+    refuses("'a'", &east_string_type, "expected '\"', got '''");
+    refuses("\"a\\'b\"", &east_string_type, "unexpected escape sequence in string");
+
+    /* A back-reference to nothing the text holds, or above its root */
+    const char *pair[2] = {"a", "b"};
+    EastType *ints = east_array_type(&east_integer_type);
+    EastType *arrays[2] = {ints, ints};
+    EastType *two = east_struct_type(pair, arrays, 2);
+    refuses("(a=[1], b=1#.c)", two, "undefined reference 1#.c at .b");
+    refuses("(a=[1], b=3#)", two,
+            "invalid reference 3#: Invalid relative reference: going up 3 levels from depth 1");
+    /* A reference's count of levels is digits alone: a signed one was once
+     * read as a count wrapped round, far above the root */
+    refuses("(a=[1], b=-1#.a)", two, "expected '[' to start array at .b");
+    east_type_release(two);
+    east_type_release(ints);
+}
+
+/* `value` prints as exactly `want` (`want_len` bytes) and parses back, both at
+ * their length; the value read back is the caller's. */
+static EastValue *reads_back(EastValue *value, EastType *type, const char *want, size_t want_len,
+                             const char *what)
+{
+    size_t len = 0;
+    char *text = east_print_value_len(value, type, &len);
+    CHECK(text && len == want_len && memcmp(text, want, want_len) == 0,
+          "%s prints as TypeScript does, got %.*s", what, (int)len, text ? text : "");
+    char *err = NULL;
+    EastValue *back = text ? east_parse_value_len(text, len, type, &err) : NULL;
+    CHECK(back != NULL, "%s parses back: %s", what, err ? err : "");
+    free(err);
+    free(text);
+    return back;
 }
 
 /* `value` prints as exactly `want` (`want_len` bytes) and parses back equal,
@@ -85,16 +128,9 @@ static void test_refusals(void)
 static void round_trips(EastValue *value, EastType *type, const char *want, size_t want_len,
                         const char *what)
 {
-    size_t len = 0;
-    char *text = east_print_value_len(value, type, &len);
-    CHECK(text && len == want_len && memcmp(text, want, want_len) == 0,
-          "%s prints as TypeScript does", what);
-    char *err = NULL;
-    EastValue *back = text ? east_parse_value_len(text, len, type, &err) : NULL;
-    CHECK(back && east_value_equal(back, value), "%s parses back: %s", what, err ? err : "unequal");
+    EastValue *back = reads_back(value, type, want, want_len, what);
+    CHECK(!back || east_value_equal(back, value), "%s parses back equal", what);
     if (back) east_value_release(back);
-    free(err);
-    free(text);
 }
 
 static void test_strings(void)
@@ -166,11 +202,203 @@ static void test_identifiers(void)
     }
 }
 
+/* An array of two integers */
+static EastValue *ints_of(int64_t a, int64_t b)
+{
+    EastValue *arr = east_array_new(&east_integer_type);
+    EastValue *x = east_integer(a);
+    EastValue *y = east_integer(b);
+    east_array_push(arr, x);
+    east_array_push(arr, y);
+    east_value_release(x);
+    east_value_release(y);
+    return arr;
+}
+
+/* A struct of `holder`, typed `holder_type` and holding `shared`, and then
+ * `shared` again: it prints as `want` (`want_len` bytes), and reads back
+ * equal, with its second field the very array `held` finds in its first. */
+static void shares(const char *holder_name, EastType *holder_type, EastValue *holder,
+                   const char *shared_name, EastValue *shared, const char *want, size_t want_len,
+                   EastValue *(*held)(EastValue *), const char *what)
+{
+    const char *names[2] = {holder_name, shared_name};
+    EastType *types[2] = {holder_type, east_array_type(&east_integer_type)};
+    EastType *st = east_struct_type(names, types, 2);
+    EastValue *fields[2] = {holder, shared};
+    EastValue *sv = east_struct_new(names, fields, 2, st);
+    EastValue *back = reads_back(sv, st, want, want_len, what);
+    if (back) {
+        CHECK(east_value_equal(back, sv), "%s reads back equal", what);
+        CHECK(held(east_struct_get_field_idx(back, 0)) == east_struct_get_field_idx(back, 1),
+              "%s reads back to the one array", what);
+        east_value_release(back);
+    }
+    east_value_release(sv);
+    east_type_release(st);
+}
+
+static EastValue *dict_a_bracket_b(EastValue *d)
+{
+    EastValue *key = east_string("a]b");
+    EastValue *v = east_dict_get(d, key);
+    east_value_release(key);
+    return v;
+}
+
+static EastValue *dict_say_quote(EastValue *d)
+{
+    EastValue *key = east_string("say \"]\" \\");
+    EastValue *v = east_dict_get(d, key);
+    east_value_release(key);
+    return v;
+}
+
+static EastValue *dict_a_nul_c(EastValue *d)
+{
+    EastValue *key = east_string_len("a\0c", 3);
+    EastValue *v = east_dict_get(d, key);
+    east_value_release(key);
+    return v;
+}
+
+static EastValue *variant_payload(EastValue *v)
+{
+    return v->data.variant.value;
+}
+
+static EastValue *itself(EastValue *v)
+{
+    return v;
+}
+
+static void test_back_references(void)
+{
+    EastType *ints = east_array_type(&east_integer_type);
+
+    /* Under a quoted field name: the reference names the field as the text
+     * spells it */
+    {
+        EastValue *shared = ints_of(1, 2);
+        const char want[] = "(`a b`=[1, 2], c=1#.`a b`)";
+        shares("a b", ints, shared, "c", shared, want, sizeof(want) - 1, itself,
+               "a back-reference under a quoted field name");
+        east_value_release(shared);
+    }
+
+    /* Under a Dict key holding `]`: the key's text is taken whole */
+    {
+        EastValue *shared = ints_of(1, 2);
+        EastType *dt = east_dict_type(&east_string_type, ints);
+        EastValue *d = east_dict_new(&east_string_type, ints);
+        EastValue *key = east_string("a]b");
+        east_dict_set(d, key, shared);
+        const char want[] = "(d={\"a]b\":[1, 2]}, x=1#.d[\"a]b\"])";
+        shares("d", dt, d, "x", shared, want, sizeof(want) - 1, dict_a_bracket_b,
+               "a back-reference under a Dict key holding ]");
+        east_value_release(key);
+        east_value_release(d);
+        east_value_release(shared);
+        east_type_release(dt);
+    }
+
+    /* Under a Dict key holding a quote, a `]` and a backslash, each escaped in
+     * the key's text: an escaped quote ends no string */
+    {
+        EastValue *shared = ints_of(1, 2);
+        EastType *dt = east_dict_type(&east_string_type, ints);
+        EastValue *d = east_dict_new(&east_string_type, ints);
+        EastValue *key = east_string("say \"]\" \\");
+        east_dict_set(d, key, shared);
+        const char want[] = "(d={\"say \\\"]\\\" \\\\\":[1, 2]}, x=1#.d[\"say \\\"]\\\" \\\\\"])";
+        shares("d", dt, d, "x", shared, want, sizeof(want) - 1, dict_say_quote,
+               "a back-reference under a Dict key holding an escaped quote");
+        east_value_release(key);
+        east_value_release(d);
+        east_value_release(shared);
+        east_type_release(dt);
+    }
+
+    /* Under one of two Dict keys alike up to a NUL: a key's text is matched
+     * at its length, so the reference names the second, not the first */
+    {
+        EastValue *first = ints_of(1, 2);
+        EastValue *shared = ints_of(3, 4);
+        EastType *dt = east_dict_type(&east_string_type, ints);
+        EastValue *d = east_dict_new(&east_string_type, ints);
+        EastValue *k1 = east_string_len("a\0b", 3);
+        EastValue *k2 = east_string_len("a\0c", 3);
+        east_dict_set(d, k1, first);
+        east_dict_set(d, k2, shared);
+        const char want[] = "(d={\"a\0b\":[1, 2],\"a\0c\":[3, 4]}, x=1#.d[\"a\0c\"])";
+        shares("d", dt, d, "x", shared, want, sizeof(want) - 1, dict_a_nul_c,
+               "a back-reference under a Dict key holding a NUL");
+        east_value_release(k1);
+        east_value_release(k2);
+        east_value_release(d);
+        east_value_release(first);
+        east_value_release(shared);
+        east_type_release(dt);
+    }
+
+    /* Under a quoted case name: the case is a step down, named as the text
+     * spells it */
+    {
+        EastValue *shared = ints_of(1, 2);
+        const char *cases[2] = {"my case", "other"};
+        EastType *case_types[2] = {ints, &east_null_type};
+        EastType *vt = east_variant_type(cases, case_types, 2);
+        EastValue *v = east_variant_new("my case", shared, vt);
+        const char want[] = "(v=.`my case` [1, 2], x=1#.v.`my case`)";
+        shares("v", vt, v, "x", shared, want, sizeof(want) - 1, variant_payload,
+               "a back-reference under a quoted case name");
+        east_value_release(v);
+        east_value_release(shared);
+        east_type_release(vt);
+    }
+
+    /* Through a Ref: its content is a step `[]` down from it */
+    {
+        EastValue *shared = ints_of(1, 2);
+        EastType *rt = east_ref_type(ints);
+        EastValue *r = east_ref_new(shared);
+        const char want[] = "(r=&[1, 2], x=1#.r[])";
+        shares("r", rt, r, "x", shared, want, sizeof(want) - 1, east_ref_get,
+               "a back-reference to a Ref's content");
+        east_value_release(r);
+        east_value_release(shared);
+        east_type_release(rt);
+    }
+
+    /* Round a Ref's cycle, Node = Ref<Array<Node>>: the Ref is registered
+     * before its content, so the reference in it reads back to the Ref */
+    {
+        EastType *rec = east_recursive_type_new();
+        east_recursive_type_set(rec, east_ref_type(east_array_type(rec)));
+        EastType *node = east_recursive_type_intern(rec);
+        EastValue *arr = east_array_new(node);
+        EastValue *r = east_ref_new(arr);
+        east_array_push(arr, r);
+        east_value_release(arr);
+        EastValue *back = reads_back(r, node, "&[2#]", 5, "a Ref's cycle");
+        if (back) {
+            CHECK(east_array_get(east_ref_get(back), 0) == back, "a Ref's cycle reads back to it");
+            east_ref_set(back, east_null());
+            east_value_release(back);
+        }
+        east_ref_set(r, east_null());
+        east_value_release(r);
+    }
+
+    east_type_release(ints);
+}
+
 int main(void)
 {
     test_refusals();
     test_strings();
     test_identifiers();
+    test_back_references();
     east_type_registry_clear();
 
     if (failures > 0) {

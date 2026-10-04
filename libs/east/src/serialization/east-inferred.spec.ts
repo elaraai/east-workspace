@@ -327,6 +327,11 @@ describe('parseInferred', () => {
         assert.ok(e.message.includes('[1]'));
       }
     });
+
+    test('names a quoted field or case in an error\'s path as the text spells it, as the typed parser does', () => {
+      assert.throws(() => parseInferred('(`a b`=[1, 2.5])'), /at \.`a b`\[1\]/);
+      assert.throws(() => parseInferred('.`my case` [1, 2.5]'), /at \.`my case`\[1\]/);
+    });
   });
 
   describe('complex nested structures', () => {

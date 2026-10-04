@@ -10,6 +10,7 @@
 #include "east/serialization.h"
 #include "east/types.h"
 #include "east/values.h"
+#include "east_text.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -113,12 +114,50 @@ static void pbuf_append_identifier(PBuf *sb, const char *id)
 }
 
 /* ================================================================== */
+/*  Path components (east_text.h)                                      */
+/* ================================================================== */
+
+EastPathComponent east_text_component(const char *text, size_t len)
+{
+    EastPathComponent c = {malloc(len + 1), 0};
+    if (c.text) {
+        if (len > 0) memcpy(c.text, text, len);
+        c.text[len] = '\0';
+        c.len = len;
+    }
+    return c;
+}
+
+EastPathComponent east_text_name_component(const char *name)
+{
+    /* Spelled as pbuf_append_identifier spells a field or case name */
+    PBuf sb = pbuf_new(strlen(name) + 4);
+    pbuf_append_char(&sb, '.');
+    pbuf_append_identifier(&sb, name);
+    EastPathComponent c = {sb.data, sb.data ? sb.len : 0};
+    return c;
+}
+
+EastPathComponent east_text_key_component(const char *key, size_t len)
+{
+    EastPathComponent c = {malloc(len + 3), 0};
+    if (c.text) {
+        c.text[0] = '[';
+        if (len > 0) memcpy(c.text + 1, key, len);
+        c.text[len + 1] = ']';
+        c.text[len + 2] = '\0';
+        c.len = len + 2;
+    }
+    return c;
+}
+
+/* ================================================================== */
 /*  Alias tracking context                                             */
 /* ================================================================== */
 
 typedef struct {
-    EastValue *ptr; /* Container pointer identity */
-    char **path;    /* Path components (owned copies) */
+    EastValue *ptr;          /* Container pointer identity */
+    EastPathComponent *path; /* Path components (owned copies) */
     size_t path_len;
     size_t path_cap;
 } RefEntry;
@@ -133,30 +172,37 @@ typedef struct {
     RefEntry *refs;
     size_t ref_count;
     size_t ref_cap;
-    PrintRefSlot *map; /* hash map slots */
-    int map_mask;      /* capacity - 1 */
-    char **path;       /* Current path stack (owned copies) */
+    PrintRefSlot *map;       /* hash map slots */
+    int map_mask;            /* capacity - 1 */
+    EastPathComponent *path; /* Current path stack (owned) */
     size_t path_depth;
     size_t path_cap;
 } PrintContext;
 
-static void ctx_push_path(PrintContext *ctx, const char *component)
+/* Push a component, which the context owns from here and frees on its pop */
+static void ctx_push_path(PrintContext *ctx, EastPathComponent component)
 {
-    if (!ctx) return;
+    if (!ctx) {
+        free(component.text);
+        return;
+    }
     if (ctx->path_depth >= ctx->path_cap) {
         size_t new_cap = ctx->path_cap ? ctx->path_cap * 2 : 8;
-        char **new_path = realloc(ctx->path, new_cap * sizeof(char *));
-        if (!new_path) return;
+        EastPathComponent *new_path = realloc(ctx->path, new_cap * sizeof(EastPathComponent));
+        if (!new_path) {
+            free(component.text);
+            return;
+        }
         ctx->path = new_path;
         ctx->path_cap = new_cap;
     }
-    ctx->path[ctx->path_depth++] = strdup(component);
+    ctx->path[ctx->path_depth++] = component;
 }
 
 static void ctx_pop_path(PrintContext *ctx)
 {
     if (ctx && ctx->path_depth > 0) {
-        free(ctx->path[--ctx->path_depth]);
+        free(ctx->path[--ctx->path_depth].text);
     }
 }
 
@@ -204,14 +250,14 @@ static void ctx_register(PrintContext *ctx, EastValue *ptr)
     e->path_len = ctx->path_depth;
     e->path_cap = ctx->path_depth;
     if (ctx->path_depth > 0) {
-        e->path = malloc(ctx->path_depth * sizeof(char *));
+        e->path = malloc(ctx->path_depth * sizeof(EastPathComponent));
         if (!e->path) {
             e->path_len = 0;
             e->path_cap = 0;
             return;
         }
         for (size_t i = 0; i < ctx->path_depth; i++) {
-            e->path[i] = strdup(ctx->path[i]);
+            e->path[i] = east_text_component(ctx->path[i].text, ctx->path[i].len);
         }
     } else {
         e->path = NULL;
@@ -251,16 +297,15 @@ static void emit_backref(PBuf *sb, PrintContext *ctx, RefEntry *target)
     size_t cur_len = ctx->path_depth;
     size_t tgt_len = target->path_len;
     while (common < cur_len && common < tgt_len &&
-           strcmp(ctx->path[common], target->path[common]) == 0) {
+           east_text_component_equal(&ctx->path[common], &target->path[common])) {
         common++;
     }
-    int up_levels = (int)(cur_len - common);
-    char numbuf[16];
-    snprintf(numbuf, sizeof(numbuf), "%d#", up_levels);
+    char numbuf[32];
+    snprintf(numbuf, sizeof(numbuf), "%zu#", cur_len - common);
     pbuf_append_str(sb, numbuf);
     /* Append remaining path components from target */
     for (size_t i = common; i < tgt_len; i++) {
-        pbuf_append_str(sb, target->path[i]);
+        pbuf_append(sb, target->path[i].text, target->path[i].len);
     }
 }
 
@@ -269,14 +314,14 @@ static void ctx_free(PrintContext *ctx)
     if (!ctx) return;
     for (size_t i = 0; i < ctx->ref_count; i++) {
         for (size_t j = 0; j < ctx->refs[i].path_len; j++) {
-            free(ctx->refs[i].path[j]);
+            free(ctx->refs[i].path[j].text);
         }
         free(ctx->refs[i].path);
     }
     free(ctx->refs);
     free(ctx->map);
     for (size_t i = 0; i < ctx->path_depth; i++) {
-        free(ctx->path[i]);
+        free(ctx->path[i].text);
     }
     free(ctx->path);
 }
@@ -422,8 +467,8 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             for (size_t i = 0; i < count; i++) {
                 if (i > 0) pbuf_append_str(sb, ", ");
                 char idx_buf[24];
-                snprintf(idx_buf, sizeof(idx_buf), "[%zu]", i);
-                ctx_push_path(ctx, idx_buf);
+                int idx_len = snprintf(idx_buf, sizeof(idx_buf), "[%zu]", i);
+                ctx_push_path(ctx, east_text_component(idx_buf, (size_t)idx_len));
                 print_val(sb, value->data.array.items[i], elem_type, ctx);
                 ctx_pop_path(ctx);
             }
@@ -476,9 +521,16 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             pbuf_append_char(sb, '{');
             for (size_t i = 0; i < count; i++) {
                 if (i > 0) pbuf_append_char(sb, ',');
+                size_t key_at = sb->len;
                 print_val(sb, east_dict_key_at(value, i), key_type, ctx);
+                /* The value's path component: `[`, the key's text as just
+                 * written, `]` */
+                EastPathComponent key_path = east_text_key_component(
+                    sb->data ? sb->data + key_at : "", sb->data ? sb->len - key_at : 0);
                 pbuf_append_char(sb, ':');
+                ctx_push_path(ctx, key_path);
                 print_val(sb, east_dict_val_at(value, i), val_type, ctx);
+                ctx_pop_path(ctx);
             }
             pbuf_append_char(sb, '}');
         }
@@ -504,10 +556,9 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
                     (value->kind == EAST_VAL_STRUCT && i < value->data.struct_.num_fields)
                         ? value->data.struct_.field_values[i]
                         : NULL;
-                /* Push field path component: ".fieldname" */
-                char path_buf[256];
-                snprintf(path_buf, sizeof(path_buf), ".%s", fname);
-                ctx_push_path(ctx, path_buf);
+                /* Push field path component: `.` and the name as the text
+                 * spells it */
+                ctx_push_path(ctx, east_text_name_component(fname));
                 print_val(sb, fval, ftype, ctx);
                 ctx_pop_path(ctx);
             }
@@ -538,7 +589,10 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
         if (case_type && case_type->kind != EAST_TYPE_NULL && value->data.variant.value &&
             value->data.variant.value->kind != EAST_VAL_NULL) {
             pbuf_append_char(sb, ' ');
+            /* The case's path component names it as the text spells it */
+            ctx_push_path(ctx, east_text_name_component(case_name));
             print_val(sb, value->data.variant.value, case_type, ctx);
+            ctx_pop_path(ctx);
         }
         break;
     }
@@ -554,7 +608,10 @@ static void print_val(PBuf *sb, EastValue *value, EastType *type, PrintContext *
             ctx_register(ctx, value);
         }
         pbuf_append_char(sb, '&');
+        /* A Ref's content is a step down from it, `[]` */
+        ctx_push_path(ctx, east_text_component("[]", 2));
         print_val(sb, value->data.ref.value, type->data.element, ctx);
+        ctx_pop_path(ctx);
         break;
     }
 

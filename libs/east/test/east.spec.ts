@@ -1590,6 +1590,80 @@ await describe("East", (test) => {
         $(assert.equal(parsed, outer));
     });
 
+    test("print() names a quoted field in a back-reference as the text spells it, and parse() reads it back to the one array", $ => {
+        const shared = $.let([1n, 2n]);
+        const value = $.let({ "a b": shared, c: shared });
+        const printed = $.let(East.print(value));
+        $(assert.equal(printed, "(`a b`=[1, 2], c=1#.`a b`)"));
+        const parsed = $.let(printed.parse(StructType({ "a b": ArrayType(IntegerType), c: ArrayType(IntegerType) })));
+        $(assert.equal(parsed, value));
+        $(assert.is(parsed.c, parsed["a b"]));
+    });
+
+    test("print() writes a Dict key's text whole in a back-reference, a ] or a NUL in it, and parse() reads it back to the one array", $ => {
+        const shared = $.let([1n, 2n]);
+        const byBracket = $.let(new Map(), DictType(StringType, ArrayType(IntegerType)));
+        $(byBracket.insert("a]b", shared));
+        const value = $.let({ d: byBracket, x: shared });
+        const printed = $.let(East.print(value));
+        $(assert.equal(printed, "(d={\"a]b\":[1, 2]}, x=1#.d[\"a]b\"])"));
+        const parsed = $.let(printed.parse(StructType({ d: DictType(StringType, ArrayType(IntegerType)), x: ArrayType(IntegerType) })));
+        $(assert.equal(parsed, value));
+        $(assert.is(parsed.x, parsed.d.get("a]b")));
+
+        // A quote and a backslash in a key, escaped in its text: an escaped
+        // quote ends no string
+        const byQuote = $.let(new Map(), DictType(StringType, ArrayType(IntegerType)));
+        $(byQuote.insert("say \"]\" \\", shared));
+        const quoteValue = $.let({ d: byQuote, x: shared });
+        const quotePrinted = $.let(East.print(quoteValue));
+        $(assert.equal(quotePrinted, "(d={\"say \\\"]\\\" \\\\\":[1, 2]}, x=1#.d[\"say \\\"]\\\" \\\\\"])"));
+        const quoteParsed = $.let(quotePrinted.parse(StructType({ d: DictType(StringType, ArrayType(IntegerType)), x: ArrayType(IntegerType) })));
+        $(assert.equal(quoteParsed, quoteValue));
+        $(assert.is(quoteParsed.x, quoteParsed.d.get("say \"]\" \\")));
+
+        // Two keys alike up to a NUL: the reference names the second
+        const other = $.let([3n, 4n]);
+        const byNul = $.let(new Map(), DictType(StringType, ArrayType(IntegerType)));
+        $(byNul.insert("a\u0000b", other));
+        $(byNul.insert("a\u0000c", shared));
+        const nulValue = $.let({ d: byNul, x: shared });
+        const nulPrinted = $.let(East.print(nulValue));
+        $(assert.equal(nulPrinted, "(d={\"a\u0000b\":[3, 4],\"a\u0000c\":[1, 2]}, x=1#.d[\"a\u0000c\"])"));
+        const nulParsed = $.let(nulPrinted.parse(StructType({ d: DictType(StringType, ArrayType(IntegerType)), x: ArrayType(IntegerType) })));
+        $(assert.equal(nulParsed, nulValue));
+        $(assert.is(nulParsed.x, nulParsed.d.get("a\u0000c")));
+    });
+
+    test("print() names a quoted case in a back-reference, and a Ref's content a step [] down from it, and parse() reads each back to the one array", $ => {
+        const shared = $.let([1n, 2n]);
+        const Cases = VariantType({ "my case": ArrayType(IntegerType), other: NullType });
+        const inCase = $.let({ v: East.value(variant("my case", shared), Cases), x: shared });
+        const casePrinted = $.let(East.print(inCase));
+        $(assert.equal(casePrinted, "(v=.`my case` [1, 2], x=1#.v.`my case`)"));
+        const caseParsed = $.let(casePrinted.parse(StructType({ v: Cases, x: ArrayType(IntegerType) })));
+        $(assert.equal(caseParsed, inCase));
+        $(assert.is(caseParsed.x, caseParsed.v.unwrap("my case")));
+
+        const cell = $.let(ref([]), RefType(ArrayType(IntegerType)));
+        $(cell.update(shared));
+        const inRef = $.let({ r: cell, x: shared });
+        const refPrinted = $.let(East.print(inRef));
+        $(assert.equal(refPrinted, "(r=&[1, 2], x=1#.r[])"));
+        const refParsed = $.let(refPrinted.parse(StructType({ r: RefType(ArrayType(IntegerType)), x: ArrayType(IntegerType) })));
+        $(assert.equal(refParsed, inRef));
+        $(assert.is(refParsed.x, refParsed.r.get()));
+    });
+
+    test("parse() refuses a single-quoted string, and a back-reference to nothing the text holds or above its root", $ => {
+        $(assert.throws(East.value("'a'").parse(StringType), /expected '"', got '''/));
+        const Pair = StructType({ a: ArrayType(IntegerType), b: ArrayType(IntegerType) });
+        $(assert.throws(East.value("(a=[1], b=1#.c)").parse(Pair), /undefined reference 1#\.c at \.b/));
+        $(assert.throws(East.value("(a=[1], b=3#)").parse(Pair), /invalid reference 3#: Invalid relative reference: going up 3 levels from depth 1 at \.b/));
+        // a reference's count of levels is digits alone
+        $(assert.throws(East.value("(a=[1], b=-1#.a)").parse(Pair), /expected '\[' to start array at \.b/));
+    });
+
 
     test("Recursive type - tree without cycles", $ => {
         // Create a simple binary tree: node(1, leaf, leaf)
