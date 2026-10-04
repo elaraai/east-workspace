@@ -36,6 +36,7 @@ import {
 import { StatusDisplay } from './StatusDisplay.js';
 import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
+import { SEARCH_DEBOUNCE_MS, useControlledKeySearch } from './controlled-search.js';
 import { pagingDebug } from '../debug.js';
 
 /** Elements REQUESTED per page — one remote window per scroll-ahead page.
@@ -98,6 +99,16 @@ export interface PagedDatasetPreviewProps {
      *  contract). The parent falls back to the inline tree so pre-index
      *  values keep rendering instead of dead-ending here. */
     onNotIndexed?: () => void;
+    /** `false` draws no band above the rows — no totals, key search or
+     *  Download (#1120). Default `true`. */
+    toolbar?: boolean;
+    /** The key search, controlled: found on the server as the search box
+     *  finds a query, scrolled to its first match; the preview draws no
+     *  search box of its own (#1120). */
+    search?: string;
+    /** Told the text of the preview's own search box as it is edited, unless
+     *  `search` is given. */
+    onSearchChange?: (search: string) => void;
 }
 
 /** Materializes one decoded page into the renderer's paged-row contract. */
@@ -142,6 +153,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     requestOptions,
     onDownload,
     onNotIndexed,
+    toolbar = true,
+    search,
+    onSearchChange,
 }: PagedDatasetPreviewProps) {
     // The totals line, in the app's locale (#850).
     const words = useFormatters();
@@ -291,6 +305,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
             : [...(decoded as Set<unknown>).values()];
         return keys.map((k) => (stringKeys ? k as string : ValueTree.keyLabel(keyType as never, k)));
     }, [queryClient, apiUrl, repo, workspace, path, hash, pathParts, requestOptions, type, keyType]);
+    // A search the host controls: each find a request, so the text must hold
+    // a moment first, as in the search box (#1120).
+    useControlledKeySearch(search, keyType, onFindKey, setJumpRow, SEARCH_DEBOUNCE_MS);
 
     const treeValue = useMemo<ValueTreeValue>(() => ({
         root: ValueTree.materialize(type, emptyOf(type)),
@@ -334,19 +351,21 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     const itemNoun = type.type === 'Dict' ? 'entries' : 'items';
     return (
         <Flex direction="column" height="100%" overflow="hidden">
-            <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
-                <Text fontSize="body.sm" color="fg.muted" whiteSpace="nowrap">
-                    {words.number(totals.elements)} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes, words)}
-                </Text>
-                {loadingCount > 0 && <Text fontSize="body.sm" color="fg.muted">Loading…</Text>}
-                {keyType !== null && (
-                    <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange}
-                        onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
-                )}
-                <Flex flex={1} justify="flex-end">
-                    <DownloadButton onClick={onDownload} />
+            {toolbar && (
+                <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
+                    <Text fontSize="body.sm" color="fg.muted" whiteSpace="nowrap">
+                        {words.number(totals.elements)} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes, words)}
+                    </Text>
+                    {loadingCount > 0 && <Text fontSize="body.sm" color="fg.muted">Loading…</Text>}
+                    {search === undefined && keyType !== null && (
+                        <DatasetKeySearch keyType={keyType} onFind={onFindKey} onListRange={onListRange}
+                            onJump={setJumpRow} onClear={() => setJumpRow(undefined)} onInputChange={onSearchChange} />
+                    )}
+                    <Flex flex={1} justify="flex-end">
+                        <DownloadButton onClick={onDownload} />
+                    </Flex>
                 </Flex>
-            </Flex>
+            )}
             <Box flex={1} minHeight={0} overflow="hidden">
                 <EastChakraValueTree value={treeValue} storageKey={`${path}:page`} paging={paging} />
             </Box>
@@ -357,4 +376,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     // A rotated token, or another fetch, re-renders the preview, or its reads
     // keep the old one.
     && prev.requestOptions?.token === next.requestOptions?.token
-    && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch));
+    && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch)
+    // The host's controls (#1120).
+    && prev.toolbar === next.toolbar && prev.search === next.search
+    && Object.is(prev.onSearchChange, next.onSearchChange));

@@ -10,6 +10,11 @@
  *   - `ui`   → `<UITaskPreview>`
  *   - `data` → `<DataTaskPreview>` (output preview tabs + logs)
  *
+ * A host that draws a data task's controls in its own header (#1120) passes
+ * `toolbar={false}` and controls the tab (`view`, `onViewChange`) and the
+ * output's key search (`search`, `onSearchChange`); they reach the data
+ * task's preview, and a ui task's preview, which draws no band, ignores them.
+ *
  * @packageDocumentation
  */
 
@@ -17,7 +22,7 @@ import { memo } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
 import type { RequestOptions } from '@elaraai/e3-api-client';
 import { UITaskPreview } from './UITaskPreview.js';
-import { DataTaskPreview } from './DataTaskPreview.js';
+import { DataTaskPreview, type DataTaskPreviewProps } from './DataTaskPreview.js';
 import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { StatusDisplay } from './StatusDisplay.js';
 
@@ -33,6 +38,16 @@ export interface TaskPreviewProps {
      * `bare`) — for host kiosk embedding of a deployed `<App>`. Default `false`.
      */
     bare?: boolean;
+    /** A data task's tab, controlled: see {@link DataTaskPreviewProps.view}. */
+    view?: DataTaskPreviewProps['view'];
+    /** Told the tab a data task's switch picks. */
+    onViewChange?: DataTaskPreviewProps['onViewChange'];
+    /** `false` draws no band in a data task's preview (#1120). Default `true`. */
+    toolbar?: boolean;
+    /** A data task's output's key search, controlled: see {@link DataTaskPreviewProps.search}. */
+    search?: string;
+    /** Told the text of the output's own search box: see {@link DataTaskPreviewProps.onSearchChange}. */
+    onSearchChange?: (search: string) => void;
 }
 
 export const TaskPreview = memo(function TaskPreview({
@@ -42,6 +57,11 @@ export const TaskPreview = memo(function TaskPreview({
     task,
     requestOptions,
     bare = false,
+    view,
+    onViewChange,
+    toolbar,
+    search,
+    onSearchChange,
 }: TaskPreviewProps) {
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
@@ -77,6 +97,11 @@ export const TaskPreview = memo(function TaskPreview({
                                 workspace={workspace}
                                 task={task}
                                 {...(requestOptions != null && { requestOptions })}
+                                {...(view !== undefined && { view })}
+                                {...(onViewChange !== undefined && { onViewChange })}
+                                {...(toolbar !== undefined && { toolbar })}
+                                {...(search !== undefined && { search })}
+                                {...(onSearchChange !== undefined && { onSearchChange })}
                             />
                 }
             </Box>
@@ -87,4 +112,7 @@ export const TaskPreview = memo(function TaskPreview({
     // A rotated token, or another fetch, re-renders the preview, or its reads
     // keep the old one.
     && prev.requestOptions?.token === next.requestOptions?.token
-    && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch));
+    && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch)
+    // The host's controls (#1120).
+    && prev.view === next.view && prev.toolbar === next.toolbar && prev.search === next.search
+    && Object.is(prev.onViewChange, next.onViewChange) && Object.is(prev.onSearchChange, next.onSearchChange));

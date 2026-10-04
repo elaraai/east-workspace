@@ -68,13 +68,47 @@ const { data } = useTaskList(apiUrl, repo, workspace, requestOptions, {
 
 ### TaskPreview
 
-Displays task execution output and logs with a virtualized log viewer.
+Previews a task by its role: a `ui()` task renders its UI; a data task shows its
+output (Output) and its logs (Logs) under a band holding the Output/Logs switch,
+and, above the output, its key search, size and Download.
 
 ```tsx
 import { TaskPreview } from '@elaraai/e3-ui-components';
 
-<TaskPreview apiUrl={url} workspace={ws} task={taskName} taskInfo={info} outputHash={hash} />
+<TaskPreview apiUrl={url} repo="default" workspace={ws} task={taskName} />
 ```
+
+| Prop | Meaning |
+|------|---------|
+| `apiUrl`, `repo`, `workspace`, `task` | **required** — the task to preview |
+| `requestOptions` | the token, and the `fetch` every request goes through |
+| `bare` | no task-name header, and a `ui()` task's output edge to edge — for a kiosk |
+| `toolbar` | `false` draws no band in a data task's preview; the host draws the controls. Default `true` |
+| `view`, `onViewChange` | a data task's tab, `'output'` or `'logs'`, controlled |
+| `search`, `onSearchChange` | the output's key search, controlled: a given `search` is found and scrolled to (`''` clears), and the preview draws no search box of its own; otherwise `onSearchChange` hears the preview's own box |
+
+A host whose frame holds its controls in its header draws them itself and hides
+the band:
+
+```tsx
+import { TaskPreview, downloadDataset, formatSize, useDatasetStatus, useTaskDetails } from '@elaraai/e3-ui-components';
+
+const [view, setView] = useState<'output' | 'logs'>('output');
+const [search, setSearch] = useState('');
+const details = useTaskDetails(url, 'default', ws, taskName);
+const output = details.data?.output.path.map((step) => step.value).join('.') ?? null;
+const status = useDatasetStatus(url, 'default', ws, output);
+
+// In the header: the tab, the search, the size and Download, at the header's size.
+// In the body:
+<TaskPreview apiUrl={url} repo="default" workspace={ws} task={taskName} bare
+    toolbar={false} view={view} onViewChange={setView} search={search} />
+// Download: downloadDataset(url, 'default', ws, output); the size: formatSize(status.data.sizeBytes)
+```
+
+`search` is read as the preview's own search box reads its text: a key's
+prefix, a struct key's leading fields (`press, 2`), a `from..to` range, or a
+whole key in `.east` syntax.
 
 ### InputPreview
 

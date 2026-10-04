@@ -102,7 +102,7 @@ export { InputPreview, type InputPreviewProps } from './components/InputPreview.
 export { TaskPreview, type TaskPreviewProps } from './components/TaskPreview.js';
 export { UITaskPreview, type UITaskPreviewProps } from './components/UITaskPreview.js';
 export { DataTaskPreview, type DataTaskPreviewProps } from './components/DataTaskPreview.js';
-export { DatasetPreview, type DatasetPreviewProps } from './components/DatasetPreview.js';
+export { DatasetPreview, formatSize, type DatasetPreviewProps } from './components/DatasetPreview.js';
 // Key search moved to east-ui-components in #574 (it has no e3 dependency);
 // re-exported here so existing consumers of this package are untouched.
 export {

@@ -111,7 +111,44 @@ export function useDatasetValue(
     });
 }
 
-/** Trigger a binary download of a dataset value. */
+/**
+ * Downloads a dataset's value: its beast2 bytes, which the browser saves as
+ * `<path>.beast2`, the path's dots as underscores. What a preview's Download
+ * does, for a host that draws Download itself (#1120).
+ *
+ * @param apiUrl - The e3 API's base URL
+ * @param repo - The repository
+ * @param workspace - The workspace
+ * @param path - The dataset's dotted path, e.g. `"inputs.rows"`
+ * @param requestOptions - The token, and the fetch the request goes through
+ * @returns Once the browser has the file
+ *
+ * @example
+ * ```tsx
+ * <Button onClick={() => downloadDataset(apiUrl, 'default', 'main', 'tasks.report.output')}>Download</Button>
+ * ```
+ */
+export async function downloadDataset(
+    apiUrl: string,
+    repo: string,
+    workspace: string,
+    path: string,
+    requestOptions?: RequestOptions,
+): Promise<void> {
+    const pathParts = path.split('.').filter(Boolean).map((v) => variant('field', v));
+    const result = await datasetGet(apiUrl, repo, workspace, pathParts, requestOptions ?? { token: null });
+    const blob = new Blob([new Uint8Array(result.data)], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${path.replace(/\./g, '_')}.beast2`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+/** Trigger a binary download of a dataset value: {@link downloadDataset}, once the workspace and path are known. */
 export function useDatasetDownload(
     apiUrl: string,
     repo: string,
@@ -119,27 +156,8 @@ export function useDatasetDownload(
     datasetPath: string | null,
     requestOptions?: RequestOptions,
 ) {
-    const reqOpts = useMemo(
-        () => requestOptions ?? { token: null },
-        [requestOptions],
-    );
-
-    const pathParts = useMemo(() =>
-        datasetPath?.split('.').filter(Boolean).map((v) => variant('field', v)) ?? [],
-        [datasetPath],
-    );
-
     return useCallback(async () => {
         if (!workspace || !datasetPath) return;
-        const result = await datasetGet(apiUrl, repo, workspace, pathParts, reqOpts);
-        const blob = new Blob([new Uint8Array(result.data)], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${datasetPath.replace(/\./g, '_')}.beast2`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, [apiUrl, repo, workspace, datasetPath, pathParts, reqOpts]);
+        await downloadDataset(apiUrl, repo, workspace, datasetPath, requestOptions);
+    }, [apiUrl, repo, workspace, datasetPath, requestOptions]);
 }

@@ -185,6 +185,19 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(onClear).toHaveBeenCalledTimes(2));
     });
 
+    test("tells a host the input's text as it is edited, and '' when the clear button empties it (#1120)", async () => {
+        const onFind = vi.fn(async () => ({ found: true, row: 0, count: 1 }));
+        const onListRange = vi.fn(async () => ["ab"]);
+        const onInputChange = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump: vi.fn(), onInputChange });
+
+        await userEvent.type(screen.getByPlaceholderText("Search keys"), "ab");
+        await waitFor(() => expect(onInputChange).toHaveBeenLastCalledWith("ab"));
+        await waitFor(() => expect(screen.getByText("1 match")).toBeTruthy());
+        fireEvent.click(screen.getByLabelText("Clear search"));
+        await waitFor(() => expect(onInputChange).toHaveBeenLastCalledWith(""));
+    });
+
     test("misses report No matches; the control is the shared combobox recipe", async () => {
         const onFind = vi.fn(async () => ({ found: false, row: 7, count: 0 }));
         const onListRange = vi.fn(async () => [] as string[]);

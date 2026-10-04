@@ -41,6 +41,7 @@ import { useDatasetSet } from '../hooks/datasets.js';
 import { StatusDisplay } from './StatusDisplay.js';
 import { DatasetKeySearch, keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { PagedDatasetPreview } from './PagedDatasetPreview.js';
+import { useControlledKeySearch } from './controlled-search.js';
 import { formatApiError, formatError } from '../errors.js';
 
 const DEFAULT_SIZE_LIMIT = 200 * 1024; // 200KB
@@ -58,6 +59,18 @@ export interface DatasetPreviewProps {
     /** When set, leaf edits / inserts / removes / tag switches write back to
      *  this dataset path (for mutable inputs). Task outputs stay read-only. */
     editable?: boolean;
+    /** `false` draws no band above the value — no key search, size or
+     *  Download — for a host that draws them in its own header (#1120). A
+     *  value too large to show keeps its Download, which is the body. Default
+     *  `true`. */
+    toolbar?: boolean;
+    /** The key search, controlled: the host draws its input, and the preview
+     *  draws no search box of its own. The text is read in the key search's
+     *  grammar and scrolled to its first match; `''` clears (#1120). */
+    search?: string;
+    /** Told the text of the preview's own search box as it is edited, unless
+     *  `search` is given. */
+    onSearchChange?: (search: string) => void;
 }
 
 /** A size in KB, to one decimal. */
@@ -103,6 +116,9 @@ export const DatasetPreview = memo(function DatasetPreview({
     sizeLimit = DEFAULT_SIZE_LIMIT,
     pollInterval,
     editable = false,
+    toolbar = true,
+    search,
+    onSearchChange,
 }: DatasetPreviewProps) {
     // Counts and sizes, in the app's locale (#850).
     const words = useFormatters();
@@ -227,6 +243,9 @@ export const DatasetPreview = memo(function DatasetPreview({
         while (row + count < inlineKeys.length && !range.upper(inlineKeys[row + count])) count++;
         return { found: count > 0, row, count };
     }, [inlineKeys, keyType]);
+    // A search the host controls, over the keys shown inline: found at once,
+    // the scan being local (#1120).
+    useControlledKeySearch(search, inlineKeys === null ? null : keyType, onFindInline, setJumpRow, 0);
     const onListInline = useCallback(async (row: number, limit: number): Promise<string[]> => {
         if (inlineKeys === null || keyType === null) return [];
         const stringKeys = keyType.type === 'String';
@@ -271,6 +290,9 @@ export const DatasetPreview = memo(function DatasetPreview({
                 {...(requestOptions != null && { requestOptions })}
                 onDownload={download}
                 onNotIndexed={() => setNotIndexedHash(pagedHash)}
+                toolbar={toolbar}
+                {...(search !== undefined && { search })}
+                {...(onSearchChange !== undefined && { onSearchChange })}
             />
         );
     }
@@ -307,16 +329,18 @@ export const DatasetPreview = memo(function DatasetPreview({
 
     return (
         <Flex direction="column" height="100%" overflow="hidden">
-            <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
-                {keyType !== null && inlineKeys !== null && (
-                    <DatasetKeySearch keyType={keyType} onFind={onFindInline} onListRange={onListInline}
-                        onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
-                )}
-                <Flex flex={1} justify="flex-end" align="center" gap={2}>
-                    <Text fontSize="body.sm" color="fg.muted">{countText}{formatSize(sizeBytes, words)}</Text>
-                    <DownloadButton onClick={download} />
+            {toolbar && (
+                <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
+                    {search === undefined && keyType !== null && inlineKeys !== null && (
+                        <DatasetKeySearch keyType={keyType} onFind={onFindInline} onListRange={onListInline}
+                            onJump={setJumpRow} onClear={() => setJumpRow(undefined)} onInputChange={onSearchChange} />
+                    )}
+                    <Flex flex={1} justify="flex-end" align="center" gap={2}>
+                        <Text fontSize="body.sm" color="fg.muted">{countText}{formatSize(sizeBytes, words)}</Text>
+                        <DownloadButton onClick={download} />
+                    </Flex>
                 </Flex>
-            </Flex>
+            )}
             <Box flex={1} minHeight={0} overflow="hidden">
                 {treeValue !== null && <EastChakraValueTree value={treeValue} storageKey={path ?? 'value'} scrollToRow={jumpRow} />}
             </Box>

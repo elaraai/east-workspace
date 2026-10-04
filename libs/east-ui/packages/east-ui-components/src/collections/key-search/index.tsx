@@ -80,6 +80,9 @@ export interface DatasetKeySearchProps {
     /** Clears the host's jump (and its held row highlight) when the query
      *  is cleared. */
     onClear?: (() => void) | undefined;
+    /** Told the input's text as it is edited, and `''` when the clear button
+     *  empties it: a host that keeps the search (#1120). */
+    onInputChange?: ((text: string) => void) | undefined;
 }
 
 /**
@@ -89,7 +92,7 @@ export interface DatasetKeySearchProps {
  * @returns the search combobox with its match count, range navigation and
  *   clear affordance
  */
-export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear }: DatasetKeySearchProps) {
+export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange }: DatasetKeySearchProps) {
     const [range, setRange] = useState<DatasetKeyMatchRange | null>(null);
     const [items, setItems] = useState<{ row: number; label: string }[]>([]);
     /** Position within the range after a jump; -1 before the first jump. */
@@ -137,6 +140,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const handleInput = useCallback((text: string) => {
         clearTimeout(debounceRef.current);
+        onInputChange?.(text);
         if (text === '') {
             resetQueryState();
             onClear?.();
@@ -153,13 +157,14 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         }
         setHint(null);
         debounceRef.current = setTimeout(() => runFind(parsed.query), FIND_DEBOUNCE_MS);
-    }, [keyType, runFind, resetQueryState, onClear]);
+    }, [keyType, runFind, resetQueryState, onClear, onInputChange]);
 
     const clearSearch = useCallback(() => {
         resetQueryState();
         setResetSeq((s) => s + 1);
         onClear?.();
-    }, [resetQueryState, onClear]);
+        onInputChange?.('');
+    }, [resetQueryState, onClear, onInputChange]);
 
     const commit = useCallback((row: number) => {
         onJump(row);
