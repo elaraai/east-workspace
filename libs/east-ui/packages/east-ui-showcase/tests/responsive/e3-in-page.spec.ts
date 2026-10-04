@@ -244,23 +244,26 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await page.goto("/?theme=light#all-e3-components");
         await page.waitForSelector("header", { timeout: 20_000 });
         await settled(page);
-        /** Scrolls the doc list to its end and back, a frame at a time, and
-         *  counts the starting lines in every frame. */
-        const sweep = () => page.evaluate(async () => {
+        /** Scrolls the doc list to its end — and back, when asked — a view at
+         *  a time, and counts the starting lines in every frame. A step of the
+         *  list's own height brings every row into view on the fewest frames:
+         *  the sweep's time grows with the e3 catalog, which it walks whole. */
+        const sweep = (back: boolean) => page.evaluate(async (back) => {
             // The doc list scrolls the first doc row's grandparent.
             const list = document.querySelector("[data-index]")!.parentElement!.parentElement!;
             const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             let starting = 0;
             const count = () => { starting += document.querySelectorAll('[data-e3-start="starting"]').length; };
-            for (let y = 0; y <= list.scrollHeight; y += 500) { list.scrollTop = y; await frame(); count(); }
-            for (let y = list.scrollHeight; y >= 0; y -= 500) { list.scrollTop = y; await frame(); count(); }
+            const step = list.clientHeight;
+            for (let y = 0; y <= list.scrollHeight; y += step) { list.scrollTop = y; await frame(); count(); }
+            if (back) for (let y = list.scrollHeight; y >= 0; y -= step) { list.scrollTop = y; await frame(); count(); }
             return starting;
-        });
-        // The first sweep mounts every example, and loads what each reads.
-        await sweep();
+        }, back);
+        // The first sweep, down the list, mounts every example, and loads what each reads.
+        await sweep(false);
         await settled(page);
-        // Every row the second sweep mounts again shows its example at once.
-        expect(await sweep()).toBe(0);
+        // Every row the second sweep mounts again, down and back, shows its example at once.
+        expect(await sweep(true)).toBe(0);
     });
 
     test("the page fetches its package at the URL the bundle carries — the zip named by its content", async ({ page }) => {
