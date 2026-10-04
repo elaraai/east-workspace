@@ -116,7 +116,7 @@ Task → What do you need?
     │
     ├─ Let users query the bound datasets and save their queries (typed jq)
     │   ├─ Store the queries they save                    → e3.record("queries", Query.Types.Saved, new Map()) + e3.mutation.patch(queries)
-    │   ├─ Ship queries in the record, checked at build   → Query.saved({ orders, customers }, [{ name, jq, description?, savedAt }])
+    │   ├─ Ship queries in the record, checked at build   → Query.value({ orders, customers }, [{ name, jq, description?, savedAt }])
     │   ├─ The builder: steps or jq, checked, run, saved  → <Query.Builder queries datasets query? id? />
     │   └─ The saved queries, and where new ones start    → <Query.Library queries datasets onOpen? id? />
     │
@@ -672,13 +672,13 @@ It holds no types: they are what checking its program against its data sources
 gives. The type never depends on the data sources, so adding one runs no
 migration.
 
-To ship queries in the record, `Query.saved(sources, queries)` gives its value:
-each query written inline, checked against the data sources when the package
+To ship queries in the record, write its value with `Query.value(sources,
+queries)`: each query inline, checked against the data sources when the package
 builds, as the builder checks a query it saves. The sources are named as a
 query reads them, each the dataset or task `Data.bind` takes:
 
 ```ts
-export const queries = e3.record("queries", Query.Types.Saved, Query.saved({ orders, customers }, [
+export const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders, customers }, [
     { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
     { name: "Orders by region", jq: ".customers as $c | .orders | group_by($c[.customer_id].region) | map(length)",
       description: "How many orders each region placed.", savedAt: new Date("2026-10-01T09:00:00Z") },
@@ -879,9 +879,10 @@ Tested examples live in `test/*.examples.tsx`:
   it mounts — `<Studio.Builder>`, `<Studio.Library>` and a published
   `<Studio.Page>`.
 - `query/query.examples.tsx` — queries as a solution writes them: the shared
-  fixture's datasets, the saved queries record shipped with seven queries by
-  `Query.saved`, the builder open on three of them and over an empty record,
-  and the library.
+  fixture's datasets; the saved queries record, its value seven queries from
+  `Query.value`; the builder open on three of them and over an empty record; an
+  order history the package's tasks generate, with its own saved queries and a
+  builder whose runs are split calls; and the library.
 
 ## Related skills
 

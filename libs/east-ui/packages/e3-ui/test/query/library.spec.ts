@@ -139,7 +139,7 @@ describe("<Query.Library> (#1063)", () => {
     });
 
     test("the public Query namespace is the two components a solution mounts, the queries it ships and their types; the carrier and its payload are the internal one's", () => {
-        assert.deepEqual(Object.keys(Query), ["Builder", "Library", "saved", "Types"]);
+        assert.deepEqual(Object.keys(Query), ["Builder", "Library", "value", "Types"]);
         assert.equal(QueryInternal.Library, Query.Library);
         assert.equal(QueryInternal.LibraryComponent, QueryLibraryComponent);
         assert.ok(isTypeEqual(QueryInternal.Types.LibraryPayload, QueryLibraryPayloadType));
