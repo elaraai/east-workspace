@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import numpy as np
-
 if TYPE_CHECKING:
+    import numpy as np
+
     from east.types.types import EastType
 
 T = TypeVar("T")
@@ -21,12 +22,45 @@ K = TypeVar("K")
 OptionT = TypeVar("OptionT")
 
 
+class _ElementDtypes(Mapping[str, "np.dtype"]):
+    """Vector/Matrix buffer widths, by logical element: Float, Integer, Boolean.
+
+    numpy's dtypes are made the first time one is read, so which elements a
+    buffer may hold is answered without importing numpy: a process whose values
+    hold no Vector or Matrix never loads it (#1128).
+    """
+
+    _ELEMENTS: tuple[str, ...] = ("Float", "Integer", "Boolean")
+
+    def __init__(self) -> None:
+        self._dtypes: dict[str, np.dtype] | None = None
+
+    def _made(self) -> dict[str, np.dtype]:
+        if self._dtypes is None:
+            import numpy as np
+
+            self._dtypes = {
+                "Float": np.dtype(np.float64),
+                "Integer": np.dtype(np.int64),
+                "Boolean": np.dtype(np.bool_),
+            }
+        return self._dtypes
+
+    def __getitem__(self, element: str) -> np.dtype:
+        return self._made()[element]
+
+    def __contains__(self, element: object) -> bool:
+        return element in self._ELEMENTS
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._ELEMENTS)
+
+    def __len__(self) -> int:
+        return len(self._ELEMENTS)
+
+
 # Vector/Matrix buffer widths.
-EAST_ELEMENT_TO_DTYPE: dict[str, np.dtype] = {
-    "Float": np.dtype(np.float64),
-    "Integer": np.dtype(np.int64),
-    "Boolean": np.dtype(np.bool_),
-}
+EAST_ELEMENT_TO_DTYPE: Mapping[str, np.dtype] = _ElementDtypes()
 
 # NumPy dtype kinds accepted as runtime storage for each logical element.
 _ELEMENT_DTYPE_KINDS: dict[str, frozenset[str]] = {
@@ -48,6 +82,8 @@ def dtype_matches_element(dtype: Any, element_type: EastType) -> bool:
     kinds = _ELEMENT_DTYPE_KINDS.get(element_type.type)
     if kinds is None:
         return False
+    import numpy as np
+
     dt = np.dtype(dtype)
     if dt.kind not in kinds:
         return False

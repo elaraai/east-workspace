@@ -28,8 +28,8 @@ matches is the error ``Platform function '<name>' not found``. An
 the binding that holds it.
 """
 
-import asyncio
 import functools
+import inspect
 from collections.abc import Callable
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -222,7 +222,7 @@ def platform_function(
         pf_name = name or fn.__name__
         # What the python IS decides how it is called; what East DECLARES
         # decides the node and the record — normally the same thing.
-        awaitable = asyncio.iscoroutinefunction(fn)
+        awaitable = inspect.iscoroutinefunction(fn)
         if is_async is False and awaitable:
             # The other way round is the point of the override; this way the
             # runner would never await the coroutine and East would take it

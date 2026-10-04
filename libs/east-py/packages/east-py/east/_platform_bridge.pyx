@@ -26,7 +26,19 @@ from libc.string cimport strdup
 from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
 
-import asyncio
+# asyncio, imported the first time an async platform function runs: importing
+# it costs every process that imports east some 17 ms, and only an async
+# platform function needs it (#1128).
+cdef object _asyncio_module = None
+
+
+cdef object _asyncio():
+    """`asyncio`, imported on first use."""
+    global _asyncio_module
+    if _asyncio_module is None:
+        import asyncio
+        _asyncio_module = asyncio
+    return _asyncio_module
 
 # ─── Inline C for accessing PlatformRegistry.pre_call ─────────────────────
 # PlatformRegistry is opaque in _eastc.pxd, so we use inline C to set the
@@ -191,7 +203,7 @@ cdef _eastc.EvalResult _python_platform_fn(_eastc.EastValue **args,
         result = py_fn(*py_args)
 
         # Handle async results — only check for async platform functions
-        if is_async and asyncio.iscoroutine(result):
+        if is_async and _asyncio().iscoroutine(result):
             result = _run_async(result)
 
         # Convert result back to C using the output type from the IR node
@@ -283,7 +295,7 @@ cdef object _run_async(object coro):
     """
     global _platform_loop
     if _platform_loop is None or _platform_loop.is_closed():
-        _platform_loop = asyncio.new_event_loop()
+        _platform_loop = _asyncio().new_event_loop()
     return _platform_loop.run_until_complete(coro)
 
 

@@ -21,14 +21,6 @@ from libc.stdlib cimport free, malloc, calloc
 from libc.string cimport memcpy, strcmp, strdup
 from libc.math cimport NAN, isnan
 
-cimport numpy as cnp
-
-cdef extern from "numpy/arrayobject.h":
-    void *PyArray_DATA(cnp.ndarray arr) nogil
-
-# Initialise the numpy C-API table.
-cnp.import_array()
-
 from east cimport _eastc
 
 from datetime import UTC
@@ -41,8 +33,6 @@ from datetime import timedelta as TimeDelta
 # was not.
 _EPOCH_UTC = DateTime(1970, 1, 1, tzinfo=UTC)
 
-import numpy as np
-import os
 import sys
 import weakref
 
@@ -50,13 +40,10 @@ from east.types.values import (
     EastArray,
     EastBlob,
     EastDict,
-    EastMatrix,
     EastRef,
     EastSet,
     EastStruct,
     EastVariant,
-    EastVector,
-    EAST_ELEMENT_TO_DTYPE,
     east_null,
     is_east_variant,
 )
@@ -574,10 +561,10 @@ cdef object _c_value_to_py_impl(_eastc.EastValue *val, _eastc.EastType *c_type, 
         return _c_ref_to_py(val, c_type, alias_map)
 
     elif kind == _eastc.EAST_TYPE_VECTOR:
-        return _c_vector_to_py(val, c_type)
+        return _tensors().c_vector_to_py(<uintptr_t>val, <uintptr_t>c_type)
 
     elif kind == _eastc.EAST_TYPE_MATRIX:
-        return _c_matrix_to_py(val, c_type)
+        return _tensors().c_matrix_to_py(<uintptr_t>val, <uintptr_t>c_type)
 
     elif kind == _eastc.EAST_TYPE_RECURSIVE:
         # Resolve through recursive wrapper — value tree is finite so no loop
@@ -687,108 +674,24 @@ cdef object _c_ref_to_py(_eastc.EastValue *val, _eastc.EastType *c_type, dict al
 
 
 # ---------------------------------------------------------------------------
-# Zero-copy c->py views.
+# Vectors, Matrices and numpy columns.
 #
-# A Vector/Matrix returned from east-c is exposed to Python as a read-only numpy
-# view over the C buffer instead of a copy: PyArray_SimpleNewFromData wraps the
-# buffer, and an `_EastBufferOwner` holding a retained reference to the owning
-# EastValue is set as the array's base — so the EastValue (and the buffer) lives
-# exactly as long as the view and anything derived from it. The value is retained
-# once and released in `__dealloc__`. east-c values are immutable, so the borrowed
-# bytes never change underneath the view.
-#
-# Requires the GIL (the borrowed EastValue's refcount is non-atomic) — disabled
-# under free-threading. Set EAST_PY_NO_ZEROCOPY=1 to force the copy path.
+# They cross through `_tensor_bridge`, which calls numpy's C API: Cython makes a
+# module that cimports numpy import numpy as the module loads, so it is imported
+# here the first time a value needs it, and a process whose values hold no
+# Vector, Matrix or numpy column never loads numpy (#1128).
 # ---------------------------------------------------------------------------
 
-cdef bint _gil_enabled():
-    try:
-        return sys._is_gil_enabled()
-    except AttributeError:
-        return True
+cdef object _tensor_module = None
 
 
-cdef bint _ZEROCOPY_C2PY = (os.environ.get("EAST_PY_NO_ZEROCOPY") != "1") and _gil_enabled()
-
-
-cdef class _EastBufferOwner:
-    """Retained EastValue that anchors the lifetime of a zero-copy numpy view.
-
-    The view (a PyArray_SimpleNewFromData array) borrows the C buffer; this owner
-    is set as the array's base, so numpy keeps it alive while the array — and any
-    slice / torch tensor derived from it — lives, releasing the EastValue (and so
-    the buffer) in __dealloc__. east-c values are immutable, so the bytes never
-    change underneath the view.
-    """
-    cdef _eastc.EastValue *val
-
-    def __cinit__(self):
-        self.val = NULL
-
-    def __dealloc__(self):
-        if self.val != NULL:
-            _eastc.east_value_release(self.val)
-            self.val = NULL
-
-
-cdef object _east_buffer_view(_eastc.EastValue *val, void *buf, int ndim,
-                              cnp.npy_intp *dims, int typenum):
-    """Read-only zero-copy numpy view over a C buffer owned by `val` (retains val).
-
-    A data-pointer array (not the buffer protocol, which makes numpy cache a
-    per-array buffer-info struct) plus cnp.set_array_base — numpy's own helper
-    that does the INCREF + base-steal behind a function boundary (base is a
-    parameter, so Cython does not also decrement it), avoiding the
-    premature-dealloc / dangling-base bug of a hand-rolled Py_INCREF +
-    PyArray_SetBaseObject.
-    """
-    cdef cnp.ndarray arr = cnp.PyArray_SimpleNewFromData(ndim, dims, typenum, buf)
-    cdef _EastBufferOwner owner = _EastBufferOwner.__new__(_EastBufferOwner)
-    _eastc.east_value_retain(val)
-    owner.val = val
-    cnp.set_array_base(arr, owner)
-    cnp.PyArray_CLEARFLAGS(arr, cnp.NPY_ARRAY_WRITEABLE)
-    return arr
-
-
-cdef object _c_vector_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
-    cdef _eastc.EastType *elem_c = c_type.data.element
-    cdef size_t n = val.data.vector.len
-    cdef size_t byte_count
-    cdef cnp.npy_intp dims[1]
-    py_elem_type = _c_type_tag_to_py_type(elem_c)
-    dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
-    if _ZEROCOPY_C2PY and n > 0:
-        dims[0] = <cnp.npy_intp>n
-        return EastVector(py_elem_type, _east_buffer_view(
-            val, val.data.vector.data, 1, dims, <int>dtype.num))
-    byte_count = n * dtype.itemsize
-    data = np.empty(n, dtype=dtype)
-    if byte_count > 0:
-        memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.vector.data, byte_count)
-    return EastVector(py_elem_type, data)
-
-
-cdef object _c_matrix_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
-    cdef _eastc.EastType *elem_c = c_type.data.element
-    cdef size_t rows = val.data.matrix.rows
-    cdef size_t cols = val.data.matrix.cols
-    cdef size_t count = rows * cols
-    cdef size_t byte_count
-    cdef cnp.npy_intp dims[2]
-    py_elem_type = _c_type_tag_to_py_type(elem_c)
-    dtype = np.dtype(EAST_ELEMENT_TO_DTYPE[py_elem_type.type])
-    if _ZEROCOPY_C2PY and count > 0:
-        dims[0] = <cnp.npy_intp>rows
-        dims[1] = <cnp.npy_intp>cols
-        return EastMatrix(py_elem_type, _east_buffer_view(
-            val, val.data.matrix.data, 2, dims, <int>dtype.num), rows, cols)
-    byte_count = count * dtype.itemsize
-    data = np.empty(count, dtype=dtype)
-    if byte_count > 0:
-        memcpy(PyArray_DATA(<cnp.ndarray>data), val.data.matrix.data, byte_count)
-    data = data.reshape(rows, cols)
-    return EastMatrix(py_elem_type, data, rows, cols)
+cdef object _tensors():
+    """`east._tensor_bridge`, imported on first use."""
+    global _tensor_module
+    if _tensor_module is None:
+        from east import _tensor_bridge
+        _tensor_module = _tensor_bridge
+    return _tensor_module
 
 
 def _release_c_function(uintptr_t val_ptr, uintptr_t output_type_ptr, tuple input_type_ptrs):
@@ -1239,10 +1142,10 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
         return result
 
     elif kind == _eastc.EAST_TYPE_VECTOR:
-        return _py_vector_to_c(val, c_type)
+        return <_eastc.EastValue*><uintptr_t>_tensors().py_vector_to_c(val, <uintptr_t>c_type)
 
     elif kind == _eastc.EAST_TYPE_MATRIX:
-        return _py_matrix_to_c(val, c_type)
+        return <_eastc.EastValue*><uintptr_t>_tensors().py_matrix_to_c(val, <uintptr_t>c_type)
 
     elif kind == _eastc.EAST_TYPE_RECURSIVE:
         return _py_value_to_c_impl(val, c_type.data.recursive.node, identity_map)
@@ -1383,42 +1286,6 @@ cdef _eastc.EastValue* _py_ref_to_c(object val, _eastc.EastType *c_type, dict id
     cdef _eastc.EastValue* result = _eastc.east_ref_new(inner_val)
     _eastc.east_value_release(inner_val)
     return result
-
-
-cdef _eastc.EastValue* _py_vector_to_c(object val, _eastc.EastType *c_type) except NULL:
-    cdef _eastc.EastType *elem_c = c_type.data.element
-    cdef size_t n = len(val)
-    cdef _eastc.EastValue* vec = _eastc.east_vector_new(elem_c, n)
-    cdef size_t byte_count
-
-    # The C buffer stores the canonical width for the logical element (f64 for
-    # Float, i64 for Integer, bool for Boolean). The Python buffer may use any
-    # compatible runtime dtype (e.g. f32), so cast to canonical before copy.
-    expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
-    cdef object data = np.ascontiguousarray(val._data, dtype=expected_dtype)
-    byte_count = n * expected_dtype.itemsize
-    if byte_count > 0:
-        memcpy(vec.data.vector.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
-
-    return vec
-
-
-cdef _eastc.EastValue* _py_matrix_to_c(object val, _eastc.EastType *c_type) except NULL:
-    cdef _eastc.EastType *elem_c = c_type.data.element
-    cdef size_t rows = val._rows
-    cdef size_t cols = val._cols
-    cdef _eastc.EastValue* mat = _eastc.east_matrix_new(elem_c, rows, cols)
-    cdef size_t byte_count
-
-    # Cast the (possibly f32) runtime buffer to the canonical C storage width.
-    expected_dtype = EAST_ELEMENT_TO_DTYPE[val.element_type.type]
-    cdef object data = np.ascontiguousarray(val._data, dtype=expected_dtype)
-    cdef size_t count = rows * cols
-    byte_count = count * expected_dtype.itemsize
-    if byte_count > 0:
-        memcpy(mat.data.matrix.data, PyArray_DATA(<cnp.ndarray>data), byte_count)
-
-    return mat
 
 
 cdef _eastc.EastValue* _py_function_to_c(object val, _eastc.EastType *c_type, dict identity_map) except NULL:
@@ -2529,6 +2396,8 @@ def _array_to_columns(uintptr_t ptr, uintptr_t elem_type_ptr, object fields,
     becomes float64 with NaN for none); String columns box once with
     interning; any other field type falls back to a list of boxed values.
     """
+    import numpy as np
+
     # Column extraction is a whole-value read — a paged wrapper resolves to
     # its hydrated child (once, cached), matching the evaluator's rule for
     # non-pager-served operations.
@@ -2648,6 +2517,8 @@ def _array_from_columns(object element_type, dict columns):
     if extra:
         _eastc.east_type_release(et)
         raise KeyError(f"from_columns: column(s) {sorted(extra)!r} not in element type")
+    # No column is a numpy array before numpy is imported.
+    np = sys.modules.get("numpy")
 
     try:
         names = <const char**>malloc(nf * sizeof(char*))
@@ -2673,7 +2544,7 @@ def _array_from_columns(object element_type, dict columns):
                 )
             tags[f] = 0
             dptr[f] = NULL
-            if isinstance(col, np.ndarray):
+            if np is not None and isinstance(col, np.ndarray):
                 a = <object>col
                 if a.dtype == np.float64 and a.flags["C_CONTIGUOUS"]:
                     if ftype.kind == _eastc.EAST_TYPE_FLOAT:
@@ -2686,7 +2557,7 @@ def _array_from_columns(object element_type, dict columns):
                     tags[f] = 3
                 if tags[f] != 0:
                     np_keep.append(a)
-                    dptr[f] = cnp.PyArray_DATA(<cnp.ndarray>a)
+                    dptr[f] = <void*><uintptr_t>_tensors().array_data(a)
             py_cols.append(col)
 
         if rows < 0:
@@ -2774,10 +2645,12 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
                 _eastc.east_array_push(arr, src.data.array.items[i])
             return
 
-    if isinstance(items, np.ndarray):
+    # No item list is a numpy array before numpy is imported.
+    np = sys.modules.get("numpy")
+    if np is not None and isinstance(items, np.ndarray):
         a = <object>items
         if a.dtype == np.float64 and a.flags["C_CONTIGUOUS"] and elem_t.kind == _eastc.EAST_TYPE_FLOAT:
-            dp = <const double*>cnp.PyArray_DATA(<cnp.ndarray>a)
+            dp = <const double*><uintptr_t>_tensors().array_data(a)
             n = len(a)
             for i in range(n):
                 c_val = _eastc.east_float(dp[i])
@@ -2785,7 +2658,7 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
                 _eastc.east_value_release(c_val)
             return
         if a.dtype == np.int64 and a.flags["C_CONTIGUOUS"] and elem_t.kind == _eastc.EAST_TYPE_INTEGER:
-            ip = <const int64_t*>cnp.PyArray_DATA(<cnp.ndarray>a)
+            ip = <const int64_t*><uintptr_t>_tensors().array_data(a)
             n = len(a)
             for i in range(n):
                 c_val = _eastc.east_integer(ip[i])
@@ -2793,7 +2666,7 @@ def _array_extend_bulk(uintptr_t ptr, uintptr_t elem_type_ptr, object items,
                 _eastc.east_value_release(c_val)
             return
         if a.dtype == np.bool_ and a.flags["C_CONTIGUOUS"] and elem_t.kind == _eastc.EAST_TYPE_BOOLEAN:
-            bp = <const uint8_t*>cnp.PyArray_DATA(<cnp.ndarray>a)
+            bp = <const uint8_t*><uintptr_t>_tensors().array_data(a)
             n = len(a)
             for i in range(n):
                 c_val = _eastc.east_boolean(bp[i] != 0)

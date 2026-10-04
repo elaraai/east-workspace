@@ -22,8 +22,6 @@ from east cimport _eastc
 from east._eastc_bridge cimport py_type_to_c, c_value_to_py, py_value_to_c, _c_type_tag_to_py_type
 from east._platform_bridge cimport register_platform_functions
 
-import asyncio
-
 from east.runtime.errors import EastError, NonRetraceableCallError
 
 # Attribute name used to attach source IR to compiled functions.
