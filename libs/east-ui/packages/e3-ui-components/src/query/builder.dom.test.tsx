@@ -322,9 +322,10 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         await key("Tab");
         expect(rowsOf(cardsOf(container)[0]!)[0]).toEqual(["", "<total>", "<is at most>", "<1000>", "(Remove)"]);
         await openSlot(cardsOf(container)[0]!, "1000");
-        // Opening the query ran it (#938); a value slot reads the summary of its rows: one one-shot call more, with a summary's limits.
+        // Opening the query ran it (#938), under the server's time limit (#1131); a value slot reads the summary of its rows:
+        // one one-shot call more, with a summary's limits.
         expect(offline.requests.map((r) => r.limits)).toEqual([
-            some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
+            some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
         ]);
         await act(async () => { fireEvent.change(filterOf(), { target: { value: "2,500" } }); });
@@ -336,9 +337,9 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         await act(async () => { fireEvent.keyDown(cardsOf(container)[0]!, { key: "Enter", metaKey: true }); });
         await settle();
         expect(offline.requests.map((r) => r.limits)).toEqual([
-            some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
+            some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
-            some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
+            some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
         ]);
         expect(container.querySelector("[data-query-run]")!.textContent).toBe("Run⌘⏎");
     }, 30_000);
