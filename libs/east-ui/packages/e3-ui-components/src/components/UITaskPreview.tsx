@@ -10,12 +10,6 @@
  * register reads with workspace poller → fetch output → render decoded
  * value as a UIComponent tree, scoped to the manifest.
  *
- * The output renders when it is a UI component: its type is `UIComponentType`
- * or a subtype of it, as East's `isSubtype` judges. Any other output is never
- * read: the preview names its type in place ("This task's output is a String,
- * not a UI component"), the kiosk too. A UI component that fails to decode or
- * to render names its error.
- *
  * Workspace/apiUrl/repo come from the surrounding `<ReactiveDatasetProvider>`
  * by default; can be overridden via the `config` prop (used by `<TaskPreview>`
  * which still takes these as explicit props), whose workspace must be the one
@@ -47,8 +41,8 @@ import {
     DownloadImpl,
     ShareImpl,
 } from '@elaraai/east-ui-components';
-import { fromEastTypeValue, isPrimitiveType, isSubtype, printTypeSummary, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { UIComponentType } from '@elaraai/east-ui';
+import type { ValueTypeOf } from '@elaraai/east';
+import type { UIComponentType } from '@elaraai/east-ui';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import type { TreePath } from '@elaraai/e3-types';
 import {
@@ -99,15 +93,6 @@ export interface UITaskPreviewProps {
 
 function treePathToString(path: TreePath): string {
     return path.map(p => p.value).join('.');
-}
-
-/**
- * A type as the preview names it: its kind as East names it, with its article
- * ("a String", "an Array"), a recursive type by its node's.
- */
-function kindOf(type: EastType): string {
-    const kind = type.type === 'Recursive' ? (type.node as EastType).type : type.type;
-    return `${/^[AEIOU]/.test(kind) ? 'an' : 'a'} ${kind}`;
 }
 
 export const UITaskPreview = memo(function UITaskPreview({
@@ -195,15 +180,10 @@ export const UITaskPreview = memo(function UITaskPreview({
     // Fetch the output value (no size gate — UI is wanted in full).
     const statusQuery = useDatasetStatus(apiUrl ?? '', repo, workspace, outputPath, { requestOptions });
     const statusFailure = useQueryRecovery(statusQuery);
-    // An output that is not a UI component — its type neither UIComponentType
-    // nor a subtype of it — is named, never read (#1118).
-    const outputType = useMemo(() => (statusQuery.data ? fromEastTypeValue(statusQuery.data.type) : null), [statusQuery.data]);
-    const notUI = outputType !== null && !isSubtype(outputType, UIComponentType) ? outputType : null;
     const valueQuery = useDatasetValue(apiUrl ?? '', repo, workspace, outputPath, {
         requestOptions,
         type: statusQuery.data?.type as never,
         hash: statusQuery.data?.hash ?? null,
-        enabled: notUI === null,
         ...(scopedPlatforms && { platforms: scopedPlatforms }),
     });
     const valueFailure = useQueryRecovery(valueQuery);
@@ -230,16 +210,6 @@ export const UITaskPreview = memo(function UITaskPreview({
     if (statusFailure) return <StatusDisplay variant="error" title="Error" message={statusFailure.message} />;
     if (statusQuery.isLoading || !statusQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
     if (statusQuery.data.refType !== 'value') return <StatusDisplay variant="info" title="No output yet" message="Task has not produced a value" />;
-    if (notUI !== null) {
-        return (
-            <StatusDisplay
-                variant="error"
-                title="Not a UI component"
-                message={`This task's output is ${kindOf(notUI)}, not a UI component`}
-                {...(!isPrimitiveType(notUI) && { details: printTypeSummary(notUI) })}
-            />
-        );
-    }
     if (valueFailure) return <StatusDisplay variant="error" title="Load failed" message={valueFailure.message} />;
     if (valueQuery.isLoading || !valueQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
 
