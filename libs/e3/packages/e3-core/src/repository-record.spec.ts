@@ -8,20 +8,21 @@
  * backend runs, over a local repository `repoInit` created, one the local
  * `RepoStore` created, and the in-memory backend, each able to hold a record
  * in an earlier release's form; and what only e3-core can set up — a
- * backend's own steps, and a repository with no record.
+ * backend's own steps, a repository whose upgrade under way does not read,
+ * and one with no record.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { E3_RELEASE } from '@elaraai/e3-types';
 import { repositoryRecordTests } from './contract/index.js';
 import { RepoLayoutError } from './errors.js';
-import { REPOSITORY_UPGRADES, newRepositoryRecord, repositoryOpen } from './repository-record.js';
+import { REPOSITORY_UPGRADES, newRepositoryRecord, repositoryOpen, repositoryUpgradeStep } from './repository-record.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/LocalBackend.js';
-import { REPOSITORY_RECORD_FILE } from './storage/local/LocalRefStore.js';
+import { REPOSITORY_RECORD_FILE, REPOSITORY_UPGRADE_FILE } from './storage/local/LocalRefStore.js';
 import { createTempDir, createTestRepo, inMemoryDamage, localDamage, removeTempDir, removeTestRepo } from './test-helpers.js';
 import type { RepositoryUpgrade } from './storage/interfaces.js';
 
@@ -58,6 +59,7 @@ describe('a backend\'s own upgrades', () => {
     name,
     async apply() {
       ran.push(name);
+      return null;
     },
   });
 
@@ -94,6 +96,36 @@ describe('a backend\'s own upgrades', () => {
     });
 
     await assert.rejects(repositoryOpen(storage, 'repo'), { message: 'two repository upgrades are named "same-name"' });
+  });
+});
+
+describe('a local repository whose upgrade under way does not read', () => {
+  it('starts the step under way again, and removes the record of it once the step is done', async (t) => {
+    const repo = createTestRepo();
+    t.after(() => removeTestRepo(repo));
+    const storage = new LocalStorage(dirname(repo));
+    // A step of two units, a part each.
+    const ran: string[] = [];
+    const twoUnits: RepositoryUpgrade = {
+      name: 'local-two-units',
+      async apply(_storage, _repo, at) {
+        const unit = at === null ? 0 : 1;
+        ran.push(`${unit}`);
+        return unit === 0 ? '0' : null;
+      },
+    };
+    REPOSITORY_UPGRADES.push(twoUnits);
+    t.after(() => {
+      REPOSITORY_UPGRADES.splice(REPOSITORY_UPGRADES.indexOf(twoUnits), 1);
+    });
+    await repositoryUpgradeStep(storage, repo, { budgetMs: 0 });
+    assert.deepEqual(ran, ['0']);
+
+    writeFileSync(join(repo, REPOSITORY_UPGRADE_FILE), 'not a record');
+    assert.equal(await storage.refs.repositoryUpgradeRead(repo), null, 'a record that does not read is none');
+    await repositoryOpen(storage, repo);
+    assert.deepEqual(ran, ['0', '0', '1'], 'the step starts again');
+    assert.equal(existsSync(join(repo, REPOSITORY_UPGRADE_FILE)), false);
   });
 });
 

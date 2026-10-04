@@ -51,11 +51,15 @@ export {
   type InitRepositoryResult,
 } from './storage/local/repository.js';
 
-// The repository record, and the upgrades an open applies: every backend's
+// The repository record, and the upgrades an open applies, or a host's job a
+// part at a time: every backend's
 export {
   repositoryOpen,
+  repositoryUpgradeStep,
   newRepositoryRecord,
   type RepositoryOpenOptions,
+  type RepositoryUpgradeStepOptions,
+  type RepositoryUpgradeStepResult,
 } from './repository-record.js';
 
 // What holds a repository: running work shared, and gc or an upgrade exclusive

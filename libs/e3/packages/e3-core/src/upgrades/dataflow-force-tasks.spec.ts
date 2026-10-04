@@ -70,7 +70,7 @@ describe('dataflow-force-tasks', () => {
     await stored.replace(STATE_1_0_79);
     await assert.rejects(store.read('repo', 'ws', earlier.id), /written by e3 1\.0\.79/, 'before the upgrade, the run does not read');
 
-    await dataflowForceTasks.apply(storage, 'repo');
+    assert.equal(await dataflowForceTasks.apply(storage, 'repo', null, Date.now() + 60_000), null, 'a part with time to spare does the step whole');
     const read = await store.read('repo', 'ws', earlier.id);
     const carried = { ...earlier, force: dataflowForce(false) };
     assert.ok(read !== null && equalFor(DataflowExecutionStateType)(read, carried),

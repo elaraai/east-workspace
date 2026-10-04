@@ -13,24 +13,26 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IntegerType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import {
+  ArrayType, IntegerType, OptionType, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+} from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  DataflowExecutionStateType, E3_RELEASE, ExecutionStatusType, WorkspaceRecordType, dataflowForce, decodeExecutionStatus,
-  type DataflowExecutionState, type DataflowForce, type StopReason,
+  DataflowExecutionStateType, E3_RELEASE, ExecutionStatusType, RepositoryUpgradeProgressType, WorkspaceRecordType, dataflowForce,
+  decodeExecutionStatus, type DataflowExecutionState, type DataflowForce, type RepositoryUpgradeProgress, type StopReason,
 } from '@elaraai/e3-types';
 import { ExecutionCorruptError, RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageImport } from '../package-files.js';
 import { recordHistory, recordSystemCommit } from '../records.js';
-import { REPOSITORY_UPGRADES, repositoryOpen } from '../repository-record.js';
+import { REPOSITORY_UPGRADES, repositoryOpen, repositoryUpgradeStep } from '../repository-record.js';
 import { withRunningWork } from '../running-work.js';
-import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType } from '../upgrades/dataflow-force-tasks.js';
-import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType } from '../upgrades/execution-stop-reasons.js';
+import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
+import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
-import type { RepositoryUpgrade } from '../storage/interfaces.js';
+import type { RepositoryUpgrade, StorageBackend } from '../storage/interfaces.js';
 import type { BackendSetup } from './setup.js';
 
 /** How a step {@link register} adds behaves. */
@@ -39,6 +41,17 @@ interface StepOptions {
   fails?: () => boolean;
   /** Takes this long, in milliseconds. */
   takes?: number;
+  /**
+   * How many units of work it does, each recorded in `ran` as
+   * `<name>/<unit>`, a part's cursor the last unit it did. Unless set, it does
+   * its work in one part, recorded as its name.
+   */
+  units?: number;
+  /** The most units a part does: as many as its time allows unless set. */
+  part?: number;
+  /** Where to record how long each part is given, in milliseconds from when
+   *  it is called. */
+  allowed?: number[];
 }
 
 /**
@@ -48,17 +61,50 @@ interface StepOptions {
 function register(t: TestContext, name: string, ran: string[], options: StepOptions = {}): void {
   const upgrade: RepositoryUpgrade = {
     name,
-    async apply(storage, repo) {
+    async apply(storage, repo, at, until) {
+      options.allowed?.push(until - Date.now());
       assert.notEqual(await storage.refs.repositoryRead(repo), null, 'a step runs over a repository with its record');
       if (options.takes !== undefined) await new Promise((resolve) => setTimeout(resolve, options.takes));
       if (options.fails?.() === true) throw new Error(`${name} failed`);
-      ran.push(name);
+      if (options.units === undefined) {
+        ran.push(name);
+        return null;
+      }
+      const from = at === null ? 0 : Number.parseInt(at, 10) + 1;
+      for (let unit = from; unit < options.units; unit++) {
+        ran.push(`${name}/${unit}`);
+        if (unit + 1 < options.units && (Date.now() >= until || unit + 1 - from === options.part)) return `${unit}`;
+      }
+      return null;
     },
   };
   REPOSITORY_UPGRADES.push(upgrade);
   t.after(() => {
     REPOSITORY_UPGRADES.splice(REPOSITORY_UPGRADES.indexOf(upgrade), 1);
   });
+}
+
+const sameProgress = equalFor(RepositoryUpgradeProgressType);
+const printProgress = printFor(OptionType(RepositoryUpgradeProgressType));
+
+/** What an open records of a step under way, write by write: a part's stop,
+ *  or none once the step is done. */
+const ProgressWritesType = ArrayType(OptionType(RepositoryUpgradeProgressType));
+const sameProgressWrites = equalFor(ProgressWritesType);
+const printProgressWrites = printFor(ProgressWritesType);
+
+/** Asserts the store upgrade the repository has under way is `expected`, or
+ *  that it has none. */
+async function assertProgress(
+  storage: StorageBackend,
+  repo: string,
+  expected: RepositoryUpgradeProgress | null,
+  message: string,
+): Promise<void> {
+  const read = await storage.refs.repositoryUpgradeRead(repo);
+  const print = (progress: RepositoryUpgradeProgress | null) => printProgress(progress === null ? none : some(progress));
+  const same = expected === null ? read === null : read !== null && sameProgress(read, expected);
+  assert.ok(same, `${message}: ${print(read)}, where ${print(expected)} was expected`);
 }
 
 /**
@@ -233,6 +279,168 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       assert.deepEqual(await repositoryOpen(storage, repo, { apply: false }), record);
     });
 
+    it('applies the upgrades in the parts a job asks for, each taken up where the last stopped, and records a step once it is done', async (t) => {
+      const { storage, repo } = await setup(t);
+      const before = await repositoryOpen(storage, repo);
+      const ran: string[] = [];
+      register(t, 'contract-parts', ran, { units: 3 });
+      register(t, 'contract-after', ran);
+      const recorded = async () => (await storage.refs.repositoryRead(repo))?.upgrades.slice(before.upgrades.length).map(({ name }) => name);
+
+      // A part with no time to spare does a unit of the step's work, and
+      // records where it stopped beside the record, which lists the step only
+      // once it is done.
+      for (const unit of [0, 1]) {
+        assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 0 }), { owed: ['contract-parts', 'contract-after'] });
+        await assertProgress(storage, repo, { step: 'contract-parts', release: E3_RELEASE, cursor: `${unit}` }, `after unit ${unit}`);
+      }
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1']);
+      assert.deepEqual(await recorded(), []);
+      await assert.rejects(repositoryOpen(storage, repo, { apply: false }), RepositoryUpgradePendingError,
+        'meanwhile an open that leaves the steps to the job refuses');
+
+      assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 0 }), { owed: ['contract-after'] });
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/2']);
+      assert.deepEqual(await recorded(), ['contract-parts']);
+      await assertProgress(storage, repo, null, 'a step done is under way no more');
+
+      assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 0 }), { owed: [] });
+      assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 0 }), { owed: [] });
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/2', 'contract-after'],
+        'once nothing is owed, a part applies nothing');
+      assert.deepEqual(await recorded(), ['contract-parts', 'contract-after']);
+      await repositoryOpen(storage, repo, { apply: false });
+    });
+
+    it('goes on, in a part with time to spare, through every step owed', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      register(t, 'contract-parts', ran, { units: 3 });
+      register(t, 'contract-after', ran);
+
+      assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 60_000 }), { owed: [] });
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/2', 'contract-after']);
+      await assertProgress(storage, repo, null, 'no step is under way');
+    });
+
+    it('takes up, in an open, the step a job\'s parts left, from the last part that recorded where it stopped', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      let failing = false;
+      register(t, 'contract-parts', ran, { units: 3, fails: () => failing });
+
+      await repositoryUpgradeStep(storage, repo, { budgetMs: 0 });
+      failing = true;
+      await assert.rejects(repositoryUpgradeStep(storage, repo, { budgetMs: 0 }), /contract-parts failed/);
+      await assertProgress(storage, repo, { step: 'contract-parts', release: E3_RELEASE, cursor: '0' }, 'a part that failed records nothing');
+
+      failing = false;
+      const record = await repositoryOpen(storage, repo);
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/2'], 'the open takes the step up where the job left it');
+      assert.equal(record.upgrades.at(-1)?.name, 'contract-parts');
+      await assertProgress(storage, repo, null, 'the step is done');
+    });
+
+    it('gives each part of a step in an open at most 10 s, and records where each stopped, until the step is done', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      const allowed: number[] = [];
+      register(t, 'contract-parts', ran, { units: 3, part: 1, allowed });
+
+      const written: ValueTypeOf<typeof ProgressWritesType> = [];
+      const write = storage.refs.repositoryUpgradeWrite.bind(storage.refs);
+      storage.refs.repositoryUpgradeWrite = (r, progress) => {
+        written.push(progress === null ? none : some(progress));
+        return write(r, progress);
+      };
+      try {
+        const record = await repositoryOpen(storage, repo);
+        assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/2']);
+        assert.equal(record.upgrades.at(-1)?.name, 'contract-parts');
+        const expected = [
+          some({ step: 'contract-parts', release: E3_RELEASE, cursor: '0' }),
+          some({ step: 'contract-parts', release: E3_RELEASE, cursor: '1' }),
+          none,
+        ];
+        assert.ok(sameProgressWrites(written, expected), `each part's stop is recorded, and then none: ${printProgressWrites(written)}`);
+        assert.ok(allowed.length === 3 && allowed.every((ms) => ms > 0 && ms <= 10_000), `each part is given at most 10 s: ${allowed.join(', ')} ms`);
+      } finally {
+        storage.refs.repositoryUpgradeWrite = write;
+      }
+    });
+
+    it('keeps where a step stopped until the record lists it done, so a failed write of the record loses none of the step\'s work', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      register(t, 'contract-parts', ran, { units: 2, part: 1 });
+
+      const write = storage.refs.repositoryWrite.bind(storage.refs);
+      storage.refs.repositoryWrite = () => Promise.reject(new Error('the store failed the write'));
+      try {
+        await assert.rejects(repositoryOpen(storage, repo), /the store failed the write/);
+      } finally {
+        storage.refs.repositoryWrite = write;
+      }
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1']);
+      await assertProgress(storage, repo, { step: 'contract-parts', release: E3_RELEASE, cursor: '0' }, 'the last part recorded is kept');
+
+      // The next open takes the step up from there.
+      const record = await repositoryOpen(storage, repo);
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/1']);
+      assert.equal(record.upgrades.at(-1)?.name, 'contract-parts');
+      await assertProgress(storage, repo, null, 'the step is done');
+    });
+
+    it('passes over the record of a step under way that the repository has had, which a crash between the two writes left', async (t) => {
+      const { storage, repo } = await setup(t);
+      const record = await repositoryOpen(storage, repo);
+      // The record lists the step done, and a crash before its progress was
+      // cleared left the progress.
+      await storage.refs.repositoryUpgradeWrite(repo, { step: record.upgrades.at(-1)!.name, release: E3_RELEASE, cursor: '0' });
+      const ran: string[] = [];
+      register(t, 'contract-next', ran, { units: 2 });
+
+      await repositoryOpen(storage, repo);
+      assert.deepEqual(ran, ['contract-next/0', 'contract-next/1'], 'the next step starts at its start');
+      await assertProgress(storage, repo, null, 'the next step done, no step is under way');
+    });
+
+    it('refuses a part whose budget is no whole number of milliseconds, before it applies anything', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      register(t, 'contract-owed', ran);
+
+      for (const budgetMs of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        await assert.rejects(repositoryUpgradeStep(storage, repo, { budgetMs }), (err: unknown) =>
+          err instanceof RangeError && err.message === `a part's budgetMs is a whole number of zero or more, not ${budgetMs}`);
+      }
+      assert.deepEqual(ran, []);
+    });
+
+    it('refuses at once a part that may not wait while a dataflow holds the repository, naming the steps and the run, and applies nothing', async (t) => {
+      const { storage, repo } = await setup(t);
+      await storage.refs.workspaceWrite(repo, 'main', encodeBeast2For(WorkspaceRecordType)(none));
+      const ran: string[] = [];
+      register(t, 'contract-owed', ran);
+      const run = await storage.locks.acquire(repo, 'main#dataflow', variant('dataflow', null));
+      assert.ok(run, 'a dataflow holds its workspace');
+      try {
+        const started = Date.now();
+        await assert.rejects(repositoryUpgradeStep(storage, repo, { budgetMs: 0, waitMs: 0 }), (err: unknown) => {
+          assert.ok(err instanceof RepositoryUpgradePendingError, `expected a RepositoryUpgradePendingError, got ${err}`);
+          assert.deepEqual([err.upgrades, err.workspace, err.job], [['contract-owed'], 'main', false]);
+          return true;
+        });
+        assert.ok(Date.now() - started < 5_000, 'it did not wait for the run');
+        assert.deepEqual(ran, []);
+      } finally {
+        await run.release();
+      }
+
+      assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 0, waitMs: 0 }), { owed: [] });
+      assert.deepEqual(ran, ['contract-owed'], 'the step applies once nothing runs');
+    });
+
     it('leaves a workspace\'s records their states and histories across an upgrade, and they take commits after it', async (t) => {
       const { storage, repo } = await setup(t);
       const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
@@ -340,6 +548,54 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       }
     });
 
+    it('carries the execution records in parts, a task\'s inputs at a time and sixteen at once, each part taking up where the last stopped', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record in the form an earlier release wrote');
+      // Seventeen of a task's inputs, each with an attempt an earlier release
+      // recorded: a batch of sixteen, and one more.
+      const task = 'a'.repeat(64);
+      const inputs = Array.from({ length: 17 }, (_, i) => i.toString(16).padStart(64, '0'));
+      const ids = inputs.map(() => uuidv7());
+      const at = new Date(1_000);
+      const encodeEarlier = encodeBeast2For(ExecutionStatusBeforeReasonsType);
+      for (const [i, each] of inputs.entries()) {
+        const executionId = ids[i]!;
+        await damage.execution(task, each, executionId, encodeEarlier(variant('cancelled', {
+          executionId, inputHashes: [], startedAt: at, completedAt: at, unit: false,
+        })));
+      }
+
+      // What the parts write, by inputs.
+      const written: string[] = [];
+      const write = storage.refs.executionWrite.bind(storage.refs);
+      storage.refs.executionWrite = (r, tk, i, id, status) => {
+        written.push(i);
+        return write(r, tk, i, id, status);
+      };
+      try {
+        // A part with no time to spare carries a batch, the first sixteen by
+        // their keys, and stops at the last of them.
+        const stopped = await executionStopReasons.apply(storage, repo, null, 0);
+        assert.equal(stopped, `${task}/${inputs[15]}`);
+        assert.deepEqual([...written].sort(), inputs.slice(0, 16));
+
+        written.length = 0;
+        assert.equal(await executionStopReasons.apply(storage, repo, stopped, 0), null, 'the part that carries the last unit is the step\'s last');
+        assert.deepEqual(written, [inputs[16]]);
+        for (const [i, each] of inputs.entries()) {
+          assert.notEqual(await storage.refs.executionGet(repo, task, each, ids[i]!), null, 'every record reads, in the current form');
+        }
+
+        // From the start, with time to spare, a part goes through every unit,
+        // and rewrites none it carried.
+        written.length = 0;
+        assert.equal(await executionStopReasons.apply(storage, repo, null, Date.now() + 60_000), null);
+        assert.deepEqual(written, []);
+      } finally {
+        storage.refs.executionWrite = write;
+      }
+    });
+
     it('carries every dataflow run an earlier release stored into the form that names the tasks a run forces, and leaves the rest as they are', async (t) => {
       const { storage, repo } = await setup(t);
       const record = await repositoryOpen(storage, repo);
@@ -414,6 +670,20 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         await storage.refs.repositoryWrite(repo, before);
         await repositoryOpen(storage, repo);
         assert.deepEqual(replaced, []);
+
+        // In parts, a workspace at a time in the order of their names, each
+        // part taking up where the last stopped: at most a part a workspace.
+        await (await stored('forced')).replace(encodeEarlier({ ...forced, force: true }));
+        await (await stored('unforced')).replace(encodeEarlier({ ...unforced, force: false }));
+        replaced.length = 0;
+        const stops: (string | null)[] = [];
+        let stopped: string | null = null;
+        do {
+          stopped = await dataflowForceTasks.apply(storage, repo, stopped, 0);
+          stops.push(stopped);
+        } while (stopped !== null && stops.length < 4);
+        assert.deepEqual(stops, ['crashed', 'current', 'forced', null]);
+        assert.deepEqual(replaced, ['forced', 'unforced']);
       } finally {
         storage.runStates = runStates;
       }

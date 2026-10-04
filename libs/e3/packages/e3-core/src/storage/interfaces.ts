@@ -33,7 +33,10 @@
  * no entry, so a read answers null and a delete does nothing.
  */
 
-import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus, RepositoryRecord } from '@elaraai/e3-types';
+import type {
+  ExecutionOwner, ExecutionStatus, LockState, LockOperation, LockHolderVariant, LockProgress, DataflowRun, DatasetRef, RepoMetadata, RepoStatus,
+  RepositoryRecord, RepositoryUpgradeProgress,
+} from '@elaraai/e3-types';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
 import type { LockHolderInfo } from '../errors.js';
 
@@ -359,6 +362,33 @@ export interface RefStore {
    * @param record - The record
    */
   repositoryWrite(repo: string, record: RepositoryRecord): Promise<void>;
+
+  /**
+   * Read the store upgrade under way in the repository: the step, the release
+   * applying it, and where its last part stopped.
+   *
+   * @remarks
+   * A step applies in parts ({@link RepositoryUpgrade.apply}), and where each
+   * part stops is kept here, beside the repository's record, so the next part
+   * takes the step up from it, in this process or another. The record lists a
+   * step only once it is done.
+   *
+   * @param repo - Repository identifier
+   * @returns The step under way, or null when none is, or the record of it
+   *   does not read: the step under way then starts again, which its
+   *   idempotence makes safe
+   */
+  repositoryUpgradeRead(repo: string): Promise<RepositoryUpgradeProgress | null>;
+
+  /**
+   * Record where the store upgrade under way got to, replacing what was
+   * recorded; `null` once no step is under way. A reader sees the old progress
+   * or the new, never a torn one.
+   *
+   * @param repo - Repository identifier
+   * @param progress - The step under way and where it stopped, or null
+   */
+  repositoryUpgradeWrite(repo: string, progress: RepositoryUpgradeProgress | null): Promise<void>;
 
   // -------------------------------------------------------------------------
   // Package References
@@ -1260,8 +1290,15 @@ export interface DatasetRefStore {
  * files, the cloud's items — is that backend's own, in
  * {@link StorageBackend.upgrades}. A step runs with the repository held still
  * — no task, dataflow or gc runs meanwhile — and it is idempotent: it leaves a
- * record already in the new form as it is, so a step a crash cut short runs
- * again whole.
+ * record already in the new form as it is.
+ *
+ * A step applies in parts, so a host whose compute has a time limit applies
+ * one however many records it rewrites. Each part takes the step up where the
+ * last stopped, by the cursor the step itself returned, which is kept beside
+ * the repository's record ({@link RefStore.repositoryUpgradeRead}): any
+ * process takes it up, and a step whose process died is taken up, not
+ * started again. A step's cursor is its own: what it needs to find where it
+ * stopped, in a form it reads, and never changes once the step is released.
  */
 export interface RepositoryUpgrade {
   /** The step's name, which the repository record keeps once it is applied:
@@ -1269,12 +1306,20 @@ export interface RepositoryUpgrade {
   readonly name: string;
   /**
    * Rewrites the repository's records into the forms the release that ships
-   * the step reads.
+   * the step reads, in a part: from where the part before stopped, it does at
+   * least one unit of the step's work, and starts none once the clock has
+   * passed `until`.
    *
    * @param storage - Storage backend
    * @param repo - Repository identifier
+   * @param at - Where the part before stopped, as it returned it; `null` for
+   *   the step's first part
+   * @param until - When the part stops, in epoch milliseconds, once it has
+   *   done at least one unit of the step's work
+   * @returns Where the part stopped, which the next part is given; `null`
+   *   once the step is done
    */
-  apply(storage: StorageBackend, repo: string): Promise<void>;
+  apply(storage: StorageBackend, repo: string, at: string | null, until: number): Promise<string | null>;
 }
 
 // =============================================================================

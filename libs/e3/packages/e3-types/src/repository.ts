@@ -35,6 +35,24 @@ export const RepositoryRecordType = StructType({
 export type RepositoryRecord = ValueTypeOf<typeof RepositoryRecordType>;
 
 /**
+ * A store upgrade under way in a repository, kept beside the repository
+ * record: the step, the release of e3 applying it, and where its last part
+ * stopped. A step applies in parts, and the next part takes it up from here,
+ * in this process or another; the record lists the step only once it is done.
+ */
+export const RepositoryUpgradeProgressType = StructType({
+  /** The step's name */
+  step: StringType,
+  /** The release of e3 applying it */
+  release: StringType,
+  /** Where its last part stopped: the step's own cursor, which the next part
+   *  takes it up from */
+  cursor: StringType,
+});
+
+export type RepositoryUpgradeProgress = ValueTypeOf<typeof RepositoryUpgradeProgressType>;
+
+/**
  * Where a repository is in its lifecycle.
  */
 export const RepoStatusType = VariantType({

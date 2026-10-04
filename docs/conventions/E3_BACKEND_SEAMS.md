@@ -36,7 +36,7 @@ rest: the logic, the routes and the tests.
 
 | Seam | Declared in | What it gives | e3-core's and e3-api-server's | e3-web's |
 |---|---|---|---|---|
-| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
+| `StorageBackend` | e3-core `storage/interfaces.ts` | objects, and whether placing one is a link on this machine or a download, and their re-reference; refs, the repository record and the upgrade under way among them; locks; logs; the repository lifecycle and gc's primitives, for gc beside running work too; dataset refs; the backend's own upgrade steps; the store a repository's dataflow runs keep their state in (`runStates`) | `LocalStorage`, `InMemoryStorage` | `WebStorage` (`openWebStorage`): objects as OPFS files, records in IndexedDB, locks through Web Locks; placing an object is a download |
 | `TaskRunner` | e3-core `execution/interfaces.ts` | runs a task, a unit of a split task, or a detached call; takes a delivered collection in, or a run of its segments, through an intake unit, and says the largest delivery it takes in whole; says whether an execution recorded `running` can still finish | `LocalTaskRunner`, and `MockTaskRunner` for tests | `WebTaskRunner`: every unit on a pool of Web Workers (`UnitPool`), each running east's `executeUnit` |
 | `ExecutionStateStore` | e3-core `dataflow/state-store/interfaces.ts` | a dataflow run's state and its events, and every run of a repository as stored, which an upgrade step rewrites (`readStored`) | `FileStateStore`, `InMemoryStateStore` | `WebStateStore`, in IndexedDB |
 | `DataflowOrchestrator` | e3-core `dataflow/orchestrator/interfaces.ts` | starts, polls, cancels and resumes a run | `LocalOrchestrator`, over the storage, state store and runner it is given | `LocalOrchestrator`, as it is: its host's owner is the tab's session |
@@ -220,9 +220,12 @@ running in it, it answers `503` with `Retry-After`, and lets that work's
 dataflow cancel and poll through, so the work can always be stopped. A host
 whose requests have a time limit, which a step may outlast, passes the gate
 `applyUpgrades: false`: no request applies a step, the gate answers `503` until
-the host's own job has applied them — by an open there (`repositoryOpen`) — and
-tells the host each time through `onUpgradePending`. An in-page request has
-no time limit, so e3-web's gate applies the upgrades in the request.
+the host's own job has applied them — a part per run of the job
+(`repositoryUpgradeStep`), each taking a step up where the last stopped, by the
+step's cursor, which the ref store keeps beside the repository record
+(`RefStore.repositoryUpgradeRead`) — and tells the host each time through
+`onUpgradePending`. An in-page request has no time limit, so e3-web's gate
+applies the upgrades in the request.
 
 ## Where the local backend's code lives
 

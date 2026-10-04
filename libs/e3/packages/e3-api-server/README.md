@@ -187,15 +187,19 @@ leaves the steps to a job of its own. Given `applyUpgrades: false`, the gate
 applies none: it answers every request to a repository that owes them `503`
 `repository_upgrade_pending` — but a running dataflow's cancel and poll — until
 the steps are applied, and calls `onUpgradePending` for each, where the host
-starts its job, once. The job opens the repository with e3-core's
-`repositoryOpen`, which applies them, waiting for work running in it as any
+starts its job, once. The job applies them with e3-core's
+`repositoryUpgradeStep`, a part at a time, each running for the budget it is
+given, until none is owed. A part takes the step up where the last one stopped,
+whichever process ran it, and waits for work running in the repository as an
 open does. No route applies a step itself: the record route (`getRecord`) only
 reads, and refuses a repository that owes one as the gate does, gate or no.
 
 ```typescript
 app.use('/api/repos/:repo/*', createRepositoryGate(storage, getRepoPath, {
   applyUpgrades: false,
-  // The job runs repositoryOpen(storage, getRepoPath(repo))
+  // Each run of the job applies a part, under its time limit, and the job
+  // runs again while any step is owed:
+  // repositoryUpgradeStep(storage, getRepoPath(repo), { budgetMs: 10 * 60_000 })
   onUpgradePending: (repo) => startUpgradeJob(repo),
 }));
 ```

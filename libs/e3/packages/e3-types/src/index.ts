@@ -227,6 +227,8 @@ export {
 export {
   RepositoryRecordType,
   type RepositoryRecord,
+  RepositoryUpgradeProgressType,
+  type RepositoryUpgradeProgress,
   RepoStatusType,
   type RepoStatus,
   RepoMetadataType,

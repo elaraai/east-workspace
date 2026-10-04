@@ -21,8 +21,9 @@ import {
   decodeBeast2For, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import { decodeExecutionStatus, type ExecutionStatus, type StopReason } from '@elaraai/e3-types';
-import { OBJECT_CONCURRENCY, eachAtMost } from '../concurrency.js';
+import { OBJECT_CONCURRENCY } from '../concurrency.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
+import { workInParts } from './parts.js';
 
 /**
  * The execution status as the releases before this upgrade wrote it, frozen:
@@ -160,17 +161,24 @@ export function decodeExecutionStatusCarried(data: Uint8Array): ExecutionStatus 
  * @remarks
  * Every record is read as it is stored (`RefStore.executionReadBytes`), so
  * the upgrade goes through every backend's stores alike. A record already in
- * the current form is left as it is, so the upgrade runs again whole after a
- * crash cut it short; and so is one in neither form, which a crash or a
- * failing disk left, and which a read answers `ExecutionCorruptError`, as it
- * did before. The executions of {@link OBJECT_CONCURRENCY} tasks and inputs
- * are carried forward at once.
+ * the current form is left as it is; and so is one in neither form, which a
+ * crash or a failing disk left, and which a read answers
+ * `ExecutionCorruptError`, as it did before.
+ *
+ * A unit of the step is a task's inputs: every attempt recorded under them.
+ * The units go in the order of their keys, `<taskHash>/<inputsHash>`,
+ * {@link OBJECT_CONCURRENCY} at once, and a part stops between batches once
+ * its time is up, with the key of the last unit it carried as its cursor.
  */
 export const executionStopReasons: RepositoryUpgrade = {
   name: EXECUTION_STOP_REASONS,
-  async apply(storage, repo) {
+  async apply(storage, repo, at, until) {
     const { refs } = storage;
-    await eachAtMost(await refs.executionList(repo), OBJECT_CONCURRENCY, async ({ taskHash, inputsHash }) => {
+    const units = (await refs.executionList(repo)).map((execution) => ({
+      key: `${execution.taskHash}/${execution.inputsHash}`,
+      unit: execution,
+    }));
+    return workInParts(units, at, until, OBJECT_CONCURRENCY, async ({ taskHash, inputsHash }) => {
       for (const executionId of await refs.executionListIds(repo, taskHash, inputsHash)) {
         const data = await refs.executionReadBytes(repo, taskHash, inputsHash, executionId);
         if (data === null || isCurrent(data)) continue;

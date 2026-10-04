@@ -8,7 +8,7 @@ import { encodeBeast2For, none, variant } from '@elaraai/east';
 import { ExecutionStatusType, decodeExecutionStatus } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
 import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError, checkHash, checkId, checkName } from '../../errors.js';
-import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord, RepositoryUpgradeProgress } from '@elaraai/e3-types';
 import type {
   StorageBackend,
   ObjectStore,
@@ -220,6 +220,8 @@ const NOT_A_RECORD = new TextEncoder().encode('not a record');
 class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   // repository records keyed by repo
   private repositories = new Map<string, RepositoryRecord>();
+  // the store upgrade under way, keyed by repo
+  private upgradeProgress = new Map<string, RepositoryUpgradeProgress>();
   private packages = new Map<string, Map<string, string>>();
   private workspaces = new Map<string, Map<string, Uint8Array>>();
   // executions now keyed by taskHash/inputsHash/executionId
@@ -312,6 +314,15 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   async repositoryWrite(repo: string, record: RepositoryRecord): Promise<void> {
     this.repositories.set(repo, record);
+  }
+
+  async repositoryUpgradeRead(repo: string): Promise<RepositoryUpgradeProgress | null> {
+    return this.upgradeProgress.get(repo) ?? null;
+  }
+
+  async repositoryUpgradeWrite(repo: string, progress: RepositoryUpgradeProgress | null): Promise<void> {
+    if (progress === null) this.upgradeProgress.delete(repo);
+    else this.upgradeProgress.set(repo, progress);
   }
 
   // Package operations
@@ -548,6 +559,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   drop(repo: string): number {
     let dropped = this.repositories.delete(repo) ? 1 : 0;
+    if (this.upgradeProgress.delete(repo)) dropped++;
     for (const records of [this.packages, this.workspaces, this.executions, this.dataflowRuns]) {
       dropped += records.get(repo)?.size ?? 0;
       records.delete(repo);
@@ -565,6 +577,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
 
   clear(): void {
     this.repositories.clear();
+    this.upgradeProgress.clear();
     this.packages.clear();
     this.workspaces.clear();
     this.executions.clear();
