@@ -4,9 +4,10 @@
  */
 import { IntegerType, StringType } from "../../types.js";
 import { Expr } from "../expr.js";
+import { lazyLibrary } from "./lazy.js";
 
 /** Standard library functions for integers */
-export default {
+export default lazyLibrary({
   /**
    * Formats an integer with comma separators for thousands.
    *
@@ -24,7 +25,7 @@ export default {
    * compiled(-5432n);      // "-5,432"
    * ```
    */
-  printCommaSeperated: Expr.function([IntegerType], StringType, ($, x) => {
+  get printCommaSeperated() { return Expr.function([IntegerType], StringType, ($, x) => {
     const y = $.let(x);
 
     const negative = $.let(false);
@@ -67,7 +68,7 @@ export default {
     ).else(
       $ => $.return(Expr.str`${y}${ret}`)
     )
-  }),
+  }); },
 
 
     /**
@@ -88,7 +89,7 @@ export default {
      * compiled(1000000n);    // "$1,000,000"
      * ```
      */
-    printCurrency: Expr.function([IntegerType], StringType, ($, x) => {
+    get printCurrency() { return Expr.function([IntegerType], StringType, ($, x) => {
       // Check for NaN/Infinity
       const negative = $.let(Expr.less(x, 0n));
       const abs_x = $.let(x.abs());
@@ -134,7 +135,7 @@ export default {
       const result = $.let(Expr.str`${dollars_str}`);
   
       $.return(negative.ifElse(() => Expr.str`-$${result}`, () => Expr.str`$${result}`));
-    }),
+    }); },
 
   /**
    * Formats an integer in compact form with business unit suffixes.
@@ -157,7 +158,7 @@ export default {
    * compiled(500n);         // "500"
    * ```
    */
-  printCompact: Expr.function([IntegerType], StringType, ($, x) => {
+  get printCompact() { return Expr.function([IntegerType], StringType, ($, x) => {
     const y = $.let(x);
 
     const negative = $.let(false);
@@ -215,7 +216,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Formats an integer in compact form with SI (International System) unit suffixes.
@@ -238,7 +239,7 @@ export default {
    * compiled(3140000000n);  // "3.14G"
    * ```
    */
-  printCompactSI: Expr.function([IntegerType], StringType, ($, x) => {
+  get printCompactSI() { return Expr.function([IntegerType], StringType, ($, x) => {
     const y = $.let(x);
 
     const negative = $.let(false);
@@ -298,7 +299,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Formats an integer in compact form with binary computing unit suffixes.
@@ -321,7 +322,7 @@ export default {
    * compiled(3221225472n); // "3Gi"    (3 GiB)
    * ```
    */
-  printCompactComputing: Expr.function([IntegerType], StringType, ($, x) => {
+  get printCompactComputing() { return Expr.function([IntegerType], StringType, ($, x) => {
     const y = $.let(x);
 
     const negative = $.let(false);
@@ -382,7 +383,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Formats an integer as an ordinal number.
@@ -404,7 +405,7 @@ export default {
    * compiled(112n);  // "112th"
    * ```
    */
-  printOrdinal: Expr.function([IntegerType], StringType, ($, x) => {
+  get printOrdinal() { return Expr.function([IntegerType], StringType, ($, x) => {
     const abs_x = $.let(x.abs());
     const last_digit = $.let(abs_x.remainder(10n));
     const last_two_digits = $.let(abs_x.remainder(100n));
@@ -434,7 +435,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Counts the number of decimal digits in an integer (excluding the sign).
@@ -454,10 +455,10 @@ export default {
    * compiled(1000000n); // 7n
    * ```
    */
-  digitCount: Expr.function([IntegerType], IntegerType, ($, x) => {
+  get digitCount() { return Expr.function([IntegerType], IntegerType, ($, x) => {
     $.if(Expr.equal(x, 0n), $ => $.return(1n));
     $.return(x.abs().log(10n).add(1n));
-  }),
+  }); },
 
   /**
    * Rounds an integer to the nearest multiple of a step value.
@@ -477,7 +478,7 @@ export default {
    * compiled(-17n, 5n);  // -15n
    * ```
    */
-  roundNearest: Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
+  get roundNearest() { return Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
     // For step = 0, return original value
     $.if(Expr.equal(step, 0n), $ => $.return(x));
 
@@ -507,7 +508,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Rounds an integer up to the next multiple of a step value (ceiling).
@@ -527,7 +528,7 @@ export default {
    * compiled(-17n, 5n);  // -15n (towards zero for negatives)
    * ```
    */
-  roundUp: Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
+  get roundUp() { return Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
     // For step = 0, return original value
     $.if(Expr.equal(step, 0n), $ => $.return(x));
 
@@ -546,7 +547,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Rounds an integer down to the previous multiple of a step value (floor).
@@ -566,7 +567,7 @@ export default {
    * compiled(-17n, 5n);  // -20n (away from zero for negatives)
    * ```
    */
-  roundDown: Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
+  get roundDown() { return Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
     // For step = 0, return original value
     $.if(Expr.equal(step, 0n), $ => $.return(x));
 
@@ -586,7 +587,7 @@ export default {
         );
       }
     );
-  }),
+  }); },
 
   /**
    * Rounds an integer towards zero to the nearest multiple of a step value (truncate).
@@ -606,7 +607,7 @@ export default {
    * compiled(3n, 5n);    // 0n
    * ```
    */
-  roundTruncate: Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
+  get roundTruncate() { return Expr.function([IntegerType, IntegerType], IntegerType, ($, x, step) => {
     // For step = 0, return original value
     $.if(Expr.equal(step, 0n), $ => $.return(x));
 
@@ -619,7 +620,7 @@ export default {
     ).else(
       $ => $.return(x.subtract(remainder)) // Always subtract remainder (towards zero)
     );
-  }),
+  }); },
 
   /**
    * Formats an integer as a percentage.
@@ -638,7 +639,7 @@ export default {
    * compiled(-25n);  // "-25%"
    * ```
    */
-  printPercentage: Expr.function([IntegerType], StringType, ($, x) => {
+  get printPercentage() { return Expr.function([IntegerType], StringType, ($, x) => {
     $.return(Expr.str`${x}%`);
-  }),
-}
+  }); },
+})

@@ -4,9 +4,10 @@
  */
 import { BooleanType, FloatType, IntegerType, StringType } from "../../types.js";
 import { Expr } from "../expr.js";
+import { lazyLibrary } from "./lazy.js";
 
 /** Standard library functions for floats */
-export default {
+export default lazyLibrary({
   /**
    * Checks if two floats are approximately equal within an epsilon tolerance.
    *
@@ -25,10 +26,10 @@ export default {
    * compiled(1.0, 1.1, 0.05);          // false
    * ```
    */
-  approxEqual: Expr.function([FloatType, FloatType, FloatType], BooleanType, ($, x, y, epsilon) => {
+  get approxEqual() { return Expr.function([FloatType, FloatType, FloatType], BooleanType, ($, x, y, epsilon) => {
     const diff = $.let(x.subtract(y).abs());
     $.return(Expr.lessEqual(diff, epsilon));
-  }),
+  }); },
 
   /**
    * Rounds a float down to the nearest integer (floor).
@@ -46,7 +47,7 @@ export default {
    * compiled(-2.3);  // -3n
    * ```
    */
-  roundFloor: Expr.function([FloatType], IntegerType, ($, x) => {
+  get roundFloor() { return Expr.function([FloatType], IntegerType, ($, x) => {
     const rem = $.let(x.remainder(1.0));
     const is_exact = $.let(Expr.equal(rem, 0.0).bitOr(Expr.equal(rem, -0.0)));
     const floored_float = $.let(
@@ -59,7 +60,7 @@ export default {
       )
     );
     $.return(floored_float.toInteger());
-  }),
+  }); },
 
   /**
    * Rounds a float up to the nearest integer (ceiling).
@@ -77,7 +78,7 @@ export default {
    * compiled(-2.7);  // -2n
    * ```
    */
-  roundCeil: Expr.function([FloatType], IntegerType, ($, x) => {
+  get roundCeil() { return Expr.function([FloatType], IntegerType, ($, x) => {
     // Use the step-based roundUp with step=1.0, then convert
     const rem = $.let(x.remainder(1.0));
     const is_exact = $.let(Expr.equal(rem, 0.0).bitOr(Expr.equal(rem, -0.0)));
@@ -91,7 +92,7 @@ export default {
       )
     );
     $.return(ceiled_float.toInteger());
-  }),
+  }); },
 
   /**
    * Rounds a float to the nearest integer using half-away-from-zero rounding.
@@ -110,7 +111,7 @@ export default {
    * compiled(-2.5);  // -3n
    * ```
    */
-  roundHalf: Expr.function([FloatType], IntegerType, ($, x) => {
+  get roundHalf() { return Expr.function([FloatType], IntegerType, ($, x) => {
     const rounded_float = $.let(
       Expr.greaterEqual(x, 0.0).ifElse(
         () => x.add(0.5).subtract(x.add(0.5).remainder(1.0)),
@@ -118,7 +119,7 @@ export default {
       )
     );
     $.return(rounded_float.toInteger());
-  }),
+  }); },
 
   /**
    * Truncates a float towards zero (removes the fractional part).
@@ -136,10 +137,10 @@ export default {
    * compiled(-2.7);  // -2n
    * ```
    */
-  roundTrunc: Expr.function([FloatType], IntegerType, ($, x) => {
+  get roundTrunc() { return Expr.function([FloatType], IntegerType, ($, x) => {
     const truncated_float = $.let(x.subtract(x.remainder(1.0)));
     $.return(truncated_float.toInteger());
-  }),
+  }); },
 
   /**
    * Rounds a float to the nearest multiple of a step value.
@@ -160,7 +161,7 @@ export default {
    * compiled(3.14159, 0.01); // 3.14
    * ```
    */
-  roundNearest: Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
+  get roundNearest() { return Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot round NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot round Infinity"));
@@ -186,7 +187,7 @@ export default {
     );
 
     $.return(rounded_divisions_float.multiply(abs_step));
-  }),
+  }); },
 
   /**
    * Rounds a float up to the next multiple of a step value (ceiling).
@@ -207,7 +208,7 @@ export default {
    * compiled(3.14, 0.1);  // 3.2
    * ```
    */
-  roundUp: Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
+  get roundUp() { return Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot round NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot round Infinity"));
@@ -231,7 +232,7 @@ export default {
       )
     );
     $.return(ceiled.multiply(abs_step));
-  }),
+  }); },
 
   /**
    * Rounds a float down to the previous multiple of a step value (floor).
@@ -252,7 +253,7 @@ export default {
    * compiled(3.19, 0.1);  // 3.1
    * ```
    */
-  roundDown: Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
+  get roundDown() { return Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot round NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot round Infinity"));
@@ -276,7 +277,7 @@ export default {
       )
     );
     $.return(floored.multiply(abs_step));
-  }),
+  }); },
 
   /**
    * Rounds a float towards zero to the nearest multiple of a step value (truncate).
@@ -296,7 +297,7 @@ export default {
    * compiled(-17.9, 5.0);  // -15.0
    * ```
    */
-  roundTruncate: Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
+  get roundTruncate() { return Expr.function([FloatType, FloatType], FloatType, ($, x, step) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot round NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot round Infinity"));
@@ -309,7 +310,7 @@ export default {
     const truncated = $.let(divisions.subtract(divisions.remainder(1.0)));
 
     $.return(truncated.multiply(abs_step));
-  }),
+  }); },
 
   /**
    * Rounds a float to a specified number of decimal places.
@@ -329,7 +330,7 @@ export default {
    * compiled(2.5, 0n);      // 3.0
    * ```
    */
-  roundToDecimals: Expr.function([FloatType, IntegerType], FloatType, ($, x, decimals) => {
+  get roundToDecimals() { return Expr.function([FloatType, IntegerType], FloatType, ($, x, decimals) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot round NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot round Infinity"));
@@ -359,7 +360,7 @@ export default {
     );
 
     $.return(rounded.divide(multiplier));
-  }),
+  }); },
 
   /**
    * Formats a float with comma separators for thousands.
@@ -380,7 +381,7 @@ export default {
    * compiled(-5432.1, 3n);     // "-5,432.100"
    * ```
    */
-  printCommaSeperated: Expr.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
+  get printCommaSeperated() { return Expr.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot format NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot format Infinity"));
@@ -455,7 +456,7 @@ export default {
     );
 
     $.return(negative.ifElse(() => Expr.str`-${result}`, () => result));
-  }),
+  }); },
 
   /**
    * Formats a float as currency with comma separators and 2 decimal places.
@@ -475,7 +476,7 @@ export default {
    * compiled(1000000);    // "$1,000,000.00"
    * ```
    */
-  printCurrency: Expr.function([FloatType], StringType, ($, x) => {
+  get printCurrency() { return Expr.function([FloatType], StringType, ($, x) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot format NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot format Infinity"));
@@ -530,7 +531,7 @@ export default {
     const result = $.let(Expr.str`${dollars_str}.${cents_str}`);
 
     $.return(negative.ifElse(() => Expr.str`-$${result}`, () => Expr.str`$${result}`));
-  }),
+  }); },
 
   /**
    * Formats a float with a fixed number of decimal places.
@@ -551,7 +552,7 @@ export default {
    * compiled(-0.5, 1n);     // "-0.5"
    * ```
    */
-  printFixed: Expr.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
+  get printFixed() { return Expr.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot format NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot format Infinity"));
@@ -594,7 +595,7 @@ export default {
     );
 
     $.return(negative.ifElse(() => Expr.str`-${result}`, () => result));
-  }),
+  }); },
 
   /**
    * Formats a float in compact form with business unit suffixes.
@@ -617,7 +618,7 @@ export default {
    * compiled(3140000000);   // "3.14B"
    * ```
    */
-  printCompact: Expr.function([FloatType], StringType, ($, x) => {
+  get printCompact() { return Expr.function([FloatType], StringType, ($, x) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot format NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot format Infinity"));
@@ -673,7 +674,7 @@ export default {
     const rounded_int = $.let(shifted.subtract(shifted.remainder(1.0)));
     const rounded = $.let(rounded_int.divide(100.0));
     $.return(negative.ifElse(() => Expr.str`-${rounded}${suffix}`, () => Expr.str`${rounded}${suffix}`));
-  }),
+  }); },
 
   /**
    * Formats a float as a percentage.
@@ -696,7 +697,7 @@ export default {
    * compiled(-0.123, 2n);  // "-12.30%"
    * ```
    */
-  printPercentage: Expr.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
+  get printPercentage() { return Expr.function([FloatType, IntegerType], StringType, ($, x, decimals) => {
     // Check for NaN/Infinity
     $.if(Expr.equal(x, NaN), $ => $.error("Cannot format NaN"));
     $.if(Expr.equal(x, Infinity), $ => $.error("Cannot format Infinity"));
@@ -723,5 +724,5 @@ export default {
     const rounded = $.let(rounded_int.divide(multiplier));
 
     $.return(Expr.str`${rounded}%`);
-  }),
-}
+  }); },
+})
