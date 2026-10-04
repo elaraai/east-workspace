@@ -172,7 +172,7 @@ describe('remote e3 call -v over HTTP (?verbose=1 query param → server)', () =
       await server.start();
       try {
         const baseUrl = `http://localhost:${server.port}`;
-        const req = { args: [encodeBeast2For(IntegerType)(5n)], runner: none, limits: none };
+        const req = { args: [variant('value', encodeBeast2For(IntegerType)(5n))], runner: none, limits: none };
 
         // -v ON: the verbose block travels back on stderr; result is 10.
         const v = await functionCall(baseUrl, repoName, 'verbose-fn', '1.0.0', 'doubled', req, { token: null, verbose: true });

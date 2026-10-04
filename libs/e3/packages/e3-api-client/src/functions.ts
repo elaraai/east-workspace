@@ -100,7 +100,9 @@ export async function functionDescribe(
  * @param version - Package version
  * @param fn - Function name
  * @param req - The arguments, one beast2 value each, a runner to run on
- *   instead of the function's own, and the limits
+ *   instead of the function's own, and the limits. A package has no workspace
+ *   to read a dataset argument from: one is `invalid` here, and passed through
+ *   {@link workspaceFunctionCall}
  * @param options - Request options including auth token
  * @returns The call's terminal result
  * @throws {ApiError} `permission_denied` (`path` `runner`) when the caller may
@@ -175,14 +177,19 @@ export async function workspaceFunctionDescribe(
  *
  * @remarks
  * A runner the request names is held to the caller's grant, as
- * {@link functionCall} says.
+ * {@link functionCall} says. An argument is a value, or a dataset of the
+ * workspace (`variant('dataset', path)`), pinned by its hash at launch as a
+ * one-shot's is: the result's `inputs` names each dataset argument's path and
+ * the hash it was pinned at, in argument order, and an unassigned one is
+ * `invalid`.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
- * @param ws - The workspace whose deployed package holds the function
+ * @param ws - The workspace whose deployed package holds the function, and
+ *   whose datasets its arguments may name
  * @param fn - Function name
- * @param req - The arguments, a runner to run on instead of the function's
- *   own, and the limits
+ * @param req - The arguments (values or dataset paths), a runner to run on
+ *   instead of the function's own, and the limits
  * @param options - Request options including auth token
  * @returns The call's terminal result
  * @throws {ApiError} `permission_denied` (`path` `runner`) when the caller may

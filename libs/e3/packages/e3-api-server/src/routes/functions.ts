@@ -6,12 +6,14 @@
 /**
  * Routes for named package functions and one-shot execution.
  *
- * Functions touch no datasets, so they are callable at the package level
- * (imported in a repo, no workspace) and at the workspace level (resolved
- * from the deployed package). Both mount the same handlers. A function runs
- * on its author's runner for any caller the routes admit; a runner a call
- * names instead is held to the caller's grant, which the routes take as the
- * one-shot routes do.
+ * Functions are callable at the package level (imported in a repo, no
+ * workspace) and at the workspace level (resolved from the deployed package).
+ * Both mount the same handlers. An argument is a value, or through a workspace
+ * one of its datasets, pinned at launch as a one-shot's is; the package level
+ * has no workspace to read one from, and answers a dataset argument
+ * `invalid`. A function runs on its author's runner for any caller the routes
+ * admit; a runner a call names instead is held to the caller's grant, which
+ * the routes take as the one-shot routes do.
  *
  * One-shot is workspace-scoped, caller-supplied IR. Who may run what is the
  * host's to say, since only its auth knows who the caller is: the route takes
@@ -212,7 +214,8 @@ export function createWorkspaceFunctionRoutes(
       const { repoPath, name, version } = await deployed(c);
       const grant = await functionGrant(c, options);
       const req = await decodeBody(c, FunctionCallRequestType);
-      return await callFunctionSync(storage, repoPath, getRunner(repoPath), name, version, c.req.param('fn')!, req, c.req.query('verbose') === '1', options.syncDeadlineMs, grant);
+      // A dataset argument is the workspace's, pinned at launch
+      return await callFunctionSync(storage, repoPath, getRunner(repoPath), name, version, c.req.param('fn')!, req, c.req.query('verbose') === '1', options.syncDeadlineMs, grant, c.req.param('ws')!);
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }

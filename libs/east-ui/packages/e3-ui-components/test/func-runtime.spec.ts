@@ -24,7 +24,9 @@ import {
     canonicalTypeValue,
     encodeBeast2For,
     decodeBeast2For,
+    equalFor,
     isTypeValueEqual,
+    none,
     printFor,
     toEastTypeValue,
     variant,
@@ -34,10 +36,12 @@ import {
 } from "@elaraai/east";
 import { FuncBindHandleType } from "@elaraai/e3-ui/internal";
 import type { ExecuteResult, FunctionSignature } from "@elaraai/e3-api-client";
+import { ExecuteResultType, FunctionCallRequestType, ResponseType } from "@elaraai/e3-types";
 import {
     FuncRuntime,
     funcChannelKey,
     signatureOfFuncHandleType,
+    createDefaultFunctionApi,
     createInMemoryFunctionApi,
     type FunctionApi,
     type FunctionCallArgs,
@@ -502,5 +506,31 @@ describe("createInMemoryFunctionApi", () => {
         await waitFor(() => handle.status().type === "failed", "terminal");
         // Empty list → invalid (name validation fires before the call).
         assert.equal(handle.error().value!.kind.type, "invalid");
+    });
+});
+
+// =============================================================================
+// Default FunctionApi
+// =============================================================================
+
+describe("createDefaultFunctionApi", () => {
+    test("sends each argument to the workspace's function as a value argument, on the function's own runner", async () => {
+        const sent: { path: string; body: ValueTypeOf<typeof FunctionCallRequestType> }[] = [];
+        const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+            const url = new URL(input instanceof Request ? input.url : String(input));
+            const bytes = new Uint8Array(await new Response(init?.body ?? null).arrayBuffer());
+            sent.push({ path: url.pathname, body: decodeBeast2For(FunctionCallRequestType)(bytes) });
+            const answer = encodeBeast2For(ResponseType(ExecuteResultType))(variant("success", successResult(FloatType, 4.5)));
+            return new Response(answer.slice(), { status: 200 });
+        }) as typeof globalThis.fetch;
+        const api = createDefaultFunctionApi("http://e3.test", "repo", () => ({ token: null, fetch }));
+        const args = [encodeBeast2For(IntegerType)(7n), encodeBeast2For(FloatType)(2.5)];
+
+        const result = await api.call(ws, "forecast", { args });
+        assert.equal(result.outcome.type, "success");
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0]!.path, `/api/repos/repo/workspaces/${ws}/functions/forecast`);
+        const expected = { args: args.map(arg => variant("value", arg)), runner: none, limits: none };
+        assert.ok(equalFor(FunctionCallRequestType)(sent[0]!.body, expected), printFor(FunctionCallRequestType)(sent[0]!.body));
     });
 });

@@ -105,7 +105,8 @@ export function createDefaultFunctionApi(
         },
         async call(workspace, fn, req) {
             return workspaceFunctionCall(apiUrl, repo, workspace, fn, {
-                args: req.args,
+                // East values the handle was called with, each a value argument
+                args: req.args.map(arg => variant("value", arg)),
                 runner: none,
                 limits: none,
             }, getOptions());
@@ -598,7 +599,7 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                 stderr: "",
                 stdoutTruncated: false,
                 stderrTruncated: false,
-                // A named function call reads no dataset.
+                // A call of values reads no dataset.
                 inputs: [],
             } as ExecuteResult;
         },

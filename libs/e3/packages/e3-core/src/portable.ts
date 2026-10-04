@@ -465,10 +465,11 @@ export {
 } from './execution/steps.js';
 
 // One-shot: a caller's IR run once under the grant the host's auth gives it,
-// and the limits and result every graph-free call shares
+// and the arguments, limits and result every graph-free call shares
 export {
   oneShotExecute,
   oneShotPlatformUse,
+  pinCallArguments,
   resolveExecuteLimits,
   resolveJobLimits,
   detachedToExecuteResult,

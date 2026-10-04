@@ -195,11 +195,15 @@ e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [--force] [-v] [-j <n
 ```bash
 e3 call <repo> <pkg.fn> [args...]            # Call by package: pkg.fn or pkg@1.0.0.fn
 e3 call <repo> -w <ws> <fn> [args...]        # Call the workspace's deployed package
+e3 call <repo> -w <ws> <fn> @.inputs.sales 5 # Pass a dataset of the workspace
 e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # Write the raw result to a file
 ```
 
 Arguments are `.east` literals or paths to `.beast2` / `.json` / `.east` files,
-parsed against the function's parameter types. A call triggers no dataflow and
+parsed against the function's parameter types. With `-w`, an argument written
+`@<keypath>` is that dataset of the workspace: the function reads it where it
+is stored, at the hash it holds when the call starts, rather than a copy sent
+with the call. Without `-w` one is refused. A call triggers no dataflow and
 writes nothing to the repository.
 
 ### Watch / live development

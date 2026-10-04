@@ -11,8 +11,9 @@
  * (too_large / timed_out), cancellation, both scopes (package + workspace),
  * the workspace scope's answer for a workspace with no package, or none,
  * runner override — never the custom runtime, and a package the function does
- * not load only for an elevated caller — one-shot with value, dataset and
- * collection-dataset args,
+ * not load only for an elevated caller — a named call's dataset argument,
+ * pinned through a workspace and refused through the package, which has none,
+ * one-shot with value, dataset and collection-dataset args,
  * the "persists nothing" guarantee, and one-shot for a reader: a platform-free
  * one runs and names the datasets it read, and any other is refused. A split
  * call — a program over a dataset's pieces — is launched, explained and polled
@@ -97,8 +98,9 @@ const InputsType = ExecuteResultType.fields.inputs;
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
 
+/** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[], overrides?: Partial<FunctionCallRequest>): FunctionCallRequest {
-  return { args, runner: none, limits: none, ...overrides };
+  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, ...overrides };
 }
 
 function successValue(result: ExecuteResult): bigint {
@@ -225,7 +227,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         opts
       );
       assert.equal(successValue(result), 5n);
-      // A named function's arguments are values: the result names no dataset
+      // A call of values reads no dataset: the result names none
       assertInputs(result, []);
 
       // Nothing durable was written: object count is unchanged
@@ -335,6 +337,65 @@ export function functionTests(setup: TestSetup<TestContext>): void {
           });
         }
       }
+    });
+
+    it('a call through a workspace binds a dataset argument at the hash it holds, names it in the result, and persists nothing', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('fn-ds-ws');
+      await ctx.deployPackage('fn-ds-ws', `${PKG}@${VERSION}`);
+      const before = await repoStatus(ctx.config.baseUrl, ctx.repoName, opts);
+
+      // `value` holds 10
+      const result = await workspaceFunctionCall(
+        ctx.config.baseUrl, ctx.repoName, 'fn-ds-ws', 'add',
+        { args: [variant('dataset', VALUE_PATH), variant('value', encodeInt(5n))], runner: none, limits: none },
+        opts
+      );
+      assert.equal(successValue(result), 15n);
+      assertInputs(result, [await pinnedAt(ctx, 'fn-ds-ws', VALUE_PATH, opts)]);
+
+      // The dataset is read where it is stored, not stored again
+      const after = await repoStatus(ctx.config.baseUrl, ctx.repoName, opts);
+      assert.equal(after.objectCount, before.objectCount);
+    });
+
+    it('a dataset argument through the package, which has no workspace to read it from, is invalid and names the workspace route', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      const result = await functionCall(
+        ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add',
+        { args: [variant('value', encodeInt(5n)), variant('dataset', VALUE_PATH)], runner: none, limits: none },
+        opts
+      );
+      if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
+      assert.deepEqual(result.outcome.value.diagnostics.map((diagnostic) => diagnostic.message), [
+        'Argument 1 is the dataset .inputs.value, and a call through the package has no workspace to read it from: '
+        + 'call the function through a workspace it is deployed to, at …/workspaces/<ws>/functions/add',
+      ]);
+      assertInputs(result, []);
+    });
+
+    it('an unassigned dataset argument is invalid', async (t) => {
+      const ctx = await withFunctions(t);
+      const opts = await ctx.opts();
+
+      await ctx.createWorkspace('fn-unassigned-ws');
+      await ctx.deployPackage('fn-unassigned-ws', `${PKG}@${VERSION}`);
+
+      // `apply` is the fixture's unassigned input
+      const result = await workspaceFunctionCall(
+        ctx.config.baseUrl, ctx.repoName, 'fn-unassigned-ws', 'add',
+        { args: [variant('value', encodeInt(5n)), variant('dataset', APPLY_PATH)], runner: none, limits: none },
+        opts
+      );
+      if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
+      assert.deepEqual(result.outcome.value.diagnostics.map((diagnostic) => diagnostic.message), [
+        'Dataset argument 1 is not assigned (ref type: unassigned)',
+      ]);
+      assertInputs(result, []);
     });
 
     it('a runner override in the request is honoured, with how it reads the inputs', async (t) => {
