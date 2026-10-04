@@ -39,6 +39,11 @@ export default defineConfig({
         'react-dom',
         'react/jsx-runtime',
         '@chakra-ui/react',
+        // The locale's context, as React's and Chakra's: one for every
+        // renderer package. The sibling packages' renderers (e3-ui-components'
+        // Plan) read it too, and the host's one `I18nProvider` must reach them
+        // all — bundled, each package would hold a context of its own.
+        '@react-aria/i18n',
         'shiki',
       ].includes(id) || id.startsWith('node:') || id.startsWith('@elaraai/')
         // Self-hosted brand fonts — leave the `import "@fontsource-variable/*"`

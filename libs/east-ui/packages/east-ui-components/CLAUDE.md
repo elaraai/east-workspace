@@ -96,6 +96,12 @@ have none, so the brand's would be inherited from `html`.
 `scripts` and the configs — vite and vitest strip types without checking
 them, so this is the only gate that sees a type error (#589).
 
+The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
+external: each is a context the host and the sibling renderer packages share.
+Bundled, the package would hold a copy of its own, and a host's one
+`I18nProvider` would reach it or e3-ui-components' renderers, never both
+(#1206).
+
 ## Architecture
 
 ### Rendering pipeline
