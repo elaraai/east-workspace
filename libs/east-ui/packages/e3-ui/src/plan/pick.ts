@@ -150,40 +150,40 @@ function planPickOptions(
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { ArrayType, DateTimeType, DictType, East, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
  * import { EventStateType, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Plan } from "@elaraai/e3-ui";
+ * import { Data, Plan } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const PickJob = StructType({ batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+ * export const PickOpsRow = StructType({ series: StringType, jobs: ArrayType(PickJob), cells: ArrayType(Plan.Types.HeatCell) });
+ * export const planPickOps = e3.input("plan_pick_ops", DictType(StringType, PickOpsRow), variant("value", new Map([
+ *     ["L1-M03", { series: "machines", cells: [],
+ *                  jobs: [{ batch: "B-214", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
+ *     ["L1-M04", { series: "machines", cells: [],
+ *                  jobs: [{ batch: "B-208", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
+ *     ["L2-load", { series: "load", jobs: [], cells: [
+ *         { at: variant("time", new Date("2026-06-29T00:00:00Z")), value: some(46.0), label: none },
+ *         { at: variant("time", new Date("2026-07-13T00:00:00Z")), value: some(58.0), label: none },
+ *         { at: variant("time", new Date("2026-07-27T00:00:00Z")), value: some(66.0), label: none },
+ *         { at: variant("time", new Date("2026-08-10T00:00:00Z")), value: some(72.0), label: none },
+ *         { at: variant("time", new Date("2026-08-24T00:00:00Z")), value: some(84.0), label: none },
+ *         { at: variant("time", new Date("2026-09-07T00:00:00Z")), value: some(96.0), label: none },
+ *     ] }],
+ * ])));
  *
  * const canvas = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
+ *         const ops = $.let(Data.bind(planPickOps));
  *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
  *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
  *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
  *             return w1.addWeeks(n.subtract(1n));
  *         }));
- *         const JobRow = StructType({
- *             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
- *         });
- *         const OpsRow = StructType({
- *             series: StringType, jobs: ArrayType(JobRow), cells: ArrayType(Plan.Types.HeatCell),
- *         });
- *         const noJobs = $.const([], ArrayType(JobRow));
- *         const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
- *         const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
- *         const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
- *             at: Plan.at.time(week(i.multiply(2n).add(27n))), value: some(pcts.get(i)), label: none,
- *         })));
- *         const ops = $.const(new Map([
- *             ["L1-M03", { series: "machines", cells: noCells,
- *                          jobs: [{ batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) }] }],
- *             ["L1-M04", { series: "machines", cells: noCells,
- *                          jobs: [{ batch: "B-208", start: week(27n), end: week(30n), state: variant("actual", null) }] }],
- *             ["L2-load", { series: "load", cells, jobs: noJobs }],
- *         ]), DictType(StringType, OpsRow));
  *         // Every series that COULD show — the library lists these, and the
  *         // canvas shows the ones switched on in this order.
  *         const all = $.const([
- *             Plan.series.span(OpsRow, {
+ *             Plan.series.span(PickOpsRow, {
  *                 key: "machines", title: "Machine jobs", subtitle: "one row per machine",
  *                 match: r => r.series.equal("machines"),
  *                 label: (_r, k) => k, id: true,
@@ -192,15 +192,15 @@ function planPickOptions(
  *                     label: East.str`RUN · ${j.batch}`, state: j.state,
  *                 })),
  *             }),
- *             Plan.series.heat(OpsRow, {
+ *             Plan.series.heat(PickOpsRow, {
  *                 key: "load", title: "Line load", subtitle: "% per fortnight",
  *                 match: r => r.series.equal("load"),
  *                 label: (_r, k) => k,
  *                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
  *             }),
- *         ], ArrayType(Plan.Types.Series(OpsRow)));
+ *         ], ArrayType(Plan.Types.Series(PickOpsRow)));
  *         // The handle is STATE — which series are switched off, persisted
- *         // under its key — so it lives inside the Reactive. "load" starts off.
+ *         // under its key: the viewer's own. "load" starts off.
  *         const shown = $.let(Plan.pick("ex.plan.pick", all, { hidden: ["load"] }));
  *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
  *         // `pick` REPLACES `series`: the canvas shows the picked series and

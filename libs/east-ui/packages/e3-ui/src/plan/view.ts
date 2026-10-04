@@ -47,126 +47,124 @@ import { createPlanRoot, type PlanConfig } from "./root.js";
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, variant } from "@elaraai/east";
- * import { EventStateType, Format, UIComponentType } from "@elaraai/east-ui";
- * import { Plan } from "@elaraai/e3-ui";
+ * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Plan } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
  *
- * const canvas = East.function([], UIComponentType, ($) => {
- *     // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
- *     const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
- *         const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
- *         return w1.addWeeks(n.subtract(1n));
- *     }));
- *     // The RAW domain shape — series discriminated by a variant field
- *     // (the natural ops-dataset form; the same rows page from a dataset).
- *     const JobRow = StructType({
- *         batch: StringType, start: DateTimeType, end: DateTimeType,
- *         tonnes: FloatType, state: EventStateType,
- *     });
- *     const ShiftRow = StructType({
- *         key: StringType, from: DateTimeType, to: DateTimeType,
- *         hours: FloatType, state: EventStateType,
- *     });
- *     const OpsRow = StructType({
- *         line: StringType,
- *         kind: VariantType({
- *             machine: StructType({ jobs: ArrayType(JobRow) }),
- *             crew:    StructType({ shifts: ArrayType(ShiftRow) }),
- *         }),
- *     });
- *     const ops = $.const(new Map([
- *         ["L1-M03", { line: "Line 1", kind: variant("machine", { jobs: [
- *             { batch: "B-214", start: week(28n), end: week(31n), tonnes: 96.0, state: variant("in-progress", null) },
- *             { batch: "B-221", start: week(32n), end: week(35n), tonnes: 88.0, state: variant("proposed", variant("recommended", null)) },
- *         ] }) }],
- *         ["L1-M04", { line: "Line 1", kind: variant("machine", { jobs: [
- *             { batch: "B-208", start: week(27n), end: week(30n), tonnes: 112.0, state: variant("actual", null) },
- *         ] }) }],
- *         ["L2-M11", { line: "Line 2", kind: variant("machine", { jobs: [
- *             { batch: "B-241", start: week(29n), end: week(33n), tonnes: 92.0, state: variant("confirmed", null) },
- *         ] }) }],
- *         ["crewA", { line: "Line 1", kind: variant("crew", { shifts: [
- *             { key: "s1", from: week(27n), to: week(29n), hours: 80.0, state: variant("confirmed", null) },
- *             { key: "s2", from: week(31n), to: week(33n), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
- *         ] }) }],
- *     ]), DictType(StringType, OpsRow));
- *     // Hierarchy is the DATA's (#822): one `groupToDicts` groups the rows
- *     // into the canvas's blocks — each machine under its line, the crews
- *     // under one "Crews" block. An entry of the result holds its rows.
- *     const blocks = $.let(ops.groupToDicts(
- *         ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.line),
- *         ($, _r, k) => k));
- *     const Block = DictType(StringType, OpsRow);
- *     // The series — real East values bound in the body, typed by the
- *     // constructor. The list IS the layout: one block per series, top to
- *     // bottom. The accessors are where raw fields become canvas vocabulary:
- *     // labels, quantity displays and chip text all derive CLIENT-SIDE,
- *     // inside each series' `derive`.
- *     const series = $.const([
- *         // One row per line, its machines stepped down into
- *         // (`Plan.children`) and their runs rolled up into its bands —
- *         // which sum the runs' quantities, unit by unit.
- *         Plan.series.span(Block, {
- *             key: "lines", title: "Lines",
- *             match: (_b, name) => name.equal("Crews").not(),
- *             label: (_b, name) => name,
- *             runs: _b => [],
- *             rollup: "union",
- *             children: Plan.children((b) => b, [
- *                 Plan.series.span(OpsRow, {
- *                     key: "machines", title: "Machines",
- *                     match: r => r.kind.hasTag("machine"),
- *                     label: (_r, k) => k, id: true,
- *                     runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
- *                         key: j.batch, start: j.start, end: j.end,
- *                         label: East.str`RUN · ${j.batch}`,
- *                         // A quantity is one value: the bar prints `96 t`,
- *                         // and the line's band sums the tonnes.
- *                         quantity: Plan.quantity(j.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
- *                         state: j.state,
- *                     })),
- *                 }),
- *             ]),
- *         }),
- *         // One strip per matching block — here the one "Crews" block,
- *         // wearing its member count.
- *         Plan.series.group(Block, {
- *             key: "crews", title: "Crews",
- *             match: (_b, name) => name.equal("Crews"),
- *             label: (_b, name) => name,
- *             children: Plan.children((b) => b, [
- *                 Plan.series.cards(OpsRow, {
- *                     key: "crew-shifts", title: "Crew shifts",
- *                     match: r => r.kind.hasTag("crew"),
- *                     label: (_r, k) => k,
- *                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
- *                         const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
- *                         // `+` marks ADDED hours — a removed proposal keeps the
- *                         // plain figure (see planCardRows for the full ladder).
- *                         const label = $.let(s.state.match({
- *                             proposed: (_$, p) => p.hasTag("removed").ifElse(
- *                                 () => East.str`${hrs}h`,
- *                                 () => East.str`+${hrs}h`),
- *                         }, _$ => East.str`${hrs}h`), StringType);
- *                         return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
- *                     }),
- *                 }),
- *             ]),
- *         }),
- *         Plan.series.rows(Block, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
- *             [Plan.events({ key: "ms", label: "Milestones", id: true, marks: [
- *                 Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
- *                 Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
- *             ] })]),
- *     ], ArrayType(Plan.Types.Series(Block)));
- *     const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
- *     return (
- *         <Plan.View
- *             axis={axis}
- *             data={blocks}
- *             series={series}
- *         />
- *     );
+ * export const SeriesJob = StructType({ batch: StringType, start: DateTimeType, end: DateTimeType, tonnes: FloatType, state: EventStateType });
+ * export const SeriesShift = StructType({ key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType });
+ * export const SeriesOpsRow = StructType({
+ *     line: StringType,
+ *     kind: VariantType({
+ *         machine: StructType({ jobs: ArrayType(SeriesJob) }),
+ *         crew:    StructType({ shifts: ArrayType(SeriesShift) }),
+ *     }),
  * });
+ * export const planSeriesOps = e3.input("plan_series_ops", DictType(StringType, SeriesOpsRow), variant("value", new Map([
+ *     ["L1-M03", { line: "Line 1", kind: variant("machine", { jobs: [
+ *         { batch: "B-214", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), tonnes: 96.0, state: variant("in-progress", null) },
+ *         { batch: "B-221", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), tonnes: 88.0, state: variant("proposed", variant("recommended", null)) },
+ *     ] }) }],
+ *     ["L1-M04", { line: "Line 1", kind: variant("machine", { jobs: [
+ *         { batch: "B-208", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), tonnes: 112.0, state: variant("actual", null) },
+ *     ] }) }],
+ *     ["L2-M11", { line: "Line 2", kind: variant("machine", { jobs: [
+ *         { batch: "B-241", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), tonnes: 92.0, state: variant("confirmed", null) },
+ *     ] }) }],
+ *     ["crewA", { line: "Line 1", kind: variant("crew", { shifts: [
+ *         { key: "s1", from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), hours: 80.0, state: variant("confirmed", null) },
+ *         { key: "s2", from: new Date("2026-07-27T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z"), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
+ *     ] }) }],
+ * ])));
+ *
+ * const canvas = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         // The source, bound from e3 — its rows are what the dataset holds.
+ *         const ops = $.let(Data.bind(planSeriesOps));
+ *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+ *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+ *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+ *             return w1.addWeeks(n.subtract(1n));
+ *         }));
+ *         // Hierarchy is the DATA's (#822): one `groupToDicts` groups the rows
+ *         // into the canvas's blocks — each machine under its line, the crews
+ *         // under one "Crews" block. An entry of the result holds its rows.
+ *         const blocks = $.let(ops.read().groupToDicts(
+ *             ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.line),
+ *             ($, _r, k) => k));
+ *         const Block = DictType(StringType, SeriesOpsRow);
+ *         // The series — real East values bound in the body, typed by the
+ *         // constructor. The list IS the layout: one block per series, top to
+ *         // bottom. The accessors are where raw fields become canvas vocabulary:
+ *         // labels, quantity displays and chip text all derive CLIENT-SIDE,
+ *         // inside each series' `derive`.
+ *         const series = $.const([
+ *             // One row per line, its machines stepped down into
+ *             // (`Plan.children`) and their runs rolled up into its bands —
+ *             // which sum the runs' quantities, unit by unit.
+ *             Plan.series.span(Block, {
+ *                 key: "lines", title: "Lines",
+ *                 match: (_b, name) => name.equal("Crews").not(),
+ *                 label: (_b, name) => name,
+ *                 runs: _b => [],
+ *                 rollup: "union",
+ *                 children: Plan.children((b) => b, [
+ *                     Plan.series.span(SeriesOpsRow, {
+ *                         key: "machines", title: "Machines",
+ *                         match: r => r.kind.hasTag("machine"),
+ *                         label: (_r, k) => k, id: true,
+ *                         runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+ *                             key: j.batch, start: j.start, end: j.end,
+ *                             label: East.str`RUN · ${j.batch}`,
+ *                             // A quantity is one value: the bar prints `96 t`,
+ *                             // and the line's band sums the tonnes.
+ *                             quantity: Plan.quantity(j.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+ *                             state: j.state,
+ *                         })),
+ *                     }),
+ *                 ]),
+ *             }),
+ *             // One strip per matching block — here the one "Crews" block,
+ *             // wearing its member count.
+ *             Plan.series.group(Block, {
+ *                 key: "crews", title: "Crews",
+ *                 match: (_b, name) => name.equal("Crews"),
+ *                 label: (_b, name) => name,
+ *                 children: Plan.children((b) => b, [
+ *                     Plan.series.cards(SeriesOpsRow, {
+ *                         key: "crew-shifts", title: "Crew shifts",
+ *                         match: r => r.kind.hasTag("crew"),
+ *                         label: (_r, k) => k,
+ *                         chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
+ *                             const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+ *                             // `+` marks ADDED hours — a removed proposal keeps the
+ *                             // plain figure (see planCardRows for the full ladder).
+ *                             const label = $.let(s.state.match({
+ *                                 proposed: (_$, p) => p.hasTag("removed").ifElse(
+ *                                     () => East.str`${hrs}h`,
+ *                                     () => East.str`+${hrs}h`),
+ *                             }, _$ => East.str`${hrs}h`), StringType);
+ *                             return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
+ *                         }),
+ *                     }),
+ *                 ]),
+ *             }),
+ *             Plan.series.rows(Block, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
+ *                 [Plan.events({ key: "ms", label: "Milestones", id: true, marks: [
+ *                     Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
+ *                     Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
+ *                 ] })]),
+ *         ], ArrayType(Plan.Types.Series(Block)));
+ *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+ *         return (
+ *             <Plan.View
+ *                 axis={axis}
+ *                 data={blocks}
+ *                 series={series}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  *
  * @remarks

@@ -35,6 +35,81 @@ const FIXTURE = [
   '',
 ].join('\n');
 
+// An example that binds a dataset declared beside it, the type that dataset
+// holds, a declaration only a JSX attribute is named like, and the file's
+// prose and a divider above them: the example's source carries what its fn
+// reaches, each under its own doc comment, and nothing else (#1178).
+const BOUND_FIXTURE = [
+  '/** @jsxImportSource @elaraai/e3-ui */',
+  'import { DictType, East, StringType, StructType, example, variant } from "@elaraai/east";',
+  'import { Stat, UIComponentType } from "@elaraai/east-ui";',
+  'import { Data } from "@elaraai/e3-ui";',
+  'import e3 from "@elaraai/e3";',
+  '',
+  '// The file\'s prose, about every example below.',
+  '',
+  '// ---',
+  '// Bound',
+  '// ---',
+  '',
+  '/** A machine. */',
+  'export const Machine = StructType({ line: StringType });',
+  '',
+  '/** Nothing reaches this: the attributes below are only named like it. */',
+  'export const label = "Machines";',
+  '',
+  '// A note, not a doc comment.',
+  'export const machines = e3.input("machines", DictType(StringType, Machine), variant("value", new Map()));',
+  '',
+  'export const bound = example({',
+  '    keywords: ["Data.bind"],',
+  '    description: "A count of the machines",',
+  '    fn: East.function([], UIComponentType, (_$) => {',
+  '        const ops = $.let(Data.bind(machines));',
+  '        return <Stat label="Machines" value={East.print(ops.read().size())} />;',
+  '    }),',
+  '    inputs: [],',
+  '});',
+  '',
+  'export const literal = example({',
+  '    keywords: ["Stat"],',
+  '    description: "A literal stat",',
+  '    fn: East.function([], UIComponentType, (_$) => <Stat label="Machine" value="none" />),',
+  '    inputs: [],',
+  '});',
+  '',
+].join('\n');
+
+test('an example\'s source carries the module-scope declarations its fn reaches, under their doc comments', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'east-examples-'));
+  try {
+    const file = join(dir, 'bound.examples.tsx');
+    writeFileSync(file, BOUND_FIXTURE);
+    const [bound, literal] = parseExamplesFile(file);
+    assert.equal(bound!.source, [
+      '// A count of the machines',
+      '// inputs: []',
+      '/** A machine. */',
+      'export const Machine = StructType({ line: StringType });',
+      '',
+      'export const machines = e3.input("machines", DictType(StringType, Machine), variant("value", new Map()));',
+      '',
+      'East.function([], UIComponentType, (_$) => {',
+      '        const ops = $.let(Data.bind(machines));',
+      '        return <Stat label="Machines" value={East.print(ops.read().size())} />;',
+      '    })',
+    ].join('\n'));
+    // An example that reaches nothing is its fn alone.
+    assert.equal(literal!.source, [
+      '// A literal stat',
+      '// inputs: []',
+      'East.function([], UIComponentType, (_$) => <Stat label="Machine" value="none" />)',
+    ].join('\n'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('an example whose JSX text or description holds an apostrophe is read whole, with the one after it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'east-examples-'));
   try {
