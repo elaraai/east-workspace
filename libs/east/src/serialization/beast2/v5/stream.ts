@@ -1767,7 +1767,11 @@ export class Beast2Pages<T extends EastType = EastType> {
   /**
    * Looks up one Set element or Dict value by key (Set/Dict roots only):
    * binary-searches the verified segment fences for the only segment whose
-   * range can hold the key, decodes it, and scans for an East-equal match.
+   * range can hold the key, decodes it (or takes it from the cache), and looks
+   * the key up in it. A segment is a SortedSet or SortedMap under the same
+   * East comparator, so the lookup is its B-tree's, O(log m) in a segment of m
+   * keys — as east-c looks a key up in its segment — and never a walk of the
+   * segment's entries.
    *
    * @param key - the Set element or Dict key to look up
    * @returns the Dict value (or the stored Set element) for `key`, or
@@ -1788,15 +1792,12 @@ export class Beast2Pages<T extends EastType = EastType> {
     const order: SegmentOrder = { prev: undefined, has: false };
     const segment = this.decodeDisjoint(this.segmentFor(key), order, fences, true);
     if (this.kind === "Set") {
-      for (const item of segment as Set<any>) {
-        if (this.orderCmp!(item, key) === 0) return item;
-      }
-      return undefined;
+      // The stored element, not the key asked with: the least at or above it,
+      // when that one is East-equal to it.
+      const at = (segment as SortedSet<any>).keys(key).next();
+      return !at.done && this.orderCmp!(at.value, key) === 0 ? at.value : undefined;
     }
-    for (const [k, v] of (segment as Map<any, any>).entries()) {
-      if (this.orderCmp!(k, key) === 0) return v;
-    }
-    return undefined;
+    return (segment as SortedMap<any, any>).get(key);
   }
 }
 
