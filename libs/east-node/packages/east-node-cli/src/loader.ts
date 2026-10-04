@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'fs';
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -66,6 +66,13 @@ export interface PlatformMetadata {
  *    require root sits inside that package — i.e. at the project root.
  * 3. The process cwd (`process.cwd()`) — for a standalone `east-node run`
  *    invoked from the project shell, where cwd IS the project root.
+ * 4. The REAL path of the CLI's own script (`realpath(process.argv[1])`'s
+ *    dir) — for a global install. npm's global bin links into the install,
+ *    and the walk up from the link's own directory reaches no `node_modules`;
+ *    the walk up from the script's real path reaches the global
+ *    `node_modules`, and the packages installed beside the CLI, with no
+ *    `NODE_PATH`. Last, never first: under pnpm the real path is in the
+ *    store, whose walk up misses the project's own packages.
  *
  * All roots are tried; the first that resolves wins. Stock platforms still
  * resolve via step 1 first, so existing behaviour is unchanged.
@@ -76,8 +83,23 @@ function platformRequireRoots(): string[] {
     const fromE3 = process.env.E3_RUNNER_SEARCH_DIRS;
     if (fromE3) roots.push(...fromE3.split(path.delimiter).filter(Boolean));
     roots.push(process.cwd());
+    const real = realScript(cliEntry);
+    if (real !== undefined) roots.push(path.dirname(real));
     // Dedupe so a CLI invoked from the project root doesn't probe twice.
     return [...new Set(roots)];
+}
+
+/**
+ * The real path of the script node was started with, its links followed; or
+ * `undefined` when there is no such file (a `node -e` program's), and so no
+ * root to add.
+ */
+function realScript(entry: string): string | undefined {
+    try {
+        return realpathSync(entry);
+    } catch {
+        return undefined;
+    }
 }
 
 /**
@@ -115,9 +137,10 @@ export async function loadPlatform(packageName: string): Promise<PlatformFunctio
     try {
         // Resolve the package's `./platform` export across the candidate require
         // roots — the linked CLI bin location for installed stock platforms, the
-        // e3-provided project root(s) and cwd for a project's own package. See
+        // e3-provided project root(s) and cwd for a project's own package, and
+        // last the CLI script's real path for a global install. See
         // {@link platformRequireRoots} / {@link resolvePlatformSubpath} for why
-        // each root is needed (and why `import.meta.url`'s realpath is not).
+        // each root is needed, and why the real path comes last.
         const resolvedPath = resolvePlatformSubpath(packageName, 'platform');
         const platformModule = await import(pathToFileURL(resolvedPath).href);
         const fns = platformModule.default;
