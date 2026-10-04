@@ -119,6 +119,8 @@ export async function workspaceDeploy(
  * @param options - Progress, the workspace lock, and the signal that stops the
  *   export and the checkpoint it resumes from
  * @returns Export result with package info and the zip's size
+ * @throws {InvalidNameError} If `name` is no workspace's name, before a lock is
+ *   taken or the file written
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
  * @throws {ExportStoppedError} When `options.signal` stopped the export.

@@ -11,6 +11,7 @@ import {
   workspaceGetTaskHash,
   executionFindCurrent,
   executionReadLog,
+  checkName,
   ExecutionNotFoundError,
   coreEventToApiEvent,
   coreStatusToApiStatus,
@@ -198,6 +199,10 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  * where it starts the run — a local one in its own process — so this never
  * waits on it.
  *
+ * The workspace's name is checked before the orchestrator is asked, so a name
+ * no workspace can have is refused alike whichever orchestrator runs the
+ * repository's dataflows, and no lock named for it is taken.
+ *
  * @param storage - Storage backend
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
@@ -206,9 +211,10 @@ function convertWorkspaceStatus(result: CoreWorkspaceStatusResult): WorkspaceSta
  *   the server's budget; the tasks and units the loop keeps in flight, the
  *   orchestrator's own default when absent; what the run forces — `true` for
  *   every task, or the tasks' names — its filter and its verbosity
- * @returns 202 once the run has started, or the error that stopped it: a
- *   forced task the graph does not have is `task_not_found`, and one the
- *   filter's run set leaves out `dataflow_error`
+ * @returns 202 once the run has started, or the error that stopped it: a name
+ *   no workspace can have is `invalid_name`, a forced task the graph does not
+ *   have `task_not_found`, and one the filter's run set leaves out
+ *   `dataflow_error`
  */
 export async function startDataflow(
   storage: StorageBackend,
@@ -218,6 +224,10 @@ export async function startDataflow(
   options: { runner: TaskRunner; width?: number; force: boolean | readonly string[]; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
+    // A host's own orchestrator may take a lock named for whatever it is
+    // given, and a lock's name may hold the `#` and `~` no workspace's may.
+    checkName('workspace', workspace);
+
     // Start execution via orchestrator (acquires lock internally). The loop
     // keeps `width` tasks and units in flight, and the runner decides which
     // of them spawn.

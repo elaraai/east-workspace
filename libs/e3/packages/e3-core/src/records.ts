@@ -50,7 +50,7 @@ import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
-import { DatasetRefConflictError, WorkspaceLockError, lockStateToHolderInfo } from './errors.js';
+import { DatasetRefConflictError, WorkspaceLockError, checkName, lockStateToHolderInfo } from './errors.js';
 import { touchReachable } from './gc-graph.js';
 import { withRunningWork } from './running-work.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
@@ -196,6 +196,10 @@ export interface RecordMutateOptions {
  * Run a record operation under a shared workspace lock (acquired internally
  * unless the caller already holds one), so mutations coexist with dataflow but
  * are fenced out by an exclusive deploy/remove — the §8 concurrency contract.
+ *
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before the lock
+ *   is taken
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
  */
 async function withSharedWorkspaceLock<T>(
   storage: StorageBackend,
@@ -204,6 +208,11 @@ async function withSharedWorkspaceLock<T>(
   externalLock: LockHandle | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {
+  // The name is checked as a workspace's before the lock is taken: a lock's
+  // name may hold the `#` and `~` no workspace's may, so the lock store would
+  // refuse a malformed one, if at all, as a lock's, and `main#dataflow` would
+  // read as locked while main's dataflow runs.
+  checkName('workspace', ws);
   let lock: LockHandle | null = externalLock ?? null;
   if (!lock) {
     lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
@@ -497,6 +506,10 @@ async function runUnit(
  * commit. A wave is stored before the next names it, and every one before the
  * ref does. Nothing written is read back: a patch's delta is applied from the
  * entries in hand while it is stored.
+ *
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before a lock
+ *   is taken
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
  */
 export async function recordMutate(
   storage: StorageBackend,
@@ -979,6 +992,9 @@ export interface RecordReindexOptions {
  * @param opts - The actor, one index by name (default: all), and the
  *   retries, cancellation and lock
  * @returns `committed` / `invalid` / a program failure / `conflict`
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before a lock
+ *   is taken
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
  */
 export async function recordReindex(
   storage: StorageBackend,
@@ -1465,6 +1481,9 @@ export interface RecordCompactOptions {
  * @param opts - The actor, and the retries' window, budget and cap
  * @returns `committed` / `invalid`, or `conflict` once the retries stop, like
  *   a mutation
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before a lock
+ *   is taken
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
  */
 export async function recordCompact(
   storage: StorageBackend,
@@ -1603,6 +1622,9 @@ export interface RecordSystemCommitOptions {
  * @param opts - The commit's name, target, actor and arguments, and its retries
  * @returns `committed`; `invalid`, naming why nothing was written; an index
  *   build's failure; or `conflict`
+ * @throws {InvalidNameError} When `ws` is no workspace's name, before a lock
+ *   is taken
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
  */
 export async function recordSystemCommit(
   storage: StorageBackend,
