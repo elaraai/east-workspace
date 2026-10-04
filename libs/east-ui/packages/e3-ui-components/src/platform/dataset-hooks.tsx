@@ -50,6 +50,7 @@ import {
 } from "./record-runtime.js";
 import { getStagedStore } from "./staged-store.js";
 import { e3RequestOptions, useE3Config } from "./e3-config.js";
+import { recoveryDelay } from "./recovery.js";
 
 // =============================================================================
 // Context
@@ -277,24 +278,19 @@ export interface PreloadReactiveDatasetsResult {
     reload: () => void;
 }
 
-/** How long a failed preload waits before it is tried again, at first; each
- *  failure doubles it, up to {@link PRELOAD_RETRY_MAX_MS}. */
-const PRELOAD_RETRY_FIRST_MS = 1_000;
-
-/** The longest a failed preload waits before it is tried again. */
-const PRELOAD_RETRY_MAX_MS = 30_000;
-
 /**
  * Hook to preload reactive datasets before rendering.
  *
  * @remarks
- * A preload that fails is tried again for as long as the hook is mounted, 1 s
- * after the failure and then doubling up to 30 s, so a view recovers by itself
- * from a network error, a repository whose upgrade is being applied, or a
- * dataset that moved while it was read. `error` is the latest failure
- * meanwhile. It clears as soon as the cache holds every dataset that failed,
- * whoever brought them in: a status poll that watches a dataset fetches it
- * once it can be read, usually before the next try.
+ * A preload that fails is tried again for as long as the hook is mounted, so a
+ * view recovers by itself from a network error, a repository whose upgrade is
+ * being applied, or a dataset that moved while it was read. The waits back off
+ * from 1 s to 30 s, each a random point in the second half of its own
+ * ({@link recoveryDelay}), so views that failed together do not try again
+ * together. `error` is the latest failure meanwhile. It clears as soon as the
+ * cache holds every dataset that failed, whoever brought them in: a status poll
+ * that watches a dataset fetches it once it can be read, usually before the
+ * next try.
  *
  * @param datasets - Array of datasets to preload
  * @returns Loading state and error
@@ -340,7 +336,8 @@ export function usePreloadReactiveDatasets(datasets: ReactiveDatasetToPreload[])
         let attempting = false;
         // The cache keys the last try failed on, while the preload is failing.
         let failed: string[] = [];
-        let delay = PRELOAD_RETRY_FIRST_MS;
+        // The tries in a row that failed.
+        let failedTries = 0;
         let timer: ReturnType<typeof setTimeout> | undefined;
         const keys = datasets.map(({ workspace, path }) => datasetCacheKey(workspace, path));
         const held = (i: number): boolean => cache.has(datasets[i]!.workspace, datasets[i]!.path);
@@ -371,8 +368,8 @@ export function usePreloadReactiveDatasets(datasets: ReactiveDatasetToPreload[])
                     attempt();
                     return;
                 }
-                timer = setTimeout(attempt, delay);
-                delay = Math.min(delay * 2, PRELOAD_RETRY_MAX_MS);
+                failedTries += 1;
+                timer = setTimeout(attempt, recoveryDelay(failedTries));
             });
         };
 

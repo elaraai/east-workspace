@@ -4,11 +4,11 @@
  *
  * @vitest-environment jsdom
  *
- * A preload that fails recovers by itself. It is tried again 1 s after the
- * failure and then at doubling waits up to 30 s, for as long as the view is
- * mounted, and its failure ends as soon as the cache holds the dataset,
- * whoever brought it in. So a preview showing "Preload failed" after a
- * transient error renders without a remount.
+ * A preload that fails recovers by itself. It is tried again after waits that
+ * back off from 1 s to 30 s, each a random point in the second half of its
+ * own, for as long as the view is mounted, and its failure ends as soon as the
+ * cache holds the dataset, whoever brought it in. So a preview showing
+ * "Preload failed" after a transient error renders without a remount.
  */
 
 import { useMemo } from "react";
@@ -149,14 +149,18 @@ async function poll(): Promise<void> {
 }
 
 describe("a preload that fails", () => {
-    test("is tried again 1 s after the failure, then at doubling waits up to 30 s, until it reads", async () => {
+    test("is tried again after waits that back off from 1 s to 30 s, each a random point in the second half of its own, until it reads", async () => {
+        // Each wait halfway through the second half of its own (recovery.test
+        // draws each anew).
+        vi.spyOn(Math, "random").mockReturnValue(0.5);
         const server = serve((n) => (n <= 7 ? "fail" : "read"));
         renderPreloaded();
         await advance(0);
         expect(server.reads).toBe(1);
         expect(screen.getByText(/^failed: /)).toBeTruthy();
 
-        for (const wait of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]) {
+        // Three quarters of 1, 2, 4, 8, 16, 30 and 30 s.
+        for (const wait of [750, 1_500, 3_000, 6_000, 12_000, 22_500, 22_500]) {
             const reads = server.reads;
             await advance(wait - 1);
             expect(server.reads, `nothing is read before ${wait} ms have passed`).toBe(reads);

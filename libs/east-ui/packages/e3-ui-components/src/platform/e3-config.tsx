@@ -32,6 +32,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { RequestOptions } from "@elaraai/e3-api-client";
+import { recoveryDelay } from "./recovery.js";
 
 /**
  * Server identity + auth for an e3 React tree.
@@ -83,8 +84,11 @@ const E3ConfigContext = createContext<E3Config | null>(null);
  * @property children - Subtree that should see this config.
  * @property config - The {@link E3Config} to expose.
  * @property queryClient - Optional external `QueryClient`. One is
- *  created if omitted; pass an external instance to share a TanStack
- *  cache with the rest of your application.
+ *  created if omitted, which tries a failed query twice more before it
+ *  reports the failure, after waits drawn as a view's own tries are
+ *  ({@link recoveryDelay}), so views that failed together do not try
+ *  again together. Pass an external instance to share a TanStack cache
+ *  with the rest of your application; its own retries apply.
  */
 export interface E3ProviderProps {
     children: ReactNode;
@@ -108,7 +112,8 @@ export interface E3ProviderProps {
 export function E3Provider({ children, config, queryClient: externalClient }: E3ProviderProps) {
     const client = useMemo(
         () => externalClient ?? new QueryClient({
-            defaultOptions: { queries: { retry: 2, staleTime: 30000 } },
+            // TanStack counts the failures before a retry from 0.
+            defaultOptions: { queries: { retry: 2, retryDelay: (failures) => recoveryDelay(failures + 1), staleTime: 30000 } },
         }),
         [externalClient],
     );
