@@ -18,15 +18,18 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  DataflowExecutionStateType, E3_RELEASE, ExecutionStatusType, RepositoryUpgradeProgressType, WorkspaceRecordType, dataflowForce,
-  decodeExecutionStatus, type DataflowExecutionState, type DataflowForce, type RepositoryUpgradeProgress, type StopReason,
+  DataflowExecutionStateType, E3_RELEASE, ExecutionEventType, ExecutionStatusType, RepositoryUpgradeProgressType, WorkspaceRecordType,
+  dataflowForce, decodeExecutionStatus, type DataflowExecutionState, type DataflowForce, type ExecutionEvent, type RepositoryUpgradeProgress,
+  type StopReason,
 } from '@elaraai/e3-types';
+import type { EventSegment } from '../dataflow/state-store/events.js';
 import { ExecutionCorruptError, RepoLayoutError, RepositoryUpgradePendingError } from '../errors.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageImport } from '../package-files.js';
 import { recordHistory, recordSystemCommit } from '../records.js';
 import { REPOSITORY_UPGRADES, repositoryOpen, repositoryUpgradeStep } from '../repository-record.js';
 import { withRunningWork } from '../running-work.js';
+import { DATAFLOW_EVENTS_APART, dataflowEventsApart } from '../upgrades/dataflow-events-apart.js';
 import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
 import { uuidv7 } from '../uuid.js';
@@ -684,6 +687,110 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         } while (stopped !== null && stops.length < 4);
         assert.deepEqual(stops, ['crashed', 'current', 'forced', null]);
         assert.deepEqual(replaced, ['forced', 'unforced']);
+      } finally {
+        storage.runStates = runStates;
+      }
+    });
+
+    it('moves every dataflow run\'s events out of its state, as its store keeps them apart, and leaves the rest as they are', async (t) => {
+      const { storage, repo } = await setup(t);
+      const record = await repositoryOpen(storage, repo);
+      // A repository an earlier release wrote, which has not had the upgrade.
+      const before = { release: '1.0.85', upgrades: record.upgrades.filter(({ name }) => name !== DATAFLOW_EVENTS_APART) };
+      await storage.refs.repositoryWrite(repo, before);
+
+      // A run in each of four workspaces, each the workspace's latest, as an
+      // earlier release stored them: two whose states hold their events, one
+      // of them 2,500 of them and one that never counted its own, as one of
+      // events recorded on their own; one with none; and one in no form, which
+      // a crash left.
+      const event = (seq: bigint): ExecutionEvent => variant('task_started', { seq, timestamp: new Date(1_500), task: 'etl' });
+      const run = (workspace: string, events: ExecutionEvent[]): DataflowExecutionState => ({
+        release: '1.0.85', id: uuidv7(), repo, workspace, startedAt: new Date(1_000), force: dataflowForce(false), filter: none,
+        graph: none, graphHash: none, tasks: new Map(), executed: 1n, cached: 0n, failed: 0n, skipped: 0n, status: 'completed',
+        completedAt: some(new Date(2_000)), error: none, versionVectors: new Map(), inputSnapshot: new Map(), taskOutputPaths: [],
+        reexecuted: 0n, events, eventSeq: events.at(-1)?.value.seq ?? 0n,
+      });
+      const few = { ...run('few', [event(1n), event(2n)]), eventSeq: 0n };
+      const many = run('many', Array.from({ length: 2_500 }, (_, i) => event(BigInt(i + 1))));
+      const idle = run('idle', []);
+      const crashed = run('crashed', [event(1n)]);
+      for (const each of [few, many, idle, crashed]) await storage.runStates(repo).create({ ...each, events: [] });
+      const stored = async (workspace: string) => (await storage.runStates(repo).readStored(repo)).find((each) => each.workspace === workspace)!;
+      const encodeState = encodeBeast2For(DataflowExecutionStateType);
+      const storedInline = async () => {
+        for (const each of [few, many]) await (await stored(each.workspace)).replace(encodeState(each));
+      };
+      await storedInline();
+      await (await stored('crashed')).replace(new TextEncoder().encode('not a run'));
+      const idleBytes = new Uint8Array((await stored('idle')).bytes);
+
+      // What the opens write, by workspace: each stored run's replace, and
+      // each segment of events it writes apart.
+      const replaced: string[] = [];
+      const segments: string[] = [];
+      const watched = new WeakSet<object>();
+      const runStates = storage.runStates.bind(storage);
+      storage.runStates = (of) => {
+        const store = runStates(of);
+        if (!watched.has(store)) {
+          watched.add(store);
+          const readStored = store.readStored.bind(store);
+          store.readStored = async (r) => (await readStored(r)).map((each) => ({
+            ...each,
+            replace: (bytes: Uint8Array) => {
+              replaced.push(each.workspace);
+              return each.replace(bytes);
+            },
+            writeEvents: (runId: string, segment: EventSegment) => {
+              segments.push(each.workspace);
+              return each.writeEvents(runId, segment);
+            },
+          }));
+        }
+        return store;
+      };
+      try {
+        const opened = await repositoryOpen(storage, repo);
+        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: DATAFLOW_EVENTS_APART, release: E3_RELEASE }]);
+        assert.deepEqual([...replaced].sort(), ['few', 'many'], 'every run whose state holds events is rewritten, and no other');
+        assert.deepEqual(segments.filter((workspace) => workspace === 'many').length, 3, 'its events in segments of a thousand');
+
+        const equal = equalFor(DataflowExecutionStateType);
+        const print = printFor(DataflowExecutionStateType);
+        const sameEvents = equalFor(ArrayType(ExecutionEventType));
+        for (const each of [few, many]) {
+          const read = await runStates(repo).read(repo, each.workspace, each.id);
+          // Numbering its last event, however its state counted them
+          const apart = { ...each, events: [], eventSeq: each.events.at(-1)!.value.seq };
+          assert.ok(read !== null && equal(read, apart), `the ${each.workspace} run holds its events no more: ${read === null ? 'none' : print(read)}`);
+          assert.ok(sameEvents(await runStates(repo).getEventsSince(repo, each.workspace, each.id, 0), each.events), `the ${each.workspace} run's events, apart`);
+          assert.equal((await runStates(repo).readLatestSummary(repo, each.workspace))?.lastSeq, apart.eventSeq);
+        }
+        assert.deepEqual(new Uint8Array((await stored('idle')).bytes), idleBytes, 'a run whose state holds none is left as it is');
+        assert.deepEqual(new Uint8Array((await stored('crashed')).bytes), new TextEncoder().encode('not a run'), 'a run in no form is left as it is');
+
+        // Cut short by a crash between a run's events and its state, the step
+        // runs again, writing the events over themselves.
+        await (await stored('few')).replace(encodeState(few));
+        await storage.refs.repositoryWrite(repo, before);
+        replaced.length = 0;
+        await repositoryOpen(storage, repo);
+        assert.deepEqual(replaced, ['few']);
+        assert.ok(sameEvents(await runStates(repo).getEventsSince(repo, 'few', few.id, 0), few.events), 'the events, once');
+
+        // In parts, a workspace at a time in the order of their names, each
+        // part taking up where the last stopped: at most a part a workspace.
+        await storedInline();
+        replaced.length = 0;
+        const stops: (string | null)[] = [];
+        let stopped: string | null = null;
+        do {
+          stopped = await dataflowEventsApart.apply(storage, repo, stopped, 0);
+          stops.push(stopped);
+        } while (stopped !== null && stops.length < 4);
+        assert.deepEqual(stops, ['crashed', 'few', 'idle', null]);
+        assert.deepEqual(replaced, ['few', 'many']);
       } finally {
         storage.runStates = runStates;
       }

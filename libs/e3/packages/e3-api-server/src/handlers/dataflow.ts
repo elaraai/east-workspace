@@ -371,6 +371,9 @@ function apiEventValue(apiEvent: ApiDataflowEvent): DataflowExecutionState['even
 /** Whether one event sequence number comes before another. */
 const seqBefore = lessFor(IntegerType);
 
+/** The most pages of a run's events a poll reads, each of its limit. */
+const POLL_PAGES = 8;
+
 /**
  * Get dataflow execution state (for polling).
  *
@@ -384,7 +387,10 @@ const seqBefore = lessFor(IntegerType);
  * @remarks
  * The poll reads the run's summary, not its whole state, and reads its events
  * only when the summary's last is past the cursor, so a poll that has every
- * event, or asks for none (`limit` 0), reads none. The cursor is the stored
+ * event, or asks for none (`limit` 0), reads none. It reads them from the
+ * run's events, which the store keeps apart from its state, a page of `limit`
+ * at a time until it has served `limit`, and at most eight pages, so a poll
+ * costs what it serves and the events between. The cursor is the stored
  * sequence number of the last event the client has (`since`, 0 for none). The
  * response's `nextSeq` is the cursor past what the poll went through: the API
  * events it served and the events the API does not show between them, or
@@ -418,12 +424,33 @@ export async function getDataflowExecution(
 ): Promise<Response> {
   const since = BigInt(options.since ?? 0);
   const limit = Math.min(options.limit ?? DATAFLOW_POLL_EVENTS_MAX, DATAFLOW_POLL_EVENTS_MAX);
+
+  // The API's events past the cursor, at most `limit` of them, up to the
+  // summary's last: one the run recorded after the summary was read is the
+  // next poll's. The cursor moves past each event served, and past each the
+  // API does not show — a run's start and end, a split task's stages — up to
+  // the next served. The run's events are read a page of `limit` at a time,
+  // at most POLL_PAGES of them, so a poll reads what it serves and the events
+  // between, and a run of events the API does not show is served over polls.
   let run: ExecutionStateSummary | null;
-  let stored: CoreExecutionEvent[] = [];
+  const apiEvents: DataflowExecutionState['events'] = [];
+  let nextSeq = since;
   try {
     run = await stateStore.readLatestSummary(repoPath, workspace);
-    if (run !== null && limit !== 0 && seqBefore(since, run.lastSeq)) {
-      stored = await stateStore.getEventsSince(repoPath, workspace, run.id, options.since ?? 0);
+    if (run !== null && limit !== 0) {
+      paging: for (let page = 0; page < POLL_PAGES && apiEvents.length < limit && seqBefore(nextSeq, run.lastSeq); page++) {
+        const stored: CoreExecutionEvent[] = await stateStore.getEventsSince(repoPath, workspace, run.id, Number(nextSeq), limit);
+        if (stored.length === 0) break;
+        for (const event of stored) {
+          if (seqBefore(run.lastSeq, event.value.seq)) break paging;
+          const apiEvent = coreEventToApiEvent(event);
+          if (apiEvent !== null) {
+            if (apiEvents.length >= limit) break paging;
+            apiEvents.push(apiEventValue(apiEvent));
+          }
+          nextSeq = event.value.seq;
+        }
+      }
     }
   } catch (err) {
     return sendError(DataflowExecutionStateType, errorToVariant(err));
@@ -432,23 +459,6 @@ export async function getDataflowExecution(
     return sendError(DataflowExecutionStateType, variant('execution_not_found', {
       task: workspace,
     }));
-  }
-
-  // The API's events past the cursor, at most `limit` of them, up to the
-  // summary's last: one the run recorded after the summary was read is the
-  // next poll's. The cursor moves past each event served, and past each the
-  // API does not show — a run's start and end, a split task's stages — up to
-  // the next served.
-  const apiEvents: DataflowExecutionState['events'] = [];
-  let nextSeq = since;
-  for (const event of stored) {
-    if (seqBefore(run.lastSeq, event.value.seq)) break;
-    const apiEvent = coreEventToApiEvent(event);
-    if (apiEvent !== null) {
-      if (apiEvents.length >= limit) break;
-      apiEvents.push(apiEventValue(apiEvent));
-    }
-    nextSeq = event.value.seq;
   }
 
   // Convert status to API format

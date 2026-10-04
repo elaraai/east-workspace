@@ -6,23 +6,39 @@
 /**
  * The execution state store's contract: what any backend's store of a
  * dataflow run's state does — the state an orchestrator persists, a poll reads
- * and a cancel ends, whichever process answers.
+ * and a cancel ends, whichever process answers — and of its events, which the
+ * store keeps apart from it.
  */
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { IntegerType, encodeBeast2For, equalFor, lessFor, none, printFor, some, variant } from '@elaraai/east';
+import { ArrayType, IntegerType, encodeBeast2For, equalFor, lessFor, none, printFor, some, variant } from '@elaraai/east';
 import {
-  DataflowExecutionStateType, E3_RELEASE, ExecutionStateSummaryType, dataflowForce, decodeDataflowExecutionState, executionStateSummary,
+  DataflowExecutionStateType, E3_RELEASE, ExecutionEventType, ExecutionStateSummaryType, dataflowForce, decodeDataflowExecutionState,
+  executionStateSummary,
 } from '@elaraai/e3-types';
+import { eventSegment } from '../dataflow/state-store/events.js';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
-import type { DataflowExecutionState } from '../dataflow/types.js';
+import type { DataflowExecutionState, ExecutionEvent } from '../dataflow/types.js';
 import { uuidv7 } from '../uuid.js';
 import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
 
 /** Whether one event sequence number comes before another. */
 const seqBefore = lessFor(IntegerType);
 const printSeq = printFor(IntegerType);
+
+const sameEvents = equalFor(ArrayType(ExecutionEventType));
+const printEvents = printFor(ArrayType(ExecutionEventType));
+
+/** A run's event, numbered: a task started. */
+function started(seq: bigint, task = 'etl'): ExecutionEvent {
+  return variant('task_started', { seq, timestamp: new Date(1_000), task });
+}
+
+/** Asserts a run's events are those expected, in order. */
+function assertEvents(read: readonly ExecutionEvent[], expected: readonly ExecutionEvent[], what: string): void {
+  assert.ok(sameEvents([...read], [...expected]), `${what}: ${printEvents([...read])}, not ${printEvents([...expected])}`);
+}
 
 /** A running run's state of one pending task, `etl`, in workspace `ws`. */
 function runningState(repo: string, id: string): DataflowExecutionState {
@@ -303,39 +319,97 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
       await assert.rejects(store.updateTaskStatus(repo, 'ws', uuidv7(), 'ran', 'completed'), 'a run it does not hold');
     });
 
-    it('records a run\'s events, and reads those after a sequence number', async (t) => {
+    it('keeps a run\'s events apart from its state: records each, and reads those after a sequence number, at most a limit of them', async (t) => {
       const { store, repo } = await setup(t);
       const id = uuidv7();
-      await store.create({
-        release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
-        graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
-        status: 'running', completedAt: none, error: none, versionVectors: new Map(), inputSnapshot: new Map(),
-        taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
-      });
-      await store.recordEvent(repo, 'ws', id, variant('execution_started', { seq: 1n, timestamp: new Date(), executionId: id, totalTasks: 1n }));
-      await store.recordEvent(repo, 'ws', id, variant('task_started', { seq: 2n, timestamp: new Date(), task: 'etl' }));
-      await store.recordEvent(repo, 'ws', id, variant('task_ready', { seq: 3n, timestamp: new Date(), task: 'report' }));
+      await store.create(runningState(repo, id));
+      const events: ExecutionEvent[] = [
+        variant('execution_started', { seq: 1n, timestamp: new Date(1_000), executionId: id, totalTasks: 1n }),
+        started(2n),
+        variant('task_ready', { seq: 3n, timestamp: new Date(1_003), task: 'report' }),
+      ];
+      for (const event of events) assert.equal(await store.recordEvent(repo, 'ws', id, event), 'applied');
 
-      const since = await store.getEventsSince(repo, 'ws', id, 1);
-      assert.deepEqual(since.map((event) => [event.type, event.value.seq]), [['task_started', 2n], ['task_ready', 3n]]);
-      assert.equal((await store.read(repo, 'ws', id))?.events.length, 3, 'the events are the run\'s state\'s');
-      assert.deepEqual(await store.getEventsSince(repo, 'ws', uuidv7(), 0), [], 'a run it does not hold has none');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 1), events.slice(1), 'past the first');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 0, 2), events.slice(0, 2), 'the first two');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 3), [], 'past the last');
+      const read = await store.read(repo, 'ws', id);
+      assert.deepEqual([read?.events.length, read?.eventSeq], [0, 3n], 'the state holds none, and numbers the last');
+      assertEvents(await store.getEventsSince(repo, 'ws', uuidv7(), 0), [], 'a run it does not hold has none');
     });
 
-    it('deletes a run\'s state by its id, and no other run\'s', async (t) => {
+    it('appends the events each write of the state holds, copying none it holds already, and takes a write\'s events for those it holds from the first of them on', async (t) => {
+      const { store, repo } = await setup(t);
+      const id = uuidv7();
+      const state = runningState(repo, id);
+      await store.create({ ...state, events: [started(1n)], eventSeq: 1n });
+      assert.equal(await store.update({ ...state, events: [started(2n), started(3n)], eventSeq: 3n }), 'applied');
+      assert.equal(await store.update({ ...state, executed: 1n, eventSeq: 3n }), 'applied', 'a write with no new event');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 0), [started(1n), started(2n), started(3n)], 'each write\'s, after those before');
+      assert.deepEqual([(await store.read(repo, 'ws', id))?.events.length, (await store.readLatestSummary(repo, 'ws'))?.lastSeq], [0, 3n]);
+
+      // A run taken up after a crash between a write of its events and the
+      // write of its state numbers its next events from the state's: they take
+      // the place of those the store holds from the first of them on.
+      assert.equal(await store.update({ ...state, events: [started(3n, 'retried'), started(4n)], eventSeq: 4n }), 'applied');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 0), [started(1n), started(2n), started(3n, 'retried'), started(4n)], 'from the first held on');
+
+      // Many, written in writes of 700, read back in order, a window at a time.
+      const many = Array.from({ length: 2_500 }, (_, i) => started(BigInt(i + 5)));
+      for (let from = 0; from < many.length; from += 700) {
+        const write = many.slice(from, from + 700);
+        assert.equal(await store.update({ ...state, events: write, eventSeq: write.at(-1)!.value.seq }), 'applied');
+      }
+      assert.equal((await store.getEventsSince(repo, 'ws', id, 0)).length, 2_504);
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 1_200, 1_000), many.slice(1_196, 2_196), 'a thousand past a cursor');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 2_499), many.slice(2_495), 'the last few');
+
+      // A write whose first event the store holds among others before and
+      // after it: those from it on are the write's.
+      assert.equal(await store.update({ ...state, events: [started(1_500n, 'again')], eventSeq: 1_500n }), 'applied');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 1_490), [...many.slice(1_486, 1_495), started(1_500n, 'again')], 'the held before it, then it');
+      assert.equal((await store.readLatestSummary(repo, 'ws'))?.lastSeq, 1_500n);
+
+      // A write the store drops, the run having ended, has its events dropped.
+      await store.updateStatus(repo, 'ws', id, 'completed');
+      assert.equal(await store.update({ ...state, events: [started(1_501n)], eventSeq: 1_501n }), 'dropped');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 1_500), [], 'none of a dropped write');
+    });
+
+    it('stores a segment of a run\'s events as given, whatever the run\'s status, over one of the same first event: what an upgrade writes', async (t) => {
+      const { store, repo } = await setup(t);
+      const ended: DataflowExecutionState = { ...runningState(repo, uuidv7()), status: 'completed', completedAt: some(new Date()) };
+      await store.create(ended);
+      const [stored] = await store.readStored(repo);
+      assert.ok(stored !== undefined, 'the store holds the run');
+
+      await stored.writeEvents(ended.id, eventSegment([started(1n), started(2n)]));
+      await stored.writeEvents(ended.id, eventSegment([started(3n)]));
+      assertEvents(await store.getEventsSince(repo, 'ws', ended.id, 0), [started(1n), started(2n), started(3n)], 'the segments, as given');
+      await stored.writeEvents(ended.id, eventSegment([started(1n, 'again'), started(2n)]));
+      assertEvents(await store.getEventsSince(repo, 'ws', ended.id, 0), [started(1n, 'again'), started(2n), started(3n)], 'one written again over itself');
+
+      // Events of a form this e3 does not read are refused when a poll reads them.
+      await stored.writeEvents(ended.id, { first: 4n, last: 4n, bytes: encodeBeast2For(IntegerType)(4n) });
+      await assert.rejects(store.getEventsSince(repo, 'ws', ended.id, 3), /the run's events are in a form this e3 does not read/);
+    });
+
+    it('deletes a run\'s state by its id, with its events, and no other run\'s', async (t) => {
       const { store, repo } = await setup(t);
       const id = uuidv7();
       await store.create({
         release: E3_RELEASE, id, repo, workspace: 'ws', startedAt: new Date(), force: dataflowForce(false), filter: none,
         graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n,
         status: 'completed', completedAt: some(new Date()), error: none, versionVectors: new Map(), inputSnapshot: new Map(),
-        taskOutputPaths: [], reexecuted: 0n, events: [], eventSeq: 0n,
+        taskOutputPaths: [], reexecuted: 0n, events: [started(1n)], eventSeq: 1n,
       });
       await store.delete(repo, 'ws', uuidv7());
       assert.equal((await store.read(repo, 'ws', id))?.id, id, 'deleting another id leaves the run');
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 0), [started(1n)], 'and its events');
       await store.delete(repo, 'ws', id);
       assert.equal(await store.read(repo, 'ws', id), null);
       assert.equal(await store.readLatest(repo, 'ws'), null);
+      assertEvents(await store.getEventsSince(repo, 'ws', id, 0), [], 'its events go with it');
     });
 
     it('holds each run\'s state as stored, and stores what a replace gives in its place, whatever the run\'s status: what an upgrade reads and writes', async (t) => {

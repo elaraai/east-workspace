@@ -24,7 +24,7 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  DataflowExecutionStateType, DataflowRunType, DatasetRefType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType,
+  DataflowExecutionStateType, DataflowRunType, DatasetRefType, E3_RELEASE, ExecutionEventType, ExecutionOwnerType, ExecutionStatusType,
   LockStateType, RepoMetadataType, RepositoryRecordType, RepositoryUpgradeProgressType, UNIT_PLAN_KIND, WorkspaceRecordType,
   encodeUnitPlan,
 } from '@elaraai/e3-types';
@@ -54,6 +54,7 @@ const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastTyp
   ['a package ref', /^packages\/[^/]+\/[^/]+\.beast2$/, StringType],
   ['a workspace record', /^workspaces\/[^/]+\.beast2$/, WorkspaceRecordType],
   ['a workspace\'s execution state', /^workspaces\/[^/]+\/execution\.beast2$/, DataflowExecutionStateType],
+  ['a segment of a run\'s events', /^workspaces\/[^/]+\/execution-events\/[0-9a-f-]{36}\/\d{20}\.beast2$/, ArrayType(ExecutionEventType)],
   ['a dataset ref', /^workspaces\/[^/]+\/data\/.+\.beast2$/, StructType({ revision: StringType, ref: DatasetRefType })],
   ['a run record', /^dataflows\/[^/]+\/[0-9a-f-]{36}\.beast2$/, DataflowRunType],
   ['a plan pointer', /^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/plan\.beast2$/, StringType],

@@ -6,15 +6,21 @@
 /**
  * `WebStateStore`: where a dataflow run keeps its state beside a
  * {@link WebStorage}'s repositories — a record of the same records adapter,
- * one per run, under its repository, workspace and id.
+ * one per run, under its repository, workspace and id, and its events apart,
+ * a record per segment of them.
  *
  * @packageDocumentation
  */
 
-import { encodeBeast2For, some } from '@elaraai/east';
+import { IntegerType, encodeBeast2For, parseFor, printFor, some } from '@elaraai/east';
 import { DataflowExecutionStateType, decodeDataflowExecutionState, executionStateSummary, type ExecutionStateSummary } from '@elaraai/e3-types';
 import {
   checkName,
+  compareEventSeqs,
+  eventsSince,
+  planEventAppend,
+  segmentBefore,
+  stateWithoutEvents,
   type DataflowExecutionState,
   type DataflowTaskStatus,
   type ExecutionEvent,
@@ -25,15 +31,46 @@ import {
   type TaskState,
   type TaskStatusDetails,
 } from '@elaraai/e3-core/portable';
-import type { RecordKey, RecordsAdapter, RecordsRead } from './adapters.js';
+import type { RecordKey, RecordsAdapter, RecordsRead, RecordsTransaction } from './adapters.js';
 import { recordKeys } from './record-keys.js';
 
 const encodeState = encodeBeast2For(DataflowExecutionStateType);
+
+const printSeq = printFor(IntegerType);
+const parseSeq = parseFor(IntegerType);
 
 /** A run's key, its workspace checked. */
 function stateKey(repo: string, workspace: string, id: string): RecordKey {
   checkName('workspace', workspace);
   return recordKeys.state(repo, workspace, id);
+}
+
+/** The key of a segment of a run's events: its first event's sequence
+ *  number, in twenty digits, so the keys sort as the numbers do. */
+function segmentKey(repo: string, workspace: string, id: string, first: bigint): RecordKey {
+  return [...recordKeys.events(repo, workspace, id), printSeq(first).padStart(20, '0')];
+}
+
+/** The keys of a run's segments, by their first events, in order. */
+async function segmentKeys(read: RecordsRead, repo: string, workspace: string, id: string): Promise<bigint[]> {
+  return (await read.keys(recordKeys.events(repo, workspace, id))).flatMap((key) => {
+    const parsed = parseSeq(key.at(-1)!);
+    return parsed.success ? [parsed.value] : [];
+  }).sort(compareEventSeqs);
+}
+
+/**
+ * Appends events to a run's segments ({@link planEventAppend}), in the
+ * transaction that writes the state numbering them.
+ */
+async function appendEvents(tx: RecordsTransaction, repo: string, workspace: string, id: string, events: readonly ExecutionEvent[]): Promise<void> {
+  if (events.length === 0) return;
+  const held = await segmentKeys(tx, repo, workspace, id);
+  const before = segmentBefore(held, events);
+  const bytes = before === null ? null : await tx.get(segmentKey(repo, workspace, id, before));
+  const { remove, put } = planEventAppend(held, before === null || bytes === null ? null : { first: before, bytes }, events);
+  for (const first of remove) tx.delete(segmentKey(repo, workspace, id, first));
+  for (const segment of put) tx.put(segmentKey(repo, workspace, id, segment.first), segment.bytes);
 }
 
 /** A run's state, or `null` when the store holds none of its key. */
@@ -102,14 +139,17 @@ function withStatus(
 /**
  * A dataflow run's state, kept in the records a {@link WebStorage} keeps its
  * repositories in: each run's under its own key, so a workspace keeps every
- * run's, the latest sorting last by its UUIDv7.
+ * run's, the latest sorting last by its UUIDv7, and the run's events apart
+ * from it, a record per segment of them.
  *
  * @remarks
- * Every change reads the state and writes it back in one transaction, so two
- * tabs changing one run lose neither's change. A run that has ended —
- * completed, failed or cancelled — keeps the state it ended with, whole: every
- * later write of it is dropped, and answers so. A workspace's removal, and its
- * repository's, delete its runs' states with its other records.
+ * Every change reads the state and writes it back, with the events it adds,
+ * in one transaction, so two tabs changing one run lose neither's change. A
+ * poll reads the run's segments past its cursor, and not its state. A run that
+ * has ended — completed, failed or cancelled — keeps the state it ended with,
+ * whole: every later write of it is dropped, and answers so. A workspace's
+ * removal, and its repository's, delete its runs' states and events with its
+ * other records.
  *
  * @example
  * ```ts
@@ -131,7 +171,8 @@ export class WebStateStore implements ExecutionStateStore {
       if ((await tx.get(key)) !== null) {
         throw new Error(`Execution ${state.id} already exists in workspace '${state.workspace}' of ${state.repo}`);
       }
-      tx.put(key, encodeState(state));
+      await appendEvents(tx, state.repo, state.workspace, state.id, state.events);
+      tx.put(key, encodeState(stateWithoutEvents(state)));
     });
   }
 
@@ -177,43 +218,51 @@ export class WebStateStore implements ExecutionStateStore {
   }
 
   async recordEvent(repo: string, workspace: string, executionId: string, event: ExecutionEvent): Promise<StateWriteOutcome> {
-    return this.change(repo, workspace, executionId, (state) => ({ ...state, events: [...state.events, event] }));
+    return this.change(repo, workspace, executionId, (state) => ({ ...state, events: [event] }));
   }
 
-  async getEventsSince(repo: string, workspace: string, executionId: string, sinceSeq: number): Promise<ExecutionEvent[]> {
-    const state = await this.read(repo, workspace, executionId);
-    if (state === null) return [];
-    const since = BigInt(sinceSeq);
-    return state.events.filter((event) => event.value.seq > since);
+  async getEventsSince(repo: string, workspace: string, executionId: string, sinceSeq: number, limit?: number): Promise<ExecutionEvent[]> {
+    checkName('workspace', workspace);
+    const held = await segmentKeys(this.records, repo, workspace, executionId);
+    return eventsSince(held, (first) => this.records.get(segmentKey(repo, workspace, executionId, first)), BigInt(sinceSeq), limit);
   }
 
   async delete(repo: string, workspace: string, executionId: string): Promise<void> {
     const key = stateKey(repo, workspace, executionId);
     await this.records.transact((tx) => {
       tx.delete(key);
+      tx.deletePrefix(recordKeys.events(repo, workspace, executionId));
       return Promise.resolve();
     });
   }
 
   /**
    * The run states the store holds of a repository, as stored: every run's,
-   * each its own record, which a `replace` writes over in one transaction.
+   * each its own record, which a `replace` writes over in one transaction, as
+   * `writeEvents` writes a segment of the run's events.
    */
   async readStored(repo: string): Promise<StoredRunState[]> {
-    return (await this.records.scan(recordKeys.kind(repo, 'state'))).map(({ key, value }) => ({
-      workspace: key[3]!,
-      bytes: value,
-      replace: (bytes) => this.records.transact((tx) => {
-        tx.put(key, bytes);
-        return Promise.resolve();
-      }),
-    }));
+    return (await this.records.scan(recordKeys.kind(repo, 'state'))).map(({ key, value }) => {
+      const workspace = key[3]!;
+      return {
+        workspace,
+        bytes: value,
+        replace: (bytes) => this.records.transact((tx) => {
+          tx.put(key, bytes);
+          return Promise.resolve();
+        }),
+        writeEvents: (runId, segment) => this.records.transact((tx) => {
+          tx.put(segmentKey(repo, workspace, runId, segment.first), segment.bytes);
+          return Promise.resolve();
+        }),
+      };
+    });
   }
 
   /**
    * Changes a run's state in one transaction: reads it, and writes what
-   * `next` makes of it, unless the run has ended — completed, failed or
-   * cancelled — which keeps the state it ended with.
+   * `next` makes of it, with the events that holds, unless the run has ended —
+   * completed, failed or cancelled — which keeps the state it ended with.
    *
    * @returns `applied`, or `dropped` when the run has ended
    * @throws {Error} When the store holds no such run, or `next` throws
@@ -229,7 +278,9 @@ export class WebStateStore implements ExecutionStateStore {
       const current = await readState(tx, key);
       if (current === null) throw notFound(repo, workspace, id);
       if (current.status !== 'running') return 'dropped';
-      tx.put(key, encodeState(next(current)));
+      const state = next(current);
+      await appendEvents(tx, repo, workspace, id, state.events);
+      tx.put(key, encodeState(stateWithoutEvents(state)));
       return 'applied';
     });
   }

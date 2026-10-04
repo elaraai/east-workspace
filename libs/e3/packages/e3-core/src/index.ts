@@ -448,6 +448,20 @@ export {
   coreStateToApiState,
 } from './dataflow/index.js';
 
+// A run's events, as every state store keeps them apart from its state
+export {
+  EVENT_SEGMENT_EVENTS,
+  eventSegment,
+  decodeEventSegment,
+  segmentBefore,
+  planEventAppend,
+  eventsSince,
+  stateWithoutEvents,
+  compareEventSeqs,
+  type EventSegment,
+  type EventAppend,
+} from './dataflow/state-store/events.js';
+
 // Workspace locking (in storage/local/)
 export {
   acquireWorkspaceLock,

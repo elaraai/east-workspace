@@ -576,9 +576,9 @@ class WebRefStore implements RefStore {
 
   /**
    * Removes a workspace's record, and with it everything kept under its name:
-   * its dataset refs, its runs' records and its runs' state. Its locks are the
-   * lock service's, which takes the state a closed tab left for no one's, and
-   * writes over it when the lock is next held.
+   * its dataset refs, its runs' records, and its runs' states and events. Its
+   * locks are the lock service's, which takes the state a closed tab left for
+   * no one's, and writes over it when the lock is next held.
    */
   async workspaceRemove(repo: string, name: string): Promise<void> {
     checkName('workspace', name);
@@ -587,6 +587,7 @@ class WebRefStore implements RefStore {
       tx.deletePrefix([...recordKeys.kind(repo, 'dataset'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'run'), name]);
       tx.deletePrefix([...recordKeys.kind(repo, 'state'), name]);
+      tx.deletePrefix([...recordKeys.kind(repo, 'event'), name]);
     });
   }
 

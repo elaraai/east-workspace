@@ -4,7 +4,8 @@
  */
 
 /**
- * Unit tests for FileStateStore atomic-write rename resilience.
+ * Unit tests for FileStateStore atomic-write rename resilience, and where it
+ * keeps a run's events.
  *
  * On Windows, `fs.rename(tmp, dest)` fails (EPERM/EACCES/EBUSY/EEXIST) whenever
  * another handle has `dest` open — e.g. a concurrent reader. The execution-state
@@ -22,12 +23,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import * as nodeFs from 'node:fs';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { none } from '@elaraai/east';
+import { none, variant } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce } from '@elaraai/e3-types';
-import type { DataflowExecutionState } from '../types.js';
+import { uuidv7 } from '../../uuid.js';
+import type { DataflowExecutionState, ExecutionEvent } from '../types.js';
 import { FileStateStore } from './FileStateStore.js';
 
 function makeState(repo: string, workspace: string): DataflowExecutionState {
@@ -104,6 +106,35 @@ describe('FileStateStore atomic-write rename resilience', () => {
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    }
+  });
+
+  it('keeps a run\'s events in files beside its state, and a new run\'s state takes the events of the run it replaces with it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'e3-fss-'));
+    try {
+      const store = new FileStateStore(dir);
+      const repo = '/tmp/test-repo';
+      const started = (seq: bigint): ExecutionEvent => variant('task_started', { seq, timestamp: new Date(1_000), task: 'etl' });
+      const first: DataflowExecutionState = { ...makeState(repo, 'ws'), id: uuidv7(), events: [started(1n), started(2n)], eventSeq: 2n };
+      await store.create(first);
+      const eventsDir = join(dir, 'ws', 'execution-events');
+      assert.deepStrictEqual(readdirSync(join(eventsDir, first.id)), ['00000000000000000001.beast2'], 'a segment, named by its first event');
+      await store.update({ ...first, events: [started(3n)], eventSeq: 3n });
+      assert.deepStrictEqual(readdirSync(join(eventsDir, first.id)), ['00000000000000000001.beast2'], 'the next events fill it');
+      const many = Array.from({ length: 2_000 }, (_, i) => started(BigInt(i + 4)));
+      await store.update({ ...first, events: many, eventSeq: 2_003n });
+      assert.deepStrictEqual(readdirSync(join(eventsDir, first.id)).sort(),
+        ['00000000000000000001.beast2', '00000000000000001001.beast2', '00000000000000002001.beast2'], 'a thousand to a segment');
+
+      const second: DataflowExecutionState = { ...makeState(repo, 'ws'), id: uuidv7(), events: [started(1n)], eventSeq: 1n };
+      await store.create(second);
+      assert.deepStrictEqual(readdirSync(eventsDir), [second.id], 'the first run\'s events go with its state');
+      assert.deepStrictEqual(await store.getEventsSince(repo, 'ws', first.id, 0), []);
+      assert.strictEqual((await store.getEventsSince(repo, 'ws', second.id, 0)).length, 1);
+      // An id that is no UUIDv7 names no run's events, and no directory.
+      assert.deepStrictEqual(await store.getEventsSince(repo, 'ws', `../../ws/execution-events/${second.id}`, 0), []);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
