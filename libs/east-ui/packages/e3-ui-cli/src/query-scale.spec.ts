@@ -25,7 +25,11 @@
  *   kept for the next run too.
  * - **The calls.** Each benchmark query planned as the builder plans it
  *   (`planQuery`, every dataset weighed by its file's bytes), as a split call
- *   on east-c — whichever `east-c` is first on PATH — or, for a join of the
+ *   on east-c — the first `east-c` on PATH, which the run refuses to start
+ *   when e3 would run another: e3 looks a runner up in every
+ *   `node_modules/.bin` and the first `.venv` above the data's directory and
+ *   the working directory before PATH (`testing/runners.ts`), and the report
+ *   names the file it runs — or, for a join of the
  *   orders with the shipments, both larger than a piece, as a re-keyed join's
  *   two (#942), and run in this process through e3-core (`splitCallPrepare`,
  *   `splitCallRun`, `splitCallResult`) with a server's ceilings raised, so a
@@ -53,7 +57,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
@@ -72,6 +76,7 @@ import {
     CUSTOMERS, CUSTOMER_COUNT, CustomersType, ORDERS, OrdersType, QUERIES, REGIONS, ROOT, SHIPMENTS, ShipmentsType, THRESHOLD, customerId, customers, orders,
     shipmentOf,
 } from './testing/query-bench.js';
+import { assertPathsRunner, runnerFile } from './testing/runners.js';
 
 const enabled = process.env['E3_QUERY_SCALE'] === '1';
 
@@ -467,11 +472,11 @@ function table(size: Size, rows: readonly SplitRow[], oneShots: readonly OneShot
     return lines.join('\n');
 }
 
-/** The environment a report was measured in: the runner, the budget, the machine. */
-function environment(budget: { cores: number; memory: number }): string {
-    const which = spawnSync('which', ['east-c'], { encoding: 'utf8' }).stdout.trim();
-    const version = spawnSync('east-c', ['version'], { encoding: 'utf8' }).stdout.trim().split('\n').join(', ');
-    return `east-c ${which} (${version}); budget ${budget.cores} cores, ${f(budget.memory / 1024 ** 3, 2)} GiB; ${process.env['E3_QUERY_SCALE_NOTE'] ?? ''}`.trim();
+/** The environment a report was measured in: the file e3 runs for east-c and what it says its version is, the budget, the machine. */
+function environment(eastC: string, budget: { cores: number; memory: number }): string {
+    const real = realpathSync(eastC);
+    const version = spawnSync(eastC, ['version'], { encoding: 'utf8' }).stdout.trim().split('\n').join(', ');
+    return `east-c ${eastC}${real === eastC ? '' : ` (${real})`} (${version}); budget ${budget.cores} cores, ${f(budget.memory / 1024 ** 3, 2)} GiB; ${process.env['E3_QUERY_SCALE_NOTE'] ?? ''}`.trim();
 }
 
 // ─── The spec ────────────────────────────────────────────────────────────────
@@ -485,10 +490,13 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
     const budget = resolveBudget();
 
     before(() => {
-        assert.ok(spawnSync('east-c', ['version'], { stdio: 'ignore' }).status === 0,
-            'east-c is not on PATH: build it Release (cmake -DCMAKE_BUILD_TYPE=Release) and put it first');
+        // Each size's repository is made in DIR, so e3 looks east-c up from there, beside the working directory.
+        const repoAt = join(DIR, 'repo');
+        const eastC = runnerFile('east-c', repoAt);
+        assert.ok(eastC !== null, 'e3 finds no east-c: build it Release (cmake -DCMAKE_BUILD_TYPE=Release) and put it first on PATH');
+        assertPathsRunner('east-c', eastC, repoAt);
         mkdirSync(DIR, { recursive: true });
-        appendFileSync(join(DIR, 'report.md'), `\n### ${new Date().toISOString()}\n\n${environment(budget)}\n`);
+        appendFileSync(join(DIR, 'report.md'), `\n### ${new Date().toISOString()}\n\n${environment(eastC, budget)}\n`);
     });
 
     for (const size of sizes) {

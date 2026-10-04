@@ -57,10 +57,14 @@
  *
  * What ran is read from e3's execution records, as `query-plans.spec.ts` reads
  * them: every unit that runs writes one. The calls run on every stock runner
- * found: east-node, which this package's `node_modules/.bin` holds, and
- * east-c and east-py when they are on PATH — put this tree's first, since a
- * runner from another release need not speak this one's unit protocol. CI
- * builds all three, and holds that each is on PATH. The runners inherit this
+ * e3 finds: east-node, which this package's `node_modules/.bin` holds, and
+ * east-c and east-py when they are on PATH — put this tree's first. e3 looks a
+ * runner up in every `node_modules/.bin` and the first `.venv` above the
+ * repository and the working directory before PATH (`testing/runners.ts`), so
+ * the suite names the file e3 runs for each, and fails before its first call
+ * when one is not a build of this tree: a runner from another release need not
+ * speak this one's unit protocol. CI builds all three, and holds that each is
+ * on PATH. The runners inherit this
  * process's environment, in which `OPENBLAS_NUM_THREADS` is 1: east-py imports
  * numpy, whose OpenBLAS otherwise starts a spinning thread a core as it
  * loads — about a second of CPU a unit on a many-core machine, for nothing a
@@ -69,7 +73,6 @@
 
 import { describe, it, before, after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,6 +96,7 @@ import {
 } from '@elaraai/e3-ui-components/query';
 import { startRepoServer, type RepoServerHandle } from './e3-server.js';
 import * as bench from './testing/query-bench.js';
+import { assertThisTreesRunner, runnerFile } from './testing/runners.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
 
@@ -379,21 +383,19 @@ const JOINS: readonly Asked[] = ([
 
 // ─── The runners and the repositories ────────────────────────────────────────
 
-/** Whether `binary` resolves on PATH and answers `version`. */
-function onPath(binary: string): boolean {
-    return spawnSync(binary, ['version'], { stdio: 'ignore', shell: process.platform === 'win32' }).status === 0;
-}
-
 /** A stock runner given no platform package, each collection read lazily, as the builder's runner is. */
 const stock = (runtime: 'east_node' | 'east_c' | 'east_py'): RunnerValue => variant(runtime, { platforms: [], decode: variant('lazy', null) });
 
-/** The stock runners, and whether each is on PATH. */
-const RUNNERS: readonly { readonly name: string; readonly runner: RunnerValue; readonly found: boolean }[] = [
-    { name: 'east-node', runner: stock('east_node'), found: enabled && onPath('east-node') },
-    { name: 'east-c', runner: stock('east_c'), found: enabled && onPath('east-c') },
-    { name: 'east-py', runner: stock('east_py'), found: enabled && onPath('east-py') },
+/** A repository's directory, as the suite makes its own under the system's temporary directory: where e3 looks a runner up from, beside the working directory. */
+const REPO_AT = join(tmpdir(), 'e3-ui-query-equivalence', 'repo');
+
+/** The stock runners, and the file e3 runs for each: `null` when it finds none. */
+const RUNNERS: readonly { readonly name: string; readonly runner: RunnerValue; readonly file: string | null }[] = [
+    { name: 'east-node', runner: stock('east_node'), file: enabled ? runnerFile('east-node', REPO_AT) : null },
+    { name: 'east-c', runner: stock('east_c'), file: enabled ? runnerFile('east-c', REPO_AT) : null },
+    { name: 'east-py', runner: stock('east_py'), file: enabled ? runnerFile('east-py', REPO_AT) : null },
 ];
-const FOUND = RUNNERS.filter((r) => r.found);
+const FOUND = RUNNERS.filter((r) => r.file !== null);
 
 /** The `-j` each repository's server runs under; the one-shot calls run under the last. */
 const JOBS: readonly number[] = [1, 4];
@@ -664,7 +666,7 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
 
     /** O1 and O2 for one query: both repositories, every runner found. */
     async function equivalence(t: TestContext, asked: Asked): Promise<void> {
-        assert.ok(FOUND.length > 0, 'no stock runner is on PATH');
+        assert.ok(FOUND.length > 0, 'e3 finds no stock runner');
         const plans = FOUND.map(({ name, runner }) => ({ name, runner, plan: callPlan(asked, runner) }));
         const runs = await Promise.all(repos.map((repo) => runOn(repo, asked, plans, repo.jobs === JOBS[JOBS.length - 1])));
         const calls = runs.flatMap((run) => run.calls);
@@ -748,6 +750,8 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
         blasThreads = process.env['OPENBLAS_NUM_THREADS'];
         process.env['OPENBLAS_NUM_THREADS'] = '1';
         scratch = mkdtempSync(join(tmpdir(), 'e3-ui-query-equivalence-'));
+        // Each runner e3 runs is this tree's, before anything is made for it.
+        for (const { name, file } of FOUND) assertThisTreesRunner(name, file!, join(scratch, `repo-j${JOBS[0]}`));
 
         file = decodeBeast2For(FixtureRoot)(readFileSync(new URL('query-fixture.beast2', FIXTURES)));
         fixture = scaledFixture(file);
@@ -841,11 +845,12 @@ describe('query plans answer as one unit does (E3_UI_INTEGRATION=1)', { skip: !e
         it(`${which} ${asked.label}: the split calls answer as one unit does, and every runner at every -j runs the same units`, (t) => equivalence(t, asked));
     }
 
-    for (const { name } of RUNNERS.filter((r) => !r.found)) {
-        it(`on ${name}`, { skip: `${name} not on PATH` }, () => {});
+    for (const { name } of RUNNERS.filter((r) => r.file === null)) {
+        it(`on ${name}`, { skip: `e3 finds no ${name}` }, () => {});
     }
 
     it('reports what the calls took', (t: TestContext) => {
+        for (const { name, file } of FOUND) t.diagnostic(`${name}: e3 runs ${file}`);
         for (const [what, { calls, ms }] of times) t.diagnostic(`${what}: ${calls} calls, ${(ms / 1000).toFixed(1)} s`);
         t.diagnostic(`the suite so far: ${((performance.now() - started) / 1000).toFixed(1)} s`);
     });
