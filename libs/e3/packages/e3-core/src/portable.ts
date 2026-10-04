@@ -557,6 +557,7 @@ export {
   stepDetectInputChanges,
   stepInvalidateTasks,
   stepCheckVersionConsistency,
+  stepTaskResultStale,
   type StepInitializeOptions,
 } from './dataflow/steps.js';
 

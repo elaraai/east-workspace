@@ -16,11 +16,12 @@
  * - Idempotent for retries
  *
  * Reactive step functions (stepDetectInputChanges, stepInvalidateTasks,
- * stepCheckVersionConsistency) enable the reactive fixpoint loop where
- * input changes during execution trigger re-execution of affected tasks.
+ * stepCheckVersionConsistency, stepTaskResultStale) enable the reactive
+ * fixpoint loop where input changes during execution trigger re-execution of
+ * affected tasks.
  */
 
-import { variant, some, none } from '@elaraai/east';
+import { variant, some, none, equalFor, StringType } from '@elaraai/east';
 import { E3_RELEASE, dataflowForce, type StageUnit, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { UnitRequeue } from '../execution/interfaces.js';
@@ -594,6 +595,50 @@ export function stepCheckVersionConsistency(
   return { consistent: false, conflictPath: result.conflictPath };
 }
 
+/** Whether two of a version vector's hashes are the same. */
+const sameHash = equalFor(StringType);
+
+/**
+ * Whether a task's result is stale: computed from inputs the run has moved
+ * past since the task was given them, so the result is discarded and the task
+ * runs again once its inputs are complete.
+ *
+ * @remarks
+ * It is stale when a root input in the version vector the task was given has
+ * changed since. That holds even where the task read the output of a task the
+ * change invalidated, which has yet to run again: that output's version
+ * vector still names the root input as it was, so the task's own inputs say
+ * nothing has moved. It is stale too when its inputs' version vectors no
+ * longer agree with each other, or with the one it was given.
+ *
+ * This is a pure function - it only reads state.
+ *
+ * @param state - Execution state
+ * @param taskName - The task
+ * @param givenVV - The merged version vector of the inputs the task was given:
+ *   those it was launched with, or those its cached result was found for
+ * @returns True when the result is stale
+ */
+export function stepTaskResultStale(
+  state: DataflowExecutionState,
+  taskName: string,
+  givenVV: VersionVector
+): boolean {
+  // A root input the task was given has changed since
+  for (const [path, hash] of givenVV) {
+    const current = state.inputSnapshot.get(path);
+    if (current !== undefined && !sameHash(current, hash)) return true;
+  }
+  // Its inputs' version vectors have moved, or no longer agree
+  const check = stepCheckVersionConsistency(state, taskName);
+  if (!check.consistent || check.mergedVV.size !== givenVV.size) return true;
+  for (const [path, hash] of givenVV) {
+    const current = check.mergedVV.get(path);
+    if (current === undefined || !sameHash(current, hash)) return true;
+  }
+  return false;
+}
+
 // =============================================================================
 // Async Step Functions (I/O operations)
 // =============================================================================
@@ -859,7 +904,10 @@ export function stepUnitRequeued(
  * Mark a task as completed successfully.
  *
  * Mutates the execution state, computes the merged version vector for the
- * task's output, and returns the newly ready tasks.
+ * task's output, and returns the newly ready tasks. A dependent the loop
+ * deferred, its inputs' versions disagreeing, goes back to pending: one of
+ * its inputs is produced anew, which may resolve the disagreement, and a
+ * deferral is decided again as the task next launches.
  *
  * @param state - Execution state to mutate
  * @param taskName - Name of the task
@@ -915,6 +963,13 @@ export function stepTaskCompleted(
     }
     const mergedVV = mergeVersionVectors(inputVVs);
     state.versionVectors.set(task.output, mergedVV);
+  }
+
+  // Its deferred dependents are decided again
+  for (const dependent of graph.tasks) {
+    if (!dependent.dependsOn.includes(taskName)) continue;
+    const ts = state.tasks.get(dependent.name) as Mutable<TaskState> | undefined;
+    if (ts?.status === 'deferred') ts.status = 'pending';
   }
 
   // Find newly ready tasks

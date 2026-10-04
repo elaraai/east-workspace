@@ -1613,6 +1613,164 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       );
     });
 
+    it('runs again a task that read an output the change invalidated while it ran, so the join after it never defers (#1116)', async () => {
+      // input → a → c, input → b, (b, c) → k. The input changes while c runs:
+      // a and b are invalidated, and c completes on a's output from before
+      // the change while a runs again. Its result is stale, though its own
+      // input's version vector, a's, has yet to move: once a and b have run
+      // again, a join of b's new output with c's old one would defer k, and
+      // nothing would run c again.
+      const fields: Array<[string, unknown]> = ['input', 'a_out', 'b_out', 'c_out', 'k_out']
+        .map((name) => [name, { type: 'value', value: { type: StringType, writable: true } }]);
+      const structure = { type: 'struct', value: new Map(fields) } as unknown as Structure;
+      const path = (name: string): TreePath => [variant('field', name)];
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'a', command: ['echo'], inputs: [path('input')], output: path('a_out') },
+          { name: 'b', command: ['echo'], inputs: [path('input')], output: path('b_out') },
+          { name: 'c', command: ['echo'], inputs: [path('a_out')], output: path('c_out') },
+          { name: 'k', command: ['echo'], inputs: [path('b_out'), path('c_out')], output: path('k_out') },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', path('input'), 'v1', StringType);
+
+      // a's first run ends once b runs, so the loop launches c while b runs; c
+      // holds until the change is seen; b changes the input once c runs; and
+      // a runs again only once c's first run has been judged.
+      let bStarted!: () => void;
+      const bRunning = new Promise<void>((resolve) => { bStarted = resolve; });
+      let cStarted!: () => void;
+      const cRunning = new Promise<void>((resolve) => { cStarted = resolve; });
+      let changeSeen!: () => void;
+      const changed = new Promise<void>((resolve) => { changeSeen = resolve; });
+      let cJudged!: () => void;
+      const judged = new Promise<void>((resolve) => { cJudged = resolve; });
+      const calls = new Map<string, number>();
+      const inputsOf = new Map<string, string[][]>();
+      const counted = (name: string, extra?: (n: number) => Promise<void>) => {
+        mockRunner.setResult(taskHashes.get(name)!, async (inputHashes) => {
+          const n = (calls.get(name) ?? 0) + 1;
+          calls.set(name, n);
+          inputsOf.set(name, [...inputsOf.get(name) ?? [], [...inputHashes]]);
+          if (extra) await extra(n);
+          return { state: 'success' as const, cached: false, outputHash: `${name}-v${n}` };
+        });
+      };
+      counted('a', async (n) => {
+        if (n === 1) await bRunning;
+        if (n === 2) await judged;
+      });
+      counted('b', async (n) => {
+        if (n === 1) {
+          bStarted();
+          await cRunning;
+          await mutateInput('v2');
+        }
+      });
+      counted('c', async (n) => {
+        if (n === 1) {
+          cStarted();
+          await changed;
+        }
+      });
+      counted('k');
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        onInputChanged: () => changeSeen(),
+        onTaskComplete: (task) => { if (task.name === 'c') cJudged(); },
+        onTaskInvalidated: (name) => { if (name === 'c') cJudged(); },
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(['a', 'b', 'c', 'k'].map((name) => [name, calls.get(name)]), [['a', 2], ['b', 2], ['c', 2], ['k', 1]],
+        'c runs again on a\'s new output, and k once, on consistent inputs');
+      assert.deepStrictEqual(inputsOf.get('c'), [['a-v1'], ['a-v2']]);
+      assert.deepStrictEqual([...inputsOf.get('k')![0]!].sort(), ['b-v2', 'c-v2']);
+    });
+
+    it('discards a cached result whose input the change invalidated while the cache was read, and runs the task on the new one (#1116)', async () => {
+      // input → p → x, input → q. x's result for p's first output is cached.
+      // The input changes while x's cache is read: p is invalidated, and the
+      // cached result, found for p's output from before the change, is stale.
+      const fields: Array<[string, unknown]> = ['input', 'p_out', 'q_out', 'x_out']
+        .map((name) => [name, { type: 'value', value: { type: StringType, writable: true } }]);
+      const structure = { type: 'struct', value: new Map(fields) } as unknown as Structure;
+      const path = (name: string): TreePath => [variant('field', name)];
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [
+          { name: 'p', command: ['echo'], inputs: [path('input')], output: path('p_out') },
+          { name: 'q', command: ['echo'], inputs: [path('input')], output: path('q_out') },
+          { name: 'x', command: ['echo'], inputs: [path('p_out')], output: path('x_out') },
+        ],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', path('input'), 'v1', StringType);
+      const xHash = taskHashes.get('x')!;
+
+      // p's second run ends once q runs, so the loop reads x's cache while q
+      // runs; q changes the input once x's cache is being read, which holds
+      // until the change is seen
+      let qStarted!: () => void;
+      const qRunning = new Promise<void>((resolve) => { qStarted = resolve; });
+      let lookupStarted!: () => void;
+      const lookingUp = new Promise<void>((resolve) => { lookupStarted = resolve; });
+      let changeSeen!: () => void;
+      const changed = new Promise<void>((resolve) => { changeSeen = resolve; });
+      const calls = new Map<string, number>();
+      const xInputs: string[][] = [];
+      for (const name of ['p', 'q', 'x']) {
+        mockRunner.setResult(taskHashes.get(name)!, async (inputHashes) => {
+          const n = (calls.get(name) ?? 0) + 1;
+          calls.set(name, n);
+          if (name === 'x') xInputs.push([...inputHashes]);
+          if (name === 'p' && n === 2) await qRunning;
+          if (name === 'q' && n === 2) {
+            qStarted();
+            await lookingUp;
+            await mutateInput('v2');
+          }
+          // The first two runs of p are over the input's first value
+          const version = name === 'p' ? (n < 3 ? 1 : 2) : n;
+          return { state: 'success' as const, cached: false, outputHash: `${name}-v${version}` };
+        });
+      }
+
+      // The first run, and x's result for p's first output cached
+      assert.strictEqual((await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner })).success, true);
+      const cachedId = '01900000-0000-7000-8000-00000000000a';
+      await storage.refs.executionWrite(testRepo, xHash, inputsHash(['p-v1']), cachedId, variant('success', {
+        executionId: cachedId, inputHashes: ['p-v1'], outputHash: 'x-v1',
+        startedAt: new Date(), completedAt: new Date(), peakBytes: none, plan: none, unit: false,
+      }));
+      const listIds = storage.refs.executionListIds.bind(storage.refs);
+      let lookups = 0;
+      storage.refs.executionListIds = async (repo, taskHash, inHash) => {
+        if (taskHash === xHash && lookups++ === 0) {
+          lookupStarted();
+          await changed;
+        }
+        return listIds(repo, taskHash, inHash);
+      };
+
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        force: ['p', 'q'],
+        onInputChanged: () => changeSeen(),
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(xInputs, [['p-v1'], ['p-v2']], 'x runs on p\'s new output, the stale cached result discarded');
+      const xOut = await storage.datasets.read(testRepo, 'test-ws', 'x_out');
+      assert.ok(xOut?.type === 'value');
+      assert.strictEqual(xOut.value.hash, 'x-v2');
+    });
+
   });
 
   describe('DataflowRun recording', () => {
