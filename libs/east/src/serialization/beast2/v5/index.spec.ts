@@ -650,6 +650,96 @@ describe("Beast2 v5 — Paging", () => {
     const rows = openBeast2PagesFor(AT)(encodeBeast2SegmentsFor(AT)([[[1n], [2n]], [[3n]]]));
     assert.ok(Object.isFrozen(rows.element(2)), "a row read is frozen");
   });
+
+  test("a keyed read answers what the collection holds at the key: -0, 0 and NaN apart, and nothing between or beyond its keys", () => {
+    // East orders -0 before 0 and NaN after every number, each a key of its own.
+    const DT = DictType(FloatType, StringType);
+    const entries: [number, string][] = [[-0, "minus zero"], [0, "zero"]];
+    for (let i = 1; i <= 5000; i++) entries.push([i / 2, `half-${i}`]);
+    entries.push([Number.NaN, "not a number"]);
+    const pages = openBeast2PagesFor(DT)(encodeBeast2PagedFor(DT)(new SortedMap(entries, compareFor(FloatType))));
+    assert.ok(pages.segmentCount > 2, `the keys are several segments, not ${pages.segmentCount}`);
+    for (const [key, label] of entries) assert.equal(pages.get(key), label, `${label}'s key`);
+    for (let i = 1; i < 5000; i += 97) assert.equal(pages.get(i / 2 + 0.25), undefined, "a key between two is absent");
+    assert.equal(pages.get(-1), undefined, "below the first key");
+    assert.equal(pages.get(Number.NEGATIVE_INFINITY), undefined, "below the first key");
+    assert.equal(pages.get(Number.POSITIVE_INFINITY), undefined, "between the last number and NaN");
+    for (let s = 1; s < pages.segmentCount; s++) {
+      const fence = pages.fence(s) as number;
+      if (!Number.isNaN(fence)) assert.equal(pages.get(fence - 0.25), undefined, `just below segment ${s}'s first key`);
+    }
+
+    // A Set answers with the element it holds, as the segment decoded it, not the key it was asked with.
+    const Elem = StructType({ id: IntegerType, name: StringType });
+    const ST = SetType(Elem);
+    const elems = Array.from({ length: 3000 }, (_, i) => ({ id: BigInt(i * 2), name: `row-${i}` }));
+    const sp = openBeast2PagesFor(ST)(encodeBeast2PagedFor(ST)(new SortedSet(elems, compareFor(Elem))));
+    assert.ok(sp.segmentCount > 1, `the elements are several segments, not ${sp.segmentCount}`);
+    const asked = { id: 1000n, name: "row-500" };
+    const stored = sp.get(asked);
+    assert.ok(stored !== undefined && equalFor(Elem)(stored, asked), "the element is found");
+    assert.notStrictEqual(stored, asked, "the element held, not the key asked with");
+    assert.ok(Object.isFrozen(stored), "as the segment decoded it");
+    assert.equal(sp.get({ id: 1001n, name: "row-500" }), undefined, "an element between two is absent");
+    assert.equal(sp.get({ id: 1000n, name: "row-501" }), undefined, "so is one that differs in a later field");
+    assert.equal(sp.get({ id: -1n, name: "" }), undefined, "and one below the first");
+  });
+
+  test("a keyed read looks its key up in its segment, and walks none of the segment's entries", (t) => {
+    // The deterministic stand-in for a read's cost. A segment is a SortedMap or
+    // SortedSet, whose B-tree finds a key in O(log m) of its m keys, as east-c's
+    // east_dict_get and east_set_has do; a walk of its entries is O(m) a read,
+    // which cost a join's lookups 20 µs each in 1,200-key segments. The
+    // segments are held first, read last to first so no run of reads in key
+    // order drops any: a decode walks what it decodes, to weigh it.
+    const DT = DictType(StringType, IntegerType);
+    const rows = Array.from({ length: 4000 }, (_, i) => [`k${String(i).padStart(4, "0")}`, BigInt(i)] as [string, bigint]);
+    const dp = openBeast2PagesFor(DT)(encodeBeast2PagedFor(DT)(new Map(rows)));
+    const ST = SetType(IntegerType);
+    const sp = openBeast2PagesFor(ST)(encodeBeast2PagedFor(ST)(new Set(rows.map(([, v]) => v * 2n))));
+    assert.ok(dp.segmentCount > 1 && sp.segmentCount > 1, `both are several segments, not ${dp.segmentCount} and ${sp.segmentCount}`);
+    for (const [key, v] of [...rows].reverse()) {
+      dp.get(key);
+      sp.get(v * 2n);
+    }
+    assert.equal(dp.cacheStats.segments, dp.segmentCount, "every Dict segment is held");
+    assert.equal(sp.cacheStats.segments, sp.segmentCount, "every Set segment is held");
+
+    const walks = [
+      t.mock.method(SortedMap.prototype, "entries"),
+      t.mock.method(SortedMap.prototype, "keys"),
+      t.mock.method(SortedMap.prototype, "values"),
+      t.mock.method(SortedMap.prototype, "forEach"),
+      t.mock.method(SortedSet.prototype, "entries"),
+      t.mock.method(SortedSet.prototype, "values"),
+      t.mock.method(SortedSet.prototype, "forEach"),
+    ];
+    const positioned = t.mock.method(SortedSet.prototype, "keys");
+    // A `for...of` over a segment: counted by hand, since node 22's
+    // mock.method leaves a Symbol-keyed method broken once it restores it.
+    let iterated = 0;
+    for (const proto of [SortedMap.prototype, SortedSet.prototype] as unknown as { [Symbol.iterator]: (this: unknown) => unknown }[]) {
+      const iterate = proto[Symbol.iterator];
+      proto[Symbol.iterator] = function (this: unknown) {
+        iterated++;
+        return iterate.call(this);
+      };
+      t.after(() => {
+        proto[Symbol.iterator] = iterate;
+      });
+    }
+    const hits = dp.cacheStats.hits + sp.cacheStats.hits;
+    for (const [key, v] of rows) {
+      assert.equal(dp.get(key), v);
+      assert.equal(sp.get(v * 2n), v * 2n);
+      assert.equal(sp.get(v * 2n + 1n), undefined);
+    }
+    assert.equal(dp.cacheStats.hits + sp.cacheStats.hits - hits, 3 * rows.length, "every read was served a held segment");
+    assert.deepEqual(walks.map((walk) => walk.mock.callCount()), walks.map(() => 0), "no read walked a segment");
+    assert.equal(iterated, 0, "nor iterated one");
+    assert.equal(positioned.mock.callCount(), 2 * rows.length, "each Set read starts its segment's B-tree once");
+    assert.ok(positioned.mock.calls.every((call) => call.arguments.length === 1), "at the key it was asked");
+  });
 });
 
 // =============================================================================
