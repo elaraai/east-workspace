@@ -31,15 +31,18 @@
  *
  * What ran is read from e3's execution records: every unit that runs — a piece
  * or a merge — writes one, with its runner's peak, and a unit served from the
- * cache writes none. The calls run on every stock runner found: east-node,
+ * cache writes none. The calls run on every stock runner e3 finds: east-node,
  * which this package's `node_modules/.bin` holds, and east-c when it is on
- * PATH — put this tree's first, since a runner from another release need not
- * speak this one's unit protocol.
+ * PATH — put this tree's first. e3 looks a runner up in every
+ * `node_modules/.bin` and the first `.venv` above the repository and the
+ * working directory before PATH (`testing/runners.ts`), so each runner's leg
+ * names the file e3 runs, and fails before its first call when that file is not
+ * a build of this tree: a runner from another release need not speak this
+ * one's unit protocol.
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,6 +59,7 @@ import {
 } from '@elaraai/e3-core';
 import { planQuery, prepareQuery, queryResultOf, queryRoot, type QueryResult } from '@elaraai/e3-ui-components/query';
 import { startRepoServer, type RepoServerHandle } from './e3-server.js';
+import { assertThisTreesRunner, runnerFile } from './testing/runners.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
 
@@ -232,15 +236,13 @@ function ranBetween(before: ReadonlyMap<string, number | null>, after: ReadonlyM
     return [...after].filter(([key]) => !before.has(key)).map(([, peak]) => peak);
 }
 
-/** Whether `binary` resolves on PATH and answers `version`. */
-function onPath(binary: string): boolean {
-    return spawnSync(binary, ['version'], { stdio: 'ignore', shell: process.platform === 'win32' }).status === 0;
-}
+/** A repository's directory, as the spec makes its own under the system's temporary directory: where e3 looks a runner up from, beside the working directory. */
+const REPO_AT = join(tmpdir(), 'e3-ui-query-plans', 'repo');
 
-/** The stock runners the calls run on: east-node always — this package's own devDependency — and east-c when built. */
-const RUNNERS: { name: string; runner: RunnerValue; found: boolean }[] = [
-    { name: 'east-node', runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), found: true },
-    { name: 'east-c', runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }), found: enabled && onPath('east-c') },
+/** The stock runners the calls run on, and the file e3 runs for each: east-node always — this package's own devDependency — and east-c when e3 finds one. */
+const RUNNERS: { name: string; runner: RunnerValue; file: string | null; required: boolean }[] = [
+    { name: 'east-node', runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), file: enabled ? runnerFile('east-node', REPO_AT) : null, required: true },
+    { name: 'east-c', runner: variant('east_c', { platforms: [], decode: variant('lazy', null) }), file: enabled ? runnerFile('east-c', REPO_AT) : null, required: false },
 ];
 
 // ─── The spec ────────────────────────────────────────────────────────────────
@@ -318,9 +320,15 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
         if (scratch !== undefined) rmSync(scratch, { recursive: true, force: true });
     });
 
-    for (const { name, runner, found } of RUNNERS) {
-        describe(`on ${name}`, { skip: found ? false : `${name} not on PATH` }, () => {
-            it('N3: each split call answers as the query\'s one-shot call does', async () => {
+    for (const { name, runner, file, required } of RUNNERS) {
+        describe(`on ${name}`, { skip: file !== null || required ? false : `e3 finds no ${name}` }, () => {
+            before(() => {
+                if (file === null) assert.fail(`e3 finds no ${name}, which this package's node_modules/.bin holds: run the spec from the package`);
+                assertThisTreesRunner(name, file, repo);
+            });
+
+            it('N3: each split call answers as the query\'s one-shot call does', async (t) => {
+                t.diagnostic(`e3 runs ${file}`);
                 const ws = await workspace(`same-${name}`, orders(0, ORDER_COUNT, 1));
                 for (const [program, output] of SPLITS) {
                     const got = await split(ws, program, runner);
