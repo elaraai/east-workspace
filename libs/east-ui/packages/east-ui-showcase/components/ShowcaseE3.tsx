@@ -30,6 +30,20 @@ function useShowcaseE3(): ShowcaseE3Status {
     return useSyncExternalStore(subscribeShowcaseE3, showcaseE3Status);
 }
 
+/** The showcase's e3 as e3-ui-components' `E3Provider` takes it, once it is
+ *  ready: its URL, its `fetch`, the repository and the workspace — the same
+ *  object until the e3 changes. */
+function useShowcaseE3Config(status: ShowcaseE3Status): E3Config | null {
+    const e3 = status.state === "ready" ? status.e3 : null;
+    return useMemo((): E3Config | null => e3 === null ? null : {
+        apiUrl: e3.apiUrl,
+        fetch: e3.fetch,
+        repo: SHOWCASE_REPO,
+        workspace: SHOWCASE_WORKSPACE,
+        token: null,
+    }, [e3]);
+}
+
 /** Hands the provider's dataset cache to the showcase's e3 for as long as it
  *  is mounted: the provider renders it once it has installed its runtimes. */
 function RuntimesInstalled() {
@@ -55,15 +69,7 @@ function RuntimesInstalled() {
  * e3 has started. Until an e3 example has started e3, it renders nothing.
  */
 export function ShowcaseE3Runtime() {
-    const status = useShowcaseE3();
-    const e3 = status.state === "ready" ? status.e3 : null;
-    const config = useMemo((): E3Config | null => e3 === null ? null : {
-        apiUrl: e3.apiUrl,
-        fetch: e3.fetch,
-        repo: SHOWCASE_REPO,
-        workspace: SHOWCASE_WORKSPACE,
-        token: null,
-    }, [e3]);
+    const config = useShowcaseE3Config(useShowcaseE3());
     if (config === null) return null;
     return (
         <E3Provider config={config}>
@@ -170,11 +176,19 @@ function Failed({ title, message, onRetry }: { title: string; message: string; o
  * step and the cause — a start with a Retry, which starts e3 again for every
  * e3 example; nothing outside the e3 examples is touched.
  *
+ * @remarks
+ * The example renders under an `E3Provider` over the showcase's e3 (#1132):
+ * what it reaches of e3 itself, besides its bindings — the query builder's
+ * one-shot and split calls, and its data sources' statuses — goes to the e3
+ * the page runs, as a deployed surface's goes to its server. Its query cache
+ * is its own.
+ *
  * @param props - The example's entry, and the example
  * @returns The example, or what stands in its place
  */
 export function E3Gate({ entry, children }: { entry: LiveEntry; children: ReactNode }) {
     const status = useShowcaseE3();
+    const config = useShowcaseE3Config(status);
     useEffect(() => startShowcaseE3(), []);
     const reads = useExampleReads(status.state === "ready" ? status.cache : null, readsOf(entry));
     if (status.state === "failed") {
@@ -189,5 +203,6 @@ export function E3Gate({ entry, children }: { entry: LiveEntry; children: ReactN
             </HStack>
         );
     }
-    return <>{children}</>;
+    // What an example reads loads only once e3 is ready, so its config is here.
+    return config === null ? <>{children}</> : <E3Provider config={config}>{children}</E3Provider>;
 }

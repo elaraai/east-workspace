@@ -9,7 +9,8 @@
  * whole — and a saved queries record in memory whose patch door applies each
  * patch with East's own checks; the builder mounted through its carrier, as a
  * surface mounts it, with a host's one-shot call — and, for a run's plan
- * (#941), its split call, the data sources' statuses and the plan's options;
+ * (#941), its split call and its explain (#1132), the data sources' statuses
+ * and the plan's options;
  * and the query library (#1063) mounted the same way, alone or beside a
  * builder sharing its id.
  *
@@ -40,7 +41,7 @@ import {
 } from "../platform/index.js";
 import {
     QueryCallProvider, QueryPlanOptionsProvider, QuerySourceStatusProvider, QuerySplitCallProvider,
-    type QueryCall, type QuerySourceStatus, type QuerySplitCall, type QuerySplitCallOptions,
+    type QueryCall, type QuerySourceStatus, type QuerySplitCall, type QuerySplitCallOptions, type QuerySplitExplain,
 } from "./hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall, type InMemoryDataset } from "./in-memory-call.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
@@ -219,6 +220,8 @@ export interface MountOptions {
     readonly e3?: E3Config;
     /** How a split call is made: a `QuerySplitCallProvider` around the builder. */
     readonly split?: QuerySplitCall;
+    /** How a split call's pieces are counted when its run answered before it reported them (#1132): the provider's `explain`. */
+    readonly explain?: QuerySplitExplain;
     /** How a data source's status is read: a `QuerySourceStatusProvider` around the builder. */
     readonly status?: QuerySourceStatus;
     /** The most a dataset may weigh and still be read by one call: a `QueryPlanOptionsProvider` around the builder. */
@@ -250,7 +253,10 @@ export async function mountBuilder(call?: QueryCall, options: MountOptions = {})
     }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
     let tree = <EastChakraComponent value={program()} storageKey="query-builder" />;
     if (call !== undefined) tree = <QueryCallProvider call={call}>{tree}</QueryCallProvider>;
-    if (options.split !== undefined) tree = <QuerySplitCallProvider call={options.split}>{tree}</QuerySplitCallProvider>;
+    if (options.split !== undefined) {
+        const explain = options.explain === undefined ? {} : { explain: options.explain };
+        tree = <QuerySplitCallProvider call={options.split} {...explain}>{tree}</QuerySplitCallProvider>;
+    }
     if (options.status !== undefined) tree = <QuerySourceStatusProvider status={options.status}>{tree}</QuerySourceStatusProvider>;
     if (options.pieceBytes !== undefined) tree = <QueryPlanOptionsProvider pieceBytes={options.pieceBytes}>{tree}</QueryPlanOptionsProvider>;
     const app = (
@@ -406,6 +412,22 @@ export interface FixtureSplit {
     readonly outputs: (string | null)[];
     /** Answers the calls held so far, in the order they were made. */
     readonly release: () => Promise<void>;
+    /** Its explain (#1132): the in-memory call's, which counts the pieces it cuts. */
+    readonly explain: QuerySplitExplain;
+    /** Each request explained, in order. */
+    readonly explained: SplitCallRequest[];
+    /** Each explain's signal, in order: an abandoned run's is aborted. */
+    readonly explainSignals: AbortSignal[];
+    /** Answers the explains held so far, in the order they were made. */
+    readonly releaseExplains: () => Promise<void>;
+}
+
+/** Answers held promises, in the order they were made, each settling before the next. */
+async function releaseAll(held: (() => void)[]): Promise<void> {
+    for (const resolve of held.splice(0)) {
+        await act(async () => { resolve(); });
+        await settle();
+    }
 }
 
 /**
@@ -413,18 +435,26 @@ export interface FixtureSplit {
  * call (`createInMemorySplitCall`) over the fixture's orders and customers,
  * the partitioned one cut into `pieces`, recording each request, its signal
  * and its answer — a re-keyed join's two calls among them (#942), the second
- * reading the first's output by its hash.
+ * reading the first's output by its hash — and its explain, recording each
+ * request it explains and its signal (#1132).
  *
  * @param options - `pieces`: how many pieces; `hold`: each call reports half
- *   its pieces done and waits for `release()`, so a test sees it going
- * @returns the call, its requests, signals and answers, and `release`
+ *   its pieces done and waits for `release()`, so a test sees it going;
+ *   `quiet`: each call reports no progress, as a job that ended between two
+ *   polls, or that e3's cache served whole; `holdExplain`: each explain waits
+ *   for `releaseExplains()`
+ * @returns the call, its requests, signals and answers, and `release`; its
+ *   explain, what it explained and its signals, and `releaseExplains`
  */
-export function fixtureSplit(options: { pieces: number; hold?: boolean }): FixtureSplit {
+export function fixtureSplit(options: { pieces: number; hold?: boolean; quiet?: boolean; holdExplain?: boolean }): FixtureSplit {
     const requests: SplitCallRequest[] = [];
     const signals: AbortSignal[] = [];
     const answers: ExecuteResult[] = [];
     const outputs: (string | null)[] = [];
     const held: (() => void)[] = [];
+    const explained: SplitCallRequest[] = [];
+    const explainSignals: AbortSignal[] = [];
+    const heldExplains: (() => void)[] = [];
     const memory = createInMemorySplitCall(fixtureDatasets(), { pieces: options.pieces });
     return {
         requests,
@@ -435,20 +465,25 @@ export function fixtureSplit(options: { pieces: number; hold?: boolean }): Fixtu
             requests.push(request);
             signals.push(callOptions.signal);
             const index = requests.length - 1;
+            const told = options.quiet === true ? { ...callOptions, onProgress: () => {} } : callOptions;
             if (options.hold === true) {
-                callOptions.onProgress({ phase: variant("partition", null), done: BigInt(Math.floor(options.pieces / 2)), units: BigInt(options.pieces) });
+                told.onProgress({ phase: variant("partition", null), done: BigInt(Math.floor(options.pieces / 2)), units: BigInt(options.pieces) });
                 await new Promise<void>(resolve => { held.push(resolve); });
             }
-            const answer = await memory(request, callOptions);
+            const answer = await memory(request, told);
             answers[index] = answer.result;
             outputs[index] = answer.output;
             return answer;
         },
-        release: async () => {
-            for (const resolve of held.splice(0)) {
-                await act(async () => { resolve(); });
-                await settle();
-            }
+        release: () => releaseAll(held),
+        explain: async (request, explainOptions) => {
+            explained.push(request);
+            explainSignals.push(explainOptions.signal);
+            if (options.holdExplain === true) await new Promise<void>(resolve => { heldExplains.push(resolve); });
+            return memory.explain(request, explainOptions);
         },
+        explained,
+        explainSignals,
+        releaseExplains: () => releaseAll(heldExplains),
     };
 }

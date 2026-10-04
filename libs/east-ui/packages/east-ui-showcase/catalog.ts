@@ -106,10 +106,6 @@ const e3Modules = import.meta.glob<Record<string, unknown>>(
     { eager: true },
 );
 
-/** Raw e3 example modules — `main.tsx` answers the query builder's one-shot
- *  calls in memory over their exported `e3.input` defaults (#940). */
-export const e3ExampleModules: ReadonlyArray<Record<string, unknown>> = Object.values(e3Modules);
-
 function isExampleDef(x: unknown): x is ExampleDef {
     return typeof x === "object" && x !== null
         && "fn" in x && "description" in x && "keywords" in x;

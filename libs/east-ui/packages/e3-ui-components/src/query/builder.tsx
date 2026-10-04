@@ -64,7 +64,7 @@ import { SlotAutocomplete } from "./autocomplete.js";
 import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
 import { QueryDropTarget } from "./drops.js";
 import {
-    useQueryCall, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySummaries, useRecentQueries,
+    useQueryCall, useQueryPlanOptions, useQueryRoot, useQuerySourceStatus, useQuerySplitCall, useQuerySplitExplain, useQuerySummaries, useRecentQueries,
 } from "./hooks.js";
 import { downloadResult } from "./downloads.js";
 import { describeQuery, type QueryWords } from "./model/words.js";
@@ -238,12 +238,13 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
         setPane({ collapsed: false });
     }, [setPane]);
 
-    // ── Runs and summaries: one-shot calls, and a run's split call (#941) ──
+    // ── Runs and summaries: one-shot calls, and a run's split call (#941) and its explain (#1132) ──
     const call = useQueryCall();
     const split = useQuerySplitCall();
+    const explain = useQuerySplitExplain();
     const status = useQuerySourceStatus();
     const planOptions = useQueryPlanOptions();
-    const seams = useMemo(() => ({ call, split, status, options: planOptions }), [call, split, status, planOptions]);
+    const seams = useMemo(() => ({ call, split, explain, status, options: planOptions }), [call, split, explain, status, planOptions]);
     // Each run that answers is one of this viewer's recent queries: the query's own program checked — a visual
     // run sends the counting program, which is not the query — its name and what it read.
     const { recent, remember } = useRecentQueries(recentKey);

@@ -20,19 +20,23 @@
  *   a program that checks clean, one gesture of its own.
  * - **J4**: the jq left is one transaction; ⌘⏎ runs it; Tab inserts two
  *   spaces; the completions close as the caret moves and on blur.
+ * - **Another query opened while it shows one** (#1132): the opened query's
+ *   own program from its first render — the jq of a query that is not steps,
+ *   the visual view of one that is — run as it opens, and no draft left on it.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { checkJq, evaluateJq, none, some, variant } from "@elaraai/east";
+import { ArrayType, IntegerType, StringType, checkJq, decodeBeast2, equalFor, evaluateJq, none, some, variant } from "@elaraai/east";
+import type { ExecuteResult } from "@elaraai/e3-types";
 import { system } from "@elaraai/east-ui-components";
 import { JqEditor } from "./jq-editor.js";
 import { SummaryCache, summaryAt, type Summary } from "./model/summaries.js";
 import { usePartStyles } from "./parts.js";
 import {
-    FIXTURE_VALUE, FixtureType, ROOT, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
+    FIXTURE_VALUE, FixtureType, ROOT, enabled, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
 } from "./query.test-utils.js";
 import { parseSteps } from "./steps/parse.js";
 import { useQueryWords } from "./words.js";
@@ -341,5 +345,57 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
         expect(completions()).not.toBeNull();
         await leave();
         expect(completions()).toBeNull();
+    }, 30_000);
+});
+
+// ─── Another query opened while it shows one ─────────────────────────────────
+
+/** Two programs that are not steps — neither starts from a data source — so each shows as jq. */
+const IDS_PROGRAM = "[.orders[] | select(.total >= 1000) | .id]";
+const NAMES_PROGRAM = "[.customers[] | .name]";
+const IDS = savedQuery("Big order ids", IDS_PROGRAM);
+const NAMES = savedQuery("Customer names", NAMES_PROGRAM);
+
+/** The view the Query tab shows. */
+const viewShown = () => document.querySelector<HTMLElement>("[data-query-view]")!.getAttribute("data-query-view");
+/** The save state the status line shows. */
+const saveState = () => document.querySelector<HTMLElement>("[data-query-save]")!.getAttribute("data-query-save");
+/** The results footer's fields. */
+const resultFields = () => document.querySelector<HTMLElement>("[data-query-result-fields]")?.textContent ?? "";
+/** What a one-shot call answered: its value, decoded. */
+function answered(answer: ExecuteResult): unknown {
+    if (answer.outcome.type !== "success") throw new Error(`the call answered ${answer.outcome.type}`);
+    return decodeBeast2(answer.outcome.value.value).value;
+}
+
+describe("the jq view (#937) — another query opened while it shows one (#1132)", () => {
+    test("a query that is not steps opened while the jq view shows another: its own jq from the start, which the run opening it runs, and no draft left on it", async () => {
+        recordHarness(savedRecord([TOP, BIG, IDS, NAMES]));
+        const one = fixtureCall();
+        await mountBuilder(one.call, { query: IDS.name });
+        expect([viewShown(), area().value]).toEqual(["jq", IDS_PROGRAM]);
+        await openQuery(variant("saved", NAMES.name));
+        expect([viewShown(), area().value]).toEqual(["jq", NAMES_PROGRAM]);
+        // Two runs, each its own query's: the customers' names, not the big orders' ids again.
+        expect(one.requests).toHaveLength(2);
+        const ids = evaluateJq(IDS_PROGRAM, FIXTURE_VALUE, { inputType: FixtureType, root: true });
+        const names = evaluateJq(NAMES_PROGRAM, FIXTURE_VALUE, { inputType: FixtureType, root: true });
+        expect(equalFor(ArrayType(IntegerType))(answered(one.answers[0]!) as never, ids as never)).toBe(true);
+        expect(equalFor(ArrayType(StringType))(answered(one.answers[1]!) as never, names as never)).toBe(true);
+        // Nothing drafted on the query opened: nothing to undo, and saved as it was.
+        expect([enabled("Undo"), saveState()]).toEqual([false, "saved"]);
+    }, 30_000);
+
+    test("a query of steps opened while the jq view shows another: the visual view, its own program run as it opens, and no draft left on it", async () => {
+        const one = fixtureCall();
+        await mountBuilder(one.call);
+        await openJq(BIG.name);
+        expect(viewShown()).toBe("jq");
+        await openQuery(variant("saved", TOP.name));
+        expect(viewShown()).toBe("visual");
+        // Opening each ran it: the big orders, then the top shipped orders with their own fields.
+        expect(one.requests).toHaveLength(2);
+        expect(resultFields()).toBe("· order, customer, region, total, shipped");
+        expect([enabled("Undo"), saveState()]).toEqual([false, "saved"]);
     }, 30_000);
 });

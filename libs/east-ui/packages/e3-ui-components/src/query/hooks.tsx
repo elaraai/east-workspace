@@ -16,7 +16,10 @@
  * - **The split call** (`useQuerySplitCall`, #941): how a split call is made —
  *   e3-api-client's `splitCall` against the `E3Provider`'s server, which
  *   launches it, polls it with backoff and reports its progress; or a host's
- *   own ({@link QuerySplitCallProvider}).
+ *   own ({@link QuerySplitCallProvider}). And how its pieces are counted when
+ *   a run answered before e3 reported them (`useQuerySplitExplain`, #1132):
+ *   e3-api-client's `splitCallExplain`, or the host's own beside its split
+ *   call.
  * - **A data source's status** (`useQuerySourceStatus`, #941): what it weighs
  *   and how many rows it holds, which a run reads before it plans — e3's
  *   dataset status, through the query the Datasets tab polls; or a host's own
@@ -38,10 +41,10 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { DataSourceType, SavedQueryType } from "@elaraai/e3-ui/internal";
-import { datasetGetStatus, oneShotExecute, splitCall, type SplitCallAnswer } from "@elaraai/e3-api-client";
+import { datasetGetStatus, oneShotExecute, splitCall, splitCallExplain, type SplitCallAnswer } from "@elaraai/e3-api-client";
 import {
     pathToString,
-    type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallProgress, type SplitCallRequest, type TreePath,
+    type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TreePath,
 } from "@elaraai/e3-types";
 import { useDataStable, usePersistedState } from "@elaraai/east-ui-components";
 import { e3RequestOptions, useE3ConfigOptional, type E3Config } from "../platform/e3-config.js";
@@ -198,25 +201,50 @@ export interface QuerySplitCallOptions {
  */
 export type QuerySplitCall = (request: SplitCallRequest, options: QuerySplitCallOptions) => Promise<SplitCallAnswer>;
 
+/**
+ * Plans a split call's pieces without running it: e3's explain, a job that
+ * plans them as the call's run plans them and runs no unit, so the count is
+ * the run's (#1132).
+ *
+ * @param request - The call, as its run sent it
+ * @param options - The signal that abandons it
+ * @returns How many pieces, the argument they are cut over, by its position,
+ *   and what that argument weighs in the store
+ *
+ * @remarks
+ * It rejects as a split call does ({@link QuerySplitCall}), and with an
+ * `Error` naming what is wrong when e3 finds the call wrong.
+ */
+export type QuerySplitExplain = (request: SplitCallRequest, options: { readonly signal: AbortSignal }) => Promise<SplitCallPlan>;
+
 const QuerySplitCallContext = createContext<QuerySplitCall | null>(null);
+const QuerySplitExplainContext = createContext<QuerySplitExplain | null>(null);
 
 /** Props of {@link QuerySplitCallProvider}. */
 export interface QuerySplitCallProviderProps {
     /** How a split call is made for the subtree. */
     call: QuerySplitCall;
+    /**
+     * How the subtree's split calls' pieces are counted when a run answered
+     * before its call reported them (#1132): the in-memory call's `explain`,
+     * say. Without it, such a run's pieces go uncounted.
+     */
+    explain?: QuerySplitExplain;
     /** The subtree. */
     children?: ReactNode;
 }
 
 /**
  * Makes the query builder's split calls with a host's own function — a
- * test's (`createInMemorySplitCall`), or a host that reaches e3 another way.
+ * test's (`createInMemorySplitCall`), or a host that reaches e3 another way —
+ * and counts their pieces with the host's explain, when it gives one.
  *
- * @param props - The call and the subtree
+ * @param props - The call, its explain and the subtree
  * @returns The provider
  */
-export function QuerySplitCallProvider({ call, children }: QuerySplitCallProviderProps) {
-    return createElement(QuerySplitCallContext.Provider, { value: call }, children);
+export function QuerySplitCallProvider({ call, explain, children }: QuerySplitCallProviderProps) {
+    return createElement(QuerySplitCallContext.Provider, { value: call },
+        createElement(QuerySplitExplainContext.Provider, { value: explain ?? null }, children));
 }
 
 /**
@@ -238,6 +266,29 @@ export function useQuerySplitCall(): QuerySplitCall | undefined {
         const repo = config.repo ?? "default";
         return (request, { signal, onProgress }) => splitCall(apiUrl, repo, workspace, request, e3RequestOptions(config), { signal, onProgress });
     }, [provided, config]);
+}
+
+/**
+ * How the builder counts a split call's pieces when its run answered before
+ * e3 reported them (#1132): a {@link QuerySplitCallProvider}'s explain — a
+ * host's split calls are explained by the host, or not at all — else
+ * e3-api-client's `splitCallExplain` against the `E3Provider`'s server and
+ * workspace, with its token and through its `fetch`, which launches the
+ * explain and polls it until it has planned.
+ *
+ * @returns The explain, or `undefined` when there is none to make
+ */
+export function useQuerySplitExplain(): QuerySplitExplain | undefined {
+    const host = useContext(QuerySplitCallContext);
+    const provided = useContext(QuerySplitExplainContext);
+    const config = useE3ConfigOptional();
+    return useMemo((): QuerySplitExplain | undefined => {
+        if (host !== null) return provided ?? undefined;
+        if (config === null || config.workspace === undefined) return undefined;
+        const { apiUrl, workspace } = config;
+        const repo = config.repo ?? "default";
+        return (request, { signal }) => splitCallExplain(apiUrl, repo, workspace, request, e3RequestOptions(config), { signal });
+    }, [host, provided, config]);
 }
 
 // ============================================================================
@@ -274,7 +325,7 @@ export interface QuerySourceStatusProviderProps {
 
 /**
  * Reads the data sources' statuses with a host's own function — a test's, or
- * the showcase's over its datasets in memory (`createInMemorySourceStatus`).
+ * a host's over datasets in memory (`createInMemorySourceStatus`).
  *
  * @param props - The status and the subtree
  * @returns The provider

@@ -14,7 +14,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { FloatType, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, type EastType } from "@elaraai/east";
+import { ArrayType, DateTimeType, East, FloatType, IntegerType, compareFor, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, type EastType } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Query } from "@elaraai/e3-ui";
 import * as ex from "./query.examples.js";
@@ -25,6 +25,7 @@ describeEast("Query examples (#940)", (test) => {
         queryBuilderBom: ex.queryBuilderBom,
         queryBuilderModel: ex.queryBuilderModel,
         queryBuilderEmpty: ex.queryBuilderEmpty,
+        queryBuilderHistory: ex.queryBuilderHistory,
         queryLibrary: ex.queryLibrary,
     });
 }, { platformFns: TestImpl });
@@ -80,5 +81,43 @@ describe("the query examples' data (#940)", () => {
                 assert.ok(sameEntry(entry, { name: entry.name, path }), `${name} reads ${entry.name} at its path`);
             }
         }
+    });
+});
+
+describe("the order history's data and saved queries (#1132)", () => {
+    const accounts = East.compile(ex.generateAccounts, [])(20_000n);
+    const credit = East.compile(ex.generateCredit, [])(20_000n);
+    const history = East.compile(ex.generateHistory, [])(36_000n, 20_000n);
+
+    test("the generated orders: 36,000, ids 100,001 on, seven in ten shipped 22 minutes apart from 6 January 2025, each placed by an account", () => {
+        assert.equal(history.length, 36_000);
+        assert.ok(equalFor(IntegerType)(history[0]!.id, 100_001n) && equalFor(IntegerType)(history.at(-1)!.id, 136_000n), "the ids");
+        const count = (tag: string) => history.filter(order => order.status.type === tag).length;
+        assert.deepEqual([count("shipped"), count("pending"), count("cancelled")], [25_200, 7_200, 3_600]);
+        const first = history[0]!.status;
+        if (first.type !== "shipped") assert.fail("the first order shipped");
+        assert.ok(equalFor(DateTimeType)(first.value.date, new Date("2025-01-06T08:00:00.000Z")), "the first order shipped as the history opens");
+        const unplaced = history.filter(order => !accounts.has(order.customer_id)).length;
+        assert.equal(unplaced, 0, "every order's account is one of the generated accounts");
+    });
+
+    test("the generated accounts and their credit limits: 20,000 accounts, every fifth with no limit, each limit $5,000 to $49,950", () => {
+        assert.equal(accounts.size, 20_000);
+        assert.equal(credit.size, 16_000);
+        const compare = compareFor(FloatType);
+        assert.ok([...credit.values()].every(limit => compare(limit, 5_000) >= 0 && compare(limit, 49_950) <= 0), "every limit is in its range");
+        assert.ok([...credit.keys()].every(key => accounts.has(key)), "every limit is an account's");
+    });
+
+    test("the history's three saved queries read the datasets its tasks generate, each at its task's output, in the order they are given", () => {
+        const record = ex.historyQueries.default!;
+        assert.deepEqual([...record.keys()], ["Credit by region", "History revenue by month", "History revenue by region"]);
+        const roots = equalFor(ArrayType(Query.Types.RootEntry));
+        const orderHistory = { name: "order_history", path: ex.historyTask.output.path };
+        const accountsEntry = { name: "accounts", path: ex.accountsTask.output.path };
+        const creditEntry = { name: "credit", path: ex.creditTask.output.path };
+        assert.ok(roots(record.get("History revenue by month")!.root, [orderHistory]));
+        assert.ok(roots(record.get("History revenue by region")!.root, [orderHistory, accountsEntry]));
+        assert.ok(roots(record.get("Credit by region")!.root, [accountsEntry, creditEntry]));
     });
 });

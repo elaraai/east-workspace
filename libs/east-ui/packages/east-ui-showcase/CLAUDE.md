@@ -22,16 +22,17 @@ its cause, in the example's place (`data-e3-start="failed"`), with a Retry
 that starts e3 again. What loaded before renders at once, so a row the doc
 list mounts again keeps its size. A page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
-The query builder's calls are answered in the browser (#940, #941):
-`main.tsx` runs each over the e3 example modules' `e3.input` defaults — a
-one-shot call through `createInMemoryQueryCall` (a `QueryCallProvider`), a
-split call through `createInMemorySplitCall`, cut into 12 pieces (a
-`QuerySplitCallProvider`). Each run is planned over the same inputs'
-statuses (`createInMemorySourceStatus` through a
-`QuerySourceStatusProvider`), which weigh a collection at 36 MiB a row, as a
-deployment's (#942): a run plans as it would there — a split call over a
-large list, a join of two large ones re-keyed — and only the results
-footer's plan read-out shows it.
+The query builder's calls go to that e3 (#1132): `E3Gate` renders each e3
+example under an `E3Provider` over it, so a run is a real one-shot call, or
+a real split call that e3 cuts into pieces, and a run weighs its datasets by
+their statuses there. The e3 worker cuts pieces at 64 KiB
+(`showcase-pieces.ts`, through e3-core's `readTestPieceBytesFrom`, as
+`E3_TEST_PIECE_BYTES` sets a local runner's), and `main.tsx`'s
+`QueryPlanOptionsProvider` tells the planner that e3's smallest piece,
+16 KiB: the fixture's datasets are one call, and the order history the
+query examples' tasks generate when the dataflow runs (36,000 orders, the
+accounts that place them and their credit limits) runs as a split call, a
+re-keyed join and a join cut at the same keys.
 `vite.config.ts` aliases `@elaraai/e3` to the e3-ui-components snapshot
 harness's browser-safe shim: the examples only declare what they bind.
 `@elaraai/e3-ui` is pre-bundled once when the dev server starts, so a change
