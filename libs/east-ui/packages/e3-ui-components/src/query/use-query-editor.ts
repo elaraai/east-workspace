@@ -229,18 +229,25 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
     }, []);
     const dismiss = useCallback((id: number) => setNotices((was) => was.filter((n) => n.id !== id)), []);
 
-    // ── The view, and the jq as typed ───────────────────────────────────
-    const [viewState, setViewState] = useState<QueryView>("visual");
-    const [jqText, setJqText] = useState("");
-    const [noteState, setJqNote] = useState<string | undefined>(undefined);
+    // ── The view, and the jq as typed: the open query's own ─────────────
+    // Each is held with the session it is of, so a query opened shows its own
+    // from its first render: the visual view, its program as jq, no note.
+    // Never, for a render, the last query's view and jq — which the run opening
+    // it would run, and leave on it as a draft (#1132).
+    const [viewState, setViewState] = useState<{ readonly sourceId: string; readonly view: QueryView }>({ sourceId, view: "visual" });
+    const [typed, setTyped] = useState<{ readonly sourceId: string; readonly text: string }>(() => ({ sourceId, text: held }));
+    const [noteState, setNoteState] = useState<{ readonly sourceId: string; readonly note: string | undefined }>({ sourceId, note: undefined });
+    const jqText = typed.sourceId === sourceId ? typed.text : held;
+    const setJqText = useCallback((text: string) => setTyped({ sourceId, text }), [sourceId]);
+    const setJqNote = useCallback((note: string | undefined) => setNoteState({ sourceId, note }), [sourceId]);
     // A program that is not steps shows as jq, and says why.
-    const view: QueryView = isJq ? "jq" : viewState;
+    const view: QueryView = isJq ? "jq" : viewState.sourceId === sourceId ? viewState.view : "visual";
     const whyJq = useMemo(() => {
         if (!isJq) return undefined;
         const parsed = parseSteps(held, root.type);
         return "error" in parsed ? (parsed.error.code === "syntax" ? m.fixSyntaxFirst() : parseErrorWords(parsed.error, words)) : undefined;
     }, [isJq, held, root, m, words]);
-    const jqNote = noteState ?? whyJq;
+    const jqNote = (noteState.sourceId === sourceId ? noteState.note : undefined) ?? whyJq;
     // The program the jq typed and left made: the session's change that is not
     // the jq's own — an undo — puts the program back in the jq view.
     const flushed = useRef<string | undefined>(undefined);
@@ -251,16 +258,14 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         }
         flushed.current = undefined;
         setJqText(held);
-    }, [held]);
-    // Another query opened: its own view, its own notices — the notice it arrives with, if any.
+    }, [held, setJqText]);
+    // Another query opened: its own notices — the notice it arrives with, if any.
     const arriving = useRef(arrival);
     useEffect(() => { arriving.current = arrival; }, [arrival]);
     const shown = useRef(sourceId);
     useEffect(() => {
         if (shown.current === sourceId) return;
         shown.current = sourceId;
-        setViewState("visual");
-        setJqNote(undefined);
         const notice = arriving.current;
         if (notice !== undefined && notice.sourceId === sourceId) {
             noticeId.current += 1;
@@ -303,7 +308,7 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         leaveJq();
         setJqText(text);
         flushJq(text, label);
-    }, [leaveJq, flushJq]);
+    }, [leaveJq, setJqText, flushJq]);
 
     const setView = useCallback((next: QueryView) => {
         onShowQuery();
@@ -312,7 +317,7 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
             const unfinished = query.steps.filter((s) => !isComplete(s)).length;
             setJqText(held);
             setJqNote(unfinished === 0 ? undefined : m.unfinishedLeftOut({ count: words.formatters.number(unfinished), n: unfinished }));
-            setViewState("jq");
+            setViewState({ sourceId, view: "jq" });
             return;
         }
         // Back to visual: the jq parsed into steps, or kept while it does not parse.
@@ -324,10 +329,10 @@ export function useQueryEditor(options: QueryEditorOptions): QueryEditor {
         }
         flushJq(jqText);
         setJqNote(undefined);
-        setViewState("visual");
+        setViewState({ sourceId, view: "visual" });
         const raw = parsed.query.steps.filter((s) => s.type === "jq").length;
         if (raw > 0) notify(m.jqPartsStay({ count: words.formatters.number(raw), n: raw }));
-    }, [onShowQuery, view, query, held, jqText, root, flushJq, notify, m, words]);
+    }, [onShowQuery, view, query, held, jqText, setJqText, setJqNote, sourceId, root, flushJq, notify, m, words]);
 
     // ── The check, and the shape the query gives ────────────────────────
     const jqCheck = useMemo(() => (view === "jq" || isJq ? checkJq(view === "jq" ? jqText : held, root.type, { root: true }) : undefined), [view, isJq, jqText, held, root]);

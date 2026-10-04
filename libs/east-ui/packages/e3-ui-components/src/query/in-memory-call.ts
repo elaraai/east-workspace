@@ -5,8 +5,9 @@
 
 /**
  * A query's calls answered in memory (#940, #941): the stand-ins for e3 where
- * there is no server — the east-ui showcase, and the builder's tests — as
- * `createInMemoryFunctionApi` stands in for a deployed function.
+ * there is no server — the builder's tests, and a host that answers a query's
+ * calls itself — as `createInMemoryFunctionApi` stands in for a deployed
+ * function.
  *
  * - **A one-shot call** ({@link createInMemoryQueryCall}), which the builder
  *   makes through it when a `QueryCallProvider` hands it over.
@@ -15,7 +16,8 @@
  *   cut at the same keys — each piece's program run, the pieces' outputs
  *   assembled by the output kind and kept by their hash, which a later call's
  *   `object` argument reads, and the final function run once — through a
- *   `QuerySplitCallProvider`.
+ *   `QuerySplitCallProvider`; and its explain, the pieces it cuts with none
+ *   run (#1132).
  * - **A data source's status** ({@link createInMemorySourceStatus}): what each
  *   dataset holds and weighs — through a `QuerySourceStatusProvider`.
  *
@@ -32,7 +34,7 @@ import {
     TreePathType, pathToString,
     type ExecuteResult, type OneShotRequest, type SplitCallProgress, type SplitCallRequest, type TreePath,
 } from "@elaraai/e3-types";
-import type { QueryCall, QuerySourceStatus, QuerySplitCall } from "./hooks.js";
+import type { QueryCall, QuerySourceStatus, QuerySplitCall, QuerySplitExplain } from "./hooks.js";
 
 /**
  * A dataset an in-memory call may read.
@@ -224,15 +226,19 @@ function cutAt(value: unknown, type: EastType, fences: readonly unknown[], k: nu
 }
 
 /**
- * The partitioned arguments cut into `k` pieces, by argument: one into runs
- * of its rows; several, which must be dicts keyed alike, at the same keys —
- * the first key of each run of the one whose beast2 bytes weigh the most, as
- * e3 cuts datasets partitioned together by the heaviest.
+ * The partitioned arguments cut into `k` pieces, by argument, and the one
+ * they are cut over: one into runs of its rows; several, which must be dicts
+ * keyed alike, at the same keys — the first key of each run of the one whose
+ * beast2 bytes weigh the most, as e3 cuts datasets partitioned together by
+ * the heaviest.
  *
- * @returns the pieces by argument, or why the arguments cannot be cut together
+ * @returns the pieces by argument and the argument they are cut over, by its
+ *   position, or why the arguments cannot be cut together
  */
-function cutTogether(values: readonly unknown[], types: readonly EastType[], partitioned: readonly number[], k: number): Map<number, unknown[]> | string {
-    if (partitioned.length === 1) return new Map([[partitioned[0]!, cut(values[partitioned[0]!], types[partitioned[0]!]!, k)]]);
+function cutTogether(
+    values: readonly unknown[], types: readonly EastType[], partitioned: readonly number[], k: number,
+): { readonly pieces: Map<number, unknown[]>; readonly over: number } | string {
+    if (partitioned.length === 1) return { pieces: new Map([[partitioned[0]!, cut(values[partitioned[0]!], types[partitioned[0]!]!, k)]]), over: partitioned[0]! };
     const keys = partitioned.map(i => opened(types[i]!));
     const first = keys[0]!;
     if (!keys.every(t => t.type === "Dict" && first.type === "Dict" && isTypeEqual(t.key as EastType, first.key as EastType))) {
@@ -252,8 +258,26 @@ function cutTogether(values: readonly unknown[], types: readonly EastType[], par
         if (start.done === true) break;
         fences.push(start.value);
     }
-    return new Map(partitioned.map(i => [i, cutAt(values[i], types[i]!, fences, k)]));
+    return { pieces: new Map(partitioned.map(i => [i, cutAt(values[i], types[i]!, fences, k)])), over: heaviest };
 }
+
+/** A split call's arguments, resolved: their values and what each weighs, in argument order, each dataset read with its hash, and which are partitioned. */
+interface CallArguments {
+    readonly values: readonly unknown[];
+    readonly weights: readonly number[];
+    readonly inputs: ExecuteResult["inputs"];
+    readonly partitioned: readonly number[];
+}
+
+/**
+ * A split call answered in memory ({@link createInMemorySplitCall}), and its
+ * explain (#1132): what e3's explain of the same call answers, with no piece
+ * run.
+ */
+export type InMemorySplitCall = QuerySplitCall & {
+    /** How many pieces a call cuts, the argument they are cut over and what it weighs. */
+    readonly explain: QuerySplitExplain;
+};
 
 /** A stage's progress, as a job reports it. */
 function progress(phase: "partition" | "merge" | "combine", done: number, units: number): SplitCallProgress {
@@ -270,7 +294,7 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  *
  * @param datasets - The datasets a call may read
  * @param options - How many pieces the partitioned dataset is cut into
- * @returns The call
+ * @returns The call, and its `explain`
  *
  * @remarks
  * Each output kind assembles as e3 assembles it (`e3-data-architecture.md`
@@ -299,39 +323,61 @@ function progress(phase: "partition" | "merge" | "combine", done: number, units:
  * between pieces, and rejects with the signal's reason once abandoned. The
  * time limit is not kept.
  *
+ * Its `explain` answers what e3's explain of the same call does, and runs no
+ * piece (#1132): how many pieces the call cuts — `pieces`, whatever the data —
+ * the argument it cuts them over, by its position — the one partitioned, or of
+ * several, the one whose beast2 bytes weigh the most — and what that argument
+ * weighs: a dataset's weight as its status says it, else its beast2 bytes. It
+ * rejects with an `Error` what the call answers `invalid`, as e3-api-client's
+ * `splitCallExplain` does — "Split call explain refused: …" — reads an object
+ * argument an earlier call of this stand-in assembled, and rejects with the
+ * signal's reason once abandoned.
+ *
  * @example
  * ```tsx
  * const split = createInMemorySplitCall([{ path: ORDERS, type: OrdersType, value: orders }], { pieces: 7 });
- * return <QuerySplitCallProvider call={split}>{surface}</QuerySplitCallProvider>;
+ * return <QuerySplitCallProvider call={split} explain={split.explain}>{surface}</QuerySplitCallProvider>;
  * ```
  */
-export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], options: InMemorySplitCallOptions): QuerySplitCall {
+export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], options: InMemorySplitCallOptions): InMemorySplitCall {
     const pieces = options.pieces;
     if (!Number.isSafeInteger(pieces) || pieces < 1) throw new RangeError(`createInMemorySplitCall: pieces is ${pieces}, not a whole number of at least 1`);
     const held = hold(datasets);
-    // The outputs the calls assembled, by hash: what a later call's `object` argument reads.
-    const stored = new Map<string, unknown>();
-    return async (request: SplitCallRequest, { signal, onProgress }): Promise<SplitCallAnswer> => {
-        const refused = (message: string): SplitCallAnswer => ({ result: invalid(message), output: null });
-        // The arguments: a dataset by its path, pinned at its hash; an object by its hash; a value as its bytes say.
+    // The outputs the calls assembled, by hash, and what each weighs: what a later call's `object` argument reads.
+    const stored = new Map<string, { readonly value: unknown; readonly bytes: number }>();
+    /** A call's arguments — a dataset by its path, pinned at its hash; an object by its hash; a value as its bytes say — or why e3 refuses them. */
+    const argumentsOf = (request: SplitCallRequest): CallArguments | string => {
         const values: unknown[] = [];
+        const weights: number[] = [];
         const inputs: ExecuteResult["inputs"] = [];
         const partitioned: number[] = [];
         for (const [i, { arg, partition }] of request.args.entries()) {
             if (partition.type === "some") partitioned.push(i);
             if (arg.type === "dataset") {
                 const found = held.find(d => samePath(d.path, arg.value));
-                if (found === undefined) return refused(unassigned(i, arg.value));
+                if (found === undefined) return unassigned(i, arg.value);
                 values.push(found.value);
+                weights.push(found.bytesOf());
                 inputs.push({ path: found.path, hash: found.hashOf() });
             } else if (arg.type === "value") {
                 values.push(decodeBeast2(arg.value).value);
+                weights.push(arg.value.length);
             } else {
-                if (!stored.has(arg.value)) return refused(`Object argument ${i} names ${arg.value}, which the repository does not hold`);
-                values.push(stored.get(arg.value));
+                const output = stored.get(arg.value);
+                if (output === undefined) return `Object argument ${i} names ${arg.value}, which the repository does not hold`;
+                values.push(output.value);
+                weights.push(output.bytes);
             }
         }
-        if (partitioned.length === 0) return refused("a split call partitions at least one of its arguments: its pieces are cut from it");
+        if (partitioned.length === 0) return "a split call partitions at least one of its arguments: its pieces are cut from it";
+        return { values, weights, inputs, partitioned };
+    };
+
+    const call: QuerySplitCall = async (request: SplitCallRequest, { signal, onProgress }): Promise<SplitCallAnswer> => {
+        const refused = (message: string): SplitCallAnswer => ({ result: invalid(message), output: null });
+        const resolved = argumentsOf(request);
+        if (typeof resolved === "string") return refused(resolved);
+        const { values, inputs, partitioned } = resolved;
 
         const body = compiled(request.bodyIr, "body");
         const emitType = body.inputs.at(-1);
@@ -339,8 +385,9 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
         const emitted = emitType.inputs as EastType[];
         const then = request.then.type === "some" ? compiled(request.then.value, "final function") : undefined;
         const output = request.output;
-        const cuts = cutTogether(values, body.inputs, partitioned, pieces);
-        if (typeof cuts === "string") return refused(cuts);
+        const cut = cutTogether(values, body.inputs, partitioned, pieces);
+        if (typeof cut === "string") return refused(cut);
+        const cuts = cut.pieces;
         // The assembled output's hash, once the pieces ran: a final function that fails still has it, as e3's job does.
         let hash: string | null = null;
         try {
@@ -409,8 +456,9 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
                 }
             }
             // Kept by its hash, as e3 stores a call's output.
-            hash = sha256Hex(encodeBeast2For(type)(assembled as never));
-            stored.set(hash, assembled);
+            const bytes = encodeBeast2For(type)(assembled as never);
+            hash = sha256Hex(bytes);
+            stored.set(hash, { value: assembled, bytes: bytes.length });
             if (then === undefined) return { result: answer(type, assembled, request.limits, inputs), output: hash };
             return { result: answer(then.output, then.fn(assembled, ...values), request.limits, inputs), output: hash };
         } catch (err) {
@@ -418,6 +466,17 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
             return { result: raised(err, inputs), output: hash };
         }
     };
+
+    const explain: QuerySplitExplain = async (request, { signal }) => {
+        signal.throwIfAborted();
+        const args = argumentsOf(request);
+        if (typeof args === "string") throw new Error(`Split call explain refused: ${args}`);
+        // Cut as the call cuts, so arguments that cannot be cut together are refused alike.
+        const cut = cutTogether(args.values, compiled(request.bodyIr, "body").inputs, args.partitioned, pieces);
+        if (typeof cut === "string") throw new Error(`Split call explain refused: ${cut}`);
+        return { pieces: BigInt(pieces), over: BigInt(cut.over), bytes: BigInt(args.weights[cut.over]!) };
+    };
+    return Object.assign(call, { explain });
 }
 
 /**

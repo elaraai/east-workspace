@@ -15,15 +15,18 @@
  * abandoned by its signal. Its assembled output kept by its hash (#942),
  * which a later call's `object` argument reads — a re-keyed join's second
  * call — and an object no call assembled refused; arguments that cannot be
- * cut together, or none partitioned, refused. A data source's status: its
- * rows, its hash and its weight.
+ * cut together, or none partitioned, refused. Its explain (#1132): the pieces
+ * it cuts, the argument they are cut over and what that weighs, with no piece
+ * run; what the call refuses refused, worded as e3-api-client's explain words
+ * it; and abandoned by its signal. A data source's status: its rows, its hash
+ * and its weight.
  */
 
 import { describe, test, expect } from "vitest";
 import {
-    IntegerType, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, sha256Hex, some, toEastTypeValue, variant,
+    IntegerType, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, sha256Hex, some, toEastTypeValue, variant,
 } from "@elaraai/east";
-import type { SplitCallProgress } from "@elaraai/e3-types";
+import { SplitCallPlanType, type SplitCallPlan, type SplitCallProgress } from "@elaraai/e3-types";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult } from "./one-shot.js";
 import { planQuery, type QueryPlan } from "./plan.js";
@@ -233,6 +236,65 @@ describe("createInMemorySplitCall (#941)", () => {
         });
         await expect(call).rejects.toThrow("abandoned");
         expect(reports).toEqual([0, 1, 2]);
+    });
+});
+
+/** A plan as East prints it: what an explain's answer is compared by. */
+const printPlan = printFor(SplitCallPlanType);
+
+/** An explain's plan, built: how many pieces, the argument they are cut over, and what it weighs. */
+const planOf = (pieces: number, over: number, bytes: number): SplitCallPlan => ({ pieces: BigInt(pieces), over: BigInt(over), bytes: BigInt(bytes) });
+
+/** What an explain is given when nothing abandons it. */
+const UNABANDONED = { signal: new AbortController().signal };
+
+describe("createInMemorySplitCall's explain (#1132)", () => {
+    test("the pieces it cuts, the argument it cuts them over, and what that weighs as its status says — with no piece run", async () => {
+        const { request } = splitOf(".orders | map(.id)");
+        const over = request.args.findIndex((a) => a.partition.type === "some");
+        const weighed = [{ path: ORDERS, type: OrdersType, value: orders, bytes: 1 << 30 }, { path: CUSTOMERS, type: CustomersType, value: customers }];
+        const call = createInMemorySplitCall(weighed, { pieces: 6 });
+        expect(printPlan(await call.explain(request, UNABANDONED))).toBe(printPlan(planOf(6, over, 1 << 30)));
+        // Unweighed, a dataset weighs its beast2 bytes, as its status says.
+        const plain = await createInMemorySplitCall(DATASETS, { pieces: 6 }).explain(request, UNABANDONED);
+        expect(printPlan(plain)).toBe(printPlan(planOf(6, over, encodeBeast2For(OrdersType)(orders as never).length)));
+    });
+
+    test("of arguments partitioned together, it cuts over the heaviest — a re-keyed join's join call over the re-keyed orders, read by their hash, which weigh their beast2 bytes", async () => {
+        const program = ".customers as $c | .orders | map($c[.customer_id].region) | unique";
+        const planned = planQuery(program, BOTH, new Map([["orders", { bytes: 1 << 30, rows: 40 }], ["customers", { bytes: 1 << 30, rows: 8 }]]));
+        if ("result" in planned || planned.plan.kind !== "rekey") throw new Error(`${program} is not re-keyed`);
+        const call = createInMemorySplitCall(DATASETS, { pieces: 3 });
+        const first = await call(planned.plan.first, QUIET);
+        // The re-key call has no final function, and its answer is too large to send, as a re-key's is: what it
+        // weighs is its assembled output's beast2 bytes.
+        if (first.result.outcome.type !== "too_large") throw new Error(`expected the re-keyed orders too large to answer, got ${first.result.outcome.type}`);
+        const join = planned.plan.join(first.output!);
+        const rekeyed = join.args.findIndex((a) => a.arg.type === "object");
+        expect(join.args.filter((a) => a.partition.type === "some")).toHaveLength(2);
+        expect(printPlan(await call.explain(join, UNABANDONED))).toBe(printPlan(planOf(3, rekeyed, Number(first.result.outcome.value.bytes))));
+    });
+
+    test("what the call refuses, refused as e3-api-client's explain words it: a dataset not here, an object no call assembled, arguments that cannot be cut together, none partitioned", async () => {
+        const { request } = splitOf(".orders | map(.id)");
+        await expect(createInMemorySplitCall([], { pieces: 3 }).explain(request, UNABANDONED))
+            .rejects.toThrow(/^Split call explain refused: Dataset argument 0 is not assigned \(ref type: unassigned\): nothing in memory at \.inputs\.orders$/);
+        const joined = splitOf(".customers as $c | .orders | map($c[.customer_id].region) | unique").request;
+        const partitioned = (partitions: readonly boolean[]) => ({ ...joined, args: joined.args.map((a, i) => ({ ...a, partition: partitions[i] === true ? some({ by: [] }) : none })) });
+        await expect(createInMemorySplitCall(DATASETS, { pieces: 3 }).explain(partitioned([true, true]), UNABANDONED))
+            .rejects.toThrow("Split call explain refused: arguments partitioned together are dicts keyed by one type: their pieces are cut at the same keys");
+        await expect(createInMemorySplitCall(DATASETS, { pieces: 3 }).explain(partitioned([false, false]), UNABANDONED))
+            .rejects.toThrow("Split call explain refused: a split call partitions at least one of its arguments: its pieces are cut from it");
+        const object = { ...request, args: [...request.args, { arg: variant("object", "0".repeat(64)), partition: none }] };
+        await expect(createInMemorySplitCall(DATASETS, { pieces: 3 }).explain(object, UNABANDONED))
+            .rejects.toThrow(`Split call explain refused: Object argument ${request.args.length} names ${"0".repeat(64)}, which the repository does not hold`);
+    });
+
+    test("abandoned by its signal, it rejects with the signal's reason", async () => {
+        const { request } = splitOf(".orders | map(.id)");
+        const controller = new AbortController();
+        controller.abort(new Error("abandoned"));
+        await expect(createInMemorySplitCall(DATASETS, { pieces: 3 }).explain(request, { signal: controller.signal })).rejects.toThrow("abandoned");
     });
 });
 

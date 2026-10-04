@@ -189,12 +189,15 @@ e3-api-client's `oneShotExecute`, and a run's plan (#941: `planQuery` and `split
   through its `fetch` — an e3 running in the page answers it there.
 - **A split call** — a run's, over a dataset larger than one piece (§4.15) — goes through
   `useQuerySplitCall`: a host's `QuerySplitCallProvider`, else e3-api-client's `splitCall`, which launches
-  it, polls it with backoff and reports its progress. **A data source's status** — what a run weighs before
-  it plans — goes through `useQuerySourceStatus`: a host's `QuerySourceStatusProvider`, else e3's dataset
-  status through the TanStack Query cache the Datasets tab polls. Both go through the `E3Provider`'s token and
-  `fetch`, as the one-shot call does. **The plan's options** — the most a dataset may weigh and still be read
-  by one call — are a `QueryPlanOptionsProvider`'s. The showcase and the tests answer each in memory
-  (`createInMemoryQueryCall`, `createInMemorySplitCall`, `createInMemorySourceStatus`).
+  it, polls it with backoff and reports its progress. **Its explain** — asked only when a run answered before
+  e3 named its pieces (§4.15, #1132) — goes through `useQuerySplitExplain`: that provider's `explain`, so a
+  host's split calls are explained by the host or not at all, else e3-api-client's `splitCallExplain`. **A
+  data source's status** — what a run weighs before it plans — goes through `useQuerySourceStatus`: a host's
+  `QuerySourceStatusProvider`, else e3's dataset status through the TanStack Query cache the Datasets tab
+  polls. Each goes through the `E3Provider`'s token and `fetch`, as the one-shot call does. **The plan's
+  options** — the most a dataset may weigh and still be read by one call — are a `QueryPlanOptionsProvider`'s.
+  The tests answer each in memory (`createInMemoryQueryCall`, `createInMemorySplitCall` and its `explain`,
+  `createInMemorySourceStatus`); the showcase's runs are real calls on the e3 it runs in the page (§8, #1132).
 - **A host in Node** — a CLI, an agent, a test against e3 — makes a query's calls itself through
   `@elaraai/e3-ui-components/query` (`src/query/calls.ts`): the root, the one-shot call and its reading, the
   plan and its split call, and the calls in memory. The package's main entry needs a DOM as it loads, for its
@@ -651,15 +654,18 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
   - for a split: "Each piece of orders runs:" and its jq; how they combine — "Their rows are joined in
     order.", "Their totals combine, each by its rule:" then each total, "Added up:" `map(.total) | add`; "Then,
     once, over what they combine to:" and its jq; "Every piece reads customers whole."; and the pieces —
-    "Orders is cut into 24 pieces, about 64 MB each." once the run's progress has named them;
+    "Orders is cut into 24 pieces, about 64 MB each." once e3 has named them;
   - the reads that prune — "Reads the count from the index of orders, and no segment:" `.orders | length`.
 
   Every sentence is the builder's message table's (`plan…`), pinned by golden tests; its parts are the
   `queryResults` recipe's (`footerPlan`, `planLines`, `planLine`, `planText`, `planCode`).
-- **The pieces** come from the run's progress, never from an explain (`splitCallExplain`): an explain is a job
-  of its own that plans and stores every piece, work in proportion to the dataset, and the run's first report
-  names the count anyway. A run served whole from e3's cache may answer before it reports one; its read-out
-  then says "Split call".
+- **The pieces** come from the run's progress while it goes. A run that answers before e3 reports any — one
+  that ended between two polls, or one served whole from e3's cache — has its call explained once it has
+  answered (`splitCallExplain`, #1132): a job that plans the pieces as the run did and runs no unit, so the
+  count is the run's — a re-keyed join's, its join call's. Its result shows at once, "Split call" until the
+  explain names the count, which then lands in the read-out and the explanation. An explain is work in
+  proportion to the dataset, so it is asked only then, never before a run, and never of a run whose progress
+  named its pieces. One that fails leaves the read-out "Split call"; a new run abandons it with the run.
 
 ---
 
@@ -764,21 +770,27 @@ the plans against a real e3, as the builder sends them.
 | D1–D6 | The Datasets tab's groups and items; a click starts a query; the Library tab; a root bound elsewhere; dropping a library card; no drag layer, no target | #939 |
 | L1–L7 | The library's toolbar, pane and gallery; wireframes; search, sort and layout; recent; Open in builder and `onOpen`; its manifest, and no dataset read | #1063 |
 | V1–V3 | Examples ↔ tests and the plugin index; the builder's and the library's layout in the responsive specs; the showcase, and this document as built | #940 |
-| N1 | Golden plans in words for every combine kind, every reason a query runs as one unit and every read that prunes; the path by what the dataset weighs; the split call's request decoded back; every split, run in memory over many pieces, answering as its one-shot call does; a split run in the visual and jq views, its progress and its explanation in the DOM; every call through the `E3Provider`'s `fetch`, none through the global one | #941 |
+| N1 | Golden plans in words for every combine kind, every reason a query runs as one unit and every read that prunes; the path by what the dataset weighs; the split call's request decoded back; every split, run in memory over many pieces, answering as its one-shot call does; a split run in the visual and jq views, its progress and its explanation in the DOM; a run that answered before e3 named its pieces counted by its call's explain — a re-keyed join's join call's — and one whose progress named them never explained, a refused explain, one abandoned by a new run, a host's calls never explained by the server; every call through the `E3Provider`'s `fetch`, none through the global one | #941, #1132 |
 | N2 | The reads that prune, counted: `.orders \| length` reads the index and no segment, `.byId[k]` the one segment that holds the key (east's `test/query.lazy.spec.ts`); the explanation names each (N1's golden lines) | #941 |
 | N3 | Against a real e3, on east-node and on east-c: over orders of many pieces, each split call answers as its one-shot call does — revenue by region with the customers read whole, the first and the last row of a key, the least and the last greatest, the first and the last total, the distinct values, the top rows, a count; at two input sizes no unit's peak passes the runner's baseline and the RunSorter's cap, and twice the input raises none beyond a margin | #941 |
 | N4 | A relaunch is served from the cache, running no unit; after an append only the pieces around it run, one to three, as e3's execution records show; the answer is the one-shot call's over the new rows | #941 |
+| W1 | On the e3 the showcase runs in the page: a saved query over the fixture one call, its explanation and its rows; the order history re-keyed with the accounts, split over its pieces, and the accounts joined with their credit limits cut at the same keys — each read-out naming its pieces, each explanation and each answer as East's query engine gives it over the same generated data | #1132 |
 
 ---
 
 ## 8 · Visual verification
 
-The examples render in the east-ui showcase (`#e3/query/query/…`), each run answered in the browser over
-the fixture, and in the e3-ui showcase's `query` package (`make start-query`), deployed to e3. Their layout
-is measured in a real browser at the mock's 1240 px, in light and dark, by DOM measurement and never by
-reading screenshots (#940): `query-builder.spec.ts` — the toolbar and its fold, the pane, its rail and the
-bands that line up, the Query tab's parts, the states by their tokens, the save popover — and
-`query-library.spec.ts` — the toolbar, the pane, the gallery and its wireframes, the list.
+The examples render in the east-ui showcase (`#e3/query/query/…`), and in the e3-ui showcase's `query`
+package (`make start-query`), deployed to e3. In the east-ui showcase each run is a real call on the e3 it
+runs in the page (e3-web, #1132), which cuts pieces at 64 KiB while the planner's piece is 16 KiB: a query
+over the fixture's datasets is one call, and the order history the examples' tasks generate when the
+dataflow runs — 36,000 orders, the 20,000 accounts that place them and their credit limits — runs as a split
+call, a re-keyed join and a join cut at the same keys. Their layout is measured in a real browser at the
+mock's 1240 px, in light and dark, by DOM measurement and never by reading screenshots (#940):
+`query-builder.spec.ts` — the toolbar and its fold, the pane, its rail and the bands that line up, the Query
+tab's parts, the states by their tokens, the save popover — and `query-library.spec.ts` — the toolbar, the
+pane, the gallery and its wireframes, the list; and `query-runs.spec.ts` runs each kind of call on that e3,
+its read-out, its explanation and its rows (W1, #1132).
 
 ---
 

@@ -18,6 +18,11 @@
  *   two split calls, the second over the first's output by its hash;
  * - the plan's read-out in the footer, and its explanation in a popover;
  * - a split run's progress while it goes, then its pieces;
+ * - a split run that answered before e3 said how many pieces it cut, counted
+ *   by e3's explain of the call once it has answered (#1132) — a re-keyed
+ *   join's join call's; one whose progress named them never explained; an
+ *   explain refused leaving the count unknown; a new run abandoning the one
+ *   before's; and a host's split calls never explained by the server's;
  * - a small dataset one call, as the showcase's always are; the plan's
  *   options' own piece; a status that cannot be read; no split call to make;
  * - a new run abandoning a split call by its signal; a split call refused,
@@ -25,9 +30,9 @@
  *   the builder mounts, under React's mount → unmount → mount (`StrictMode`,
  *   as the showcase's dev server mounts it), started again and answering;
  * - under an `E3Provider` that gives its own `fetch` — e3 running in the page —
- *   a run's status, its split call's launch and polls, and a one-shot call all
- *   go through that `fetch`, with the provider's token, and none reaches the
- *   global one.
+ *   a run's status, its split call's launch and polls, its explain, and a
+ *   one-shot call all go through that `fetch`, with the provider's token, and
+ *   none reaches the global one.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -39,11 +44,10 @@ import {
 import {
     DatasetStatusDetailType, ExecuteResultType, OneShotRequestType, PackageJobResponseType, ResponseType, SplitCallRequestType, SplitCallStatusType,
     pathToString,
-    type ExecuteResult,
+    type ExecuteResult, type SplitCallStatus,
 } from "@elaraai/e3-types";
 import { formatters } from "@elaraai/east-ui-components";
-import type { SplitCallAnswer } from "@elaraai/e3-api-client";
-import type { QuerySplitCall } from "./hooks.js";
+import type { QuerySplitCall, QuerySplitExplain } from "./hooks.js";
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { byteWords, queryWords } from "./model/words.js";
 import { prepareQuery, queryResultOf } from "./one-shot.js";
@@ -239,6 +243,68 @@ describe("<Query.Builder> — a run over a dataset larger than one piece is a sp
     }, 30_000);
 });
 
+// ─── Its pieces, counted by its explain ──────────────────────────────────────
+
+const sameRequest = equalFor(SplitCallRequestType);
+
+describe("<Query.Builder> — a split run that answered before e3 said how many pieces it cut has them counted by e3's explain of the call (#1132)", () => {
+    test("once it has answered: its read-out and its explanation name the pieces, and the call explained is the one that ran", async () => {
+        const split = fixtureSplit({ pieces: 5, quiet: true });
+        await mountBuilder(fixtureCall().call, { split: split.split, explain: split.explain, status: fixtureStatus({ orders: LARGE }) });
+        await openQuery(variant("saved", TOP.name));
+        expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 5 pieces"]);
+        expect(split.explained).toHaveLength(1);
+        expect(sameRequest(split.explained[0]!, split.requests[0]!)).toBe(true);
+        expect((await explanation()).at(-1)).toEqual(["pieces", `Orders is cut into 5 pieces, about ${byteWords(Math.round(LARGE / 5), words)} each.`, undefined]);
+    }, 30_000);
+
+    test("a run whose progress named its pieces is never explained: an explain is work in proportion to the dataset", async () => {
+        const split = fixtureSplit({ pieces: 4 });
+        await mountBuilder(fixtureCall().call, { split: split.split, explain: split.explain, status: fixtureStatus({ orders: LARGE }) });
+        await openQuery(variant("saved", TOP.name));
+        expect([footer().plan, split.explained.length]).toEqual(["Split call · 4 pieces", 0]);
+    }, 30_000);
+
+    test("a re-keyed join's pieces are its join call's: that call explained, the re-key call's output read by its hash", async () => {
+        const split = fixtureSplit({ pieces: 4, quiet: true });
+        await mountBuilder(fixtureCall().call, { split: split.split, explain: split.explain, status: fixtureStatus({ orders: LARGE, customers: LARGE }) });
+        await runJq(BY_REGION);
+        expect([split.requests.length, footer().count, footer().plan]).toEqual([2, "5 rows", "Re-keyed join · 4 pieces"]);
+        expect(split.explained).toHaveLength(1);
+        expect(sameRequest(split.explained[0]!, split.requests[1]!)).toBe(true);
+    }, 30_000);
+
+    test("an explain e3 refuses leaves the count unknown: the read-out says Split call, and nothing is wrong with the run", async () => {
+        const split = fixtureSplit({ pieces: 4, quiet: true });
+        const refusing: QuerySplitExplain = async () => { throw new Error("Split call explain failed: the pieces could not be planned"); };
+        await mountBuilder(fixtureCall().call, { split: split.split, explain: refusing, status: fixtureStatus({ orders: LARGE }) });
+        await openQuery(variant("saved", TOP.name));
+        expect([footer().count, footer().plan, banners()]).toEqual(["10 orders", "Split call", []]);
+    }, 30_000);
+
+    test("a new run abandons the explain of the run before with it: that count never lands, and the new run's does", async () => {
+        const split = fixtureSplit({ pieces: 4, quiet: true, holdExplain: true });
+        await mountBuilder(fixtureCall().call, { split: split.split, explain: split.explain, status: fixtureStatus({ orders: LARGE }) });
+        await openQuery(variant("saved", TOP.name));
+        expect([footer().run, footer().plan]).toEqual([expect.stringMatching(/^run #1 · /), "Split call"]);
+        await runKeys();
+        expect(split.explainSignals.map((s) => s.aborted)).toEqual([true, false]);
+        await split.releaseExplains();
+        expect([footer().run, footer().plan]).toEqual([expect.stringMatching(/^run #2 · /), "Split call · 4 pieces"]);
+    }, 30_000);
+
+    test("a host's split calls are explained by the host, or not at all: with no explain of its own, the server's is never asked", async () => {
+        const e3 = givenE3({ orders: LARGE });
+        const split = fixtureSplit({ pieces: 4, quiet: true });
+        await mountBuilder(fixtureCall().call, {
+            e3: { apiUrl: "http://e3.test", workspace: "w", token: null, fetch: e3.fetch }, split: split.split, status: fixtureStatus({ orders: LARGE }),
+        });
+        await openQuery(variant("saved", TOP.name));
+        expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call"]);
+        expect(e3.seen.filter((request) => request.path.includes("/one-shot/split"))).toEqual([]);
+    }, 30_000);
+});
+
 // ─── One call ────────────────────────────────────────────────────────────────
 
 describe("<Query.Builder> — one call, and when a split run can't be made (#941)", () => {
@@ -350,9 +416,9 @@ interface Seen {
 /**
  * An e3 as the `fetch` a host gives — e3 running in the page: it answers the
  * fixture's datasets' statuses, weighed as given, one-shot calls, and split
- * calls — each launched as a job, its poll answering it completed — over the
- * fixture in memory, cut into 3 pieces; it fails every other request, and
- * records each.
+ * calls — each launched as a job, its poll answering it completed — and their
+ * explains (#1132), each a job its poll answers planned, over the fixture in
+ * memory, cut into 3 pieces; it fails every other request, and records each.
  */
 function givenE3(weights: FixtureWeights): { seen: Seen[]; fetch: typeof globalThis.fetch } {
     const seen: Seen[] = [];
@@ -360,7 +426,7 @@ function givenE3(weights: FixtureWeights): { seen: Seen[]; fetch: typeof globalT
     const status = createInMemorySourceStatus(datasets);
     const oneShot = createInMemoryQueryCall(datasets);
     const split = createInMemorySplitCall(datasets, { pieces: 3 });
-    const jobs = new Map<string, Promise<SplitCallAnswer>>();
+    const jobs = new Map<string, Promise<SplitCallStatus>>();
     const respond = (bytes: Uint8Array) => new Response(bytes.slice(), { status: 200 });
     const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(input instanceof Request ? input.url : String(input));
@@ -372,13 +438,18 @@ function givenE3(weights: FixtureWeights): { seen: Seen[]; fetch: typeof globalT
         }
         if (method === "POST" && url.pathname.endsWith("/one-shot/split")) {
             const id = `job-${jobs.size + 1}`;
-            jobs.set(id, split(readSplit(body), { signal: new AbortController().signal, onProgress: () => {} }));
+            const request = readSplit(body);
+            const signal = new AbortController().signal;
+            // A launch runs the call; an explain plans its pieces, and runs none.
+            jobs.set(id, url.searchParams.get("explain") === "1"
+                ? split.explain(request, { signal }).then((plan): SplitCallStatus => variant("planned", plan))
+                : split(request, { signal, onProgress: () => {} })
+                    .then(({ result, output }): SplitCallStatus => variant("completed", { result, output: output === null ? none : some(output) })));
             return respond(answerJob(variant("success", { id })));
         }
         const job = jobs.get(/\/one-shot\/split\/([^/]+)$/.exec(url.pathname)?.[1] ?? "");
         if (method === "GET" && job !== undefined) {
-            const { result, output } = await job;
-            return respond(answerSplitStatus(variant("success", variant("completed", { result, output: output === null ? none : some(output) }))));
+            return respond(answerSplitStatus(variant("success", await job)));
         }
         const dataset = datasets.find((d) => url.pathname.endsWith(`/datasets/${d.path.map((segment) => segment.value).join("/")}`));
         if (url.searchParams.get("status") === "true" && dataset !== undefined) {
@@ -409,13 +480,14 @@ describe("<Query.Builder> — under an E3Provider that gives its own fetch, ever
         vi.unstubAllGlobals();
     });
 
-    test("a run's status, its split call's launch and polls, and a one-shot call — each with the provider's token", async () => {
+    test("a run's status, its split call's launch and polls, its explain, and a one-shot call — each with the provider's token", async () => {
         const e3 = givenE3({ orders: LARGE });
         await mountBuilder(undefined, { e3: { apiUrl: "http://e3.test", workspace: "w", token: "tok", fetch: e3.fetch } });
         // A split run: the orders weighed, then the call launched and polled. Its job answered at its first poll — a run
-        // served from the cache — so no progress told how many pieces it cut.
+        // served from the cache — so no progress told how many pieces it cut: its explain, launched and polled through
+        // the same fetch, counts them (#1132).
         await openQuery(variant("saved", TOP.name));
-        expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call"]);
+        expect([footer().count, footer().plan]).toEqual(["10 orders", "Split call · 3 pieces"]);
         // One call: a query that runs as one unit.
         await runJq(".orders | length");
         expect(footer().plan).toBe("One call");
@@ -424,6 +496,8 @@ describe("<Query.Builder> — under an E3Provider that gives its own fetch, ever
             "GET /api/repos/default/workspaces/w/datasets/inputs/orders?status=true",
             "POST /api/repos/default/workspaces/w/one-shot/split",
             "GET /api/repos/default/workspaces/w/one-shot/split/job-1",
+            "POST /api/repos/default/workspaces/w/one-shot/split?explain=1",
+            "GET /api/repos/default/workspaces/w/one-shot/split/job-2",
             "POST /api/repos/default/workspaces/w/one-shot",
         ]));
         expect(e3.seen.filter((request) => request.auth !== "Bearer tok")).toEqual([]);

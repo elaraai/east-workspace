@@ -60,8 +60,8 @@ export {
 
 // The query builder and the query library (#875) — each renderer registers
 // itself against its extension on import — their words, how the builder makes
-// a one-shot call, a split call and reads a data source's status, and the
-// query's calls themselves — a one-shot call, a run's plan with its split
+// a one-shot call, a split call and its explain (#1132) and reads a data
+// source's status, and the query's calls themselves — a one-shot call, a run's plan with its split
 // call (#941), and each answered in memory where there is no server — which a
 // host can make without it, Node included (`@elaraai/e3-ui-components/query`).
 export { EastChakraQueryBuilder, type EastChakraQueryBuilderProps, type QueryFocus, type QueryTab } from './query/builder.js';
@@ -80,9 +80,11 @@ export {
     type QueryCallProviderProps,
     QuerySplitCallProvider,
     useQuerySplitCall,
+    useQuerySplitExplain,
     type QuerySplitCall,
     type QuerySplitCallOptions,
     type QuerySplitCallProviderProps,
+    type QuerySplitExplain,
     QuerySourceStatusProvider,
     useQuerySourceStatus,
     type QuerySourceStatus,
