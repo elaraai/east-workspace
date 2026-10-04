@@ -510,7 +510,9 @@ nothing names. It keeps each workspace's last 10 runs (`--keep-runs`), every
 run from the last 7 days (`--keep-days`) and the run its current state came
 from, with every execution those runs used; every execution a workspace's
 current state is served from, so a re-run stays cached; every execution from
-the last 7 days; and whatever is running. Every other execution — its record
+the last 7 days; and whatever is still running. An attempt recorded running
+whose runner has gone, and whose owner too when one is recorded, cannot
+finish: it is recorded interrupted, and goes as any that ended. Every other execution — its record
 and its logs — and run record goes, and the outputs only they kept go with
 them. `--dry-run` reports what would go without deleting anything.
 

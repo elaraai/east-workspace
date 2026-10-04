@@ -19,6 +19,7 @@ import {
   workspaceRemove,
   workspaceGetState,
   LocalStorage,
+  LocalTaskRunner,
 } from '@elaraai/e3-core';
 import {
   repoStatus as repoStatusRemote,
@@ -237,10 +238,14 @@ export const repoCommand = {
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
+        // An execution recorded running that the local runner says cannot
+        // finish is recorded interrupted, and pruned as any that ended.
+        const runner = new LocalTaskRunner(location.path);
         const result = await repoGc(storage, location.path, {
           dryRun: options.dryRun,
           minAge,
           ...keep,
+          executionAlive: (s, task, inputs, running) => runner.executionAlive(s, task, inputs, running),
         });
 
         console.log('Garbage collection complete:');

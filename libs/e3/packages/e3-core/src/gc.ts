@@ -33,8 +33,11 @@ import { ArrayType, BooleanType, IntegerType, OptionType, StringType, StructType
 import { GcResultType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from './storage/interfaces.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
+import type { ExecutionLiveness } from './execution/interfaces.js';
 import { gcObjectReaders, markFrom, markReachable } from './gc-graph.js';
-import { DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, pruneHistory } from './history.js';
+import {
+  DEFAULT_KEEP_DAYS, DEFAULT_KEEP_RUNS, HISTORY_ROOTS_PART, PRUNE_START, PruneAtType, pruneHistory, pruneStep, type PruneParts,
+} from './history.js';
 import { isObjectHash } from './objects.js';
 import { withRepositoryHeld } from './running-work.js';
 import { uuidv7, uuidv7Timestamp } from './uuid.js';
@@ -77,6 +80,15 @@ export interface GcOptions {
    * Default: none — gc holds the repository still
    */
   retention?: GcRetention;
+
+  /**
+   * Whether an execution recorded `running` can still finish, as the runner
+   * that started it judges it (`TaskRunner.executionAlive`): the history
+   * prune records one that cannot `interrupted`, as the execution cache's
+   * probe records one, and prunes it as any attempt that ended. Default: none
+   * — every execution recorded running is kept
+   */
+  executionAlive?: ExecutionLiveness;
 }
 
 /**
@@ -213,15 +225,16 @@ export function sweepBatch(
 /**
  * Refuses options gc cannot run by.
  *
- * @throws {RangeError} When `keepRuns`, `keepDays` or `markMs` is not a whole
- *   number of zero or more, `concurrency` is not a whole number greater than
- *   zero, or `windowMs` is not a whole number greater than zero.
+ * @throws {RangeError} When `keepRuns`, `keepDays`, `markMs` or `pruneMs` is
+ *   not a whole number of zero or more, `concurrency` is not a whole number
+ *   greater than zero, or `windowMs` is not a whole number greater than zero.
  */
 function checkOptions(
-  options: { keepRuns?: number; keepDays?: number; markMs?: number; concurrency?: number },
+  options: { keepRuns?: number; keepDays?: number; markMs?: number; pruneMs?: number; concurrency?: number },
   windowMs: number | undefined,
 ): void {
-  for (const [name, value] of [['keepRuns', options.keepRuns], ['keepDays', options.keepDays], ['markMs', options.markMs]] as const) {
+  const counts = [['keepRuns', options.keepRuns], ['keepDays', options.keepDays], ['markMs', options.markMs], ['pruneMs', options.pruneMs]] as const;
+  for (const [name, value] of counts) {
     if (value !== undefined && !(Number.isInteger(value) && value >= 0)) {
       throw new RangeError(`gc: ${name} must be a whole number of zero or more, got ${value}`);
     }
@@ -309,6 +322,7 @@ export async function repoGc(
     ...(options.dryRun !== undefined && { dryRun: options.dryRun }),
     ...(options.keepRuns !== undefined && { keepRuns: options.keepRuns }),
     ...(options.keepDays !== undefined && { keepDays: options.keepDays }),
+    ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
   };
   let step: GcStep | null = null;
   try {
@@ -340,6 +354,7 @@ async function collectGarbage(
     keepRuns: options.keepRuns ?? DEFAULT_KEEP_RUNS,
     keepDays: options.keepDays ?? DEFAULT_KEEP_DAYS,
     dryRun,
+    ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
   });
 
   // Step 1: Collect all root hashes: the executions' from what the prune kept
@@ -412,6 +427,9 @@ const GcRunFields = {
  * The next step of a gc run beside running work ({@link repoGcStep}), which a
  * host keeps between invocations as beast2.
  *
+ * - `trim`: the history's prune is under way, where `at` says, its ages
+ *   measured from `now`, the time its run began in epoch milliseconds; what
+ *   its steps decided is kept as the run's parts. It goes on.
  * - `mark`: the history is pruned and the roots it kept are kept: the mark is
  *   next.
  * - `marking`: the mark is under way, spread over steps: what it has reached
@@ -421,12 +439,18 @@ const GcRunFields = {
  *   of the object scan `cursor` names — `none` for the first.
  * - `finish`: every page is swept: the adoption memo and the backend's own
  *   sweep are left.
+ *
+ * A variant's cases are ordered by name, and a step is read by the tag of its
+ * case, so a case added later is named to sort after every case before it: a
+ * step an earlier release kept then still reads, and a run a host kept going
+ * across an upgrade goes on. `trim`, which came after `sweep`, is named so.
  */
 export const GcStepType = VariantType({
   mark: StructType(GcRunFields),
   marking: StructType({ ...GcRunFields, generation: IntegerType }),
   sweep: StructType({ ...GcRunFields, cursor: OptionType(StringType) }),
   finish: StructType(GcRunFields),
+  trim: StructType({ ...GcRunFields, now: IntegerType, at: PruneAtType }),
 });
 
 /** The next step of a gc run beside running work. */
@@ -479,7 +503,25 @@ export interface GcStepOptions {
    * what the step reached. Default: no limit — one step marks everything.
    */
   markMs?: number;
-  /** How many objects the mark reads at once. Default:
+  /**
+   * How long one step of the history's prune goes on, in milliseconds: once
+   * it has passed, the step starts no further unit of the prune's work — a
+   * workspace, a batch of identities, a batch of deletes — having done at
+   * least one, and hands where it stopped to the next step (`trim`). A host
+   * whose steps run on compute with a time limit sets it under that limit.
+   * Default: no limit — the first step prunes everything.
+   */
+  pruneMs?: number;
+  /**
+   * Whether an execution recorded `running` can still finish, as the runner
+   * that started it judges it (`TaskRunner.executionAlive`): the history's
+   * prune records one that cannot `interrupted`, as the execution cache's
+   * probe records one, and prunes it as any attempt that ended. Default: none
+   * — every execution recorded running is kept.
+   */
+  executionAlive?: ExecutionLiveness;
+  /** How many objects the mark reads at once, and how many identities the
+   *  history's prune reads, and decisions it applies, at once. Default:
    *  {@link OBJECT_CONCURRENCY} */
   concurrency?: number;
   /** When the step runs, in epoch milliseconds. Default: now */
@@ -494,8 +536,9 @@ export interface GcStepResult {
   result: GcResult;
 }
 
-/** The part of a run that keeps the roots the history kept. */
-const ROOTS_PART = 'roots';
+/** The part of a run that keeps the roots the history kept, which the
+ *  history's prune writes once it is done. */
+const ROOTS_PART = HISTORY_ROOTS_PART;
 
 /** The part of a run that lists the shards of the mark's reachable set, once
  *  the mark is whole: what the sweep reads it by. */
@@ -537,24 +580,32 @@ const decodeHashes = decodeBeast2For(ArrayType(StringType));
  * window, so no sweep reaches them. A caller that roots an object it did not
  * write touches it first (`ObjectStore.touch`, {@link touchReachable}).
  *
- * A run is five kinds of step, each bounded so a host with bounded compute
+ * A run is six kinds of step, each bounded so a host with bounded compute
  * spreads them over invocations, keeping the {@link GcStep} each returns — an
  * East value, as beast2 — until the next:
- * 1. `null` starts a run: it prunes the history, as {@link repoGc} does, and
- *    keeps the roots the history kept;
- * 2. `mark` marks from every root, header-first, `options.concurrency` reads
+ * 1. `null` starts a run: it prunes the history, as {@link repoGc} does
+ *    (`pruneStep`), and once the prune is done keeps the roots it kept. Given
+ *    `options.pruneMs`, it stops once that has passed, keeping what the prune
+ *    decided as the run's parts;
+ * 2. `trim` goes on with a prune so stopped — what the runs and workspaces
+ *    keep, a workspace a unit; what each identity keeps and deletes, a batch
+ *    a unit; and its deletes, a batch a unit — until it is done. Nothing is
+ *    deleted before every identity is decided. Given `options.executionAlive`,
+ *    the prune records an execution recorded running that cannot finish
+ *    `interrupted`, and prunes it as any that ended;
+ * 3. `mark` marks from every root, header-first, `options.concurrency` reads
  *    at once, and keeps the reachable set in shards. Given `options.markMs`,
  *    it stops once that has passed, and keeps what it has reached and what it
  *    has still to visit;
- * 3. `marking` goes on with a mark so stopped, until the mark is whole. Each
+ * 4. `marking` goes on with a mark so stopped, until the mark is whole. Each
  *    step keeps a generation of the run's parts of its own, so a step that
  *    fails, run again, starts from the parts it started from;
- * 4. `sweep` sweeps one page of the object scan: it clears the notes of what
+ * 5. `sweep` sweeps one page of the object scan: it clears the notes of what
  *    the mark reached, notes what it did not — unless it was written after the
  *    run began, so its mark may have missed what roots it: a later run notes
  *    it, if it is unreachable then — and deletes what has stayed unreachable
  *    for the window; the next page is the next step;
- * 5. `finish` drops the adoption memo's entries whose manifest is gone, runs
+ * 6. `finish` drops the adoption memo's entries whose manifest is gone, runs
  *    the backend's own sweep beside running work, and deletes the run.
  *
  * A step that fails can be run again. A run given up keeps its parts until the
@@ -563,14 +614,15 @@ const decodeHashes = decodeBeast2For(ArrayType(StringType));
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param step - The step a previous call returned, or `null` to start a run
- * @param options - The retention window, the age gate, the history kept, and
- *   how long a mark step reads and how many objects at once: the same for
- *   every step of a run
+ * @param options - The retention window, the age gate, the history kept and
+ *   the runner's judgement of what still runs, how long a prune step and a
+ *   mark step go on, and how much they read at once: the same for every step
+ *   of a run
  * @returns The next step — `null` once the run is done — and what the run has
  *   counted so far
- * @throws {RangeError} When `keepRuns`, `keepDays` or `markMs` is not a whole
- *   number of zero or more, `concurrency` is not a whole number greater than
- *   zero, or `windowMs` is not a whole number greater than zero.
+ * @throws {RangeError} When `keepRuns`, `keepDays`, `markMs` or `pruneMs` is
+ *   not a whole number of zero or more, `concurrency` is not a whole number
+ *   greater than zero, or `windowMs` is not a whole number greater than zero.
  * @throws {GcReadError} When an object the mark or the history prune reached
  *   cannot be read for a reason other than its absence, or names other
  *   objects and does not decode: nothing is swept.
@@ -587,6 +639,7 @@ export async function repoGcStep(
   const now = options.now ?? Date.now();
   if (step === null) return startRun(storage, repo, options, now);
   switch (step.type) {
+    case 'trim': return pruneOn(storage, repo, step.value, options);
     case 'mark': return markRun(storage, repo, step.value, options);
     case 'marking': return markingRun(storage, repo, step.value, options);
     case 'sweep': return sweepPage(storage, repo, step.value, options, now);
@@ -637,18 +690,43 @@ async function readRunPart(storage: StorageBackend, repo: string, run: string, n
   return decodeHashes(data);
 }
 
-/** The first step: the history pruned, and the roots it kept kept. */
+/** The first step: a run begun, and its history's prune, as far as the step
+ *  may take it. */
 async function startRun(storage: StorageBackend, repo: string, options: GcStepOptions, now: number): Promise<GcStepResult> {
-  const dryRun = options.dryRun ?? false;
-  const history = await pruneHistory(storage, repo, {
+  return pruneOn(storage, repo, { run: uuidv7(), dryRun: options.dryRun ?? false, result: ZERO_COUNTS, now: BigInt(now), at: PRUNE_START }, options);
+}
+
+/** A run's parts, as the history's prune keeps what it decided in them. */
+function runParts(storage: StorageBackend, repo: string, run: string): PruneParts {
+  return {
+    write: (name, data) => storage.repos.gcRunWrite(repo, run, name, data),
+    read: (name) => storage.repos.gcRunRead(repo, run, name),
+  };
+}
+
+/**
+ * A step of the history's prune, from where the last stopped, for as long as
+ * `options.pruneMs` lets it go on: the mark is next once the prune is done,
+ * with the roots of what it kept in the run's {@link ROOTS_PART}.
+ */
+async function pruneOn(
+  storage: StorageBackend,
+  repo: string,
+  { run, dryRun, result, now, at }: GcRunAt<'trim'>,
+  options: GcStepOptions,
+): Promise<GcStepResult> {
+  const until = options.pruneMs === undefined ? Infinity : Date.now() + options.pruneMs;
+  const step = await pruneStep(storage, repo, runParts(storage, repo, run), at, {
     keepRuns: options.keepRuns ?? DEFAULT_KEEP_RUNS,
     keepDays: options.keepDays ?? DEFAULT_KEEP_DAYS,
     dryRun,
-  }, now);
-  const run = uuidv7();
-  await storage.repos.gcRunWrite(repo, run, ROOTS_PART, encodeHashes([...history.roots]));
-  const result = counted(ZERO_COUNTS, { deletedRuns: history.deletedRuns, deletedExecutions: history.deletedExecutions });
-  return stepped(variant('mark', { run, dryRun, result }));
+    ...(options.executionAlive !== undefined && { executionAlive: options.executionAlive }),
+    ...(options.concurrency !== undefined && { concurrency: options.concurrency }),
+  }, Number(now), until);
+  const counts = counted(result, { deletedRuns: step.deletedRuns, deletedExecutions: step.deletedExecutions });
+  return stepped(step.at === null
+    ? variant('mark', { run, dryRun, result: counts })
+    : variant('trim', { run, dryRun, result: counts, now, at: step.at }));
 }
 
 /** The reached objects, in shards by the first two hex digits of each hash:

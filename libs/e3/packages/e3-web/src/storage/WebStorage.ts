@@ -633,6 +633,24 @@ class WebRefStore implements RefStore {
     return keys.map((key) => key[5]!).filter(isUuidv7);
   }
 
+  /** Lists every attempt with its status, in one scan of its records. */
+  async executionListAttempts(repo: string, taskHash: string, inputsHash: string): Promise<Array<{ executionId: string; status: ExecutionStatus | null }>> {
+    checkExecution(taskHash, inputsHash);
+    const attempts: Array<{ executionId: string; status: ExecutionStatus | null }> = [];
+    for (const { key, value } of await this.records.scan([...recordKeys.kind(repo, 'execution'), taskHash, inputsHash])) {
+      const executionId = key[5]!;
+      if (!isUuidv7(executionId)) continue;
+      let status: ExecutionStatus | null;
+      try {
+        status = decodeExecutionStatus(value);
+      } catch {
+        status = null;
+      }
+      attempts.push({ executionId, status });
+    }
+    return attempts;
+  }
+
   async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
     checkExecution(taskHash, inputsHash);
     const [latest] = await this.records.scan([...recordKeys.kind(repo, 'execution'), taskHash, inputsHash], { reverse: true, limit: 1 });

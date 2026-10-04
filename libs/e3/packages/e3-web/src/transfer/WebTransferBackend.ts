@@ -1103,7 +1103,8 @@ class WebWorkspaceDeployStore extends JobStore<WorkspaceDeployJob, DeployRecord>
   }
 }
 
-/** Repository gc: run through the shared handler. */
+/** Repository gc: run through the shared handler, its history's prune taking
+ *  the repository's runner's judgement of what still runs. */
 class WebRepoGcStore extends JobStore<RepoGcJob, GcRecord> implements RepoGcStore {
   constructor(host: TransferHost, running: Running) {
     super(host, running, 'gc', gcForm);
@@ -1134,7 +1135,8 @@ class WebRepoGcStore extends JobStore<RepoGcJob, GcRecord> implements RepoGcStor
   }
 
   protected work(id: string, record: GcRecord): Promise<void> {
-    return handleProcessGc({ storage: this.host.storage, gcStore: this }, { id, repo: record.job.repo });
+    const repo = record.job.repo;
+    return handleProcessGc({ storage: this.host.storage, gcStore: this, runner: this.host.getRunner(repo) }, { id, repo });
   }
 }
 
@@ -1189,7 +1191,8 @@ export interface WebTransferBackendOptions {
    *  the backend runs */
   readonly storage: WebStorage;
   /** Each repository's runner: what a deploy's migrations and index builds,
-   *  a commit's intake units and a split call's units run on */
+   *  a commit's intake units and a split call's units run on, and whose
+   *  judgement of what still runs gc's history prune takes */
   readonly getRunner: (repo: string) => TaskRunner;
   /** The size of every part of a dataset upload but the last:
    *  {@link DEFAULT_WEB_PART_BYTES} unless set */

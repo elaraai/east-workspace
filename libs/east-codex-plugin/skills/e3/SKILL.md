@@ -578,8 +578,10 @@ in memory until stored).
 from the last 7 days (`--keep-days`) and the run its current state came from,
 with every execution those runs used; every execution a workspace's current
 state is served from, so a re-run stays cached; every execution from the last 7
-days; and whatever is running. It then removes the objects nothing names, and
-staging files older than `--min-age` (60 s). `--dry-run` reports what would go.
+days; and whatever is still running. An attempt recorded running that the local
+runner says cannot finish is recorded interrupted, and goes as any that ended.
+It then removes the objects nothing names, and staging files older than
+`--min-age` (60 s). `--dry-run` reports what would go.
 
 A package zip names the release of e3 that exported it, and an import refuses a
 zip a newer release exported, naming that release: import it with an e3 at least
@@ -615,7 +617,7 @@ takes a runner, `new LocalTaskRunner(repo)`.
 
 | Area | Functions |
 |---|---|
-| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repositoryUpgradeStep(storage, repo, { budgetMs, waitMs? })` → `{ owed }` — a host's job applies them so, a part per run under its time limit, each part taking a step up where the last stopped, `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; `repoGcStep(storage, repo, step, { windowMs, … })` runs that one step at a time, each returning the next (`GcStepType`) |
+| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repositoryUpgradeStep(storage, repo, { budgetMs, waitMs? })` → `{ owed }` — a host's job applies them so, a part per run under its time limit, each part taking a step up where the last stopped, `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention?, executionAlive? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; given a runner's `executionAlive`, an attempt recorded running that cannot finish is recorded interrupted and pruned; `repoGcStep(storage, repo, step, { windowMs, pruneMs?, markMs?, concurrency?, executionAlive?, … })` runs that one step at a time, each returning the next (`GcStepType`), `pruneMs` and `markMs` bounding a prune step and a mark step for a host with a time limit |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
 | Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
 | Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |

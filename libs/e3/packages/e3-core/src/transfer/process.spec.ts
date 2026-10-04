@@ -22,6 +22,7 @@ import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/index.js';
 import type { TaskRunner } from '../execution/interfaces.js';
+import { LocalTaskRunner } from '../execution/LocalTaskRunner.js';
 import { InMemoryTransferBackend } from './InMemoryTransferBackend.js';
 import { handleProcessDeploy, handleProcessGc } from './process.js';
 
@@ -170,5 +171,50 @@ describe('a gc job', () => {
     const { status } = (await gcStore.get('refused'))!;
     assert.equal(status.status.type, 'failed');
     assert.equal(status.error.type === 'some' ? status.error.value : null, 'gc: keepRuns must be a whole number of zero or more, got -1');
+  });
+
+  describe('an attempt recorded running that cannot finish', () => {
+    // Recorded long ago by a runner that never had a pid, with no owner: the
+    // local runner says it cannot finish
+    const [task, inputs] = ['a'.repeat(64), 'b'.repeat(64)];
+    const old = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const time = old.toString(16).padStart(12, '0');
+    const executionId = `${time.slice(0, 8)}-${time.slice(8)}-7000-8000-000000000001`;
+    const request = { dryRun: false, minAge: some(0n), keepRuns: none, keepDays: none };
+    const running = { status: variant('running', null), stats: none, error: none };
+
+    beforeEach(async () => {
+      await storage.refs.executionWrite('repo', task, inputs, executionId, variant('running', {
+        executionId, inputHashes: [], startedAt: new Date(old), pid: -1n, pidStartTime: -1n, bootId: 'boot-id', unit: false,
+      }));
+    });
+
+    /** What a job deleted of the history, once it has ended. */
+    async function deleted(store: InMemoryTransferBackend['repoGc'], id: string): Promise<bigint | null> {
+      const { status } = (await store.get(id))!;
+      return status.stats.type === 'some' ? status.stats.value.deletedExecutions : null;
+    }
+
+    it('is kept by a job given no runner, and recorded interrupted and pruned on the judgement of the runner it is given', async () => {
+      await gcStore.create('unjudged', { repo: 'repo', request, status: running, createdAt: new Date() });
+      await handleProcessGc({ storage, gcStore }, { id: 'unjudged', repo: 'repo' });
+      assert.equal(await deleted(gcStore, 'unjudged'), 0n);
+      assert.deepEqual(await storage.refs.executionListIds('repo', task, inputs), [executionId]);
+
+      await gcStore.create('judged', { repo: 'repo', request, status: running, createdAt: new Date() });
+      await handleProcessGc({ storage, gcStore, runner: new LocalTaskRunner('repo') }, { id: 'judged', repo: 'repo' });
+      assert.equal(await deleted(gcStore, 'judged'), 1n);
+      assert.deepEqual(await storage.refs.executionListIds('repo', task, inputs), []);
+    });
+
+    it('is pruned by a job its backend runs, on the runner the backend gives the repository', async () => {
+      const transfer = new InMemoryTransferBackend({ storage, getRepoPath: (repo) => repo, getRunner: (repoPath) => new LocalTaskRunner(repoPath) });
+      await transfer.repoGc.create('ran', { repo: 'repo', request, status: running, createdAt: new Date() });
+      await transfer.repoGc.execute('ran', 'repo');
+      // The backend runs the job in the background, as a poll finds it
+      while ((await transfer.repoGc.get('ran'))!.status.status.type === 'running') await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(await deleted(transfer.repoGc, 'ran'), 1n);
+      assert.deepEqual(await storage.refs.executionListIds('repo', task, inputs), []);
+    });
   });
 });

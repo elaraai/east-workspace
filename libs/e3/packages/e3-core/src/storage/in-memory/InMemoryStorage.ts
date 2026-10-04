@@ -453,6 +453,22 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return ids.sort();
   }
 
+  async executionListAttempts(repo: string, taskHash: string, inputsHash: string): Promise<Array<{ executionId: string; status: ExecutionStatus | null }>> {
+    const attempts: Array<{ executionId: string; status: ExecutionStatus | null }> = [];
+    for (const executionId of await this.executionListIds(repo, taskHash, inputsHash)) {
+      let status: ExecutionStatus | null;
+      try {
+        status = await this.executionGet(repo, taskHash, inputsHash, executionId);
+        if (status === null) continue; // deleted meanwhile
+      } catch (err) {
+        if (!(err instanceof ExecutionCorruptError)) throw err;
+        status = null;
+      }
+      attempts.push({ executionId, status });
+    }
+    return attempts;
+  }
+
   async executionGetLatest(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null> {
     const ids = await this.executionListIds(repo, taskHash, inputsHash);
     if (ids.length === 0) return null;

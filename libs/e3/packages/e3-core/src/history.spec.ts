@@ -13,10 +13,12 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { DictType, IntegerType, SortedMap, compareFor, decodeBeast2For, variant } from '@elaraai/east';
+import { ArrayType, DictType, IntegerType, SortedMap, compareFor, decodeBeast2For, equalFor, none, printFor, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { PackageObjectType, decodeUnitPlan } from '@elaraai/e3-types';
 import { repoGc } from './gc.js';
+import { IDENTITIES_PER_PART, PRUNE_START, PruneAtType, pruneStep, type PruneAt, type PruneParts } from './history.js';
+import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { LocalStorage } from './storage/local/index.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
 import { inputsHash } from './executions.js';
@@ -109,5 +111,70 @@ describe('bounded history, end to end', () => {
     while (plan.previous.type === 'some') plan = decodeUnitPlan(await storage.objects.read(repo, plan.previous.value));
     assert.ok(plan.stage.type === 'pieces' && plan.stage.value.length > 4, 'the input is cut into many pieces');
     assert.ok(ran.length >= 1 && ran.length <= 2, `the append re-ran ${ran.length} of ${plan.stage.value.length} pieces`);
+  });
+});
+
+describe('the prune in steps', () => {
+  /** A UUIDv7 minted at `ms`, the `n`th of that moment. */
+  const idAt = (ms: number, n: number): string => {
+    const time = ms.toString(16).padStart(12, '0');
+    return `${time.slice(0, 8)}-${time.slice(8)}-7000-8000-${n.toString(16).padStart(12, '0')}`;
+  };
+
+  it('decides a listing of several parts a batch a step, each batch within a part, every identity once', async () => {
+    const storage = new InMemoryStorage();
+    await storage.repos.create('repo');
+    const now = Date.now();
+    const old = now - 30 * 24 * 60 * 60 * 1000;
+    const task = 'a'.repeat(64);
+    // Two parts of the listing and one identity more, each with an attempt
+    // from long ago, which goes
+    const count = 2 * IDENTITIES_PER_PART + 1;
+    for (let i = 0; i < count; i++) {
+      const executionId = idAt(old, i);
+      await storage.refs.executionWrite('repo', task, i.toString(16).padStart(64, '0'), executionId, variant('failed', {
+        executionId, inputHashes: [], startedAt: new Date(old), completedAt: new Date(old), exitCode: 1n, peakBytes: none, unit: false,
+      }));
+    }
+    const held = new Map<string, Uint8Array>();
+    const parts: PruneParts = {
+      write: (name, data) => {
+        held.set(name, data);
+        return Promise.resolve();
+      },
+      read: (name) => Promise.resolve(held.get(name) ?? null),
+    };
+
+    // Each step past its time once it has done a unit: a batch of 300
+    const width = 300;
+    const decides: PruneAt[] = [];
+    let last: PruneAt = PRUNE_START;
+    let deleted = 0;
+    for (let at: PruneAt | null = PRUNE_START, steps = 0; at !== null; steps++) {
+      assert.ok(steps < 100, 'the prune ends');
+      const step = await pruneStep(storage, 'repo', parts, at, { keepRuns: 1, keepDays: 7, dryRun: false, concurrency: width }, now, 0);
+      deleted += step.deletedExecutions;
+      at = step.at;
+      if (at !== null) last = at;
+      if (at?.type === 'decide') decides.push(at);
+    }
+
+    // A batch ends where its part does, and the next part's begins at its
+    // first identity
+    const decide = (chunk: bigint, offset: bigint, decided: bigint): PruneAt =>
+      variant('decide', { kept: 0n, listed: 3n, chunk, offset, decided });
+    const expected = [
+      decide(0n, 0n, 0n), decide(0n, 300n, 1n), decide(0n, 600n, 2n), decide(0n, 900n, 3n),
+      decide(1n, 0n, 4n), decide(1n, 300n, 5n), decide(1n, 600n, 6n), decide(1n, 900n, 7n),
+      decide(2n, 0n, 8n), decide(3n, 0n, 9n),
+    ];
+    const Decides = ArrayType(PruneAtType);
+    assert.ok(equalFor(Decides)(decides, expected), `the steps stopped at ${printFor(Decides)(decides)}`);
+    // The roots are gathered in a unit of their own, after the last batch of
+    // deletes
+    const gathering: PruneAt = variant('delete', { kept: 0n, decided: 9n, part: 9n, offset: 0n, rooted: 0n });
+    assert.ok(equalFor(PruneAtType)(last, gathering), `the step before the last stopped at ${printFor(PruneAtType)(last)}`);
+    assert.equal(deleted, count, 'every identity decided once, and its attempt deleted');
+    assert.deepEqual(await storage.refs.executionList('repo'), []);
   });
 });
