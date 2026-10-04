@@ -30,12 +30,13 @@ import {
 import {
   dataflowExecuteLaunch as dataflowExecuteLaunchRemote,
   dataflowExecutePoll as dataflowExecutePollRemote,
+  dataflowEventsRemain,
   dataflowCancel as dataflowCancelRemote,
   datasetListRecursive as datasetListRecursiveRemote,
   type DataflowEvent,
   type DataflowExecutionState,
 } from '@elaraai/e3-api-client';
-import { type EastTypeValue } from '@elaraai/east';
+import { IntegerType, lessFor, type EastTypeValue } from '@elaraai/east';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { getValidToken } from '../credentials.js';
 import { formatRequeue, formatSize } from '../format.js';
@@ -43,6 +44,9 @@ import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
+
+/** Whether one event sequence number comes before another. */
+const seqBefore = lessFor(IntegerType);
 
 /**
  * The tasks a run forces, from its flags: `--force` every task the run runs —
@@ -287,46 +291,28 @@ async function executeRemote(
     filter: options.filter,
   }, { token: await getValidToken(baseUrl), verbose: options.verbose });
 
-  // Poll for execution state, each poll from the cursor the last answered
-  let since = 0n;
-  let lastStatus: DataflowExecutionState['status']['type'] | null = null;
-
-  while (!isAborted()) {
-    const state = await dataflowExecutePollRemote(baseUrl, repo, ws, {
-      since,
-    }, { token: await getValidToken(baseUrl) });
-
-    // Print new events
-    for (const event of state.events) {
-      printEvent(event);
-    }
-    since = state.nextSeq;
-
-    // Check if execution is done
-    if (state.status.type !== 'running') {
-      lastStatus = state.status.type;
-
-      // Print summary if available
-      if (state.summary.type === 'some') {
-        const summary = state.summary.value;
-        printSummary({
-          executed: Number(summary.executed),
-          cached: Number(summary.cached),
-          failed: Number(summary.failed),
-          skipped: Number(summary.skipped),
-          duration: summary.duration,
-        });
-      }
-
-      if (lastStatus === 'completed') {
-        await printOutputs({ type: 'remote', baseUrl, repo, token: await getValidToken(baseUrl) }, ws);
-      }
-
-      break;
+  // Follow the run, each poll with the token as it stands then
+  const ended = await followRemoteRun(
+    async (since) => dataflowExecutePollRemote(baseUrl, repo, ws, { since }, { token: await getValidToken(baseUrl) }),
+    isAborted,
+  );
+  const lastStatus: DataflowExecutionState['status']['type'] | null = ended?.status.type ?? null;
+  if (ended !== null) {
+    // Print summary if available
+    if (ended.summary.type === 'some') {
+      const summary = ended.summary.value;
+      printSummary({
+        executed: Number(summary.executed),
+        cached: Number(summary.cached),
+        failed: Number(summary.failed),
+        skipped: Number(summary.skipped),
+        duration: summary.duration,
+      });
     }
 
-    // Wait before next poll
-    await sleep(POLL_INTERVAL);
+    if (lastStatus === 'completed') {
+      await printOutputs({ type: 'remote', baseUrl, repo, token: await getValidToken(baseUrl) }, ws);
+    }
   }
 
   // Handle abort
@@ -348,6 +334,41 @@ async function executeRemote(
   if (lastStatus === 'failed') {
     process.exit(1);
   }
+}
+
+/**
+ * Follows a remote run until it ends, printing each event as a poll serves it.
+ *
+ * @remarks
+ * Each poll is from the cursor the last answered. A poll is served at most
+ * 1,000 events, so one that left some is followed at once, and the run's end
+ * is taken only once its events are all printed. A poll that served nothing
+ * past its cursor counts as caught up, whatever the summary names, so a store
+ * whose summary runs ahead of its events is not polled in a tight loop.
+ *
+ * @param poll - Polls the run from a cursor
+ * @param isAborted - Whether the caller has stopped following
+ * @param wait - Waits between polls that left no event to read
+ * @returns The state the run ended with, or `null` when aborted first
+ */
+export async function followRemoteRun(
+  poll: (since: bigint) => Promise<DataflowExecutionState>,
+  isAborted: () => boolean,
+  wait: () => Promise<void> = () => sleep(POLL_INTERVAL),
+): Promise<DataflowExecutionState | null> {
+  let since = 0n;
+  while (!isAborted()) {
+    const state = await poll(since);
+    for (const event of state.events) {
+      printEvent(event);
+    }
+    const moved = seqBefore(since, state.nextSeq);
+    since = state.nextSeq;
+    if (moved && dataflowEventsRemain(state)) continue;
+    if (state.status.type !== 'running') return state;
+    await wait();
+  }
+  return null;
 }
 
 // =============================================================================

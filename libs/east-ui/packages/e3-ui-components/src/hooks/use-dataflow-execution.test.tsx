@@ -28,10 +28,10 @@ afterEach(() => {
 
 const API = "http://e3.test";
 
-/** A running run's state, served with the cursor past its events. */
+/** A running run's state, served with the cursor past its events, which are all it has. */
 const running = (nextSeq: bigint): DataflowExecutionState => ({
-    status: variant("running", null), startedAt: "2026-10-02T00:00:00.000Z", completedAt: none, summary: none,
-    events: [], nextSeq, budget: none, waiting: [], splits: [],
+    runId: "run-1", status: variant("running", null), startedAt: "2026-10-02T00:00:00.000Z", completedAt: none, summary: none,
+    events: [], nextSeq, lastSeq: nextSeq, budget: none, waiting: [], splits: [],
 });
 
 describe("useDataflowExecution", () => {

@@ -38,7 +38,7 @@ import {
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
 import type { DataManifest, TreePath, WorkspaceState } from '@elaraai/e3-types';
-import { encodeDatasetBlob, indexWindowType } from '@elaraai/e3-types';
+import { DATAFLOW_POLL_EVENTS_MAX, encodeDatasetBlob, indexWindowType } from '@elaraai/e3-types';
 import {
     IntegerType,
     compareFor,
@@ -118,6 +118,13 @@ export interface FakeRecord {
 
 /** The fake's own (mutable) record of a dataflow execution. */
 export interface FakeExecution {
+    /** The run's id: a launched run's own; for a fixture that names none, one
+     *  made of when it started. */
+    id?: string | undefined;
+    /** The sequence number the poll names as the run's last event: its last
+     *  event's place, unless a spec has it run ahead of the events, as a
+     *  store's summary might. */
+    lastSeq?: number | undefined;
     status: 'running' | 'completed' | 'failed' | 'aborted';
     startedAt: string;
     completedAt: string | null;
@@ -214,6 +221,8 @@ export class FakeApi implements Api {
     budget: DataflowBudget | null = null;
     private readonly stores = new Map<string, Stored>();
     private readonly runTimers: ReturnType<typeof setTimeout>[] = [];
+    /** The runs launched, which number each one's id. */
+    private launches = 0;
 
     constructor() {
         this.repos['default'] = { path: '/fake/default', objectCount: 0n, packageCount: 0n, workspaces: [] };
@@ -686,7 +695,8 @@ export class FakeApi implements Api {
             if (w.lock !== undefined) throw new ApiError('workspace_locked', { workspace: ws, holder: variant('known', { pid: BigInt(w.lock.pid), acquiredAt: w.lock.acquiredAt, bootId: none, command: some(w.lock.command) }) });
             if (w.execution?.status === 'running') throw new ApiError('workspace_locked', { workspace: ws, holder: variant('unknown', null) });
             const script = this.script ?? { events: [], final: 'completed' as const };
-            const state: FakeExecution = { status: 'running', startedAt: new Date().toISOString(), completedAt: null, events: [] };
+            this.launches += 1;
+            const state: FakeExecution = { id: `run-${this.launches}`, status: 'running', startedAt: new Date().toISOString(), completedAt: null, events: [] };
             w.execution = state;
             const step = script.stepMs ?? 0;
             const finish = (): void => {
@@ -709,10 +719,11 @@ export class FakeApi implements Api {
     }
 
     /**
-     * The scripted run's state and its events past the cursor, at most `limit`:
-     * an event's place in the run, from 1, is its sequence number, so the
-     * cursor past the events served is the place of the last, or `since` when
-     * none is served, as the server answers.
+     * The scripted run's state and its events past the cursor, at most `limit`
+     * and never more than the server's cap: an event's place in the run, from
+     * 1, is its sequence number, so the cursor past the events served is the
+     * place of the last, or `since` when none is served, and the run's last
+     * event is its last place, as the server answers.
      */
     async dataflowExecutePoll(ws: string, window: ExecutionStateOptions): Promise<DataflowExecutionState> {
         const since = window.since ?? 0n;
@@ -722,8 +733,10 @@ export class FakeApi implements Api {
             if (state === null || state === undefined) throw new ApiError('execution_not_found', { task: ws });
             const done = state.events;
             const from = Math.min(Number(since), done.length);
-            const served = window.limit === undefined ? done.slice(from) : done.slice(from, from + window.limit);
+            const limit = Math.min(window.limit ?? DATAFLOW_POLL_EVENTS_MAX, DATAFLOW_POLL_EVENTS_MAX);
+            const served = done.slice(from, from + limit);
             return {
+                runId: state.id ?? `run-at-${state.startedAt}`,
                 status: variant(state.status, null),
                 startedAt: state.startedAt,
                 completedAt: state.completedAt !== null ? some(state.completedAt) : none,
@@ -736,6 +749,7 @@ export class FakeApi implements Api {
                 }),
                 events: served,
                 nextSeq: served.length === 0 ? since : BigInt(from + served.length),
+                lastSeq: BigInt(state.lastSeq ?? done.length),
                 budget: this.budget !== null ? some(this.budget) : none,
                 waiting: state.waiting ?? [],
                 splits: state.splits ?? [],

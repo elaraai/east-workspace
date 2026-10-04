@@ -11,7 +11,7 @@
 
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
+import { IntegerType, encodeBeast2For, equalFor, lessFor, none, printFor, some, variant } from '@elaraai/east';
 import {
   DataflowExecutionStateType, E3_RELEASE, ExecutionStateSummaryType, dataflowForce, decodeDataflowExecutionState, executionStateSummary,
 } from '@elaraai/e3-types';
@@ -19,6 +19,10 @@ import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js'
 import type { DataflowExecutionState } from '../dataflow/types.js';
 import { uuidv7 } from '../uuid.js';
 import { MALFORMED_NAMES, nameRefusal } from './malformed.js';
+
+/** Whether one event sequence number comes before another. */
+const seqBefore = lessFor(IntegerType);
+const printSeq = printFor(IntegerType);
 
 /** A running run's state of one pending task, `etl`, in workspace `ws`. */
 function runningState(repo: string, id: string): DataflowExecutionState {
@@ -142,6 +146,12 @@ export function executionStateStoreTests(setup: ExecutionStateStoreSetup): void 
         const whole = executionStateSummary((await store.readLatest(repo, 'ws'))!);
         const print = printFor(ExecutionStateSummaryType);
         assert.ok(equalFor(ExecutionStateSummaryType)(read, whole), `${print(read)}, not the summary of the state, ${print(whole)}`);
+        // A poll reads the events after the summary, and serves them up to the
+        // summary's last: a summary never names an event its store does not
+        // hold yet, or the poll would wait on it.
+        const events = await store.getEventsSince(repo, 'ws', read.id, 0);
+        const reached = events.at(-1)?.value.seq ?? 0n;
+        assert.ok(!seqBefore(reached, read.lastSeq), `the events read after the summary end at ${printSeq(reached)}, before its last, ${printSeq(read.lastSeq)}`);
         return read;
       };
       assert.equal((await summary()).id, id, 'the latest run\'s');

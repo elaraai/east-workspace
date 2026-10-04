@@ -26,6 +26,7 @@ import {
   dataflowExecuteLaunch,
   dataflowExecute,
   dataflowExecutePoll,
+  dataflowEventsRemain,
   dataflowCancel,
   dataflowGraph,
   datasetSet,
@@ -361,7 +362,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           events.push(...state.events);
           since = state.nextSeq;
 
-          if (state.status.type === 'completed' || state.status.type === 'failed') {
+          // The run's end is its last word once no event of it is left
+          if ((state.status.type === 'completed' || state.status.type === 'failed') && !dataflowEventsRemain(state)) {
             break;
           }
 
@@ -1195,6 +1197,16 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const caughtUp = await poll({ since: all.nextSeq });
         assert.deepStrictEqual([caughtUp.events, caughtUp.nextSeq], [[], all.nextSeq]);
         assert.strictEqual(caughtUp.status.type, 'completed', 'with the run\'s state');
+
+        // Where the run's events end: a poll of every event reaches its last,
+        // and a page of one leaves events for the next
+        assert.strictEqual(all.lastSeq, all.nextSeq, 'a poll of every event is at the run\'s last');
+        assert.deepStrictEqual([dataflowEventsRemain(all), dataflowEventsRemain(page1), dataflowEventsRemain(caughtUp)], [false, true, false]);
+
+        // Each poll names the run, and another run is another id
+        assert.deepStrictEqual([page1.runId, page2.runId, caughtUp.runId], [all.runId, all.runId, all.runId]);
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { force: true }, opts));
+        assert.notStrictEqual((await poll({ limit: 0 })).runId, all.runId, 'the next run is another');
       });
 
       it('refuses a malformed cursor or limit with bad_request; a poll of no events carries the run\'s state', async (t) => {
@@ -1231,6 +1243,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         const none = await dataflowExecutePoll(ctx.config.baseUrl, ctx.repoName, 'evtpag-ws', { limit: 0 }, opts);
         assert.strictEqual(none.status.type, 'completed');
         assert.deepStrictEqual([none.events, none.nextSeq], [[], 0n], 'no events, and the cursor where it was');
+        assert.ok(dataflowEventsRemain(none), 'and where the run\'s events end, past the cursor');
       });
     });
   });

@@ -215,9 +215,10 @@ export function cliTests(
         await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env });
         await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'exec-cli-pkg@1.0.0'], workDir, { env });
 
-        // Execute
+        // Execute: the run's events as its polls serve them, then its summary
         const startResult = await runE3Command(['dataflow', 'run', remoteUrl, wsName], workDir, { env });
         assert.strictEqual(startResult.exitCode, 0, `Start failed: ${startResult.stderr}`);
+        assert.match(startResult.stdout, /\[START\] compute[\s\S]*\[(DONE|CACHED)\] compute[\s\S]*Summary:/);
 
         // Show logs
         const logsResult = await runE3Command(['task', 'logs', remoteUrl, `${wsName}.compute`], workDir, { env });

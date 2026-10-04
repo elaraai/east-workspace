@@ -179,6 +179,7 @@ export {
   dataflowExecute,
   dataflowExecuteLaunch,
   dataflowExecutePoll,
+  dataflowEventsRemain,
   dataflowBudget,
   dataflowGraph,
   dataflowCancel,
