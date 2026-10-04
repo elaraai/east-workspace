@@ -14,19 +14,21 @@
  * the change arrives and the NEW closure runs. And because the renderers re-sync
  * local state only on a DATA change, what the user typed or decided survives it.
  *
- * The first two trees are built by the real factories and compiled, so their
- * closures are the ones East emits; the review surfaces are decoded payloads
- * with host callbacks, the shape the e3 webview hands the dispatcher.
+ * The first tree is built by the real factory and compiled, so its closure is
+ * the one East emits; the review surfaces are decoded payloads with host
+ * callbacks, the shape the e3 webview hands the dispatcher. (The Plan's case —
+ * a resolver over new State — is e3-ui-components', where the Plan renders,
+ * #1177.)
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, StringType, StructType,
+    East, IntegerType, NullType, StringType,
     decodeBeast2For, encodeBeast2For, none, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Input, Plan, Reactive, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Input, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../theme/index.js";
 import { EastChakraComponent } from "../component.js";
 import { initializeStore, getStore } from "../platform/state-runtime.js";
@@ -34,7 +36,6 @@ import { UIStore } from "../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../platform/registry.js";
 import type { RosterValue } from "../collections/roster/index.js";
 import type { TableRootValue } from "../collections/table/index.js";
-import { rowSel } from "../collections/plan/plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -57,57 +58,6 @@ function mount(value: UIValue) {
     return { ...utils, rerender: (v: UIValue) => utils.rerender(view(v)) };
 }
 
-// ── A Plan whose resolver captured State ────────────────────────────────────
-
-const W27 = new Date("2026-06-29T00:00:00Z");
-const W39 = new Date("2026-09-21T00:00:00Z");
-const NOW = new Date("2026-08-12T00:00:00Z");
-const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
-/** Three units — module scope, so the East body calls no host helper. */
-const UNITS = new Map(Array.from({ length: 3 }, (_, i) => [
-    `u${String(i).padStart(2, "0")}`,
-    { start: W27, end: W39, tonnes: (i + 1) * 5 },
-] as const));
-
-const LABEL_KEY = "equivalence.plan.label";
-const TICK_KEY = "equivalence.plan.tick";
-
-/** Counts the resolver's calls — through a platform function in its body, so
- *  the resolver stays a real East closure. */
-let expandCalls = 0;
-const countExpand = East.platform("test_equivalence_count_expand", [], NullType);
-const PLATFORM = [
-    ...getRegisteredPlatformImplementations(),
-    countExpand.implement(() => { expandCalls += 1; }),
-];
-
-/** A Reactive canvas: the expand resolver captures the label READ from State
- *  (a value, not the handle), and the render also reads a tick nothing captures
- *  — so a tick write rebuilds an EQUIVALENT canvas, a label write a new one. */
-const reactivePlan = East.compile(East.function([], UIComponentType, (_$) =>
-    Reactive.Root(East.function([], UIComponentType, ($) => {
-        const labelBind = $.let(State.bind([StringType], LABEL_KEY, "ALPHA"));
-        const tickBind = $.let(State.bind([IntegerType], TICK_KEY, 0n));
-        const label = $.const(labelBind.read());
-        $(tickBind.read());
-        const units = $.const(UNITS, DictType(StringType, UnitRow));
-        const series = $.const([
-            Plan.series.span(UnitRow, {
-                key: "units", title: "Units",
-                label: (_r, k) => k, id: true,
-                expand: (_r) => some({ height: none, axis: variant("keep", null) }),
-                runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "RUN", state: "actual" })],
-            }),
-        ], ArrayType(Plan.Types.Series(UnitRow)));
-        const expandRender = $.const(East.function([Plan.Types.RowId], UIComponentType, ($2, _id) => {
-            $2(countExpand());
-            return Text.Root(label);
-        }));
-        const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
-        return Plan.Root({ axis, data: units, series, expandRender });
-    })),
-), PLATFORM);
-
 // ── An uncontrolled input whose callback captured State ─────────────────────
 
 const INPUT_TICK_KEY = "equivalence.input.tick";
@@ -125,31 +75,9 @@ const reactiveInput = East.compile(East.function([], UIComponentType, (_$) =>
         }));
         return Input.String("", { onChange });
     })),
-), PLATFORM);
+), getRegisteredPlatformImplementations());
 
 describe("closure-only changes through the dispatcher (#809)", () => {
-    test("a Reactive re-renders a Plan whose resolver captured new State; an equivalent rebuild does not", async () => {
-        initializeStore(new UIStore());
-        expandCalls = 0;
-        const { container } = mount(reactivePlan());
-        // The unit's row — the `units` series' entry at its key (#822).
-        const unit = rowSel("u00", "data-plan-row", "units");
-        await waitFor(() => expect(container.querySelector(unit)).toBeTruthy());
-        fireEvent.click(container.querySelector(`${unit} [data-plan-control="expand"]`) as HTMLElement);
-        await waitFor(() => expect(container.querySelector("[data-plan-expandrender]")?.textContent).toBe("ALPHA"));
-        const callsAfterOpen = expandCalls;
-
-        // The render re-runs, but the rebuilt canvas is equivalent — same data,
-        // same resolver IR, same captured label: every memo bails.
-        act(() => { getStore().write(TICK_KEY, encodeInteger(1n)); });
-        expect(expandCalls).toBe(callsAfterOpen);
-
-        // Only the resolver's capture moved. `equalFor` called the canvases
-        // equal and the open region kept saying ALPHA.
-        act(() => { getStore().write(LABEL_KEY, encodeString("BETA")); });
-        await waitFor(() => expect(container.querySelector("[data-plan-expandrender]")?.textContent).toBe("BETA"));
-    }, 30_000);
-
     test("an uncontrolled input keeps what the user typed, and the NEW callback runs", async () => {
         initializeStore(new UIStore());
         const { container } = mount(reactiveInput());

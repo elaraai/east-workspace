@@ -17,6 +17,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { PLAN_EXAMPLES } from "./plan-page";
 import { settled } from "./settle";
 
 /** Open one example's page and return its bounded frame, drawn and at rest. */
@@ -47,8 +48,8 @@ test.describe("a bounded frame opens at its first row (#944)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     for (const [file, name] of [
-        ["collections/plan", "planRowDrop"],
-        ["collections/plan", "planFill"],
+        [PLAN_EXAMPLES, "planRowDrop"],
+        [PLAN_EXAMPLES, "planFill"],
         ["collections/sheet", "sheetGrouped"],
         ["collections/sheet", "sheetStress"],
     ] as const) {

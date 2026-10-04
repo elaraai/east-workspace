@@ -23,7 +23,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
-import { pointAt } from "../../dnd/dnd.test-utils.js";
+import { pointAt } from "../../testing/drag-layer.js";
 import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
 
 // ── jsdom's layout, laid out by the test ────────────────────────────────────

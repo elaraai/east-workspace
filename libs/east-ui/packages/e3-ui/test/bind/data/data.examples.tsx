@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
-import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data } from "@elaraai/e3-ui";
+import { Button, EventStateType, Format, Input, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Data, Plan } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
 export const thresholdInput      = e3.input('threshold',       FloatType, variant('value', 50.0));
@@ -410,7 +410,7 @@ export const dataBindPagedPlan = example({
                 window: { min: week(24n), max: week(42n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
-            return <Plan axis={axis} data={paged} series={series} />;
+            return <Plan.View axis={axis} data={paged} series={series} />;
         }}</Reactive>
     )),
     inputs: [],
@@ -544,7 +544,7 @@ export const dataBindPagedBlocks = example({
                 window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
             }));
             // Bounded, so the canvas virtualizes and each block pages by what is in view.
-            return <Plan axis={axis} data={units} series={series} style={{ maxHeight: "420px" }} />;
+            return <Plan.View axis={axis} data={units} series={series} style={{ maxHeight: "420px" }} />;
         }}</Reactive>
     )),
     inputs: [],

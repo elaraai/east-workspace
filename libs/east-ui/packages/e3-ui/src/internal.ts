@@ -4,8 +4,9 @@
  */
 
 /**
- * Internal exports — the `Diff` / `Ontology` **factories** (`Diff.Root(…)`,
- * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
+ * Internal exports — the `Plan` / `Diff` / `Ontology` **factories**
+ * (`Plan.Root(…)`, `Diff.Root(…)`, `Diff.Component`) plus `Data`, the
+ * manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -171,6 +172,76 @@ export {
     type SavedQueryInput,
 } from './query/index.js';
 export { DataSourceType, dataSources, type BoundSource } from './bind/sources.js';
+
+// The Plan (#1177): the canvas's factory and the `PlanView` carrier, the
+// payload the renderer takes, the editing wire it is handed, and the types a
+// canvas is written with. `Plan` here is the internal namespace — the public
+// one, `Plan.Root`, `Plan.Payload` and `Plan.Component`.
+export {
+    PlanInternal as Plan,
+    PlanView,
+    PlanViewComponent,
+    PlanRootType,
+    PlanReviewType,
+    PlanEditingType,
+    PlanWriteRequestType,
+    PlanReadyEntryType,
+    PLAN_PAGE_SIZE,
+    type PlanNamespace,
+    type PlanInternalNamespace,
+    type PlanConfig,
+    type PlanRowBaseInput,
+    type PlanSpanInput,
+    type PlanBucketsInput,
+    type PlanChartInput,
+    type PlanHeatInput,
+    type PlanTableInput,
+    type PlanCardsInput,
+    type PlanEventsInput,
+    type PlanGroupInput,
+    type PlanRunInput,
+    type PlanDecisionInput,
+    type PlanPortInput,
+    type PlanBucketEventInput,
+    type PlanCellMarkerInput,
+    type PlanChipInput,
+    type PlanEventMarkInput,
+    type PlanSegmentInput,
+    type PlanTableSeriesInput,
+    type PlanExpandInput,
+    type PlanLinkInput,
+    type PlanIconInput,
+    type PlanLayerChannels,
+    type PlanChartLayerInput,
+    type PlanChartAxisInput,
+    type PlanHeatCellsOptions,
+    type PlanReviewConfig,
+    type PlanEditingConfig,
+    type PlanBindHandle,
+    type PlanReviewInput,
+    type PlanEditInput,
+    type PlanRowsInput,
+    type PlanRowsValue,
+    type PlanSeriesArm,
+    type PlanSeriesValue,
+    type PlanSeriesInput,
+    type PlanSeriesIdentity,
+    type PlanEntryExpr,
+    type PlanAccessor,
+    type PlanChildren,
+    type PlanChildrenInput,
+    type PlanSeriesRowConfig,
+    type PlanSpanSeriesConfig,
+    type PlanHeatSeriesConfig,
+    type PlanTableSeriesOfConfig,
+    type PlanBucketsSeriesConfig,
+    type PlanCardsSeriesConfig,
+    type PlanEventsSeriesConfig,
+    type PlanChartSeriesConfig,
+    type PlanGroupSeriesConfig,
+    type PlanSectionSeriesConfig,
+    type PlanViewsSeriesConfig,
+} from './plan/index.js';
 export {
     Diff,
     DiffComponent,

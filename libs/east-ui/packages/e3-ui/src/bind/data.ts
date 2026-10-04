@@ -567,8 +567,8 @@ export const DataPagedPrimitives = {
  * @example
  * ```ts
  * import { ArrayType, DictType, East, StringType, variant } from "@elaraai/east";
- * import { Plan, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Data } from "@elaraai/e3-ui";
+ * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Plan } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
  * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
@@ -585,7 +585,7 @@ export const DataPagedPrimitives = {
  *         const axis = $.const(Plan.axis({
  *             window: { min: week(24n), max: week(42n) }, resolution: "week",
  *         }));
- *         return Plan.Root({ axis, data: paged, series });
+ *         return Plan.View({ axis, data: paged, series });
  *     }));
  * });
  * ```
@@ -622,7 +622,7 @@ function bindDataPaged(
     // read joins. A Dict would re-sort by its own key and throw that order
     // away, which is the whole reason the window is positional. The server
     // encodes the window with the same `indexWindowType`.
-    const record = def.type as unknown as { type: string; key: EastType; value: EastType };
+    const record = def.type;
     if (record.type !== 'Dict') {
         throw new Error(
             `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,

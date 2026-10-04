@@ -18,9 +18,9 @@
  * Every height the model also computes — rows, rails, gap bands, strips and
  * their marks, bars, tiles, chips, the chrome bands — is read from the
  * canvas's geometry variables (`--plan-row-h`, `--plan-rail-h`, …), which the
- * canvas writes once from the ONE geometry table (`collections/plan/geometry.ts`)
- * that `rowHeight` computes from. Density is geometry, so the recipe has no
- * density variant.
+ * canvas writes once from the ONE geometry table (e3-ui-components'
+ * `plan/geometry.ts`, where the Plan renders since #1177) that `rowHeight`
+ * computes from. Density is geometry, so the recipe has no density variant.
  *
  * Run-state styling is the §4.3 truth table, driven by the `data-state`
  * attribute (obs / appr / prop / propRemoved / estimated / rejected) +

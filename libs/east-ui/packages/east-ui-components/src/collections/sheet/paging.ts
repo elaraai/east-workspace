@@ -78,11 +78,11 @@ import { useTrackedEvaluation } from "../../reactive/index.js";
 import {
     createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, slotHeight,
     type WindowLedger,
-} from "../plan/window-ledger.js";
+} from "../window-ledger.js";
 import {
     NO_RESIDENCY, DEFAULT_RESIDENCY, advance, isEmpty, residentWindows, pin, unpinAll,
     type Residency, type ResidencyOptions,
-} from "../plan/window-residency.js";
+} from "../window-residency.js";
 import { BAND_MIN_PX, type SheetBand, type SheetWindowFailure } from "./model.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 

@@ -10,7 +10,6 @@ export { DataList } from "./data-list.js";
 export { Pagination } from "./pagination.js";
 export { Table } from "./table.js";
 export { Matrix } from "./matrix.js";
-export { Plan } from "./plan.js";
 export { Deck } from "./deck.js";
 export { ValueTree } from "./value-tree.js";
 export { Library } from "./library.js";

@@ -52,7 +52,6 @@ import { EastChakraMatrix } from "./collections/matrix";
 import { EastChakraPagination } from "./collections/pagination";
 import { EastChakraTable } from "./collections/table";
 import { EastChakraTreeView } from "./collections/tree-view";
-import { EastChakraPlan } from "./collections/plan";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
 import { EastChakraNavList } from "./navigation/nav-list";
 import { EastChakraApp } from "./navigation/app";
@@ -263,7 +262,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             Matrix: (v) => <EastChakraMatrix value={v} storageKey={childKey(storageKey, "Matrix")} />,
             Pagination: (v) => <EastChakraPagination value={v} storageKey={childKey(storageKey, "Pagination")} />,
             Table: (v) => <EastChakraTable value={v} storageKey={childKey(storageKey, "Table")} />,
-            Plan: (v) => <EastChakraPlan value={v} storageKey={childKey(storageKey, "Plan")} />,
             Library: (v) => <EastChakraLibrary value={v} storageKey={childKey(storageKey, "Library")} />,
             Deck: (v) => <EastChakraDeck value={v} storageKey={childKey(storageKey, "Deck")} />,
             DeckReadout: (v) => <EastChakraDeckReadout value={v} />,

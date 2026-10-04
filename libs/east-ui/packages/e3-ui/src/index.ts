@@ -8,6 +8,8 @@
  *
  * The public surface is the e3-specific JSX **tags** plus the platform
  * helpers:
+ * - `<Plan.View>` — the axis-aligned composite canvas, with its authoring
+ *   vocabulary on `Plan` (`Plan.axis`, `Plan.series.*`, the value builders).
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
@@ -124,6 +126,11 @@ export {
     type SavedQueryInput,
 } from './query/index.js';
 export { DataSourceType, type BoundSource } from './bind/sources.js';
+
+// The Plan (#1177): the axis-aligned composite canvas a solution mounts
+// (`<Plan.View>`), its authoring vocabulary on `Plan` (`Plan.axis`,
+// `Plan.series.*`, the value and cell builders, `Plan.Types`), and its props.
+export { Plan, type PlanNamespace, type PlanConfig } from './plan/index.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';

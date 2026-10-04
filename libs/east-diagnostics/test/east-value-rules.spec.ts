@@ -14,7 +14,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyze } from "./harness.js";
+import { join } from "node:path";
+import { analyze, analyzeProgram } from "./harness.js";
 import { allRules, hostValueRuleNames } from "../src/index.js";
 
 const PRELUDE = `import {
@@ -107,6 +108,37 @@ test("no-js-collection-for-east-collection: a JavaScript Set or Map of struct, D
 test("no-js-collection-for-east-collection: silent on string, bigint and number keys (East's idiom), on East's own collections and on host sets", () => {
   const src = `const KeyType = StructType({ id: StringType });\nconst StateType = StructType({ tags: SetType(StringType), counts: DictType(StringType, IntegerType), byN: DictType(IntegerType, FloatType), byKey: DictType(KeyType, IntegerType), days: SetType(DateTimeType) });\nexport const s: ValueTypeOf<typeof StateType> = { tags: new Set(["b", "a"]), counts: new Map(), byN: new Map([[2n, 0.5], [1n, 1.5]]), byKey: new SortedMap([[{ id: "a" }, 1n]], compareFor(KeyType)), days: new SortedSet([row.at], compareFor(DateTimeType)) };\nexport const v = variant("in", new Set(["a"]));\nexport const seen = new Set<Row>();\n`;
   assert.equal(hits(src, "no-js-collection-for-east-collection").length, 0);
+});
+
+test("an East package's function takes a decoded value where its parameter is written in East's value types — a host one where it is not", () => {
+  // A DOM test helper east-ui-components ships takes its rects keyed by
+  // element, and a pixel count is a number: both are the host's (#1177). The
+  // same package's functions over a struct-keyed Dict and an Integer take
+  // decoded values, and a Map or text read the JavaScript way is still flagged.
+  const dir = process.cwd();
+  const entry = join(dir, "__east_package_helpers_entry__.ts");
+  const files = {
+    [join(dir, "node_modules/@elaraai/helpers-fixture/index.d.ts")]: [
+      `declare module "@elaraai/helpers-fixture" {`,
+      `  import type { DictType, IntegerType, StringType, StructType, ValueTypeOf } from "@elaraai/east";`,
+      `  export class Widget { readonly id: string }`,
+      `  export interface Rect { left: number; width: number }`,
+      `  export function layOut(rects: ReadonlyMap<Widget, Rect>): void;`,
+      `  export function widthOf(px: number): void;`,
+      `  export type ByKey = ValueTypeOf<DictType<StructType<{ id: StringType }>, IntegerType>>;`,
+      `  export function seed(byKey: ByKey): void;`,
+      `  export function count(n: ValueTypeOf<IntegerType>): void;`,
+      `}`,
+      ``,
+    ].join("\n"),
+    [entry]: `${PRELUDE}import { Widget, count, layOut, seed, widthOf } from "@elaraai/helpers-fixture";\ndeclare const widget: Widget;\ndeclare const raw: string;\nlayOut(new Map([[widget, { left: 0, width: 1 }]]));\nwidthOf(Number(raw));\nseed(new Map([[{ id: "a" }, 1n]]));\ncount(BigInt(raw));\n`,
+  };
+  const found = analyzeProgram(files, entry, {});
+  const text = files[entry]!;
+  /** Each finding of `rule`, as the call it sits in. */
+  const calls = (rule: string) => found.filter((d) => d.ruleName === rule).map((d) => text.slice(text.lastIndexOf("\n", d.start) + 1, d.start));
+  assert.deepEqual(calls("no-js-collection-for-east-collection"), ["seed("]);
+  assert.deepEqual(calls("no-host-parse-to-east-values"), ["count("]);
 });
 
 // ── no-host-comparison-on-east-values (extended) ─────────────────────────

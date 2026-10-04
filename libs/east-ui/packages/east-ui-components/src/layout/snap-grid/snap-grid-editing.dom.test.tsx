@@ -25,7 +25,7 @@ import { act, cleanup, fireEvent } from "@testing-library/react";
 import { none, some, variant } from "@elaraai/east";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { layOut } from "../../dnd/dnd.test-utils.js";
+import { layOut } from "../../testing/drag-layer.js";
 import {
     BLOCKED, SEED, type EditingSnapGrid, type TileValue,
     announced, clickTile, drop, dragHandle, endZone, gapEl, heightOf, history, historyButton, hold, hostWrites, key, layRows, marks,

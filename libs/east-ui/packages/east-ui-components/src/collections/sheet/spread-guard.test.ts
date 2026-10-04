@@ -3,9 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The Sheet's lint guard (#859): a spread into a call or a constructor under
- * `collections/sheet/` fails lint, as under `collections/plan/` (#810) — past
- * the engine's argument limit (~125,000 on Node 22) it throws RangeError. A
- * spread into an array literal has no such limit and passes.
+ * `collections/sheet/` fails lint, as under the Plan's `src/plan/` in
+ * e3-ui-components (#810, #1177) — past the engine's argument limit (~125,000
+ * on Node 22) it throws RangeError. A spread into an array literal has no such
+ * limit and passes.
  */
 
 import { test, expect } from "vitest";

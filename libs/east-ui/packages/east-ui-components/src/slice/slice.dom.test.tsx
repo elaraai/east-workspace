@@ -26,7 +26,7 @@ import {
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { buildSliceHandle } from "../platform/slice/index.js";
-import { sliceConfig } from "../platform/slice/slice.test-utils.js";
+import { sliceConfig } from "../testing/slice.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";

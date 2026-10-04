@@ -23,7 +23,7 @@ import { none, some, variant } from "@elaraai/east";
 import { SliceImpl, buildSliceHandle, boundRangeDomain, boundRangeHistogram } from "../../src/platform/slice/index.js";
 import { initializeStore } from "../../src/platform/state-runtime.js";
 import { UIStore } from "../../src/platform/state-store.js";
-import { integerField, sliceConfig, stringField } from "../../src/platform/slice/slice.test-utils.js";
+import { integerField, sliceConfig, stringField } from "../../src/testing/slice.js";
 
 /** The registered primitives, looked up by their declared `slice_*` name. */
 const byName = new Map(SliceImpl.map(p => [p.name, p.fn]));

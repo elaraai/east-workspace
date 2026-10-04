@@ -22,7 +22,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { openExample, rowSel } from "./plan-page";
+import { PLAN_EXAMPLES, openExample, rowSel } from "./plan-page";
 import { settled } from "./settle";
 
 /** A box on the page, in CSS px. */
@@ -329,7 +329,7 @@ test.describe("Visual invariants — the Plan", () => {
     for (const theme of ["light", "dark"] as const) {
         for (const name of RULED) {
             test(`${name} (${theme}): the ruler's lines are the rows' lines — every bucket edge, the now line and the gutter's edge on the same pixels`, async ({ page }) => {
-                const entry = await openExample(page, name, "collections/plan", theme);
+                const entry = await openExample(page, name, PLAN_EXAMPLES, theme);
                 const at = await scanLines(entry);
                 test.skip(at === undefined, "no bare row to read against");
                 const read = { ruler: await paintedLines(page, at!.ruler), row: await paintedLines(page, at!.row) };
@@ -339,13 +339,13 @@ test.describe("Visual invariants — the Plan", () => {
             });
 
             test(`${name} (${theme}): what the eye checks — one gutter voice, legible labels, whole periods, token fills, aligned values`, async ({ page }) => {
-                const entry = await openExample(page, name, "collections/plan", theme);
+                const entry = await openExample(page, name, PLAN_EXAMPLES, theme);
                 expect(await violations(entry)).toEqual([]);
             });
         }
 
         test(`planNumberAxis (${theme}): the horizon is an overview with a lens, its steps counted once; the range reads inclusive; the footer says plain summaries`, async ({ page }) => {
-            const entry = await openExample(page, "planNumberAxis", "collections/plan", theme);
+            const entry = await openExample(page, "planNumberAxis", PLAN_EXAMPLES, theme);
             const read = await entry.evaluate((root) => {
                 const body = root.querySelector("[data-plan-body]")!;
                 const plot = body.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
@@ -396,7 +396,7 @@ test.describe("Visual invariants — the Plan", () => {
         });
 
         test(`planSpanRows (${theme}): a links focus paints in the theme's brand — its bands, their heads and the off-window fade`, async ({ page }) => {
-            const entry = await openExample(page, "planSpanRows", "collections/plan", theme);
+            const entry = await openExample(page, "planSpanRows", PLAN_EXAMPLES, theme);
             await entry.locator(`${rowSel("detail", "L1-M09")} [data-plan-control="links"]`).click();
             await expect(entry.locator('[data-plan-linkfade="right"]')).toHaveCount(1);
             const read = await entry.evaluate((root) => {
@@ -682,8 +682,8 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box.
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
-    { name: "Plan", route: "collections/plan/planTargetState", widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
-    { name: "Plan (narrow)", route: "collections/plan/planNarrow", widths: [1600, 1200, 900], nudge: [1200] },
+    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
+    { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
     { name: "Sheet", route: "collections/sheet/sheetLens", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },

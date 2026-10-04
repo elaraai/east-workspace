@@ -3,7 +3,11 @@
 React Query hooks and preview React components for the e3 API.
 Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `DatasetPreview`, `EastValueViewer`, `InputPreview`,
-`VirtualizedLogViewer`, plus the diff component family.
+`VirtualizedLogViewer`, the diff component family, and the Plan's canvas
+(`src/plan/`, #1177), registered against e3-ui's `PlanView` extension as
+the package loads. The Plan builds on east-ui-components' shared parts
+through its `./internal` entry, and its tests on `./testing`; its slot
+recipes stay in east-ui-components' theme.
 
 ## HARD RULE: East values through East
 

@@ -8,7 +8,7 @@
  * the canvas is a review tool: chips, tabs, the shared ruler and the card list.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */

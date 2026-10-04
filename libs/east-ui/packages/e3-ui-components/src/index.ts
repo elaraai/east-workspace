@@ -22,6 +22,7 @@ import './studio/library.js';             // → implementUIComponent(StudioLibr
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
+import './plan/index.js';                 // → implementUIComponent(PlanViewComponent, EastChakraPlan)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -105,6 +106,26 @@ export {
     type QueryPlanOptionsProviderProps,
 } from './query/hooks.js';
 export * from './query/calls.js';
+
+// The Plan (#1177) — its renderer registers itself against the PlanView
+// extension on import — and its words (#820): the message table, and the
+// provider that overrides it for a subtree (its locale is react-aria's
+// `I18nProvider`).
+export { EastChakraPlan, type EastChakraPlanProps, type PlanRootValue, type PlanRowValue } from './plan/index.js';
+export {
+    PlanMessagesProvider,
+    planMessages,
+    type PlanMessages,
+    type PlanMessagesProviderProps,
+    type PlanAxisWord,
+    type PlanChartLayerWord,
+    type PlanFocusTagWord,
+    type PlanGrainWord,
+    type PlanHorizonUnit,
+    type PlanMarkWord,
+    type PlanPart,
+    type PlanStateWord,
+} from './plan/messages.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';
