@@ -63,6 +63,7 @@ import {
   type CollectionSegmentRef,
 } from '@elaraai/e3-types';
 import { computeHash } from './objects.js';
+import { OBJECT_CONCURRENCY } from './concurrency.js';
 import { openDatasetObject } from './dataset-open.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -266,7 +267,10 @@ export async function storeCollectionThrough<S extends object>(
     }
   }
 
-  const manifest = await writeCollectionManifest(typeValue, pieces(), (bytes) => storage.objects.write(repo, bytes));
+  // The segments are written at once, and the manifest after every one it
+  // names is stored
+  const manifest = await writeCollectionManifest(typeValue, pieces(), (bytes) => storage.objects.write(repo, bytes),
+    { inFlight: OBJECT_CONCURRENCY });
   return storage.objects.write(repo, manifest);
 }
 

@@ -14,6 +14,8 @@
  * @packageDocumentation
  */
 
+import type { StorageBackend } from './storage/interfaces.js';
+
 /** How many objects are moved at once. */
 export const OBJECT_CONCURRENCY = 16;
 
@@ -50,6 +52,29 @@ export async function eachAtMost<T>(items: readonly T[], width: number, fn: (ite
   };
   await Promise.all(Array.from({ length: Math.min(width, items.length) }, worker));
   if (failures.length > 0) throw failures[0];
+}
+
+/**
+ * Stores objects together, at most {@link OBJECT_CONCURRENCY} at once, and
+ * answers their hashes in the order they were given.
+ *
+ * @remarks
+ * For objects no one of which names another, which a crash may leave stored
+ * in any part: a store whose writes are round trips is waited on once for the
+ * lot rather than once for each.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param objects - The objects' bytes
+ * @returns Each object's hash, in order
+ * @throws The first write's failure, once every write in flight has settled
+ */
+export async function storeObjects(storage: StorageBackend, repo: string, objects: readonly Uint8Array[]): Promise<string[]> {
+  const hashes: string[] = new Array<string>(objects.length);
+  await eachAtMost(objects.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    hashes[i] = await storage.objects.write(repo, objects[i]!);
+  });
+  return hashes;
 }
 
 /**

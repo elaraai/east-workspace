@@ -5,7 +5,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { eachAtMost, readInOrder } from './concurrency.js';
+import { eachAtMost, readInOrder, storeObjects } from './concurrency.js';
+import type { StorageBackend } from './storage/interfaces.js';
 
 /** A wait of `ms`, so calls overlap as a store's requests do. */
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,6 +41,28 @@ describe('eachAtMost', () => {
     );
     assert.equal(settled, started.length, 'every call started had settled when the failure was thrown');
     assert.ok(started.length < 40, `the pool stopped taking items: ${started.length} started`);
+  });
+});
+
+describe('storeObjects', () => {
+  it('stores the objects at once, and answers their hashes in the order given', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const storage = {
+      objects: {
+        write: async (_repo: string, bytes: Uint8Array): Promise<string> => {
+          inFlight++;
+          peak = Math.max(peak, inFlight);
+          // Later objects are stored sooner, as a store's requests may be.
+          await pause(10 - 2 * bytes[0]!);
+          inFlight--;
+          return `object ${bytes[0]}`;
+        },
+      },
+    } as unknown as StorageBackend;
+    const objects = Array.from({ length: 5 }, (_, i) => new Uint8Array([i]));
+    assert.deepEqual(await storeObjects(storage, 'repo', objects), objects.map((_, i) => `object ${i}`));
+    assert.equal(peak, 5, 'every write in flight at once');
   });
 });
 
