@@ -117,18 +117,22 @@ def ts_class_aliases(file: str, cls: str) -> set[str]:
 
 
 def ts_lib_functions(file: str) -> set[str]:
-    """The keys of the ``export default { … }`` object of ``libs/<file>``."""
+    """The keys of the ``export default { … }`` object of ``libs/<file>``, or
+    of the object a lazy library wraps (``export default lazyLibrary({ … })``,
+    #1127)."""
     src = (TS_EXPR / "libs" / file).read_text(encoding="utf-8")
-    m = re.search(r"^export default \{.*?^\}", src, re.M | re.S)
+    m = re.search(r"^export default (?:lazyLibrary\()?\{.*?^\}", src, re.M | re.S)
     assert m, f"no default export in {file}"
     names = set()
     for line in m.group(0).splitlines():
-        # a method-style key `  name(` / `  name<`, or an object key
-        # `  name: Expr.function(` (indented two or four spaces); a parameter
-        # of a signature continued over several lines is indented deeper and
-        # never followed by `Expr.function`
+        # a method-style key `  name(` / `  name<`, an object key
+        # `  name: Expr.function(`, or a lazy library's getter
+        # `  get name() { return Expr.function(` (indented two or four
+        # spaces); a parameter of a signature continued over several lines is
+        # indented deeper and never followed by `Expr.function`
         mm = (re.match(r"^ {2}([a-zA-Z]\w*)\s*[<(]", line)
-              or re.match(r"^ {2,4}([a-zA-Z]\w*):\s*Expr\.function", line))
+              or re.match(r"^ {2,4}([a-zA-Z]\w*):\s*Expr\.function", line)
+              or re.match(r"^ {2,4}get ([a-zA-Z]\w*)\(\)\s*\{\s*return Expr\.function", line))
         if mm and mm.group(1) not in _KEYWORDS:
             names.add(mm.group(1))
     return names
