@@ -17,7 +17,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, lessFor, variant } from '@elaraai/east';
+import { IntegerType, StringType, encodeBeast2For, decodeBeast2For, isValueOf, lessFor, variant } from '@elaraai/east';
+import { TaskLogChunkType } from '@elaraai/e3-types';
 import {
   packageImport,
   workspaceCreate,
@@ -193,24 +194,46 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         assert.strictEqual(outputDataset.status.type, 'up-to-date');
       });
 
-      it('taskExecutionList lists the latest attempt per inputs by default and every attempt with all', async (t) => {
+      it('taskExecutionList lists a task\'s runs the latest first, a page at a time, each naming its execution', async (t) => {
         const ctx = await withSimpleExec(t);
         const opts = await ctx.opts();
+        const list = (page: { limit?: number; before?: string } = {}) =>
+          taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', opts, page);
 
-        // Two forced runs of the same inputs: two attempts under one inputs hash.
-        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts));
-        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts));
+        // Three forced runs of the same inputs: three runs under one inputs hash.
+        for (let run = 0; run < 3; run++) {
+          assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'exec-ws', { force: true }, opts));
+        }
 
-        const latest = await taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', opts);
-        assert.strictEqual(latest.length, 1, 'one item per distinct inputs hash');
-        assert.strictEqual(latest[0].status.type, 'success');
+        const every = await list();
+        assert.strictEqual(every.length, 3, 'every run is listed');
+        assert.ok(every.every(e => e.inputsHash === every[0].inputsHash && e.status.type === 'success'), 'all runs share the inputs hash');
+        const ids = every.map(e => e.executionId);
+        assert.strictEqual(new Set(ids).size, ids.length, 'each run names its own execution');
+        assert.deepStrictEqual(ids, [...ids].sort().reverse(), 'the latest first');
 
-        const every = await taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', opts, { all: true });
-        assert.ok(every.length >= 2, `every attempt is listed, got ${every.length}`);
-        assert.ok(every.every(e => e.inputsHash === latest[0].inputsHash), 'all attempts share the inputs hash');
-        assert.strictEqual(new Set(every.map(e => e.startedAt)).size, every.length, 'attempts are distinct runs');
-        const newest = every.map(e => e.startedAt).sort().at(-1);
-        assert.strictEqual(latest[0].startedAt, newest, 'the default item is the newest attempt');
+        // A page at a time, each from before the last run of the page before
+        const first = await list({ limit: 2 });
+        assert.deepStrictEqual(first.map(e => e.executionId), ids.slice(0, 2));
+        const next = await list({ limit: 2, before: first[1].executionId });
+        assert.deepStrictEqual(next.map(e => e.executionId), ids.slice(2), 'the next page holds the runs before it');
+        assert.deepStrictEqual(await list({ before: ids[2] }), [], 'and the page after it is empty');
+      });
+
+      it('refuses a page of a task\'s runs whose limit is not a positive integer, or whose cursor is no execution\'s id', async (t) => {
+        const ctx = await withSimpleExec(t);
+        const opts = await ctx.opts();
+        const list = (page: { limit?: number; before?: string }) =>
+          taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', opts, page);
+
+        await rejectsBadRequest(list({ limit: 0 }), 'limit must be a positive integer, got "0"');
+        await rejectsBadRequest(list({ limit: 1.5 }), 'limit must be a positive integer, got "1.5"');
+        await assert.rejects(list({ before: 'not-an-id' }), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'invalid_name');
+          assert.strictEqual((err.details as { kind?: string } | undefined)?.kind, 'execution id');
+          return true;
+        });
       });
 
       it('dataflowExecuteLaunch triggers execution (non-blocking)', async (t) => {
@@ -283,12 +306,38 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         // Get logs
         const logs = await taskLogs(ctx.config.baseUrl, ctx.repoName, 'exec-ws', 'compute', { stream: 'stdout' }, opts);
 
-        // Logs should be returned (may be empty for simple tasks)
-        assert.ok(typeof logs.data === 'string');
-        assert.ok(typeof logs.offset === 'bigint');
-        assert.ok(typeof logs.size === 'bigint');
-        assert.ok(typeof logs.totalSize === 'bigint');
-        assert.ok(typeof logs.complete === 'boolean');
+        // A chunk of its log, which may be empty for a simple task
+        assert.ok(isValueOf(logs, TaskLogChunkType), 'a TaskLogChunk');
+      });
+
+      it('taskLogs names the execution it reads, and whether it has ended, and reads the one a request names', async (t) => {
+        const ctx = await withLogPag(t);
+        const opts = await ctx.opts();
+        const read = (logOptions: LogOptions = {}) =>
+          taskLogs(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'log', { stream: 'stdout', ...logOptions }, opts);
+        const latest = async () => (await taskExecutionList(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', 'log', opts, { limit: 1 }))[0];
+
+        // A run's log names the run, which has ended
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', { force: true }, opts));
+        const first = await latest();
+        const logs = await read();
+        assert.deepStrictEqual([logs.inputsHash, logs.executionId, logs.ended], [first.inputsHash, first.executionId, true]);
+
+        // Another run is the task's current execution, and a request naming
+        // the first still reads the first
+        assertDataflowSucceeded(await dataflowExecute(ctx.config.baseUrl, ctx.repoName, 'logpag-ws', { force: true }, opts));
+        const second = await latest();
+        assert.notStrictEqual(second.executionId, first.executionId, 'the run is another execution');
+        assert.strictEqual((await read()).executionId, second.executionId);
+        const named = await read({ offset: 5, execution: { inputsHash: first.inputsHash, executionId: first.executionId } });
+        assert.deepStrictEqual([named.executionId, named.data], [first.executionId, LOGGED_LINES.slice(5)]);
+
+        // An execution the task does not record is none
+        await assert.rejects(read({ execution: { inputsHash: first.inputsHash, executionId: '0190a0b0-4444-7000-8000-000000000000' } }), (err: unknown) => {
+          assert.ok(err instanceof ApiError, `Expected ApiError, got ${String(err)}`);
+          assert.strictEqual(err.code, 'execution_not_found');
+          return true;
+        });
       });
     });
 
@@ -509,8 +558,7 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           // taskLogs for failed task should NOT throw
           const logs = await taskLogs(ctx.config.baseUrl, ctx.repoName, 'mixed-ws', 'fail_c', { stream: 'stderr' }, opts);
 
-          assert.ok(typeof logs.data === 'string', 'logs.data should be a string');
-          assert.ok(typeof logs.complete === 'boolean', 'logs.complete should be a boolean');
+          assert.ok(isValueOf(logs, TaskLogChunkType), 'a TaskLogChunk');
           // Its stderr holds the failure's message, which its body made from
           // its input as it ran
           assert.match(logs.data, /fail_c fails, given 3/);
@@ -688,8 +736,10 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
 
         await dataflowExecuteLaunch(ctx.config.baseUrl, ctx.repoName, 'slow-ws', { force: true }, opts);
         // The task's attempt is recorded running before the cancel, so the
-        // cancel stops that attempt.
+        // cancel stops that attempt. Its log says it has not ended.
         await waitFor(async () => (await history()).some((item) => item.status.type === 'running'), 60000);
+        const live = await taskLogs(ctx.config.baseUrl, ctx.repoName, 'slow-ws', 'slow', { stream: 'stderr' }, opts);
+        assert.strictEqual(live.ended, false, 'the log of an execution still running has not ended');
         await dataflowCancel(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts);
 
         const cancelled = (items: ExecutionListItem[]) => items.find((item) => item.status.type === 'cancelled');
@@ -698,6 +748,10 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
         if (stopped?.reason.type !== 'some') assert.fail('a cancelled attempt says why it stopped');
         assert.strictEqual(stopped.reason.value.kind.type, 'aborted');
         assert.notStrictEqual(stopped.reason.value.message, '', 'in words, as its log\'s last line does');
+        const ended = await taskLogs(ctx.config.baseUrl, ctx.repoName, 'slow-ws', 'slow', {
+          stream: 'stderr', execution: { inputsHash: live.inputsHash, executionId: live.executionId },
+        }, opts);
+        assert.strictEqual(ended.ended, true, 'and once it is cancelled, it has');
 
         // The task reads ready, naming why its latest attempt stopped.
         const task = (await workspaceStatus(ctx.config.baseUrl, ctx.repoName, 'slow-ws', opts)).tasks.find((each) => each.name === 'slow');
@@ -1162,6 +1216,8 @@ export function dataflowTests(setup: TestSetup<TestContext>): void {
           ['log?stream=stdin', 'stream must be stdout or stderr, got "stdin"'],
           [`log?stream=${encodeURIComponent('../../stdout')}`, 'stream must be stdout or stderr, got "../../stdout"'],
           ['no_such_task?offset=-1', 'offset must be a non-negative integer, got "-1"'],
+          [`log?inputs=${'a'.repeat(64)}`, 'inputs and execution name an execution together: give both, or neither'],
+          ['log?execution=0190a0b0-4444-7000-8000-000000000000', 'inputs and execution name an execution together: give both, or neither'],
         ];
         for (const [request, message] of requests) {
           const response = await ctx.fetch(`${logs}/${request}`, { headers });

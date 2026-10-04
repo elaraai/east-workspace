@@ -10,7 +10,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { none, variant } from '@elaraai/east';
 import { LocalStorage, executionReadLog, repoInit } from '@elaraai/e3-core';
-import { DEFAULT_TAIL_LINES, lastLines, logsCommand, parseExecutionRef, parseLines, pipeToEnd, readTail } from './logs.js';
+import {
+  DEFAULT_TAIL_LINES, lastLines, logsCommand, parseExecutionRef, parseLines, pipeToEnd, readTail, readingOneExecution,
+} from './logs.js';
 
 describe('parseExecutionRef', () => {
   const taskHash = 'a'.repeat(64);
@@ -79,6 +81,34 @@ describe('logsCommand --execution', () => {
     assert.match(output, /^Execution: c{12}\/d{12}\/01890000-000/m);
     assert.match(output, /=== STDOUT ===\nunit says hello/);
     assert.match(output, /=== STDERR ===\ne3: cancelled: e3 stopped the runner because the run was aborted/);
+  });
+});
+
+describe('readingOneExecution', () => {
+  const inputsHash = 'a'.repeat(64);
+  const [first, second] = ['01993c00-0000-7000-8000-000000000001', '01993c00-0000-7000-8000-000000000002'];
+
+  it('names the execution its first read was of in every read after it, so a run that begins meanwhile does not change the log', async () => {
+    // A server's logs of the task's executions, the latest the task's current
+    const executions = [{ executionId: first, text: 'the first run\n' }];
+    const asked: (string | undefined)[] = [];
+    const read = readingOneExecution((options) => {
+      asked.push(options.execution?.executionId);
+      const named = options.execution;
+      const execution = named === undefined ? executions.at(-1)! : executions.find((each) => each.executionId === named.executionId)!;
+      const offset = options.offset ?? 0;
+      const data = execution.text.slice(offset, offset + (options.limit ?? 65536));
+      return Promise.resolve({
+        data, offset: BigInt(offset), size: BigInt(data.length), totalSize: BigInt(execution.text.length),
+        complete: offset + data.length >= execution.text.length, inputsHash, executionId: execution.executionId, ended: false,
+      });
+    });
+
+    const opening = await read('stdout', 0, 4);
+    executions.push({ executionId: second, text: 'the second\n' });
+    const rest = await read('stdout', 4, 64);
+    assert.equal(opening.data + rest.data, 'the first run\n');
+    assert.deepEqual(asked, [undefined, first]);
   });
 });
 

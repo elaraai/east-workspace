@@ -62,6 +62,7 @@ const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastTyp
   ['an execution status', /^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/[0-9a-f-]{36}\/status\.beast2$/, ExecutionStatusType],
   ['an execution owner', /^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/[0-9a-f-]{36}\/owner\.beast2$/, ExecutionOwnerType],
   ['an attempt\'s place in the index of running attempts', /^running\/[0-9a-f]{64}\/[0-9a-f]{64}\.[0-9a-f-]{36}\.beast2$/, NullType],
+  ['a run\'s place in its task\'s index of runs', /^runs\/[0-9a-f]{64}\/[0-9a-f-]{36}\.[0-9a-f]{64}\.beast2$/, NullType],
   ['an adoption memo entry', /^adoptions\/[0-9a-f]{2}\/[0-9a-f]{62}\.beast2$/, StringType],
   ['an exclusive lock', /^locks\/[^/]+\/exclusive\.beast2$/, LockStateType],
   ['a shared lock', /^locks\/[^/]+\/shared\.\d+\.[0-9a-f]+\.beast2$/, LockStateType],

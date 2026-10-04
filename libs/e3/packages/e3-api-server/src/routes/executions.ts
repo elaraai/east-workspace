@@ -99,25 +99,35 @@ export function createExecutionRoutes(
     return getDataflowGraph(storage, repoPath, ws);
   });
 
-  // GET /api/repos/:repo/workspaces/:ws/dataflow/logs/:task - Get task logs
+  // GET /api/repos/:repo/workspaces/:ws/dataflow/logs/:task[?inputs=<inputsHash>&execution=<executionId>] -
+  // A chunk of a task's log: of its current execution, or of the one `inputs`
+  // and `execution` name together
   app.get('/logs/:task', async (c) => {
     const repo = c.req.param('repo')!;
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     const taskName = c.req.param('task')!;
 
-    // The stream and the window, refused before any store is asked when
-    // malformed. The stream names the log the store reads, so nothing but its
-    // two is taken; and a window of no bytes is a window, which reports the
-    // log's size, as the CLI's probe reads it.
+    // The stream, the window and the execution, refused before any store is
+    // asked when malformed. The stream names the log the store reads, so
+    // nothing but its two is taken; and a window of no bytes is a window,
+    // which reports the log's size, as the CLI's probe reads it. An execution
+    // is named by its inputs hash and its id together, which the store checks
+    // are of their form.
     const stream = c.req.query('stream') || 'stdout';
     if (stream !== 'stdout' && stream !== 'stderr') {
       return badQuery(`stream must be stdout or stderr, got ${JSON.stringify(stream)}`);
     }
     const window = wholeQuery(c, { offset: 0, limit: 0 });
     if (window instanceof Response) return window;
+    const inputsHash = c.req.query('inputs') ?? '';
+    const executionId = c.req.query('execution') ?? '';
+    if ((inputsHash === '') !== (executionId === '')) {
+      return badQuery('inputs and execution name an execution together: give both, or neither');
+    }
 
-    return getTaskLogs(storage, repoPath, ws, taskName, stream, window.offset ?? 0, window.limit ?? 65536);
+    return getTaskLogs(storage, repoPath, ws, taskName, stream, window.offset ?? 0, window.limit ?? 65536,
+      inputsHash === '' ? undefined : { inputsHash, executionId });
   });
 
   // GET /api/repos/:repo/workspaces/:ws/dataflow/execution - Get execution state (for polling)

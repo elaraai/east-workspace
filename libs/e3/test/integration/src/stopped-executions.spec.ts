@@ -171,6 +171,11 @@ describe('stopped executions', () => {
     const unitLogs = await runE3Command(['task', 'logs', repo, '--execution', `${taskHash}/${inputsHash}/${executionId}`, '--all'], dir);
     assert.equal(unitLogs.exitCode, 0, unitLogs.stderr);
     assert.match(unitLogs.stdout, new RegExp(`=== STDERR ===\\n(.*\\n)*e3: ${CANCELLED_UNIT}\\n?$`));
+
+    // The task list shows the state of the task's latest run
+    const list = await runE3Command(['task', 'list', repo, 'ws'], dir);
+    assert.equal(list.exitCode, 0, list.stderr);
+    assert.match(list.stdout, /^ {2}held {2}\[cancelled\]$/m, list.stdout);
   }
 
   /** With the hold file gone, a run with the same inputs executes the task

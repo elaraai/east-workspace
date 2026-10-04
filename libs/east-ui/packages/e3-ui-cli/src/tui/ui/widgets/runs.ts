@@ -4,8 +4,9 @@
  */
 
 /**
- * The Runs tab — `taskExecutionList` (every attempt, `all=true`) newest
- * first: status, started, duration, peak memory, exit code, the inputs hash
+ * The Runs tab — `taskExecutionList` (the latest page of the task's runs,
+ * every attempt among them) newest first: status, started, duration, peak
+ * memory, exit code, the inputs hash
  * (`← current` on the newest when the task is up to date); `⏎` expands the selected
  * run's input hashes, paired with the task's input paths. A retry after a
  * failure and a forced re-run each add a row under the same inputs hash.

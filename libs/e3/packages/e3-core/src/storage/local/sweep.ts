@@ -9,8 +9,8 @@
  * writes and transfers that never finished, the scratch directories of
  * orchestrators that have exited, the built environments no kept object
  * names, the runs of a gc in steps that were given up, the unreachable notes
- * of objects already gone, and the places in the index of running attempts
- * that a crash left.
+ * of objects already gone, and the places in the indexes of running attempts
+ * and of each task's runs that a crash left.
  */
 
 import * as fs from 'fs/promises';
@@ -18,7 +18,7 @@ import * as path from 'path';
 import { decodeExecutionStatus } from '@elaraai/e3-types';
 import type { GcBackendSweepOptions, GcBackendSweepResult } from '../interfaces.js';
 import {
-  GC_ASIDE_SUFFIX, executionPath, gcDir, objectPath, restoreAside, runningAttemptOf, transferStagingDir,
+  GC_ASIDE_SUFFIX, executionPath, gcDir, objectPath, restoreAside, runOf, runningAttemptOf, transferStagingDir,
 } from './localHelpers.js';
 import { isNotFoundError } from '../../errors.js';
 import { isObjectHash } from '../../objects.js';
@@ -42,8 +42,8 @@ const GIVEN_UP_GC_RUN_MS = 7 * 24 * 60 * 60 * 1000;
  *
  * Beside running work (`options.held` false), the built environments are
  * left: a running task may be using one no kept object names yet. So are the
- * places in the index of running attempts: an attempt being written may be
- * between its place and its record.
+ * places in the indexes of running attempts and of runs: an attempt being
+ * written may be between its place and its record.
  *
  * @param repoPath - Path to the repository
  * @param reachable - The objects gc's mark reached
@@ -76,7 +76,7 @@ export async function sweepLocalRepository(
   // and what the other steps sweep, so it is swept without being walked.
   const now = Date.now();
   for (const [refRoot, walk] of [
-    ['', false], ['packages', true], ['workspaces', true], ['executions', true], ['running', true],
+    ['', false], ['packages', true], ['workspaces', true], ['executions', true], ['running', true], ['runs', true],
     ['dataflows', true], ['adoptions', true], ['locks', true], ['gc', true],
   ] as const) {
     try {
@@ -89,9 +89,9 @@ export async function sweepLocalRepository(
   }
 
   // The scratch directories of executions whose orchestrator has exited, the
-  // built environments the mark no longer reached and the places in the index
-  // of running attempts a crash left, the gc runs in steps given up, and the
-  // notes of objects already gone
+  // built environments the mark no longer reached and the places in the
+  // indexes of running attempts and of runs a crash left, the gc runs in steps
+  // given up, and the notes of objects already gone
   if (!dryRun) {
     try {
       await sweepScratchDirs(repoPath);
@@ -106,6 +106,11 @@ export async function sweepLocalRepository(
       }
       try {
         await sweepStaleRunning(repoPath);
+      } catch {
+        // Not a fatal error
+      }
+      try {
+        await sweepStaleRuns(repoPath);
       } catch {
         // Not a fatal error
       }
@@ -180,6 +185,36 @@ async function sweepStaleRunning(repoPath: string): Promise<void> {
       if (!running) await fs.unlink(path.join(taskDir, name)).catch(() => { /* taken meanwhile */ });
     }
     await fs.rmdir(taskDir).catch(() => { /* an attempt runs, or a staging file is left */ });
+  }
+}
+
+/**
+ * Takes out of each task's index of runs the places whose run has no record —
+ * a crash between its place and its first status, or a deletion cut short
+ * between its record and its place — and then each task's directory left
+ * empty.
+ *
+ * @remarks
+ * Only while gc holds the repository still, when no run is between its two
+ * writes. A read of the index passes over such a place as it is, so taking it
+ * out only spares that read.
+ */
+async function sweepStaleRuns(repoPath: string): Promise<void> {
+  const root = path.join(repoPath, 'runs');
+  for (const taskHash of await fs.readdir(root).catch(() => [] as string[])) {
+    if (!isObjectHash(taskHash)) continue;
+    const taskDir = path.join(root, taskHash);
+    for (const name of await fs.readdir(taskDir).catch(() => [] as string[])) {
+      const run = runOf(name);
+      if (run === null) continue;
+      try {
+        await fs.access(path.join(executionPath(repoPath, taskHash, run.inputsHash, run.executionId), 'status.beast2'));
+      } catch (err) {
+        if (!isNotFoundError(err)) continue;
+        await fs.unlink(path.join(taskDir, name)).catch(() => { /* taken meanwhile */ });
+      }
+    }
+    await fs.rmdir(taskDir).catch(() => { /* a run is left, or a staging file */ });
   }
 }
 

@@ -87,6 +87,46 @@ export function runningAttemptOf(name: string): { inputsHash: string; executionI
 }
 
 /**
+ * The index of a task's runs — its own attempts, never a split task's units —
+ * `runs/<taskHash>`, or a run's place in it, `…/<executionId>.<inputsHash>.beast2`:
+ * an East `null`, named by the attempt's id first, so the index lists in the
+ * order the runs began.
+ *
+ * @remarks
+ * The directory is left once it is empty, as the index of running attempts'
+ * is: removing it could race a run's write into it.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param taskHash - Hash of the task object
+ * @param executionId - The run's id, for its place
+ * @param inputsHash - Combined hash of the run's inputs, for its place
+ * @returns The path
+ * @throws {InvalidNameError} When a hash or the id is not of its form
+ */
+export function runsPath(repoPath: string, taskHash: string, executionId?: string, inputsHash?: string): string {
+  checkHash('task hash', taskHash);
+  const taskDir = path.join(repoPath, 'runs', taskHash);
+  if (executionId === undefined || inputsHash === undefined) return taskDir;
+  checkId('execution id', executionId);
+  checkHash('inputs hash', inputsHash);
+  return path.join(taskDir, `${executionId}.${inputsHash}.beast2`);
+}
+
+/**
+ * The run a file of a task's index of runs is the place of, by its name
+ * ({@link runsPath}), or null for a file that is none: a write in flight's
+ * staging file, say.
+ *
+ * @param name - The file's name
+ * @returns The run's id and inputs, or null
+ */
+export function runOf(name: string): { executionId: string; inputsHash: string } | null {
+  const place = /^([0-9a-f-]{36})\.([0-9a-f]{64})\.beast2$/.exec(name);
+  if (place === null || !isUuidv7(place[1]!)) return null;
+  return { executionId: place[1]!, inputsHash: place[2]! };
+}
+
+/**
  * Get the filesystem path for an object.
  *
  * @remarks

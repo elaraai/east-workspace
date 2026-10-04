@@ -4,9 +4,11 @@
  */
 
 /**
- * Task route tests: a task's execution history lists its runs, and leaves out
- * the units a split task runs under its hash, which are not runs of it; and it
- * says why each run that was cancelled or interrupted stopped.
+ * Task route tests: a task's execution history is served a page at a time, the
+ * latest run first, read from the task's index of runs and never its whole
+ * history; it leaves out the units a split task runs under its hash, which are
+ * not runs of it; and it says why each run that was cancelled or interrupted
+ * stopped.
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -16,7 +18,9 @@ import { ArrayType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, none
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { PackageObjectType, StopReasonType, WorkspaceRecordType, type ExecutionStatus, type StopReason } from '@elaraai/e3-types';
 import { createTaskRoutes } from '../routes/tasks.js';
-import { ExecutionListItemType, ResponseType, type ExecutionListItem } from '../types.js';
+import {
+  ExecutionListItemType, ResponseType, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX, type ExecutionListItem,
+} from '../types.js';
 
 const REPO = 'test-repo';
 const WS = 'main';
@@ -52,9 +56,9 @@ describe('task routes', () => {
     return answer.value;
   }
 
-  /** The inputs hash of each execution the task's history lists. */
-  async function history(query = ''): Promise<string[]> {
-    return (await items(query)).map((item) => item.inputsHash);
+  /** The inputs hash and execution id of each run the task's history lists. */
+  async function history(query = ''): Promise<[string, string][]> {
+    return (await items(query)).map((item) => [item.inputsHash, item.executionId]);
   }
 
   it('serves why each run that was cancelled or interrupted stopped, and no reason for one that ended otherwise', async () => {
@@ -77,20 +81,45 @@ describe('task routes', () => {
     }
   });
 
-  it('lists a split task\'s runs, and none of the units it ran under its hash', async () => {
+  it('lists a page of a split task\'s runs, the latest first, and none of the units it ran under its hash', async () => {
     // Two runs of the task over the same inputs, and a piece and a merge of
     // the second, each under inputs of its own.
     const own = 'b'.repeat(64);
     const executions: [string, boolean][] = [[own, false], [own, false], ['c'.repeat(64), true], ['d'.repeat(64), true]];
+    const ids = executions.map((_, i) => `01900000-0000-7000-8000-00000000000${i + 1}`);
     for (const [i, [inputs, unit]] of executions.entries()) {
-      const executionId = `01900000-0000-7000-8000-00000000000${i + 1}`;
+      const executionId = ids[i]!;
       await storage.refs.executionWrite(REPO, TASK, inputs, executionId, variant('success', {
         executionId, inputHashes: [], outputHash: 'f'.repeat(64),
         startedAt: new Date(0), completedAt: new Date(1_000), peakBytes: none, plan: none, unit,
       }));
     }
 
-    assert.deepEqual(await history(), [own]);
-    assert.deepEqual(await history('?all=true'), [own, own]);
+    assert.deepEqual(await history(), [[own, ids[1]], [own, ids[0]]], 'each run, the latest first, and no unit');
+    assert.deepEqual(await history('?limit=1'), [[own, ids[1]]], 'a page holds at most its limit');
+    assert.deepEqual(await history(`?limit=1&before=${ids[1]}`), [[own, ids[0]]], 'the next page begins before the last run of the one before');
+    assert.deepEqual(await history(`?before=${ids[0]}`), [], 'and the last ends the listing');
+  });
+
+  it('reads the page from the task\'s index of runs, never its history, and at most TASK_EXECUTIONS_PAGE_MAX at a time', async () => {
+    const refs = storage.refs;
+    const pages: { before?: string; limit: number }[] = [];
+    const listRuns = refs.executionListRuns.bind(refs);
+    refs.executionListRuns = (repo, task, page) => {
+      pages.push(page);
+      return listRuns(repo, task, page);
+    };
+    const reads: string[] = [];
+    for (const name of ['executionList', 'executionListForTask', 'executionListLatest', 'executionListIds', 'executionListAttempts'] as const) {
+      const read = refs[name].bind(refs) as (...args: unknown[]) => Promise<unknown>;
+      Object.assign(refs, { [name]: (...args: unknown[]) => { reads.push(name); return read(...args); } });
+    }
+    const before = '01900000-0000-7000-8000-000000000009';
+
+    await items();
+    await items(`?limit=${TASK_EXECUTIONS_PAGE_MAX + 1}`);
+    await items(`?limit=3&before=${before}`);
+    assert.deepEqual(pages, [{ limit: TASK_EXECUTIONS_PAGE_DEFAULT }, { limit: TASK_EXECUTIONS_PAGE_MAX }, { limit: 3, before }]);
+    assert.deepEqual(reads, [], 'no listing of the task\'s history');
   });
 });

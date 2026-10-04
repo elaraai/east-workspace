@@ -11,10 +11,11 @@ import {
 } from '@elaraai/e3-types';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, RepositoryRecord, RepositoryUpgradeProgress } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
-import { isNotFoundError, ExecutionCorruptError, checkHash, checkId, checkName } from '../../errors.js';
+import { isNotFoundError, ExecutionCorruptError, checkHash, checkId, checkName, checkPageLimit } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
 import { isObjectHash } from '../../objects.js';
-import { atomicWriteFile, executionPath, runningAttemptOf, runningPath } from './localHelpers.js';
+import { compareUnitKeys } from '../../upgrades/parts.js';
+import { atomicWriteFile, executionPath, runOf, runningAttemptOf, runningPath, runsPath } from './localHelpers.js';
 import { removeStaleLocks } from './LocalLockService.js';
 
 /** A record that names an object by its hash. */
@@ -26,6 +27,10 @@ const decodeOwner = decodeBeast2For(ExecutionOwnerType);
 /** An attempt's place in its task's index of running attempts: its name says
  *  which attempt, and it holds an East `null`. */
 const RUNNING_PLACE = encodeBeast2For(NullType)(null);
+
+/** A run's place in its task's index of runs: its name says which run, and it
+ *  holds an East `null`. */
+const RUN_PLACE = RUNNING_PLACE;
 
 /** The repository record's file, at the repository's root. */
 export const REPOSITORY_RECORD_FILE = 'repository.beast2';
@@ -86,6 +91,8 @@ async function unlinkIfPresent(file: string): Promise<void> {
  *   execution is in;
  * - `running/<task>/<inputs>.<id>.beast2`: an attempt's place in its task's
  *   index of the attempts recorded running, an East `null`;
+ * - `runs/<task>/<id>.<inputs>.beast2`: a run's place in its task's index of
+ *   its runs — its own attempts, never a split task's units — an East `null`;
  * - `adoptions/<ab>/<rest>.beast2`: the manifest a delivery became;
  * - `dataflows/<ws>/<runId>.beast2`: a run's record.
  */
@@ -302,11 +309,15 @@ export class LocalRefStore implements RefStore {
    * index of running attempts: put there before a `running` status is
    * written, and taken away once any other is, so the index holds every
    * attempt recorded running, whatever a crash between the two writes leaves.
+   * A run — an attempt that is no unit's — is put in its task's index of runs
+   * before its status is written, so a crash between the two leaves at most a
+   * place no record backs.
    */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     const execDir = executionPath(repo, taskHash, inputsHash, executionId);
     const place = runningPath(repo, taskHash, inputsHash, executionId);
     if (status.type === 'running') await atomicWriteFile(place, RUNNING_PLACE);
+    if (!status.value.unit) await atomicWriteFile(runsPath(repo, taskHash, executionId, inputsHash), RUN_PLACE);
 
     // A single execution rewrites status.beast2 several times over its lifetime
     // (running → success/failed). A bare overwrite truncates the file to 0 bytes
@@ -321,15 +332,16 @@ export class LocalRefStore implements RefStore {
   }
 
   /**
-   * Deletes an attempt's status and owner, and then its place in the index of
-   * running attempts, and each directory it leaves empty: the attempt's, its
-   * inputs', and its task's.
+   * Deletes an attempt's status and owner, and then its places in the index of
+   * running attempts and its task's index of runs, and each directory it
+   * leaves empty: the attempt's, its inputs', and its task's.
    */
   async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     const execDir = executionPath(repo, taskHash, inputsHash, executionId);
     await unlinkIfPresent(path.join(execDir, 'status.beast2'));
     await unlinkIfPresent(path.join(execDir, 'owner.beast2'));
     await unlinkIfPresent(runningPath(repo, taskHash, inputsHash, executionId));
+    await unlinkIfPresent(runsPath(repo, taskHash, executionId, inputsHash));
     for (const dir of [execDir, executionPath(repo, taskHash, inputsHash), path.join(repo, 'executions', taskHash)]) {
       try {
         await fs.rmdir(dir);
@@ -463,6 +475,43 @@ export class LocalRefStore implements RefStore {
       return status?.type === 'running' ? { inputsHash, status } : null;
     }));
     return listed.filter((entry): entry is { inputsHash: string; status: ExecutionStatus } => entry !== null);
+  }
+
+  /**
+   * Lists the task's index of runs, `runs/<taskHash>`, the latest first, and
+   * reads the record of each run on the page, passing over a place no record
+   * backs, and reading on past it until the page is full or the index ends.
+   */
+  async executionListRuns(
+    repo: string,
+    taskHash: string,
+    { before, limit }: { before?: string; limit: number },
+  ): Promise<Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }>> {
+    if (before !== undefined) checkId('execution id', before);
+    checkPageLimit(limit);
+    let names: string[];
+    try {
+      names = await fs.readdir(runsPath(repo, taskHash));
+    } catch (err) {
+      if (isNotFoundError(err)) return [];
+      throw err;
+    }
+    const places = names
+      .map(runOf)
+      .filter((place): place is { executionId: string; inputsHash: string } =>
+        place !== null && (before === undefined || compareUnitKeys(place.executionId, before) < 0))
+      .sort((a, b) => compareUnitKeys(b.executionId, a.executionId));
+    const runs: Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }> = [];
+    for (let at = 0; at < places.length && runs.length < limit;) {
+      const batch = places.slice(at, at + limit - runs.length);
+      const read = await Promise.all(batch.map(async ({ executionId, inputsHash }) => {
+        const status = await this.executionGet(repo, taskHash, inputsHash, executionId);
+        return status === null ? null : { inputsHash, executionId, status };
+      }));
+      for (const run of read) if (run !== null) runs.push(run);
+      at += batch.length;
+    }
+    return runs;
   }
 
   /**

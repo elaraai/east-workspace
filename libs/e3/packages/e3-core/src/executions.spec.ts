@@ -7,12 +7,13 @@
  * Tests for executions.ts - task execution operations
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, type TestContext } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, none, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
-import { TASK_OBJECT_KIND, TaskObjectType } from '@elaraai/e3-types';
+import { variant, none, StringType, ArrayType, IntegerType, encodeBeast2For, East, IRType } from '@elaraai/east';
+import e3 from '@elaraai/e3';
+import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionStatus } from '@elaraai/e3-types';
 import {
   inputsHash,
   executionGet,
@@ -20,13 +21,20 @@ import {
   executionGetOutput,
   executionList,
   executionListForTask,
+  executionFindCurrent,
   executionReadLog,
 } from './executions.js';
 import { uuidv7 } from './uuid.js';
 import { taskExecute } from './execution/LocalTaskRunner.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
-import { createTestRepo, removeTestRepo } from './test-helpers.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
+import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
+import { packageImport } from './package-files.js';
+import { workspaceCreate } from './workspaces.js';
+import { workspaceDeploy } from './workspace-files.js';
+import { workspaceGetDatasetHash } from './trees.js';
+import { workspaceGetTaskHash } from './tasks.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 describe('executions', () => {
@@ -493,5 +501,85 @@ describe('executions', () => {
       assert.strictEqual(status.type, 'failed');
       assert.strictEqual(status.value.unit, false);
     });
+  });
+});
+
+describe('the execution a task\'s logs read (executionFindCurrent)', () => {
+  /** A workspace a package of one input and one task over it is deployed
+   *  to: the task's hash, and the hash of its current inputs. */
+  async function deployed(t: TestContext): Promise<{ storage: InMemoryStorage; task: string; current: string }> {
+    const dir = createTempDir();
+    t.after(() => removeTempDir(dir));
+    const x = e3.input('x', IntegerType, variant('value', 1n));
+    const double = e3.task('double', [x], East.function([IntegerType], IntegerType, ($, value) => value.multiply(2n)));
+    const zip = join(dir, 'logs.zip');
+    await e3.export(e3.package('logs', '1.0.0', x, double), zip);
+    const storage = new InMemoryStorage();
+    await storage.repos.create('repo');
+    await packageImport(storage, 'repo', zip);
+    await workspaceCreate(storage, 'repo', 'ws');
+    await workspaceDeploy(storage, 'repo', 'ws', 'logs', '1.0.0');
+    const task = await workspaceGetTaskHash(storage, 'repo', 'ws', 'double');
+    const { hash } = await workspaceGetDatasetHash(storage, 'repo', 'ws', [variant('field', 'inputs'), variant('field', 'x')]);
+    assert.ok(hash !== null, 'the input is set');
+    return { storage, task, current: inputsHash([hash]) };
+  }
+
+  /** An attempt that failed: a split task's unit, when `unit`. */
+  function failed(executionId: string, unit = false): ExecutionStatus {
+    return variant('failed', { executionId, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit });
+  }
+
+  /** Records each call of the store's listings of a task's, or a
+   *  repository's, whole history: the lookup reads none of them. */
+  function historyReads(storage: InMemoryStorage): string[] {
+    const reads: string[] = [];
+    const refs = storage.refs;
+    const [list, forTask, latest] = [refs.executionList.bind(refs), refs.executionListForTask.bind(refs), refs.executionListLatest.bind(refs)];
+    refs.executionList = (repo) => {
+      reads.push('executionList');
+      return list(repo);
+    };
+    refs.executionListForTask = (repo, task) => {
+      reads.push('executionListForTask');
+      return forTask(repo, task);
+    };
+    refs.executionListLatest = (repo, task) => {
+      reads.push('executionListLatest');
+      return latest(repo, task);
+    };
+    return reads;
+  }
+
+  it('is the latest attempt over the task\'s current inputs, read without the task\'s history', async (t) => {
+    const { storage, task, current } = await deployed(t);
+    const [older, newer] = [uuidv7(), uuidv7()];
+    for (const id of [older, newer]) await storage.refs.executionWrite('repo', task, current, id, failed(id));
+    // A later run, over other inputs: not the current one
+    const elsewhere = uuidv7();
+    await storage.refs.executionWrite('repo', task, 'b'.repeat(64), elsewhere, failed(elsewhere));
+    const reads = historyReads(storage);
+
+    const found = await executionFindCurrent(storage, 'repo', 'ws', 'double');
+    assert.deepStrictEqual(found === null ? null : [found.inputsHash, found.executionId, found.isCurrent, found.status.type], [current, newer, true, 'failed']);
+    assert.deepStrictEqual(reads, [], 'no listing of the task\'s history');
+  });
+
+  it('is the task\'s latest run when no attempt is recorded over its current inputs, never a unit, read from its index of runs', async (t) => {
+    const { storage, task } = await deployed(t);
+    const [first, second, unit] = [uuidv7(), uuidv7(), uuidv7()];
+    await storage.refs.executionWrite('repo', task, 'a'.repeat(64), first, failed(first));
+    await storage.refs.executionWrite('repo', task, 'b'.repeat(64), second, failed(second));
+    await storage.refs.executionWrite('repo', task, 'c'.repeat(64), unit, failed(unit, true));
+    const reads = historyReads(storage);
+
+    const found = await executionFindCurrent(storage, 'repo', 'ws', 'double');
+    assert.deepStrictEqual(found === null ? null : [found.inputsHash, found.executionId, found.isCurrent], ['b'.repeat(64), second, false]);
+    assert.deepStrictEqual(reads, [], 'no listing of the task\'s history');
+  });
+
+  it('is none for a task that has never run', async (t) => {
+    const { storage } = await deployed(t);
+    assert.strictEqual(await executionFindCurrent(storage, 'repo', 'ws', 'double'), null);
   });
 });

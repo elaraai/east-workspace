@@ -595,6 +595,17 @@ export function checkId(kind: IdKind, id: string): void {
   if (!isUuidv7(id)) throw new InvalidNameError(kind, id, 'is not a UUIDv7');
 }
 
+/**
+ * Refuses the size of a page of a listing that is not a whole number greater
+ * than zero, before a store reads anything for it.
+ *
+ * @param limit - The most entries the page holds
+ * @throws {RangeError} When it is not a whole number greater than zero
+ */
+export function checkPageLimit(limit: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError(`a page's limit must be a whole number greater than zero, got ${limit}`);
+}
+
 /** Wrap unknown errors with context */
 export function wrapError(err: unknown, message: string): E3Error {
   if (err instanceof E3Error) return err;

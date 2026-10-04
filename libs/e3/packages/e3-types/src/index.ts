@@ -362,6 +362,7 @@ export {
   // Execution
   DataflowRequestType,
   LogChunkType,
+  TaskLogChunkType,
   TaskExecutionResultType,
   DataflowResultType,
   // Dataflow API polling
@@ -376,6 +377,8 @@ export {
   // Task Execution History
   ExecutionHistoryStatusType,
   ExecutionListItemType,
+  TASK_EXECUTIONS_PAGE_DEFAULT,
+  TASK_EXECUTIONS_PAGE_MAX,
   // Dataset List
   TreeKindType,
   ListEntryType,
@@ -433,6 +436,7 @@ export {
   type TaskDetails,
   type DataflowRequest,
   type LogChunk,
+  type TaskLogChunk,
   type TaskExecutionResult,
   type DataflowResult,
   type DataflowEvent,

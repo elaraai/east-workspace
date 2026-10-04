@@ -66,6 +66,7 @@ import {
   checkHash,
   checkId,
   checkName,
+  checkPageLimit,
   completeUtf8Length,
   computeHash,
   executionRoots,
@@ -252,6 +253,10 @@ const decodeLockState = decodeBeast2For(LockStateType);
 /** An attempt's place in its task's index of running attempts: its key says
  *  which attempt, and it holds an East `null`. */
 const RUNNING_PLACE = encodeBeast2For(NullType)(null);
+
+/** A run's place in its task's index of its runs: its key says which run, and
+ *  it holds an East `null`. */
+const RUN_PLACE = RUNNING_PLACE;
 
 /**
  * Whether a lock's state record is the one a holder wrote: of its holder, and
@@ -607,14 +612,15 @@ class WebRefStore implements RefStore {
     return this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
   }
 
-  /** Writes an attempt's status, and its place in the index of running
-   *  attempts, in one transaction. */
+  /** Writes an attempt's status, its place in the index of running attempts,
+   *  and a run's place in its task's index of runs, in one transaction. */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     checkExecution(taskHash, inputsHash, executionId);
     await writeRecords(this.records, (tx) => {
       tx.put(recordKeys.execution(repo, taskHash, inputsHash, executionId), encodeStatus(status));
       if (status.type === 'running') tx.put(recordKeys.running(repo, taskHash, inputsHash, executionId), RUNNING_PLACE);
       else tx.delete(recordKeys.running(repo, taskHash, inputsHash, executionId));
+      if (!status.value.unit) tx.put(recordKeys.taskRun(repo, taskHash, executionId, inputsHash), RUN_PLACE);
     });
   }
 
@@ -624,6 +630,7 @@ class WebRefStore implements RefStore {
       tx.delete(recordKeys.execution(repo, taskHash, inputsHash, executionId));
       tx.delete(recordKeys.owner(repo, taskHash, inputsHash, executionId));
       tx.delete(recordKeys.running(repo, taskHash, inputsHash, executionId));
+      tx.delete(recordKeys.taskRun(repo, taskHash, executionId, inputsHash));
     });
   }
 
@@ -698,6 +705,29 @@ class WebRefStore implements RefStore {
       if (status?.type === 'running') listed.push({ inputsHash, status });
     }
     return listed;
+  }
+
+  /** Scans a page of the task's index of runs from its latest, and reads each
+   *  run's record: a run's place and its record are written and deleted in
+   *  one transaction, so each place has its record, but for a run deleted
+   *  between the scan and the read, which it passes over. */
+  async executionListRuns(
+    repo: string,
+    taskHash: string,
+    { before, limit }: { before?: string; limit: number },
+  ): Promise<Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }>> {
+    checkHash('task hash', taskHash);
+    if (before !== undefined) checkId('execution id', before);
+    checkPageLimit(limit);
+    const index = [...recordKeys.kind(repo, 'taskrun'), taskHash];
+    const places = await this.records.keys(index, { reverse: true, limit, ...(before !== undefined && { before: [...index, before] }) });
+    const runs: Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }> = [];
+    for (const place of places) {
+      const [executionId, inputsHash] = [place[4]!, place[5]!];
+      const data = await this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
+      if (data !== null) runs.push({ inputsHash, executionId, status: statusOf(taskHash, inputsHash, data) });
+    }
+    return runs;
   }
 
   async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {

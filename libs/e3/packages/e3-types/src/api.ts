@@ -699,6 +699,29 @@ export const LogChunkType = StructType({
 });
 
 /**
+ * Chunk of a task's log, as the logs route serves it: a {@link LogChunkType}'s
+ * fields, and the execution it was read from. A client polling the log reads
+ * on from its offset, starts over when the execution changes, and stops
+ * reading once the execution has ended and its log is read.
+ *
+ * @property inputsHash - The execution's inputs hash, which a request names,
+ *   with its id, to read on from the same execution
+ * @property executionId - The execution's id
+ * @property ended - True once the execution is recorded as anything but
+ *   running: its log grows no more
+ */
+export const TaskLogChunkType = StructType({
+  data: StringType,
+  offset: IntegerType,
+  size: IntegerType,
+  totalSize: IntegerType,
+  complete: BooleanType,
+  inputsHash: StringType,
+  executionId: StringType,
+  ended: BooleanType,
+});
+
+/**
  * Result of executing a single task.
  *
  * @property name - Task name
@@ -960,9 +983,12 @@ export const ExecutionHistoryStatusType = VariantType({
 });
 
 /**
- * A single execution in task history.
+ * A single execution in task history: a run of the task, never a split task's
+ * unit. The history lists them the latest first, a page at a time.
  *
  * @property inputsHash - Hash of concatenated inputs (execution identifier)
+ * @property executionId - The run's id, a UUIDv7: the next page is the runs
+ *   before the last one's
  * @property inputHashes - Individual input object hashes
  * @property status - Execution outcome
  * @property startedAt - ISO timestamp when execution started
@@ -975,6 +1001,7 @@ export const ExecutionHistoryStatusType = VariantType({
  */
 export const ExecutionListItemType = StructType({
   inputsHash: StringType,
+  executionId: StringType,
   inputHashes: ArrayType(StringType),
   status: ExecutionHistoryStatusType,
   startedAt: StringType,
@@ -984,6 +1011,20 @@ export const ExecutionListItemType = StructType({
   peakBytes: OptionType(IntegerType),
   reason: OptionType(StopReasonType),
 });
+
+/**
+ * The runs a page of a task's history holds when its request names no
+ * `limit`.
+ */
+export const TASK_EXECUTIONS_PAGE_DEFAULT = 100;
+
+/**
+ * The most runs a page of a task's history holds ({@link ExecutionListItemType}):
+ * a request naming a larger `limit` is served this many, so a page stays
+ * within what a host's response may hold. A client reads on with the last
+ * run's id as `before`.
+ */
+export const TASK_EXECUTIONS_PAGE_MAX = 1_000;
 
 // =============================================================================
 // Dataset List Types (recursive)
@@ -1358,6 +1399,7 @@ export type TaskListItem = ValueTypeOf<typeof TaskListItemType>;
 export type TaskDetails = ValueTypeOf<typeof TaskDetailsType>;
 export type DataflowRequest = ValueTypeOf<typeof DataflowRequestType>;
 export type LogChunk = ValueTypeOf<typeof LogChunkType>;
+export type TaskLogChunk = ValueTypeOf<typeof TaskLogChunkType>;
 export type TaskExecutionResult = ValueTypeOf<typeof TaskExecutionResultType>;
 export type DataflowResult = ValueTypeOf<typeof DataflowResultType>;
 export type DataflowEvent = ValueTypeOf<typeof DataflowEventType>;

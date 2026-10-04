@@ -628,6 +628,7 @@ export {
   checkName,
   checkHash,
   checkId,
+  checkPageLimit,
   // Workspace
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,

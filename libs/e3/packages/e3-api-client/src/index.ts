@@ -11,7 +11,7 @@
  */
 
 // Types
-export { ApiTypes } from './types.js';
+export { ApiTypes, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX } from './types.js';
 export type {
   RepositoryStatus,
   GcRequest,
@@ -46,6 +46,7 @@ export type {
   DataflowGraph,
   DataflowGraphTask,
   LogChunk,
+  TaskLogChunk,
   TaskExecutionResult,
   DataflowResult,
   DataflowEvent,

@@ -33,6 +33,7 @@ import { DATAFLOW_EVENTS_APART, dataflowEventsApart } from '../upgrades/dataflow
 import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
 import { RUNNING_EXECUTIONS_INDEXED } from '../upgrades/running-executions-indexed.js';
+import { TASK_RUNS_INDEXED } from '../upgrades/task-runs-indexed.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
@@ -854,6 +855,65 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         await repositoryOpen(storage, repo);
         assert.deepEqual([...writes].sort(), [running.value.executionId, unit.value.executionId].sort());
         assert.equal((await storage.refs.executionListRunning(repo, task)).length, 2);
+      } finally {
+        storage.refs.executionWrite = write;
+      }
+    });
+
+    it('indexes every run an earlier release recorded, so a task\'s runs are listed, and writes no unit\'s', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record as an earlier release wrote it');
+      const record = await repositoryOpen(storage, repo);
+      // A repository an earlier release wrote, which has not had the upgrade.
+      const before = { release: '1.0.85', upgrades: record.upgrades.filter(({ name }) => name !== TASK_RUNS_INDEXED) };
+      await storage.refs.repositoryWrite(repo, before);
+
+      // Records as a release from before the index wrote them, which no index
+      // holds: two runs of a task, each over inputs of its own; a split task's
+      // unit; and one in no form, which a crash left.
+      const task = 'a'.repeat(64);
+      const [inputs, otherInputs, unitInputs, corruptInputs] = ['1', '2', '3', '4'].map((digit) => digit.repeat(64)) as [string, string, string, string];
+      const at = new Date(1_000);
+      const own = { inputHashes: ['b'.repeat(64)], startedAt: at };
+      const first: ExecutionStatus = variant('failed', { ...own, executionId: uuidv7(), completedAt: at, exitCode: 2n, peakBytes: none, unit: false });
+      const second: ExecutionStatus = variant('running', { ...own, executionId: uuidv7(), pid: 41n, pidStartTime: 7n, bootId: 'boot', unit: false });
+      const unit: ExecutionStatus = variant('running', { ...own, executionId: uuidv7(), pid: 42n, pidStartTime: 7n, bootId: 'boot', unit: true });
+      const encode = encodeBeast2For(ExecutionStatusType);
+      for (const [under, status] of [[inputs, first], [otherInputs, second], [unitInputs, unit]] as const) {
+        await damage.execution(task, under, status.value.executionId, encode(status));
+      }
+      const corrupt = uuidv7();
+      await damage.execution(task, corruptInputs, corrupt);
+      assert.deepEqual(await storage.refs.executionListRuns(repo, task, { limit: 10 }), [], 'before the upgrade, no index holds them');
+
+      // What the opens write, by execution.
+      const writes: string[] = [];
+      const write = storage.refs.executionWrite.bind(storage.refs);
+      storage.refs.executionWrite = (r, tk, i, id, status) => {
+        writes.push(id);
+        return write(r, tk, i, id, status);
+      };
+      try {
+        const opened = await repositoryOpen(storage, repo);
+        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: TASK_RUNS_INDEXED, release: E3_RELEASE }]);
+        const runIds = [first.value.executionId, second.value.executionId];
+        assert.deepEqual([...writes].sort(), [...runIds].sort(), 'every run is written again, and no unit');
+
+        const listed = await storage.refs.executionListRuns(repo, task, { limit: 10 });
+        assert.deepEqual(listed.map(({ inputsHash: under, executionId }) => `${under}/${executionId}`),
+          [`${otherInputs}/${second.value.executionId}`, `${inputs}/${first.value.executionId}`], 'the runs are indexed, the latest first');
+        const equal = equalFor(ExecutionStatusType);
+        assert.ok(equal(listed[0]!.status, second) && equal(listed[1]!.status, first), 'each as it was recorded');
+        await assert.rejects(storage.refs.executionGet(repo, task, corruptInputs, corrupt), ExecutionCorruptError,
+          'a record in no form is left as it is');
+
+        // Cut short by a crash, the upgrade runs again whole, and writes the
+        // runs again as they are, and no other.
+        writes.length = 0;
+        await storage.refs.repositoryWrite(repo, before);
+        await repositoryOpen(storage, repo);
+        assert.deepEqual([...writes].sort(), [...runIds].sort());
+        assert.equal((await storage.refs.executionListRuns(repo, task, { limit: 10 })).length, 2);
       } finally {
         storage.refs.executionWrite = write;
       }

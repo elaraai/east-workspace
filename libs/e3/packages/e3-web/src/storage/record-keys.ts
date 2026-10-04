@@ -46,6 +46,10 @@ export const recordKeys = {
   /** An execution attempt's place in its task's index of the attempts
    *  recorded running: an East `null`, there while it is */
   running: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'running', task, inputs, id],
+  /** A run's place in its task's index of its runs — its own attempts, never
+   *  a split task's units — by its id first, so the index scans in the order
+   *  the runs began: an East `null` */
+  taskRun: (repo: string, task: string, id: string, inputs: string): RecordKey => ['repo', repo, 'taskrun', task, id, inputs],
   /** The `$plan` a split task's execution is in */
   plan: (repo: string, task: string, inputs: string): RecordKey => ['repo', repo, 'plan', task, inputs],
   /** An entry of the adoption memo */

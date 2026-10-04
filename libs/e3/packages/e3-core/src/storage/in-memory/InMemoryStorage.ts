@@ -7,7 +7,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { encodeBeast2For, none, variant } from '@elaraai/east';
 import { ExecutionStatusType, decodeExecutionStatus } from '@elaraai/e3-types';
 import { computeHash } from '../../objects.js';
-import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError, checkHash, checkId, checkName } from '../../errors.js';
+import { ExecutionCorruptError, ObjectNotFoundError, RepoNotFoundError, DatasetRefConflictError, checkHash, checkId, checkName, checkPageLimit } from '../../errors.js';
+import { compareUnitKeys } from '../../upgrades/parts.js';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun, DatasetRef, LockHolderVariant, RepositoryRecord, RepositoryUpgradeProgress } from '@elaraai/e3-types';
 import type {
   StorageBackend,
@@ -229,6 +230,9 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   // the index of the attempts recorded running, by repo: each attempt's
   // taskHash/inputsHash/executionId
   private running = new Map<string, Set<string>>();
+  // each task's index of its runs, by repo and task: each run's inputsHash by
+  // its executionId
+  private runs = new Map<string, Map<string, Map<string, string>>>();
   // dataflow runs keyed by workspace/runId
   private dataflowRuns = new Map<string, Map<string, DataflowRun>>();
   // owner sidecars keyed by repo/taskHash/inputsHash/executionId
@@ -278,6 +282,20 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
       this.running.set(repo, repoRunning);
     }
     return repoRunning;
+  }
+
+  private getRuns(repo: string, taskHash: string): Map<string, string> {
+    let repoRuns = this.runs.get(repo);
+    if (!repoRuns) {
+      repoRuns = new Map();
+      this.runs.set(repo, repoRuns);
+    }
+    let taskRuns = repoRuns.get(taskHash);
+    if (!taskRuns) {
+      taskRuns = new Map();
+      repoRuns.set(taskHash, taskRuns);
+    }
+    return taskRuns;
   }
 
   private getDataflowRuns(repo: string): Map<string, DataflowRun> {
@@ -405,22 +423,23 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return 'bytes' in held ? held.bytes : encodeStatus(held.status);
   }
 
-  /** Writes an attempt's status, and keeps its place in the index of running
-   *  attempts in the same step. */
+  /** Writes an attempt's status, and keeps its places in the index of running
+   *  attempts and, for a run, its task's index of runs, in the same step. */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     this.checkExecution(taskHash, inputsHash, executionId);
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).set(key, { status });
     if (status.type === 'running') this.getRunning(repo).add(key);
     else this.getRunning(repo).delete(key);
+    if (!status.value.unit) this.getRuns(repo, taskHash).set(executionId, inputsHash);
   }
 
   /**
    * Leaves an execution attempt's record in bytes, as a crash or a failing
    * disk leaves one, or an earlier release left one in its form: a test's,
    * for the cases of such a record. The record is there, and listed, from
-   * then on, and a write of it replaces it. The index of running attempts is
-   * left as it was, as a store of bytes leaves it.
+   * then on, and a write of it replaces it. The indexes of running attempts
+   * and of runs are left as they were, as a store of bytes leaves them.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
@@ -438,6 +457,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).delete(key);
     this.getRunning(repo).delete(key);
+    this.runs.get(repo)?.get(taskHash)?.delete(executionId);
     this.owners.delete(`${repo}/${key}`);
   }
 
@@ -528,6 +548,28 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return result;
   }
 
+  /** Reads the task's index of runs, the latest first, and the record of each
+   *  run on the page, passing over one whose record is gone. */
+  async executionListRuns(
+    repo: string,
+    taskHash: string,
+    { before, limit }: { before?: string; limit: number },
+  ): Promise<Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }>> {
+    checkHash('task hash', taskHash);
+    if (before !== undefined) checkId('execution id', before);
+    checkPageLimit(limit);
+    const places = [...this.runs.get(repo)?.get(taskHash) ?? []]
+      .filter(([executionId]) => before === undefined || compareUnitKeys(executionId, before) < 0)
+      .sort(([a], [b]) => compareUnitKeys(b, a));
+    const runs: Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }> = [];
+    for (const [executionId, inputsHash] of places) {
+      if (runs.length === limit) break;
+      const status = await this.executionGet(repo, taskHash, inputsHash, executionId);
+      if (status !== null) runs.push({ inputsHash, executionId, status });
+    }
+    return runs;
+  }
+
   async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
     this.checkExecution(taskHash, inputsHash, executionId);
     this.owners.set(`${repo}/${this.makeExecutionKey(taskHash, inputsHash, executionId)}`, owner);
@@ -616,6 +658,8 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
       dropped += records.get(repo)?.size ?? 0;
       records.delete(repo);
     }
+    for (const taskRuns of this.runs.get(repo)?.values() ?? []) dropped += taskRuns.size;
+    this.runs.delete(repo);
     for (const records of [this.owners, this.plans, this.adoptions]) {
       for (const key of [...records.keys()]) {
         if (key.startsWith(`${repo}/`)) {
@@ -634,6 +678,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     this.workspaces.clear();
     this.executions.clear();
     this.running.clear();
+    this.runs.clear();
     this.dataflowRuns.clear();
     this.owners.clear();
     this.plans.clear();
