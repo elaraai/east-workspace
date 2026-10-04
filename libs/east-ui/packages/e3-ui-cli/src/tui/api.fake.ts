@@ -803,7 +803,12 @@ export class FakeApi implements Api {
             return {
                 name: r.name,
                 mutations: (r.mutations ?? []).map(m => ({ name: m.name, argTypes: [], form: m.form })),
-                indexes: (r.indexes ?? []).map(i => ({ name: i.name, keyType: toEastTypeValue(i.keyType), valueType: toEastTypeValue(i.valueType), multi: i.multi ?? false })),
+                // A record holding a state holds its indexes built, as a deploy leaves it
+                indexes: (r.indexes ?? []).map(i => ({
+                    name: i.name, keyType: toEastTypeValue(i.keyType), valueType: toEastTypeValue(i.valueType), multi: i.multi ?? false,
+                    built: r.value !== undefined,
+                })),
+                migrations: [],
             };
         });
     }
@@ -813,7 +818,8 @@ export class FakeApi implements Api {
             const commits = this.findRecord(this.ws(ws), record).commits ?? [];
             const start = page.from === undefined ? 0 : commits.findIndex(c => c.hash === page.from);
             if (start === -1) throw new ApiError('object_not_found', { hash: page.from ?? '' });
-            return { commits: commits.slice(start, start + page.limit) };
+            // The fixture's commits keep no arguments, so none is previewed
+            return { commits: commits.slice(start, start + page.limit).map(c => ({ ...c, args: none })) };
         });
     }
 }

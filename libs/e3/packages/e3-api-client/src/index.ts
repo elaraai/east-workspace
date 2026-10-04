@@ -11,7 +11,9 @@
  */
 
 // Types
-export { ApiTypes, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX } from './types.js';
+export {
+  ApiTypes, TASK_EXECUTIONS_PAGE_DEFAULT, TASK_EXECUTIONS_PAGE_MAX, RECORD_ARG_TEXT_CHARS, RECORD_ARG_TEXT_BYTES, RECORD_ARGS_READ_BYTES,
+} from './types.js';
 export type {
   RepositoryStatus,
   GcRequest,
@@ -78,8 +80,12 @@ export type {
   SplitCallPlan,
   MutationCallRequest,
   MutationResult,
+  RecordMigrationApplied,
   RecordSignature,
   RecordCommitInfo,
+  RecordArgPreview,
+  RecordCommitArgs,
+  RecordHistoryCommit,
   RecordHistoryResult,
 } from './types.js';
 

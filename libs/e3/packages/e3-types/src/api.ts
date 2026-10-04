@@ -1315,9 +1315,25 @@ export const MutationResultType = StructType({
 });
 
 /**
+ * When a record applied one step of its migration chain.
+ *
+ * @property at - When the step was applied: the time of the deploy that
+ *   applied it; `none` for a step a record applied before e3 kept the time
+ * @property commit - The commit that applied it: its `$migrate:<name>` commit,
+ *   or the `$init` or `$reset` commit that counted the chain applied; `none`
+ *   once a compaction has cut it from the chain, or for a step a record applied
+ *   before e3 kept it
+ */
+export const RecordMigrationAppliedType = StructType({
+  at:     OptionType(DateTimeType),
+  commit: OptionType(StringType),
+});
+
+/**
  * A record's callable surface, returned by `describe` so dynamic callers can
- * encode mutation arguments and read through its indexes. The mutation
- * `argTypes` are the EXTRA parameters after the implicit current state.
+ * encode mutation arguments and read through its indexes, and a console can
+ * show the record whole without reading its history. The mutation `argTypes`
+ * are the EXTRA parameters after the implicit current state.
  */
 export const RecordSignatureType = StructType({
   name: StringType,
@@ -1341,6 +1357,26 @@ export const RecordSignatureType = StructType({
     valueType: EastTypeType,
     /** Whether a row may hold several index keys. */
     multi:     BooleanType,
+    /** Whether the record's head state holds the index, built under the
+     *  declaration the deployed package carries. A deploy, a reindex and a
+     *  system commit build what the state lacks; a read through an index the
+     *  state holds no build of answers `index_not_found`. */
+    built:     BooleanType,
+  })),
+  /** The migration chain the record declares, in order. A deployed record
+   *  has applied every step, since a deploy migrates it or is refused. */
+  migrations: ArrayType(StructType({
+    name:    StringType,
+    /** The step's form — `value`, `rows` or `rekey` — which says what it
+     *  runs over: the whole state, its rows, or its rows under new keys. */
+    form:    StringType,
+    /** The record's type before the step. */
+    from:    EastTypeType,
+    /** The record's type after it. */
+    to:      EastTypeType,
+    /** When the record applied the step, and the commit that did; `none`
+     *  when it has not applied it. */
+    applied: OptionType(RecordMigrationAppliedType),
   })),
 });
 
@@ -1357,10 +1393,77 @@ export const RecordCommitInfoType = StructType({
   delta:    OptionType(StringType),
 });
 
+/**
+ * One argument of a record's commit, as the history previews it.
+ *
+ * @property type - The argument's own East type, as its encoding carries it
+ * @property bytes - Its encoded size
+ * @property text - Its value printed as East text, cut at
+ *   {@link RECORD_ARG_TEXT_CHARS} characters; empty for an argument over
+ *   {@link RECORD_ARG_TEXT_BYTES}, which is not printed, and for one that
+ *   cannot be
+ * @property truncated - Whether `text` holds less than the whole value
+ */
+export const RecordArgPreviewType = StructType({
+  type:      EastTypeType,
+  bytes:     IntegerType,
+  text:      StringType,
+  truncated: BooleanType,
+});
+
+/**
+ * A record commit's arguments, as the history previews them.
+ *
+ * @property hash - The arguments' object, which the objects route serves
+ *   whole: a beast2 `Array<Blob>` of the encoded arguments, in order
+ * @property bytes - The object's size
+ * @property values - Each argument's preview, in order; empty when the object
+ *   is over {@link RECORD_ARGS_READ_BYTES}, which the history does not read,
+ *   or holds arguments that are not East values, as a system commit may
+ *   record its caller's
+ */
+export const RecordCommitArgsType = StructType({
+  hash:   StringType,
+  bytes:  IntegerType,
+  values: ArrayType(RecordArgPreviewType),
+});
+
+/**
+ * One commit in a record's history, as the history route answers it: a
+ * {@link RecordCommitInfoType}'s fields, and a preview of its arguments, so a
+ * history says what a commit set as well as which mutation ran.
+ * `RecordCommitInfoType` stays without them: e3-ui's record binding and the
+ * pages built on it carry it in their East types.
+ */
+export const RecordHistoryCommitType = StructType({
+  hash:     StringType,
+  parent:   OptionType(StringType),
+  state:    StringType,
+  mutation: StringType,
+  actor:    StringType,
+  at:       DateTimeType,
+  /** The delta this commit applied, when it wrote one. */
+  delta:    OptionType(StringType),
+  /** The commit's arguments, previewed; `none` for a commit with none. */
+  args:     OptionType(RecordCommitArgsType),
+});
+
 /** A page of a record's commit history, newest first. */
 export const RecordHistoryResultType = StructType({
-  commits: ArrayType(RecordCommitInfoType),
+  commits: ArrayType(RecordHistoryCommitType),
 });
+
+/** The characters of an argument's East text a history preview keeps. */
+export const RECORD_ARG_TEXT_CHARS = 256;
+
+/** The encoded size, in bytes, past which a history preview prints no text
+ *  of an argument, only its type and size. */
+export const RECORD_ARG_TEXT_BYTES = 64 * 1024;
+
+/** The size, in bytes, past which a history reads no commit's arguments'
+ *  object, and previews none of them: a page reads at most this much of
+ *  arguments per commit, however large a patch is. */
+export const RECORD_ARGS_READ_BYTES = 1024 * 1024;
 
 // =============================================================================
 // Value type aliases
@@ -1428,6 +1531,10 @@ export type SplitCallStatus = ValueTypeOf<typeof SplitCallStatusType>;
 export type SplitCallPlan = ValueTypeOf<typeof SplitCallPlanType>;
 export type MutationCallRequest = ValueTypeOf<typeof MutationCallRequestType>;
 export type MutationResult = ValueTypeOf<typeof MutationResultType>;
+export type RecordMigrationApplied = ValueTypeOf<typeof RecordMigrationAppliedType>;
 export type RecordSignature = ValueTypeOf<typeof RecordSignatureType>;
 export type RecordCommitInfo = ValueTypeOf<typeof RecordCommitInfoType>;
+export type RecordArgPreview = ValueTypeOf<typeof RecordArgPreviewType>;
+export type RecordCommitArgs = ValueTypeOf<typeof RecordCommitArgsType>;
+export type RecordHistoryCommit = ValueTypeOf<typeof RecordHistoryCommitType>;
 export type RecordHistoryResult = ValueTypeOf<typeof RecordHistoryResultType>;

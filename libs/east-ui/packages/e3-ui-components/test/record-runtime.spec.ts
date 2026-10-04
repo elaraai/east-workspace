@@ -19,6 +19,7 @@ import {
     StructType,
     encodeBeast2For,
     decodeBeast2For,
+    isValueOf,
     toEastTypeValue,
     variant,
     none,
@@ -27,9 +28,9 @@ import {
     type EastTypeValue,
 } from "@elaraai/east";
 import { RecordBindHandleType } from "@elaraai/e3-ui/internal";
-import type { MutationResult, RecordSignature, RecordHistoryResult } from "@elaraai/e3-api-client";
+import type { MutationResult, RecordSignature, RecordHistoryCommit, RecordHistoryResult } from "@elaraai/e3-api-client";
 import { datasetCacheKey, type ReactiveDatasetCacheInterface } from "../src/platform/dataset-store.js";
-import type { TreePath } from "@elaraai/e3-types";
+import { RecordCommitInfoType, type TreePath } from "@elaraai/e3-types";
 import {
     RecordRuntime,
     recordChannelKey,
@@ -478,14 +479,21 @@ describe("RecordRuntime — latest-wins + cancel", () => {
 // =============================================================================
 
 describe("RecordRuntime — history", () => {
-    test("history() fetches once (none until loaded), then returns the chain", async () => {
+    test("history() fetches once (none until loaded), then returns the chain, each commit of the binding's commit type", async () => {
         const { api, runtime, handle } = newRuntime();
-        api.setHistory([{ hash: "h0", parent: none, state: "s", mutation: "$init", actor: "x", at: new Date(0) }] as RecordHistoryResult["commits"]);
+        // The route previews a commit's arguments, which the binding's commit
+        // type does not carry
+        const incremented: RecordHistoryCommit = {
+            hash: "h1", parent: some("h0"), state: "s", mutation: "increment", actor: "x", at: new Date(0), delta: none,
+            args: some({ hash: "a1", bytes: 13n, values: [] }),
+        };
+        api.setHistory([incremented]);
         const key = recordChannelKey(ws, "counter");
         assert.equal(handle.history().type, "none");
         await waitFor(() => runtime.getKeyVersion(key) > 0, "history loaded");
         assert.equal(handle.history().type, "some");
         assert.equal(handle.history().value!.length, 1);
+        assert.ok(isValueOf(handle.history().value![0], RecordCommitInfoType), "a RecordCommitInfo, and no more");
         assert.equal(api.historyCalls, 1);
         // A second history() does not refetch.
         handle.history();

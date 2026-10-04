@@ -238,6 +238,7 @@ export {
 export {
   recordMutate,
   recordHistory,
+  recordCommitArgs,
   recordDescribe,
   recordCompact,
   recordReindex,

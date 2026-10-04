@@ -695,6 +695,11 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 - **Edits are not detected.** An edit to an applied step's body is not detected, as a Rails, Django or Alembic migration's is not. The stored state's type is still checked against the step that runs next.
 - **None applied** is the slot's absence.
 - **Only deploy writes it.**
+- **When, and by which commit.** Beside it, the reserved `$migrations` slot names, for each step applied, the commit that applied it and when: `name=commit@time` entries in the chain's order, the time as East prints a DateTime.
+  - A mint or a reset names its `$init` or `$reset` commit for every step. A migration names each step it runs by its own `$migrate:<name>` commit, and keeps the entries of the steps applied before.
+  - A compaction rewrites the slot, keeping each step's time and dropping its commit, which the chain no longer holds. Deploy and compaction are its only writers.
+  - A step a record applied before e3 kept the slot has no entry, and no upgrade step fills one in: the slot is a new key of the ref's version vector, whose type is unchanged.
+- **Describe reads them.** A record's describe (`RecordSignatureType`) lists the chain the package declares, each step with its form and types and, once applied, the time and commit `$migrations` names, `none` for what it names none of. It says of each index whether the head's state holds it built under the package's declaration (`built`). It reads the ref and the state object, and nothing of the history.
 
 **Deploy plans before it writes** (`record-deploy.ts`). For each record, it compares the stored `$schema` and the stored state's type with the package's chain:
 
@@ -733,15 +738,16 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
   - `lock`, the workspace lock the caller holds across rounds, which the deploy uses and never releases;
   - `signal`: a deploy that throws once its signal has aborted leaves the job `processing` and rethrows, so the caller tells a hand-over from a failure.
 
-**Commits and the reserved slots.** A `$migrate:<name>` commit is written per step, by `system:deploy`, and the last one writes `$schema`. Then come the `$reindex` commits of the index builds. A kept record gets one `$deploy` commit when the package's hash differs from the one deployed before. What each commit does to the idempotency slots decides whether a keyed retry is answered or applied again:
+**Commits and the reserved slots.** A `$migrate:<name>` commit is written per step, by `system:deploy`, and the last one writes `$schema` and `$migrations`. Then come the `$reindex` commits of the index builds. A kept record gets one `$deploy` commit when the package's hash differs from the one deployed before. What each commit does to the idempotency slots decides whether a keyed retry is answered or applied again:
 
-| Commit | `$idem` and `$idem.commit` | `$schema` |
-|---|---|---|
-| a mutation | written when keyed, dropped when not | carried |
-| `$reindex`, `$deploy`, and a system commit (a rollback or a restore) | carried | carried |
-| `$compact`, `$migrate:<name>` | `$idem.commit` points at this commit, whose state holds the keyed write | carried; written by the last `$migrate` |
-| `$reset` | dropped: the keyed write is gone with the state | written, the whole chain |
-| `$init` | none | written, the whole chain |
+| Commit | `$idem` and `$idem.commit` | `$schema` | `$migrations` |
+|---|---|---|---|
+| a mutation | written when keyed, dropped when not | carried | carried |
+| `$reindex`, `$deploy`, and a system commit (a rollback or a restore) | carried | carried | carried |
+| `$compact` | `$idem.commit` points at this commit, whose state holds the keyed write | carried | rewritten: each step's time kept, its commit dropped |
+| `$migrate:<name>` | `$idem.commit` points at this commit, whose state holds the keyed write | written by the last | written by the last: each step it ran by its own commit, beside the steps applied before |
+| `$reset` | dropped: the keyed write is gone with the state | written, the whole chain | written, the whole chain applied by this commit |
+| `$init` | none | written, the whole chain | written, the whole chain applied by this commit |
 
 **System commits** (`recordSystemCommit`) commit a given state as a named system commit, such as a cloud's `$rollback` and `$restore`, so that what the commit does to the slots is the commit protocol's.
 - **Names.** A system commit is named `$` and an identifier, never one of e3's own commits' names (`$init`, `$deploy`, `$reset`, `$reindex`, `$compact`). A mutation's name is an identifier, refused otherwise where it is declared, so no user commit takes a name beginning with `$`.

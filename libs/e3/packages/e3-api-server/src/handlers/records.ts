@@ -198,7 +198,9 @@ export async function compactRecord(
 }
 
 /**
- * Return a record's commit history, newest first.
+ * Return a record's commit history, newest first, each commit with a preview
+ * of its arguments, so a history says what a commit set as well as which
+ * mutation ran.
  */
 export async function getRecordHistory(
   storage: StorageBackend,
@@ -209,7 +211,7 @@ export async function getRecordHistory(
   from: string | undefined,
 ): Promise<Response> {
   try {
-    const entries = await recordHistory(storage, repoPath, workspace, record, { limit, from });
+    const entries = await recordHistory(storage, repoPath, workspace, record, { limit, from, args: true });
     const commits = entries.map((e) => ({
       hash: e.hash,
       parent: e.commit.parent,
@@ -218,6 +220,7 @@ export async function getRecordHistory(
       actor: e.commit.actor,
       at: e.commit.at,
       delta: e.commit.delta,
+      args: e.args === undefined ? none : some(e.args),
     }));
     return sendSuccess(RecordHistoryResultType, { commits });
   } catch (err) {

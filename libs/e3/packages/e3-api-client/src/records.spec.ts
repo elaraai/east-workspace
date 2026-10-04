@@ -12,11 +12,14 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArrayType, EastTypeType, NullType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, toEastTypeValue, variant,
+  ArrayType, EastTypeType, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none,
+  some, toEastTypeValue, variant,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { workspaceRecordDescribe, workspaceRecordHistory, workspaceRecordMutate } from './records.js';
-import { MutationResultType, RecordHistoryResultType, RecordSignatureType, ResponseType } from './types.js';
+import {
+  MutationResultType, RecordCommitArgsType, RecordHistoryResultType, RecordMigrationAppliedType, RecordSignatureType, ResponseType,
+} from './types.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -38,19 +41,29 @@ function serve(body: Uint8Array): void {
 
 describe('record responses', () => {
   it('reads each field as sent', async () => {
+    const applied = some({ at: some(AT), commit: some(HASH) });
     serve(encodeBeast2For(ResponseType(RecordSignatureType))(variant('success', {
       name: 'plans', mutations: [{ name: 'patch', argTypes: [], form: 'patch' }],
-      indexes: [{ name: 'by_status', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(NullType), multi: true }],
+      indexes: [{ name: 'by_status', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(NullType), multi: true, built: false }],
+      migrations: [{ name: 'add_owner', form: 'rows', from: toEastTypeValue(StringType), to: toEastTypeValue(IntegerType), applied }],
     })));
     const signature = await workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null });
     assert.equal(signature.mutations[0]!.form, 'patch');
-    assert.deepEqual(signature.indexes.map(({ name, multi }) => [name, multi]), [['by_status', true]]);
+    assert.deepEqual(signature.indexes.map(({ name, multi, built }) => [name, multi, built]), [['by_status', true, false]]);
+    assert.deepEqual(signature.migrations.map(({ name, form }) => [name, form]), [['add_owner', 'rows']]);
+    assert.ok(equalFor(OptionType(RecordMigrationAppliedType))(signature.migrations[0]!.applied, applied));
 
+    const args = some({
+      hash: HASH,
+      bytes: 40n,
+      values: [{ type: toEastTypeValue(StringType), bytes: 31n, text: '"Q3 plan"', truncated: false }],
+    });
     serve(encodeBeast2For(ResponseType(RecordHistoryResultType))(variant('success', { commits: [
-      { hash: HASH, parent: none, state: HASH, mutation: 'retitle', actor: 'cli:x', at: AT, delta: some(HASH) },
+      { hash: HASH, parent: none, state: HASH, mutation: 'retitle', actor: 'cli:x', at: AT, delta: some(HASH), args },
     ] })));
     const { commits } = await workspaceRecordHistory(BASE, 'r', 'ws', 'plans', 1, { token: null });
     assert.deepEqual(commits[0]!.delta, some(HASH));
+    assert.ok(equalFor(OptionType(RecordCommitArgsType))(commits[0]!.args, args));
 
     serve(encodeBeast2For(ResponseType(MutationResultType))(variant('success', {
       outcome: variant('conflict', { attempts: 1n, detail: some('delete of "p-7", which the record does not hold') }),

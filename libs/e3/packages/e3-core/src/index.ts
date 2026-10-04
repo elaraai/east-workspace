@@ -193,6 +193,7 @@ export type { SchemaPolicy, RecordPlan, RecordIndexPlan } from '@elaraai/e3-type
 export {
   recordMutate,
   recordHistory,
+  recordCommitArgs,
   recordDescribe,
   recordCompact,
   recordReindex,

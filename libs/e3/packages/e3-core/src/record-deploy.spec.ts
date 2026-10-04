@@ -6,9 +6,10 @@
 /**
  * A deploy's record migrations, on the real runner: the plan it makes for each
  * record, the steps it runs before it writes, how far it says it has got with
- * each, the commits it leaves, and the reserved slots those commits keep. And
- * the system commits that roll a record back or restore it, which never take it
- * back past a migration.
+ * each, the commits it leaves, and the reserved slots those commits keep, which
+ * a record's describe reads to say when each step was applied and whether each
+ * index is built. And the system commits that roll a record back or restore it,
+ * which never take it back past a migration.
  *
  * A workspace moves through one record's versions. v1 holds rows of a title;
  * v2 adds an owner to each row (a `rows` step) and indexes the rows by owner;
@@ -19,14 +20,16 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
-  DictType, East, IntegerType, SetType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, variant,
-  type ValueTypeOf,
+  DictType, East, EastTypeType, IntegerType, OptionType, SetType, SortedMap, StringType, StructType, compareFor, decodeBeast2For,
+  encodeBeast2For, equalFor, none, some, toEastTypeValue, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
-import type { DeployProgress, RecordIndexPlan, RecordPlan, TreePath } from '@elaraai/e3-types';
 import {
-  appliedMigrations, readRecordState, recordCompact, recordHistory, recordMutate, recordReindex, recordSystemCommit,
-  type RecordSystemCommitOptions, type RecordSystemCommitTarget,
+  RecordMigrationAppliedType, type DeployProgress, type RecordIndexPlan, type RecordMigrationApplied, type RecordPlan, type TreePath,
+} from '@elaraai/e3-types';
+import {
+  appliedMigrations, readRecordState, recordCompact, recordDescribe, recordHistory, recordMutate, recordReindex, recordSystemCommit,
+  type RecordHistoryEntry, type RecordSystemCommitOptions, type RecordSystemCommitTarget,
 } from './records.js';
 import { storeDatasetBytes } from './store-collection.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -588,5 +591,136 @@ describe('a deploy\'s record migrations', () => {
     assert.equal(rolled.kind, 'committed', JSON.stringify(rolled));
     assert.equal((await readRecordState(storage, repo, (await ref()).hash)).indexes.get('by_owner')!.index, declared,
       'the index is built under the declaration the package has now');
+  });
+
+  /** The record's describe in `workspace`. */
+  async function described(workspace = ws) {
+    const signature = await recordDescribe(storage, repo, workspace, 'plans');
+    assert.ok(signature !== null);
+    return signature;
+  }
+
+  /** The record's commit named `mutation`, the newest of the name. */
+  async function committed(workspace: string, mutation: string): Promise<RecordHistoryEntry> {
+    const entry = (await recordHistory(storage, repo, workspace, 'plans')).find((e) => e.commit.mutation === mutation);
+    assert.ok(entry !== undefined, `the history holds a ${mutation} commit`);
+    return entry;
+  }
+
+  const sameApplied = equalFor(OptionType(RecordMigrationAppliedType));
+  /** A step applied by `entry`, when that commit was made: what describe says
+   *  of a step a deploy applied. */
+  const appliedBy = (entry: RecordHistoryEntry) => some<RecordMigrationApplied>({ at: some(entry.commit.at), commit: some(entry.hash) });
+  /** A step the record applied before e3 kept when, or by which commit. */
+  const appliedUnknown = some<RecordMigrationApplied>({ at: none, commit: none });
+
+  it('describes each migration the record declares, with when a deploy applied it and the commit that did', async () => {
+    // Minted at v2: the $init commit counts the whole chain applied
+    await deploy(v2());
+    const [minted] = (await described()).migrations;
+    assert.deepEqual([minted!.name, minted!.form], ['add_owner', 'rows']);
+    assert.ok(equalFor(EastTypeType)(minted!.from, toEastTypeValue(PlansV1Type)), 'the type the step takes');
+    assert.ok(equalFor(EastTypeType)(minted!.to, toEastTypeValue(PlansV2Type)), 'the type it leaves');
+    assert.ok(sameApplied(minted!.applied, appliedBy(await committed(ws, '$init'))), 'applied by the $init commit, when it was made');
+
+    // Seeded at v1 and migrated twice: each step by its own commit, the first
+    // still named after the second deploy
+    const other = 'other';
+    await workspaceCreate(storage, repo, other);
+    await seeded(10n, other);
+    await deploy(v2(), {}, other);
+    const owned = await committed(other, '$migrate:add_owner');
+    await deploy(v3(), {}, other);
+    const keyed = await committed(other, '$migrate:by_title');
+    const [owner, title] = (await described(other)).migrations;
+    assert.deepEqual([owner!.name, title!.name], ['add_owner', 'by_title']);
+    assert.ok(sameApplied(owner!.applied, appliedBy(owned)));
+    assert.ok(sameApplied(title!.applied, appliedBy(keyed)));
+  });
+
+  it('keeps when each migration was applied through a mutation and a compaction, which drops the commit it cuts', async () => {
+    await seeded(10n);
+    await deploy(v2());
+    const owned = await committed(ws, '$migrate:add_owner');
+    const added = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test' });
+    assert.equal(added.kind, 'committed', JSON.stringify(added));
+    assert.ok(sameApplied((await described()).migrations[0]!.applied, appliedBy(owned)), 'a mutation carries it');
+
+    assert.equal((await recordCompact(storage, repo, ws, 'plans', { actor: 'cli:test' })).kind, 'committed');
+    assert.ok(sameApplied((await described()).migrations[0]!.applied, some<RecordMigrationApplied>({ at: some(owned.commit.at), commit: none })),
+      "the compaction cut the step's commit from the chain, and keeps when it was applied");
+  });
+
+  it("names a reset's commit as applying every step of the chain it resets the record to", async () => {
+    await deploy(v2());
+    const renamed = (() => {
+      const plans = e3.record('plans', PlansV2Type, new Map());
+      return e3.package('planning', '2.0.2', plans, e3.migration.rows('owned', plans,
+        East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: '' }))));
+    })();
+    await deploy(renamed, { schema: 'reset' });
+    const [owned] = (await described()).migrations;
+    assert.equal(owned!.name, 'owned');
+    assert.ok(sameApplied(owned!.applied, appliedBy(await committed(ws, '$reset'))));
+  });
+
+  it('says a step applied before e3 kept when is applied, and neither when nor by which commit, and one the ref does not name is not', async () => {
+    await seeded(10n);
+    await deploy(v2());
+    // The ref of a record migrated before this release: the steps applied, by
+    // name, and nothing more
+    const held = await ref();
+    const versions = new Map(held.versions);
+    versions.delete('$migrations');
+    await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: held.hash, versions }));
+    assert.ok(sameApplied((await described()).migrations[0]!.applied, appliedUnknown));
+    // An entry that does not read says as little as no entry
+    const unread = new Map([...versions, ['$migrations', 'add_owner=0123@not a time']]);
+    await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: held.hash, versions: unread }));
+    assert.ok(sameApplied((await described()).migrations[0]!.applied, appliedUnknown));
+    await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: held.hash, versions }));
+
+    // A deploy that migrates it further names its own step's commit, and still
+    // not the earlier one's
+    await deploy(v3());
+    const [owner, title] = (await described()).migrations;
+    assert.ok(sameApplied(owner!.applied, appliedUnknown));
+    assert.ok(sameApplied(title!.applied, appliedBy(await committed(ws, '$migrate:by_title'))));
+
+    // A ref that names no step applied
+    const migrated = await ref();
+    const bare = new Map(migrated.versions);
+    bare.delete('$schema');
+    bare.delete('$migrations');
+    await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: migrated.hash, versions: bare }));
+    assert.ok((await described()).migrations.every(({ applied }) => sameApplied(applied, none)), 'no step is applied');
+  });
+
+  it("says whether the record's state holds each index, built under the declaration the package carries", async () => {
+    const built = async (): Promise<[string, boolean][]> =>
+      (await described()).indexes.map(({ name, built }): [string, boolean] => [name, built]);
+    await deploy(v2());
+    assert.deepEqual(await built(), [['by_owner', true]]);
+    const added = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('a')], { actor: 'cli:test' });
+    const { stateHash } = added as { stateHash: string };
+
+    // A package that keys `by_owner` on the title: the deploy builds it, and a
+    // state built under v2's declaration holds it built under another
+    const retitled = (() => {
+      const plans = e3.record('plans', PlansV2Type, new Map());
+      return e3.package('planning', '2.1.0', plans, addOwner(plans), e3.recordIndex('by_owner', plans, {
+        key: East.function([StringType, RowV2Type], StringType, ($, _id, row) => row.title),
+      }));
+    })();
+    await deploy(retitled);
+    assert.deepEqual(await built(), [['by_owner', true]], 'the deploy built it under its declaration');
+    const { versions } = await ref();
+    await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: stateHash, versions }));
+    assert.deepEqual(await built(), [['by_owner', false]], 'built under another declaration');
+
+    // A state naming its primary alone holds no index
+    const { primary } = await readRecordState(storage, repo, stateHash);
+    await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: primary, versions }));
+    assert.deepEqual(await built(), [['by_owner', false]], 'not held at all');
   });
 });

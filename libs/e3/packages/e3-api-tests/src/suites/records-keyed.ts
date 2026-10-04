@@ -95,13 +95,15 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
   }
 
   describe('keyed records', { concurrency: false }, () => {
-    it('describes each mutation\'s write form, and each index with the types a read through it decodes by', async (t) => {
+    it('describes each mutation\'s write form, and each index with the types a read through it decodes by, built', async (t) => {
       const ctx = await withRecord(t);
       const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'plans', await ctx.opts());
       assert.deepEqual(
         Object.fromEntries(sig.mutations.map((m) => [m.name, m.form])),
         { seed: 'reduce', retitle: 'edit', patch: 'patch' });
-      assert.deepEqual(sig.indexes.map(({ name, multi }) => [name, multi]), [['by_status', false]]);
+      assert.deepEqual(sig.indexes.map(({ name, multi, built }) => [name, multi, built]), [['by_status', false, true]],
+        'the deploy built the index, and the state holds it under its declaration');
+      assert.deepEqual(sig.migrations, [], 'the record declares no migration');
       assert.ok(isTypeValueEqual(sig.indexes[0]!.keyType, toEastTypeValue(PlanStatusKeyType)), 'the index key\'s type');
       assert.ok(isTypeValueEqual(sig.indexes[0]!.valueType, toEastTypeValue(StringType)), 'the covering projection\'s type');
     });
