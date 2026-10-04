@@ -9,13 +9,14 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { E3_RELEASE } from '@elaraai/e3-types';
+import { NullType, encodeBeast2For, none, variant } from '@elaraai/east';
+import { E3_RELEASE, ExecutionStatusType, type ExecutionStatus } from '@elaraai/e3-types';
 import { LocalRepoStore, METADATA_FILE } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './LocalRefStore.js';
-import { GC_ASIDE_SUFFIX, objectPath, unreachableNotePath } from './localHelpers.js';
+import { GC_ASIDE_SUFFIX, executionPath, objectPath, runningPath, unreachableNotePath } from './localHelpers.js';
 import { repoGc } from '../../gc.js';
 import { repoInit } from './repository.js';
 import { repositoryOpen } from '../../repository-record.js';
@@ -27,6 +28,7 @@ import {
   RepoStatusConflictError,
 } from '../../errors.js';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
+import { uuidv7 } from '../../uuid.js';
 
 describe('LocalRepoStore', () => {
   let testDir: string;
@@ -296,6 +298,7 @@ describe('LocalRepoStore', () => {
         join('packages', 'test-pkg', '1.0.0.beast2'),
         join('workspaces', 'main.beast2'),
         join('executions', 'a'.repeat(64), 'b'.repeat(64), 'plan.beast2'),
+        join('running', 'a'.repeat(64), `${'b'.repeat(64)}.0190a0b0-4444-7000-8000-000000000000.beast2`),
         join('dataflows', 'main', '0190a0b0-4444-7000-8000-000000000000.beast2'),
         join('adoptions', 'cc', `${'c'.repeat(62)}.beast2`),
         join('locks', 'main', 'exclusive.beast2'),
@@ -491,6 +494,48 @@ describe('LocalRepoStore', () => {
 
       await repoGc(storage, repoPath, { minAge: 0 });
       assert.strictEqual(readFileSync(file, 'utf8'), 'left aside');
+    });
+  });
+
+  describe('gc holding the repository still', () => {
+    it('takes the places in the index of running attempts at which none runs, as a crash leaves them, and none beside running work', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const [task, lone] = ['a', 'b'].map((digit) => digit.repeat(64)) as [string, string];
+      const [runs, ended, unwritten] = ['1', '2', '3'].map((digit) => digit.repeat(64)) as [string, string, string];
+      const running = (executionId: string): ExecutionStatus => variant('running', {
+        executionId, inputHashes: [], startedAt: new Date(), pid: 4242n, pidStartTime: 1n, bootId: 'boot', unit: false,
+      });
+      const place = encodeBeast2For(NullType)(null);
+
+      // An attempt running; one whose outcome was written, and whose place a
+      // crash left; and a place whose attempt's record a crash never wrote,
+      // beside another task's, alone in its index.
+      const runsId = uuidv7();
+      await storage.refs.executionWrite(repoPath, task, runs, runsId, running(runsId));
+      const endedId = uuidv7();
+      await storage.refs.executionWrite(repoPath, task, ended, endedId, running(endedId));
+      writeFileSync(join(executionPath(repoPath, task, ended, endedId), 'status.beast2'), encodeBeast2For(ExecutionStatusType)(variant('failed', {
+        executionId: endedId, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
+      })));
+      writeFileSync(runningPath(repoPath, task, unwritten, uuidv7()), place);
+      mkdirSync(runningPath(repoPath, lone), { recursive: true });
+      writeFileSync(runningPath(repoPath, lone, unwritten, uuidv7()), place);
+      const places = (): string[] => readdirSync(join(repoPath, 'running'), { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => `${entry.parentPath.slice(-64)}/${entry.name.slice(0, 64)}`)
+        .sort();
+      const every = [`${task}/${runs}`, `${task}/${ended}`, `${task}/${unwritten}`, `${lone}/${unwritten}`].sort();
+
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: false, held: false });
+      assert.deepStrictEqual(places(), every, 'beside running work, an attempt may be between its place and its record');
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: true, held: true });
+      assert.deepStrictEqual(places(), every, 'a dry run takes none');
+
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: false, held: true });
+      assert.deepStrictEqual(places(), [`${task}/${runs}`], 'the place of the attempt running stays');
+      assert.deepStrictEqual(readdirSync(join(repoPath, 'running')), [task], 'a task\'s index left empty goes');
+      assert.deepStrictEqual((await storage.refs.executionListRunning(repoPath, task)).map(({ inputsHash }) => inputsHash), [runs]);
     });
   });
 

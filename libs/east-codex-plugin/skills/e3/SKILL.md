@@ -737,6 +737,7 @@ repo/
 ├── workspaces/        # each workspace's state, dataset refs, and its latest run's state and events
 ├── dataflows/         # run records
 ├── executions/        # execution attempts: status, owner, logs
+├── running/           # an index of the attempts recorded running, by task: what a status reads
 ├── adoptions/         # the manifest each delivered file, or piece of one, became
 ├── locks/             # locks, their holders, and how far each says it has got
 ├── gc/                # gc beside running work: unreachable notes, a stepped run's parts

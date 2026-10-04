@@ -12,9 +12,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { variant } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
-import type { RequestOptions } from "@elaraai/e3-api-client";
+import type { DatasetStatusInfo, RequestOptions } from "@elaraai/e3-api-client";
 import {
     ReactiveDatasetCache,
     createDefaultDatasetApi,
@@ -23,7 +23,7 @@ import {
     type DatasetApi,
 } from "../src/platform/dataset-store.js";
 import { createMockDatasetApi } from "./fixtures/mock-dataset-api.js";
-import { createFakeClock, flushMicrotasks, settle } from "./fixtures/fake-clock.js";
+import { createFakeClock, flushMicrotasks, settle, type FakeClock } from "./fixtures/fake-clock.js";
 
 const path = (...segs: string[]): TreePath => segs.map(s => variant("field", s));
 const ws = "test-workspace";
@@ -712,6 +712,111 @@ describe("ReactiveDatasetCache — polling (hash diff)", () => {
         const scheduleVal = cache.read(ws, schedulePath);
         // At least one of them updated.
         assert.ok(policyVal || scheduleVal);
+    });
+});
+
+// =============================================================================
+// A.15b — the poll backs off while nothing it shows changes
+// =============================================================================
+
+describe("ReactiveDatasetCache — polling backs off", () => {
+    /** The interval the workspace's one timer runs at. */
+    const period = (clock: FakeClock): number => {
+        assert.equal(clock.intervals.length, 1, "one timer");
+        return clock.intervals[0]!.intervalMs;
+    };
+    /** Polls `n` times, each settled, answering the interval after each. */
+    const ticks = async (clock: FakeClock, n: number): Promise<number[]> => {
+        const periods: number[] = [];
+        for (let i = 0; i < n; i++) {
+            clock.tickAll();
+            await settle();
+            periods.push(period(clock));
+        }
+        return periods;
+    };
+    /** A dataset's status as the server reports it. */
+    const info = (at: string, status: "stale" | "up-to-date", hash: string): DatasetStatusInfo => ({
+        path: at, status: variant(status, null), hash: some(hash), isTaskOutput: false, producedBy: none,
+    });
+
+    test("polls at its interval while what it shows changes, doubling to 5 s while nothing does, and comes back on a change", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        assert.equal(period(clock), 1000, "the first poll fetched the content: a change");
+        assert.deepEqual(await ticks(clock, 4), [2000, 4000, 5000, 5000]);
+
+        api.seed(ws, policyPath, bytes(2), "hash-B");
+        assert.deepEqual(await ticks(clock, 2), [1000, 2000], "a change brings it back, and it backs off again");
+        assert.deepEqual(cache.read(ws, policyPath), bytes(2));
+    });
+
+    test("a status that moves is a change, its hash unchanged, and so is a hash a watch is told", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        api.seed(ws, schedulePath, bytes(2), "hash-S");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        cache.watchHash(ws, schedulePath, () => {});
+        await settle();
+        // The watch began after the first poll asked: the next tells it its
+        // first hash, and then nothing changes.
+        assert.deepEqual(await ticks(clock, 3), [1000, 2000, 4000], "the watch's first hash, and then nothing");
+
+        api.setWorkspaceStatusOverride(ws, [info(".policy", "stale", "hash-A"), info(".schedule", "up-to-date", "hash-S")]);
+        assert.deepEqual(await ticks(clock, 2), [1000, 2000], "the status moved");
+        api.setWorkspaceStatusOverride(ws, [info(".policy", "stale", "hash-A"), info(".schedule", "up-to-date", "hash-T")]);
+        assert.deepEqual(await ticks(clock, 1), [1000], "the watch was told a new hash");
+    });
+
+    test("the viewer acting brings it back to its interval: a write, a run launched, a refresh, a new watch", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        const backedOff = async (): Promise<void> => {
+            await ticks(clock, 3);
+            assert.equal(period(clock), 5000, "backed off");
+        };
+
+        await backedOff();
+        const writing = cache.write(ws, schedulePath, bytes(9));
+        assert.equal(period(clock), 1000, "a write");
+        await writing;
+        await settle();
+
+        await backedOff();
+        const launching = cache.launchDataflow(ws);
+        assert.equal(period(clock), 1000, "a run launched");
+        await launching;
+
+        await backedOff();
+        const refreshing = cache.refresh(ws);
+        assert.equal(period(clock), 1000, "a refresh");
+        await refreshing;
+        await settle();
+
+        await backedOff();
+        cache.setRefetchInterval(ws, schedulePath, 1000);
+        assert.equal(period(clock), 1000, "a new watch");
+    });
+
+    test("a poll that fails backs off, as one that sees nothing change does", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 1000);
+        await settle();
+        api.failNext("workspaceStatus", new Error("the server is away"), 2);
+        assert.deepEqual(await ticks(clock, 2), [2000, 4000]);
+    });
+
+    test("keeps an interval asked for that is longer than the backoff's", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "hash-A");
+        cache.setRefetchInterval(ws, policyPath, 10_000);
+        await settle();
+        assert.deepEqual(await ticks(clock, 2), [10_000, 10_000]);
     });
 });
 

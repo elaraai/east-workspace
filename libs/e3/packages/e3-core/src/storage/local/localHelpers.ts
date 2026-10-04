@@ -18,6 +18,7 @@
 import { promises as fs, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
 import { checkHash, checkId, isNotFoundError } from '../../errors.js';
+import { isUuidv7 } from '../../uuid.js';
 
 /**
  * The directory of an execution's attempts, `executions/<taskHash>/<inputsHash>`,
@@ -42,6 +43,47 @@ export function executionPath(repoPath: string, taskHash: string, inputsHash: st
   if (executionId === undefined) return inputsDir;
   checkId('execution id', executionId);
   return path.join(inputsDir, executionId);
+}
+
+/**
+ * The index of a task's attempts recorded running, `running/<taskHash>`, or an
+ * attempt's place in it, `…/<inputsHash>.<executionId>.beast2`: an East
+ * `null`, there while the attempt is recorded running.
+ *
+ * @remarks
+ * A task's places are files of one directory, never one per inputs, so the
+ * index costs a listing of what runs. The directory is left once it is empty:
+ * a split task's units come and go in it side by side, and removing it could
+ * race one's write into it.
+ *
+ * @param repoPath - Path to the e3 repository
+ * @param taskHash - Hash of the task object
+ * @param inputsHash - Combined hash of the attempt's inputs, for its place
+ * @param executionId - The attempt's id, for its place
+ * @returns The path
+ * @throws {InvalidNameError} When a hash or the id is not of its form
+ */
+export function runningPath(repoPath: string, taskHash: string, inputsHash?: string, executionId?: string): string {
+  checkHash('task hash', taskHash);
+  const taskDir = path.join(repoPath, 'running', taskHash);
+  if (inputsHash === undefined || executionId === undefined) return taskDir;
+  checkHash('inputs hash', inputsHash);
+  checkId('execution id', executionId);
+  return path.join(taskDir, `${inputsHash}.${executionId}.beast2`);
+}
+
+/**
+ * The attempt a file of a task's index of running attempts is the place of,
+ * by its name ({@link runningPath}), or null for a file that is none: a write
+ * in flight's staging file, say.
+ *
+ * @param name - The file's name
+ * @returns The attempt's inputs and id, or null
+ */
+export function runningAttemptOf(name: string): { inputsHash: string; executionId: string } | null {
+  const place = /^([0-9a-f]{64})\.([0-9a-f-]{36})\.beast2$/.exec(name);
+  if (place === null || !isUuidv7(place[2]!)) return null;
+  return { inputsHash: place[1]!, executionId: place[2]! };
 }
 
 /**

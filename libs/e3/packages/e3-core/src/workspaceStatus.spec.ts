@@ -22,7 +22,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { variant, East, IntegerType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import type { ExecutionStatus } from '@elaraai/e3-types';
+import type { ExecutionStatus, TreePath } from '@elaraai/e3-types';
 import { workspaceStatusTests } from './contract/index.js';
 import { workspaceStatus } from './workspaceStatus.js';
 import { packageRead } from './packages.js';
@@ -77,12 +77,14 @@ describe('workspaceStatus\'s reads', () => {
     return storage;
   };
 
-  /** Watches a method of `target`: the most calls of it in flight at once. */
-  const peakOf = (target: object, method: string): { peak: number } => {
+  /** Watches a method of `target`: how many calls of it were made, and the
+   *  most in flight at once. */
+  const peakOf = (target: object, method: string): { calls: number; peak: number } => {
     const original = (target as Record<string, (...args: unknown[]) => Promise<unknown>>)[method]!.bind(target);
-    const seen = { peak: 0 };
+    const seen = { calls: 0, peak: 0 };
     let inFlight = 0;
     (target as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+      seen.calls++;
       inFlight++;
       seen.peak = Math.max(seen.peak, inFlight);
       try {
@@ -99,7 +101,7 @@ describe('workspaceStatus\'s reads', () => {
     const storage = await deployedWith(t, Array.from({ length: 40 }, (_, i) =>
       e3.task(`t${i}`, [seed], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)))));
     const objects = peakOf(storage.objects, 'read');
-    const statuses = peakOf(storage.refs, 'executionListLatest');
+    const statuses = peakOf(storage.refs, 'executionListRunning');
 
     const status = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
     assert.equal(status.tasks.length, 40);
@@ -108,16 +110,23 @@ describe('workspaceStatus\'s reads', () => {
     }
   });
 
-  it('read the dataset refs a few at a time, never more than 16 at once', async (t) => {
-    // One task, whose own refs are read one at a time, beside forty inputs: what
-    // reads refs side by side is the datasets' own pass.
+  it('read a whole workspace\'s dataset refs in one call, and named datasets\' a few at a time, never more than 16 at once', async (t) => {
+    // One task beside forty inputs: what reads refs side by side is the
+    // datasets' own pass.
     const inputs = Array.from({ length: 40 }, (_, i) => e3.input(`in${i}`, IntegerType, variant('value', 0n)));
     const storage = await deployedWith(t, [...inputs,
       e3.task('one', [inputs[0]!], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)))]);
+    const wholes = peakOf(storage.datasets, 'readAll');
     const refs = peakOf(storage.datasets, 'read');
 
     const status = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws');
     assert.equal(status.datasets.length, 41);
+    assert.deepEqual([wholes.calls, refs.calls], [1, 0], 'the whole workspace\'s refs, in one call');
+
+    const paths: TreePath[] = Array.from({ length: 40 }, (_, i) => [variant('field', 'inputs'), variant('field', `in${i}`)]);
+    const named = await workspaceStatus(storage, new MockTaskRunner(), 'repo', 'ws', { paths });
+    assert.equal(named.datasets.length, 40);
+    assert.deepEqual([wholes.calls, refs.calls], [1, 40], 'the named datasets\' refs, each once');
     assert.ok(refs.peak > 1 && refs.peak <= OBJECT_CONCURRENCY, `dataset refs: ${refs.peak} at once`);
   });
 });

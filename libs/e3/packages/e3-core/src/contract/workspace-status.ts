@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { East, IntegerType, encodeBeast2For, equalFor, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { StopReasonType, type StopReason, type TreePath } from '@elaraai/e3-types';
+import { eachAtMost } from '../concurrency.js';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
 import { packageRead } from '../packages.js';
@@ -25,7 +26,7 @@ import { workspaceGetDatasetHash } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate } from '../workspaces.js';
 import { workspaceDeploy } from '../workspace-files.js';
-import { workspaceStatus } from '../workspaceStatus.js';
+import { workspaceStatus, type WorkspaceStatusOptions, type WorkspaceStatusResult } from '../workspaceStatus.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { BackendSetup } from './setup.js';
 
@@ -34,36 +35,69 @@ const WS = 'status-ws';
 /** A path of field names. */
 const at = (...fields: string[]): TreePath => fields.map((field) => variant('field', field));
 
+/** A call made of a store: the store, the method, its arguments, and how many
+ *  records its answer held, once it answered. */
+interface StoreCall {
+  store: 'objects' | 'refs' | 'datasets';
+  name: string;
+  args: unknown[];
+  records?: number;
+}
+
+/** How many records a store's answer holds: an array's elements, a map's
+ *  entries, none for nothing, and one for anything else. */
+function recordsIn(answer: unknown): number {
+  if (answer === null || answer === undefined) return 0;
+  if (Array.isArray(answer)) return answer.length;
+  if (answer instanceof Map) return answer.size;
+  return 1;
+}
+
 /**
- * The backend, with a ref store that records every call made of it, by name,
- * with its arguments.
+ * The backend, with object, ref and dataset ref stores that record every call
+ * made of them, with its arguments and the records it answered.
  */
-function recordingRefs(storage: StorageBackend): { storage: StorageBackend; calls: { name: string; args: unknown[] }[] } {
-  const calls: { name: string; args: unknown[] }[] = [];
-  const refs = new Proxy(storage.refs, {
+function recordingStores(storage: StorageBackend): { storage: StorageBackend; calls: StoreCall[] } {
+  const calls: StoreCall[] = [];
+  const recording = <T extends object>(store: StoreCall['store'], of: T): T => new Proxy(of, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);
       if (typeof value !== 'function') return value;
       return (...args: unknown[]) => {
-        calls.push({ name: String(prop), args });
-        return (value as (...a: unknown[]) => unknown).apply(target, args);
+        const call: StoreCall = { store, name: String(prop), args };
+        calls.push(call);
+        const answer = (value as (...a: unknown[]) => unknown).apply(target, args);
+        if (!(answer instanceof Promise)) return answer;
+        return answer.then((answered: unknown) => {
+          call.records = recordsIn(answered);
+          return answered;
+        });
       };
     },
   });
   return {
     storage: {
       upgrades: storage.upgrades,
-      objects: storage.objects,
-      refs,
+      objects: recording('objects', storage.objects),
+      refs: recording('refs', storage.refs),
       locks: storage.locks,
       logs: storage.logs,
       repos: storage.repos,
-      datasets: storage.datasets,
+      datasets: recording('datasets', storage.datasets),
       runStates: (r) => storage.runStates(r),
       validateRepository: (r) => storage.validateRepository(r),
     },
     calls,
   };
+}
+
+/** The hash of a task's current inputs in the workspace. */
+async function currentInputs(storage: StorageBackend, repo: string, task: string): Promise<string> {
+  const hashes: string[] = [];
+  for (const { path } of (await workspaceGetTask(storage, repo, WS, task)).inputs) {
+    hashes.push((await workspaceGetDatasetHash(storage, repo, WS, path)).hash!);
+  }
+  return inputsHash(hashes);
 }
 
 /**
@@ -116,11 +150,7 @@ export function workspaceStatusTests(setup: BackendSetup): void {
       await workspaceCreate(storage, repo, WS);
       await workspaceDeploy(storage, repo, WS, 'status-pkg', '1.0.0');
       const taskHash = (await packageRead(storage, repo, 'status-pkg', '1.0.0')).tasks.get('double')!;
-      const hashes: string[] = [];
-      for (const { path } of (await workspaceGetTask(storage, repo, WS, 'double')).inputs) {
-        hashes.push((await workspaceGetDatasetHash(storage, repo, WS, path)).hash!);
-      }
-      return { storage, repo, taskHash, inHash: inputsHash(hashes) };
+      return { storage, repo, taskHash, inHash: await currentInputs(storage, repo, 'double') };
     };
 
     it('reports a task in progress while the runner says its execution can still finish, and stale once it cannot', async (t) => {
@@ -231,28 +261,6 @@ export function workspaceStatusTests(setup: BackendSetup): void {
       assert.equal(task?.peakBytes, 48 * 1024 ** 2);
     });
 
-    it('costs one listing of a task\'s executions, however long its history', async (t) => {
-      // A status request made O(tasks × history) round trips when it listed a
-      // task's executions and then read each one's latest: on a remote backend,
-      // minutes for a long-lived repository.
-      const { storage, repo, taskHash } = await deployed(t);
-      for (let i = 0; i < 50; i++) {
-        const executionId = uuidv7();
-        await storage.refs.executionWrite(repo, taskHash, `${'0'.repeat(60)}${String(i).padStart(4, '0')}`, executionId, variant('failed', {
-          executionId, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
-        }));
-      }
-      const { storage: counting, calls } = recordingRefs(storage);
-      const count = (name: string): number => calls.filter((call) => call.name === name).length;
-
-      await workspaceStatus(counting, new MockTaskRunner(), repo, WS);
-
-      assert.equal(count('executionListLatest'), 1, 'one latest-listing per task');
-      assert.ok(count('executionGetLatest') <= 1,
-        `per-history lookups crept back in: executionGetLatest called ${count('executionGetLatest')} times`);
-      assert.equal(count('executionListForTask'), 0, 'status lists no history without statuses');
-    });
-
     /** A workspace the filter package is deployed to, in which `first`'s
      *  output is set and nothing ran it: `first` is stale, and `second`, over
      *  its output, waits for it. */
@@ -292,15 +300,80 @@ export function workspaceStatusTests(setup: BackendSetup): void {
 
     it('reads the executions of the tasks producing what it is asked for, and of their upstream, and of no other', async (t) => {
       const { storage, repo, tasks } = await filtered(t);
-      const { storage: recording, calls } = recordingRefs(storage);
+      const { storage: recording, calls } = recordingStores(storage);
 
       const asked = await workspaceStatus(recording, new MockTaskRunner(), repo, WS, { paths: [at('tasks', 'second', 'output')] });
       assert.deepEqual(asked.tasks.map((task) => [task.name, task.status.type]), [['second', 'waiting']],
         'second waits for first, whose staleness was read');
 
-      const read = new Set(calls.filter((call) => call.name.startsWith('execution')).map((call) => call.args[1]));
+      const read = new Set(calls.filter((call) => call.store === 'refs' && call.name.startsWith('execution')).map((call) => call.args[1]));
       assert.deepEqual(read, new Set([tasks.get('first'), tasks.get('second')]),
         'the producer\'s executions and its upstream\'s, and neither third\'s nor other\'s');
+    });
+
+    it('reads the same records, in the same calls of its stores, at 10 and at 1,000 past executions of each task', async (t) => {
+      // A task re-run on a changing feed gains an execution an inputs at a
+      // time, and a split task one a unit, and status read every one of them
+      // on every poll: a poll grew slower the longer the workspace ran.
+      const { storage, repo, tasks } = await filtered(t);
+      // `other` runs, and the runner says it can still finish; a unit of
+      // `third` runs beside it.
+      const runningId = uuidv7();
+      await storage.refs.executionWrite(repo, tasks.get('other')!, await currentInputs(storage, repo, 'other'), runningId, variant('running', {
+        executionId: runningId, inputHashes: [], startedAt: new Date(), pid: 4242n, pidStartTime: 1n, bootId: 'boot-id', unit: false,
+      }));
+      const unitId = uuidv7();
+      await storage.refs.executionWrite(repo, tasks.get('third')!, 'e'.repeat(64), unitId, variant('running', {
+        executionId: unitId, inputHashes: [], startedAt: new Date(), pid: 4243n, pidStartTime: 1n, bootId: 'boot-id', unit: true,
+      }));
+      const runner = new MockTaskRunner();
+      runner.setExecutionAlive(true);
+
+      // Past executions of every task, each ended, over inputs of its own.
+      let made = 0;
+      const history = async (count: number): Promise<void> => {
+        const pasts = [...tasks.values()].flatMap((taskHash) =>
+          Array.from({ length: count }, (_, i) => ({ taskHash, inputs: (made + i).toString(16).padStart(64, '0') })));
+        made += count;
+        await eachAtMost(pasts, 16, async ({ taskHash, inputs }) => {
+          const executionId = uuidv7();
+          await storage.refs.executionWrite(repo, taskHash, inputs, executionId, variant('failed', {
+            executionId, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
+          }));
+        });
+      };
+
+      // Each call a status makes of the stores, with the records it answered,
+      // in no particular order: a whole workspace's, and a named dataset's.
+      const measured = async (options?: WorkspaceStatusOptions): Promise<{ status: WorkspaceStatusResult; calls: StoreCall[] }> => {
+        const { storage: recording, calls } = recordingStores(storage);
+        return { status: await workspaceStatus(recording, runner, repo, WS, options), calls };
+      };
+      const cost = async (): Promise<{ whole: string[]; named: string[] }> => {
+        const tally = (calls: StoreCall[]): string[] => calls.map(({ store, name, records }) => `${store}.${name}: ${records}`).sort();
+        const whole = await measured();
+        assert.equal(whole.status.tasks.find((task) => task.name === 'other')?.status.type, 'in-progress');
+        const named = await measured({ paths: [at('tasks', 'second', 'output')] });
+        return { whole: tally(whole.calls), named: tally(named.calls) };
+      };
+
+      await history(10);
+      const atTen = await cost();
+      await history(990);
+      assert.deepEqual(await cost(), atTen, 'the same calls, reading the same records');
+
+      // A whole workspace's refs in one call, each task's executions recorded
+      // running, and no listing of any task's history.
+      const { calls } = await measured();
+      const count = (name: string): number => calls.filter((call) => `${call.store}.${call.name}` === name).length;
+      assert.deepEqual(
+        ['datasets.readAll', 'datasets.read', 'refs.executionListRunning', 'refs.executionListLatest', 'refs.executionListForTask'].map(count),
+        [1, 0, tasks.size, 0, 0]);
+      // Named datasets' refs each once.
+      const named = await measured({ paths: [at('tasks', 'second', 'output'), at('inputs', 'y')] });
+      const refsRead = named.calls.filter((call) => call.store === 'datasets').map((call) => `${call.name} ${call.args[2] as string}`);
+      assert.deepEqual(refsRead.length, new Set(refsRead).size, `each ref read once: ${refsRead.join(', ')}`);
+      assert.ok(refsRead.every((call) => call.startsWith('read ')), 'and none read whole');
     });
   });
 }

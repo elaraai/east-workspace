@@ -76,7 +76,10 @@ export interface UITaskPreviewProps {
      */
     config?: E3Config;
     /**
-     * Poll interval (ms) for the manifest's declared reads. Default 1000ms.
+     * Poll interval (ms) for the manifest's declared reads while what they
+     * show changes: the workspace's poll backs off to 5 s once nothing has,
+     * and comes back to this on a change or when the viewer acts. Default
+     * 1000ms.
      */
     pollInterval?: number;
     /**

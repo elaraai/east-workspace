@@ -11,7 +11,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { equalFor, none, some, variant } from '@elaraai/east';
+import { ArrayType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import {
   DataflowRunType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType, RepositoryUpgradeProgressType, dataflowForce,
   type DataflowRun, type ExecutionOwner, type ExecutionStatus, type RepositoryUpgradeProgress,
@@ -25,6 +25,8 @@ const TASK = 'a'.repeat(64);
 const INPUTS = 'b'.repeat(64);
 const HASH = 'c'.repeat(64);
 const OTHER_HASH = 'd'.repeat(64);
+const OTHER_INPUTS = 'e'.repeat(64);
+const OTHER_TASK = 'f'.repeat(64);
 const AT = new Date('2026-09-28T00:00:00.000Z');
 
 /** Two UUIDv7s minted one after the other, the second sorting after the
@@ -32,6 +34,36 @@ const AT = new Date('2026-09-28T00:00:00.000Z');
 function twoIds(): [string, string] {
   const first = uuidv7();
   return [first, uuidv7()];
+}
+
+/** An attempt recorded running: a split task's unit, when `unit`. */
+function running(executionId: string, unit = false): ExecutionStatus {
+  return variant('running', { executionId, inputHashes: [HASH], startedAt: AT, pid: 4242n, pidStartTime: 1n, bootId: 'contract-boot', unit });
+}
+
+/** An attempt that succeeded. */
+function succeeded(executionId: string): ExecutionStatus {
+  return variant('success', {
+    executionId, inputHashes: [HASH], outputHash: OTHER_HASH, startedAt: AT, completedAt: AT, peakBytes: none, plan: none, unit: false,
+  });
+}
+
+/** What `executionListRunning` answers: the latest status of inputs. */
+const RunningListType = ArrayType(StructType({ inputsHash: StringType, status: ExecutionStatusType }));
+const sameRunning = equalFor(RunningListType);
+const printRunning = printFor(RunningListType);
+
+/** Asserts a task's running attempts are those expected, in any order. */
+async function assertRunning(
+  listed: Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>,
+  expected: Array<{ inputsHash: string; status: ExecutionStatus }>,
+  message: string,
+): Promise<void> {
+  const byInputs = (a: { inputsHash: string }, b: { inputsHash: string }): number =>
+    (a.inputsHash < b.inputsHash ? -1 : a.inputsHash > b.inputsHash ? 1 : 0);
+  const actual = [...await listed].sort(byInputs);
+  const wanted = [...expected].sort(byInputs);
+  assert.ok(sameRunning(actual, wanted), `${message}: ${printRunning(actual)}, where ${printRunning(wanted)} was expected`);
 }
 
 /**
@@ -146,6 +178,72 @@ export function refStoreTests(setup: BackendSetup): void {
       const listed = await storage.refs.executionListLatest(repo, TASK);
       assert.deepEqual(listed.map(({ inputsHash }) => inputsHash), [INPUTS]);
       assert.ok(equal(listed[0]!.status, succeeded));
+    });
+
+    it('answers the latest attempt over each of a task\'s inputs that is recorded running, a unit among them, until a later one or its end', async (t) => {
+      const { storage, repo } = await setup(t);
+      const list = () => storage.refs.executionListRunning(repo, TASK);
+      await assertRunning(list(), [], 'a task that never ran runs nothing');
+
+      const [first, second] = twoIds();
+      await storage.refs.executionWrite(repo, TASK, INPUTS, first, running(first));
+      const [unit, elsewhere] = twoIds();
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, unit, running(unit, true));
+      await storage.refs.executionWrite(repo, OTHER_TASK, INPUTS, elsewhere, running(elsewhere));
+      await assertRunning(list(), [{ inputsHash: INPUTS, status: running(first) }, { inputsHash: OTHER_INPUTS, status: running(unit, true) }],
+        'its attempt and its unit, and not another task\'s');
+      await assertRunning(storage.refs.executionListRunning(repo, OTHER_TASK), [{ inputsHash: INPUTS, status: running(elsewhere) }],
+        'another task has its own');
+
+      // A later attempt over the same inputs that ended answers for them,
+      // though the first is still recorded running, as a crash leaves one.
+      await storage.refs.executionWrite(repo, TASK, INPUTS, second, succeeded(second));
+      await assertRunning(list(), [{ inputsHash: OTHER_INPUTS, status: running(unit, true) }], 'inputs whose latest attempt ended');
+      const third = uuidv7();
+      await storage.refs.executionWrite(repo, TASK, INPUTS, third, running(third));
+      await assertRunning(list(), [{ inputsHash: INPUTS, status: running(third) }, { inputsHash: OTHER_INPUTS, status: running(unit, true) }],
+        'a later attempt running');
+
+      // Its end takes it out, and so does its deletion.
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, unit, succeeded(unit));
+      await storage.refs.executionDelete(repo, TASK, INPUTS, third);
+      await assertRunning(list(), [], 'an attempt ended, and one deleted');
+    });
+
+    it('reads of a task\'s attempts only those its index of running attempts names, however many it has made', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record in bytes of its choosing');
+      // Fifty attempts over inputs of their own, each recorded running and
+      // then ended, and then left in bytes that do not decode: a read of any
+      // of them would fail, so an index that kept an ended one would too.
+      for (let i = 0; i < 50; i++) {
+        const inputs = i.toString(16).padStart(64, '0');
+        const executionId = uuidv7();
+        await storage.refs.executionWrite(repo, TASK, inputs, executionId, running(executionId));
+        await storage.refs.executionWrite(repo, TASK, inputs, executionId, succeeded(executionId));
+        await damage.execution(TASK, inputs, executionId);
+      }
+      await assert.rejects(storage.refs.executionListLatest(repo, TASK), ExecutionCorruptError, 'a read of the history meets them');
+      const id = uuidv7();
+      await storage.refs.executionWrite(repo, TASK, INPUTS, id, running(id));
+      await assertRunning(storage.refs.executionListRunning(repo, TASK), [{ inputsHash: INPUTS, status: running(id) }],
+        'the attempt running, and no attempt of the history read');
+
+      // A record left running, as a release from before the index wrote one,
+      // is in no index until it is written again; and a deleted attempt
+      // leaves no place in it, for a record left after it.
+      const earlier = uuidv7();
+      const encode = encodeBeast2For(ExecutionStatusType);
+      await damage.execution(TASK, OTHER_INPUTS, earlier, encode(running(earlier)));
+      await assertRunning(storage.refs.executionListRunning(repo, TASK), [{ inputsHash: INPUTS, status: running(id) }],
+        'a record no write indexed');
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, earlier, running(earlier));
+      await assertRunning(storage.refs.executionListRunning(repo, TASK),
+        [{ inputsHash: INPUTS, status: running(id) }, { inputsHash: OTHER_INPUTS, status: running(earlier) }], 'written again, it is indexed');
+      await storage.refs.executionDelete(repo, TASK, OTHER_INPUTS, earlier);
+      await damage.execution(TASK, OTHER_INPUTS, earlier, encode(running(earlier)));
+      await assertRunning(storage.refs.executionListRunning(repo, TASK), [{ inputsHash: INPUTS, status: running(id) }],
+        'a deleted attempt\'s place goes with it');
     });
 
     it('answers ExecutionCorruptError for an attempt whose record does not decode, which it still lists', async (t) => {
@@ -289,6 +387,7 @@ export function refStoreTests(setup: BackendSetup): void {
         }
         await assert.rejects(storage.refs.executionListForTask(repo, malformed), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.executionListLatest(repo, malformed), hashRefusal('task hash', malformed));
+        await assert.rejects(storage.refs.executionListRunning(repo, malformed), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.adoptionWrite(repo, malformed, HASH), hashRefusal('object hash', malformed));
         // A key that is no SHA-256 names no entry of the memo
         assert.equal(await storage.refs.adoptionRead(repo, malformed), null);

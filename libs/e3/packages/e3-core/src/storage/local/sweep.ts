@@ -8,14 +8,18 @@
  * objects and records, which gc's mark does not reach — the staging files of
  * writes and transfers that never finished, the scratch directories of
  * orchestrators that have exited, the built environments no kept object
- * names, the runs of a gc in steps that were given up, and the unreachable
- * notes of objects already gone.
+ * names, the runs of a gc in steps that were given up, the unreachable notes
+ * of objects already gone, and the places in the index of running attempts
+ * that a crash left.
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { decodeExecutionStatus } from '@elaraai/e3-types';
 import type { GcBackendSweepOptions, GcBackendSweepResult } from '../interfaces.js';
-import { GC_ASIDE_SUFFIX, gcDir, objectPath, restoreAside, transferStagingDir } from './localHelpers.js';
+import {
+  GC_ASIDE_SUFFIX, executionPath, gcDir, objectPath, restoreAside, runningAttemptOf, transferStagingDir,
+} from './localHelpers.js';
 import { isNotFoundError } from '../../errors.js';
 import { isObjectHash } from '../../objects.js';
 import { isUuidv7, uuidv7Timestamp } from '../../uuid.js';
@@ -37,7 +41,9 @@ const GIVEN_UP_GC_RUN_MS = 7 * 24 * 60 * 60 * 1000;
  * is dropped.
  *
  * Beside running work (`options.held` false), the built environments are
- * left: a running task may be using one no kept object names yet.
+ * left: a running task may be using one no kept object names yet. So are the
+ * places in the index of running attempts: an attempt being written may be
+ * between its place and its record.
  *
  * @param repoPath - Path to the repository
  * @param reachable - The objects gc's mark reached
@@ -70,7 +76,7 @@ export async function sweepLocalRepository(
   // and what the other steps sweep, so it is swept without being walked.
   const now = Date.now();
   for (const [refRoot, walk] of [
-    ['', false], ['packages', true], ['workspaces', true], ['executions', true],
+    ['', false], ['packages', true], ['workspaces', true], ['executions', true], ['running', true],
     ['dataflows', true], ['adoptions', true], ['locks', true], ['gc', true],
   ] as const) {
     try {
@@ -83,8 +89,9 @@ export async function sweepLocalRepository(
   }
 
   // The scratch directories of executions whose orchestrator has exited, the
-  // built environments the mark no longer reached, the gc runs in steps given
-  // up, and the notes of objects already gone
+  // built environments the mark no longer reached and the places in the index
+  // of running attempts a crash left, the gc runs in steps given up, and the
+  // notes of objects already gone
   if (!dryRun) {
     try {
       await sweepScratchDirs(repoPath);
@@ -94,6 +101,11 @@ export async function sweepLocalRepository(
     if (options.held) {
       try {
         await sweepEnvironments(repoPath, reachable);
+      } catch {
+        // Not a fatal error
+      }
+      try {
+        await sweepStaleRunning(repoPath);
       } catch {
         // Not a fatal error
       }
@@ -133,6 +145,41 @@ async function sweepOrphanNotes(repoPath: string): Promise<void> {
         await fs.unlink(path.join(notesDir, prefix, name)).catch(() => { /* cleared meanwhile */ });
       }
     }
+  }
+}
+
+/**
+ * Takes out of each task's index of running attempts the places at which no
+ * attempt is recorded running — one whose record was never written, a crash
+ * between its place and its `running` status, or says it ended, one between
+ * its outcome and its place's removal — and then each task's directory left
+ * empty.
+ *
+ * @remarks
+ * Only while gc holds the repository still, when no attempt is between its
+ * two writes. A place whose attempt's record does not decode is left: it may
+ * be running. A read of the index passes over a stale place as it is, so
+ * taking it out only spares that read.
+ */
+async function sweepStaleRunning(repoPath: string): Promise<void> {
+  const root = path.join(repoPath, 'running');
+  for (const taskHash of await fs.readdir(root).catch(() => [] as string[])) {
+    if (!isObjectHash(taskHash)) continue;
+    const taskDir = path.join(root, taskHash);
+    for (const name of await fs.readdir(taskDir).catch(() => [] as string[])) {
+      const attempt = runningAttemptOf(name);
+      if (attempt === null) continue;
+      const status = path.join(executionPath(repoPath, taskHash, attempt.inputsHash, attempt.executionId), 'status.beast2');
+      let running: boolean;
+      try {
+        running = decodeExecutionStatus(await fs.readFile(status)).type === 'running';
+      } catch (err) {
+        if (!isNotFoundError(err)) continue;
+        running = false;
+      }
+      if (!running) await fs.unlink(path.join(taskDir, name)).catch(() => { /* taken meanwhile */ });
+    }
+    await fs.rmdir(taskDir).catch(() => { /* an attempt runs, or a staging file is left */ });
   }
 }
 
@@ -256,9 +303,9 @@ async function cleanupPartials(
  * before renaming it over the destination; that staging file survives only if a
  * writer crashed between the write and the rename. This sweeps those orphans
  * from the record trees (packages/, workspaces/ — including nested dataset
- * refs —, executions/, dataflows/, adoptions/, locks/) and the repository's
- * root, which {@link cleanupPartials} does not cover. The age gate ensures a
- * live, in-flight staging file is never raced.
+ * refs —, executions/, running/, dataflows/, adoptions/, locks/) and the
+ * repository's root, which {@link cleanupPartials} does not cover. The age
+ * gate ensures a live, in-flight staging file is never raced.
  *
  * @param rootDir - The directory to sweep
  * @param now - Reference timestamp for the age gate

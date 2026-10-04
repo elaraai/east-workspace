@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import {
-  ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, isTypeValueEqual, none,
+  ArrayType, East, IntegerType, NullType, StringType, StructType, decodeBeast2For, encodeBeast2For, isTypeValueEqual, none,
   readBeast2Type, toEastTypeValue, variant, type EastType,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
@@ -44,6 +44,7 @@ import { LOCAL_REPOSITORY_UPGRADES } from './storage/local/upgrades.js';
 import { workspaceCreate, workspaceRemove } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
 import { createTempDir, createTestRepo, deadPid, removeTempDir, removeTestRepo } from './test-helpers.js';
+import { uuidv7 } from './uuid.js';
 import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js';
 
 /** Each record a repository keeps: what it is, where, and its East type. */
@@ -60,6 +61,7 @@ const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastTyp
   ['a plan pointer', /^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/plan\.beast2$/, StringType],
   ['an execution status', /^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/[0-9a-f-]{36}\/status\.beast2$/, ExecutionStatusType],
   ['an execution owner', /^executions\/[0-9a-f]{64}\/[0-9a-f]{64}\/[0-9a-f-]{36}\/owner\.beast2$/, ExecutionOwnerType],
+  ['an attempt\'s place in the index of running attempts', /^running\/[0-9a-f]{64}\/[0-9a-f]{64}\.[0-9a-f-]{36}\.beast2$/, NullType],
   ['an adoption memo entry', /^adoptions\/[0-9a-f]{2}\/[0-9a-f]{62}\.beast2$/, StringType],
   ['an exclusive lock', /^locks\/[^/]+\/exclusive\.beast2$/, LockStateType],
   ['a shared lock', /^locks\/[^/]+\/shared\.\d+\.[0-9a-f]+\.beast2$/, LockStateType],
@@ -120,6 +122,12 @@ describe('the repository\'s records', () => {
     await storage.refs.repositoryUpgradeWrite(repo, { step: 'a-step', release: E3_RELEASE, cursor: 'here' });
     const [execution] = await storage.refs.executionList(repo);
     assert.ok(execution !== undefined, 'the run recorded an execution');
+    // An attempt recorded running, which its task's index of running attempts
+    // names.
+    const runningId = uuidv7();
+    await storage.refs.executionWrite(repo, execution.taskHash, 'f'.repeat(64), runningId, variant('running', {
+      executionId: runningId, inputHashes: [], startedAt: new Date(), pid: BigInt(process.pid), pidStartTime: 0n, bootId: 'layout', unit: false,
+    }));
     const plan = await storage.objects.write(repo, encodeUnitPlan({
       kind: UNIT_PLAN_KIND, task: execution.taskHash, inputs: execution.inputsHash, stage: variant('pieces', []), previous: none, peakBytes: none,
     }));

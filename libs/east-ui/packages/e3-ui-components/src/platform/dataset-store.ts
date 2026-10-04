@@ -26,6 +26,13 @@
  * bytes, and poll-driven fetch results are discarded when a write
  * supersedes them mid-flight (write-epoch guard).
  *
+ * A workspace's poll runs at the interval its watchers asked for while what
+ * it shows changes, and backs off once nothing has — the interval doubling
+ * with each poll that sees no change, to 5 s — so a screen left open costs
+ * the server a poll every few seconds, not every second. A poll that sees a
+ * change, and the viewer acting — a write, a run launched, a refresh, a new
+ * watch — bring it back to its interval.
+ *
  * Independent from `@tanstack/react-query`. Other hooks in this package
  * (status / repos) use TanStack's React layer on their own keys; this
  * cache shares only the framework-agnostic core.
@@ -69,6 +76,10 @@ export const realClock: Clock = {
 
 /** The interval a hash watch polls its workspace at when nothing else does. */
 const HASH_POLL_MS = 1000;
+
+/** The longest a workspace's poll backs off to while nothing it shows
+ *  changes: unless its watchers asked for a longer interval, which it keeps. */
+const POLL_BACKOFF_MS = 5000;
 
 /**
  * Adapter the cache uses for every server round-trip. Exists so tests
@@ -192,6 +203,11 @@ export interface ReactiveDatasetCacheInterface {
      * Poll a dataset, for one watcher. Each call is paired with one
      * {@link clearRefetchInterval}: a path two views watch stays polled until
      * both have cleared it.
+     *
+     * @remarks
+     * The workspace's poll runs at the shortest interval its watchers asked
+     * for while what it shows changes, backing off to 5 s once nothing has; a
+     * new watch, like the viewer's other acts, brings it back to its interval.
      */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void;
     /**
@@ -216,7 +232,9 @@ export interface ReactiveDatasetCacheInterface {
      * @param workspace - The workspace
      * @param path - The dataset's path
      * @param onHash - Called with each new hash
-     * @param intervalMs - The poll's interval, when this watch starts it
+     * @param intervalMs - The poll's interval, when this watch starts it or
+     *   asks for a shorter one: the poll backs off from it while nothing
+     *   changes, as every poll does
      * @returns A function that stops the watch; the poller stops once nothing
      *   watches the workspace
      */
@@ -228,7 +246,8 @@ export interface ReactiveDatasetCacheInterface {
      * mutation commit) so a watched dataset picks up the new bytes without
      * waiting for the standing poll interval. A poll already in flight may
      * have read the status before the mutation, so the refresh polls again
-     * once it settles. No-op if the workspace has no active poller.
+     * once it settles. The poll goes back to its interval, as for any act of
+     * the viewer's. No-op if the workspace has no active poller.
      * Fire-and-forget; resolves when the refresh's poll settles.
      */
     refresh(workspace: string): Promise<void>;
@@ -335,9 +354,13 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     // Workspace status polling — groups subscriptions by workspace for
     // efficiency. Each entry holds the active interval handle from the
     // injected {@link Clock} so tests can drive ticking deterministically,
-    // and each polled path with how many watchers poll it.
+    // and each polled path with how many watchers poll it. `intervalMs` is
+    // the shortest interval asked for, and `currentMs` the one the timer
+    // runs at: `intervalMs` while what the poll shows changes, backing off to
+    // POLL_BACKOFF_MS once nothing has.
     private workspacePollers: Map<string, {
         intervalMs: number;
+        currentMs: number;
         paths: Map<string, number>;
         handle: { clear(): void } | null;
     }> = new Map();
@@ -423,6 +446,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     write(workspace: string, path: TreePath, value: Uint8Array): Promise<void> {
         if (this.destroyed) return Promise.resolve();
+        // The viewer acted: what the workspace's poll shows is about to change.
+        this.pollSoon(workspace);
         const key = datasetCacheKey(workspace, path);
         const queryKey = this.contentKey(workspace, path);
 
@@ -524,6 +549,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     async launchDataflow(workspace: string): Promise<void> {
         if (this.destroyed) return;
+        this.pollSoon(workspace);
         await this.api.launchDataflow(workspace);
     }
 
@@ -593,35 +619,30 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      * 2. Compares hashes to detect changes
      * 3. Only fetches full content when hash changes
      *
-     * Multiple subscriptions to the same workspace share a single poller.
+     * Multiple subscriptions to the same workspace share a single poller,
+     * at the shortest interval any asked for, which backs off while nothing
+     * it shows changes; a new watch brings it back to that interval.
      * Pair each call with one {@link clearRefetchInterval} on unmount so the
      * poller can stop when nothing is watching.
      */
     setRefetchInterval(workspace: string, path: TreePath, intervalMs: number): void {
         const pathStr = datasetPathToString(path);
-        let poller = this.workspacePollers.get(workspace);
+        const poller = this.workspacePollers.get(workspace);
 
         if (poller) {
             poller.paths.set(pathStr, (poller.paths.get(pathStr) ?? 0) + 1);
-            // If the new interval is shorter, restart with shorter interval.
-            if (intervalMs < poller.intervalMs) {
-                poller.handle?.clear();
-                poller.intervalMs = intervalMs;
-                poller.handle = this.clock.setInterval(
-                    () => this.pollWorkspaceStatus(workspace),
-                    intervalMs,
-                );
-            }
+            poller.intervalMs = Math.min(poller.intervalMs, intervalMs);
+            this.pollSoon(workspace);
         } else {
-            poller = {
+            this.workspacePollers.set(workspace, {
                 intervalMs,
+                currentMs: intervalMs,
                 paths: new Map([[pathStr, 1]]),
                 handle: this.clock.setInterval(
                     () => this.pollWorkspaceStatus(workspace),
                     intervalMs,
                 ),
-            };
-            this.workspacePollers.set(workspace, poller);
+            });
             // Do an immediate poll. Promise is intentionally floated —
             // the dedup map handles concurrency, errors are logged.
             void this.pollWorkspaceStatus(workspace);
@@ -668,14 +689,14 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         if (!poller) {
             this.workspacePollers.set(workspace, {
                 intervalMs,
+                currentMs: intervalMs,
                 paths: new Map(),
                 handle: this.clock.setInterval(() => this.pollWorkspaceStatus(workspace), intervalMs),
             });
             void this.pollWorkspaceStatus(workspace);
-        } else if (intervalMs < poller.intervalMs) {
-            poller.handle?.clear();
-            poller.intervalMs = intervalMs;
-            poller.handle = this.clock.setInterval(() => this.pollWorkspaceStatus(workspace), intervalMs);
+        } else {
+            poller.intervalMs = Math.min(poller.intervalMs, intervalMs);
+            this.pollSoon(workspace);
         }
 
         return () => {
@@ -698,6 +719,30 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.workspacePollers.delete(workspace);
     }
 
+    /** Runs a workspace's poll every `ms` from now, restarting its timer when
+     *  that is another interval than it runs at. */
+    private pollEvery(workspace: string, ms: number): void {
+        const poller = this.workspacePollers.get(workspace);
+        if (!poller || poller.currentMs === ms) return;
+        poller.handle?.clear();
+        poller.currentMs = ms;
+        poller.handle = this.clock.setInterval(() => this.pollWorkspaceStatus(workspace), ms);
+    }
+
+    /** Brings a workspace's poll back to the interval its watchers asked for:
+     *  what it shows changed, or the viewer acted. */
+    private pollSoon(workspace: string): void {
+        const poller = this.workspacePollers.get(workspace);
+        if (poller) this.pollEvery(workspace, poller.intervalMs);
+    }
+
+    /** Backs a workspace's poll off once it saw nothing change: its interval
+     *  doubles, to at most POLL_BACKOFF_MS, and never below the one asked for. */
+    private backOff(workspace: string): void {
+        const poller = this.workspacePollers.get(workspace);
+        if (poller) this.pollEvery(workspace, Math.max(poller.intervalMs, Math.min(poller.currentMs * 2, POLL_BACKOFF_MS)));
+    }
+
     refresh(workspace: string): Promise<void> {
         // One immediate hash-gated poll, reusing the standing workspace poller,
         // as write() does after a confirmed set. No-op when nothing watches the
@@ -706,6 +751,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // until the next interval: the refresh polls once it has settled.
         if (this.destroyed) return Promise.resolve();
         if (!this.workspacePollers.has(workspace)) return Promise.resolve();
+        this.pollSoon(workspace);
         const inFlight = this.inFlightPolls.get(workspace);
         if (inFlight === undefined) return this.pollWorkspaceStatus(workspace);
         const again = () => (this.destroyed || !this.workspacePollers.has(workspace) ? undefined : this.pollWorkspaceStatus(workspace));
@@ -750,9 +796,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             status = await this.api.workspaceStatus(workspace, [...watched].map((pathStr) => this.stringToPath(pathStr)));
         } catch (error) {
             console.error(`Failed to poll workspace status for ${workspace}:`, error);
+            this.backOff(workspace);
             return;
         }
         if (this.destroyed) return;
+
+        // Whether the poll saw what it shows change: a hash a watch is told,
+        // a status, or content to fetch or clear. One that saw none backs the
+        // poll off; one that saw one brings it back to its interval.
+        let changed = false;
 
         // Index once — the path loop below must not rescan the dataset
         // list per watched path.
@@ -769,6 +821,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             const hash = info?.hash?.type === "some" ? info.hash.value : null;
             for (const [onHash, told] of [...callbacks]) {
                 if (told === hash || !callbacks.has(onHash)) continue;
+                changed = true;
                 callbacks.set(onHash, hash);
                 try {
                     onHash(hash);
@@ -801,6 +854,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     const previous = this.statuses.get(key);
                     this.statuses.set(key, info.status);
                     if (!previous || previous.type !== info.status.type) {
+                        changed = true;
                         this.notifyChange(key);
                     }
                 }
@@ -821,6 +875,9 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                 }
             }
         });
+
+        if (changed || pending.length > 0) this.pollSoon(workspace);
+        else this.backOff(workspace);
 
         if (pending.length === 0) return;
 

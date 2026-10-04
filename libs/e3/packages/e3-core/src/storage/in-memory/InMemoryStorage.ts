@@ -226,6 +226,9 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   private workspaces = new Map<string, Map<string, Uint8Array>>();
   // executions now keyed by taskHash/inputsHash/executionId
   private executions = new Map<string, Map<string, HeldExecution>>();
+  // the index of the attempts recorded running, by repo: each attempt's
+  // taskHash/inputsHash/executionId
+  private running = new Map<string, Set<string>>();
   // dataflow runs keyed by workspace/runId
   private dataflowRuns = new Map<string, Map<string, DataflowRun>>();
   // owner sidecars keyed by repo/taskHash/inputsHash/executionId
@@ -266,6 +269,15 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
       this.executions.set(repo, repoExecutions);
     }
     return repoExecutions;
+  }
+
+  private getRunning(repo: string): Set<string> {
+    let repoRunning = this.running.get(repo);
+    if (!repoRunning) {
+      repoRunning = new Set();
+      this.running.set(repo, repoRunning);
+    }
+    return repoRunning;
   }
 
   private getDataflowRuns(repo: string): Map<string, DataflowRun> {
@@ -393,16 +405,22 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     return 'bytes' in held ? held.bytes : encodeStatus(held.status);
   }
 
+  /** Writes an attempt's status, and keeps its place in the index of running
+   *  attempts in the same step. */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     this.checkExecution(taskHash, inputsHash, executionId);
-    this.getExecutions(repo).set(this.makeExecutionKey(taskHash, inputsHash, executionId), { status });
+    const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
+    this.getExecutions(repo).set(key, { status });
+    if (status.type === 'running') this.getRunning(repo).add(key);
+    else this.getRunning(repo).delete(key);
   }
 
   /**
    * Leaves an execution attempt's record in bytes, as a crash or a failing
    * disk leaves one, or an earlier release left one in its form: a test's,
    * for the cases of such a record. The record is there, and listed, from
-   * then on, and a write of it replaces it.
+   * then on, and a write of it replaces it. The index of running attempts is
+   * left as it was, as a store of bytes leaves it.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
@@ -419,6 +437,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     this.checkExecution(taskHash, inputsHash, executionId);
     const key = this.makeExecutionKey(taskHash, inputsHash, executionId);
     this.getExecutions(repo).delete(key);
+    this.getRunning(repo).delete(key);
     this.owners.delete(`${repo}/${key}`);
   }
 
@@ -472,6 +491,23 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     for (const inputsHash of await this.executionListForTask(repo, taskHash)) {
       const status = await this.executionGetLatest(repo, taskHash, inputsHash);
       if (status) result.push({ inputsHash, status });
+    }
+    return result;
+  }
+
+  /** Reads the latest attempt of each inputs the index of running attempts
+   *  names under the task, keeping those recorded running. */
+  async executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
+    checkHash('task hash', taskHash);
+    const inputs = new Set<string>();
+    for (const key of this.getRunning(repo)) {
+      const [task, inputsHash] = key.split('/');
+      if (task === taskHash) inputs.add(inputsHash!);
+    }
+    const result: Array<{ inputsHash: string; status: ExecutionStatus }> = [];
+    for (const inputsHash of inputs) {
+      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      if (status?.type === 'running') result.push({ inputsHash, status });
     }
     return result;
   }
@@ -560,7 +596,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
   drop(repo: string): number {
     let dropped = this.repositories.delete(repo) ? 1 : 0;
     if (this.upgradeProgress.delete(repo)) dropped++;
-    for (const records of [this.packages, this.workspaces, this.executions, this.dataflowRuns]) {
+    for (const records of [this.packages, this.workspaces, this.executions, this.running, this.dataflowRuns]) {
       dropped += records.get(repo)?.size ?? 0;
       records.delete(repo);
     }
@@ -581,6 +617,7 @@ class InMemoryRefStore implements RefStore, InMemoryRepositoryRecords {
     this.packages.clear();
     this.workspaces.clear();
     this.executions.clear();
+    this.running.clear();
     this.dataflowRuns.clear();
     this.owners.clear();
     this.plans.clear();
@@ -886,6 +923,15 @@ class InMemoryDatasetRefStore implements DatasetRefStore, InMemoryRepositoryReco
       }
     }
     return paths;
+  }
+
+  async readAll(repo: string, ws: string): Promise<Map<string, DatasetRef>> {
+    const prefix = this.makePrefix(repo, ws);
+    const all = new Map<string, DatasetRef>();
+    for (const [key, { ref }] of this.refs) {
+      if (key.startsWith(prefix)) all.set(key.slice(prefix.length), ref);
+    }
+    return all;
   }
 
   async remove(repo: string, ws: string, path: string): Promise<void> {
