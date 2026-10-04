@@ -9,7 +9,7 @@ import { compareFor } from "../comparison.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import { isVariant, variant } from "../containers/variant.js";
-import { EastTypeValueType, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
+import { EastTypeValueType, isTypeValueEqual, toEastTypeValue, type EastTypeValue } from "../type_of_type.js";
 import { ref } from "../containers/ref.js";
 import { printEastString } from "./east_text.js";
 
@@ -163,11 +163,12 @@ type EastPrintValueContext = {
 /**
  * Value-level context for tracking mutable aliases during parsing.
  *
- * - refs: Map from punctuated path strings to parsed mutable container values (Array/Set/Dict)
+ * - refs: Map from punctuated path strings to parsed mutable container values (Ref/Array/Set/Dict),
+ *   each with the type it was read as: a back-reference resolves only to one of the type it stands at
  * - currentPath: Stack of path components WITH punctuation (e.g., ".field", "[3]", "[(key)]")
  */
 type EastParseValueContext = {
-  refs: Map<string, any>; // Punctuated path string -> Mutable container value
+  refs: Map<string, { value: any, type: EastTypeValue }>; // Punctuated path string -> Mutable container value and its type
   currentPath: string[]; // Path components with punctuation: [".field", "[3]", "[(x: 1)]"]
 };
 
@@ -550,13 +551,13 @@ const createParser = (type: EastTypeValue, frozen: boolean, typeCtx: EastParseTy
     case "Blob":
       return parseBlob(frozen);
     case "Ref":
-      return createRefParser(type.value, frozen, typeCtx);
+      return createRefParser(type.value, frozen, typeCtx, type);
     case "Array":
-      return createArrayParser(type.value, frozen, typeCtx);
+      return createArrayParser(type.value, frozen, typeCtx, type);
     case "Set":
-      return createSetParser(type.value, frozen, typeCtx);
+      return createSetParser(type.value, frozen, typeCtx, type);
     case "Dict":
-      return createDictParser(type.value.key, type.value.value, frozen, typeCtx);
+      return createDictParser(type.value.key, type.value.value, frozen, typeCtx, type);
     case "Struct":
       return createStructParser(type.value, frozen, typeCtx);
     case "Variant":
@@ -710,9 +711,11 @@ const isTokenTerminator = (input: string, pos: number): boolean => {
 /**
  * Parses a $.path reference and returns the referenced value.
  * Returns null if not at a reference (doesn't start with '$').
- * Throws ParseError if the reference is invalid or undefined.
+ * Throws ParseError if the reference is invalid or undefined, or names a
+ * container of another type than `type`, the one the text expects where the
+ * reference stands.
  */
-const parseReference = <T>(input: string, pos: number, ctx?: EastParseValueContext): ParseSuccess<T> | null => {
+const parseReference = <T>(input: string, pos: number, ctx: EastParseValueContext | undefined, type: EastTypeValue): ParseSuccess<T> | null => {
   // Check if this looks like a reference: either "#..." or "N#..." where N is a digit
   let refStart = pos;
   let isRelative = false;
@@ -769,11 +772,17 @@ const parseReference = <T>(input: string, pos: number, ctx?: EastParseValueConte
   }
 
   // Look up in refs map
-  if (!ctx.refs.has(targetPathStr)) {
+  const target = ctx.refs.get(targetPathStr);
+  if (target === undefined) {
     throw new ParseError(`undefined reference ${refStr}`, pos);
   }
+  // A container of the type the text expects here, as East's type equality
+  // has it: one of another type would be read as a value of the wrong type
+  if (!isTypeValueEqual(target.type, type)) {
+    throw new ParseError(`invalid reference ${refStr}: it names a value of another type`, pos);
+  }
 
-  return { value: ctx.refs.get(targetPathStr), position: pathEnd };
+  return { value: target.value, position: pathEnd };
 };
 
 const parseBoolean: Parser<boolean> = (input: string, pos: number, _ctx?: EastParseValueContext) => {
@@ -905,7 +914,7 @@ const parseBlob = (frozen: boolean): Parser<Uint8Array> => (input: string, pos: 
   return { value: bytes, position: pos };
 };
 
-const createRefParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext): Parser<ref<any>> => {
+const createRefParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext, self: EastTypeValue): Parser<ref<any>> => {
   let valueParser: Parser<any>;
   const ret = (input: string, pos: number, ctx?: EastParseValueContext) => {
     pos = consumeWhitespace(input, pos);
@@ -917,7 +926,7 @@ const createRefParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: Ea
     }
 
     // Check for reference first
-    const reference = parseReference<ref<any>>(input, pos, ctx);
+    const reference = parseReference<ref<any>>(input, pos, ctx, self);
     if (reference) {
       return reference;
     }
@@ -932,7 +941,7 @@ const createRefParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: Ea
     // Pre-register this ref if we have context
     if (ctx) {
       const pathStr = _pathToPunctuated(ctx.currentPath);
-      ctx.refs.set(pathStr, r);
+      ctx.refs.set(pathStr, { value: r, type: self });
     }
 
     if (ctx) ctx.currentPath.push(`[]`);
@@ -960,7 +969,7 @@ const createRefParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: Ea
   return ret;
 };
 
-const createArrayParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext): Parser<any[]> => {
+const createArrayParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext, self: EastTypeValue): Parser<any[]> => {
   let valueParser: Parser<any>;
   const ret = (input: string, pos: number, ctx?: EastParseValueContext) => {
     pos = consumeWhitespace(input, pos);
@@ -972,7 +981,7 @@ const createArrayParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: 
     }
 
     // Check for reference first
-    const ref = parseReference<any[]>(input, pos, ctx);
+    const ref = parseReference<any[]>(input, pos, ctx, self);
     if (ref) {
       return ref;
     }
@@ -987,7 +996,7 @@ const createArrayParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: 
     // Pre-register this array if we have context
     if (ctx) {
       const pathStr = _pathToPunctuated(ctx.currentPath);
-      ctx.refs.set(pathStr, values);
+      ctx.refs.set(pathStr, { value: values, type: self });
     }
 
     // Handle empty array
@@ -1034,7 +1043,7 @@ const createArrayParser = (value_type: EastTypeValue, frozen: boolean, typeCtx: 
   return ret;
 };
 
-const createSetParser = (key_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext): Parser<Set<any>> => {
+const createSetParser = (key_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext, self: EastTypeValue): Parser<Set<any>> => {
   const keyParser = createParser(key_type, frozen, typeCtx);
   const keyCompare = compareFor(key_type);
 
@@ -1048,7 +1057,7 @@ const createSetParser = (key_type: EastTypeValue, frozen: boolean, typeCtx: East
     }
 
     // Check for reference first
-    const ref = parseReference<Set<any>>(input, pos, ctx);
+    const ref = parseReference<Set<any>>(input, pos, ctx, self);
     if (ref) {
       return ref;
     }
@@ -1063,7 +1072,7 @@ const createSetParser = (key_type: EastTypeValue, frozen: boolean, typeCtx: East
     // Pre-register this set if we have context
     if (ctx) {
       const pathStr = _pathToPunctuated(ctx.currentPath);
-      ctx.refs.set(pathStr, values);
+      ctx.refs.set(pathStr, { value: values, type: self });
     }
 
     // Handle empty set
@@ -1105,7 +1114,7 @@ const createSetParser = (key_type: EastTypeValue, frozen: boolean, typeCtx: East
   };
 };
 
-const createDictParser = (key_type: EastTypeValue, value_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext): Parser<SortedMap<any, any>> => {
+const createDictParser = (key_type: EastTypeValue, value_type: EastTypeValue, frozen: boolean, typeCtx: EastParseTypeContext, self: EastTypeValue): Parser<SortedMap<any, any>> => {
   const keyParser = createParser(key_type, frozen, typeCtx);
   let valueParser: Parser<any>;
   const keyCompare = compareFor(key_type);
@@ -1121,7 +1130,7 @@ const createDictParser = (key_type: EastTypeValue, value_type: EastTypeValue, fr
     }
 
     // Check for reference first
-    const ref = parseReference<SortedMap<any, any>>(input, pos, ctx);
+    const ref = parseReference<SortedMap<any, any>>(input, pos, ctx, self);
     if (ref) {
       return ref;
     }
@@ -1136,7 +1145,7 @@ const createDictParser = (key_type: EastTypeValue, value_type: EastTypeValue, fr
     // Pre-register this dict if we have context
     if (ctx) {
       const pathStr = _pathToPunctuated(ctx.currentPath);
-      ctx.refs.set(pathStr, values);
+      ctx.refs.set(pathStr, { value: values, type: self });
     }
 
     // Handle empty dict

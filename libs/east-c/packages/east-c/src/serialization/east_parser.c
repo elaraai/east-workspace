@@ -789,6 +789,7 @@ static bool ts2_match(TokStream2 *ts, EastTokenType2 type)
 
 typedef struct {
     EastValue *value;
+    EastType *type; /* the type it was read as (the parse's own, borrowed) */
     EastPathComponent *path;
     size_t path_len;
     size_t path_cap;
@@ -825,7 +826,8 @@ static void pctx_pop_path(ParseContext *ctx)
     }
 }
 
-static void pctx_register(ParseContext *ctx, EastValue *val)
+/* Register a container read as `type` at the current path */
+static void pctx_register(ParseContext *ctx, EastValue *val, EastType *type)
 {
     if (!ctx) return;
     if (ctx->ref_count >= ctx->ref_cap) {
@@ -835,6 +837,7 @@ static void pctx_register(ParseContext *ctx, EastValue *val)
     }
     ParseRefEntry *e = &ctx->refs[ctx->ref_count++];
     e->value = val;
+    e->type = type;
     e->path_len = ctx->path_depth;
     e->path_cap = ctx->path_depth ? ctx->path_depth : 0;
     e->path = e->path_cap ? malloc(e->path_cap * sizeof(EastPathComponent)) : NULL;
@@ -866,9 +869,13 @@ static void pe_set(ParseErr *e, char *msg, int line, int col);
  * registered at the current path up its count of levels, then down its
  * components as written. Those are matched against each container's own laid
  * end to end, never split apart, so a quoted name or a key's text holding a
- * `.` or a `]` names what it named. A reference to no container is refused,
- * with the TypeScript parser's message. */
-static EastValue *pctx_resolve_backref(TokStream2 *ts, ParseContext *ctx, ParseErr *err)
+ * `.` or a `]` names what it named. The container is one of `type`, the one
+ * the text expects where the reference stands, as east_type_equal has it:
+ * one of another type would be read as a value of the wrong type. A reference
+ * to no container, or to one of another type, is refused, with the TypeScript
+ * parser's message. */
+static EastValue *pctx_resolve_backref(TokStream2 *ts, ParseContext *ctx, ParseErr *err,
+                                       EastType *type)
 {
     Token2 *tok = ts2_cur(ts);
     if (!tok || tok->type != TOK_BACKREF || !ctx || !tok->text) return NULL;
@@ -917,6 +924,16 @@ static EastValue *pctx_resolve_backref(TokStream2 *ts, ParseContext *ctx, ParseE
         }
 
         if (match && at == rest_len) {
+            if (!east_type_equal(e->type, type)) {
+                if (err) {
+                    size_t mlen = 60 + tok->text_len;
+                    char *msg = malloc(mlen);
+                    snprintf(msg, mlen, "invalid reference %.*s: it names a value of another type",
+                             ref_len, ref_str);
+                    pe_set(err, msg, tok->line, tok->column);
+                }
+                return NULL;
+            }
             east_value_retain(e->value);
             return e->value;
         }
@@ -1321,14 +1338,15 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_ARRAY: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF)
+            return pctx_resolve_backref(ts, ctx, err, type);
         EastType *elem_type = type->data.element;
         if (!ts2_match(ts, TOK_LBRACKET)) {
             if (err) pe_set(err, strdup("expected '[' to start array"), tok->line, tok->column);
             return NULL;
         }
         EastValue *arr = east_array_new(elem_type);
-        if (ctx) pctx_register(ctx, arr);
+        if (ctx) pctx_register(ctx, arr, type);
 
         if (ts2_cur(ts)->type != TOK_RBRACKET) {
             size_t idx = 0;
@@ -1373,14 +1391,15 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_SET: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF)
+            return pctx_resolve_backref(ts, ctx, err, type);
         EastType *elem_type = type->data.element;
         if (!ts2_match(ts, TOK_LBRACE)) {
             if (err) pe_set(err, strdup("expected '{' to start set"), tok->line, tok->column);
             return NULL;
         }
         EastValue *set = east_set_new(elem_type);
-        if (ctx) pctx_register(ctx, set);
+        if (ctx) pctx_register(ctx, set, type);
 
         if (ts2_cur(ts)->type != TOK_RBRACE) {
             size_t idx = 0;
@@ -1423,7 +1442,8 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_DICT: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF)
+            return pctx_resolve_backref(ts, ctx, err, type);
         EastType *key_type = type->data.dict.key;
         EastType *val_type = type->data.dict.value;
 
@@ -1432,7 +1452,7 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
             return NULL;
         }
         EastValue *dict = east_dict_new(key_type, val_type);
-        if (ctx) pctx_register(ctx, dict);
+        if (ctx) pctx_register(ctx, dict, type);
 
         /* Handle empty dict: {} or {:} */
         if (ts2_cur(ts)->type == TOK_RBRACE) {
@@ -1836,7 +1856,8 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
     }
 
     case EAST_TYPE_REF: {
-        if (ctx && ts2_cur(ts)->type == TOK_BACKREF) return pctx_resolve_backref(ts, ctx, err);
+        if (ctx && ts2_cur(ts)->type == TOK_BACKREF)
+            return pctx_resolve_backref(ts, ctx, err, type);
         if (!ts2_match(ts, TOK_AMPERSAND)) {
             if (err) pe_set(err, strdup("expected '&' to start ref"), tok->line, tok->column);
             return NULL;
@@ -1845,7 +1866,7 @@ static EastValue *parse_val_err(TokStream2 *ts, EastType *type, ParseContext *ct
          * back-reference in the content to the Ref itself reads back; the
          * content is a step down from it, `[]` */
         EastValue *ref = east_ref_new(east_null());
-        if (ctx) pctx_register(ctx, ref);
+        if (ctx) pctx_register(ctx, ref, type);
         if (ctx) pctx_push_path(ctx, east_text_component("[]", 2));
         ParseErr inner = {0};
         EastValue *content = parse_val_err(ts, type->data.element, ctx, err ? &inner : NULL, input);
