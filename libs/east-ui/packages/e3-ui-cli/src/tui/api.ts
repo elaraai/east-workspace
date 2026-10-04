@@ -113,7 +113,7 @@ export interface Api {
     datasetFindKey(ws: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
     datasetSet(ws: string, path: TreePath, data: Uint8Array): Promise<void>;
     dataflowExecuteLaunch(ws: string, options: DataflowOptions): Promise<void>;
-    /** The latest run's state, and its events past the cursor (`since`, the `nextSeq` the poll before answered), at most `limit`: `limit: 0` for its state alone. */
+    /** The latest run's state, its id and its last event's sequence number, and its events past the cursor (`since`, the `nextSeq` the poll before answered), at most `limit` and never more than 1,000: `limit: 0` for its state alone. */
     dataflowExecutePoll(ws: string, window: ExecutionStateOptions): Promise<DataflowExecutionState>;
     /** The budget a run of the workspace gets (the server's), or null for a server whose runners hold none. */
     dataflowBudget(ws: string): Promise<DataflowBudget | null>;

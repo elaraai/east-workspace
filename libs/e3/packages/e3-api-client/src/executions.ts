@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { IntegerType, NullType, OptionType, none, printFor, some, variant } from '@elaraai/east';
+import { IntegerType, NullType, OptionType, lessFor, none, printFor, some, variant } from '@elaraai/east';
 import { dataflowForce } from '@elaraai/e3-types';
 import type { LogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
 import {
@@ -166,10 +166,31 @@ function buildDataflowResult(state: DataflowExecutionState): DataflowResult {
   };
 }
 
+/** Whether one event sequence number comes before another. */
+const seqBefore = lessFor(IntegerType);
+
+/**
+ * Whether a poll left events of the run for the next: those past its
+ * `nextSeq`, up to the run's last (`lastSeq`), which a poll served its limit,
+ * or e3-types' `DATAFLOW_POLL_EVENTS_MAX`, does not reach.
+ *
+ * @remarks
+ * A client that reads a run's events polls again at once from `nextSeq` while
+ * this holds, and takes a status that has ended as the run's last word only
+ * once it does not: the events of its end may be past the ones served.
+ *
+ * @param state - A poll's answer
+ * @returns Whether events of the run are past the poll's `nextSeq`
+ */
+export function dataflowEventsRemain(state: Pick<DataflowExecutionState, 'nextSeq' | 'lastSeq'>): boolean {
+  return seqBefore(state.nextSeq, state.lastSeq);
+}
+
 /**
  * Execute dataflow on a workspace with client-side polling.
  *
- * Starts execution, polls until complete, and returns the result.
+ * Starts execution, polls until complete, and returns the result, with every
+ * event of the run however many polls it takes.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -192,14 +213,18 @@ export async function dataflowExecute(
   // Start execution
   await dataflowExecuteLaunch(url, repo, workspace, dataflowOptions, options);
 
-  // Poll until complete, each poll served the events since the one before
+  // Poll until complete, each poll served the events since the one before. A
+  // poll is served at most DATAFLOW_POLL_EVENTS_MAX of them: one that left
+  // some is followed at once, so the result has every event of the run.
   const startTime = Date.now();
   const events: DataflowExecutionState['events'] = [];
   let since = 0n;
   while (Date.now() - startTime < timeout) {
     const state = await dataflowExecutePoll(url, repo, workspace, { since }, options);
     events.push(...state.events);
+    const moved = seqBefore(since, state.nextSeq);
     since = state.nextSeq;
+    if (moved && dataflowEventsRemain(state)) continue;
 
     if (state.status.type === 'completed' || state.status.type === 'failed' || state.status.type === 'aborted') {
       return buildDataflowResult({ ...state, events });
@@ -287,7 +312,10 @@ export interface ExecutionStateOptions {
   /** The poll's cursor: the `nextSeq` the poll before answered, after which
    *  the events are served (default: 0, every event) */
   since?: bigint;
-  /** Maximum events to return (default: all); 0 for the run's state alone */
+  /** Maximum events to return; 0 for the run's state alone. The server serves
+   *  at most e3-types' `DATAFLOW_POLL_EVENTS_MAX` (1,000), which is also the
+   *  default: a poll that left events has `nextSeq` before `lastSeq`
+   *  ({@link dataflowEventsRemain}). */
   limit?: number;
 }
 

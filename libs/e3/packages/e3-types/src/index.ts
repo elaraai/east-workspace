@@ -369,6 +369,7 @@ export {
   UnitWaitType,
   SplitProgressType,
   ApiDataflowExecutionStateType,
+  DATAFLOW_POLL_EVENTS_MAX,
   // Task Execution History
   ExecutionHistoryStatusType,
   ExecutionListItemType,

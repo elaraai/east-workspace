@@ -4,6 +4,7 @@
  */
 
 import { IntegerType, NullType, OptionType, lessFor, some, none, variant } from '@elaraai/east';
+import { DATAFLOW_POLL_EVENTS_MAX } from '@elaraai/e3-types';
 import {
   dataflowGetGraph,
   workspaceStatus,
@@ -391,6 +392,14 @@ const seqBefore = lessFor(IntegerType);
  * come from the orchestrator's memory, which holds none of a run another
  * process or instance runs.
  *
+ * A poll is served at most `limit` events, and never more than
+ * {@link DATAFLOW_POLL_EVENTS_MAX}, which is its limit when it names none, so
+ * an answer stays within what a host's response may hold however long the
+ * run. The response names the run (`runId`) and the sequence number of its
+ * last event (`lastSeq`) as its summary read them, and goes through no event
+ * past that one: a poll whose `nextSeq` is before `lastSeq` left events for
+ * the next.
+ *
  * @param stateStore - The store the repository's runs keep their state in
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
@@ -408,11 +417,12 @@ export async function getDataflowExecution(
   budget?: RunnerBudget
 ): Promise<Response> {
   const since = BigInt(options.since ?? 0);
+  const limit = Math.min(options.limit ?? DATAFLOW_POLL_EVENTS_MAX, DATAFLOW_POLL_EVENTS_MAX);
   let run: ExecutionStateSummary | null;
   let stored: CoreExecutionEvent[] = [];
   try {
     run = await stateStore.readLatestSummary(repoPath, workspace);
-    if (run !== null && options.limit !== 0 && seqBefore(since, run.lastSeq)) {
+    if (run !== null && limit !== 0 && seqBefore(since, run.lastSeq)) {
       stored = await stateStore.getEventsSince(repoPath, workspace, run.id, options.since ?? 0);
     }
   } catch (err) {
@@ -424,15 +434,18 @@ export async function getDataflowExecution(
     }));
   }
 
-  // The API's events past the cursor, at most `limit` of them. The cursor
-  // moves past each event served, and past each the API does not show — a run's
-  // start and end, a split task's stages — up to the next served.
+  // The API's events past the cursor, at most `limit` of them, up to the
+  // summary's last: one the run recorded after the summary was read is the
+  // next poll's. The cursor moves past each event served, and past each the
+  // API does not show — a run's start and end, a split task's stages — up to
+  // the next served.
   const apiEvents: DataflowExecutionState['events'] = [];
   let nextSeq = since;
   for (const event of stored) {
+    if (seqBefore(run.lastSeq, event.value.seq)) break;
     const apiEvent = coreEventToApiEvent(event);
     if (apiEvent !== null) {
-      if (options.limit !== undefined && apiEvents.length >= options.limit) break;
+      if (apiEvents.length >= limit) break;
       apiEvents.push(apiEventValue(apiEvent));
     }
     nextSeq = event.value.seq;
@@ -492,12 +505,14 @@ export async function getDataflowExecution(
   }
 
   const state: DataflowExecutionState = {
+    runId: run.id,
     status,
     startedAt: run.startedAt.toISOString(),
     completedAt: completedAtValue,
     summary,
     events: apiEvents,
     nextSeq,
+    lastSeq: run.lastSeq,
     budget: budgetView(budget),
     waiting: live?.waiting ?? [],
     splits: live?.splits ?? [],

@@ -82,12 +82,14 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         else events.push(variant('complete', { task: t.name, timestamp: iso(119_000 - i * 10), duration: 3_100, peakBytes: t.peakBytes }));
     });
     const execution = {
+        runId: 'run-1',
         status: variant('failed', null),
         startedAt: iso(120_000),
         completedAt: some(iso(81_600)),
         summary: some({ executed: BigInt(tasks), cached: 1n, failed: count('failed'), skipped: 0n, duration: 38_400 }),
         events: [],
         nextSeq: BigInt(events.length),
+        lastSeq: BigInt(events.length),
         budget: some({ cores: 8n, memory: BigInt(14 * 1024 ** 3), coresInUse: 0n, memoryInUse: 0n }),
         waiting: [],
         splits: [],

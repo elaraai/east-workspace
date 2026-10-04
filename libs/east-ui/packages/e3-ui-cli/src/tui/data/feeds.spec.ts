@@ -116,6 +116,117 @@ describe('feeds', () => {
         feeds.stop();
     });
 
+    test('the execution cursor tells runs apart by their ids: a run that started in the same millisecond as the last still restarts it', async () => {
+        const api = fakeRepo();
+        const at = new Date(0).toISOString();
+        api.workspace('main', {
+            execution: {
+                id: 'run-a', status: 'completed', startedAt: at, completedAt: at,
+                events: [variant('start', { task: 'a', timestamp: at }), variant('complete', { task: 'a', timestamp: at, duration: 1, peakBytes: none })],
+            },
+        });
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        assert.equal(store.getState().data.execution['main']?.events.length, 2);
+
+        api.workspace('main').execution = { id: 'run-b', status: 'completed', startedAt: at, completedAt: at, events: [variant('cached', { task: 'a', timestamp: at })] };
+        feeds.fire('execution:main');
+        await settle();
+        const execution = store.getState().data.execution['main']!;
+        assert.deepEqual(execution.events.map(e => e.type), ['cached'], 'the new run\'s events alone');
+        feeds.stop();
+    });
+
+    test('the execution feed reads a run of more events than a poll is served in one turn, each poll from the cursor the last left', async () => {
+        const api = fakeRepo();
+        api.workspace('main');
+        api.task('main', { name: 'a', status: variant('ready', null), inputs: [], dependsOn: [] });
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        // 2,500 events: a poll is served at most 1,000 of them.
+        api.run({ events: Array.from({ length: 2_500 }, (_, i) => variant('start', { task: `t${i}`, timestamp: 't' })), final: 'completed' });
+        await api.dataflowExecuteLaunch('main');
+        const before = api.calls.length;
+        feeds.fire('execution:main');
+        await settle();
+        await settle();
+        const execution = store.getState().data.execution['main']!;
+        assert.equal(execution.state?.status.type, 'completed');
+        assert.equal(execution.events.length, 2_500, 'every event, in one turn');
+        assert.equal(execution.events.at(-1)?.value.task, 't2499');
+        assert.deepEqual(api.calls.slice(before).filter(c => c.startsWith('dataflowExecutePoll')), [
+            'dataflowExecutePoll main 0', 'dataflowExecutePoll main 1000', 'dataflowExecutePoll main 2000',
+        ]);
+        feeds.stop();
+    });
+
+    test('the execution feed leaves a run that started while it read the last one\'s events to its next turn', async () => {
+        const api = fakeRepo();
+        const at = new Date(0).toISOString();
+        api.workspace('main', {
+            execution: { id: 'run-a', status: 'completed', startedAt: at, completedAt: at, events: Array.from({ length: 2_500 }, (_, i) => variant('start', { task: `t${i}`, timestamp: at })) },
+        });
+        // Another run starts as soon as the first poll of run-a is answered,
+        // with more events than that poll served, so the next poll moves on.
+        const poll = api.dataflowExecutePoll.bind(api);
+        let started = false;
+        api.dataflowExecutePoll = async (ws, window) => {
+            const answer = await poll(ws, window);
+            if (!started) {
+                started = true;
+                api.workspace('main').execution = {
+                    id: 'run-b', status: 'completed', startedAt: at, completedAt: at,
+                    events: Array.from({ length: 1_500 }, (_, i) => variant('cached', { task: `b${i}`, timestamp: at })),
+                };
+            }
+            return answer;
+        };
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        let events = store.getState().data.execution['main']?.events ?? [];
+        assert.deepEqual([events.length, new Set(events.map(e => e.type))], [1_000, new Set(['start'])], 'run-a\'s first page, and none of run-b\'s');
+
+        feeds.fire('execution:main');
+        await settle();
+        await settle();
+        events = store.getState().data.execution['main']?.events ?? [];
+        assert.deepEqual([events.length, new Set(events.map(e => e.type)), events[0]?.value.task], [1_500, new Set(['cached']), 'b0'], 'run-b\'s events, from its first');
+        feeds.stop();
+    });
+
+    test('the execution feed takes a poll that served nothing past its cursor as caught up, whatever the run\'s last event says', async () => {
+        const api = fakeRepo();
+        // Polls take a moment, so a feed that polled on without end would poll many times below.
+        api.latencyMs = 1;
+        const at = new Date(0).toISOString();
+        // A run whose summary has run ahead of the events its store holds.
+        api.workspace('main', {
+            execution: { id: 'run-a', lastSeq: 5, status: 'completed', startedAt: at, completedAt: at, events: [variant('start', { task: 'a', timestamp: at }), variant('cached', { task: 'a', timestamp: at })] },
+        });
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'main', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        for (let i = 0; i < 200 && store.getState().data.execution['main'] === undefined; i++) await new Promise(resolve => setTimeout(resolve, 5));
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(store.getState().data.execution['main']?.events.length, 2);
+        assert.deepEqual(api.calls.filter(c => c.startsWith('dataflowExecutePoll main')), ['dataflowExecutePoll main 0', 'dataflowExecutePoll main 2']);
+        feeds.stop();
+    });
+
     test('the repositories view fetches each repository\'s counts and last deployment lazily', async () => {
         const api = fakeRepo();
         api.workspace('main');

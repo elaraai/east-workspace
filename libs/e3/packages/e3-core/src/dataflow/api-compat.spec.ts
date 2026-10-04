@@ -191,7 +191,7 @@ describe('coreStateToApiState', () => {
     ];
 
     const state = makeState({ executed: 1n, events });
-    const result = coreStateToApiState(state, events, 4n, 1000);
+    const result = coreStateToApiState(executionStateSummary(state), events, 4n, 1000);
 
     assert.strictEqual(result.events.length, 2);
     assert.strictEqual(result.nextSeq, 4n);
@@ -211,21 +211,25 @@ describe('coreStateToApiState', () => {
     ];
 
     const state = makeState({ events });
-    const result = coreStateToApiState(state, events, 1n, 0);
+    const result = coreStateToApiState(executionStateSummary(state), events, 1n, 0);
 
     assert.strictEqual(result.events.length, 0);
     assert.strictEqual(result.nextSeq, 1n);
   });
 
-  it('answers a run\'s summary as its whole state, which holds the summary', () => {
-    const events: ExecutionEvent[] = [variant('task_started', { seq: 1n, timestamp: now, task: 'build' })];
-    const state = makeState({ executed: 3n, cached: 2n, failed: 1n, skipped: 4n, status: 'failed', events });
-    assert.deepStrictEqual(coreStateToApiState(executionStateSummary(state), events, 1n, 700), coreStateToApiState(state, events, 1n, 700));
+  it('names the run, and its last event, which says whether a poll left events for the next', () => {
+    const events: ExecutionEvent[] = [
+      variant('task_started', { seq: 1n, timestamp: now, task: 'build' }),
+      variant('task_completed', { seq: 2n, timestamp: now, task: 'build', cached: false, outputHash: 'abc', duration: 5n, peakBytes: none }),
+    ];
+    const state = makeState({ id: 'run-7', executed: 1n, status: 'failed', events });
+    const result = coreStateToApiState(executionStateSummary(state), events.slice(0, 1), 1n, 700);
+    assert.deepStrictEqual([result.runId, result.nextSeq, result.lastSeq], ['run-7', 1n, 2n]);
   });
 
   it('includes summary only for non-running executions', () => {
     const state = makeState({ status: 'running', completedAt: none });
-    const result = coreStateToApiState(state, [], 0n, 500);
+    const result = coreStateToApiState(executionStateSummary(state), [], 0n, 500);
 
     assert.strictEqual(result.summary, null);
     assert.strictEqual(result.status, 'running');
@@ -233,7 +237,7 @@ describe('coreStateToApiState', () => {
 
   it('maps cancelled status to aborted', () => {
     const state = makeState({ status: 'cancelled' });
-    const result = coreStateToApiState(state, [], 0n, 0);
+    const result = coreStateToApiState(executionStateSummary(state), [], 0n, 0);
 
     assert.strictEqual(result.status, 'aborted');
   });

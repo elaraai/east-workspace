@@ -886,11 +886,20 @@ export const SplitProgressType = StructType({
  * execution state on disk.
  *
  * A poll names a cursor (`since`), the sequence number of the last event it
- * has, and is served the run's events past it, at most its `limit`; the
- * response's `nextSeq` is the cursor of the poll after it. A poll that has
- * every event reads no event of the run, so a client polls on a timer for the
- * whole run at the cost of what is new.
+ * has, and is served the run's events past it, at most its `limit`, and never
+ * more than {@link DATAFLOW_POLL_EVENTS_MAX}; the response's `nextSeq` is the
+ * cursor of the poll after it. A poll that has every event reads no event of
+ * the run, so a client polls on a timer for the whole run at the cost of what
+ * is new.
  *
+ * The response names the run (`runId`) and where its events end (`lastSeq`).
+ * A cursor counts a run's own events, so a client that sees another run starts
+ * from 0. A poll whose `nextSeq` is before `lastSeq` left events for the next,
+ * which a client reads before it takes a run's end as its last word; and a
+ * client opens a running run's feed near its tail from `lastSeq`, or follows
+ * its progress with polls that ask for no events (`limit` 0).
+ *
+ * @property runId - The run's id, a UUIDv7
  * @property status - Current execution status
  * @property startedAt - ISO timestamp when execution started
  * @property completedAt - ISO timestamp when execution finished (if done)
@@ -899,6 +908,9 @@ export const SplitProgressType = StructType({
  *   its limit, in the order they happened
  * @property nextSeq - The cursor past the events served, which the next poll
  *   passes as `since`: the poll's own when it served none
+ * @property lastSeq - The sequence number of the run's last event when the
+ *   poll read it, 0 while it has none: the cursor of a poll that has every
+ *   event
  * @property budget - The server's budget now, where it has one: a server whose
  *   runners hold none, as a remote backend's, serves `none`
  * @property waiting - The tasks and units of the run waiting for room, while it
@@ -907,16 +919,26 @@ export const SplitProgressType = StructType({
  *   stores it
  */
 export const ApiDataflowExecutionStateType = StructType({
+  runId: StringType,
   status: ApiExecutionStatusType,
   startedAt: StringType,
   completedAt: OptionType(StringType),
   summary: OptionType(DataflowExecutionSummaryType),
   events: ArrayType(DataflowEventType),
   nextSeq: IntegerType,
+  lastSeq: IntegerType,
   budget: OptionType(DataflowBudgetType),
   waiting: ArrayType(UnitWaitType),
   splits: ArrayType(SplitProgressType),
 });
+
+/**
+ * The most events a poll of a run is served ({@link ApiDataflowExecutionStateType}):
+ * a poll that names no `limit`, or a larger one, is served this many, so an
+ * answer stays within what a host's response may hold however long the run. A
+ * client reads on from the answer's `nextSeq`.
+ */
+export const DATAFLOW_POLL_EVENTS_MAX = 1_000;
 
 // =============================================================================
 // Task Execution History Types

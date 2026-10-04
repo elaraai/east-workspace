@@ -90,6 +90,8 @@ export interface ApiExecutionSummary {
  * server's, which nothing stores.
  */
 export interface ApiExecutionState {
+  /** The run's id */
+  runId: string;
   status: ApiExecutionStatus;
   startedAt: string;
   completedAt: string | null;
@@ -98,6 +100,9 @@ export interface ApiExecutionState {
   events: ApiDataflowEvent[];
   /** The cursor past the events served: the next poll's `since` */
   nextSeq: bigint;
+  /** The sequence number of the run's last event: a poll whose `nextSeq` is
+   *  before it left events for the next */
+  lastSeq: bigint;
 }
 
 // =============================================================================
@@ -221,15 +226,16 @@ export function coreStatusToApiStatus(status: DataflowExecutionStatus): ApiExecu
 /**
  * Convert e3-core execution state to API-compatible state.
  *
- * @param state - The run's summary (`ExecutionStateSummary`), or its whole
- *   state, which holds it
- * @param events - The events past the poll's cursor, at most its limit
+ * @param state - The run's summary (`ExecutionStateSummary`), as a store
+ *   answers it; a whole state's is `executionStateSummary(state)`
+ * @param events - The events past the poll's cursor, at most its limit, and
+ *   none past the summary's last
  * @param nextSeq - The cursor past those events: the next poll's `since`
  * @param duration - Total execution duration in milliseconds
- * @returns API-compatible execution state
+ * @returns API-compatible execution state, naming the run and its last event
  */
 export function coreStateToApiState(
-  state: Pick<ExecutionStateSummary, 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped'>,
+  state: Pick<ExecutionStateSummary, 'id' | 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped' | 'lastSeq'>,
   events: ExecutionEvent[],
   nextSeq: bigint,
   duration: number
@@ -261,11 +267,13 @@ export function coreStateToApiState(
     : null;
 
   return {
+    runId: state.id,
     status: coreStatusToApiStatus(state.status as DataflowExecutionStatus),
     startedAt: state.startedAt.toISOString(),
     completedAt: completedAtValue,
     summary,
     events: apiEvents,
     nextSeq,
+    lastSeq: state.lastSeq,
   };
 }

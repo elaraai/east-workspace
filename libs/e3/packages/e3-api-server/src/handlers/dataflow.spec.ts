@@ -209,6 +209,69 @@ describe('dataflow routes', () => {
     assert.deepEqual(await refused.json(), { error: { type: 'bad_request', message: 'since must be a non-negative integer, got "-1"' } });
   });
 
+  it('poll a run of more events than a poll is served: at most 1,000, however many it asks for, with the run\'s id and its last event, which say what a poll left', async () => {
+    const store = new InMemoryStateStore();
+    const at = new Date(0);
+    await store.create({
+      ...runState('run-1', 'completed'),
+      completedAt: some(at),
+      events: Array.from({ length: 1_500 }, (_, i) => variant('task_started', { seq: BigInt(i + 1), timestamp: at, task: `t${i + 1}` })),
+      eventSeq: 1_500n,
+    });
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(store),
+      getStateStore: () => store,
+    }));
+    const decodeState = decodeBeast2For(ResponseType(DataflowExecutionStateType));
+    const poll = async (query: string) => {
+      const answer = decodeState(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/main/dataflow/execution${query}`)).arrayBuffer()));
+      if (answer.type !== 'success') assert.fail(`the poll ${query} was refused: ${answer.value.type}`);
+      const { runId, events, nextSeq, lastSeq } = answer.value;
+      return { runId, served: events.length, first: events[0]?.value.task ?? null, nextSeq, lastSeq };
+    };
+
+    assert.deepEqual(await poll(''), { runId: 'run-1', served: 1_000, first: 't1', nextSeq: 1_000n, lastSeq: 1_500n }, 'a poll that names no limit');
+    assert.deepEqual(await poll('?limit=5000'), { runId: 'run-1', served: 1_000, first: 't1', nextSeq: 1_000n, lastSeq: 1_500n }, 'one that names a larger');
+    assert.deepEqual(await poll('?since=1000'), { runId: 'run-1', served: 500, first: 't1001', nextSeq: 1_500n, lastSeq: 1_500n }, 'the rest, from the cursor it left');
+    assert.deepEqual(await poll('?limit=0'), { runId: 'run-1', served: 0, first: null, nextSeq: 0n, lastSeq: 1_500n }, 'a poll of no events sees where the run\'s events end');
+  });
+
+  it('poll a run up to the last event its summary names: one the run records after the summary is read is the next poll\'s', async () => {
+    const inner = new InMemoryStateStore();
+    const at = new Date(0);
+    await inner.create({ ...runState('run-1', 'running'), events: [variant('task_started', { seq: 1n, timestamp: at, task: 'etl' })], eventSeq: 1n });
+    // The run records its next event between the poll's read of its summary
+    // and its read of the events.
+    let races = true;
+    const store: ExecutionStateStore = {
+      ...countingStore(inner).store,
+      getEventsSince: async (repo, workspace, id, since) => {
+        if (races) {
+          races = false;
+          await inner.recordEvent(repo, workspace, id, variant('task_started', { seq: 2n, timestamp: at, task: 'report' }));
+        }
+        return inner.getEventsSince(repo, workspace, id, since);
+      },
+    };
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(store),
+      getStateStore: () => store,
+    }));
+    const decodeState = decodeBeast2For(ResponseType(DataflowExecutionStateType));
+    const poll = async (query: string) => {
+      const answer = decodeState(new Uint8Array(await (await app.request(`/api/repos/r/workspaces/main/dataflow/execution${query}`)).arrayBuffer()));
+      if (answer.type !== 'success') assert.fail(`the poll ${query} was refused: ${answer.value.type}`);
+      return [answer.value.events.map((event) => `${event.type} ${event.value.task}`), answer.value.nextSeq, answer.value.lastSeq];
+    };
+
+    assert.deepEqual(await poll(''), [['start etl'], 1n, 1n], 'the events its summary names, and no later one');
+    assert.deepEqual(await poll('?since=1'), [['start report'], 2n, 2n], 'the next poll serves it');
+  });
+
   it('poll a run another host runs without reading its state for the waits and progress, which only that host holds', async () => {
     const { store, reads } = countingStore(new InMemoryStateStore());
     await store.create(runState('run-1', 'running'));
