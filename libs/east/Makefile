@@ -1,7 +1,7 @@
 # east — core language package
 # Dependencies are managed by pnpm from the monorepo root.
 
-.PHONY: build test test-export query-corpus query-types query-types-tables query-bench lint example clean help
+.PHONY: build test test-export query-corpus query-types query-types-tables query-bench paged-weights lint example clean help
 
 ## Build the package
 build:
@@ -40,6 +40,12 @@ query-bench:
 	cmake --build ../east-c/build-release -j$$(nproc) --target east-c-cli > /dev/null
 	node dist/test/query-bench/bench.js
 
+## Rewrite test/fixtures/paged-weights.beast2, the decoded weights every
+## runtime's pager cache is held to (#1129), from test/paged-weights.fixture.ts
+## (builds first); its spec fails while the file is not current.
+paged-weights:
+	pnpm run build && pnpm run paged-weights
+
 ## Run linter (builds first)
 lint:
 	pnpm run build && pnpm run lint
@@ -63,6 +69,7 @@ help:
 	@echo "  query-types - Rewrite test/fixtures/query-types.json with jq 1.8.1's runs of the type matrix, and QUERY.md §16.5's tables"
 	@echo "  query-types-tables - Rewrite QUERY.md §16.5's tables alone, from the checked-in runs (no jq)"
 	@echo "  query-bench - Time translated queries against jq (by hand; prints QUERY.md §16.4's table)"
+	@echo "  paged-weights - Rewrite test/fixtures/paged-weights.beast2, the decoded weights every runtime's pager cache is held to"
 	@echo "  lint        - Run linter"
 	@echo "  example     - Run examples"
 	@echo "  clean       - Clean build artifacts"

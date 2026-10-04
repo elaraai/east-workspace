@@ -416,6 +416,18 @@ add_executable(test_paged_value tests/test_paged_value.c)
 target_link_libraries(test_paged_value east-c)
 add_test(NAME paged_value COMMAND test_paged_value)
 
+# The pager's cache gate (#1129): the decoded weight a cached segment counts,
+# held to the shared fixture every runtime reads
+# (libs/east/test/fixtures/paged-weights.beast2) and, on a 64-bit build, to the
+# value slab's own accounting of what a read built; least recently used within
+# a budget of that weight; and the segments dropped behind reads in key order.
+# Run under ASan/LSan for the cache's entry pool and recency list.
+add_executable(test_beast2_pages_cache tests/test_beast2_pages_cache.c)
+target_link_libraries(test_beast2_pages_cache east-c)
+target_compile_definitions(test_beast2_pages_cache PRIVATE
+    EAST_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../../east/test/fixtures")
+add_test(NAME beast2_pages_cache COMMAND test_beast2_pages_cache)
+
 # Stack guard budget gate (#986): a thread with a stack larger than
 # EAST_STACK_BUDGET gives East calls only what an 8 MiB stack does, so a
 # runaway recursion is refused at the same depth on every platform — before

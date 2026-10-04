@@ -398,6 +398,20 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out);
 // A runner reports these per lazy input — the account residency cannot give
 // on a mapping, where the kernel decides how much of a touched file is resident.
 void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed);
+// What the pager's cache of decoded segments has done (#1129) — the cache
+// element(), the keyed reads, get_keys() and find_sorted() go through — in
+// decoded weight (see east_beast2_pages_set_cache_budget). For tests and
+// diagnostics; a runner's account is east_beast2_pages_stats'.
+typedef struct {
+    size_t hits;           // reads it served
+    size_t evictions;      // segments it evicted to stay within its budget
+    size_t dropped_behind; // segments it dropped behind reads in key order
+    size_t segments;       // segments it holds now
+    size_t weight;         // their decoded weight
+    size_t peak_weight;    // the most it has held
+    size_t budget;         // its budget
+} Beast2PagesCacheStats;
+void east_beast2_pages_cache_stats(Beast2Pages *p, Beast2PagesCacheStats *out);
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i);
 EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row);
 // Segment i's FENCE: its first element (Array/Set) or first key (Dict),
@@ -677,11 +691,15 @@ bool east_beast2_intake_file(const char *path, EastType *type, bool ranged, int6
                              int64_t to, const char *output, bool parallel,
                              EastBeast2IntakeStats *stats);
 
-// The byte budget of a pager's decoded-segment cache (issue #560), which the
-// keyed and row reads go through; a scan decodes fresh (#1129). The sum of
-// cached segments' decompressed frame lengths stays at or under the budget
-// (the newest segment always caches, even alone over it). Defaults to 64 MiB;
-// the EAST_PAGED_CACHE_BYTES environment variable overrides it at open.
+// The budget of a pager's decoded-segment cache (#560, #1129), which the
+// keyed and row reads go through; a scan decodes fresh. The cache is the
+// pager's own, and counts its segments in decoded weight: a number defined on
+// the values, the same in every runtime (v5/SPEC.md, "The pager's cache"),
+// which is east-c's memory on a 64-bit build. It keeps the most recently used
+// segments within the budget — the newest always, so 1 keeps one segment —
+// and drops behind reads in key order, which keep about two. Defaults to
+// 256 MiB; the EAST_PAGED_CACHE_BYTES environment variable sets it at open.
+// Setting it evicts down to it at once.
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
 
 // The eager collection behind a paged value, decoding the whole blob on

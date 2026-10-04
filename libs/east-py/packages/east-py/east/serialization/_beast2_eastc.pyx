@@ -1154,6 +1154,25 @@ cdef class _Beast2PagesCore:
         finally:
             _eastc.east_value_release(c_val)
 
+    def cache_stats(self):
+        """What the pager's cache of decoded segments has done (#1129) — the
+        cache the element and keyed reads go through — in decoded weight, the
+        number every runtime gives a segment: ``hits``, ``evictions`` (to stay
+        within the budget), ``dropped_behind`` (behind reads in key order),
+        ``segments`` and ``weight`` (what it holds now), ``peak_weight`` and
+        ``budget``. For tests."""
+        cdef _eastc.Beast2PagesCacheStats s
+        _eastc.east_beast2_pages_cache_stats(self._p, &s)
+        return {
+            "hits": s.hits,
+            "evictions": s.evictions,
+            "dropped_behind": s.dropped_behind,
+            "segments": s.segments,
+            "weight": s.weight,
+            "peak_weight": s.peak_weight,
+            "budget": s.budget,
+        }
+
     def __dealloc__(self):
         if self._p != NULL:
             _eastc.east_beast2_pages_free(self._p)

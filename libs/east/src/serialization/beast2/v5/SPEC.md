@@ -656,7 +656,86 @@ re-cut's segments are exactly the canonical writer's for the whole value.
   the one it holds at a seam and the one arriving.
 - A sequential whole-value reader is O(value). The segment iterator is
   O(segment) decoded state (plus one pointer per container definition in
-  non-self-contained streams). A paging reader is O(segment) per access.
+  non-self-contained streams). A paging reader is O(segment) per access,
+  beside what its cache keeps (*The pager's cache*).
+
+## The pager's cache
+
+A paging reader keeps the segments its reads by position and by key decode,
+so a read into a segment it holds is not decoded again. The cache is not part
+of what a blob holds — every cache reads the same values — but every runtime
+keeps it by these rules (#1129), so a program reads a lazy input with the same
+decodes, and in east-c the same memory, wherever it runs: east-c's pager
+(`stream.c`, which east-py's lazy files read through) and TypeScript's
+(`stream.ts`).
+
+- **One per pager.** A cache belongs to one lazily read input. Nothing is
+  shared between pagers or kept per process.
+- **Scans keep nothing.** A scan — a loop over the collection, a segment read
+  for a fold — decodes each segment fresh and holds the one it walks; it never
+  fills the cache or evicts from it. Element reads, keyed and batched keyed
+  reads, and the search of a sorted Array go through it.
+- **Frozen.** A cached segment decodes frozen, so what a read is handed cannot
+  change what a later read is served.
+- **Decoded weight.** The cache counts what it holds in decoded weight: a
+  number defined on the values, the same in every runtime for the same
+  segment. The constants are east-c's layout on a 64-bit build — the node each
+  value takes from its value slab, and what it allocates beside it — so in
+  east-c the weight is the memory a segment holds; anywhere else it is an
+  estimate.
+
+  | Value | Weight, in bytes |
+  |---|---|
+  | Null | 0 |
+  | Boolean, Integer, Float, DateTime | 16 |
+  | String | 72; past 47 bytes of UTF-8, + its byte length + 1 |
+  | Blob | 24 + its length |
+  | Array | 104 + 8 per element, + its elements |
+  | Set | 104 + 8 per element while it holds at most 256, 16 per element once it holds more, + its elements |
+  | Dict | 104 + 16 per entry while it holds at most 256, 32 per entry once it holds more, + its keys and values |
+  | Struct | 104 + 8 per field, + its fields |
+  | Variant | 0 for a case whose payload is Null; else 104 + its payload |
+  | Ref | 104 + its value |
+  | Vector | 40 + 8 per element, 1 per Boolean |
+  | Matrix | 48 + 8 per element, 1 per Boolean |
+  | Function | 360; its IR and captures do not count |
+
+  A segment weighs its root container — the Array, Set or Dict of its
+  elements, by the rows above — and its elements. A container met more than
+  once through REF tags is one container, and counts where the segment first
+  meets it, in the order it decodes; one it first meets inside a function, in
+  the function's IR or captures, counts nowhere, as nothing inside a function
+  does. A projected segment weighs what it decodes: the fields it keeps.
+  `libs/east/test/fixtures/paged-weights.beast2` holds a value of every kind
+  with its weight, and each runtime's tests hold its cache to it.
+- **The budget** is 256 MiB of decoded weight per pager: enough for every
+  input the query planner reads whole in each piece, one that weighs less than
+  the smallest piece — 16 MiB stored at the platform's sizes — which decodes
+  to at most about 16 times that on the shapes measured. east-c's pager reads
+  the `EAST_PAGED_CACHE_BYTES` environment variable at open, and TypeScript's
+  takes a `cacheBytes` option, which east-node's CLI sets from the same
+  variable; either is in bytes of weight.
+- **Least recently used.** A miss puts its segment at the head and evicts from
+  the tail until the cache is within its budget. The newest segment is never
+  evicted, so a segment heavier than the budget still caches, alone: a budget
+  of 1 keeps exactly one. A hit moves its segment to the head. Both are O(1).
+- **Dropping behind reads in key order.** A miss that reads one or two
+  segments past the previous miss continues a run of misses; any other miss
+  starts one, and a hit leaves the run as it is. From a run's fourth miss on —
+  its first and three more — each miss drops every segment the run itself
+  decoded, from the run's first segment to two before the one it reads: a
+  reader in key order keeps the segment it is in and the one before.
+  Segments cached before the run, or past what it has read, are left to the
+  least-recently-used rule, so a random working set survives a pass in key
+  order over the same input. A reader at random lands one or two segments past
+  its last miss with odds of about 2 in the segment count S, so a miss and
+  three such after it are (2/S)³ — 1 in 80,000 over 87 segments.
+- **What empties it**: a change of projection, and a hydration — the whole
+  value decoded for an operation the pager cannot serve.
+
+A program whose reads land at random across more than the budget, or that
+scans an input more than once, reads it whole instead (e3's `decode: whole`,
+a runner's `--decode whole`).
 
 ## Encoding algorithm (whole value)
 

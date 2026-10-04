@@ -1037,6 +1037,8 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
             free(names);
             free(values);
         }
+        /* What it keeps: a skipped field built nothing. */
+        ctx->weight += B2V5_WEIGHT_NODE + 8 * nf_proj;
         break;
     }
 
@@ -1049,6 +1051,7 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
         if (!payload) break;
         result = east_variant_new_idx((size_t)ci, payload, node->proj);
         east_value_release(payload);
+        if (payload != &east_null_value) ctx->weight += B2V5_WEIGHT_NODE;
         break;
     }
 
@@ -1076,6 +1079,7 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
             east_value_release(container);
             break;
         }
+        ctx->weight += b2v5_weight_container(node->wire->kind, b2v5_container_len(container));
         result = container;
         break;
     }
@@ -1091,6 +1095,7 @@ EastValue *b2v5_decode_value_projected(const uint8_t *data, size_t len, size_t *
         }
         EastValue *cell = east_ref_new(east_null());
         if (!cell) break;
+        ctx->weight += B2V5_WEIGHT_NODE;
         if (ctx->frozen) east_value_set_frozen(cell);
         if (!b2v5_dec_ctx_push(ctx, cell)) {
             east_value_release(cell);

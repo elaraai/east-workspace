@@ -516,10 +516,14 @@ EastValue *b2v5_decode_value(const uint8_t *data, size_t len, size_t *offset, Ea
      * own state). Containers a capture merely aliases from the frozen graph
      * resolve by REF and keep their brand. */
     bool was_frozen = ctx->frozen;
-    if (type && (type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION))
-        ctx->frozen = false;
+    bool function =
+        type && (type->kind == EAST_TYPE_FUNCTION || type->kind == EAST_TYPE_ASYNC_FUNCTION);
+    size_t weight = ctx->weight;
+    if (function) ctx->frozen = false;
     EastValue *result = b2v5_decode_value_inner(data, len, offset, type, ctx);
     ctx->frozen = was_frozen;
+    /* A function weighs a constant: nothing its IR or captures built counts. */
+    if (function) ctx->weight = weight + B2V5_WEIGHT_FUNCTION;
     ctx->depth--;
     return result;
 }
@@ -682,18 +686,21 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
     case EAST_TYPE_BOOLEAN: {
         if (*offset >= len) return NULL;
         bool val = data[(*offset)++] != 0;
+        ctx->weight += B2V5_WEIGHT_SCALAR;
         return east_boolean(val);
     }
 
     case EAST_TYPE_INTEGER: {
         int64_t val;
         if (!read_zigzag_checked(data, len, offset, &val)) return NULL;
+        ctx->weight += B2V5_WEIGHT_SCALAR;
         return east_integer(val);
     }
 
     case EAST_TYPE_FLOAT: {
         if (*offset + 8 > len) return NULL;
         double val = b2_read_float64_le(data, offset);
+        ctx->weight += B2V5_WEIGHT_SCALAR;
         return east_float(val);
     }
 
@@ -703,12 +710,14 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
         size_t slen;
         const uint8_t *bytes = b2_read_string_view(data, len, offset, &slen);
         if (!bytes) return NULL;
+        ctx->weight += b2v5_weight_string(slen);
         return east_string_len((const char *)bytes, slen);
     }
 
     case EAST_TYPE_DATETIME: {
         int64_t millis;
         if (!read_zigzag_checked(data, len, offset, &millis)) return NULL;
+        ctx->weight += B2V5_WEIGHT_SCALAR;
         return east_datetime(millis);
     }
 
@@ -718,6 +727,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
         if (blen > len - *offset) return NULL;
         EastValue *val = east_blob(data + *offset, (size_t)blen);
         *offset += (size_t)blen;
+        ctx->weight += B2V5_WEIGHT_BLOB + (size_t)blen;
         return val;
     }
 
@@ -750,6 +760,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
             east_value_release(container);
             return NULL;
         }
+        ctx->weight += b2v5_weight_container(type->kind, b2v5_container_len(container));
         return container;
     }
 
@@ -761,6 +772,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
 
         EastValue *cell = east_ref_new(east_null());
         if (!cell) return NULL;
+        ctx->weight += B2V5_WEIGHT_NODE;
         if (ctx->frozen) east_value_set_frozen(cell);
         if (!b2v5_dec_ctx_push(ctx, cell)) {
             east_value_release(cell);
@@ -819,6 +831,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
             free(names);
             free(values);
         }
+        ctx->weight += B2V5_WEIGHT_NODE + 8 * nf;
         return result;
     }
 
@@ -833,6 +846,8 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
 
         EastValue *result = east_variant_new_idx((size_t)case_idx, case_value, type);
         east_value_release(case_value);
+        /* A case with no payload is a value the type shares: it weighs nothing. */
+        if (case_value != &east_null_value) ctx->weight += B2V5_WEIGHT_NODE;
         return result;
     }
 
@@ -861,6 +876,7 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
         size_t byte_count = (size_t)vlen * elem_size;
         memcpy(vec->data.vector.data, data + *offset, byte_count);
         *offset += byte_count;
+        ctx->weight += B2V5_WEIGHT_VECTOR + b2v5_weight_elements(elem_type, (size_t)vlen);
         return vec;
     }
 
@@ -891,6 +907,8 @@ static EastValue *b2v5_decode_value_inner(const uint8_t *data, size_t len, size_
         size_t byte_count = (size_t)rows * (size_t)cols * elem_size;
         memcpy(mat->data.matrix.data, data + *offset, byte_count);
         *offset += byte_count;
+        ctx->weight +=
+            B2V5_WEIGHT_MATRIX + b2v5_weight_elements(elem_type, (size_t)rows * (size_t)cols);
         return mat;
     }
 

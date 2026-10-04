@@ -247,6 +247,11 @@ typedef struct {
     bool proj_active;
     const void *cur_shape;  /* shape of the value being decoded right now */
     const void **def_plans; /* per-definition shape, parallel to defs */
+    /* The decoded weight of every value this decode has built (#1129): what a
+     * pager's cache counts a segment by. A container met again through a REF
+     * is built once, so it counts once; nothing inside a function value
+     * counts, the function weighing a constant. */
+    size_t weight;
 } B2V5DecodeCtx;
 
 /* def_plans marker for a definition whose bytes were parsed and skipped. */
@@ -266,6 +271,61 @@ bool b2v5_dec_ctx_push(B2V5DecodeCtx *ctx, EastValue *container);
  * or NULL (error posted where a message helps). */
 EastValue *b2v5_decode_value(const uint8_t *data, size_t len, size_t *offset, EastType *type,
                              B2V5DecodeCtx *ctx);
+
+/* ================================================================== */
+/*  Decoded weight (v5/SPEC.md, "The pager's cache", #1129)            */
+/* ================================================================== */
+
+/* What a decoded value weighs, in bytes: a number defined on the value, the
+ * same in every runtime, that a pager's cache counts its segments by. The
+ * constants are east-c's own layout on a 64-bit build — the node each kind
+ * takes from the value slab, and what it allocates beside it — so the weight
+ * tracks what a cached segment holds here, and is an estimate in any other
+ * runtime. They are literals, never sizeof: a 32-bit build weighs a value as
+ * a 64-bit one does. */
+#define B2V5_WEIGHT_SCALAR 16 /* Boolean, Integer, Float, DateTime */
+#define B2V5_WEIGHT_STRING 72 /* past B2V5_WEIGHT_STRING_INLINE bytes, + its length + 1 */
+#define B2V5_WEIGHT_STRING_INLINE 47
+#define B2V5_WEIGHT_BLOB 24   /* + its length */
+#define B2V5_WEIGHT_NODE 104  /* Array, Set, Dict, Struct, Variant, Ref */
+#define B2V5_WEIGHT_VECTOR 40 /* + 8 per element, 1 per Boolean */
+#define B2V5_WEIGHT_MATRIX 48 /* + 8 per element, 1 per Boolean */
+#define B2V5_WEIGHT_FUNCTION 360
+/* The most elements a Set, or entries a Dict, holds in its sorted arrays
+ * alone; past it a tree holds them, the arrays its in-order cache. */
+#define B2V5_WEIGHT_SMALL_MAX 256
+
+/* A String of `len` UTF-8 bytes. */
+static inline size_t b2v5_weight_string(size_t len)
+{
+    return B2V5_WEIGHT_STRING + (len > B2V5_WEIGHT_STRING_INLINE ? len + 1 : 0);
+}
+
+/* An Array, Set or Dict of `n` elements (entries), without its elements: the
+ * node and its slots — 8 per element of an Array; 8 per element of a Set of at
+ * most 256, 16 per element of a larger one; 16 per entry of a Dict of at most
+ * 256, 32 per entry of a larger one. */
+static inline size_t b2v5_weight_container(EastTypeKind kind, size_t n)
+{
+    size_t slot = 8;
+    if (kind == EAST_TYPE_SET) slot = n <= B2V5_WEIGHT_SMALL_MAX ? 8 : 16;
+    if (kind == EAST_TYPE_DICT) slot = n <= B2V5_WEIGHT_SMALL_MAX ? 16 : 32;
+    return B2V5_WEIGHT_NODE + slot * n;
+}
+
+/* A Vector or Matrix's elements: 8 bytes each, 1 for a Boolean. */
+static inline size_t b2v5_weight_elements(const EastType *elem, size_t count)
+{
+    return (elem && elem->kind == EAST_TYPE_BOOLEAN ? 1 : 8) * count;
+}
+
+/* The elements (entries) a decoded Array, Set or Dict holds. */
+static inline size_t b2v5_container_len(const EastValue *c)
+{
+    if (c->kind == EAST_VAL_ARRAY) return c->data.array.len;
+    if (c->kind == EAST_VAL_SET) return c->data.set.len;
+    return c->data.dict.len;
+}
 
 /* Read a container tag (v5/codec.c). Returns 1 and sets *aliased (retained)
  * for REF, 0 for NEW, -1 for corruption or a projection-shape mismatch. */
