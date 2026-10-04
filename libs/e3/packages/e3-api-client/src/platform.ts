@@ -599,11 +599,14 @@ export function platformImplementation(options: PlatformImplementationOptions = 
         token: string
       ) => {
         try {
-          return await taskLogs(url, repo, workspace, task, {
+          // A log chunk, as the platform function has always answered it: the
+          // execution the route names is the route's own
+          const { data, offset, size, totalSize, complete } = await taskLogs(url, repo, workspace, task, {
             stream: options.stream as 'stdout' | 'stderr',
             offset: Number(options.offset),
             limit: Number(options.limit),
           }, requestOptions(token));
+          return { data, offset, size, totalSize, complete };
         } catch (err: any) {
           throw new EastError(`Failed to get logs for task ${task} in ${workspace}: ${err.message}`, {
             location: [{ filename: 'e3_task_logs', line: 0n, column: 0n }],

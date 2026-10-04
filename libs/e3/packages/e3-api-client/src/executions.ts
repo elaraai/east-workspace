@@ -5,9 +5,9 @@
 
 import { IntegerType, NullType, OptionType, lessFor, none, printFor, some, variant } from '@elaraai/east';
 import { dataflowForce } from '@elaraai/e3-types';
-import type { LogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
+import type { TaskLogChunk, DataflowBudget, DataflowGraph, DataflowResult, DataflowExecutionState, TaskExecutionResult } from './types.js';
 import {
-  LogChunkType,
+  TaskLogChunkType,
   DataflowRequestType,
   DataflowGraphType,
   DataflowBudgetType,
@@ -271,10 +271,17 @@ export interface LogOptions {
   offset?: number;
   /** Maximum bytes to read (default: 65536) */
   limit?: number;
+  /** The execution to read, by the inputs hash and id a chunk named: the
+   *  task's current execution unless given */
+  execution?: { inputsHash: string; executionId: string };
 }
 
 /**
- * Read task logs from a workspace.
+ * Read a chunk of a task's log from a workspace: of the task's current
+ * execution, or of the one `logOptions.execution` names. The chunk names the
+ * execution it was read from and whether it has ended, so a client polling
+ * the log reads on from its offset, starts over when the execution changes,
+ * and stops once it has ended and its log is read.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -282,7 +289,7 @@ export interface LogOptions {
  * @param task - Task name
  * @param logOptions - Log reading options
  * @param options - Request options including auth token
- * @returns Log chunk with data and metadata
+ * @returns Log chunk with data and metadata, and its execution
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -293,16 +300,20 @@ export async function taskLogs(
   task: string,
   logOptions: LogOptions = {},
   options: RequestOptions
-): Promise<LogChunk> {
+): Promise<TaskLogChunk> {
   const params = new URLSearchParams();
   if (logOptions.stream) params.set('stream', logOptions.stream);
   if (logOptions.offset != null) params.set('offset', String(logOptions.offset));
   if (logOptions.limit != null) params.set('limit', String(logOptions.limit));
+  if (logOptions.execution !== undefined) {
+    params.set('inputs', logOptions.execution.inputsHash);
+    params.set('execution', logOptions.execution.executionId);
+  }
 
   const query = params.toString();
   const path = `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/dataflow/logs/${encodeURIComponent(task)}${query ? `?${query}` : ''}`;
 
-  return get(url, path, LogChunkType, options);
+  return get(url, path, TaskLogChunkType, options);
 }
 
 /**

@@ -273,7 +273,7 @@ export class LocalRepoStore implements RepoStore {
     let deleted = 0;
 
     // For local storage, we delete every record in one pass
-    const refDirs = ['packages', 'workspaces', 'executions', 'running', 'dataflows', 'adoptions', 'locks', 'gc'];
+    const refDirs = ['packages', 'workspaces', 'executions', 'running', 'dataflows', 'adoptions', 'locks', 'gc', 'runs'];
 
     for (const dir of refDirs) {
       const dirPath = path.join(repoPath, dir);

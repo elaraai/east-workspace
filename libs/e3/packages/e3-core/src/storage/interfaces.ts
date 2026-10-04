@@ -515,6 +515,12 @@ export interface RefStore {
    * every attempt recorded running, and at most a few a crash left, which
    * {@link executionListRunning} passes over.
    *
+   * It indexes each task's runs too, which {@link executionListRuns} answers
+   * from: a status that is no unit's adds the attempt to its task's index,
+   * written before the status where the store cannot write both at once, so
+   * a crash between the two leaves at most a place no record backs, which a
+   * read passes over.
+   *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -524,10 +530,10 @@ export interface RefStore {
   executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void>;
 
   /**
-   * Delete an execution attempt's record: its status, its owner, and its
-   * place in the index of attempts recorded running. gc, which bounds the
-   * history a repository keeps, removes the attempt's logs first, through the
-   * log store.
+   * Delete an execution attempt's record: its status, its owner, its place in
+   * the index of attempts recorded running, and its place in its task's index
+   * of runs. gc, which bounds the history a repository keeps, removes the
+   * attempt's logs first, through the log store.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -629,6 +635,33 @@ export interface RefStore {
    *   index names is there and does not decode
    */
   executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
+
+  /**
+   * List a page of a task's runs — its own attempts, a split task's units left
+   * out — the latest first: what a task's history lists, and the run a task's
+   * logs fall back to.
+   *
+   * @remarks
+   * It reads the store's index of each task's runs, which
+   * {@link executionWrite} keeps, and the record of each run on the page, and
+   * no other: what it costs is the page, not what the task has run. A place in
+   * the index no record backs — what a crash between an attempt's two writes
+   * leaves, or a deletion part way — is passed over.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param page - Which runs: those whose ids sort before `before` — every
+   *   run, when absent — and at most `limit` of them
+   * @returns Each run's inputs hash, id and status, the latest first
+   * @throws {ExecutionCorruptError} When a run's record on the page is there
+   *   and does not decode
+   * @throws {RangeError} When `limit` is not a whole number greater than zero
+   */
+  executionListRuns(
+    repo: string,
+    taskHash: string,
+    page: { before?: string; limit: number },
+  ): Promise<Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }>>;
 
   /**
    * Record the orchestrator that launched an execution, beside its status. A

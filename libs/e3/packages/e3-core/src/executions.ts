@@ -166,14 +166,18 @@ export interface CurrentExecutionRef {
   executionId: string;
   /** True if this matches the current workspace input state */
   isCurrent: boolean;
+  /** The execution's status, as its record says it now */
+  status: ExecutionStatus;
 }
 
 /**
  * Find the execution reference for a task in a workspace.
  *
- * This looks up the task's current input hashes from the workspace state
- * and finds the matching execution. If no execution exists for the current
- * inputs, falls back to another of the task's own, never a unit of it.
+ * This looks up the task's current input hashes from the workspace state, and
+ * reads the latest attempt over them. When an input is unassigned, or no
+ * attempt is recorded over them, it falls back to the task's latest run, never
+ * a unit of it (`RefStore.executionListRuns`). Neither reads the task's
+ * history, so it costs the same however long the task has run.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -207,32 +211,17 @@ export async function executionFindCurrent(
     currentInputHashes.push(hash);
   }
 
-  const executions = await executionListForTask(storage, repo, taskHash);
-
   if (allInputsAssigned) {
     const inHash = inputsHash(currentInputHashes);
-    if (executions.includes(inHash)) {
-      // Get the latest execution status to get the executionId
-      const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-      if (status) {
-        // Extract executionId from the status (all variants have it)
-        const executionId = status.value.executionId;
-        return { taskHash, inputsHash: inHash, executionId, isCurrent: true };
-      }
-    }
-  }
-
-  // Fall back to the task's first execution listed; a split task's units are
-  // recorded under its hash too, and are not its runs.
-  for (const inHash of executions) {
     const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-    if (status && !status.value.unit) {
-      const executionId = status.value.executionId;
-      return { taskHash, inputsHash: inHash, executionId, isCurrent: false };
-    }
+    if (status !== null) return { taskHash, inputsHash: inHash, executionId: status.value.executionId, isCurrent: true, status };
   }
 
-  return null;
+  // The task's latest run: a split task's units are recorded under its hash
+  // too, and are not its runs
+  const [latest] = await storage.refs.executionListRuns(repo, taskHash, { limit: 1 });
+  if (latest === undefined) return null;
+  return { taskHash, inputsHash: latest.inputsHash, executionId: latest.executionId, isCurrent: false, status: latest.status };
 }
 
 // ============================================================================

@@ -19,9 +19,10 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
-import { StringType, decodeBeast2For, encodeBeast2For, variant, some, none } from '@elaraai/east';
+import { NullType, StringType, decodeBeast2For, encodeBeast2For, variant, some, none } from '@elaraai/east';
 import { ExecutionOwnerType, type ExecutionOwner, type ExecutionStatus, type DataflowRun } from '@elaraai/e3-types';
 import { LocalRefStore } from './LocalRefStore.js';
+import { runsPath } from './localHelpers.js';
 import { InvalidNameError } from '../../errors.js';
 import { createTestRepo, removeTestRepo } from '../../test-helpers.js';
 
@@ -269,6 +270,34 @@ describe('LocalRefStore execution sidecars (#770)', () => {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, 'plan.beast2'), encodeBeast2For(StringType)('../../elsewhere'));
     assert.strictEqual(await store.executionPlanRead(repo, taskHash, inputsHash), null);
+  });
+});
+
+describe('LocalRefStore index of runs', () => {
+  let repo: string;
+  beforeEach(() => { repo = createTestRepo(); });
+  afterEach(() => { removeTestRepo(repo); });
+
+  const taskHash = 'a'.repeat(64);
+  const inputsHash = 'b'.repeat(64);
+
+  it('passes over a run\'s place a crash left without its record, and a staging file, and still fills the page', async () => {
+    const store = new LocalRefStore();
+    const ids = ['0190a0b0-5555-7000-8000-000000000001', '0190a0b0-5555-7000-8000-000000000002', '0190a0b0-5555-7000-8000-000000000003'];
+    for (const executionId of ids) {
+      await store.executionWrite(repo, taskHash, inputsHash, executionId, variant('failed', {
+        executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(1000), exitCode: 1n, peakBytes: none, unit: false,
+      }));
+    }
+    // The latest run's place, written before a crash wrote its record; and a
+    // write's staging file beside it
+    const crashed = '0190a0b0-5555-7000-8000-000000000004';
+    await fs.writeFile(runsPath(repo, taskHash, crashed, inputsHash), encodeBeast2For(NullType)(null));
+    await fs.writeFile(`${runsPath(repo, taskHash, ids[0], inputsHash)}.abc12345.partial`, encodeBeast2For(NullType)(null));
+
+    const listed = async (page: { before?: string; limit: number }) => (await store.executionListRuns(repo, taskHash, page)).map(({ executionId }) => executionId);
+    assert.deepStrictEqual(await listed({ limit: 2 }), [ids[2], ids[1]], 'the page holds its limit of the runs recorded');
+    assert.deepStrictEqual(await listed({ before: ids[1], limit: 2 }), [ids[0]]);
   });
 });
 

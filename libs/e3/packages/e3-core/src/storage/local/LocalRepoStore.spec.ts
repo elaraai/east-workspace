@@ -16,7 +16,7 @@ import { E3_RELEASE, ExecutionStatusType, type ExecutionStatus } from '@elaraai/
 import { LocalRepoStore, METADATA_FILE } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
 import { REPOSITORY_RECORD_FILE, encodeRepositoryRecord } from './LocalRefStore.js';
-import { GC_ASIDE_SUFFIX, executionPath, objectPath, runningPath, unreachableNotePath } from './localHelpers.js';
+import { GC_ASIDE_SUFFIX, executionPath, objectPath, runningPath, runsPath, unreachableNotePath } from './localHelpers.js';
 import { repoGc } from '../../gc.js';
 import { repoInit } from './repository.js';
 import { repositoryOpen } from '../../repository-record.js';
@@ -299,6 +299,7 @@ describe('LocalRepoStore', () => {
         join('workspaces', 'main.beast2'),
         join('executions', 'a'.repeat(64), 'b'.repeat(64), 'plan.beast2'),
         join('running', 'a'.repeat(64), `${'b'.repeat(64)}.0190a0b0-4444-7000-8000-000000000000.beast2`),
+        join('runs', 'a'.repeat(64), `0190a0b0-4444-7000-8000-000000000000.${'b'.repeat(64)}.beast2`),
         join('dataflows', 'main', '0190a0b0-4444-7000-8000-000000000000.beast2'),
         join('adoptions', 'cc', `${'c'.repeat(62)}.beast2`),
         join('locks', 'main', 'exclusive.beast2'),
@@ -536,6 +537,40 @@ describe('LocalRepoStore', () => {
       assert.deepStrictEqual(places(), [`${task}/${runs}`], 'the place of the attempt running stays');
       assert.deepStrictEqual(readdirSync(join(repoPath, 'running')), [task], 'a task\'s index left empty goes');
       assert.deepStrictEqual((await storage.refs.executionListRunning(repoPath, task)).map(({ inputsHash }) => inputsHash), [runs]);
+    });
+
+    it('takes the places in a task\'s index of runs whose run has no record, as a crash leaves them, and none beside running work', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const [task, lone] = ['a', 'b'].map((digit) => digit.repeat(64)) as [string, string];
+      const [recorded, unwritten] = ['1', '2'].map((digit) => digit.repeat(64)) as [string, string];
+      const place = encodeBeast2For(NullType)(null);
+
+      // A run with its record; and a place whose run's record a crash never
+      // wrote, beside another task's, alone in its index.
+      const recordedId = uuidv7();
+      await storage.refs.executionWrite(repoPath, task, recorded, recordedId, variant('failed', {
+        executionId: recordedId, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
+      }));
+      writeFileSync(runsPath(repoPath, task, uuidv7(), unwritten), place);
+      mkdirSync(runsPath(repoPath, lone), { recursive: true });
+      writeFileSync(runsPath(repoPath, lone, uuidv7(), unwritten), place);
+      // A place's name is the run's id, 36 characters, then its inputs.
+      const places = (): string[] => readdirSync(join(repoPath, 'runs'), { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => `${entry.parentPath.slice(-64)}/${entry.name.slice(37, 37 + 64)}`)
+        .sort();
+      const every = [`${task}/${recorded}`, `${task}/${unwritten}`, `${lone}/${unwritten}`].sort();
+
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: false, held: false });
+      assert.deepStrictEqual(places(), every, 'beside running work, a run may be between its place and its record');
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: true, held: true });
+      assert.deepStrictEqual(places(), every, 'a dry run takes none');
+
+      await store.gcSweepBackend(repoPath, new Set(), { minAge: 0, dryRun: false, held: true });
+      assert.deepStrictEqual(places(), [`${task}/${recorded}`], 'the place of the run recorded stays');
+      assert.deepStrictEqual(readdirSync(join(repoPath, 'runs')), [task], 'a task\'s index left empty goes');
+      assert.deepStrictEqual((await storage.refs.executionListRuns(repoPath, task, { limit: 10 })).map(({ inputsHash }) => inputsHash), [recorded]);
     });
   });
 

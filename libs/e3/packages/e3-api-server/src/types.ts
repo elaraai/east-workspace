@@ -69,6 +69,7 @@ export {
   // Execution
   DataflowRequestType,
   LogChunkType,
+  TaskLogChunkType,
   TaskExecutionResultType,
   DataflowResultType,
   // Dataflow API polling
@@ -82,6 +83,8 @@ export {
   // Task Execution History
   ExecutionHistoryStatusType,
   ExecutionListItemType,
+  TASK_EXECUTIONS_PAGE_DEFAULT,
+  TASK_EXECUTIONS_PAGE_MAX,
   // Dataset List
   TreeKindType,
   ListEntryType,
@@ -149,6 +152,7 @@ export type {
   TaskDetails,
   DataflowRequest,
   LogChunk,
+  TaskLogChunk,
   TaskExecutionResult,
   DataflowResult,
   DataflowEvent,
@@ -245,6 +249,7 @@ import {
   DataflowGraphType,
   DataflowGraphTaskType,
   LogChunkType,
+  TaskLogChunkType,
   TaskExecutionResultType,
   DataflowResultType,
   DataflowEventType,
@@ -352,6 +357,7 @@ export const ApiTypes = {
   DataflowGraphType,
   DataflowGraphTaskType,
   LogChunkType,
+  TaskLogChunkType,
   TaskExecutionResultType,
   DataflowResultType,
 

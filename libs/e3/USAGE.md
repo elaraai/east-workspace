@@ -618,7 +618,7 @@ e3 compact <repo> <record> -w <ws>                           # Collapse the hist
 ### Task Commands
 
 ```bash
-e3 task list <repo> <ws>                         # Tasks in workspace with execution status
+e3 task list <repo> <ws>                         # Tasks in workspace, with the status of each one's latest run
 e3 task logs <repo> <ws.task>                    # Last 200 lines of a task's logs
 e3 task logs <repo> <ws.task> -n 50              # Last 50 lines
 e3 task logs <repo> <ws.task> --all              # The whole log, however large

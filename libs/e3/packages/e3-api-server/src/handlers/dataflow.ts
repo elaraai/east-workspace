@@ -8,6 +8,7 @@ import { DATAFLOW_POLL_EVENTS_MAX } from '@elaraai/e3-types';
 import {
   dataflowGetGraph,
   workspaceStatus,
+  workspaceGetTaskHash,
   executionFindCurrent,
   executionReadLog,
   ExecutionNotFoundError,
@@ -21,6 +22,7 @@ import {
   type ExecutionStateSummary,
   type DataflowExecutionStatus,
   type ExecutionProgress,
+  type CurrentExecutionRef,
 } from '@elaraai/e3-core/portable';
 import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
@@ -28,7 +30,7 @@ import { errorToVariant } from '../errors.js';
 import {
   WorkspaceStatusResultType,
   DataflowGraphType,
-  LogChunkType,
+  TaskLogChunkType,
   DataflowExecutionStateType,
   DataflowBudgetType,
   type WorkspaceStatusResult,
@@ -283,7 +285,40 @@ export async function getDataflowGraph(
 }
 
 /**
- * Get task logs.
+ * The execution of a task's a request names, by its inputs hash and id, with
+ * its status; `null` when the task records no such execution.
+ */
+async function namedExecution(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  taskName: string,
+  { inputsHash, executionId }: { inputsHash: string; executionId: string },
+): Promise<Pick<CurrentExecutionRef, 'taskHash' | 'inputsHash' | 'executionId' | 'status'> | null> {
+  const taskHash = await workspaceGetTaskHash(storage, repoPath, workspace, taskName);
+  const status = await storage.refs.executionGet(repoPath, taskHash, inputsHash, executionId);
+  return status === null ? null : { taskHash, inputsHash, executionId, status };
+}
+
+/**
+ * Get a chunk of a task's log: of its current execution — the latest over its
+ * current inputs, or its latest run ({@link executionFindCurrent}) — or of the
+ * execution the request names. The chunk names the execution it was read from
+ * and whether it has ended, so a client polling the log reads on from its
+ * offset, starts over when the execution changes, and stops reading once it
+ * has ended and its log is read. A poll costs the same however long the task
+ * has run.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace
+ * @param taskName - The task
+ * @param stream - The log stream
+ * @param offset - The byte the chunk starts at
+ * @param limit - The most bytes it holds
+ * @param execution - The execution to read, by its inputs hash and id; the
+ *   task's current execution when absent
+ * @returns The chunk, or `execution_not_found` when the task records none
  */
 export async function getTaskLogs(
   storage: StorageBackend,
@@ -292,27 +327,31 @@ export async function getTaskLogs(
   taskName: string,
   stream: 'stdout' | 'stderr',
   offset: number,
-  limit: number
+  limit: number,
+  execution?: { inputsHash: string; executionId: string },
 ): Promise<Response> {
   try {
-    // Find the current execution for this task
-    const execution = await executionFindCurrent(storage, repoPath, workspace, taskName);
-    if (!execution) {
+    const read = execution === undefined
+      ? await executionFindCurrent(storage, repoPath, workspace, taskName)
+      : await namedExecution(storage, repoPath, workspace, taskName, execution);
+    if (read === null) {
       throw new ExecutionNotFoundError(taskName);
     }
 
-    // Read logs
-    const chunk = await executionReadLog(storage, repoPath, execution.taskHash, execution.inputsHash, execution.executionId, stream, { offset, limit });
+    const chunk = await executionReadLog(storage, repoPath, read.taskHash, read.inputsHash, read.executionId, stream, { offset, limit });
 
-    return sendSuccess(LogChunkType, {
+    return sendSuccess(TaskLogChunkType, {
       data: chunk.data,
       offset: BigInt(chunk.offset),
       size: BigInt(chunk.size),
       totalSize: BigInt(chunk.totalSize),
       complete: chunk.complete,
+      inputsHash: read.inputsHash,
+      executionId: read.executionId,
+      ended: read.status.type !== 'running',
     });
   } catch (err) {
-    return sendError(LogChunkType, errorToVariant(err));
+    return sendError(TaskLogChunkType, errorToVariant(err));
   }
 }
 

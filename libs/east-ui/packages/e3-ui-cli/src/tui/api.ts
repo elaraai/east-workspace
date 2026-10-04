@@ -102,6 +102,7 @@ export interface Api {
     workspaceLock(ws: string): Promise<LockStatus | null>;
     taskList(ws: string): Promise<TaskListItem[]>;
     taskGet(ws: string, task: string): Promise<TaskDetails>;
+    /** The task's latest runs, newest first: a page of the server's default (100). */
     taskExecutionList(ws: string, task: string): Promise<ExecutionListItem[]>;
     /** Every dataset of the workspace with its type / hash / size. */
     datasetList(ws: string): Promise<ListEntry[]>;
@@ -166,8 +167,8 @@ export function createHttpApi(config: HttpApiConfig): Api {
         workspaceLock: async (ws) => workspaceLockStatus(apiUrl, repo(), ws, await options()),
         taskList: async (ws) => taskList(apiUrl, repo(), ws, await options()),
         taskGet: async (ws, task) => taskGet(apiUrl, repo(), ws, task, await options()),
-        // Every attempt, not only the latest per inputs hash: the Runs tab is a history.
-        taskExecutionList: async (ws, task) => taskExecutionList(apiUrl, repo(), ws, task, await options(), { all: true }),
+        // The latest page of the task's runs, every attempt among them: the Runs tab is a history.
+        taskExecutionList: async (ws, task) => taskExecutionList(apiUrl, repo(), ws, task, await options()),
         datasetList: async (ws) => datasetListRecursive(apiUrl, repo(), ws, [], await options()),
         datasetGetStatus: async (ws, path) => datasetGetStatus(apiUrl, repo(), ws, path, await options()),
         datasetGet: async (ws, path) => datasetGet(apiUrl, repo(), ws, path, await options()),

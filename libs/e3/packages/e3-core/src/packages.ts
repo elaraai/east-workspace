@@ -654,6 +654,7 @@ export async function packageZipOpenFrom(
         executionListForTask: refs.executionListForTask.bind(refs),
         executionListLatest: refs.executionListLatest.bind(refs),
         executionListRunning: refs.executionListRunning.bind(refs),
+        executionListRuns: refs.executionListRuns.bind(refs),
         executionOwnerWrite: refuse('write an execution\'s owner'),
         executionOwnerRead: refs.executionOwnerRead.bind(refs),
         executionPlanWrite: refuse('write an execution\'s plan'),

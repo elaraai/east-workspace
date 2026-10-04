@@ -9,10 +9,6 @@ import {
   workspaceListTasks,
   workspaceGetTask,
   workspaceGetTaskHash,
-  executionListForTask,
-  executionGetLatest,
-  executionListIds,
-  executionGet,
 } from '@elaraai/e3-core/portable';
 import type { StorageBackend } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
@@ -103,10 +99,11 @@ function calculateDuration(startedAt: Date, completedAt: Date): bigint {
  * One execution as the history lists it: a cancelled or interrupted one with
  * why it stopped.
  */
-function toExecutionListItem(inputsHash: string, status: ExecutionStatus): ExecutionListItem {
+function toExecutionListItem(inputsHash: string, executionId: string, status: ExecutionStatus): ExecutionListItem {
   if (status.type === 'success') {
     return {
       inputsHash,
+      executionId,
       inputHashes: status.value.inputHashes,
       status: statusToApiStatus(status),
       startedAt: status.value.startedAt.toISOString(),
@@ -120,6 +117,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
   if (status.type === 'failed') {
     return {
       inputsHash,
+      executionId,
       inputHashes: status.value.inputHashes,
       status: statusToApiStatus(status),
       startedAt: status.value.startedAt.toISOString(),
@@ -133,6 +131,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
   if (status.type === 'cancelled') {
     return {
       inputsHash,
+      executionId,
       inputHashes: status.value.inputHashes,
       status: statusToApiStatus(status),
       startedAt: status.value.startedAt.toISOString(),
@@ -148,6 +147,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
   if (status.type === 'error' || status.type === 'interrupted') {
     return {
       inputsHash,
+      executionId,
       inputHashes: status.value.inputHashes,
       status: statusToApiStatus(status),
       startedAt: status.value.startedAt.toISOString(),
@@ -161,6 +161,7 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
   // running
   return {
     inputsHash,
+    executionId,
     inputHashes: status.value.inputHashes,
     status: statusToApiStatus(status),
     startedAt: status.value.startedAt.toISOString(),
@@ -173,35 +174,32 @@ function toExecutionListItem(inputsHash: string, status: ExecutionStatus): Execu
 }
 
 /**
- * List execution history for a task: the latest attempt per distinct
- * inputs hash, or — with `all` — every attempt (a forced re-run or a retry
- * after a failure adds one under the same inputs hash). A split task's units
- * are recorded under its hash too, and are left out: they are not its runs.
+ * List a page of a task's history: its runs, the latest first — every attempt,
+ * a forced re-run or a retry after a failure among them — those before the run
+ * `page.before` names when given, at most `page.limit` of them. A split task's
+ * units are recorded under its hash too, and are left out: they are not its
+ * runs. It reads the task's index of runs (`RefStore.executionListRuns`), so a
+ * page costs what it holds, however long the task has run.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository's path
+ * @param workspace - The workspace
+ * @param taskName - The task
+ * @param page - The run the page begins before, if any, and the most it holds
+ * @returns The page, or the error
  */
 export async function listExecutions(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
   taskName: string,
-  all = false
+  page: { before?: string; limit: number },
 ): Promise<Response> {
   try {
     const taskHash = await workspaceGetTaskHash(storage, repoPath, workspace, taskName);
-    const inputsHashes = await executionListForTask(storage, repoPath, taskHash);
-
-    const result: ExecutionListItem[] = [];
-
-    for (const inputsHash of inputsHashes) {
-      const statuses: (ExecutionStatus | null)[] = all
-        ? await Promise.all((await executionListIds(storage, repoPath, taskHash, inputsHash))
-          .map(executionId => executionGet(storage, repoPath, taskHash, inputsHash, executionId)))
-        : [await executionGetLatest(storage, repoPath, taskHash, inputsHash)];
-      for (const status of statuses) {
-        if (status && !status.value.unit) result.push(toExecutionListItem(inputsHash, status));
-      }
-    }
-
-    return sendSuccess(ArrayType(ExecutionListItemType), result);
+    const runs = await storage.refs.executionListRuns(repoPath, taskHash, page);
+    return sendSuccess(ArrayType(ExecutionListItemType),
+      runs.map(({ inputsHash, executionId, status }) => toExecutionListItem(inputsHash, executionId, status)));
   } catch (err) {
     return sendError(ArrayType(ExecutionListItemType), errorToVariant(err));
   }

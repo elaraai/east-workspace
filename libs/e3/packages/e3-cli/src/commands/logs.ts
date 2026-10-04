@@ -31,6 +31,8 @@ import {
   taskExecutionList as taskExecutionListRemote,
   taskLogs as taskLogsRemote,
   ApiError,
+  type LogOptions,
+  type TaskLogChunk,
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError, HASH_DISPLAY_WIDTH } from '../utils.js';
 import { formatSize } from '../format.js';
@@ -109,8 +111,9 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
 
   for (const taskName of tasks) {
     const taskHash = await workspaceGetTaskHash(storage, repoPath, ws, taskName);
-    // A split task's units are recorded under its hash too, and are not its runs.
-    const executions = (await storage.refs.executionListLatest(repoPath, taskHash)).filter(({ status }) => !status.value.unit);
+    // The task's latest run, from its index of runs: a split task's units are
+    // recorded under its hash too, and are not its runs.
+    const [latest] = await storage.refs.executionListRuns(repoPath, taskHash, { limit: 1 });
 
     // Surface a ui task's role next to the name.
     let roleLabel = '';
@@ -121,11 +124,10 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
       // A missing/undecodable task object only loses the label.
     }
 
-    if (executions.length === 0) {
+    if (latest === undefined) {
       console.log(`  ${taskName}${roleLabel}  (no executions)`);
     } else {
-      // Get status of the most recent execution
-      const status = executions[0]!.status;
+      const status = latest.status;
       let state: string = status.type;
 
       // Check if running process is actually alive
@@ -139,7 +141,7 @@ async function listWorkspaceTasks(storage: StorageBackend, repoPath: string, ws:
         }
       }
 
-      console.log(`  ${taskName}${roleLabel}  [${state}] (${executions.length} execution(s))`);
+      console.log(`  ${taskName}${roleLabel}  [${state}]`);
     }
   }
 
@@ -426,16 +428,14 @@ async function listWorkspaceTasksRemote(
   console.log('');
 
   for (const task of tasks) {
-    const executions = await taskExecutionListRemote(baseUrl, repo, ws, task.name, { token });
+    // The task's latest run: a page of one of its history, the latest first
+    const [latest] = await taskExecutionListRemote(baseUrl, repo, ws, task.name, { token }, { limit: 1 });
     const roleLabel = task.role.type === 'ui' ? ' <ui>' : '';
 
-    if (executions.length === 0) {
+    if (latest === undefined) {
       console.log(`  ${task.name}${roleLabel}  (no executions)`);
     } else {
-      // Get status of the most recent execution
-      const latest = executions[0]!;
-      const state = latest.status.type;
-      console.log(`  ${task.name}${roleLabel}  [${state}] (${executions.length} execution(s))`);
+      console.log(`  ${task.name}${roleLabel}  [${latest.status.type}]`);
     }
   }
 
@@ -444,13 +444,31 @@ async function listWorkspaceTasksRemote(
 }
 
 /** Convert a remote LogChunk (bigint fields) to LogData. */
-function toLogData(chunk: Awaited<ReturnType<typeof taskLogsRemote>>): LogData {
+function toLogData(chunk: TaskLogChunk): LogData {
   return {
     data: chunk.data,
     offset: Number(chunk.offset),
     size: Number(chunk.size),
     totalSize: Number(chunk.totalSize),
     complete: chunk.complete,
+  };
+}
+
+/**
+ * A reader of a task's log on a server, every read after the first naming the
+ * execution the first read was of, so a run of the task that begins meanwhile
+ * does not change the log under the offsets already read.
+ *
+ * @param read - Reads a chunk of the task's log: of the execution the options
+ *   name, or of the task's current execution when they name none
+ * @returns The reader
+ */
+export function readingOneExecution(read: (options: LogOptions) => Promise<TaskLogChunk>): ReadFn {
+  let execution: { inputsHash: string; executionId: string } | undefined;
+  return async (stream, offset, limit) => {
+    const chunk = await read({ stream, offset, limit, ...(execution !== undefined && { execution }) });
+    execution ??= { inputsHash: chunk.inputsHash, executionId: chunk.executionId };
+    return toLogData(chunk);
   };
 }
 
@@ -538,11 +556,10 @@ export async function logsCommand(
       console.log('');
 
       const { baseUrl, repo, token } = location;
+      const read = readingOneExecution((logOptions) => taskLogsRemote(baseUrl, repo, ws, taskName, logOptions, { token }));
       await displayLogs(async (stream, offset, limit) => {
         try {
-          return toLogData(
-            await taskLogsRemote(baseUrl, repo, ws, taskName, { stream, offset, limit }, { token })
-          );
+          return await read(stream, offset, limit);
         } catch (err) {
           if (err instanceof ApiError && err.code === 'execution_not_found') {
             exitError(`No executions found for task: ${ws}.${taskName}`);

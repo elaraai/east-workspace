@@ -225,6 +225,11 @@ export function cliTests(
         assert.strictEqual(logsResult.exitCode, 0, `Logs failed: ${logsResult.stderr}`);
         assert.match(logsResult.stdout, /Task:/);
 
+        // The task's latest run, a page of one of its history
+        const listResult = await runE3Command(['task', 'list', remoteUrl, wsName], workDir, { env });
+        assert.strictEqual(listResult.exitCode, 0, `List failed: ${listResult.stderr}`);
+        assert.match(listResult.stdout, /^ {2}compute {2}\[success\]$/m);
+
         // Clean up
         await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });

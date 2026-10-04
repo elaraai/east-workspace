@@ -72,6 +72,20 @@ const AttemptsType = ArrayType(StructType({ executionId: StringType, status: Opt
 const sameAttempts = equalFor(AttemptsType);
 const printAttempts = printFor(AttemptsType);
 
+/** What `executionListRuns` answers, as East values. */
+const RunsType = ArrayType(StructType({ inputsHash: StringType, executionId: StringType, status: ExecutionStatusType }));
+const sameRuns = equalFor(RunsType);
+const printRuns = printFor(RunsType);
+
+/** Asserts a page of a task's runs is the one expected, in that order. */
+function assertRuns(
+  listed: Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }>,
+  expected: Array<{ inputsHash: string; executionId: string; status: ExecutionStatus }>,
+  message: string,
+): void {
+  assert.ok(sameRuns(listed, expected), `${message}: ${printRuns(listed)}, where ${printRuns(expected)} was expected`);
+}
+
 /** Asserts an execution's attempts are those expected, in that order. */
 function assertAttempts(
   listed: Array<{ executionId: string; status: ExecutionStatus | null }>,
@@ -298,6 +312,80 @@ export function refStoreTests(setup: BackendSetup): void {
       assertAttempts(await attempts(), [[first, succeeded(first)], [third, running(third)]], 'one deleted is gone');
     });
 
+    it('lists a page of a task\'s runs, the latest first, and never a split task\'s units', async (t) => {
+      const { storage, repo } = await setup(t);
+      const runs = (page: { before?: string; limit: number }) => storage.refs.executionListRuns(repo, TASK, page);
+      assertRuns(await runs({ limit: 10 }), [], 'a task that never ran has none');
+
+      // A run, a unit of the task beside it, another run, and the latest,
+      // still running; and another task's
+      const [first, unit] = twoIds();
+      const [second, latest] = twoIds();
+      const failed: ExecutionStatus = variant('failed', {
+        executionId: second, inputHashes: [HASH], startedAt: AT, completedAt: AT, exitCode: 1n, peakBytes: none, unit: false,
+      });
+      await storage.refs.executionWrite(repo, TASK, INPUTS, latest, running(latest));
+      await storage.refs.executionWrite(repo, TASK, INPUTS, first, succeeded(first));
+      await storage.refs.executionWrite(repo, TASK, HASH, unit, running(unit, true));
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, second, failed);
+      const elsewhere = uuidv7();
+      await storage.refs.executionWrite(repo, OTHER_TASK, INPUTS, elsewhere, succeeded(elsewhere));
+      const [earliest, middle, newest] = [
+        { inputsHash: INPUTS, executionId: first, status: succeeded(first) },
+        { inputsHash: OTHER_INPUTS, executionId: second, status: failed },
+        { inputsHash: INPUTS, executionId: latest, status: running(latest) },
+      ];
+      assertRuns(await runs({ limit: 10 }), [newest, middle, earliest], 'every run, the latest first, whatever the order of the writes');
+
+      assertRuns(await runs({ limit: 2 }), [newest, middle], 'a page holds at most its limit');
+      assertRuns(await runs({ before: second, limit: 2 }), [earliest], 'the next page begins before the last run of the one before');
+      assertRuns(await runs({ before: first, limit: 2 }), [], 'and the last ends the listing');
+
+      // A run's outcome replaces what the index answers of it, and a run
+      // deleted goes from it
+      await storage.refs.executionWrite(repo, TASK, INPUTS, latest, succeeded(latest));
+      await storage.refs.executionDelete(repo, TASK, OTHER_INPUTS, second);
+      assertRuns(await runs({ limit: 10 }), [{ ...newest, status: succeeded(latest) }, earliest], 'its outcome, and a run deleted gone');
+    });
+
+    it('lists only the runs its index names: a record no write indexed is in none, and a deleted run\'s place goes with it', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record in bytes of its choosing');
+      const encode = encodeBeast2For(ExecutionStatusType);
+      const runs = () => storage.refs.executionListRuns(repo, TASK, { limit: 10 });
+      // A record left as a release from before the index wrote it
+      const [earlier, kept] = twoIds();
+      await damage.execution(TASK, INPUTS, earlier, encode(succeeded(earlier)));
+      await storage.refs.executionWrite(repo, TASK, OTHER_INPUTS, kept, succeeded(kept));
+      assertRuns(await runs(), [{ inputsHash: OTHER_INPUTS, executionId: kept, status: succeeded(kept) }], 'a record no write indexed');
+
+      // Written, and deleted: a record left after it is in no index
+      await storage.refs.executionWrite(repo, TASK, INPUTS, earlier, succeeded(earlier));
+      await storage.refs.executionDelete(repo, TASK, INPUTS, earlier);
+      await damage.execution(TASK, INPUTS, earlier, encode(succeeded(earlier)));
+      assertRuns(await runs(), [{ inputsHash: OTHER_INPUTS, executionId: kept, status: succeeded(kept) }], 'a deleted run\'s place goes with it');
+    });
+
+    it('answers ExecutionCorruptError for a run on the page whose record does not decode, and reads no run off it', async (t) => {
+      const { storage, repo, damage } = await setup(t);
+      if (damage === undefined) return t.skip('the setup cannot leave a record that does not decode');
+      const [first, second] = twoIds();
+      for (const id of [first, second]) await storage.refs.executionWrite(repo, TASK, INPUTS, id, succeeded(id));
+      await damage.execution(TASK, INPUTS, first);
+      await assert.rejects(storage.refs.executionListRuns(repo, TASK, { limit: 2 }), ExecutionCorruptError);
+      assertRuns(await storage.refs.executionListRuns(repo, TASK, { limit: 1 }), [{ inputsHash: INPUTS, executionId: second, status: succeeded(second) }],
+        'a page that ends before it');
+    });
+
+    it('refuses a page of runs whose limit is not a whole number greater than zero', async (t) => {
+      const { storage, repo } = await setup(t);
+      for (const limit of [0, -1, 1.5]) {
+        await assert.rejects(storage.refs.executionListRuns(repo, TASK, { limit }), {
+          name: 'RangeError', message: `a page's limit must be a whole number greater than zero, got ${limit}`,
+        });
+      }
+    });
+
     it('answers null for an attempt whose record does not decode, which it still lists', async (t) => {
       const { storage, repo, damage } = await setup(t);
       if (damage === undefined) return t.skip('the setup cannot leave a record that does not decode');
@@ -439,6 +527,7 @@ export function refStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.refs.executionListForTask(repo, malformed), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.executionListLatest(repo, malformed), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.executionListRunning(repo, malformed), hashRefusal('task hash', malformed));
+        await assert.rejects(storage.refs.executionListRuns(repo, malformed, { limit: 1 }), hashRefusal('task hash', malformed));
         await assert.rejects(storage.refs.adoptionWrite(repo, malformed, HASH), hashRefusal('object hash', malformed));
         // A key that is no SHA-256 names no entry of the memo
         assert.equal(await storage.refs.adoptionRead(repo, malformed), null);
@@ -453,6 +542,7 @@ export function refStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.refs.executionDelete(repo, TASK, INPUTS, malformed), refused);
         await assert.rejects(storage.refs.executionOwnerWrite(repo, TASK, INPUTS, malformed, owner), refused);
         await assert.rejects(storage.refs.executionOwnerRead(repo, TASK, INPUTS, malformed), refused);
+        await assert.rejects(storage.refs.executionListRuns(repo, TASK, { before: malformed, limit: 1 }), refused);
         await assert.rejects(storage.refs.dataflowRunGet(repo, 'ws', malformed), idRefusal('run id', malformed));
         await assert.rejects(storage.refs.dataflowRunWrite(repo, 'ws', { ...run, runId: malformed }), idRefusal('run id', malformed));
         await assert.rejects(storage.refs.dataflowRunDelete(repo, 'ws', malformed), idRefusal('run id', malformed));

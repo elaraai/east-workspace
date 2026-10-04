@@ -56,17 +56,20 @@ export async function taskGet(
 }
 
 /**
- * List execution history for a task: by default the latest attempt per
- * distinct inputs hash; with `query.all`, every attempt (a forced re-run
- * or a retry after a failure adds one under the same inputs hash).
+ * List a page of a task's history: its runs — every attempt, a forced re-run or
+ * a retry after a failure among them, never a split task's unit — the latest
+ * first. The next page is the runs before the last one's id
+ * (`page.before`); a page shorter than its limit is the last.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param taskName - Task name
  * @param options - Request options including auth token
- * @param query - `all: true` lists every attempt
- * @returns Array of execution history items (unordered)
+ * @param page - The most runs the page holds — the server's
+ *   `TASK_EXECUTIONS_PAGE_DEFAULT` (100) unless given, and never more than its
+ *   `TASK_EXECUTIONS_PAGE_MAX` (1,000) — and the run it begins before
+ * @returns The page's runs, the latest first
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -76,12 +79,15 @@ export async function taskExecutionList(
   workspace: string,
   taskName: string,
   options: RequestOptions,
-  query: { all?: boolean } = {}
+  page: { limit?: number; before?: string } = {}
 ): Promise<ExecutionListItem[]> {
-  const suffix = query.all === true ? '?all=true' : '';
+  const params = new URLSearchParams();
+  if (page.limit != null) params.set('limit', String(page.limit));
+  if (page.before != null) params.set('before', page.before);
+  const query = params.toString();
   return get(
     url,
-    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/tasks/${encodeURIComponent(taskName)}/executions${suffix}`,
+    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/tasks/${encodeURIComponent(taskName)}/executions${query ? `?${query}` : ''}`,
     ArrayType(ExecutionListItemType),
     options
   );
