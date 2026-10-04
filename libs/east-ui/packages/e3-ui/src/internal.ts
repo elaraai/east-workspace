@@ -161,7 +161,7 @@ export {
     queryKeys,
     rootBound,
     saveQuery,
-    savedQueries,
+    savedQueriesValue,
     type QueriesHandle,
     type QueryBuilderOptions,
     type QueryInternalNamespace,

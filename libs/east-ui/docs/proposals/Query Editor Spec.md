@@ -48,13 +48,13 @@ export const queriesPatch = e3.mutation.patch(queries);
 
 The type never depends on the data sources, so a deploy that adds or changes one runs no migration.
 
-A solution that ships queries in the record writes them with `Query.saved(sources, queries)`, its value:
-each query inline — its name, its jq, its description and when it was saved — checked against the data
-sources, named as a query reads them, when the package builds. A query that does not check fails the build
-with the checker's words, as do two of one name (#1138).
+A solution that ships queries in the record writes its value with `Query.value(sources, queries)`: each
+query inline — its name, its jq, its description and when it was saved — checked against the data sources,
+named as a query reads them, when the package builds. A query that does not check fails the build with the
+checker's words, as do two of one name (#1138).
 
 ```ts
-export const queries = e3.record("queries", Query.Types.Saved, Query.saved({ orders, customers }, [
+export const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders, customers }, [
     { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
 ]));
 ```
@@ -89,7 +89,7 @@ export const library = ui("query_library", [], East.function([], UIComponentType
 `id`, on both, names the builder when one surface holds two, and the library that opens queries in it.
 `onOpen`, on the library, is told the name of each query it opens, so the host can show the builder.
 
-The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.saved` and
+The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.value` and
 `Query.Types`.
 
 ---

@@ -295,7 +295,7 @@ export const historyTask = e3.task("order_history", [historyCount, accountCount]
  * data sources the builders bind when the package builds, and described where
  * the mock describes it; the rest describe themselves.
  */
-export const queries = e3.record("queries", Query.Types.Saved, Query.saved({ orders, customers, forecast, model, bom }, [
+export const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders, customers, forecast, model, bom }, [
     {
         name: "Top shipped orders, 2026",
         jq: `.customers as $customers
@@ -475,7 +475,7 @@ export const queryBuilderEmpty = example({
  * limits, keyed alike, cut at the same keys — each checked against the three
  * generated datasets, each a task's output, when the package builds.
  */
-export const historyQueries = e3.record("history_queries", Query.Types.Saved, Query.saved({ order_history: historyTask, accounts: accountsTask, credit: creditTask }, [
+export const historyQueries = e3.record("history_queries", Query.Types.Saved, Query.value({ order_history: historyTask, accounts: accountsTask, credit: creditTask }, [
     {
         name: "History revenue by month",
         jq: `.order_history

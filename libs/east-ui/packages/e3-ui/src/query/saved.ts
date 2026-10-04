@@ -4,9 +4,9 @@
  */
 
 /**
- * `Query.saved` (#1138) — the saved queries a solution ships in its record,
- * each checked against the data sources it may read when the package is
- * built.
+ * `Query.value` (#1138) — the value of the saved queries record a solution
+ * ships: each query it writes inline, checked against the data sources it may
+ * read when the package is built.
  *
  * @packageDocumentation
  */
@@ -39,8 +39,8 @@ export interface SavedQueryInput {
 }
 
 /**
- * Saved queries, by name — what a solution declares its saved queries record
- * with.
+ * The saved queries record's value — every query a solution ships in it, by
+ * name — what it declares the record with.
  *
  * @remarks
  * - **The data sources** are named as a query reads them (`orders` for
@@ -70,34 +70,34 @@ export interface SavedQueryInput {
  * const orders = e3.input("orders", ArrayType(StructType({ id: IntegerType, total: FloatType })), variant("value", []));
  *
  * // The record ships with one query, checked against `orders` when the package builds.
- * export const queries = e3.record("queries", Query.Types.Saved, Query.saved({ orders }, [
+ * export const queries = e3.record("queries", Query.Types.Saved, Query.value({ orders }, [
  *     { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
  * ]));
  * export const queriesPatch = e3.mutation.patch(queries);
  * ```
  */
-export function savedQueries(
+export function savedQueriesValue(
     sources: Readonly<Record<string, DatasetDef | TaskDef>>,
     queries: readonly SavedQueryInput[],
 ): ValueTypeOf<typeof SavedQueriesType> {
     // A task's data is its output dataset; a dataset is its own.
     const datasets = Object.entries(sources).map(([name, def]) => {
-        assertRootField("Query.saved", name);
+        assertRootField("Query.value", name);
         return { name, dataset: def.kind === "task" ? def.output : def };
     });
     const root = StructType(Object.fromEntries(datasets.map(({ name, dataset }): [string, EastType] => [name, dataset.type])));
     const saved = new SortedMap<string, ValueTypeOf<typeof SavedQueryType>>([], compareFor(StringType));
     for (const query of queries) {
         if (saved.has(query.name)) {
-            throw new Error(`Query.saved: "${query.name}" is saved twice — a saved query's name is its key in the record`);
+            throw new Error(`Query.value: "${query.name}" is saved twice — a saved query's name is its key in the record`);
         }
         if (query.description !== undefined && query.description.length > DESCRIPTION_MAX) {
-            throw new Error(`Query.saved: "${query.name}"'s description is ${query.description.length} characters — a description holds at most ${DESCRIPTION_MAX}`);
+            throw new Error(`Query.value: "${query.name}"'s description is ${query.description.length} characters — a description holds at most ${DESCRIPTION_MAX}`);
         }
         const checked = checkJq(query.jq, root, { root: true });
         if (checked.program === null) {
             const problems = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
-            throw new Error(`Query.saved: "${query.name}" does not check — ${problems.join(" ")}`);
+            throw new Error(`Query.value: "${query.name}" does not check — ${problems.join(" ")}`);
         }
         saved.set(query.name, {
             name: query.name,

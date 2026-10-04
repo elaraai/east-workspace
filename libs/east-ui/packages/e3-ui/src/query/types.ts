@@ -12,8 +12,8 @@
  * parse again and never the IR the builder translates it to on each run — and
  * the data sources it reads. Its types are never stored: they are what
  * checking the program against those data sources gives (#1138). A solution
- * declares the record as Studio's pages are declared, empty or with the
- * queries `Query.saved` checks:
+ * declares the record as Studio's pages are declared, empty or with its value
+ * from `Query.value`, the queries it ships, checked:
  *
  * ```ts
  * export const queries      = e3.record("queries", Query.Types.Saved, new Map());
