@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, diffFor, equalFor, isTypeEqual, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
-import { Editing, EditingPatchEventTypeWith, EditingSessionFields, Plan, Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
+import { Editing, EditingPatchEventTypeWith, EditingSessionFields, Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
 import * as ex from "./editing.examples.js";
 
 describeEast("Editing contract examples", test => {
@@ -134,12 +134,6 @@ test("the Sheet's transaction names are the shared contract's own values", () =>
     // The Sheet's editing wire carries every field of the shared session's, at the same type.
     for (const [field, type] of Object.entries(EditingSessionFields)) {
         assert.equal(SheetEditingType.fields[field as keyof typeof SheetEditingType.fields], type, `SheetEditingType.${field}`);
-    }
-});
-
-test("the Plan's editing wire carries every field of the shared session's, at the same type (#880)", () => {
-    for (const [field, type] of Object.entries(EditingSessionFields)) {
-        assert.equal(Plan.Types.Editing.fields[field as keyof typeof Plan.Types.Editing.fields], type, `Plan.Types.Editing.${field}`);
     }
 });
 

@@ -42,6 +42,24 @@ const ONE_FORMATTER = [
   }
 ];
 
+// The Plan renderer (#1177) derives over production row counts. A spread into
+// a call — `Math.max(...xs)`, `out.push(...xs)`, `new Set(...xs)` — passes
+// every element as a separate ARGUMENT, and past the engine's argument limit
+// (~125,000 on Node 22) it throws RangeError: a big band crashed the canvas
+// (#810). Array and object literals (`[...xs]`, `{...o}`) have no such limit
+// and stay allowed. The selectors are ESLint's AST syntax: a `...` spread
+// directly inside a function / constructor call.
+const PLAN_NO_SPREAD = [
+  {
+    selector: 'CallExpression > SpreadElement',
+    message: 'No spread into a call under src/plan/ — it throws RangeError past ~125,000 elements (#810). Use maxOf / minOf / appendAll from src/plan/reductions.ts.'
+  },
+  {
+    selector: 'NewExpression > SpreadElement',
+    message: 'No spread into a constructor call under src/plan/ — it throws RangeError past ~125,000 elements (#810). Build the arguments with a loop.'
+  }
+];
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'coverage/**']
@@ -98,6 +116,15 @@ export default [
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
       }],
       'no-restricted-syntax': ['error', ...ONE_FORMATTER]
+    }
+  },
+  {
+    // A later block REPLACES a rule's options for the files it matches, so the
+    // Plan's list carries the formatter guard as well as its own (#810).
+    files: ['src/plan/**/*.ts', 'src/plan/**/*.tsx'],
+    ignores: TESTS,
+    rules: {
+      'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...PLAN_NO_SPREAD]
     }
   },
   {

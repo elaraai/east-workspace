@@ -8,7 +8,7 @@
  * core of the shared review contract (`contracts/review.ts`).
  *
  * Split out of `review.ts` so IR type modules that `component.ts` loads (e.g.
- * `collections/plan/types.ts`) can reach {@link ApprovalStateType} /
+ * `collections/roster/types.ts`) can reach {@link ApprovalStateType} /
  * {@link reviewType} without a circular import: `review.ts` itself must import
  * `component.ts` (its `RowReviewType` is resolved at `UIComponentType`), so it
  * cannot be loaded from inside the `component.ts` module graph. Everything here

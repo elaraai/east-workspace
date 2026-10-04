@@ -11,7 +11,7 @@
  * exactly the judgements carrying a verdict, newest first.
  */
 
-import { East, ArrayType, DictType, StringType, some, none, variant, example } from '@elaraai/east';
+import { East, ArrayType, some, none, variant, example } from '@elaraai/east';
 import { Reactive, UIComponentType } from '@elaraai/east-ui';
 import { Data, Decision, DecisionJournal } from '@elaraai/e3-ui';
 import * as e3 from '@elaraai/e3';
@@ -56,7 +56,7 @@ export const journalJudgements = e3.input(
             knowledge: some("Accepted the recommendation. Cho's hours are at OT cap; will need to revisit Wed if forecast holds."),
             constraints: [variant('float', variant('atMost', 36))],
             verdict: some(variant('accepted', '')),
-            resolvedAt: some(new Date('2026-06-09T16:42:00')),
+            resolvedAt: some(new Date('2026-06-09T16:42:00Z')),
         }],
         ['avl-patel-thu', {
             caseId: 'avl-patel-thu',
@@ -64,7 +64,7 @@ export const journalJudgements = e3.input(
             knowledge: some('Patel arranged a private swap with Riggs — no roster change needed.'),
             constraints: [],
             verdict: some(variant('rejected', null)),
-            resolvedAt: some(new Date('2026-06-09T11:05:00')),
+            resolvedAt: some(new Date('2026-06-09T11:05:00Z')),
         }],
         ['utl-cho-cap', {
             caseId: 'utl-cho-cap',
@@ -72,7 +72,7 @@ export const journalJudgements = e3.input(
             knowledge: none,
             constraints: [],
             verdict: some(variant('handoff', 'workforce lead — needs the quarterly staffing view')),
-            resolvedAt: some(new Date('2026-06-08T09:30:00')),
+            resolvedAt: some(new Date('2026-06-08T09:30:00Z')),
         }],
         ['cap-ne-wk10', {
             caseId: 'cap-ne-wk10',

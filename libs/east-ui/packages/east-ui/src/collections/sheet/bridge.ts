@@ -99,7 +99,7 @@ import {
     sheetRuleCell,
     type SheetColumnKindLiteral,
 } from "./types.js";
-import { resolveTag } from "../plan/builders.js";
+import { resolveTag } from "../../shared/resolve-tag.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import { SheetMembersType, SheetRegisterMembersType, parseLink, EMPTY_LINK } from "./link.js";
 import { buildDraftRowDecoder, buildDraftGroupDecoder, buildDraftEntryDecoder } from "./draft-bridge.js";

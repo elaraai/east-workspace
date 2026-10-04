@@ -587,6 +587,20 @@ interface ScrollRequest {
 const FOLLOW_MS = 5_000;
 
 /**
+ * Test-only re-measure probe — lets "a height change re-measures, a selection
+ * never does" be asserted as the frame's own `measure()` calls (#812), which
+ * are every re-measure there is: TanStack never calls its own. A collection
+ * rendered from another package's bundle cannot reach the TanStack this one
+ * bundles to count them there (the Plan, in e3-ui-components, #1177).
+ * `undefined` outside tests.
+ */
+let measureProbe: (() => void) | undefined;
+/** Install (or clear) the test re-measure probe. Test use only. */
+export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
+    measureProbe = fn;
+}
+
+/**
  * @param props - see {@link VirtualRowsProps}
  * @returns the bounded virtual-scroll frame, the unbounded frame at scale
  *   (virtualized against its scrolling ancestor), or the unbounded
@@ -857,6 +871,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // memo, which does not watch `estimateSize` (see `sizeVersion`).
     useEffect(() => {
         if (sizeVersion === undefined || !virtualized) return;
+        measureProbe?.();
         virtualizer.measure();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the version is the trigger
     }, [sizeVersion]);
@@ -873,6 +888,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (before.length !== sizes.length) return;
         for (let i = 0; i < sizes.length; i++) {
             if (before[i] !== sizes[i]) {
+                measureProbe?.();
                 virtualizer.measure();
                 return;
             }

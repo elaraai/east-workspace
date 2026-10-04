@@ -10,7 +10,7 @@
  * overlay body).
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */
@@ -417,7 +417,7 @@ export const shellBase = {
         pointerEvents: "none",
     },
     // The element popover / hover card body (the canvas's one overlay
-    // layer, `collections/plan/root/overlays.tsx`) — one content geometry
+    // layer, e3-ui-components' `plan/root/overlays.tsx`) — one content geometry
     // for both surfaces, so an element's click surface and its hover
     // surface read as the same family.
     elementOverlay: {

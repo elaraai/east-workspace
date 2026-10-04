@@ -118,7 +118,7 @@ src/
   component.tsx              # Top-level variant dispatcher
   hooks/usePersistedState.ts # localStorage persistence hook
   platform/                  # East state management (UIStore, DatasetStore)
-  collections/               # Table, Plan, Matrix, TreeView, DataList
+  collections/               # Table, Sheet, Matrix, TreeView, DataList (the Plan's renderer is e3-ui-components')
   disclosure/                # Tabs, Accordion, Carousel
   layout/                    # Box, Flex, Grid, Stack, Splitter, Separator
   forms/                     # Input, Select, Checkbox, Switch, Slider, etc.
@@ -482,7 +482,7 @@ When adding persistence to Chakra components that support both
 )}
 ```
 
-### Virtualization (Table, Plan)
+### Virtualization (Table, Sheet, and the Plan in e3-ui-components)
 
 Row virtualization via `@tanstack/react-virtual`:
 
@@ -514,6 +514,12 @@ avoid re-creation.
 All public components and types are exported from `src/index.ts`. When
 adding a new component or hook, add it to the appropriate section in the
 barrel export.
+
+Two more entries serve the sibling renderer packages, never apps:
+`src/internal.ts` (`@elaraai/east-ui-components/internal`) re-exports the
+renderers' shared building blocks a component made of the same parts needs
+(e3-ui-components' Plan, #1177), and `src/testing.ts` (`/testing`) the
+renderer tests' DOM helpers — React's `act` and the DOM, no test framework.
 
 ## See also
 

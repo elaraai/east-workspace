@@ -78,3 +78,16 @@ change to one is a new version of the thing, not an edit to it.
 - **The beast2 well-known type registry:** its ids are pinned.
 - **The segment manifest** (`$segments`): readers recognize it by its exact
   field set, so a changed struct is a different object to every reader.
+
+## Changes
+
+Each wire changed under this rule, with the kind it is.
+
+- **east-ui's `UIComponentType` loses its `Plan` arm (#1177)** —
+  package-borne. The canvas is e3-ui's `<Plan.View>`, carried as the
+  `PlanView` extension. A variant encodes its case by its index among its
+  cases, which are sorted by name, so every case after `Plan` moves down one,
+  and a UI value encoded under either type does not decode under the other.
+  A UI task carries the type in its IR and in what it outputs, so packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type.

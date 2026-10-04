@@ -44,7 +44,7 @@ import { DensityType, type DensityLiteral } from "../../style/interaction.js";
 import { StatusValueType, type StatusValueLiteral } from "../../feedback/status/types.js";
 import { TickFormatType } from "../../format/types.js";
 import { resolveRowSource, buildRowSource, type PagedSource } from "../../contracts/source.js";
-import { resolveTag } from "../plan/builders.js";
+import { resolveTag } from "../../shared/resolve-tag.js";
 import type { DataRowType } from "../table/index.js";
 import {
     SheetRowType,

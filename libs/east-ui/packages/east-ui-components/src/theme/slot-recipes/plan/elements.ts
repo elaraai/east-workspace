@@ -9,7 +9,7 @@
  * readout, and the event rows' marks.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
- * and the canvas's geometry variables (`collections/plan/geometry.ts`).
+ * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
  *
  * @packageDocumentation
  */

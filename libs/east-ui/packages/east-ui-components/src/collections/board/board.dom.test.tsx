@@ -21,7 +21,7 @@ import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Board } from "@elaraai/east-ui/internal";
 import { system } from "../../theme";
 import { DragLayerProvider, useDragSourceItem, type DragEventValue } from "../../dnd/drag-layer";
-import { announced, layOut, press, stubScrollIntoView, tick } from "../../dnd/dnd.test-utils";
+import { announced, layOut, press, stubScrollIntoView, tick } from "../../testing/drag-layer.js";
 import { EastChakraBoard, type BoardValue } from "./index";
 
 afterEach(cleanup);

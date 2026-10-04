@@ -31,7 +31,7 @@ import {
     type DragTargetConfig,
     type DropVeto,
 } from "./drag-layer.js";
-import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "./dnd.test-utils.js";
+import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "../testing/drag-layer.js";
 
 afterEach(() => {
     cleanup();

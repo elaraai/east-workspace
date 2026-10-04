@@ -21,13 +21,12 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Plan, Sheet, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    EastChakraPlan, EastChakraSheet, getRegisteredPlatformImplementations, system,
-    type PlanRootValue, type SheetRootValue,
-} from "@elaraai/east-ui-components";
+import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
+import { EastChakraSheet, getRegisteredPlatformImplementations, system, type SheetRootValue } from "@elaraai/east-ui-components";
+import { Plan } from "@elaraai/e3-ui/internal";
 import { DatasetHashMismatchError, type DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
+import { EastChakraPlan, type PlanRootValue } from "../plan/index.js";
 import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi, type PagedSelector } from "./paged-runtime.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }

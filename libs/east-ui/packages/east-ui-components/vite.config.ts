@@ -20,6 +20,14 @@ export default defineConfig({
         // `Data.bind` runtime) register implementations without pulling in the
         // component barrel (Chakra, overlays, react-markdown → `document`).
         platform: resolve(__dirname, 'src/platform.ts'),
+        // `@elaraai/east-ui-components/internal` — the renderers' shared
+        // building blocks, for the sibling renderer packages (e3-ui-components'
+        // Plan, #1177). Not an app API.
+        internal: resolve(__dirname, 'src/internal.ts'),
+        // `@elaraai/east-ui-components/testing` — the renderer tests' DOM
+        // helpers (React's `act` and the DOM, no test framework), for the
+        // sibling renderer packages' tests.
+        testing: resolve(__dirname, 'src/testing.ts'),
       },
       name: 'EastUIReact',
       formats: ['es', 'cjs'],

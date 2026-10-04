@@ -24,9 +24,9 @@
  * @packageDocumentation
  */
 
-import type { IR, PlatformIR } from '@elaraai/east';
+import type { IR, OptionType, PlatformIR, ValueTypeOf } from '@elaraai/east';
 import { variant, walkIR, constValueOf } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import type { TreePath, TreePathType } from '@elaraai/e3-types';
 import type { DataManifest } from './manifest.js';
 
 /** Platform-fn name we extract paths from. */
@@ -69,7 +69,7 @@ export function deriveManifest(
             case DATA_BIND: {
                 // arg[0] source TreePath; arg[1] patch option<TreePath>.
                 paths.push(constValueOf(platform.value.arguments[0] as IR) as TreePath);
-                const patch = constValueOf(platform.value.arguments[1] as IR) as { type: string; value: TreePath };
+                const patch = constValueOf(platform.value.arguments[1] as IR) as ValueTypeOf<OptionType<TreePathType>>;
                 if (patch.type === 'some') paths.push(patch.value);
                 return;
             }

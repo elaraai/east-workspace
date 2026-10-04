@@ -10,8 +10,12 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { printFor, variant } from "@elaraai/east";
-import { Plan } from "@elaraai/east-ui/internal";
+import { Plan } from "@elaraai/e3-ui/internal";
 import { settled } from "./settle";
+
+/** The Plan's examples file in the catalog: e3-ui's (#1177), so under the e3
+ *  section's `e3/` prefix — and drawn once the e3 the page runs has started. */
+export const PLAN_EXAMPLES = "e3/plan/plan";
 
 /** A row id's canonical text (#822), printed by East as the canvas prints it. */
 export const printId = printFor(Plan.Types.RowId);
@@ -28,7 +32,7 @@ export const rowSel = (series: string, ...path: string[]): string =>
 /** Open one example's page and return its entry (the virtualized doc row
  *  holding its anchor and its live canvas) — a Plan example unless another
  *  examples file is named, in the light theme unless another is named. */
-export async function openExample(page: Page, name: string, file = "collections/plan", theme: "light" | "dark" = "light"): Promise<Locator> {
+export async function openExample(page: Page, name: string, file = PLAN_EXAMPLES, theme: "light" | "dark" = "light"): Promise<Locator> {
     await page.goto(`/?theme=${theme}#${file}/${name}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     await page.evaluate(() => document.fonts.ready.then(() => undefined));

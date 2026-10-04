@@ -11,7 +11,7 @@
  * between are never fetched), and the ring lands on the row once its window
  * is resident.
  *
- * Simpler than the Plan's (`plan/use-seek.ts`): a sheet row IS a source
+ * Simpler than the Plan's (e3-ui-components' `plan/use-seek.ts`): a sheet row IS a source
  * element, so the k-th match is the row at `range.row + k` — the control's
  * prev / next step exactly.
  *
@@ -28,7 +28,7 @@ import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../key-search/index.js";
 import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import { toSeekQuery } from "../plan/use-seek.js";
+import { toSeekQuery } from "../key-search/seek-query.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** A sheet's keys are Strings — the search input parses against that. */
