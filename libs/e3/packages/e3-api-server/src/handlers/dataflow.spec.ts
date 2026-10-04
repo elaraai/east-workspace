@@ -14,7 +14,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { NullType, OptionType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { NullType, OptionType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import {
   Budget, InMemoryStateStore, LocalOrchestrator, MockTaskRunner, stateToStatus,
   type DataflowExecutionState, type DataflowOrchestrator, type ExecutionStateStore,
@@ -161,6 +161,51 @@ describe('dataflow routes', () => {
     assert.equal(decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer())).type, 'success');
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(waits, 0);
+  });
+
+  it('start refuses a name no workspace can have, as invalid_name of a workspace, before it asks the orchestrator', async () => {
+    // A host's own orchestrator may take a lock named for whatever it is
+    // given, and a lock's name may hold `#`: the route checks the name as a
+    // workspace's itself, so every host refuses it alike.
+    let starts = 0;
+    const orchestrator: DataflowOrchestrator = {
+      start: async (_storage, repo, workspace) => {
+        starts++;
+        return { id: 'run-1', repo, workspace };
+      },
+      wait: () => new Promise(() => {}),
+      getStatus: () => Promise.reject(new Error('not polled')),
+      getProgress: () => Promise.reject(new Error('not polled')),
+      cancel: async () => {},
+      getEvents: async () => [],
+    };
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(new InMemoryStorage(), () => 'test-repo', {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => orchestrator,
+      getStateStore: () => new InMemoryStateStore(),
+    }));
+    const Answer = ResponseType(NullType);
+    const decode = decodeBeast2For(Answer);
+    const joins = 'holds "#", which joins the parts of a lock\'s name';
+
+    for (const [name, why] of [
+      ['bad:name', 'holds ":", which a file name cannot'],
+      ['a#b', joins],
+      ['main#dataflow', joins],
+    ] as const) {
+      const response = await app.request(`/api/repos/r/workspaces/${encodeURIComponent(name)}/dataflow`, {
+        method: 'POST',
+        headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+        body: encodeBeast2For(DataflowRequestType)({ force: dataflowForce(false), filter: none }),
+      });
+      const answer = decode(new Uint8Array(await response.arrayBuffer()));
+      const refused = variant('error', variant('invalid_name', {
+        kind: 'workspace', name, message: `the workspace name ${JSON.stringify(name)} ${why}`,
+      }));
+      assert.ok(equalFor(Answer)(answer, refused), `${name}: answered ${printFor(Answer)(answer)}`);
+    }
+    assert.equal(starts, 0, 'the orchestrator was never asked');
   });
 
   it('poll a run by its cursor: the API\'s events past it, at most a limit, and the cursor past them, reading the run\'s summary and its events a page of the limit at a time', async () => {

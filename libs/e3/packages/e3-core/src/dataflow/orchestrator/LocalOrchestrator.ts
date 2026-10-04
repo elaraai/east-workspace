@@ -31,7 +31,7 @@ import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { SplitUnit, TaskExecuteOptions } from '../../execution/interfaces.js';
 import type { ExecutionResult } from '../../execution/cache.js';
 import { SplitTask, isSplitTask, type ThrownUnit } from '../../execution/engine.js';
-import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError } from '../../errors.js';
+import { WorkspaceLockError, DataflowAbortedError, DataflowError, DataflowSupersededError, checkName } from '../../errors.js';
 import type { TaskExecutionResult } from '../../dataflow.js';
 import { inputsHash } from '../../executions.js';
 import { uuidv7 } from '../../uuid.js';
@@ -426,6 +426,10 @@ export interface LocalOrchestratorHost {
  *   re-executes affected tasks until fixpoint
  * - Runs a run's tasks on the runner its start names, or else on its host's
  *   ({@link LocalOrchestratorHost})
+ * - Checks the workspace's name before a start or a resume takes a lock: a
+ *   name no workspace can have is refused as an `InvalidNameError` of a
+ *   workspace, never as a lock's name, and `main#dataflow` never reads as
+ *   locked while main's dataflow runs
  */
 export class LocalOrchestrator implements DataflowOrchestrator {
   private executions = new Map<string, RunningExecution>();
@@ -452,6 +456,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
   ): Promise<ExecutionHandle> {
     checkWidth(options.width);
     this.checkRunner(options);
+    // The name is checked as a workspace's before a lock is taken: a lock's
+    // name may hold the `#` and `~` no workspace's may, so `main#dataflow`
+    // would otherwise take main's dataflow lock as its own workspace's.
+    checkName('workspace', workspace);
 
     // Acquire locks if not provided externally.
     // Dual-lock model:
@@ -538,6 +546,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     }
     checkWidth(options.width);
     this.checkRunner(options);
+    // The name is checked before a lock is taken, as start() checks it.
+    checkName('workspace', workspace);
 
     // Same dual-lock model as start()
     const externalLock = !!options.lock;

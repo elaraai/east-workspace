@@ -37,6 +37,12 @@ import {
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, readZipEntries } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
+import { nameRefusal } from './contract/malformed.js';
+
+/** Names no workspace can have: one a file name cannot hold, one holding the
+ *  `#` that joins the parts of a lock's name, and `main#dataflow`, the lock a
+ *  run of main's dataflow holds. */
+const NO_WORKSPACE_NAMES = ['bad:name', 'a#b', 'main#dataflow'] as const;
 
 describe('workspaces', () => {
   let testRepo: string;
@@ -74,6 +80,23 @@ describe('workspaces', () => {
         assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
         return true;
       });
+    } finally {
+      await held.release();
+    }
+  }
+
+  /**
+   * Holds main's dataflow lock, as a run of main's dataflow holds it, while
+   * `refused` runs with `main#dataflow`, and asserts that name is refused as no
+   * workspace's, not as a workspace the run holds: a lock's name may hold `#`,
+   * so `main#dataflow` names main's dataflow lock.
+   */
+  async function assertRefusedWhileMainRuns(refused: (name: string) => Promise<unknown>): Promise<void> {
+    await workspaceCreate(storage, testRepo, 'main');
+    const held = await storage.locks.acquire(testRepo, 'main#dataflow', variant('dataflow', null));
+    assert.ok(held !== null, 'main\'s dataflow lock is free to hold');
+    try {
+      await assert.rejects(refused('main#dataflow'), nameRefusal('workspace', 'main#dataflow'));
     } finally {
       await held.release();
     }
@@ -150,6 +173,22 @@ describe('workspaces', () => {
 
       await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceRemove(storage, testRepo, 'held'));
       assert.ok(existsSync(join(testRepo, 'workspaces', 'held.beast2')), 'the workspace is still there');
+    });
+
+    it('refuses a name no workspace can have before it takes the lock', async () => {
+      // A lock's name may hold `#`, and a backend's stores may take any name,
+      // so the removal checks the name as a workspace's itself. A storage with
+      // no stores fails a removal that asks one otherwise than with the name's
+      // refusal.
+      const noStores = {} as StorageBackend;
+      for (const name of NO_WORKSPACE_NAMES) {
+        await assert.rejects(workspaceRemove(noStores, testRepo, name), nameRefusal('workspace', name));
+      }
+    });
+
+    it('refuses main#dataflow as no workspace\'s name while main\'s dataflow runs, not as a workspace that run holds', async () => {
+      await assertRefusedWhileMainRuns((name) => workspaceRemove(storage, testRepo, name));
+      assert.ok(existsSync(join(testRepo, 'workspaces', 'main.beast2')), 'main is still there');
     });
   });
 
@@ -566,6 +605,24 @@ describe('workspaces', () => {
 
       await assertRefusalNamesHolder('held', variant('deployment', null), () => workspaceExport(storage, testRepo, 'held', exportZip));
       assert.ok(!existsSync(exportZip), 'no zip was written');
+    });
+
+    it('refuses a name no workspace can have before it takes a lock or writes a file', async () => {
+      // The export holds the repository's running work, then the workspace's
+      // lock: a storage with no stores fails one that asks either otherwise
+      // than with the name's refusal.
+      const noStores = {} as StorageBackend;
+      const exportZip = join(tempDir, 'refused.zip');
+      for (const name of NO_WORKSPACE_NAMES) {
+        await assert.rejects(workspaceExport(noStores, testRepo, name, exportZip), nameRefusal('workspace', name));
+        assert.ok(!existsSync(exportZip) && !existsSync(`${exportZip}.partial`), `${name}: no file was written`);
+      }
+    });
+
+    it('refuses main#dataflow as no workspace\'s name while main\'s dataflow runs, not as a workspace that run holds', async () => {
+      const exportZip = join(tempDir, 'main.zip');
+      await assertRefusedWhileMainRuns((name) => workspaceExport(storage, testRepo, name, exportZip));
+      assert.ok(!existsSync(exportZip) && !existsSync(`${exportZip}.partial`), 'no file was written');
     });
   });
 });

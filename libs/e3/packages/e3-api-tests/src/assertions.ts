@@ -4,7 +4,8 @@
  */
 
 /**
- * Diagnostic assertions for dataflow execution results.
+ * Assertions the suites share: of a dataflow's result, and of the API's
+ * refusal of a name no workspace can have.
  *
  * A bare `assert.strictEqual(result.success, true)` collapses a rich
  * failure — a task that exited non-zero, a runner that failed to spawn,
@@ -13,9 +14,55 @@
  * `.ref` rename-over-open can transiently fail). These helpers fold the
  * per-task diagnostics already carried in `result.tasks` into the
  * assertion message so the next failure is actionable instead of opaque.
+ *
+ * Every route of a workspace refuses a name no workspace can have before it
+ * takes a lock, as `invalid_name` of a workspace: a lock's name may hold the
+ * `#` and `~` that join its parts, so a route that took a lock first would
+ * refuse such a name as a lock's, if at all.
  */
 
 import assert from 'node:assert/strict';
+
+import { equalFor, isValueOf, printFor, type ValueTypeOf } from '@elaraai/east';
+import { InvalidNameErrorType } from '@elaraai/e3-types';
+import { ApiError } from '@elaraai/e3-api-client';
+
+/** Why no workspace's name may hold `c`: it joins the parts of a lock's name. */
+const joinsLockNames = (c: string) => `holds ${JSON.stringify(c)}, which joins the parts of a lock's name`;
+
+/**
+ * Names no workspace can have, each with why, as a refusal says it: a lock's
+ * name (`main#dataflow`, the lock a run of main's dataflow holds), the
+ * characters that join a lock's parts, and one a file name cannot hold.
+ */
+export const MALFORMED_WORKSPACE_NAMES = [
+  ['main#dataflow', joinsLockNames('#')],
+  ['a#b', joinsLockNames('#')],
+  ['a~b', joinsLockNames('~')],
+  ['bad:name', `holds ":", which a file name cannot`],
+] as const;
+
+/**
+ * Checks an error is the API's refusal of `name` as no workspace's:
+ * `invalid_name`, whose details name the kind, the name and why.
+ *
+ * @param name - The name refused
+ * @param why - Why, as the refusal's message ends
+ * @returns An `assert.rejects` validator
+ */
+export function refusedAsWorkspaceName(name: string, why: string): (err: unknown) => true {
+  return (err) => {
+    assert.ok(err instanceof ApiError, `${name}: expected ApiError, got ${err}`);
+    assert.strictEqual(err.code, 'invalid_name');
+    assert.ok(isValueOf(err.details, InvalidNameErrorType), `${name}: the refusal names the name and why`);
+    const said = err.details as ValueTypeOf<typeof InvalidNameErrorType>;
+    const expected: ValueTypeOf<typeof InvalidNameErrorType> = {
+      kind: 'workspace', name, message: `the workspace name ${JSON.stringify(name)} ${why}`,
+    };
+    assert.ok(equalFor(InvalidNameErrorType)(said, expected), `${name}: refused as ${printFor(InvalidNameErrorType)(said)}`);
+    return true;
+  };
+}
 
 /** A single task entry in a dataflow result (subset we read for diagnostics). */
 interface TaskResultLike {

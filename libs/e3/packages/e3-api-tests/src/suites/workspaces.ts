@@ -13,8 +13,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { ArrayType, equalFor, isValueOf, printFor, variant, type ValueTypeOf } from '@elaraai/east';
-import { DatasetStatusInfoType, InvalidNameErrorType, TaskStatusInfoType, type TreePath } from '@elaraai/e3-types';
+import { ArrayType, equalFor, printFor, variant } from '@elaraai/east';
+import { DatasetStatusInfoType, TaskStatusInfoType, type TreePath } from '@elaraai/e3-types';
 import {
   ApiError,
   fetchWithAuth,
@@ -35,43 +35,7 @@ import {
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createPackageZip, createRolesPackageZip } from '../fixtures.js';
-
-/** Why no workspace's name may hold `c`: it joins the parts of a lock's name. */
-const joinsLockNames = (c: string) => `holds ${JSON.stringify(c)}, which joins the parts of a lock's name`;
-
-/**
- * Names no workspace can have, each with why, as a refusal says it: a lock's
- * name (`main#dataflow`, the lock a run of main's dataflow holds), the
- * characters that join a lock's parts, and one a file name cannot hold.
- */
-const MALFORMED_WORKSPACE_NAMES = [
-  ['main#dataflow', joinsLockNames('#')],
-  ['a#b', joinsLockNames('#')],
-  ['a~b', joinsLockNames('~')],
-  ['bad:name', `holds ":", which a file name cannot`],
-] as const;
-
-/**
- * Checks an error is the API's refusal of `name` as no workspace's:
- * `invalid_name`, whose details name the kind, the name and why.
- *
- * @param name - The name refused
- * @param why - Why, as the refusal's message ends
- * @returns An `assert.rejects` validator
- */
-function refusedAsWorkspaceName(name: string, why: string): (err: unknown) => true {
-  return (err) => {
-    assert.ok(err instanceof ApiError, `${name}: expected ApiError, got ${err}`);
-    assert.strictEqual(err.code, 'invalid_name');
-    assert.ok(isValueOf(err.details, InvalidNameErrorType), `${name}: the refusal names the name and why`);
-    const said = err.details as ValueTypeOf<typeof InvalidNameErrorType>;
-    const expected: ValueTypeOf<typeof InvalidNameErrorType> = {
-      kind: 'workspace', name, message: `the workspace name ${JSON.stringify(name)} ${why}`,
-    };
-    assert.ok(equalFor(InvalidNameErrorType)(said, expected), `${name}: refused as ${printFor(InvalidNameErrorType)(said)}`);
-    return true;
-  };
-}
+import { MALFORMED_WORKSPACE_NAMES, refusedAsWorkspaceName } from '../assertions.js';
 
 /**
  * Register workspace operation tests.
@@ -180,6 +144,18 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
       // start's own answer, before a job is filed.
       for (const [name, why] of MALFORMED_WORKSPACE_NAMES) {
         await assert.rejects(workspaceDeploy(ctx.config.baseUrl, ctx.repoName, name, 'compute-pkg@1.0.0', opts), refusedAsWorkspaceName(name, why));
+      }
+    });
+
+    it('workspaceRemove refuses a name no workspace can have as invalid_name of a workspace, before it takes a lock', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      // Each is refused as a workspace's name before a lock is taken:
+      // `bad:name` not as a lock's, and `main#dataflow` without taking the
+      // lock a run of main's dataflow holds.
+      for (const [name, why] of MALFORMED_WORKSPACE_NAMES) {
+        await assert.rejects(workspaceRemove(ctx.config.baseUrl, ctx.repoName, name, opts), refusedAsWorkspaceName(name, why));
       }
     });
 

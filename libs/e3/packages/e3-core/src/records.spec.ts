@@ -29,6 +29,7 @@ import { summarizeDelta } from './record-apply.js';
 import { repoGc } from './gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError, WorkspaceNotDeployedError, WorkspaceNotFoundError, lockStateToHolderInfo } from './errors.js';
+import { nameRefusal } from './contract/malformed.js';
 import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
@@ -811,6 +812,40 @@ describe('records', () => {
     } finally {
       await held.release();
     }
+  });
+
+  it('a record write refuses a name no workspace can have before it takes the lock', async () => {
+    // A lock's name may hold `#`, and a backend's stores may take any name, so
+    // a write checks the name as a workspace's itself. A storage with no
+    // stores, and a runner that runs nothing, fail a write that asks either
+    // otherwise than with the name's refusal.
+    const noStores = {} as StorageBackend;
+    const noRunner = {} as TaskRunner;
+    for (const name of ['bad:name', 'a#b', 'main#dataflow']) {
+      const refused = nameRefusal('workspace', name);
+      await assert.rejects(recordMutate(noStores, noRunner, repo, name, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' }), refused);
+      await assert.rejects(recordReindex(noStores, noRunner, repo, name, 'counter', { actor: 'x' }), refused);
+      await assert.rejects(recordCompact(noStores, repo, name, 'counter', { actor: 'x' }), refused);
+      await assert.rejects(recordSystemCommit(noStores, noRunner, repo, name, 'counter', {
+        name: '$rollback', target: { commit: 'a'.repeat(64) }, actor: 'x',
+      }), refused);
+    }
+  });
+
+  it('a record write refuses main#dataflow as no workspace\'s name while main\'s dataflow runs, not as a workspace that run holds', async () => {
+    // A lock's name may hold `#`, so `main#dataflow` names main's dataflow
+    // lock, which a run of main's dataflow holds.
+    const held = await storage.locks.acquire(repo, `${ws}#dataflow`, variant('dataflow', null));
+    assert.ok(held !== null, 'main\'s dataflow lock is free to hold');
+    try {
+      await assert.rejects(
+        recordMutate(storage, successRunner(encodeInt(5n)), repo, `${ws}#dataflow`, 'counter', 'increment', [encodeInt(5n)], { actor: 'x' }),
+        nameRefusal('workspace', `${ws}#dataflow`),
+      );
+    } finally {
+      await held.release();
+    }
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n, 'main\'s record is as it was');
   });
 
   it('a sweep is refused while a record write is in flight', async () => {

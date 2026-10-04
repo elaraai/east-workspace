@@ -165,6 +165,8 @@ export interface WorkspaceRemoveOptions {
  * @param repo - Repository identifier
  * @param name - Workspace name
  * @param options - Optional settings including external lock
+ * @throws {InvalidNameError} If `name` is no workspace's name, before the lock
+ *   is taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceLockError} If workspace is locked by another process
  */
@@ -174,6 +176,12 @@ export async function workspaceRemove(
   name: string,
   options: WorkspaceRemoveOptions = {}
 ): Promise<void> {
+  // The name is checked as a workspace's before the lock is taken: a lock's
+  // name may hold the `#` and `~` no workspace's may, so the lock store would
+  // refuse a malformed one, if at all, as a lock's, and `main#dataflow` would
+  // take the lock a run of main's dataflow holds.
+  checkName('workspace', name);
+
   // Acquire lock if not provided externally
   const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;
@@ -1044,6 +1052,8 @@ const LOG_BYTES = new TextEncoder();
  * @param options - Progress, the workspace lock, and the signal that stops the
  *   export and the checkpoint it resumes from
  * @returns Export result with package info and the zip's size
+ * @throws {InvalidNameError} If `name` is no workspace's name, before a lock is
+ *   taken
  * @throws {WorkspaceNotFoundError} If workspace doesn't exist
  * @throws {WorkspaceNotDeployedError} If workspace exists but has no package deployed
  * @throws {ExportStoppedError} When `options.signal` stopped the export.
@@ -1063,6 +1073,9 @@ export async function workspaceExport(
   version?: string,
   options?: WorkspaceExportOptions,
 ): Promise<WorkspaceExportResult> {
+  // Checked before the repository's running work is held, and the workspace's
+  // lock taken: a lock's name may hold the `#` and `~` no workspace's may.
+  checkName('workspace', name);
   const sink = zipSinkOf(destination, 'export');
   return withRunningWork(storage, repo, () => exportWorkspace(storage, repo, name, sink, outputName, version, options));
 }

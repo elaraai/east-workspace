@@ -32,6 +32,7 @@ import {
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createRecordPackageZip } from '../fixtures.js';
+import { MALFORMED_WORKSPACE_NAMES, refusedAsWorkspaceName } from '../assertions.js';
 
 const PKG = 'record-test-pkg';
 const VERSION = '1.0.0';
@@ -121,6 +122,21 @@ export function recordTests(setup: TestSetup<TestContext>): void {
       assert.equal(await readCounter(ctx), 0n);
       const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts);
       assert.equal(commits.length, 1); // only $init
+    });
+
+    it('a mutation refuses a name no workspace can have as invalid_name of a workspace, before it takes a lock', async (t) => {
+      const ctx = await setup(t);
+      const opts = await ctx.opts();
+
+      // Each is refused as a workspace's name: `bad:name` not as a lock's,
+      // and `main#dataflow` without taking the lock a run of main's dataflow
+      // holds.
+      for (const [name, why] of MALFORMED_WORKSPACE_NAMES) {
+        await assert.rejects(workspaceRecordMutate(
+          ctx.config.baseUrl, ctx.repoName, name, 'counter', 'increment',
+          { args: [encodeInt(1n)], actor: none, limits: none }, opts,
+        ), refusedAsWorkspaceName(name, why));
+      }
     });
 
     it('unknown mutation is invalid', async (t) => {

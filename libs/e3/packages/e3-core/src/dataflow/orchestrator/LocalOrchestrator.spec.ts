@@ -30,6 +30,8 @@ import { MockTaskRunner } from '../../execution/MockTaskRunner.js';
 import { readTestPieceBytesFrom } from '../../execution/pieces.js';
 import { packageImport } from '../../package-files.js';
 import { InMemoryStorage } from '../../storage/in-memory/InMemoryStorage.js';
+import type { StorageBackend } from '../../storage/interfaces.js';
+import { nameRefusal } from '../../contract/malformed.js';
 import { workspaceCreate, workspaceDeploy, workspaceGetPackage } from '../../workspaces.js';
 import { InMemoryStateStore } from '../state-store/InMemoryStateStore.js';
 import type { StateWriteOutcome } from '../state-store/interfaces.js';
@@ -73,6 +75,9 @@ function chain(): Parameters<typeof e3.export>[0] {
   const first = e3.task('first', [a], add);
   return e3.package('chain', '1.0.0', a, first, e3.task('second', [first.output], add));
 }
+
+/** A run's id, of the form a run's takes, which a resume names. */
+const RUN_ID = '0190a0b0-0000-7000-8000-000000000000';
 
 /** Waits for a run nobody waits on to let its locks go. */
 async function released(storage: InMemoryStorage): Promise<boolean> {
@@ -331,5 +336,34 @@ describe('LocalOrchestrator', () => {
     assert.equal((await storage.datasets.read('repo', 'ws', 'tasks/late/output'))?.type, 'unassigned',
       'a completion after the run was taken up is that process\'s to apply');
     assert.ok(await released(storage), 'its locks are released');
+  });
+
+  it('refuses a name no workspace can have before a start or a resume takes a lock', async () => {
+    // A lock's name may hold `#`, and a backend's stores may take any name, so
+    // a run checks the name as a workspace's itself. A storage with no stores
+    // fails a run that asks one otherwise than with the name's refusal.
+    const noStores = {} as StorageBackend;
+    const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+    const runner = new MockTaskRunner();
+    for (const name of ['bad:name', 'a#b', 'main#dataflow']) {
+      await assert.rejects(orchestrator.start(noStores, 'repo', name, { runner }), nameRefusal('workspace', name));
+      await assert.rejects(orchestrator.resume(noStores, 'repo', name, RUN_ID, { runner }), nameRefusal('workspace', name));
+    }
+  });
+
+  it('refuses ws#dataflow as no workspace\'s name while ws\'s dataflow runs, not as a workspace that run holds', async (t) => {
+    // `ws#dataflow` names the lock a run of ws's dataflow holds.
+    const { storage } = await deploy(t, 'chain', chain());
+    const held = await storage.locks.acquire('repo', 'ws#dataflow', variant('dataflow', null));
+    assert.ok(held !== null, 'ws\'s dataflow lock is free to hold');
+    try {
+      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      const runner = new MockTaskRunner();
+      await assert.rejects(orchestrator.start(storage, 'repo', 'ws#dataflow', { runner }), nameRefusal('workspace', 'ws#dataflow'));
+      await assert.rejects(orchestrator.resume(storage, 'repo', 'ws#dataflow', RUN_ID, { runner }), nameRefusal('workspace', 'ws#dataflow'));
+      assert.deepEqual(runner.getCalls(), [], 'nothing ran');
+    } finally {
+      await held.release();
+    }
   });
 });
