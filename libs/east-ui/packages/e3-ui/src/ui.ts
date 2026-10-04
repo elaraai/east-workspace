@@ -20,6 +20,9 @@
 import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3/browser';
 import { UIComponentType } from '@elaraai/east-ui';
 import {
+  Expr,
+  isSubtype,
+  printTypeSummary,
   type EastType,
   type CallableFunctionExpr,
   type CallableAsyncFunctionExpr,
@@ -31,6 +34,10 @@ import { deriveManifest } from './utils/derive.js';
 /**
  * Create a UI task — an e3 task that produces a UIComponentType value.
  *
+ * Its function returns a UI component: `UIComponentType`, or a subtype of it,
+ * which is what the task's preview renders. Any other output is refused here,
+ * so no package deploys one.
+ *
  * The task's manifest combines:
  * - **Compute-time reads** — every dataset in `inputs` (the runner passes
  *   their values to `fn` as positional args).
@@ -40,6 +47,15 @@ import { deriveManifest } from './utils/derive.js';
  *
  * Paths used in `Data.bind` must be JS-side constants captured at IR-build
  * time (typically `e3.input(name, T).path`). Dynamic paths throw.
+ *
+ * @param name - The task's name
+ * @param inputs - The datasets the runner passes `fn`, in order
+ * @param fn - Builds the UI component: returns `UIComponentType`, or a subtype
+ *   of it
+ * @param options - `runner`, which defaults to east-c with no platforms
+ * @returns The task, whose output is the UI component
+ * @throws {Error} When `fn` returns a type that is not `UIComponentType` or a
+ *   subtype of it, naming the task and the type.
  *
  * @example
  * ```ts
@@ -89,6 +105,14 @@ function buildUiTask(
   fn: CallableFunctionExpr<any, EastType> | CallableAsyncFunctionExpr<any, EastType>,
   options?: { runner?: Runner },
 ): TaskDef {
+  // The output is what the task's preview renders: a UI component (#1118).
+  const output = Expr.type(fn as unknown as Expr<any>).output as EastType;
+  if (!isSubtype(output, UIComponentType)) {
+    throw new Error(
+      `ui '${name}': its function returns ${printTypeSummary(output)}, not a UI component — ` +
+      `a ui() task's function returns UIComponentType, or a subtype of it`
+    );
+  }
   const derived = deriveManifest(fn);
   const inputPaths: TreePath[] = inputs.map(i => i.path);
   const seen = new Set<string>();

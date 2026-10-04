@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, equalFor, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, equalFor, isTypeEqual, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
 import { input, record, recordIndex } from "@elaraai/e3";
 import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
@@ -124,7 +124,8 @@ describe("ui()", () => {
             East.function([FloatType], UIComponentType, (_$, _t) =>
                 Reactive.Root(East.function([], UIComponentType, $ => {
                     const t = $.let(Data.bind(threshold));
-                    return Text.Root(East.print($.let(t.read())));
+                    const v = $.let(t.read());
+                    return Text.Root(East.print(v));
                 }))
             )
         );
@@ -136,5 +137,26 @@ describe("ui()", () => {
         const dashboard = ui("dashboard", [], blankUI);
         assert.equal(dashboard.output.kind, "dataset");
         assert.ok(dashboard.output.type, "output.type should be set");
+    });
+
+    test("refuses a function whose output is not a UI component, naming the task and the type (#1118)", () => {
+        assert.throws(() => ui("label", [], East.function([], StringType, (_$) => "hello")), {
+            message: "ui 'label': its function returns .String, not a UI component — " +
+                "a ui() task's function returns UIComponentType, or a subtype of it",
+        });
+        assert.throws(() => ui("rows", [], East.asyncFunction([], ArrayType(IntegerType), (_$) => [1n])), {
+            message: /^ui 'rows': its function returns \.Array \.Integer, not a UI component/,
+        });
+    });
+
+    test("takes a function whose output is a subtype of UIComponentType (#1118)", () => {
+        // UIComponentType's Text case alone: a UI component, which the preview renders.
+        const TextOnly = VariantType({ Text: UIComponentType.node.cases.Text });
+        const hello = East.compile(blankUI, [])();
+        assert.ok(hello.type === "Text");
+        const text = variant("Text", hello.value);
+        const label = ui("text_only", [], East.function([], TextOnly, (_$) => text));
+        assert.equal(label.role.type, "ui");
+        assert.ok(isTypeEqual(label.output.type, TextOnly), "the output keeps the function's type");
     });
 });

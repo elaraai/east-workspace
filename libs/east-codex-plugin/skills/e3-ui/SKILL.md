@@ -151,7 +151,9 @@ Wraps `e3.task()` with `kind: "ui"` and a **manifest** auto-derived from the IR:
 - **Reactive writes** — every `Data.bind(dataset).write()` in the IR.
 - **Bound functions** — every `Func.bind(fn)` in the IR.
 
-`fn` must return a `UIComponentType`. Default runner is `['east-c', 'run']`.
+`fn` returns a `UIComponentType`, or a subtype of it: `ui()` refuses any other
+output when the task is defined, naming the task and the type. Default runner
+is `['east-c', 'run']`.
 
 > `Data.bind` takes the def itself (`e3.input(...)` or a task), so the bound
 > path and value type are captured at IR-build time by construction.
@@ -775,7 +777,10 @@ to, and how its requests reach it. `<ReactiveDatasetProvider>`, inside it,
 installs the adapters `Data.bind`, `Data.bindPaged`, `Func.bind` and
 `Record.bind` resolve through, for the config's workspace, and renders its
 children once they are in. `<UITaskPreview task>` fetches a `ui()` task's
-output and renders it, preloading what its manifest reads and polling it.
+output and renders it, preloading what its manifest reads and polling it. An
+output that is not a UI component — from a package built before `ui()` refused
+one — is never read: the preview names its type in place ("This task's output
+is a String, not a UI component").
 
 | `E3Config` | Meaning |
 |---|---|
