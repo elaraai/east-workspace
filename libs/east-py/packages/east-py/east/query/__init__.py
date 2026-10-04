@@ -4,8 +4,8 @@
 #
 """Typed jq queries over East values: the python twin of ``libs/east/src/query``.
 
-The wire types a checked query is made of, and the front end and translator
-that make and run one: ``lex_jq``, ``parse_jq``, ``print_jq``, ``check_jq``,
+The wire types a query is made of, and the front end and translator that
+check and run one: ``lex_jq``, ``parse_jq``, ``print_jq``, ``check_jq``,
 ``translate_jq`` and ``evaluate_jq``. ``East.jq`` is the query as East code.
 ``libs/east/devdocs/QUERY.md`` is the normative account of the language.
 """
@@ -18,6 +18,7 @@ from east.query.jq.print import PrintedJq, print_jq
 from east.query.jq.spans import JqNode, JqPattern, JqRange, JqSpans, path_at, span_of, to_query_span
 from east.query.jq.translate import JqInput, JqTranslation, TranslationError, translate_jq
 from east.query.types import (
+    JqLiteralType,
     JqPatternType,
     JqType,
     QueryCallType,
@@ -26,8 +27,6 @@ from east.query.types import (
     QueryFixType,
     QueryMultiplicityType,
     QuerySpanType,
-    QueryType,
-    QueryV1Type,
 )
 
 __all__ = [
@@ -35,6 +34,7 @@ __all__ = [
     "CheckedNode",
     "CheckedStage",
     "JqInput",
+    "JqLiteralType",
     "JqNode",
     "JqPattern",
     "JqPatternType",
@@ -53,8 +53,6 @@ __all__ = [
     "QueryFixType",
     "QueryMultiplicityType",
     "QuerySpanType",
-    "QueryType",
-    "QueryV1Type",
     "TranslationError",
     "check_jq",
     "evaluate_jq",

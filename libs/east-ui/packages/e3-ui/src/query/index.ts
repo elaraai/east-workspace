@@ -15,6 +15,7 @@ import { nameWriteRefusal } from "../studio/library.js";
 import { QueryBuilder, QueryBuilderComponent, QueryBuilderPayloadType } from "./builder.js";
 import { QueryLibrary, QueryLibraryComponent, QueryLibraryPayloadType } from "./library.js";
 import { QueriesHandleType, QueryRootBoundType, rootBound, saveQuery } from "./queries.js";
+import { savedQueries } from "./saved.js";
 import {
     QueryAggregateType,
     QueryComparisonType,
@@ -57,6 +58,7 @@ export {
     saveQuery,
     type QueriesHandle,
 } from "./queries.js";
+export { savedQueries, type SavedQueryInput } from "./saved.js";
 export {
     QueryBuilder,
     QueryBuilderComponent,
@@ -109,6 +111,8 @@ export interface QueryNamespace {
     Builder: typeof QueryBuilder;
     /** `<Query.Library>` — every saved query, as a gallery of wireframes, and where new queries start. */
     Library: typeof QueryLibrary;
+    /** Saved queries, by name, each checked against the data sources it may read — what a solution ships its record with ({@link savedQueries}). */
+    saved: typeof savedQueries;
     /** The query builder's East types. */
     Types: QueryTypes;
 }
@@ -133,11 +137,13 @@ const types: QueryTypes = {
 /**
  * The query builder and the query library — the components a solution mounts
  * (`<Query.Builder>`, `<Query.Library>`), and the East types it declares its
- * saved queries record with (`Query.Types`).
+ * saved queries record with (`Query.Types`), and the queries it ships in it
+ * (`Query.saved`).
  */
 export const Query: QueryNamespace = {
     Builder: QueryBuilder,
     Library: QueryLibrary,
+    saved: savedQueries,
     Types: types,
 };
 
@@ -178,6 +184,7 @@ export interface QueryInternalNamespace extends Omit<QueryNamespace, "Types"> {
 export const QueryInternal: QueryInternalNamespace = {
     Builder: QueryBuilder,
     Library: QueryLibrary,
+    saved: savedQueries,
     save: saveQuery,
     nameWriteRefusal,
     rootBound,

@@ -7,9 +7,9 @@
 The twin of ``libs/east/src/expr/query.ts`` (``libs/east/devdocs/QUERY.md``
 §15). In a build, the query is parsed, checked against its inputs' types and
 translated to ordinary East IR, so it runs wherever East runs; the expression
-is a call of the ``Query`` builtin (#1041), which carries the checked query
-beside its translation. On values, it is checked, translated, compiled once
-and run now, through ``evaluate_jq``'s cache.
+is a call of the ``Query`` builtin (#1041), which carries the program as
+written beside its translation. On values, it is checked, translated, compiled
+once and run now, through ``evaluate_jq``'s cache.
 """
 
 from __future__ import annotations
@@ -58,12 +58,12 @@ def jq(input: Any, program: str, result_type: EastType) -> Any:
         TypeError: When a value's East type cannot be told from the value.
 
     In a build, the expression is a call of the ``Query`` builtin (#1041),
-    whose arguments are the checked query, a typed constant (``QueryCallType``:
-    the program as written and a root's input names), and its translation, an
-    East function of the inputs; the call's arguments are the inputs, each
-    named input among them whether the query reads it or not. Running the call
-    runs the translation, and printers print it back as ``East.jq(…)`` from
-    its query.
+    whose arguments are the program as written and a root's input names, a
+    typed constant (``QueryCallType``), and its translation, an East function
+    of the inputs; the call's arguments are the inputs, each named input among
+    them whether the query reads it or not. Running the call runs the
+    translation, and printers print it back as ``East.jq(…)`` from its
+    program.
 
     Example:
         >>> Order = StructType([("id", IntegerType), ("total", FloatType)])
@@ -95,7 +95,7 @@ def _build(named: bool, names: list[str], values: list[Any], program: str, resul
     input_type = StructType([(n, e.east_type) for n, e in zip(names, exprs, strict=True)]) if named \
         else exprs[0].east_type
     checked = check_jq(program, input_type, root=named)
-    if checked.query is None:
+    if checked.program is None:
         raise QueryBuildError(checked.diagnostics)
     translation = translate_jq(checked)
     _check_result_type(program, translation.result_type, result_type, QueryBuildError)

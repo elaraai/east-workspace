@@ -9,7 +9,8 @@ TypeScript's: the parser reads the text's UTF-16 view, so each offset is
 TypeScript's, and the strings it puts in the tree are read back from it.
 
 The tree's variants are built with ``EastVariant`` itself: ``JqType`` is
-recursive, which ``variant()`` cannot check a case against.
+recursive, which ``variant()`` cannot check a case against. A literal's
+constant is a ``JqLiteralType`` value, which ``variant()`` checks.
 """
 
 from __future__ import annotations
@@ -31,16 +32,9 @@ from east.query.jq.spans import (
     to_query_span,
     to_utf16,
 )
-from east.serialization.beast2 import encode_beast2_with_header_for
-from east.types.construct import none, some
-from east.types.types import BooleanType, FloatType, IntegerType, NullType, StringType
+from east.query.types import JqLiteralType
+from east.types.construct import none, some, variant
 from east.types.values import EastStruct, EastVariant, east_null
-
-_encode_null = encode_beast2_with_header_for(NullType)
-_encode_boolean = encode_beast2_with_header_for(BooleanType)
-_encode_integer = encode_beast2_with_header_for(IntegerType)
-_encode_float = encode_beast2_with_header_for(FloatType)
-_encode_string = encode_beast2_with_header_for(StringType)
 
 _INTEGER_MAX = 9223372036854775807
 
@@ -598,11 +592,11 @@ class _Parser:
         self._next()
         if not self._is_punct("("):
             if t.value == "null":
-                return self._mk(node("literal", _encode_null(east_null)), t.from_)
+                return self._mk(node("literal", variant("null", None, JqLiteralType)), t.from_)
             if t.value == "true":
-                return self._mk(node("literal", _encode_boolean(True)), t.from_)
+                return self._mk(node("literal", variant("boolean", True, JqLiteralType)), t.from_)
             if t.value == "false":
-                return self._mk(node("literal", _encode_boolean(False)), t.from_)
+                return self._mk(node("literal", variant("boolean", False, JqLiteralType)), t.from_)
             return self._mk(node("call", EastStruct({"args": [], "name": t.value})), t.from_)
         self._next()
         args = [self.parse_query()]
@@ -694,12 +688,12 @@ class _Parser:
                 raise _JqSyntaxError(diagnostic(
                     self.text, "syntax", t,
                     f"syntax: {t.value} is too large for an Integer; write {t.value}.0 for a Float."), self.at - 1)
-            return node("literal", _encode_integer(value))
+            return node("literal", variant("integer", value, JqLiteralType))
         f = float(t.value)
         if f in (float("inf"), float("-inf")):
             raise _JqSyntaxError(diagnostic(self.text, "syntax", t, f"syntax: {t.value} is too large for a Float."),
                                  self.at - 1)
-        return node("literal", _encode_float(f))
+        return node("literal", variant("float", f, JqLiteralType))
 
     def _parse_key_string(self) -> _StringTerm:
         """A string naming a field or a key: ``@format`` must be followed by its string there, as in jq."""
@@ -752,7 +746,8 @@ class _Parser:
                 break  # string_end: the lexer and the bracket check guarantee it
         if not parts:
             constant = from_utf16(text)
-            return _StringTerm(constant, self._mk(node("literal", _encode_string(constant)), start.from_))
+            return _StringTerm(constant, self._mk(node("literal", variant("string", constant, JqLiteralType)),
+                                                  start.from_))
         if text != "":
             parts.append(node("text", from_utf16(text)))
         return _StringTerm(None, self._mk(node("string", parts), start.from_))
@@ -921,11 +916,11 @@ def parse_jq(text: str) -> ParsedJq:
 
     The parser keeps jq's sugar, so printing gives back what was written:
     ``.a.b`` is two ``field`` nodes, ``.a?`` sets ``optional``, and ``f?`` is a
-    ``try`` with no ``catch``. Literals are self-describing beast2 blobs: a
-    number written without ``.`` or an exponent is an Integer (64-bit; larger
-    is a problem), any other number a Float, and a string without
-    interpolation a String. ``$__loc__`` is the variable ``__loc__``;
-    ``import``, ``include`` and ``module`` are ``unsupported``.
+    ``try`` with no ``catch``. A literal is the typed East value it writes
+    (``JqLiteralType``): a number written without ``.`` or an exponent is an
+    Integer (64-bit; larger is a problem), any other number a Float, and a
+    string without interpolation a String. ``$__loc__`` is the variable
+    ``__loc__``; ``import``, ``include`` and ``module`` are ``unsupported``.
 
     A problem is a ``syntax`` diagnostic with its span, and a fix where one is
     obvious. After a problem the parser resumes at the next ``|`` outside

@@ -26,14 +26,13 @@ import { AstSymbol, Expr } from "../../expr/expr.js";
 import type { FunctionExpr } from "../../expr/function.js";
 import FloatLib from "../../expr/libs/float.js";
 import { get_current_source_map, get_location_id, UNKNOWN_LOC_ID } from "../../location.js";
-import { decodeBeast2 } from "../../serialization/beast2/index.js";
-import { fromEastTypeValue } from "../../type_of_type.js";
 import {
   ArrayType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NeverType, NullType, OptionType, RefType,
   StringType, StructType, VariantType, isImmutableType, isSubtype, isTypeEqual, printType, type EastType,
 } from "../../types.js";
 import { QueryCallType } from "../types.js";
 import { UPDATE_SELECTORS, walkSteps, type CheckJqResult } from "./check.js";
+import { isoDateTime, literalValue } from "./literals.js";
 import { casesOf, membersOf, nullablePayload, unify, unifyShape, unwrap, type Facts, type Result, type Shape } from "./shapes.js";
 import { childPath, jqChildren, toQuerySpan, type JqNode, type JqPattern } from "./spans.js";
 import { BUILTIN_RULES, FORMATS } from "./translate-builtins.js";
@@ -200,7 +199,6 @@ export function isRoot(value: Value): value is RootValue {
 
 /** The translator for one checked program. @internal */
 export class Translator {
-  private readonly literals = new Map<Uint8Array, { type: EastType; value: unknown }>();
   private readonly locs = new Map<string, bigint>();
   private readonly retyped = new Map<string, string | null>();
 
@@ -694,18 +692,12 @@ export class Translator {
 
   // ─── Literals and the checker's types ───────────────────────────────────
 
-  /** A literal node's value and type. */
+  /** A literal node's value and type, as the program writes it. */
   literal(node: Extract<JqNode, { type: "literal" }>): { type: EastType; value: unknown } {
-    let known = this.literals.get(node.value);
-    if (known === undefined) {
-      const { type, value } = decodeBeast2(node.value);
-      known = { type: fromEastTypeValue(type), value };
-      this.literals.set(node.value, known);
-    }
-    return known;
+    return literalValue(node.value);
   }
 
-  /** A node's value when it is a literal, as the query wrote it or the checker rewrote it. */
+  /** A node's value when it is a literal, as the program writes it. */
   literalOf(node: JqNode | undefined): { type: EastType; value: unknown } | undefined {
     return node?.type === "literal" ? this.literal(node) : undefined;
   }
@@ -761,7 +753,8 @@ export class Translator {
   /**
    * A value as a type the checker widened it to: Integer as Float, `T` or
    * `null` as `Option<T>`, and arrays, dicts, structs and variants element by
-   * element.
+   * element; and a string literal the checker read as a DateTime, as the
+   * DateTime it writes.
    *
    * @throws {TranslationError} When the type is not wider.
    */
@@ -793,10 +786,11 @@ export class Translator {
       if (c !== undefined) return this.float(Number(c.value as bigint), path);
       return this.b("IntegerToFloat", [], [e], FloatType, path);
     }
-    // A literal the checker rewrote to a Float, where this instance of it has an Integer.
-    if (from.type === "Float" && to.type === "Integer") {
+    // An ISO-8601 string the checker read as a DateTime: the date it writes, through East's RFC 3339 reader, as the checker read it.
+    if (from.type === "String" && to.type === "DateTime") {
       const c = this.constant(e);
-      if (c !== undefined && Number.isInteger(c.value as number)) return this.int(c.value as number, path);
+      const date = c === undefined ? undefined : isoDateTime(c.value as string);
+      if (date !== undefined) return this.value(date, to, path);
     }
     if (isSubtype(from, to) && !holdsNever(from)) return this.as(e, to);
     const f = this.type(this.open(e));
@@ -898,7 +892,7 @@ export class Translator {
    */
   gen(node: JqNode, path: string, $: Block, x: Value, env: Env, emit: Emit): void {
     if (this.ended($)) return;
-    // A literal is its own value, as the checker rewrote it; a builtin that reads an argument as a literal never checked it.
+    // A literal is its own value, as the checker read it; a builtin that reads an argument as a literal never checked it.
     if (node.type === "literal") { this.genNode(node, path, $, x, env, emit); return; }
     const input = this.checked.inputAt(path, env.instance);
     // A node the checker never reached, or reached with no input, never runs.
@@ -913,7 +907,7 @@ export class Translator {
 
   /** Generates a node, each output as the one type its outputs share. */
   collected(node: JqNode, path: string, $: Block, x: Value, env: Env, emit: Emit): void {
-    // A literal is as the checker rewrote it (an ISO date as a DateTime), not as its record was checked.
+    // A literal is its own value, as the checker read it (an ISO date as a DateTime), never collected as another type.
     if (node.type === "literal") { this.genNode(node, path, $, x, env, emit); return; }
     let type: EastType | undefined;
     this.gen(node, path, $, x, env, ($2, v) => {
@@ -1013,8 +1007,12 @@ export class Translator {
         emit($, this.expr(x, path));
         return;
       case "literal": {
+        // As written, or as the type the checker read it as here: an ISO-8601 string as the DateTime it writes.
         const { type, value } = this.literal(node);
-        emit($, this.value(value, type, path));
+        const written = this.value(value, type, path);
+        const read = this.result(path, env);
+        const as = read === null ? undefined : unifyShape(read.shape);
+        emit($, as === undefined || as.type === "Never" || isTypeEqual(as, type) ? written : this.widenTo($, written, as, path));
         return;
       }
       case "variable": {
@@ -1583,25 +1581,14 @@ export class Translator {
       });
       return;
     }
-    // A literal the checker made a Float, for an instance of this node whose
-    // other operand is a Float, stays one in every instance; where this
-    // instance's result is an Integer, it is its whole number.
-    const integral = this.result(path, env);
-    const whole = integral !== null && unifyShape(integral.shape)?.type === "Integer";
     // jq takes the right side's outputs first, and the left side's for each.
+    // An Integer with a Float is widened by the operator, as the checker typed it.
     this.collected(right, rightPath, $, x, env, ($2, b) => {
       this.collected(left, leftPath, $2, x, env, ($3, a) => {
         if (COMPARISONS.has(op)) emit($3, this.compare($3, op, a, b, path));
-        else this.give($3, this.arith($3, op, whole ? this.integer(a, path) : a, whole ? this.integer(b, path) : b, path), emit);
+        else this.give($3, this.arith($3, op, a, b, path), emit);
       });
     });
-  }
-
-  /** A Float constant with a whole value, as an Integer; anything else as it is. */
-  private integer(e: Expr, path: string): Expr {
-    if (this.type(e).type !== "Float") return e;
-    const c = this.constant(e);
-    return c !== undefined && Number.isInteger(c.value as number) ? this.int(c.value as number, path) : e;
   }
 
   /** A comparison: East's order within a kind, jq's order across kinds (null, booleans, numbers, strings, arrays, objects). */
@@ -2336,7 +2323,7 @@ export class Translator {
         const { index, optional } = target.value;
         const literal = this.literalOf(index);
         const keyPath = at("index.index");
-        // The key is taken on the index's own input, as jq takes it; a literal is its own value, as the checker rewrote it.
+        // The key is taken on the index's own input, as jq takes it; a literal is its own value, which the key's type widens.
         const key = literal?.type.type === "String" ? undefined
           : literal !== undefined ? this.value(literal.value, literal.type, keyPath)
           : this.one(index, keyPath, $, v, env, this.typeAt(keyPath, this.envFor(keyPath, env, v)));
@@ -3293,21 +3280,20 @@ function stateHeldBy(node: JqNode, input: Held, vars: ReadonlyMap<string, Held>,
  * ```
  */
 export function translateJq(checked: CheckJqResult, options: TranslateJqOptions = {}): JqTranslation {
-  if (checked.query === null || checked.rewritten === null || checked.elementType === null || checked.multiplicity === null) {
+  if (checked.program === null || checked.elementType === null || checked.multiplicity === null) {
     const errors = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
-  const query = checked.query;
+  // The program as written: each value it holds is given as the type the checker read it as.
+  const program = checked.program;
   const element = checked.elementType;
   const multiplicity = checked.multiplicity;
-  const inputType = fromEastTypeValue(query.value.input_type);
+  const inputType = checked.inputType;
   const root = checked.source.root;
   const inputs: { name: string | null; type: EastType }[] = root
     ? checked.reads.map(name => ({ name, type: parts(unwrap(inputType)).fields[name]! }))
     : [{ name: null, type: inputType }];
   const resultType = multiplicity === "one" ? element : multiplicity === "maybe" ? OptionType(element) : ArrayType(element);
-  // The rewritten program: the checker's rewrites mean no translation parses text.
-  const program = checked.rewritten;
   // What the `Query` builtin's function takes: every field of a root, in order, or the one input.
   const fields = root ? Object.entries(parts(unwrap(inputType)).fields) : [];
   const params = root ? fields.map(([, type]) => type) : [inputType];
@@ -3358,7 +3344,7 @@ export function translateJq(checked: CheckJqResult, options: TranslateJqOptions 
       // Each field of the root is a parameter; the translation reads those the query reads.
       const translation = func(params, resultType, ($: Block, ...args: Expr[]) =>
         into($, root ? inputs.map(i => args[fields.findIndex(([name]) => name === i.name)]!) : args));
-      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program: query.value.program });
+      const constant = variant("v1", { inputs: root ? some(fields.map(([name]) => name)) : none, program });
       const builtin: AST = {
         ast_type: "Builtin", type: F, loc_id: loc, builtin: "Query", type_parameters: [F],
         arguments: [valueOrExprToAstTyped(constant, QueryCallType, undefined, loc), (translation as any)[AstSymbol] as AST],

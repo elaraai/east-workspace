@@ -11,11 +11,7 @@
  * @packageDocumentation
  */
 
-import { variant } from "../../containers/variant.js";
-import { DateTimeFormatTokenType } from "../../datetime_format/types.js";
 import { validateCrossPlatformCompatible } from "../../expr/regex_validation.js";
-import { encodeBeast2For } from "../../serialization/beast2/index.js";
-import { compareFor } from "../../comparison.js";
 import { printFor } from "../../serialization/east.js";
 import {
   ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, OptionType, StringType, StructType,
@@ -24,7 +20,7 @@ import {
 import { MESSAGES, edit, type QueryFix } from "./messages.js";
 import {
   ERROR, MANY, MAYBE, ONE, ZERO, describeType, descendTypes, either, isOrdered, membersOf, nullablePayload, orNull, piped,
-  typed, unify, union, unwrap, type Member, type Mult, type Proof, type Result, type Shape, type TypeShape,
+  typed, unify, union, unwrap, type Member, type Mult, type Proof, type Result, type TypeShape,
 } from "./shapes.js";
 import type { JqNode, JqRange } from "./spans.js";
 import { formatTokens } from "./strftime.js";
@@ -59,16 +55,17 @@ export interface CallContext {
   /** A literal node's value. */
   literalOf(node: Extract<JqNode, { type: "literal" }>): { type: EastType; value: unknown };
   /**
-   * Rewrites argument `i`, a literal, as `wanted` is written: an Integer as a
-   * Float, an ISO-8601 string as a DateTime. Reports a string that is not an
-   * ISO-8601 date.
+   * Reads argument `i`, a literal, as `wanted` is written: an Integer as a
+   * Float, an ISO-8601 string as a DateTime, which its translation gives.
+   * Reports a string that is not an ISO-8601 date.
    *
-   * @returns the literal's new type, or `undefined` when it is not such a literal
+   * @returns the type the literal is read as, or `undefined` when it is not
+   *   such a literal
    */
   coerceArg(i: number, wanted: EastType): EastType | undefined;
   /**
-   * Rewrites argument `i`, an array literal of literals, as an array of
-   * `wanted`: each element as {@link CallContext.coerceArg} rewrites one.
+   * Reads argument `i`, an array literal of literals, as an array of
+   * `wanted`: each element as {@link CallContext.coerceArg} reads one.
    *
    * @returns the array's new type, or `undefined` when it is not such an array
    */
@@ -83,16 +80,10 @@ export interface CallContext {
   skipNulls(): QueryFix | undefined;
   /** Reports a lint at the call. */
   warn(code: string, message: string, fixes?: QueryFix[]): void;
-  /** Replaces the call in the checked program. */
-  rewrite(replacement: JqNode): void;
-  /** Replaces argument `i` in the checked program. */
-  rewriteArg(i: number, replacement: JqNode): void;
   /** The call's text, or argument `i`'s. */
   source(i?: number): string;
   /** The one type a result's outputs share, or a reported `ambiguous_output`. */
   collect(result: Result, arg?: number): EastType | undefined;
-  /** Whether a shape is an e3 root, which is read one field at a time. */
-  isRoot(shape: Shape): boolean;
   /** Refuses the call when its input is the whole root. */
   refuseRoot(): boolean;
   /** Adds what a condition proves to a result's shape. */
@@ -259,14 +250,14 @@ function argOf(ctx: CallContext, i: number, expected: string, allowed: (t: EastT
 }
 
 /**
- * Argument `i` rewritten as `wanted` is written, when it is a literal of
- * another type (`as: "value"`), or an array literal of them (`"elements"`,
- * each element a `wanted`): an ISO-8601 string as a DateTime, an Integer as a
+ * Argument `i` read as `wanted` is written, when it is a literal of another
+ * type (`as: "value"`), or an array literal of them (`"elements"`, each
+ * element a `wanted`): an ISO-8601 string as a DateTime, an Integer as a
  * Float.
  *
- * @returns the argument's new type; `undefined` when it is no such literal;
- *   or `null` when it is a string that is not an ISO-8601 date, which the
- *   rewrite has reported
+ * @returns the type the argument is read as; `undefined` when it is no such
+ *   literal; or `null` when it is a string that is not an ISO-8601 date,
+ *   which reading it has reported
  */
 function coerceArgument(ctx: CallContext, i: number, wanted: EastType, as: "value" | "elements"): EastType | null | undefined {
   const reported = ctx.problems();
@@ -334,13 +325,12 @@ function checkFlags(ctx: CallContext, i: number | undefined): string | undefined
 }
 
 const printString = printFor(StringType);
-const compareString = compareFor(StringType);
-const encodeTokens = encodeBeast2For(ArrayType(DateTimeFormatTokenType));
-const encodeStrings = encodeBeast2For(ArrayType(StringType));
-const encodeBoolean = encodeBeast2For(BooleanType);
 
-/** Rewrites a strftime/strptime format argument as its tokens. */
-function rewriteFormat(ctx: CallContext): boolean {
+/**
+ * Checks a strftime/strptime format argument: a literal string whose every
+ * code East has a token for. The translator makes the tokens from it.
+ */
+function checkFormat(ctx: CallContext): boolean {
   const format = literalString(ctx, 0, "format");
   if (format === undefined) return false;
   const tokens = formatTokens(format);
@@ -348,7 +338,6 @@ function rewriteFormat(ctx: CallContext): boolean {
     ctx.fail("unsupported", MESSAGES.formatCode(tokens.code), { arg: 0 });
     return false;
   }
-  ctx.rewriteArg(0, variant("literal", encodeTokens(tokens.tokens)) as JqNode);
   return true;
 }
 
@@ -1000,19 +989,13 @@ supported("length", [0], "StringLength, ArraySize, SetSize, DictSize, BlobSize, 
   }
 }));
 supported("utf8bytelength", [0], "BlobSize of StringEncodeUtf8", ctx => onInput(ctx, "a string", t => t.type === "String" ? one(IntegerType) : undefined));
-supported("keys", [0], "DictKeys, the struct's field names sorted, the indices", ctx => keys(ctx, true));
-supported("keys_unsorted", [0], "DictKeys, the struct's field names in declared order (§13.12), the indices", ctx => keys(ctx, false));
-function keys(ctx: CallContext, sorted: boolean): Result {
-  return onInput(ctx, "a dict, a struct or an array", (t, member) => {
+supported("keys", [0], "DictKeys, the struct's field names sorted, the indices", keys);
+supported("keys_unsorted", [0], "DictKeys, the struct's field names in declared order (§13.12), the indices", keys);
+/** `keys` and `keys_unsorted`: a struct's names, a root's included, are its type's, which the translator gives. */
+function keys(ctx: CallContext): Result {
+  return onInput(ctx, "a dict, a struct or an array", t => {
     if (t.type === "Dict") return one(ArrayType(t.key as EastType));
-    if (t.type === "Struct") {
-      const names = Object.keys(t.fields as Record<string, EastType>);
-      if (ctx.isRoot(member)) {
-        const ordered = sorted ? [...names].sort(compareString) : names;
-        ctx.rewrite(variant("literal", encodeStrings(ordered)) as JqNode);
-      }
-      return one(ArrayType(StringType));
-    }
+    if (t.type === "Struct") return one(ArrayType(StringType));
     if (t.type === "Variant" && nullablePayload(t) === undefined) return one(ArrayType(StringType));
     return elementOf(t) === undefined ? undefined : one(ArrayType(IntegerType));
   });
@@ -1022,7 +1005,7 @@ supported("has", [1], "DictHas, the struct's field names, ArraySize", ctx => {
   if (key.shape.kind === "error") return { shape: ERROR, mult: ONE };
   const keyType = ctx.collect(key, 0);
   if (keyType === undefined) return { shape: ERROR, mult: ONE };
-  return onInput(ctx, "a dict, a struct or an array", (t, member) => {
+  return onInput(ctx, "a dict, a struct or an array", t => {
     if (t.type === "Dict") {
       const dictKey = unwrap(t.key as EastType);
       if (isTypeEqual(unwrap(keyType), dictKey)) return one(BooleanType, key.mult);
@@ -1032,12 +1015,9 @@ supported("has", [1], "DictHas, the struct's field names, ArraySize", ctx => {
       if (coerced !== undefined) return one(BooleanType, key.mult);
       return ctx.fail("type_mismatch", MESSAGES.keyType("has", describeType(t.key as EastType), ctx.source(0), describeType(keyType)), { arg: 0 });
     }
+    // A struct's names, a root's included, are its type's, which the translator answers from.
     if (t.type === "Struct") {
       if (unwrap(keyType).type !== "String") return ctx.fail("type_mismatch", MESSAGES.keyType("has", "String", ctx.source(0), describeType(keyType)), { arg: 0 });
-      const literal = ctx.literal(0);
-      if (ctx.isRoot(member) && literal !== undefined) {
-        ctx.rewrite(variant("literal", encodeBoolean((literal.value as string) in (t.fields as Record<string, EastType>))) as JqNode);
-      }
       return one(BooleanType, key.mult);
     }
     if (elementOf(t) !== undefined) {
@@ -1422,12 +1402,12 @@ for (const name of ["todate", "todateiso8601"]) {
 for (const name of ["fromdate", "fromdateiso8601"]) {
   supported(name, [0], "StringParseJSON as a DateTime: RFC 3339 with milliseconds and offsets (§13.4)", ctx => onInput(ctx, "a string", t => t.type === "String" ? one(DateTimeType) : undefined));
 }
-supported("strftime", [1], "DateTimePrintFormat with the format's tokens, made when the query is checked", ctx => {
-  if (!rewriteFormat(ctx)) return { shape: ERROR, mult: ONE };
+supported("strftime", [1], "DateTimePrintFormat with the format's tokens, made when the query is translated", ctx => {
+  if (!checkFormat(ctx)) return { shape: ERROR, mult: ONE };
   return dateInput(ctx, StringType);
 });
 supported("strptime", [1], "DateTimeParseFormat with the format's tokens (gives a DateTime, §13.4)", ctx => {
-  if (!rewriteFormat(ctx)) return { shape: ERROR, mult: ONE };
+  if (!checkFormat(ctx)) return { shape: ERROR, mult: ONE };
   return onInput(ctx, "a string", t => t.type === "String" ? one(DateTimeType) : undefined);
 });
 for (const [name, east] of [

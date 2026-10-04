@@ -94,7 +94,8 @@ export {
 } from './studio/index.js';
 
 // The query builder (#875): the component a solution mounts, the saved
-// queries record it declares, and a query as the steps the builder edits.
+// queries record it declares and the queries it ships in it, and a query as
+// the steps the builder edits.
 export {
     Query,
     QueryAggregateFunctionType,
@@ -120,6 +121,7 @@ export {
     type QueryLibraryOptions,
     type QueryNamespace,
     type QueryTypes,
+    type SavedQueryInput,
 } from './query/index.js';
 export { DataSourceType, type BoundSource } from './bind/sources.js';
 

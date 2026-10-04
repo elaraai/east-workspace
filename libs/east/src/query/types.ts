@@ -6,14 +6,14 @@
 /**
  * The wire types of typed jq queries over East values.
  *
- * A query's text is parsed and checked once, in an SDK, into a
- * {@link QueryType} value: the program as a {@link JqType} tree, the type it
- * was checked against, the type of each output, how many outputs it gives,
- * and whether it reads an e3 root. That value is how East keeps a checked
- * query, a saved one included. In code, the `Query` builtin carries the
- * program and a root's input names ({@link QueryCallType}) beside the query's
- * translation, whose function type carries the types, and a runtime runs the
- * translation (#1041), so no runtime reads query text.
+ * A query's text is parsed into a {@link JqType} tree, the program as
+ * written, each constant in it a typed East value. A query's types are never
+ * kept with it: they are what checking the program against the data it reads
+ * gives, and every place that needs them checks the program (#1138). In code,
+ * the `Query` builtin carries the program and a root's input names
+ * ({@link QueryCallType}) beside the query's translation, whose function type
+ * carries the types, and a runtime runs the translation (#1041), so no
+ * runtime reads query text.
  *
  * Struct fields are declared alphabetically, as `FunctionManifestType`'s are,
  * and the python twins in `east/query/types.py` declare the same types, so a
@@ -23,8 +23,30 @@
  * @packageDocumentation
  */
 
-import { ArrayType, BlobType, BooleanType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType } from "../types.js";
-import { EastTypeType } from "../type_of_type.js";
+import { ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType } from "../types.js";
+
+/**
+ * A constant a jq program writes, as the East value it is.
+ *
+ * @remarks
+ * - `boolean` — `true` or `false`.
+ * - `float` — a number written with a `.` or an exponent: `1001.0`, `1e2`.
+ * - `integer` — a number written as digits alone, `1001`: a 64-bit Integer.
+ * - `null` — `null`.
+ * - `string` — a string with no interpolation, `"C01"`.
+ *
+ * A literal is the constant as written. Where the checker reads it as
+ * another type — an Integer where a Float is, an ISO-8601 string where a
+ * DateTime is — the program still holds it as written, and its translation
+ * gives the value that type has (`devdocs/QUERY.md` §7).
+ */
+export const JqLiteralType = VariantType({
+  boolean: BooleanType,
+  float: FloatType,
+  integer: IntegerType,
+  null: NullType,
+  string: StringType,
+});
 
 /**
  * A destructuring pattern, as `as`, `reduce` and `foreach` bind one.
@@ -75,8 +97,8 @@ export const JqPatternType = RecursiveType(pattern => VariantType({
  *   decided by the target's type; `optional` is a trailing `?`.
  * - `iterate` — `target[]`, or `target[]?` when `optional`.
  * - `label` — `label $name | body`, named without its `$`.
- * - `literal` — a constant, as a self-describing beast2 blob, so it carries
- *   its East type: `1001` is an Integer, `1001.0` a Float.
+ * - `literal` — a constant, as the typed East value it is
+ *   ({@link JqLiteralType}): `1001` is an Integer, `1001.0` a Float.
  * - `negate` — `-f`.
  * - `object` — `{…}`: a key is a `name` (`{a: f}`, or `{a}` with no value),
  *   a `variable` (`{$x}`, named without its `$`) or `computed` (`{(k): v}`).
@@ -106,7 +128,7 @@ export const JqType = RecursiveType(jq => VariantType({
   index: StructType({ index: jq, optional: BooleanType, target: jq }),
   iterate: StructType({ optional: BooleanType, target: jq }),
   label: StructType({ body: jq, name: StringType }),
-  literal: BlobType,
+  literal: JqLiteralType,
   negate: jq,
   object: ArrayType(StructType({
     key: VariantType({ computed: jq, name: StringType, variable: StringType }),
@@ -134,52 +156,19 @@ export const JqType = RecursiveType(jq => VariantType({
 export const QueryMultiplicityType = VariantType({ many: NullType, maybe: NullType, one: NullType });
 
 /**
- * A checked query, version 1: what an SDK's checker produces and a runtime
- * accepts.
- *
- * @remarks
- * - `element_type` — the type of each output.
- * - `input_type` — the type the program was checked against. A runtime
- *   refuses an input of any other type.
- * - `multiplicity` — how many outputs it gives ({@link QueryMultiplicityType}).
- * - `program` — the program as written, so `printJq` prints it back exactly.
- *   The checker's rewrites, which spare every runtime parsing text (an ISO
- *   string compared with a DateTime is a DateTime literal, a `strftime`
- *   format a token array), are the check result's, where the translator
- *   reads them.
- * - `root` — whether it was checked as an e3 root: `input_type` is a struct
- *   of datasets, and each field the program reads is its own input.
- */
-export const QueryV1Type = StructType({
-  element_type: EastTypeType,
-  input_type: EastTypeType,
-  multiplicity: QueryMultiplicityType,
-  program: JqType,
-  root: BooleanType,
-});
-
-/**
- * A checked query: the versioned envelope every runtime accepts.
- *
- * @remarks
- * A structural change to a checked query is a new case that sorts after `v1`
- * (a variant's cases are ordered by name, and inserting one before an existing
- * case renumbers it), and readers accept every released version.
- */
-export const QueryType = VariantType({ v1: QueryV1Type });
-
-/**
  * A query as the `Query` builtin carries it in code (#1041): the program as
  * written, and a root's input names.
  *
  * @remarks
  * - `inputs` — the names of a root's fields, one per input of the
  *   translation, in order; `none` for a query of one input.
- * - `program` — the program as written, as {@link QueryV1Type}'s is.
+ * - `program` — the program as written ({@link JqType}).
  *
  * The builtin's type parameter, the translation's function type, carries the
  * query's input and result types, so they are not held twice. A structural
- * change is a new case that sorts after `v1`, as {@link QueryType}'s is.
+ * change is a new case that sorts after `v1` (a variant's cases are ordered
+ * by name, and inserting one before an existing case renumbers it), and
+ * readers accept every released version.
  */
 export const QueryCallType = VariantType({
   v1: StructType({

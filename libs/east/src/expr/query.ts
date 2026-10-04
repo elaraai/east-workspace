@@ -43,10 +43,11 @@ import type { ExprType } from "./types.js";
  *
  * @remarks
  * The expression is a call of the `Query` builtin (#1041), whose arguments
- * are the checked query, a typed constant, and its translation, an East
- * function of the inputs; the call's arguments are the inputs, each named
- * input among them whether the query reads it or not. Running the call runs
- * the translation, and printers print it back as `East.jq(…)` from its query.
+ * are the program as written and a root's input names, a typed constant, and
+ * its translation, an East function of the inputs; the call's arguments are
+ * the inputs, each named input among them whether the query reads it or not.
+ * Running the call runs the translation, and printers print it back as
+ * `East.jq(…)` from its program.
  *
  * @example
  * ```ts
@@ -75,7 +76,7 @@ export function jq<T extends EastType>(input: Expr | { readonly [name: string]: 
     ? StructType(Object.fromEntries(names.map((n, i) => [n, Expr.type(values[i]!) as EastType])))
     : Expr.type(input) as EastType;
   const checked = checkJq(program, inputType, { root: named });
-  if (checked.query === null) throw new QueryError(checked.diagnostics);
+  if (checked.program === null) throw new QueryError(checked.diagnostics);
   const translation = translateJq(checked);
   if (!isTypeEqual(resultType, translation.resultType)) {
     const message = `type_mismatch: the query gives ${describeType(translation.resultType)}, not the ${describeType(resultType)} it was given.`;

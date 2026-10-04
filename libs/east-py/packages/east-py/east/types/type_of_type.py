@@ -650,9 +650,9 @@ def canonical_type_value(typ: EastVariant) -> EastVariant:
     numbered in preorder from 0, and each ``ref`` takes the number of the
     innermost enclosing wrapper it names. A wrapper's id is a runtime artefact
     (python mints process-unique ids, and a decoded type keeps the writer's),
-    so a type written as data — a checked query's ``input_type`` and
-    ``element_type`` (``libs/east/devdocs/QUERY.md`` §14) — is renumbered
-    first, and equal types then encode to equal bytes in either language.
+    so a type written as data — the query corpus's input and element types
+    (``libs/east/test/query.corpus.ts``) — is renumbered first, and equal
+    types then encode to equal bytes in either language.
 
     Args:
         typ: A type (in python, a type is its own type value).

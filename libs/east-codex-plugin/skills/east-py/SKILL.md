@@ -576,7 +576,7 @@ East.jq({"orders": orders, "limit": 1000.0},
 | An error the query raises | `error(v)`, an integer `% 0`, a date that does not parse: an East runtime error located in the jq text (`jq 1:5`), which `b.try_` catches; on values, a `QueryError` with one `runtime` diagnostic |
 | The input's type | In a body, the expression's; on values, `type_of(value)`. Where that is narrower than the type meant (a variant's is its one case), run `evaluate_jq(program, value, input_type=T)` |
 | The language | jq 1.8 over East's types: Dict keys of any type, DateTime a type (an ISO literal compares with it), Integers exact, a variant read as `{type, value}`. Every departure is listed in `libs/east/devdocs/QUERY.md` §13 |
-| Host tools (`from east.query import …`) | `check_jq(program, input_type, root=False)`: the checked query, its types and diagnostics, without building · `evaluate_jq(program, value, input_type=T)`: a query whose input type is data · `translate_jq(checked)` · `parse_jq` / `print_jq` / `lex_jq` · `QueryError` |
+| Host tools (`from east.query import …`) | `check_jq(program, input_type, root=False)`, without building: the program as written (`.program`, a `JqType` tree whose constants are typed East values; `None` when it does not check), the type it was checked against (`.input_type`), its `.element_type` and `.multiplicity` (`"one"` / `"maybe"` / `"many"`; `None` when it does not check), the datasets a root query reads (`.reads`) and its `.diagnostics`. A query's types are never stored: check the program against its data wherever they are needed · `evaluate_jq(program, value, input_type=T)`: a query whose input type is data · `translate_jq(checked)` · `parse_jq` / `print_jq` / `lex_jq` · `QueryError` |
 
 ### What a body may reference
 

@@ -15,14 +15,11 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from east.datetime_format import DateTimeFormatTokenType
 from east.query.jq.lex import is_jq_keyword
+from east.query.jq.literals import JqLiteral
 from east.query.jq.spans import JqNode, JqPattern, JqRange, JqSpans, child_path, utf16_length
-from east.query.jq.strftime import format_text
-from east.serialization.beast2 import decode_beast2_with_header_for, read_beast2_type
 from east.serialization.east_printer import print_for
-from east.serialization.json import to_json_for
-from east.types.types import BooleanType, DateTimeType, FloatType, IntegerType, is_type_equal
+from east.types.types import BooleanType, FloatType, IntegerType
 
 # How tightly a node binds, loosest first: one level per function of the
 # parser's descent (`parse.py`).
@@ -68,7 +65,6 @@ _FORMAT_NAME = re.compile(r"[a-zA-Z0-9_]+")
 _print_boolean = print_for(BooleanType)
 _print_integer = print_for(IntegerType)
 _print_float = print_for(FloatType)
-_date_time_text = to_json_for(DateTimeType)
 
 
 def json_string(value: str) -> str:
@@ -105,46 +101,28 @@ class _Literal:
     digits: bool
 
 
-def literal_value(blob: bytes) -> tuple[object, object]:
-    """A literal's type and value, decoded from its self-describing beast2 blob."""
-    t = read_beast2_type(blob)
-    return t, decode_beast2_with_header_for(t)(blob)
-
-
-def _literal_of(blob: bytes) -> _Literal:
-    """The jq text of a literal, as East prints the value.
-
-    A checked program holds literals the checker rewrote, and each prints as
-    the text it was rewritten from: a DateTime as its RFC 3339 string, a
-    format's tokens as the format, and the names a folded ``keys`` gives as
-    an array of strings.
-    """
-    t, value = literal_value(blob)
-    kind = t.type  # type: ignore[attr-defined]
-    if kind == "Array" and is_type_equal(t.value, DateTimeFormatTokenType):  # type: ignore[attr-defined]
-        return _Literal("String", json_string(format_text(list(value))), False, False)  # type: ignore[arg-type]
-    if kind == "Array" and t.value.type == "String":  # type: ignore[attr-defined]
-        return _Literal("Array", f"[{', '.join(json_string(name) for name in value)}]", False, False)  # type: ignore[attr-defined]
-    if kind == "DateTime":
-        return _Literal("String", json_string(_date_time_text(value)), False, False)
-    if kind == "Null":
+def _literal_of(literal: JqLiteral) -> _Literal:
+    """The jq text of a literal, as East prints the value."""
+    kind = literal.type
+    value = literal.value
+    if kind == "null":
         return _Literal("Null", "null", False, False)
-    if kind == "Boolean":
+    if kind == "boolean":
         return _Literal("Boolean", _print_boolean(value), False, False)
-    if kind == "Integer":
+    if kind == "integer":
         text = _print_integer(value)
         negative = text.startswith("-")
         return _Literal("Integer", text, negative, not negative)
-    if kind == "Float":
+    if kind == "float":
         # East prints an integral Float with its `.0`, so it reads back as a
         # Float; jq writes the values East prints as NaN and Infinity with its
         # builtins.
         printed = _print_float(value)
         text = {"NaN": "nan", "Infinity": "infinite", "-Infinity": "-infinite"}.get(printed, printed)
         return _Literal("Float", text, text.startswith("-"), False)
-    if kind == "String":
-        return _Literal("String", json_string(value), False, False)  # type: ignore[arg-type]
-    raise ValueError(f"printJq: a {kind} literal has no jq text")
+    if kind == "string":
+        return _Literal("String", json_string(value), False, False)
+    raise ValueError(f"printJq: a jq literal has no case {kind}")
 
 
 def _check_name(ok: bool, what: str, name: str) -> None:
@@ -166,18 +144,22 @@ class _Printer:
         #: The text's length so far, in UTF-16 code units.
         self.length = 0
         self.spans: JqSpans = {}
-        self._literals: dict[bytes, _Literal] = {}
+        #: Each literal's text, by the literal's id, the literal held beside it. An id is unique only among the
+        #: objects alive, and a decoded program makes the nodes under an array part (a call's arguments, an
+        #: object's entries) afresh each time they are read, so a literal printed earlier can be gone, its id
+        #: another literal's: each entry keeps its literal alive for as long as the printer is.
+        self._literals: dict[int, tuple[JqLiteral, _Literal]] = {}
 
     def emit(self, s: str) -> None:
         self.parts.append(s)
         self.length += utf16_length(s)
 
-    def literal(self, blob: bytes) -> _Literal:
-        key = bytes(blob)
-        lit = self._literals.get(key)
-        if lit is None:
-            lit = _literal_of(key)
-            self._literals[key] = lit
+    def literal(self, value: JqLiteral) -> _Literal:
+        held = self._literals.get(id(value))
+        if held is not None and held[0] is value:
+            return held[1]
+        lit = _literal_of(value)
+        self._literals[id(value)] = (value, lit)
         return lit
 
     def postfix_try(self, body: JqNode) -> bool:
@@ -557,4 +539,4 @@ def print_jq(program: JqNode, *, layout: Literal["line", "pipeline"] = "line") -
     return PrintedJq("".join(printer.parts), printer.spans)
 
 
-__all__ = ["PrintedJq", "json_string", "literal_value", "print_jq"]
+__all__ = ["PrintedJq", "json_string", "print_jq"]

@@ -8,10 +8,12 @@
  * solution declares as one record, the data sources a query reads, and what a
  * run of a query answers.
  *
- * A saved query is typed: its checked `QueryType`, the program as written and
- * what the checker made of it, never text to parse again and never the IR the
- * builder translates it to on each run. A solution declares the record as
- * Studio's pages are declared:
+ * A saved query is its program as written — a `JqType` tree, never text to
+ * parse again and never the IR the builder translates it to on each run — and
+ * the data sources it reads. Its types are never stored: they are what
+ * checking the program against those data sources gives (#1138). A solution
+ * declares the record as Studio's pages are declared, empty or with the
+ * queries `Query.saved` checks:
  *
  * ```ts
  * export const queries      = e3.record("queries", Query.Types.Saved, new Map());
@@ -31,9 +33,9 @@ import {
     DateTimeType,
     DictType,
     IntegerType,
+    JqType,
     OptionType,
     QueryErrorType,
-    QueryType,
     StringType,
     StructType,
     VariantType,
@@ -94,8 +96,6 @@ export type QueryInputType = typeof QueryInputType;
  *     it was allowed, the rest left out;
  *   - `timed_out` — it ran out of time after `ms`;
  *   - `too_large` — its answer was `bytes` long, over `limit`
- * @property query - The checked query that ran; `none` when the program did
- *   not check, so nothing ran
  */
 export const QueryResultType = StructType({
     inputs: ArrayType(QueryInputType),
@@ -106,7 +106,6 @@ export const QueryResultType = StructType({
         timed_out: StructType({ ms: IntegerType }),
         too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
     }),
-    query: OptionType(QueryType),
 });
 
 /** Type representing what a run of a query answered. */
@@ -122,8 +121,9 @@ export type QueryResultType = typeof QueryResultType;
  * @property name - Its name, which is its key in the record
  * @property description - One sentence, at most 140 characters; with none,
  *   the sentence generated from its steps shows instead
- * @property query - The checked query: the program as written, checked once
- *   against the whole root it was saved on. A query saves only once it checks.
+ * @property program - The program as written, checked against the whole root
+ *   it was saved on: a query saves only once it checks. Its types are what
+ *   checking it against its data sources gives, and are never stored.
  * @property root - The data sources it reads, in root order. It opens only
  *   where each is bound, by the same name and at the same path, so it never
  *   reads another page's dataset of the same name.
@@ -132,7 +132,7 @@ export type QueryResultType = typeof QueryResultType;
 export const SavedQueryType = StructType({
     name: StringType,
     description: OptionType(StringType),
-    query: QueryType,
+    program: JqType,
     root: ArrayType(QueryRootEntryType),
     saved_at: DateTimeType,
 });

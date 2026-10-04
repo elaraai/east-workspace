@@ -32,6 +32,8 @@ from east.query.jq.shapes import (
     unwrap,
 )
 from east.query.jq.spans import JqNode, child_path, jq_children
+from east.query.jq.strftime import format_tokens
+from east.query.jq.translate import is_root
 from east.serialization.east_printer import print_type
 from east.types.types import (
     ArrayType,
@@ -1009,7 +1011,22 @@ def _sorted_strings(names: list[str]) -> list[str]:
     return sorted(names, key=cmp_to_key(compare_for(StringType)))
 
 
+def _root_type(t: Translator) -> EastType:
+    """The type of the root a program was checked against: a struct of datasets."""
+    return unwrap(t.checked.input_type)
+
+
+def _field_names(t: Translator, c: CallSite, typ: EastType) -> A:
+    """A struct's field names, as ``keys`` gives them (sorted) and ``keys_unsorted`` (in declared order, §13.12)."""
+    names = list(fields_of(typ))
+    return t.value(_sorted_strings(names) if c.name == "keys" else names, ArrayType(StringType), c.path)
+
+
 def _keys(t: Translator, c: CallSite) -> None:
+    # A root's names are its type's: every dataset in it, none read.
+    if is_root(c.x):
+        c.emit(c.block, _field_names(t, c, _root_type(t)))
+        return
     x = t.open(_input(t, c))
     xt = x.type
     if xt.type == "Dict":
@@ -1018,8 +1035,7 @@ def _keys(t: Translator, c: CallSite) -> None:
         c.emit(c.block, out)
         return
     if xt.type == "Struct":
-        names = list(fields_of(xt))
-        c.emit(c.block, t.value(_sorted_strings(names) if c.name == "keys" else names, ArrayType(StringType), c.path))
+        c.emit(c.block, _field_names(t, c, xt))
         return
     if xt.type == "Variant":
         c.emit(c.block, t.value(["type", "value"], ArrayType(StringType), c.path))
@@ -1034,6 +1050,16 @@ def _keys(t: Translator, c: CallSite) -> None:
 rule(("keys", "keys_unsorted"), _keys)
 
 
+def _has_field(t: Translator, c: CallSite, typ: EastType, key: A) -> A:
+    """Whether a struct type has a field of a name: a constant for a name the query writes."""
+    names = list(fields_of(typ))
+    known = t.constant(key)
+    if known is not None and isinstance(known[0], str):
+        return t.bool_(known[0] in names, c.path)
+    return t.b("SetHas", [StringType], [t.value(_sorted_strings(names), SetType(StringType), c.path), key], BooleanType,
+               c.path)
+
+
 def _has(t: Translator, c: CallSite, b: Block, container: A, key: A) -> A | None:
     """Whether a container has a key: a dict's key, a struct's field name, an array's index."""
     o = t.open(container)
@@ -1042,12 +1068,7 @@ def _has(t: Translator, c: CallSite, b: Block, container: A, key: A) -> A | None
         return t.b("DictHas", [dict_key(ot), dict_value(ot)], [o, t.widen_to(b, key, dict_key(ot), c.path)], BooleanType,
                    c.path)
     if ot.type == "Struct":
-        names = list(fields_of(ot))
-        known = t.constant(key)
-        if known is not None and isinstance(known[0], str):
-            return t.bool_(known[0] in names, c.path)
-        return t.b("SetHas", [StringType], [t.value(_sorted_strings(names), SetType(StringType), c.path), key], BooleanType,
-                   c.path)
+        return _has_field(t, c, ot, key)
     array = t.as_array(b, o, c.path)
     if array is None:
         return None
@@ -1058,6 +1079,10 @@ def _has(t: Translator, c: CallSite, b: Block, container: A, key: A) -> A | None
 
 def _has_rule(t: Translator, c: CallSite) -> None:
     def with_key(b: Block, vs: list[A]) -> None:
+        # A root's names are its type's: every dataset in it, none read.
+        if is_root(c.x):
+            c.emit(b, _has_field(t, c, _root_type(t), vs[0]))
+            return
         x = _input(t, c)
         result = _has(t, c, b, x, vs[0])
         if result is None:
@@ -2405,11 +2430,12 @@ rule(("fromdate", "fromdateiso8601"), _fromdate)
 
 
 def _tokens_of(t: Translator, c: CallSite) -> A:
-    """The format tokens the checker wrote for a strftime/strptime format."""
+    """A strftime/strptime format's tokens, made from the format the query writes, as the checker read it."""
     literal = t.literal_of(c.args[0])
-    if literal is None or literal[0].type != "Array":
-        raise t.gap(f"{c.name} without its format's tokens")
-    return t.value(list(literal[1]), ArrayType(DateTimeFormatTokenType), c.arg_paths[0])
+    tokens = format_tokens(literal[1])[0] if literal is not None and literal[0].type == "String" else None
+    if tokens is None:
+        raise t.gap(f"{c.name} without a format East has tokens for")
+    return t.value(tokens, ArrayType(DateTimeFormatTokenType), c.arg_paths[0])
 
 
 rule("strftime", lambda t, c: c.emit(c.block, t.b("DateTimePrintFormat", [], [

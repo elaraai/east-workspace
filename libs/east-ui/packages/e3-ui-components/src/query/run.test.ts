@@ -57,7 +57,7 @@ describe("run.ts (#938)", () => {
         const plan = planRun(editorOf(".orders\n| map(select(.total >= 1000))"), ROOT);
         const answer = evaluateJq(plan.program, FIXTURE_VALUE, { inputType: FixtureType, root: true });
         const type = checkJq(plan.program, ROOT.type, { root: true }).elementType!;
-        const result: QueryResult = { inputs: [], query: none, outcome: variant("ok", { outputs: 1n, result: encodeBeast2For(type)(answer as never), truncated: false }) };
+        const result: QueryResult = { inputs: [], outcome: variant("ok", { outputs: 1n, result: encodeBeast2For(type)(answer as never), truncated: false }) };
         const output = runOutput(plan, result)!;
         expect(output.counts!.get(SOURCE_COUNT)).toBe(40);
         expect(output.total).toBeUndefined();
@@ -66,13 +66,13 @@ describe("run.ts (#938)", () => {
         const Row = StructType({ id: IntegerType });
         const Cut = StructType({ counts: ArrayType(IntegerType), result: ArrayType(Row) });
         const cut = encodeBeast2For(Cut)({ counts: [4210n, 4210n], result: [{ id: 1n }, { id: 2n }] });
-        const read = runOutput(plan, { inputs: [], query: none, outcome: variant("ok", { outputs: 1n, result: cut, truncated: false }) })!;
+        const read = runOutput(plan, { inputs: [], outcome: variant("ok", { outputs: 1n, result: cut, truncated: false }) })!;
         expect([read.total, (read.value as unknown[]).length, read.truncated]).toEqual([4210, 2, false]);
     });
 
     test("a run that gave no result gives no output", () => {
         const plan = planRun(editorOf(".orders"), ROOT);
-        expect(runOutput(plan, { inputs: [], query: none, outcome: variant("timed_out", { ms: 30_000n }) })).toBeUndefined();
+        expect(runOutput(plan, { inputs: [], outcome: variant("timed_out", { ms: 30_000n }) })).toBeUndefined();
     });
 });
 
@@ -99,11 +99,11 @@ describe("run.ts — what a split run sends (#941)", () => {
         const Row = StructType({ id: IntegerType });
         const Cut = StructType({ counts: ArrayType(IntegerType), result: ArrayType(Row) });
         const answer = encodeBeast2For(Cut)({ counts: [4210n], result: [{ id: 1n }, { id: 2n }] });
-        const read = runOutput(plan.split, { inputs: [], query: none, outcome: variant("ok", { outputs: 1n, result: answer, truncated: false }) }, new Map([[SOURCE_COUNT, 90_000]]))!;
+        const read = runOutput(plan.split, { inputs: [], outcome: variant("ok", { outputs: 1n, result: answer, truncated: false }) }, new Map([[SOURCE_COUNT, 90_000]]))!;
         expect([...read.counts!.entries()]).toEqual([[SOURCE_COUNT, 90_000], [plan.counted![1]!, 4210]]);
         expect([read.total, (read.value as unknown[]).length]).toEqual([4210, 2]);
         // An answer that is the result alone keeps the counts known before it.
-        const one = runOutput({ counted: undefined }, { inputs: [], query: none, outcome: variant("ok", { outputs: 1n, result: encodeBeast2For(IntegerType)(7n), truncated: false }) }, new Map([[SOURCE_COUNT, 40]]))!;
+        const one = runOutput({ counted: undefined }, { inputs: [], outcome: variant("ok", { outputs: 1n, result: encodeBeast2For(IntegerType)(7n), truncated: false }) }, new Map([[SOURCE_COUNT, 40]]))!;
         expect([one.value, [...one.counts!.entries()]]).toEqual([7n, [[SOURCE_COUNT, 40]]]);
     });
 });

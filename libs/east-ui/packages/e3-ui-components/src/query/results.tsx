@@ -36,7 +36,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import { Box, Button, CloseButton, Menu as ChakraMenu, Portal, Skeleton, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faCircleExclamation, faCircleInfo, faDownload, faSitemap, faTableList } from "@fortawesome/free-solid-svg-icons";
-import { describeJqType, fromEastTypeValue, none, some } from "@elaraai/east";
+import { describeJqType, none, some } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
 import { EastChakraTable, EastChakraValueTree, EmptyStateView, Toolbar, type ToolbarItem, type ValueTreeValue } from "@elaraai/east-ui-components";
 import { byteWords, countWords, fieldLabels, planProgressWords, shapeWords, type QueryWords } from "./model/words.js";
@@ -152,11 +152,12 @@ export function resultFooter(state: RunState, words: QueryWords): ResultFooter {
     if (state.status === "running") return { count: m.runningWord(), ...empty };
     const run = m.runLine({ n: f.bare(state.n), time: f.time(state.at), ms: f.bare(state.status === "done" ? Math.round(state.ms) : 0) });
     if (state.status === "failed") return { count: m.noResult(), fields: "", run, type: "", reads: "" };
-    const { result, output, plan } = state;
+    const { result, output, plan, planned } = state;
     const reads = m.readsLine({ sources: result.inputs.map(i => ({ name: i.name, hash: i.hash.slice(0, 8) })) });
-    const query = result.query.type === "some" ? result.query.value.value : undefined;
-    const type = query === undefined ? "" : m.typeHover({
-        type: describeJqType(fromEastTypeValue(query.element_type), { maxDepth: 2 }), multiplicity: query.multiplicity.type,
+    // The call that ran, as the checker typed it: none when the query did not check, so nothing ran.
+    const reading = planned === undefined ? undefined : planned.kind === "one_shot" ? planned.prepared : planned.reading;
+    const type = reading === undefined ? "" : m.typeHover({
+        type: describeJqType(reading.checked.elementType, { maxDepth: 2 }), multiplicity: reading.checked.multiplicity,
     });
     if (output === undefined) return { count: m.noResult(), fields: "", run, type, reads };
     const shape = plan.shape;

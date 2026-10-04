@@ -6,7 +6,8 @@
 /**
  * Building and reading jq programs as East values (#933): the nodes of
  * `JqType` the steps print as, and the readers their recognisers parse back
- * with. Literals are self-describing beast2, as east's parser makes them.
+ * with. A literal is the typed East value it writes (`JqLiteralType`), as
+ * east's parser makes it.
  *
  * @packageDocumentation
  */
@@ -17,9 +18,6 @@ import {
     IntegerType,
     NullType,
     StringType,
-    decodeBeast2,
-    encodeBeast2For,
-    fromEastTypeValue,
     none,
     some,
     variant,
@@ -59,12 +57,6 @@ const KEYWORDS: ReadonlySet<string> = new Set([
 export function isVariableName(name: string): boolean {
     return IDENTIFIER.test(name) && !KEYWORDS.has(name);
 }
-
-const encodeString = encodeBeast2For(StringType);
-const encodeInteger = encodeBeast2For(IntegerType);
-const encodeFloat = encodeBeast2For(FloatType);
-const encodeBoolean = encodeBeast2For(BooleanType);
-const encodeNull = encodeBeast2For(NullType);
 
 // ============================================================================
 // Building
@@ -225,27 +217,27 @@ export function updateNode(path: JqNode, op: string, value: JqNode): JqNode {
 
 /** A String literal. */
 export function stringLiteral(text: string): JqNode {
-    return variant("literal", encodeString(text));
+    return variant("literal", variant("string", text));
 }
 
 /** An Integer literal. */
 export function integerLiteral(n: bigint): JqNode {
-    return variant("literal", encodeInteger(n));
+    return variant("literal", variant("integer", n));
 }
 
 /** A Float literal. */
 export function floatLiteral(x: number): JqNode {
-    return variant("literal", encodeFloat(x));
+    return variant("literal", variant("float", x));
 }
 
 /** A Boolean literal. */
 export function booleanLiteral(b: boolean): JqNode {
-    return variant("literal", encodeBoolean(b));
+    return variant("literal", variant("boolean", b));
 }
 
 /** `null` */
 export function nullLiteral(): JqNode {
-    return variant("literal", encodeNull(null));
+    return variant("literal", variant("null", null));
 }
 
 /**
@@ -316,26 +308,31 @@ export function readCall(node: JqNode, name: string, arity: number): JqNode[] | 
  */
 export function readLiteral(node: JqNode): { type: EastType; value: unknown } | undefined {
     if (node.type !== "literal") return undefined;
-    const { type, value } = decodeBeast2(node.value);
-    return { type: fromEastTypeValue(type), value };
+    const literal = node.value;
+    switch (literal.type) {
+        case "boolean": return { type: BooleanType, value: literal.value };
+        case "float": return { type: FloatType, value: literal.value };
+        case "integer": return { type: IntegerType, value: literal.value };
+        case "null": return { type: NullType, value: null };
+        case "string": return { type: StringType, value: literal.value };
+    }
 }
 
 /**
  * A literal as a step's value: text, a number, yes or no, or nothing.
  *
  * @param node - the node
- * @returns the value, or `undefined` when it is not such a literal
+ * @returns the value, or `undefined` when it is not a literal
  */
 export function readStepValue(node: JqNode): StepValue | undefined {
-    const literal = readLiteral(node);
-    if (literal === undefined) return undefined;
-    switch (literal.type.type) {
-        case "String": return variant("text", literal.value as string);
-        case "Integer": return variant("number", Number(literal.value as bigint));
-        case "Float": return variant("number", literal.value as number);
-        case "Boolean": return variant("boolean", literal.value as boolean);
-        case "Null": return variant("null", null);
-        default: return undefined;
+    if (node.type !== "literal") return undefined;
+    const literal = node.value;
+    switch (literal.type) {
+        case "string": return variant("text", literal.value);
+        case "integer": return variant("number", Number(literal.value));
+        case "float": return variant("number", literal.value);
+        case "boolean": return variant("boolean", literal.value);
+        case "null": return variant("null", null);
     }
 }
 

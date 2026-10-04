@@ -73,7 +73,7 @@ export type PairCheck =
 export function checkPair(pair: Pair): PairCheck {
   const checked = checkJq(pair.text, pair.shape.type);
   const errors = checked.diagnostics.filter(d => d.severity.type === "error");
-  if (checked.query === null || checked.elementType === null || errors.length > 0) {
+  if (checked.program === null || checked.elementType === null || errors.length > 0) {
     return { refused: errors.map(d => d.message).join(" | ") || "does not check" };
   }
   return { checked, resultType: translateJq(checked).resultType };

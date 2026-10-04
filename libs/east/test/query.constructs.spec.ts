@@ -52,7 +52,7 @@ function translations(): { label: string; ir: IR }[] {
   const out: { label: string; ir: IR }[] = [];
   for (const c of QUERY_CORPUS) {
     const checked = checkJq(c.program, c.input, { root: c.root === true });
-    if (checked.query !== null) out.push({ label: `corpus ${c.name}`, ir: translateJq(checked).fn().toIR().ir });
+    if (checked.program !== null) out.push({ label: `corpus ${c.name}`, ir: translateJq(checked).fn().toIR().ir });
   }
   for (const r of conformanceCases().map(runCase)) {
     if (r.outcome.bucket !== "pass" || r.case.mustFail || r.passed === undefined) continue;

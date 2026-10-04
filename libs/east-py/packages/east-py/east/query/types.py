@@ -5,13 +5,13 @@
 """The wire types of typed jq queries over East values.
 
 The python twins of ``libs/east/src/query/types.ts``. A query's text is parsed
-and checked once, in an SDK, into a ``QueryType`` value: the program as a
-``JqType`` tree, the type it was checked against, the type of each output, how
-many outputs it gives, and whether it reads an e3 root. That value is how East
-keeps a checked query, a saved one included. In code, the ``Query`` builtin
-carries the program and a root's input names (``QueryCallType``) beside the
-query's translation, whose function type carries the types, and a runtime runs
-the translation (#1041), so no runtime reads query text.
+into a ``JqType`` tree, the program as written, each constant in it a typed
+East value. A query's types are never kept with it: they are what checking the
+program against the data it reads gives, and every place that needs them
+checks the program (#1138). In code, the ``Query`` builtin carries the program
+and a root's input names (``QueryCallType``) beside the query's translation,
+whose function type carries the types, and a runtime runs the translation
+(#1041), so no runtime reads query text.
 
 Struct fields are declared alphabetically in both languages, so each type
 encodes to the same bytes as its TypeScript twin; ``tests/test_query_types.py``
@@ -21,11 +21,10 @@ compares them against the header of ``libs/east/test/fixtures/query-corpus.beast
 
 from __future__ import annotations
 
-from east.types.type_of_type import EastTypeType
 from east.types.types import (
     ArrayType,
-    BlobType,
     BooleanType,
+    FloatType,
     IntegerType,
     NullType,
     OptionType,
@@ -33,6 +32,24 @@ from east.types.types import (
     StructType,
     VariantType,
     recursive_type,
+)
+
+# A constant a jq program writes, as the East value it is: ``boolean``, ``true``
+# or ``false``; ``float``, a number written with a ``.`` or an exponent
+# (``1001.0``, ``1e2``); ``integer``, a number written as digits alone
+# (``1001``), a 64-bit Integer; ``null``; ``string``, a string with no
+# interpolation (``"C01"``). A literal is the constant as written. Where the
+# checker reads it as another type — an Integer where a Float is, an ISO-8601
+# string where a DateTime is — the program still holds it as written, and its
+# translation gives the value that type has (``QUERY.md`` §7).
+JqLiteralType = VariantType(
+    [
+        ("boolean", BooleanType),
+        ("float", FloatType),
+        ("integer", IntegerType),
+        ("null", NullType),
+        ("string", StringType),
+    ]
 )
 
 # A destructuring pattern, as ``as``, ``reduce`` and ``foreach`` bind one:
@@ -54,8 +71,9 @@ JqPatternType = recursive_type(
 
 # A jq program, as a tree. The parser keeps jq's sugar (``.a.b`` is two
 # ``field`` nodes, ``f?`` is a ``try`` with no ``catch``), and a ``literal``
-# holds its constant as a self-describing beast2 blob. Operators, builtin
-# names and error codes are strings, so a new one never changes this type.
+# holds its constant as the typed East value it is (``JqLiteralType``): ``1001``
+# is an Integer, ``1001.0`` a Float. Operators, builtin names and error codes
+# are strings, so a new one never changes this type.
 JqType = recursive_type(
     lambda jq: VariantType(
         [
@@ -119,7 +137,7 @@ JqType = recursive_type(
             ),
             ("iterate", StructType([("optional", BooleanType), ("target", jq)])),
             ("label", StructType([("body", jq), ("name", StringType)])),
-            ("literal", BlobType),
+            ("literal", JqLiteralType),
             ("negate", jq),
             (
                 "object",
@@ -179,32 +197,14 @@ JqType = recursive_type(
 # is the element type T, Option<T> or Array<T> respectively.
 QueryMultiplicityType = VariantType([("many", NullType), ("maybe", NullType), ("one", NullType)])
 
-# A checked query, version 1: the type of each output, the type it was checked
-# against, how many outputs it gives, the program AS WRITTEN (so ``print_jq``
-# prints it back exactly; the checker's rewrites, which spare every runtime
-# parsing text, are the check result's ``rewritten``, where the translator
-# reads them), and whether it was checked as an e3 root (``input_type`` is a
-# struct of datasets, and each field the program reads is its own input).
-QueryV1Type = StructType(
-    [
-        ("element_type", EastTypeType),
-        ("input_type", EastTypeType),
-        ("multiplicity", QueryMultiplicityType),
-        ("program", JqType),
-        ("root", BooleanType),
-    ]
-)
-
-# The versioned envelope every runtime accepts. A structural change is a new
-# case sorting after ``v1``; readers accept every released version.
-QueryType = VariantType([("v1", QueryV1Type)])
-
 # A query as the ``Query`` builtin carries it in code (#1041): ``inputs``, the
 # names of a root's fields, one per input of the translation, in order (``none``
-# for a query of one input); and ``program``, the program as written, as
-# ``QueryV1Type``'s is. The builtin's type parameter, the translation's function
-# type, carries the query's input and result types, so they are not held
-# twice. A structural change is a new case that sorts after ``v1``.
+# for a query of one input); and ``program``, the program as written
+# (``JqType``). The builtin's type parameter, the translation's function type,
+# carries the query's input and result types, so they are not held twice. A
+# structural change is a new case that sorts after ``v1`` (a variant's cases are
+# ordered by name, and inserting one before an existing case renumbers it), and
+# readers accept every released version.
 QueryCallType = VariantType(
     [
         (
@@ -245,6 +245,7 @@ QueryErrorType = StructType(
 )
 
 __all__ = [
+    "JqLiteralType",
     "JqPatternType",
     "JqType",
     "QueryCallType",
@@ -253,6 +254,4 @@ __all__ = [
     "QueryFixType",
     "QueryMultiplicityType",
     "QuerySpanType",
-    "QueryType",
-    "QueryV1Type",
 ]

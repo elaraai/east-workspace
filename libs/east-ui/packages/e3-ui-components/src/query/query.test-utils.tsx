@@ -88,9 +88,9 @@ export const ROOT: QueryRoot = queryRoot([
 /** A saved query over the root, checked as a save checks it. */
 export function savedQuery(name: string, program: string, description = none as ValueTypeOf<OptionType<typeof StringType>>): SavedQuery {
     const checked = checkJq(program, ROOT.type, { root: true });
-    if (checked.query === null) throw new Error(`${program}: ${checked.diagnostics.map(d => d.message).join("; ")}`);
+    if (checked.program === null) throw new Error(`${program}: ${checked.diagnostics.map(d => d.message).join("; ")}`);
     return {
-        name, description, query: checked.query, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)),
+        name, description, program: checked.program, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)),
         root: ROOT.entries.filter(e => checked.reads.includes(e.name)).map(e => ({ name: e.name, path: e.path })),
     };
 }

@@ -6,20 +6,19 @@
 /* The jq checker and its builtin catalog (#921): every corpus case's element
  * type, multiplicity and diagnostics with their fixes (C1); narrowing and its
  * fix (C2); the stages of the query editor's default query (C3); e3 roots
- * (C4); the check-time rewrites; inference by fixpoint; and the catalog against
- * jq 1.8.1's own list of builtins. The bundle test (C5) is
- * query.bundle.spec.ts. */
+ * (C4); how a literal is read, the program kept as written (#1138);
+ * inference by fixpoint; and the catalog against jq 1.8.1's own list of
+ * builtins. The bundle test (C5) is query.bundle.spec.ts. */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
-  ArrayType, DateTimeType, DictType, FloatType, IntegerType, OptionType, QueryType, StringType, StructType,
-  checkJq, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, parseJq, printJq, printType,
+  ArrayType, DateTimeType, DictType, FloatType, IntegerType, JqLiteralType, JqType, OptionType, StringType, StructType,
+  checkJq, equalFor, isTypeEqual, parseJq, printJq, printType, variant,
   type EastType, type JqNode,
 } from "../src/index.js";
-import { DateTimeFormatTokenType } from "../src/datetime_format/types.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
 import { MESSAGES } from "../src/query/jq/messages.js";
 import { jqChildren } from "../src/query/jq/spans.js";
@@ -113,9 +112,9 @@ describe("checkJq: the corpus (C1)", () => {
         assert.ok(result.elementType !== null, `no element type: ${result.diagnostics.map(d => d.message).join(" ")}`);
         assert.ok(isTypeEqual(result.elementType, c.element), `${printType(result.elementType)} is not ${printType(c.element)}`);
         assert.equal(result.multiplicity, c.multiplicity);
-        assert.ok(result.query !== null);
+        assert.ok(result.program !== null);
       } else {
-        assert.equal(result.query, null);
+        assert.equal(result.program, null);
         assert.equal(result.elementType, null);
       }
       const expected = c.diagnostics ?? [];
@@ -174,15 +173,17 @@ describe("checkJq: the corpus (C1)", () => {
     for (const code of CODES) assert.ok(codes.has(code), `no case reports ${code}`);
   });
 
-  test("a checked query's program prints as text that checks to the same query (#1041)", () => {
+  test("a checked program is as written, and its text checks to the same program and types (#1041, #1138)", () => {
     for (const c of QUERY_CORPUS) {
       const result = check(c);
-      if (result.query === null) continue;
-      const text = printJq(result.query.value.program).text;
+      if (result.program === null) continue;
+      const text = printJq(result.program).text;
       assert.equal(text, c.canonical, `${c.name}: the program is as written`);
       const again = checkJq(text, c.input, { root: c.root === true });
-      assert.ok(again.query !== null, `${c.name}: ${text} does not check: ${again.diagnostics.map(d => d.message).join(" ")}`);
-      assert.ok(equalFor(QueryType)(again.query, result.query), c.name);
+      assert.ok(again.program !== null, `${c.name}: ${text} does not check: ${again.diagnostics.map(d => d.message).join(" ")}`);
+      assert.ok(equalFor(JqType)(again.program, result.program), c.name);
+      assert.ok(isTypeEqual(again.elementType!, result.elementType!), c.name);
+      assert.equal(again.multiplicity, result.multiplicity, c.name);
     }
   });
 
@@ -190,8 +191,11 @@ describe("checkJq: the corpus (C1)", () => {
     for (const c of QUERY_CORPUS) {
       const a = check(c);
       const b = check(c);
-      if (a.query === null || b.query === null) assert.equal(a.query, b.query);
-      else assert.ok(equalFor(QueryType)(a.query, b.query), c.name);
+      if (a.program === null || b.program === null) assert.equal(a.program, b.program);
+      else {
+        assert.ok(equalFor(JqType)(a.program, b.program), c.name);
+        assert.ok(isTypeEqual(a.elementType!, b.elementType!) && a.multiplicity === b.multiplicity, c.name);
+      }
     }
   });
 });
@@ -315,68 +319,68 @@ describe("checkJq: e3 roots (C4)", () => {
     ]);
   });
 
-  test("keys on the root is answered from the root's type: the rewritten program is a literal of its names, and it reads nothing", () => {
+  test("keys on the root is answered from the root's type and reads nothing: the program keeps the call as written", () => {
     const result = checkJq("keys", FixtureRoot, { root: true });
     assert.deepEqual(result.diagnostics, []);
     assert.deepEqual(result.reads, []);
-    assert.equal(result.query!.value.program.type, "call");
-    const program = result.rewritten!;
-    assert.equal(program.type, "literal");
-    if (program.type === "literal") {
-      const { type, value } = decodeBeast2(program.value);
-      assert.ok(isTypeEqual(fromEastTypeValue(type), ArrayType(StringType)));
-      assert.deepEqual(value, ["bom", "byId", "cells", "customers", "forecast", "model", "orders"]);
-    }
+    assert.equal(result.program!.type, "call");
+    assert.ok(isTypeEqual(result.elementType!, ArrayType(StringType)));
   });
 
   test("the default query reads customers and orders", () => {
     assert.deepEqual(checkJq(DEFAULT_QUERY, FixtureRoot, { root: true }).reads, ["customers", "orders"]);
   });
 
-  test("a checked query says whether it reads a root, whose every field is its input type's (#1041)", () => {
-    const rooted = checkJq(".orders | length", FixtureRoot, { root: true }).query!.value;
-    assert.equal(rooted.root, true);
-    assert.ok(isTypeEqual(fromEastTypeValue(rooted.input_type), FixtureRoot));
-    const plain = checkJq(".orders | length", FixtureRoot).query!.value;
-    assert.equal(plain.root, false);
+  test("a checked program gives the type it was checked against: a root's datasets, each read one its own input (#1041, #1138)", () => {
+    const rooted = checkJq(".orders | length", FixtureRoot, { root: true });
+    assert.ok(isTypeEqual(rooted.inputType, FixtureRoot));
+    assert.deepEqual(rooted.reads, ["orders"]);
+    const plain = checkJq(".orders | length", FixtureRoot);
+    assert.ok(isTypeEqual(plain.inputType, FixtureRoot));
+    assert.deepEqual(plain.reads, []);
   });
 });
 
-describe("checkJq: rewrites and inference", () => {
-  test("an ISO string compared with a DateTime is a DateTime literal in the rewritten program", () => {
-    const result = checkJq(".orders[] | select(.status.type == \"shipped\" and .status.value.date >= \"2026-01-01\") | .id", FixtureRoot);
-    const literals = nodesOf(result.rewritten!).filter(n => n.type === "literal").map(n => decodeBeast2(n.value as Uint8Array));
-    const date = literals.find(l => fromEastTypeValue(l.type).type === "DateTime");
-    assert.ok(date !== undefined);
-    assert.equal((date.value as Date).getTime(), Date.UTC(2026, 0, 1));
+describe("checkJq: literals and inference", () => {
+  /** The program's literals, in the order written. */
+  const literalsOf = (program: JqNode) => nodesOf(program).flatMap(n => n.type === "literal" ? [n.value] : []);
+
+  test("an ISO string compared with a DateTime is read as one: the program keeps the string, and its type there is a DateTime", () => {
+    const program = ".orders[] | select(.status.type == \"shipped\" and .status.value.date >= \"2026-01-01\") | .id";
+    const result = checkJq(program, FixtureRoot);
+    assert.deepEqual(result.diagnostics, []);
+    assert.equal(printJq(result.program!).text, program);
+    assert.ok(literalsOf(result.program!).some(l => equalFor(JqLiteralType)(l, variant("string", "2026-01-01"))));
+    const read = result.typeAt("pipe.right.pipe.left.call.args[0].binary.right.binary.right");
+    assert.ok(read !== null && isTypeEqual(read.type, DateTimeType));
   });
 
-  test("a strftime format is a token array in the rewritten program", () => {
-    const result = checkJq("first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | strftime(\"%Y-%m\")", FixtureRoot);
-    const literals = nodesOf(result.rewritten!).filter(n => n.type === "literal").map(n => decodeBeast2(n.value as Uint8Array));
-    const tokens = literals.find(l => isTypeEqual(fromEastTypeValue(l.type), ArrayType(DateTimeFormatTokenType)));
-    assert.ok(tokens !== undefined);
-    assert.deepEqual((tokens.value as { type: string }[]).map(t => t.type), ["year4", "literal", "month2"]);
+  test("a literal is read as a DateTime only where its call's input is one: each call of a def alike (#1138)", () => {
+    const program = "def later: . >= \"2026-01-01\"; [(first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | later), (\"2025-12-31\" | later)]";
+    const result = checkJq(program, FixtureRoot);
+    assert.deepEqual(result.diagnostics, []);
+    const literal = "def.body.binary.right";
+    const asDate = result.typeAt(literal, ">def.rest.array.some.comma.left.pipe.right.pipe.right");
+    const asText = result.typeAt(literal, ">def.rest.array.some.comma.right.pipe.right");
+    assert.ok(asDate !== null && isTypeEqual(asDate.type, DateTimeType), "where the input is a DateTime");
+    assert.ok(asText !== null && isTypeEqual(asText.type, StringType), "where the input is a String");
   });
 
-  test("an Integer literal an operand makes a Float is a Float literal in the rewritten program", () => {
+  test("a strftime format stays the string as written, which the checker reads and the translator makes tokens of", () => {
+    const program = "first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | strftime(\"%Y-%m\")";
+    const result = checkJq(program, FixtureRoot);
+    assert.deepEqual(result.diagnostics, []);
+    assert.equal(printJq(result.program!).text, program);
+    assert.ok(literalsOf(result.program!).some(l => equalFor(JqLiteralType)(l, variant("string", "%Y-%m"))));
+  });
+
+  test("an Integer an operand makes a Float stays an Integer literal: its translation widens it", () => {
     const result = checkJq(".orders | map(.total * 2)", FixtureRoot);
-    assert.equal(printJq(result.rewritten!).text, ".orders | map(.total * 2.0)");
-  });
-
-  test("the checked query holds the program as written, which prints back exactly (#1041 B5)", () => {
-    for (const [program, rewrittenDiffers] of [
-      // The rewritten program holds a DateTime literal where the query wrote an ISO string.
-      [".orders[] | select(.status.type == \"shipped\" and .status.value.date >= \"2026-01-01\") | .id", true],
-      // … and a Float literal where it wrote an Integer.
-      [".orders | map(.total * 2)", true],
-      // A format's tokens print back as the format, rewritten or not.
-      ["first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | strftime(\"%Y-%m\")", false],
-    ] as const) {
-      const result = checkJq(program, FixtureRoot);
-      assert.equal(printJq(result.query!.value.program).text, program);
-      assert.equal(printJq(result.rewritten!).text !== program, rewrittenDiffers, program);
-    }
+    assert.equal(printJq(result.program!).text, ".orders | map(.total * 2)");
+    const two = result.typeAt("pipe.right.call.args[0].binary.right");
+    assert.ok(two !== null && isTypeEqual(two.type, IntegerType));
+    const product = result.typeAt("pipe.right.call.args[0]");
+    assert.ok(product !== null && isTypeEqual(product.type, FloatType));
   });
 
   test("reduce infers its accumulator by fixpoint: {} becomes Dict<String, Float>", () => {
@@ -403,7 +407,7 @@ describe("checkJq: rewrites and inference", () => {
 
   test("a program that does not parse gives its syntax diagnostics and nothing else", () => {
     const result = checkJq(".orders |", FixtureRoot);
-    assert.equal(result.query, null);
+    assert.equal(result.program, null);
     assert.deepEqual(result.diagnostics.map(d => d.code), ["syntax"]);
     assert.deepEqual(result.stages, []);
   });

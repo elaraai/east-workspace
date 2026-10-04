@@ -23,7 +23,7 @@ import {
     ArrayType, OptionType, StringType, StructType,
     checkJq, decodeBeast2For, encodeBeast2For, encodeEastIR, equalFor, fromEastTypeValue, none, printFor, runtimeErrorAt, some,
     translateJq, variant,
-    type CheckJqResult, type EastType, type EastTypeValue, type QueryDiagnostic, type QueryType, type ValueTypeOf,
+    type CheckJqResult, type EastType, type EastTypeValue, type JqMultiplicity, type JqNode, type QueryDiagnostic, type ValueTypeOf,
 } from "@elaraai/east";
 import { TreePathType, pathToString, type ExecuteResult, type OneShotRequest, type RunnerValue } from "@elaraai/e3-types";
 import type { QueryInputType, QueryResultType, QueryRootEntryType } from "@elaraai/e3-ui/internal";
@@ -150,23 +150,41 @@ type QueryOutcome = QueryResult["outcome"];
 /** A dataset a run read, pinned at its hash. */
 type QueryInput = ValueTypeOf<typeof QueryInputType>;
 
-/** A checked query. */
-type CheckedQuery = ValueTypeOf<typeof QueryType>;
+/**
+ * What the checker made of a program that checks: the program as written, the
+ * type of each output and how many there are, each present.
+ */
+export type CheckedProgram = CheckJqResult & {
+    /** The program as written. */
+    readonly program: JqNode;
+    /** The type of each output. */
+    readonly elementType: EastType;
+    /** How many outputs the program gives. */
+    readonly multiplicity: JqMultiplicity;
+};
+
+/**
+ * Whether a program checks: its program, the type of each output and how many
+ * there are are present exactly when no diagnostic is an error.
+ *
+ * @param checked - what `checkJq` made of the program
+ * @returns whether it checks
+ */
+export function programChecks(checked: CheckJqResult): checked is CheckedProgram {
+    return checked.program !== null && checked.elementType !== null && checked.multiplicity !== null;
+}
 
 /**
  * A query's one-shot call, ready to send, and what reading its answer needs.
  *
- * @property query - The checked query: what a result names as the query that ran
- * @property checked - What the checker made of the program: the spans a runtime error is placed by
+ * @property checked - What the checker made of the program: the program as written, the type of each output and how many there are, and the spans a runtime error is placed by
  * @property entries - The data sources the query reads, one per argument of the call, in its order
  * @property request - The call, which e3-api-client's `oneShotExecute` sends
  * @property maxOutputs - The most outputs a `many` query returns
  */
 export interface PreparedQuery {
-    /** The checked query: what a result names as the query that ran. */
-    readonly query: CheckedQuery;
-    /** What the checker made of the program: the spans a runtime error is placed by. */
-    readonly checked: CheckJqResult;
+    /** What the checker made of the program: the program as written, the type of each output and how many there are, and the spans a runtime error is placed by. */
+    readonly checked: CheckedProgram;
     /** The data sources the query reads, one per argument of the call, in its order: the order the query first reads them. */
     readonly entries: QueryRootEntry[];
     /** The call, which e3-api-client's `oneShotExecute` sends. */
@@ -176,12 +194,13 @@ export interface PreparedQuery {
 }
 
 /**
- * What reading a call's answer needs ({@link queryResultOf}): the query that
- * ran, the checker's record of it, the data sources in the call's argument
- * order, and its most outputs. A one-shot call's {@link PreparedQuery} is one;
- * so is a split call's, which the planner gives (`plan.ts`).
+ * What reading a call's answer needs ({@link queryResultOf}): the checker's
+ * record of the query that ran — the type of each output, and how many there
+ * are — the data sources in the call's argument order, and its most outputs. A
+ * one-shot call's {@link PreparedQuery} is one; so is a split call's, which
+ * the planner gives (`plan.ts`).
  */
-export type QueryReading = Pick<PreparedQuery, "query" | "checked" | "entries" | "maxOutputs">;
+export type QueryReading = Pick<PreparedQuery, "checked" | "entries" | "maxOutputs">;
 
 /** A call's limits and runner, as its options set them: what a one-shot call and a split call both send. */
 export interface QueryLimits {
@@ -231,7 +250,7 @@ export function queryLimits(options: QueryOptions = {}): QueryLimits {
  *   `checkJq(program, root.type, { root: true })`, once, against the whole
  *   root, which is never narrowed to what the query reads (#1041): `keys` on
  *   the root answers every name. A problem of error severity is an `error`
- *   result holding the checker's diagnostics, lints included, and no query,
+ *   result holding the checker's diagnostics, lints included, and no input,
  *   since nothing ran; reading the whole root is one.
  * - **The translation.** `translateJq` translates it, a `many` query asked
  *   for at most `maxOutputs + 1` outputs (#923). Its parameters are the
@@ -275,7 +294,7 @@ export function prepareQuery(program: string, root: QueryRoot, options: QueryOpt
  */
 export function prepareCheckedQuery(checked: CheckJqResult, root: QueryRoot, options: QueryOptions = {}): { prepared: PreparedQuery } | { result: QueryResult } {
     const { maxOutputs, limits, runner } = queryLimits(options);
-    if (checked.query === null) return { result: { inputs: [], outcome: variant("error", checked.diagnostics), query: none } };
+    if (!programChecks(checked)) return { result: { inputs: [], outcome: variant("error", checked.diagnostics) } };
     const translation = translateJq(checked, checked.multiplicity === "many" ? { maxOutputs } : {});
     const entries = translation.inputs.map(input => entryNamed(root, input.name));
     const request: OneShotRequest = {
@@ -284,7 +303,7 @@ export function prepareCheckedQuery(checked: CheckJqResult, root: QueryRoot, opt
         runner,
         limits,
     };
-    return { prepared: { query: checked.query, checked, entries, request, maxOutputs } };
+    return { prepared: { checked, entries, request, maxOutputs } };
 }
 
 /**
@@ -336,8 +355,7 @@ function platformFreeEastC(): RunnerValue {
  *   call's reading, as the planner gives it — both a {@link QueryReading}
  * @param result - what e3-api-client's `oneShotExecute` returned for it, or a
  *   split call's result (`splitCall`'s `result`)
- * @returns the answer: how the run ended, the datasets it read, and the query
- *   that ran
+ * @returns the answer: how the run ended, and the datasets it read
  * @throws {Error} When the call read a dataset other than the one the query
  *   reads there: the result is not this call's.
  *
@@ -371,19 +389,18 @@ function platformFreeEastC(): RunnerValue {
  */
 export function queryResultOf(prepared: QueryReading, result: ExecuteResult): QueryResult {
     const inputs = inputsOf(prepared, result);
-    const query = some(prepared.query);
     const outcome = result.outcome;
     switch (outcome.type) {
         case "success":
-            return { inputs, outcome: answered(prepared, outcome.value.value), query };
+            return { inputs, outcome: answered(prepared, outcome.value.value) };
         case "failed":
-            return { inputs, outcome: failed(prepared.checked, outcome.value.exitCode, result.stderr), query };
+            return { inputs, outcome: failed(prepared.checked, outcome.value.exitCode, result.stderr) };
         case "invalid":
-            return { inputs, outcome: variant("error", outcome.value.diagnostics.map(d => refused(prepared, d.message))), query };
+            return { inputs, outcome: variant("error", outcome.value.diagnostics.map(d => refused(prepared, d.message))) };
         case "timed_out":
-            return { inputs, outcome: variant("timed_out", { ms: outcome.value.ms }), query };
+            return { inputs, outcome: variant("timed_out", { ms: outcome.value.ms }) };
         case "too_large":
-            return { inputs, outcome: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }), query };
+            return { inputs, outcome: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }) };
     }
 }
 
@@ -418,9 +435,8 @@ function inputsOf(prepared: QueryReading, result: ExecuteResult): QueryInput[] {
  * @throws {Error} When the answer does not decode at the query's result type.
  */
 function answered(prepared: QueryReading, bytes: Uint8Array): QueryOutcome {
-    const { element_type, multiplicity } = prepared.query.value;
-    const element = fromEastTypeValue(element_type);
-    switch (multiplicity.type) {
+    const element = prepared.checked.elementType;
+    switch (prepared.checked.multiplicity) {
         case "one":
             // Decoded, so an answer of another type is refused.
             decodeBeast2For(element)(bytes);

@@ -11,9 +11,9 @@
  * TypeScript front end over every case and writes what it made to
  * `test/fixtures/query-corpus.beast2`, after a header holding every query wire
  * type's type value as bytes. The python front end must reproduce that file's
- * canonical texts, checked queries and diagnostics byte for byte, and its wire
- * types the header's bytes. `query.corpus.spec.ts` fails when the file is not
- * what the front end makes now.
+ * canonical texts, checked programs with their types, and diagnostics byte for
+ * byte, and its wire types the header's bytes. `query.corpus.spec.ts` fails
+ * when the file is not what the front end makes now.
  *
  * The corpus starts with one case per {@link JqType} case, named after it
  * (`alternative-…`), then covers every worked example of `QUERY.md`, every
@@ -27,10 +27,10 @@
 import {
   ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, IRType, IntegerType, NeverType, NullType,
   OptionType, SortedMap, StringType, StructType,
-  JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
-  QuerySpanType, QueryType, QueryV1Type,
-  canonicalTypeValue, checkJq, compareFor, encodeBeast2For, encodeEastIR, equalFor, fromEastTypeValue, none, parseJq, printJq, setLocationCapture, some,
-  toEastTypeValue, translateJq,
+  JqLiteralType, JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
+  QuerySpanType,
+  canonicalTypeValue, checkJq, compareFor, encodeBeast2For, encodeEastIR, equalFor, none, parseJq, printJq, setLocationCapture, some,
+  toEastTypeValue, translateJq, variant,
   type CheckJqResult, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 import { BUILTINS } from "../src/query/jq/catalog.js";
@@ -499,6 +499,12 @@ export const QUERY_CORPUS: readonly QueryCorpusCase[] = [
   { name: "call-min-max-empty", input: FixtureRoot, program: "[] | [min, max]", canonical: "[] | [min, max]", element: ArrayType(NullType), multiplicity: "one", output: "[null, null]" },
   { name: "index-empty-array", input: FixtureRoot, program: "[][0]", canonical: "[][0]", element: NullType, multiplicity: "one", output: "null" },
   { name: "call-trim-unicode", input: FixtureRoot, program: "\"\\u00a0 x\\u3000\" | trim", canonical: "\"  x　\" | trim", element: StringType, multiplicity: "one", output: "\"x\"" },
+  // A literal is the value it writes, read as the type each use needs, the program kept as written (#1138).
+  { name: "literal-datetime-per-call", input: FixtureRoot, program: "def later: . >= \"2026-01-01\"; [(first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | later), (\"2025-12-31\" | later)]", canonical: "def later: . >= \"2026-01-01\"; [(first(.orders[] | select(.status.type == \"shipped\")) | .status.value.date | later), (\"2025-12-31\" | later)]", element: ArrayType(BooleanType), multiplicity: "one", output: "[true, false]" },
+  { name: "update-each-literal-two-types", input: FixtureRoot, program: "{a: 1, b: 2.5} | .[] += 1", canonical: "{a: 1, b: 2.5} | .[] += 1", element: StructType({ a: IntegerType, b: FloatType }), multiplicity: "one", output: "(a=2, b=3.5)" },
+  { name: "index-dict-datetime-iso-key", input: FixtureRoot, program: "INDEX(.orders[] | select(.status.type == \"shipped\") | {id, date: .status.value.date}; .date) | .[\"2026-04-27T09:00:00Z\"].id", canonical: "INDEX(.orders[] | select(.status.type == \"shipped\") | {id, date: .status.value.date}; .date) | .[\"2026-04-27T09:00:00Z\"].id", element: OptionType(IntegerType), multiplicity: "one", output: ".some 1001" },
+  { name: "call-contains-datetime-iso-array", input: FixtureRoot, program: "[.orders[] | select(.status.type == \"shipped\") | .status.value.date] | contains([\"2026-04-27T09:00:00Z\"])", canonical: "[.orders[] | select(.status.type == \"shipped\") | .status.value.date] | contains([\"2026-04-27T09:00:00Z\"])", element: BooleanType, multiplicity: "one", output: "true" },
+  { name: "call-has-root-computed-key", input: FixtureRoot, program: "(.orders | map(.customer_id) | join(\"\")) as $k | has($k)", canonical: "(.orders | map(.customer_id) | join(\"\")) as $k | has($k)", root: true, element: BooleanType, multiplicity: "one", output: "false" },
 ];
 
 /** What the front end made of one case, as the corpus fixture holds it. */
@@ -521,8 +527,10 @@ export const QueryCorpusEntryType = StructType({
     program: StringType,
     root: BooleanType,
   }),
-  /** The checked query, its program as written; none for a case that does not check. */
-  checked: OptionType(QueryType),
+  /** What checking the case gives: its program as written, the type of each
+   *  output and how many outputs it gives; none for a case that does not
+   *  check. python's checker is held to it (#1138). */
+  checked: OptionType(StructType({ element_type: EastTypeType, multiplicity: QueryMultiplicityType, program: JqType })),
   /** The checker's diagnostics, lints included. */
   diagnostics: ArrayType(QueryErrorType),
   /** The translation, as `encodeEastIR` writes `translateJq(checked).fn()`, built
@@ -542,8 +550,8 @@ export const QueryCorpusFixtureType = StructType({
 
 /** The query wire types the header holds, by name. */
 export const QUERY_WIRE_TYPES: Readonly<Record<string, EastType>> = {
-  JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
-  QuerySpanType, QueryType, QueryV1Type,
+  JqLiteralType, JqPatternType, JqType, QueryCallType, QueryEditType, QueryErrorType, QueryFixType, QueryMultiplicityType,
+  QuerySpanType,
 };
 
 /**
@@ -566,8 +574,10 @@ export function typeValueBytes(type: EastType): Uint8Array {
 function entryFor(c: QueryCorpusCase): ValueTypeOf<typeof QueryCorpusEntryType> {
   const parsed = parseJq(c.program);
   const checked = checkJq(parsed, c.input, { root: c.root === true });
+  const { program, elementType, multiplicity } = checked;
+  const checks = program !== null && elementType !== null && multiplicity !== null;
   return {
-    called: checked.query === null ? none : some(calledIR(checked)),
+    called: checks ? some(calledIR(checked)) : none,
     canonical: parsed.program.type === "some" ? printJq(parsed.program.value).text : "",
     case: {
       input: canonicalTypeValue(toEastTypeValue(c.input)),
@@ -576,9 +586,11 @@ function entryFor(c: QueryCorpusCase): ValueTypeOf<typeof QueryCorpusEntryType> 
       program: c.program,
       root: c.root === true,
     },
-    checked: checked.query === null ? none : some(checked.query),
+    checked: checks
+      ? some({ element_type: canonicalTypeValue(toEastTypeValue(elementType)), multiplicity: variant(multiplicity, null), program })
+      : none,
     diagnostics: checked.diagnostics,
-    translated: checked.query === null ? none : some(translatedBytes(checked)),
+    translated: checks ? some(translatedBytes(checked)) : none,
   };
 }
 
@@ -612,7 +624,7 @@ export function calledIR(checked: CheckJqResult): ValueTypeOf<typeof IRType> {
   setLocationCapture(false);
   try {
     const translation = translateJq(checked);
-    const input = fromEastTypeValue(checked.query!.value.input_type);
+    const input = checked.inputType;
     const params = checked.source.root ? Object.values((input as StructType).fields) as EastType[] : [input];
     return East.function(params, translation.resultType, ($, ...inputs) => translation.call(...inputs)).toIR().ir;
   } finally {

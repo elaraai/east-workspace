@@ -85,7 +85,7 @@ describe("devdocs/QUERY.md's examples (D1)", () => {
       const value = VALUE.exec(e.result);
       if (value !== null) {
         const [, text, type, multiplicity] = value;
-        assert.ok(checked.query !== null, checked.diagnostics.map(d => d.message).join("\n"));
+        assert.ok(checked.program !== null, checked.diagnostics.map(d => d.message).join("\n"));
         const resultType = translateJq(checked).resultType;
         assert.equal(printFor(resultType)(evaluateJq(checked, fixture)), text);
         assert.equal(describeType(resultType), type);
@@ -96,7 +96,7 @@ describe("devdocs/QUERY.md's examples (D1)", () => {
       const error = ERROR.exec(e.result);
       if (error !== null) {
         const [, message, suggestion] = error;
-        assert.equal(checked.query, null, "the query checks");
+        assert.equal(checked.program, null, "the query checks");
         const first = checked.diagnostics.find(d => d.severity.type === "error");
         assert.ok(first !== undefined, "the query has no error");
         assert.equal(first.message, message);

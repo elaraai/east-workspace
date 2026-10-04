@@ -21,7 +21,7 @@ import { useCallback, useMemo } from "react";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    East, PatchType, QueryType, SortedMap, checkJq, encodeBeast2For, equalFor, none, some, variant,
+    East, JqType, PatchType, SortedMap, checkJq, encodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Toolbar, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -45,7 +45,7 @@ const BIG_ORDERS = savedQuery("Big orders", ".orders | map(select(.total >= 1000
 const COUNT = savedQuery("Order count", ".orders | length");
 const SAVED: Saved = new SortedMap([[BIG_ORDERS.name, BIG_ORDERS], [COUNT.name, COUNT]], keys);
 const savedEqual = equalFor(Query.Types.SavedQuery);
-const queryEqual = equalFor(QueryType);
+const programEqual = equalFor(JqType);
 
 let harness: RecordHarness;
 
@@ -195,8 +195,8 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         await press("Save");
         expect(await commits()).toEqual(["patch", "$init"]);
         const saved = readRecord();
-        // The checked query of the steps as saved: the filter, then Keep the first's `.[:10]`.
-        expect(queryEqual(checkJq(".orders | map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).query!, saved.get("Big orders")!.query)).toBe(true);
+        // The program of the steps as saved: the filter, then Keep the first's `.[:10]`.
+        expect(programEqual(checkJq(".orders | map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!, saved.get("Big orders")!.program)).toBe(true);
         expect(savedEqual(saved.get("Order count")!, COUNT)).toBe(true);
         // The session acknowledged its own request: nothing pending, nothing stale, the steps as saved.
         expect([state().session.status, state().session.pending, state().session.stale]).toEqual(["idle", 0, false]);
@@ -260,7 +260,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         await act(async () => { await state().session.apply(); });
         await settle();
         expect(await commits()).toEqual(["patch", "$init"]);
-        expect(readRecord().get("Orders counted")!.query.value.multiplicity.type).toBe("one");
+        expect(programEqual(readRecord().get("Orders counted")!.program, checkJq(".orders | length", ROOT.type, { root: true }).program!)).toBe(true);
         expect(container.querySelector("[data-open]")!.getAttribute("data-open")).toBe(`query.saved:"Orders counted"`);
         expect([state().session.status, state().session.pending]).toEqual(["idle", 0]);
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["count"]);

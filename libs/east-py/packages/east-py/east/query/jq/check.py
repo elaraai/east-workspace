@@ -4,9 +4,10 @@
 #
 """The jq checker: types a program against the East type of its input. The twin of ``check.ts``.
 
-It gives the checked query every surface translates, or the problems that stop
-it (``libs/east/devdocs/QUERY.md`` §2–§13), with the same diagnostics as
-TypeScript's: every offset is in UTF-16 code units of the program's text.
+It gives the program and its types, which every surface translates, or the
+problems that stop it (``libs/east/devdocs/QUERY.md`` §2–§13), with the same
+diagnostics as TypeScript's: every offset is in UTF-16 code units of the
+program's text. It only checks: it rewrites nothing.
 """
 
 from __future__ import annotations
@@ -18,9 +19,10 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from east.query.jq.catalog import BUILTINS, Builtin, is_jq_builtin
+from east.query.jq.literals import JqLiteral, iso_date_time, literal_value
 from east.query.jq.messages import MESSAGES, closest, edit, report
 from east.query.jq.parse import ParsedJq, node, parse_jq
-from east.query.jq.print import json_string, literal_value
+from east.query.jq.print import json_string
 from east.query.jq.shapes import (
     ERROR,
     JQ_TYPE_NAMES,
@@ -72,11 +74,7 @@ from east.query.jq.spans import (
     from_utf16,
     jq_children,
 )
-from east.serialization.beast2 import encode_beast2_with_header_for
 from east.serialization.east_printer import print_type
-from east.serialization.json import from_json_for
-from east.types.construct import some
-from east.types.type_of_type import canonical_type_value
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -92,7 +90,7 @@ from east.types.types import (
     VariantType,
     is_immutable_type,
 )
-from east.types.values import EastStruct, EastVariant, east_null
+from east.types.values import EastStruct
 
 
 @dataclass(frozen=True)
@@ -147,14 +145,12 @@ class Scope:
 class CheckJqResult:
     """What :func:`check_jq` makes of a program."""
 
-    #: The checked query (a ``QueryType`` value), its program as written: present exactly when no
-    #: diagnostic is an error.
-    query: EastVariant | None
-    #: The program with the checker's rewrites applied, which the translator reads: an ISO string
-    #: compared with a DateTime is a DateTime literal, a ``strftime`` format its tokens, and ``keys`` or
-    #: ``has`` on a root the answer its type gives. Present exactly when ``query`` is.
-    rewritten: JqNode | None
-    #: The type of each output, when the outputs share one.
+    #: The program as written (a ``JqType`` value): present exactly when no diagnostic is an error.
+    #: The translator and every host read it, with the types beside it.
+    program: JqNode | None
+    #: The type the program was checked against, as it was given: a root's struct of datasets, with ``root``.
+    input_type: EastType
+    #: The type of each output, when the program checks.
     element_type: EastType | None
     #: How many outputs the program gives, when it checks: ``one``, ``maybe`` or ``many``.
     multiplicity: str | None
@@ -166,8 +162,6 @@ class CheckJqResult:
     diagnostics: list[EastStruct]
     #: The program's text and spans, and whether it was checked as an e3 root.
     source: CheckedSource
-    #: The type the program was checked against, as it was given.
-    input_type: EastType | None = None
     _checker: _Checker | None = field(default=None, repr=False)
 
     def type_at(self, path: str, instance: str = "") -> CheckedNode | None:
@@ -260,42 +254,11 @@ class LiteralValue:
 
 @dataclass(frozen=True)
 class _Operands:
-    """The operands of an arithmetic operator, and the text it covers."""
+    """Where the operands of an arithmetic operator are, and the text it covers."""
 
-    left: JqNode
     left_path: str
-    right: JqNode
     right_path: str
     range: JqRange | None
-
-
-_encode_date_time = encode_beast2_with_header_for(DateTimeType)
-_encode_float = encode_beast2_with_header_for(FloatType)
-_parse_date_time = from_json_for(DateTimeType)
-
-
-def _literal_node(blob: bytes) -> JqNode:
-    """Rewrites a literal: the node the checked program holds instead."""
-    return node("literal", blob)
-
-
-def _parse_iso_date_time(text: str) -> Any:
-    """Reads ISO-8601 text as a DateTime, through East's RFC 3339 reader, or ``None``.
-
-    A full date-time with its offset, a date-time with none (UTC), or a date (midnight UTC).
-    """
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text, re.ASCII):
-        forms = [f"{text}T00:00:00Z"]
-    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?", text, re.ASCII):
-        forms = [f"{text}Z"]
-    else:
-        forms = [text]
-    for form in forms:
-        try:
-            return _parse_date_time(form)
-        except ValueError:
-            continue
-    return None
 
 
 #: What a node that never runs gives.
@@ -421,14 +384,15 @@ class CallContext:
         return self._checker.literal(n.value)
 
     def coerce_arg(self, i: int, wanted: EastType) -> EastType | None:
-        """Rewrites argument ``i``, a literal, as ``wanted`` is written; the literal's new type, or ``None``."""
+        """Reads argument ``i``, a literal, as ``wanted`` is written; the type it is read as, or ``None``."""
         if i >= len(self.args):
             return None
         a = self.args[i]
-        return self._checker.coerce_literal(a, self.arg_paths[i], unwrap(wanted)) if a.type == "literal" else None
+        return self._checker.coerce_literal(a, self.arg_paths[i], unwrap(wanted), self._env) \
+            if a.type == "literal" else None
 
     def coerce_arg_elements(self, i: int, wanted: EastType) -> EastType | None:
-        """Rewrites argument ``i``, an array literal of literals, as an array of ``wanted``; its new type, or ``None``."""
+        """Reads argument ``i``, an array literal of literals, as an array of ``wanted``; its new type, or ``None``."""
         if i >= len(self.args):
             return None
         return self._checker.coerce_array_literal(self.args[i], self.arg_paths[i], unwrap(wanted), self._env)
@@ -459,14 +423,6 @@ class CallContext:
         """Reports a lint at the call."""
         self._checker.warn(self._checker.range(self.path), code, message, fixes or [])
 
-    def rewrite(self, replacement: JqNode) -> None:
-        """Replaces the call in the checked program."""
-        self._checker.rewrites[self.path] = replacement
-
-    def rewrite_arg(self, i: int, replacement: JqNode) -> None:
-        """Replaces argument ``i`` in the checked program."""
-        self._checker.rewrites[self.arg_paths[i]] = replacement
-
     def source(self, i: int | None = None) -> str:
         """The call's text, or argument ``i``'s."""
         return self._checker.source(self.path if i is None else self.arg_paths[i])
@@ -479,10 +435,6 @@ class CallContext:
         """The one type a result's outputs share, or a reported ``ambiguous_output``."""
         r = self._checker.range(self.arg_paths[arg]) if arg is not None else self._checker.range(self.path)
         return self._checker.collect(result, r)
-
-    def is_root(self, shape: Shape) -> bool:
-        """Whether a shape is an e3 root, which is read one field at a time."""
-        return isinstance(shape, TypeShape) and self._checker.is_root_shape(shape)
 
     def refuse_root(self) -> bool:
         """Refuses the call when its input is the whole root."""
@@ -523,15 +475,6 @@ class _Checker:
         self.input = input_
         self.diagnostics: list[EastStruct] = []
         self.records: dict[str, Result] = {}
-        self.rewrites: dict[str, JqNode] = {}
-        #: The Integer literals rewritten as Floats, by path.
-        self.float_literals: set[str] = set()
-        #: The literals a check kept whole, by path: an operand of Integer
-        #: arithmetic or of an Integer comparison. Where another check (a
-        #: ``def`` called with a Float, a ``walk`` meeting one) made one a
-        #: Float, the checked program keeps it whole, so its text means what
-        #: the query does; each translation widens it where it needs a Float.
-        self.whole_literals: set[str] = set()
         #: The nodes checked, by path.
         self.nodes: dict[str, JqNode] = {}
         #: What is in scope at each node checked, by instance and path.
@@ -786,10 +729,10 @@ class _Checker:
 
     # ─── Leaves ────────────────────────────────────────────────────────────
 
-    def literal(self, blob: bytes) -> LiteralValue:
-        """A literal's value and type."""
-        t, value = literal_value(bytes(blob))
-        return LiteralValue(t, value)  # type: ignore[arg-type]
+    def literal(self, value: JqLiteral) -> LiteralValue:
+        """A literal's value and type, as the program writes it."""
+        t, v = literal_value(value)
+        return LiteralValue(t, v)
 
     def variable(self, name: str, path: str, env: Env) -> Result:
         if name == "__loc__":
@@ -1007,7 +950,7 @@ class _Checker:
                 return self.mismatch(lenient, span, "not_indexable", MESSAGES.not_indexable(
                     self.source(child_path(path, "index.target")) or ".", describe_type(member.type)))
             element_key, element_value, element_facts = element
-            if not self.key_fits(key_type, element_key, index, key_path):
+            if not self.key_fits(key_type, element_key, index, key_path, env):
                 return self.mismatch(lenient, self.range(key_path), "type_mismatch", MESSAGES.key_type(
                     form, describe_type(element_key), self.source(key_path), describe_type(key_type)))
             value = or_null(element_value)
@@ -1019,38 +962,45 @@ class _Checker:
         out = self.map_members(base, each)
         return Result(out.shape, piped(key.mult, piped(base.mult, out.mult)))
 
-    def key_fits(self, given: EastType, wanted: EastType, n: JqNode, path: str) -> bool:
-        """Whether a key of ``given`` type indexes by ``wanted``, rewriting a literal that takes its operand's type."""
+    def key_fits(self, given: EastType, wanted: EastType, n: JqNode, path: str, env: Env) -> bool:
+        """Whether a key of ``given`` type indexes by ``wanted``, reading a literal as its operand's type."""
         w = unwrap(wanted)
         if type_equal(given, w):
             return True
         if n.type == "literal":
-            return self.coerce_literal(n, path, w) is not None
+            return self.coerce_literal(n, path, w, env) is not None
         return False
 
-    def coerce_literal(self, n: JqNode, path: str, wanted: EastType) -> EastType | None:
-        """A literal used where ``wanted`` is: an Integer where a Float is, an ISO string where a DateTime is."""
+    def coerce_literal(self, n: JqNode, path: str, wanted: EastType, env: Env) -> EastType | None:
+        """A literal used where ``wanted`` is: an Integer where a Float is, an ISO string where a DateTime is.
+
+        A string that is not an ISO-8601 date is reported. The program keeps
+        the literal as written (``QUERY.md`` §7). An Integer needs nothing
+        more: its translation widens it wherever it meets a Float. A string
+        read as a DateTime is recorded as one in this instance, and its
+        translation gives the DateTime it writes.
+
+        Returns:
+            The type the literal is read as, or ``None`` when it does not fit.
+        """
         literal = self.literal(n.value)
         if type_equal(literal.type, wanted):
             return wanted
         if wanted.type == "Float" and literal.type.type == "Integer":
-            self.rewrites[path] = _literal_node(_encode_float(float(literal.value)))
-            self.float_literals.add(path)
             return FloatType
         if wanted.type == "DateTime" and literal.type.type == "String":
-            date = _parse_iso_date_time(literal.value)
-            if date is None:
+            if iso_date_time(literal.value) is None:
                 self.fail(self.range(path), "type_mismatch", MESSAGES.iso_date(self.source(path)))
                 return None
-            self.rewrites[path] = _literal_node(_encode_date_time(date))
+            self.records[f"{env.instance}|{path}"] = Result(typed(DateTimeType), ONE)
             return DateTimeType
         return None
 
     def coerce_array_literal(self, n: JqNode, path: str, wanted: EastType, env: Env) -> EastType | None:
         """An array literal of literals (``["2026-01-01", "2026-02-01"]``) used where an array of ``wanted`` is.
 
-        Each element is rewritten as :meth:`coerce_literal` rewrites it, and
-        what checking the array recorded is retyped to match.
+        Each element is read as :meth:`coerce_literal` reads it, and what
+        checking the array recorded is retyped to match.
 
         Returns:
             The array's new type, or ``None`` when it is not such an array, or
@@ -1074,7 +1024,7 @@ class _Checker:
         if not collect(n.value.value, child_path(path, "array.some")):
             return None
         for literal_node, literal_path in literals:
-            if self.coerce_literal(literal_node, literal_path, wanted) is None:
+            if self.coerce_literal(literal_node, literal_path, wanted, env) is None:
                 return None
 
         def retype(at: str, type_: EastType) -> None:
@@ -1100,7 +1050,7 @@ class _Checker:
             r = self.check(bound.value, bound_path, input_, env)
             mult = piped(mult, r.mult)
             t = self.collect(r, self.range(bound_path))
-            if t is not None and not self.key_fits(t, IntegerType, bound.value, bound_path) and not can_be_null(t):
+            if t is not None and not self.key_fits(t, IntegerType, bound.value, bound_path, env) and not can_be_null(t):
                 self.mismatch(env, self.range(bound_path), "type_mismatch", MESSAGES.slice_bound(describe_type(t)))
         lenient = replace(env, lenient=True) if optional else env
 
@@ -1301,8 +1251,7 @@ class _Checker:
         if op in _COMPARISON:
             return replace(self.comparison(op, n, path, left, right, env), mult=mult)
         if op in _ARITHMETIC:
-            out = self.arithmetic(op, left, right, _Operands(n.value["left"], left_path, n.value["right"], right_path,
-                                                             self.range(path)), env)
+            out = self.arithmetic(op, left, right, _Operands(left_path, right_path, self.range(path)), env)
             return Result(out.shape, piped(mult, out.mult), partial=out.partial)
         raise ValueError(f"checkJq: {json_string(op)} is not a jq binary operator")
 
@@ -1367,7 +1316,7 @@ class _Checker:
                 fixes = [edit("Use .type", r.to, r.to, ".type")] if r is not None else []
                 return self.fail(r, "type_mismatch", MESSAGES.whole_variant(text, describe_type(side)), fixes=fixes)
         reported = len(self.diagnostics)
-        fits = self.comparable(lt, rt, n, path)
+        fits = self.comparable(lt, rt, n, path, env)
         # A literal that failed to parse as the other side's type has said so.
         if len(self.diagnostics) > reported:
             return Result(ERROR, ONE)
@@ -1383,28 +1332,16 @@ class _Checker:
         return self.mismatch(env, self.range(path), "type_mismatch",
                              MESSAGES.compares(op, describe_type(lt), describe_type(rt)))
 
-    def keep_whole(self, n: JqNode, path: str) -> None:
-        """Notes that a literal operand stays an Integer in this check (see ``whole_literals``)."""
-        if n.type == "literal":
-            self.whole_literals.add(path)
-
-    def comparable(self, a: EastType, b: EastType, n: JqNode, path: str) -> bool:
-        """Whether two types compare: equal, numbers, a value and its option, or a rewritten literal."""
+    def comparable(self, a: EastType, b: EastType, n: JqNode, path: str, env: Env) -> bool:
+        """Whether two types compare: equal, numbers, a value and its option, or a literal read as the other's type."""
         ua = unwrap(a)
         ub = unwrap(b)
         right = n.value["right"]
         left = n.value["left"]
-        if ua.type == "Integer" and ub.type == "Integer":
-            self.keep_whole(left, child_path(path, "binary.left"))
-            self.keep_whole(right, child_path(path, "binary.right"))
         if type_equal(ua, ub):
             return True
+        # Numbers compare: the translation widens an Integer it compares with a Float.
         if _is_number(ua) and _is_number(ub):
-            # A literal takes its operand's type.
-            if ua.type == "Float" and right.type == "literal":
-                self.coerce_literal(right, child_path(path, "binary.right"), FloatType)
-            if ub.type == "Float" and left.type == "literal":
-                self.coerce_literal(left, child_path(path, "binary.left"), FloatType)
             return True
         if ua.type == "Null" and can_be_null(ub):
             return True
@@ -1413,11 +1350,11 @@ class _Checker:
         pa = nullable_payload(ua)
         pb = nullable_payload(ub)
         if pa is not None or pb is not None:
-            return self.comparable(pa if pa is not None else ua, pb if pb is not None else ub, n, path)
+            return self.comparable(pa if pa is not None else ua, pb if pb is not None else ub, n, path, env)
         if ua.type == "DateTime" and right.type == "literal":
-            return self.coerce_literal(right, child_path(path, "binary.right"), DateTimeType) is not None
+            return self.coerce_literal(right, child_path(path, "binary.right"), DateTimeType, env) is not None
         if ub.type == "DateTime" and left.type == "literal":
-            return self.coerce_literal(left, child_path(path, "binary.left"), DateTimeType) is not None
+            return self.coerce_literal(left, child_path(path, "binary.left"), DateTimeType, env) is not None
         return unify(ua, ub) is not None and ua.type == ub.type
 
     def arithmetic(self, op: str, left: Result, right: Result, operands: _Operands, env: Env) -> Result:  # noqa: C901
@@ -1466,15 +1403,8 @@ class _Checker:
             # jq's remainder of the numbers truncated to integers: a Float operand, which can be NaN, gives a Float.
             if op == "%":
                 return Result(typed(IntegerType if a.type == "Integer" and b.type == "Integer" else FloatType), ONE)
-            if a.type == "Float" or b.type == "Float":
-                if a.type == "Integer" and operands.left.type == "literal":
-                    self.coerce_literal(operands.left, operands.left_path, FloatType)
-                if b.type == "Integer" and operands.right.type == "literal":
-                    self.coerce_literal(operands.right, operands.right_path, FloatType)
-                return Result(typed(FloatType), ONE)
-            self.keep_whole(operands.left, operands.left_path)
-            self.keep_whole(operands.right, operands.right_path)
-            return Result(typed(IntegerType), ONE)
+            # An Integer with a Float is a Float: the translation widens the Integer.
+            return Result(typed(FloatType if a.type == "Float" or b.type == "Float" else IntegerType), ONE)
         if op == "+":
             if a.type == "String" and b.type == "String":
                 return Result(typed(StringType), ONE)
@@ -2106,8 +2036,7 @@ class _Checker:
                     return Result(typed(m.type if payload is None else payload), ONE)
                 kept = self.map_members(current, keep)
                 return Result(union([*members_of(kept.shape), *members_of(value.shape)]), ONE)
-            return self.arithmetic(operator, current, value, _Operands(
-                n.value["path"], path_path, n.value["value"], value_path, self.range(path)), env)
+            return self.arithmetic(operator, current, value, _Operands(path_path, value_path, self.range(path)), env)
 
         assigned = self.assign(input_.shape, n.value["path"], path_path, at, env)
         if assigned is None:
@@ -2244,7 +2173,7 @@ class _Checker:
                 t = one(bound.value, at_path)
                 if t is None:
                     return None
-                if not self.key_fits(t, IntegerType, bound.value, at_path) and not can_be_null(unwrap(t)):
+                if not self.key_fits(t, IntegerType, bound.value, at_path, env) and not can_be_null(unwrap(t)):
                     self.fail(self.range(at_path), "type_mismatch", MESSAGES.slice_bound(describe_type(t)))
                     return None
         return [None]
@@ -2350,7 +2279,7 @@ class _Checker:
                 key_type = keys[0]
                 assert key_type is not None
                 if t.type == "Array":
-                    if not self.key_fits(key_type, IntegerType, v["index"], key_path):
+                    if not self.key_fits(key_type, IntegerType, v["index"], key_path, env):
                         return self.mismatch(env, self.range(key_path), "type_mismatch", MESSAGES.key_type(
                             ".[…]", "Integer", self.source(key_path), describe_type(key_type)))
                     # The element itself: an index past the end is an error, where jq pads with nulls.
@@ -2366,7 +2295,7 @@ class _Checker:
                 if t.type == "Dict" or (t.type == "Struct" and len(t.value) == 0) or t.type == "Null":
                     the_key = dict_key(t) if t.type == "Dict" else key_type
                     the_value = dict_value(t) if t.type == "Dict" else NeverType
-                    if not self.key_fits(key_type, the_key, v["index"], key_path):
+                    if not self.key_fits(key_type, the_key, v["index"], key_path, env):
                         return self.mismatch(env, self.range(key_path), "type_mismatch", MESSAGES.key_type(
                             ".[…]", describe_type(the_key), self.source(key_path), describe_type(key_type)))
                     if not is_immutable_type(the_key):
@@ -2526,91 +2455,6 @@ class _Checker:
         del self.diagnostics[reported:]
         return None if failed else nxt
 
-    # ─── The checked query ─────────────────────────────────────────────────
-
-    def rewrite(self, n: JqNode, path: str) -> JqNode:  # noqa: C901
-        """The program with every recorded rewrite applied, but a Float's of a literal a check kept whole."""
-        replacement = self.rewrites.get(path)
-        if replacement is not None and not (path in self.float_literals and path in self.whole_literals):
-            return replacement
-        if not jq_children(n):
-            return n
-
-        def m(child: JqNode, step: str) -> JqNode:
-            return self.rewrite(child, child_path(path, step))
-
-        def opt(o: EastVariant, step: str) -> EastVariant:
-            return some(m(o.value, f"{step}.some")) if o.type == "some" else o
-
-        kind = n.type
-        v = n.value
-        if kind in ("alternative", "comma", "pipe"):
-            return node(kind, EastStruct({"left": m(v["left"], f"{kind}.left"), "right": m(v["right"], f"{kind}.right")}))
-        if kind == "binary":
-            return node("binary", EastStruct({"left": m(v["left"], "binary.left"), "op": v["op"],
-                                              "right": m(v["right"], "binary.right")}))
-        if kind == "array":
-            return node("array", opt(v, "array"))
-        if kind == "bind":
-            return node("bind", EastStruct({"body": m(v["body"], "bind.body"), "patterns": v["patterns"],
-                                            "source": m(v["source"], "bind.source")}))
-        if kind == "call":
-            return node("call", EastStruct({"args": [m(a, f"call.args[{i}]") for i, a in enumerate(v["args"])],
-                                            "name": v["name"]}))
-        if kind == "def":
-            return node("def", EastStruct({"body": m(v["body"], "def.body"), "name": v["name"], "params": v["params"],
-                                           "rest": m(v["rest"], "def.rest")}))
-        if kind == "field":
-            return node("field", EastStruct({"name": v["name"], "optional": v["optional"],
-                                             "target": m(v["target"], "field.target")}))
-        if kind == "foreach":
-            return node("foreach", EastStruct({
-                "extract": opt(v["extract"], "foreach.extract"), "init": m(v["init"], "foreach.init"),
-                "pattern": v["pattern"], "source": m(v["source"], "foreach.source"),
-                "update": m(v["update"], "foreach.update")}))
-        if kind == "format":
-            return node("format", EastStruct({"name": v["name"], "string": opt(v["string"], "format.string")}))
-        if kind == "if":
-            return node("if", EastStruct({
-                "branches": [EastStruct({"condition": m(b["condition"], f"if.branches[{i}].condition"),
-                                         "then": m(b["then"], f"if.branches[{i}].then")})
-                             for i, b in enumerate(v["branches"])],
-                "otherwise": opt(v["otherwise"], "if.otherwise")}))
-        if kind == "index":
-            return node("index", EastStruct({"index": m(v["index"], "index.index"), "optional": v["optional"],
-                                             "target": m(v["target"], "index.target")}))
-        if kind == "iterate":
-            return node("iterate", EastStruct({"optional": v["optional"], "target": m(v["target"], "iterate.target")}))
-        if kind == "label":
-            return node("label", EastStruct({"body": m(v["body"], "label.body"), "name": v["name"]}))
-        if kind == "negate":
-            return node("negate", m(v, "negate"))
-        if kind == "object":
-            return node("object", [
-                EastStruct({
-                    "key": node("computed", m(entry["key"].value, f"object[{i}].key.computed"))
-                    if entry["key"].type == "computed" else entry["key"],
-                    "value": opt(entry["value"], f"object[{i}].value"),
-                })
-                for i, entry in enumerate(v)
-            ])
-        if kind == "reduce":
-            return node("reduce", EastStruct({
-                "init": m(v["init"], "reduce.init"), "pattern": v["pattern"], "source": m(v["source"], "reduce.source"),
-                "update": m(v["update"], "reduce.update")}))
-        if kind == "slice":
-            return node("slice", EastStruct({"from": opt(v["from"], "slice.from"), "optional": v["optional"],
-                                             "target": m(v["target"], "slice.target"), "to": opt(v["to"], "slice.to")}))
-        if kind == "string":
-            return node("string", [node("interpolate", m(part.value, f"string[{i}].interpolate"))
-                                   if part.type == "interpolate" else part for i, part in enumerate(v)])
-        if kind == "try":
-            return node("try", EastStruct({"body": m(v["body"], "try.body"), "catch": opt(v["catch"], "try.catch")}))
-        if kind == "update":
-            return node("update", EastStruct({"op": v["op"], "path": m(v["path"], "update.path"),
-                                              "value": m(v["value"], "update.value")}))
-        return n
-
 
 def _fix(edits: list[tuple[str, int, int]], label: str) -> EastStruct:
     """A fix of several edits, each ``(insert, length, offset)``."""
@@ -2682,15 +2526,16 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
 
     The checker types every node over East types as ``QUERY.md`` says: it
     narrows variants through ``select`` and ``if``, infers ``reduce`` and
-    ``foreach`` accumulators and recursive ``def``s by fixpoint, and rewrites
-    what no runtime should parse (an ISO string compared with a DateTime
-    becomes a DateTime literal; a ``strftime`` format becomes its tokens). A
+    ``foreach`` accumulators and recursive ``def``s by fixpoint, and reads a
+    literal as the type it is used as (an Integer where a Float is, an
+    ISO-8601 string where a DateTime is), reporting a string that is not a
+    date or a ``strftime`` format East has no token for. It rewrites nothing:
+    the translator gives each value from the types it reads (#1138). A
     problem is a diagnostic with its span, one sentence, suggestions and
-    fixes; lints are warnings. The checked query holds the program as
-    written, the input type, the element type, the multiplicity and whether
-    the input is a root, and is present exactly when no diagnostic is an
-    error; the program with the rewrites applied is ``rewritten``, which the
-    translator reads.
+    fixes; lints are warnings. ``program`` is present exactly when no
+    diagnostic is an error, and with ``input_type``, ``element_type`` and
+    ``multiplicity`` it is what every reader of the query — the translator, a
+    host — works from.
 
     Args:
         program: The program's text, or what ``parse_jq`` made of it.
@@ -2699,9 +2544,9 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
         tooling: Allow the tooling-only builtins ``signature``, ``source``, ``calls`` and ``captures``.
 
     Returns:
-        The checked query when there is no error, the program with the
-        checker's rewrites, the element type and multiplicity, the root
-        fields read, the stages, and the diagnostics.
+        The program as written when there is no error, the type it was
+        checked against, the element type and multiplicity, the root fields
+        read, the stages, and the diagnostics.
 
     Example:
         >>> Order = StructType([("id", IntegerType), ("total", FloatType)])
@@ -2712,7 +2557,7 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
     units = parsed.units
     source = CheckedSource(parsed.text, units, parsed.spans, root)
     if parsed.program.type == "none":
-        return CheckJqResult(None, None, None, None, [], [], list(parsed.diagnostics), source, input_type)
+        return CheckJqResult(None, input_type, None, None, [], [], list(parsed.diagnostics), source)
     tree = parsed.program.value
     checker = _Checker(units, parsed.spans, root, tooling, input_type)
     env = Env({}, {}, frozenset(), "", False)
@@ -2739,25 +2584,16 @@ def check_jq(program: str | ParsedJq, input_type: EastType, *, root: bool = Fals
         del stage_node
 
     errors = any(d["severity"].type == "error" for d in checker.diagnostics)
-    query: EastVariant | None = None
-    if not errors and element_type is not None:
-        query = EastVariant("v1", EastStruct({
-            "element_type": canonical_type_value(element_type),
-            "input_type": canonical_type_value(input_type),
-            "multiplicity": EastVariant(multiplicity, east_null),
-            "program": tree,
-            "root": root,
-        }))
+    checks = not errors and element_type is not None
     return CheckJqResult(
-        query=query,
-        rewritten=None if query is None else checker.rewrite(tree, ""),
-        element_type=None if errors or element_type is None else element_type,
-        multiplicity=None if errors else multiplicity,
+        program=tree if checks else None,
+        input_type=input_type,
+        element_type=element_type if checks else None,
+        multiplicity=multiplicity if checks else None,
         reads=checker.reads,
         stages=stages,
         diagnostics=checker.diagnostics,
         source=source,
-        input_type=input_type,
         _checker=checker,
     )
 

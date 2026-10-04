@@ -43,8 +43,10 @@
 
 export {
     prepareQuery,
+    programChecks,
     queryResultOf,
     queryRoot,
+    type CheckedProgram,
     type PreparedQuery,
     type QueryOptions,
     type QueryReading,

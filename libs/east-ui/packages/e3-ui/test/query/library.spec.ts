@@ -138,8 +138,8 @@ describe("<Query.Library> (#1063)", () => {
         assert.ok(paths(manifest.paths, [ex.customers.path, recordPath]), "the value source, and the record");
     });
 
-    test("the public Query namespace is the two components a solution mounts and their types; the carrier and its payload are the internal one's", () => {
-        assert.deepEqual(Object.keys(Query), ["Builder", "Library", "Types"]);
+    test("the public Query namespace is the two components a solution mounts, the queries it ships and their types; the carrier and its payload are the internal one's", () => {
+        assert.deepEqual(Object.keys(Query), ["Builder", "Library", "saved", "Types"]);
         assert.equal(QueryInternal.Library, Query.Library);
         assert.equal(QueryInternal.LibraryComponent, QueryLibraryComponent);
         assert.ok(isTypeEqual(QueryInternal.Types.LibraryPayload, QueryLibraryPayloadType));

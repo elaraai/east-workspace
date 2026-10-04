@@ -30,7 +30,8 @@ import {
 import { BUILTINS, delPaths, type DelStep } from "./catalog.js";
 import { jqTypeNames, nullablePayload, unify, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode } from "./spans.js";
-import { parts, type Block, type BuiltinRule, type CallSite, type Emit, type Env, type Translator, type TypeParts, type Value } from "./translate.js";
+import { formatTokens } from "./strftime.js";
+import { isRoot, parts, type Block, type BuiltinRule, type CallSite, type Emit, type Env, type Translator, type TypeParts, type Value } from "./translate.js";
 
 /** Builds a rule table entry for each of some names. */
 const rules: Record<string, BuiltinRule> = {};
@@ -747,7 +748,20 @@ rule("utf8bytelength", (t, c) => {
 
 const compareString = compareFor(StringType);
 
+/** The type of the root a program was checked against: a struct of datasets. */
+function rootType(t: Translator): TypeParts {
+  return parts(unwrap(t.checked.inputType));
+}
+
+/** A struct's field names, as `keys` gives them (sorted) and `keys_unsorted` (in declared order, §13.12). */
+function fieldNames(t: Translator, c: CallSite, type: TypeParts): Expr {
+  const names = Object.keys(type.fields);
+  return t.value(c.name === "keys" ? [...names].sort(compareString) : names, ArrayType(StringType), c.path);
+}
+
 rule(["keys", "keys_unsorted"], (t, c) => {
+  // A root's names are its type's: every dataset in it, none read.
+  if (isRoot(c.x)) { c.emit(c.$, fieldNames(t, c, rootType(t))); return; }
   const x = t.open(input(t, c));
   const xt = t.type(x);
   if (xt.type === "Dict") {
@@ -758,8 +772,7 @@ rule(["keys", "keys_unsorted"], (t, c) => {
     return;
   }
   if (xt.type === "Struct") {
-    const names = Object.keys(xt.fields as object);
-    c.emit(c.$, t.value(c.name === "keys" ? [...names].sort(compareString) : names, ArrayType(StringType), c.path));
+    c.emit(c.$, fieldNames(t, c, xt));
     return;
   }
   if (xt.type === "Variant") { c.emit(c.$, t.value(["type", "value"], ArrayType(StringType), c.path)); return; }
@@ -768,17 +781,20 @@ rule(["keys", "keys_unsorted"], (t, c) => {
   c.emit(c.$, t.b("ArrayRange", [], [t.int(0), t.size(array, c.path), t.int(1)], ArrayType(IntegerType), c.path));
 });
 
+/** Whether a struct type has a field of a name: a constant for a name the query writes. */
+function hasField(t: Translator, c: CallSite, type: TypeParts, key: Expr): Expr {
+  const names = Object.keys(type.fields);
+  const known = t.constant(key)?.value;
+  if (typeof known === "string") return t.bool(names.includes(known), c.path);
+  return t.b("SetHas", [StringType], [t.value(new SortedSet(names, compareString), SetType(StringType), c.path), key], BooleanType, c.path);
+}
+
 /** Whether a container has a key: a dict's key, a struct's field name, an array's index. */
 function has(t: Translator, c: CallSite, $: Block, container: Expr, key: Expr): Expr | undefined {
   const o = t.open(container);
   const ot = t.type(o);
   if (ot.type === "Dict") return t.b("DictHas", [ot.key as EastType, ot.value as EastType], [o, t.widenTo($, key, ot.key as EastType, c.path)], BooleanType, c.path);
-  if (ot.type === "Struct") {
-    const names = Object.keys(ot.fields as object);
-    const known = t.constant(key)?.value;
-    if (typeof known === "string") return t.bool(names.includes(known), c.path);
-    return t.b("SetHas", [StringType], [t.value(new SortedSet(names, compareString), SetType(StringType), c.path), key], BooleanType, c.path);
-  }
+  if (ot.type === "Struct") return hasField(t, c, ot, key);
   const array = t.asArray($, o, c.path);
   if (array === undefined) return undefined;
   const k = t.bind($, key, "index");
@@ -786,6 +802,8 @@ function has(t: Translator, c: CallSite, $: Block, container: Expr, key: Expr): 
 }
 
 rule("has", (t, c) => values(t, c, [0], c.$, ($, [key]) => {
+  // A root's names are its type's: every dataset in it, none read.
+  if (isRoot(c.x)) { c.emit($, hasField(t, c, rootType(t), key!)); return; }
   const x = input(t, c);
   const result = has(t, c, $, x, key!);
   if (result === undefined) { cannot(t, c, $, x, "a dict, a struct or an array"); return; }
@@ -1745,11 +1763,12 @@ rule(["fromdate", "fromdateiso8601"], (t, c) => {
   c.emit(c.$, t.b("StringParseJSON", [DateTimeType], [quoted], DateTimeType, c.path));
 });
 
-/** The format tokens the checker wrote for a strftime/strptime format. */
+/** A strftime/strptime format's tokens, made from the format the query writes, as the checker read it. */
 function tokensOf(t: Translator, c: CallSite): Expr {
   const literal = t.literalOf(c.args[0]);
-  if (literal === undefined || literal.type.type !== "Array") throw t.gap(`${c.name} without its format's tokens`);
-  return t.value(literal.value, ArrayType(DateTimeFormatTokenType), c.argPaths[0]!);
+  const format = literal?.type.type === "String" ? formatTokens(literal.value as string) : undefined;
+  if (format === undefined || "code" in format) throw t.gap(`${c.name} without a format East has tokens for`);
+  return t.value(format.tokens, ArrayType(DateTimeFormatTokenType), c.argPaths[0]!);
 }
 
 rule("strftime", (t, c) => c.emit(c.$, t.b("DateTimePrintFormat", [], [dateOf(t, c.$, input(t, c), c.path), tokensOf(t, c)], StringType, c.path)));

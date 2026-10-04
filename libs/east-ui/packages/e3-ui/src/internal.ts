@@ -161,12 +161,14 @@ export {
     queryKeys,
     rootBound,
     saveQuery,
+    savedQueries,
     type QueriesHandle,
     type QueryBuilderOptions,
     type QueryInternalNamespace,
     type QueryLibraryOptions,
     type QueryNamespace,
     type QueryTypes,
+    type SavedQueryInput,
 } from './query/index.js';
 export { DataSourceType, dataSources, type BoundSource } from './bind/sources.js';
 export {

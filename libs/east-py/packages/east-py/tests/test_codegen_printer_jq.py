@@ -79,8 +79,8 @@ def test_named_inputs_print_as_a_dict_every_input_among_them(tmp_path):
 
 
 def test_a_querys_program_prints_as_written(tmp_path):
-    # An ISO date compared with a DateTime stays the text it was: the checker's
-    # DateTime literal is the translation's, not the query's.
+    # An ISO date compared with a DateTime stays the text it was: the DateTime
+    # it writes is the translation's, not the query's (#1138).
     dated = StructType([("id", IntegerType), ("at", DateTimeType)])
     fn = East.function([ArrayType(dated)], ArrayType(IntegerType),
                        lambda b, orders: East.jq(orders, '[.[] | select(.at >= "2026-01-01") | .id]',

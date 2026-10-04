@@ -15,7 +15,7 @@ a save is one audited, typed patch commit on the record, as Studio's pages are.
 | Layer | Lives in | Written by | Holds |
 |---|---|---|---|
 | **Data sources** | the page: `Data.bind`, `Data.bindPaged`, `Record.bind` | developers | What a query may read — the root, `.orders`, `.customers` — by the names the page gives them |
-| **Saved queries** | one `e3.record` of `Query.Types.Saved`, written through `e3.mutation.patch` | operators | Queries by name: each checked (`QueryType`), the data sources it reads, an optional description and when it was saved |
+| **Saved queries** | one `e3.record` of `Query.Types.Saved`, written through `e3.mutation.patch` | operators | Queries by name: each its program as written, checked before it saves, the data sources it reads, an optional description and when it was saved |
 | **Surfaces** | `ui()` tasks | developers | `<Query.Builder>` and `<Query.Library>`, bound to the record and handed the data sources |
 
 The query language is #875's typed jq over East values (`libs/east/devdocs/QUERY.md`). The builder draws no
@@ -36,10 +36,10 @@ export const queriesPatch = e3.mutation.patch(queries);
 ```
 
 `Query.Types.Saved` is `Dict<String, Query.Types.SavedQuery>`, keyed by the query's name. A `SavedQuery` is
-`{ name, description, query, root, saved_at }`:
+`{ name, description, program, root, saved_at }`:
 
-- `query` — the checked query (`QueryType`, #919): the program as written and what the checker made of it.
-  A query saves only once it checks.
+- `program` — the program as written (`JqType`). A query saves only once it checks, and keeps no types:
+  they are what checking its program against its data sources gives (#1138).
 - `root` — the `{ name, path }` of each data source it reads, in root order
   (`Query.Types.RootEntry`, #935). A saved query opens only where each entry is bound, by name and by path.
 - `description` — `Option<String>`: one sentence, at most 140 characters. With none, what shows is the
@@ -47,6 +47,17 @@ export const queriesPatch = e3.mutation.patch(queries);
 - `saved_at` — when it was last saved.
 
 The type never depends on the data sources, so a deploy that adds or changes one runs no migration.
+
+A solution that ships queries in the record writes them with `Query.saved(sources, queries)`, its value:
+each query inline — its name, its jq, its description and when it was saved — checked against the data
+sources, named as a query reads them, when the package builds. A query that does not check fails the build
+with the checker's words, as do two of one name (#1138).
+
+```ts
+export const queries = e3.record("queries", Query.Types.Saved, Query.saved({ orders, customers }, [
+    { name: "Big orders", jq: ".orders | map(select(.total >= 1000))", savedAt: new Date("2026-10-01T09:00:00Z") },
+]));
+```
 
 ### The surfaces
 
@@ -78,7 +89,8 @@ export const library = ui("query_library", [], East.function([], UIComponentType
 `id`, on both, names the builder when one surface holds two, and the library that opens queries in it.
 `onOpen`, on the library, is told the name of each query it opens, so the host can show the builder.
 
-The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>` and `Query.Types`.
+The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library>`, `Query.saved` and
+`Query.Types`.
 
 ---
 
@@ -91,8 +103,9 @@ The public `Query` namespace is exactly this: `<Query.Builder>`, `<Query.Library
    library's reads and writes are internal (`QueryInternal`, `@elaraai/e3-ui/internal`).
 3. **A query reads only what the page binds.** The root is exactly the bound data sources, by the page's
    names. Scope is the `ui()` task's manifest, so the builder declares nothing of its own.
-4. **Queries are data, typed.** A saved query is its checked `QueryType`, the data sources it reads and a
-   description — never text to re-parse, never IR. It saves only once it checks.
+4. **Queries are data, typed.** A saved query is its program as written (`JqType`), the data sources it
+   reads and a description — never text to re-parse, never IR, never a stored type. It saves only once it
+   checks.
 5. **Records first** (Studio's 4). Every save is one patch commit of the one entry it writes, computed in
    East. A save drafted on a stale entry is a conflict, and nothing is overwritten.
 6. **One history** (Studio's 5). The builder's edits are drafts of the shared editing session
@@ -574,7 +587,7 @@ Under the pane and the results, the `status` recipe's dots and words:
   "Revenue and count per region from orders.", "Count of orders where status is pending.", "Demand over price
   from 10 to 12 in steps of 0.5, region NSW."
 - **Opening** a saved query — from the Library tab, `<Query.Library>` or a drop — makes it the open query:
-  its steps from its checked query, its name and description, the visual view, the Query tab; and it runs. A
+  its steps from its program, its name and description, the visual view, the Query tab; and it runs. A
   notice says what opened. The query that was open keeps its drafts in its own session, there when it is
   opened again.
 - **Starting** a query — Query {name} in the Datasets tab, New query on {dataset} in the library — opens a
