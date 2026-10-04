@@ -38,15 +38,19 @@
  *
  * It holds every answer to the oracle — East equality, a Float within 1e-9 of
  * it relatively, since the pieces add in another grouping — and, over two
- * sizes or more, each query's highest piece peak at the largest to a margin
- * over the smallest's: memory flat whatever the size. It times nothing against
- * a budget. It reports, per query, the calls' time, the time e3 took to plan
- * the pieces and to run its units, the pieces' work per order per core, the
- * CPU this process and its runners used per order — which what else the
- * machine runs moves least — each piece's peak and the load the run started
- * under, as a markdown table on its output and appended to `report.md` beside
- * the data (`report.jsonl` holds the rows). A re-keyed join's row is both its
- * calls': their pieces and merges, the times each took, and every peak.
+ * sizes or more, each query's highest piece peak at the largest size to a
+ * margin over its peak at the smallest size it is planned the same way at:
+ * memory flat whatever the size. A query planned another way at a smaller
+ * size runs other programs there — q7 reads the shipments whole while they
+ * are smaller than a piece, and re-keys the join once they are not — so its
+ * peaks there are not compared. It times nothing against a budget. It
+ * reports, per query, the calls' time, the time e3 took to plan the pieces
+ * and to run its units, the pieces' work per order per core, the CPU this
+ * process and its runners used per order — which what else the machine runs
+ * moves least — each piece's peak and the load the run started under, as a
+ * markdown table on its output and appended to `report.md` beside the data
+ * (`report.jsonl` holds the rows). A re-keyed join's row is both its calls':
+ * their pieces and merges, the times each took, and every peak.
  *
  * With `E3_QUERY_SCALE_ONE_SHOT=1` each query also runs as the one-shot call
  * the builder would make of it, under the one-shot deadline (120 s unless
@@ -485,8 +489,8 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
     const sizes = enabled ? sizesOf(process.env['E3_QUERY_SCALE_SIZES']) : [];
     const queries = enabled ? queriesOf(process.env['E3_QUERY_SCALE_QUERIES']) : [];
     const storage = new LocalStorage();
-    /** Each query's highest piece peak, by size. */
-    const peaks = new Map<string, Map<string, number>>();
+    /** Each query's highest piece peak, by size, and how it was planned there. */
+    const peaks = new Map<string, Map<string, { peak: number; splitsAs: string }>>();
     const budget = resolveBudget();
 
     before(() => {
@@ -610,8 +614,8 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
                         };
                         rows.push(row);
                         appendFileSync(join(DIR, 'report.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), ...row })}\n`);
-                        const highest = peaks.get(q.id) ?? new Map<string, number>();
-                        highest.set(size.label, Math.max(highest.get(size.label) ?? 0, row.pieceMaxPeakMiB));
+                        const highest = peaks.get(q.id) ?? new Map<string, { peak: number; splitsAs: string }>();
+                        highest.set(size.label, { peak: Math.max(highest.get(size.label)?.peak ?? 0, row.pieceMaxPeakMiB), splitsAs });
                         peaks.set(q.id, highest);
                     }
 
@@ -646,12 +650,22 @@ describe('query plans at scale (E3_QUERY_SCALE=1)', { skip: !enabled }, () => {
         });
     }
 
-    it('memory is flat: no query\'s highest piece peak at the largest size passes the smallest\'s by a margin', { skip: sizes.length < 2 }, () => {
-        const [smallest, largest] = [sizes[0]!, sizes[sizes.length - 1]!];
+    it('memory is flat: no query\'s highest piece peak at the largest size passes, by a margin, its peak at the smallest size it is planned the same way at', { skip: sizes.length < 2 }, (t) => {
+        const largest = sizes[sizes.length - 1]!;
         for (const [query, bySize] of peaks) {
-            const [small, large] = [bySize.get(smallest.label), bySize.get(largest.label)];
-            if (small === undefined || large === undefined) continue;
-            assert.ok(large <= small * 1.25 + 16, `${query}: its highest piece peak went from ${f(small)} MiB at ${smallest.label} to ${f(large)} MiB at ${largest.label}`);
+            const large = bySize.get(largest.label);
+            if (large === undefined) continue;
+            // A query planned another way at a smaller size runs other programs there, so its peaks are held to the
+            // same plan's alone: q7 reads the shipments whole while they are smaller than a piece, and re-keys the join
+            // once they are not.
+            const smallest = sizes.find((size) => bySize.get(size.label)?.splitsAs === large.splitsAs)!;
+            if (smallest === largest) {
+                t.diagnostic(`${query}: planned as ${large.splitsAs} at ${largest.label} alone, so no smaller size is planned the same way to compare it with`);
+                continue;
+            }
+            const small = bySize.get(smallest.label)!;
+            assert.ok(large.peak <= small.peak * 1.25 + 16,
+                `${query}, planned as ${large.splitsAs}: its highest piece peak went from ${f(small.peak)} MiB at ${smallest.label} to ${f(large.peak)} MiB at ${largest.label}`);
         }
     });
 });
