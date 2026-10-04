@@ -53,10 +53,13 @@ memory.
 A collection input opens lazily, whatever it weighs: an indexed beast2 file is
 mapped, and a read decodes only the segments it reaches — its size, a keyed
 read and the `$.for` loop decode a segment at a time, and an operation the
-pager cannot serve decodes the input whole, once, when it first needs it.
+pager cannot serve decodes the input whole, once, when it first needs it. A
+loop holds only the segment it walks. Keyed reads keep the segments they
+decode, up to 256 MiB of decoded weight per input (`EAST_PAGED_CACHE_BYTES`;
+`1` keeps one segment), and reads in key order keep about two.
 `--decode whole` decodes every input before the program runs instead, which
-suits a program that reads most of an input at random: lazily, a read beyond
-the segments the pager keeps (64 MiB of them, `EAST_PAGED_CACHE_BYTES`)
+suits a program that reads at random across more than that, or loops over an
+input more than once: lazily, a read beyond the segments the pager keeps
 decodes its segment again. `exec` reads the same choice from its unit's
 `decode`. A value that is not a collection, and a collection whose elements
 hold a Ref or a function, is decoded whole either way.

@@ -625,10 +625,12 @@ class Beast2File:
     hit/miss), and passes straight into compiled function calls. Mutation
     raises. The file is mmapped — bytes enter the OS page cache per
     accessed frame and are never resident as process memory; only decoded
-    segments are. A scan holds the one it walks; keyed and row reads keep
-    theirs in a byte-budgeted cache (``EAST_PAGED_CACHE_BYTES`` tunes it),
-    which a scan never evicts, and what they return is frozen, since the
-    cache serves the same segment to the reads after them (#1129).
+    segments are. A scan holds the one it walks. Keyed and row reads keep
+    theirs in a cache of up to 256 MiB of decoded weight per file
+    (``EAST_PAGED_CACHE_BYTES`` tunes it), which a scan never evicts, and
+    reads in key order keep about two; what they return is frozen, since the
+    cache serves the same segment to the reads after them (#1129;
+    ``v5/SPEC.md``, "The pager's cache").
 
     Every access decodes at most one segment unless documented otherwise
     (``load()`` decodes them all — into one collection, still one segment of
@@ -2143,7 +2145,7 @@ class Beast2DictFile(Beast2File, EastDict):
     Keyed point reads decode only the owning segment: east-c binary-searches
     the segment *fences* (each segment's first key, decoded from a bounded
     probe of its frame and cached) to pick the segment, decodes it through
-    the byte-budgeted shared cache, and answers from the in-segment b-tree
+    the pager's shared cache, and answers from the in-segment b-tree
     with a frozen value. The wire contract guarantees disjoint ascending
     segments; a corrupt (or pre-contract) blob that violates it raises
     ``segments are not disjoint ascending key ranges`` instead of reporting

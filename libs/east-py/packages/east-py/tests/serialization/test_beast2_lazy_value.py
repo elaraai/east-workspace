@@ -11,7 +11,8 @@ body answer from the pager, one frame per hit/miss), passes straight into
 compiled function calls, and refuses mutation. The managed writer cuts by
 the content-defined rule, whose byte target gives pathologically wide rows
 right-sized segments, and the pager's decoded-segment cache is budgeted in
-BYTES (``EAST_PAGED_CACHE_BYTES``)."""
+decoded weight (``EAST_PAGED_CACHE_BYTES``), the number every runtime gives
+a segment (#1129)."""
 
 import os
 

@@ -68,6 +68,11 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   `query-types/` and `query-corpus/`, which every runtime's compliance leg
   runs.
 - `test/` — compliance suite (serializes to IR; runs on any backend).
+  `test/paged-weights.fixture.ts` generates the checked-in
+  `test/fixtures/paged-weights.beast2`: a value of every kind with the
+  decoded weight `src/serialization/beast2/v5/SPEC.md` ("The pager's cache")
+  gives it, which every runtime's pager cache is held to (#1129); `make
+  paged-weights` rewrites it, and its spec fails while it is stale.
 - `devdocs/` — living design docs (start with `SERIALIZATION.md`).
 - `example/`, `contrib/` — experiments and scratch (per
   `[Scratch files in contrib/]` rule).

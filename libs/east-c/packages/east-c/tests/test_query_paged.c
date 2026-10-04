@@ -160,8 +160,9 @@ static EastValue *open_dataset(EastValue *root, EastType *root_type, const char 
         return NULL;
     }
     /* A keyed read decodes its segment once and caches it: the counts below
-     * hold at the default budget, whatever EAST_PAGED_CACHE_BYTES says. */
-    east_beast2_pages_set_cache_budget(paged->data.paged.pages, (size_t)64 * 1024 * 1024);
+     * hold at the default budget of decoded weight, whatever
+     * EAST_PAGED_CACHE_BYTES says. */
+    east_beast2_pages_set_cache_budget(paged->data.paged.pages, (size_t)256 * 1024 * 1024);
     return paged;
 }
 

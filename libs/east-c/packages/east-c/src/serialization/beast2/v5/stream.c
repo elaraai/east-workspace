@@ -1358,22 +1358,46 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
  *  check with a real error instead of silently resolving a cross-segment
  *  backref to an empty placeholder. Wrong data is worse than no data.  */
 
-/* Decoded segments kept hot for the element and keyed paths (#481 W2) — never
- * for a scan, which reads each segment fresh and keeps one at a time (#1129) —
- * each decoded frozen, since every read it serves shares it. The
- * window is budgeted in BYTES of decompressed frame — not a slot count — so
- * wide-row tables stay bounded no matter what row grain they were written at
- * (#560): each cached segment is weighted by its frame's decompressed length
- * (an O(1) read from the frame header), and insertion evicts LRU entries
- * until the new one fits. The newest segment always caches, even alone over
- * budget, so repeated point reads into one hot segment stay warm. */
-#define B2V5_PAGES_CACHE_BYTES_DEFAULT (64u * 1024 * 1024)
+/* Decoded segments kept for the element and keyed reads (#481 W2, #1129) —
+ * never for a scan, which reads each segment fresh and keeps one at a time —
+ * each decoded frozen, since every read it serves shares it.
+ *
+ * The cache is the pager's own: one per lazily read input, with no state per
+ * process and no lock, as east.h's one-thread contract asks. It counts what
+ * its segments hold in decoded weight (v5/SPEC.md, "The pager's cache"), the
+ * number every runtime gives a segment, against a budget of 256 MiB of it —
+ * enough for any input the query planner reads whole in each piece, which
+ * decodes to at most about 16 times its stored 16 MiB. A miss puts its segment
+ * at the head and evicts the least recently used until the cache is within
+ * its budget, the newest never, so one segment over budget still caches; a
+ * hit moves its segment to the head. Both are O(1): the entries sit on an
+ * intrusive list, found from a segment through a uint32 per segment.
+ *
+ * Reads in key order would fill it with segments they never read again — a
+ * join's lookups into an input that arrives sorted — so it drops behind
+ * them. A run is the misses in a row that each read one or two segments past
+ * the last; from its fourth miss — its first and three more — each miss drops
+ * what the run decoded, from its first segment to two before the one it
+ * reads. Segments cached before the run, or outside what it passed, are left
+ * to the least-recently-used rule, so a random working set survives a pass in
+ * key order over the same input. */
+#define B2V5_PAGES_CACHE_BYTES_DEFAULT ((size_t)256 * 1024 * 1024)
+
+/* No entry: the end of the recency list, an empty free list. */
+#define B2V5_NO_ENTRY UINT32_MAX
+
+/* The misses of a run — its first, then each one or two segments past the
+ * last — from which it drops what it passed: one keyed read can straddle a
+ * segment boundary, and four misses in order are not chance. */
+#define B2V5_RUN_DROPS_FROM 4
 
 typedef struct {
-    size_t idx;
-    EastValue *seg; /* owned */
-    size_t bytes;   /* decompressed frame length — the budget weight */
-    uint64_t tick;
+    EastValue *seg; /* owned while the entry is live */
+    size_t segment; /* which segment it is */
+    size_t weight;  /* its decoded weight */
+    uint64_t run;   /* the run of misses that decoded it */
+    uint32_t newer; /* toward the head, the most recently used; B2V5_NO_ENTRY at it */
+    uint32_t older; /* toward the tail; a free entry's next free one */
 } B2V5CacheEntry;
 
 struct Beast2Pages {
@@ -1394,12 +1418,27 @@ struct Beast2Pages {
      * keeps it alive for the pager's lifetime. Fences stay wire-shaped
      * (keys/elements never project). */
     const Beast2Projection *proj;
-    B2V5CacheEntry *cache; /* dynamic; cache_count entries live */
-    size_t cache_count;
-    size_t cache_cap;
-    size_t cache_bytes;  /* sum of live entry weights */
-    size_t cache_budget; /* bytes; EAST_PAGED_CACHE_BYTES overrides the default */
-    uint64_t lru_tick;
+    /* The decoded-segment cache. Entries [0, cache_used) are live or free. */
+    B2V5CacheEntry *cache;
+    uint32_t cache_cap;   /* entries the pool has room for */
+    uint32_t cache_used;  /* entries ever handed out */
+    uint32_t cache_count; /* live entries */
+    uint32_t cache_head;  /* the most recently used, or B2V5_NO_ENTRY */
+    uint32_t cache_tail;  /* the least recently used, or B2V5_NO_ENTRY */
+    uint32_t cache_free;  /* the first free entry, or B2V5_NO_ENTRY */
+    uint32_t *cache_slot; /* per segment: its entry + 1, or 0; made on the first cached read */
+    size_t cache_weight;  /* the live entries' decoded weight */
+    size_t cache_budget;  /* decoded weight; EAST_PAGED_CACHE_BYTES overrides the default */
+    /* Drop-behind: the run of misses the last miss belongs to. */
+    size_t run_last;      /* the segment the last miss read; SIZE_MAX before any */
+    size_t run_misses;    /* the run's misses so far, its first included */
+    size_t run_next_drop; /* the first segment of the run not yet dropped behind */
+    uint64_t run_id;      /* what the run marks the entries its misses decode with */
+    /* What the cache has done (east_beast2_pages_cache_stats). */
+    size_t cache_hits;
+    size_t cache_evictions;
+    size_t cache_dropped;
+    size_t cache_peak;
     /* What paging has cost so far: segments and fences actually decoded —
      * a cache hit is not counted again. The runners' account of a lazy
      * input, which no residency figure can give on a mapping. */
@@ -1500,7 +1539,8 @@ static void pages_frame_close(Beast2Pages *p, B2V5FrameView *view)
     view->opened = false;
 }
 
-/* The prefix sums and the cache budget, once the index is in place. */
+/* The prefix sums, an empty cache and its budget, once the index is in
+ * place. */
 static bool pages_finish_open(Beast2Pages *p)
 {
     if (p->index.count > 0) {
@@ -1512,7 +1552,11 @@ static bool pages_finish_open(Beast2Pages *p)
             p->cumulative[i] = running;
         }
     }
-    p->cache_budget = (size_t)B2V5_PAGES_CACHE_BYTES_DEFAULT;
+    p->cache_head = B2V5_NO_ENTRY;
+    p->cache_tail = B2V5_NO_ENTRY;
+    p->cache_free = B2V5_NO_ENTRY;
+    p->run_last = SIZE_MAX;
+    p->cache_budget = B2V5_PAGES_CACHE_BYTES_DEFAULT;
     const char *env = getenv("EAST_PAGED_CACHE_BYTES");
     if (env && *env) {
         char *end = NULL;
@@ -1648,9 +1692,17 @@ fail:
     return NULL;
 }
 
+static void cache_drop(Beast2Pages *p, uint32_t e);
+
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
 {
-    if (p) p->cache_budget = bytes;
+    if (!p) return;
+    p->cache_budget = bytes;
+    /* Within the new budget at once, the newest segment kept. */
+    while (p->cache_weight > bytes && p->cache_tail != p->cache_head) {
+        cache_drop(p, p->cache_tail);
+        p->cache_evictions++;
+    }
 }
 
 size_t east_beast2_pages_segment_count(Beast2Pages *p)
@@ -1678,9 +1730,10 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
  * projected path registers skipped containers as sentinel definitions and a
  * REF crossing the projection boundary posts B2V5_PROJ_ALIAS_MSG — the
  * caller retries whole. `weight_out`, when given, receives the segment's
- * decompressed frame length, what the shared cache budgets it by. `freeze`
- * decodes the segment frozen whatever the pager was opened as: the cache's
- * segments are shared by every read they serve (#1129). */
+ * decoded weight — the container and what the decode built in it, projected
+ * fields only — which the shared cache counts it by. `freeze` decodes the
+ * segment frozen whatever the pager was opened as: the cache's segments are
+ * shared by every read they serve (#1129). */
 static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr,
                                        size_t *weight_out, bool freeze)
 {
@@ -1719,7 +1772,6 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
     ctx.proj_active = pr != NULL;
 
     if (!b2v5_frames_next(&f)) goto done; /* error already posted */
-    if (weight_out) *weight_out = f.chunk_len;
     if (!read_varint_checked(f.chunk, f.chunk_len, &f.chunk_off, &n)) {
         east_builtin_error("beast2 v5: malformed segment header");
         goto done;
@@ -1770,6 +1822,7 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
         east_builtin_error("beast2 v5: self-contained segments cannot add source maps");
         goto done;
     }
+    if (weight_out) *weight_out = b2v5_weight_container(p->type->kind, (size_t)n) + ctx.weight;
     result = segment;
     segment = NULL;
     p->segments_decoded++;
@@ -1795,13 +1848,90 @@ EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i, const B
     return pages_decode_segment(p, i, pr, NULL, false);
 }
 
-/* Drops every decoded segment the shared cache holds. */
+/* The recency list: `newer` points toward the head, the most recently used,
+ * and `older` toward the tail. */
+static void cache_unlink(Beast2Pages *p, uint32_t e)
+{
+    B2V5CacheEntry *x = &p->cache[e];
+    if (x->newer == B2V5_NO_ENTRY)
+        p->cache_head = x->older;
+    else
+        p->cache[x->newer].older = x->older;
+    if (x->older == B2V5_NO_ENTRY)
+        p->cache_tail = x->newer;
+    else
+        p->cache[x->older].newer = x->newer;
+}
+
+static void cache_push_head(Beast2Pages *p, uint32_t e)
+{
+    B2V5CacheEntry *x = &p->cache[e];
+    x->newer = B2V5_NO_ENTRY;
+    x->older = p->cache_head;
+    if (p->cache_head == B2V5_NO_ENTRY)
+        p->cache_tail = e;
+    else
+        p->cache[p->cache_head].newer = e;
+    p->cache_head = e;
+}
+
+/* Drops live entry e: off the list, its segment released, the entry free. */
+static void cache_drop(Beast2Pages *p, uint32_t e)
+{
+    B2V5CacheEntry *x = &p->cache[e];
+    EastValue *seg = x->seg;
+    cache_unlink(p, e);
+    p->cache_slot[x->segment] = 0;
+    p->cache_weight -= x->weight;
+    p->cache_count--;
+    x->seg = NULL;
+    x->older = p->cache_free;
+    p->cache_free = e;
+    east_value_release(seg);
+}
+
+/* An entry for a segment about to be cached: a free one, or the pool's next,
+ * the pool grown when it is full. B2V5_NO_ENTRY when memory runs out. */
+static uint32_t cache_entry_new(Beast2Pages *p)
+{
+    if (p->cache_free != B2V5_NO_ENTRY) {
+        uint32_t e = p->cache_free;
+        p->cache_free = p->cache[e].older;
+        return e;
+    }
+    if (p->cache_used == p->cache_cap) {
+        /* A pager caches only below B2V5_NO_ENTRY segments, an entry each at
+         * most, so the pool never needs more. */
+        uint32_t cap = p->cache_cap == 0                         ? 8
+                       : p->cache_cap <= (B2V5_NO_ENTRY - 1) / 2 ? p->cache_cap * 2
+                                                                 : B2V5_NO_ENTRY - 1;
+        if (cap == p->cache_cap) return B2V5_NO_ENTRY;
+        B2V5CacheEntry *grown = realloc(p->cache, (size_t)cap * sizeof(*grown));
+        if (!grown) return B2V5_NO_ENTRY;
+        p->cache = grown;
+        p->cache_cap = cap;
+    }
+    return p->cache_used++;
+}
+
+/* Drops every decoded segment the shared cache holds, and forgets the run of
+ * misses it was in. */
 static void pages_cache_clear(Beast2Pages *p)
 {
-    for (size_t k = 0; k < p->cache_count; k++)
-        east_value_release(p->cache[k].seg);
+    for (uint32_t e = 0; e < p->cache_used; e++) {
+        EastValue *seg = p->cache[e].seg;
+        p->cache[e].seg = NULL;
+        if (seg) east_value_release(seg);
+    }
+    p->cache_used = 0;
     p->cache_count = 0;
-    p->cache_bytes = 0;
+    p->cache_head = B2V5_NO_ENTRY;
+    p->cache_tail = B2V5_NO_ENTRY;
+    p->cache_free = B2V5_NO_ENTRY;
+    p->cache_weight = 0;
+    free(p->cache_slot);
+    p->cache_slot = NULL;
+    p->run_last = SIZE_MAX;
 }
 
 void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr)
@@ -1813,50 +1943,88 @@ void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr
     p->proj = pr;
 }
 
-/* Fetch segment i through the pager's byte-budgeted shared cache. Returns a
- * RETAINED value (caller releases); the cache keeps its own reference. Only
- * the element and keyed reads route through here: every scan reads its
- * segments fresh (segment(), segment_disjoint() and their projected forms),
- * keeping one at a time (#1129). A cached segment is shared by every read it
- * serves, so it decodes frozen, whether or not the pager was opened frozen —
- * a caller can never change what a later read is served. Each entry weighs
- * its decompressed frame length. */
-static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
+/* A miss reading segment `s`: it continues the run of misses when it reads one
+ * or two segments past the last — a join's lookup side can skip a segment
+ * holding no key it wants — and starts a run otherwise. From the run's
+ * B2V5_RUN_DROPS_FROM-th miss on, what the run itself decoded, from its first
+ * segment to two before `s`, is dropped: a reader in key order keeps the
+ * segment it is in and the one before. A random reader lands one or two past
+ * its last miss with odds of about 2 in the segment count S, so three such
+ * misses in a row are (2/S)^3 — 1 in 80,000 over 87 segments. Hits never
+ * touch the run. */
+static void pages_run_step(Beast2Pages *p, size_t s)
 {
-    for (size_t k = 0; k < p->cache_count; k++) {
-        if (p->cache[k].idx == i) {
-            p->cache[k].tick = ++p->lru_tick;
-            east_value_retain(p->cache[k].seg);
-            return p->cache[k].seg;
+    size_t last = p->run_last;
+    p->run_last = s;
+    if (last == SIZE_MAX || s <= last || s - last > 2) {
+        p->run_id++;
+        p->run_misses = 1;
+        p->run_next_drop = s;
+        return;
+    }
+    if (++p->run_misses < B2V5_RUN_DROPS_FROM || !p->cache_slot) return;
+    for (size_t k = p->run_next_drop; k + 2 <= s; k++) {
+        uint32_t slot = p->cache_slot[k];
+        if (slot && p->cache[slot - 1].run == p->run_id) {
+            cache_drop(p, slot - 1);
+            p->cache_dropped++;
         }
     }
-    size_t bytes = 0;
-    EastValue *seg = pages_decode_segment(p, i, p->proj, &bytes, true);
+    if (s - 1 > p->run_next_drop) p->run_next_drop = s - 1;
+}
+
+/* Fetch segment i through the pager's shared cache. Returns a RETAINED value
+ * (caller releases); the cache keeps its own reference. Only the element and
+ * keyed reads route through here: every scan reads its segments fresh
+ * (segment(), segment_disjoint() and their projected forms), keeping one at a
+ * time (#1129). A cached segment is shared by every read it serves, so it
+ * decodes frozen, whether or not the pager was opened frozen — a caller can
+ * never change what a later read is served. */
+static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
+{
+    if (p->cache_slot && i < p->index.count && p->cache_slot[i]) {
+        uint32_t e = p->cache_slot[i] - 1;
+        if (e != p->cache_head) {
+            cache_unlink(p, e);
+            cache_push_head(p, e);
+        }
+        p->cache_hits++;
+        east_value_retain(p->cache[e].seg);
+        return p->cache[e].seg;
+    }
+    pages_run_step(p, i);
+    size_t weight = 0;
+    EastValue *seg = pages_decode_segment(p, i, p->proj, &weight, true);
     if (!seg) return NULL;
 
-    /* Evict least-recently-used entries until the new one fits. */
-    while (p->cache_count > 0 && p->cache_bytes + bytes > p->cache_budget) {
-        size_t victim = 0;
-        for (size_t k = 1; k < p->cache_count; k++)
-            if (p->cache[k].tick < p->cache[victim].tick) victim = k;
-        east_value_release(p->cache[victim].seg);
-        p->cache_bytes -= p->cache[victim].bytes;
-        p->cache[victim] = p->cache[--p->cache_count];
+    /* The read is served whether or not the segment caches: past
+     * B2V5_NO_ENTRY segments, or with no memory for an entry, it goes
+     * uncached. */
+    if (p->index.count >= B2V5_NO_ENTRY) return seg;
+    if (!p->cache_slot) {
+        p->cache_slot = calloc(p->index.count, sizeof(*p->cache_slot));
+        if (!p->cache_slot) return seg;
     }
-    if (p->cache_count == p->cache_cap) {
-        size_t cap = p->cache_cap ? p->cache_cap * 2 : 8;
-        B2V5CacheEntry *grown = realloc(p->cache, cap * sizeof(*grown));
-        if (!grown) return seg; /* uncached; correctness unaffected */
-        p->cache = grown;
-        p->cache_cap = cap;
-    }
-    p->cache[p->cache_count].idx = i;
-    p->cache[p->cache_count].seg = seg;
-    p->cache[p->cache_count].bytes = bytes;
-    p->cache[p->cache_count].tick = ++p->lru_tick;
-    p->cache_count++;
-    p->cache_bytes += bytes;
+    uint32_t e = cache_entry_new(p);
+    if (e == B2V5_NO_ENTRY) return seg;
+    B2V5CacheEntry *x = &p->cache[e];
+    x->seg = seg;
     east_value_retain(seg); /* the cache's reference */
+    x->segment = i;
+    x->weight = weight;
+    x->run = p->run_id;
+    cache_push_head(p, e);
+    p->cache_slot[i] = e + 1;
+    p->cache_count++;
+    p->cache_weight += weight;
+
+    /* The least recently used go until the cache is within its budget; the
+     * newest never does, so one segment over budget still caches. */
+    while (p->cache_weight > p->cache_budget && p->cache_tail != e) {
+        cache_drop(p, p->cache_tail);
+        p->cache_evictions++;
+    }
+    if (p->cache_weight > p->cache_peak) p->cache_peak = p->cache_weight;
     return seg;
 }
 
@@ -1914,9 +2082,10 @@ EastValue *east_beast2_pages_element(Beast2Pages *p, size_t row)
 void east_beast2_pages_free(Beast2Pages *p)
 {
     if (!p) return;
-    for (size_t k = 0; k < p->cache_count; k++)
-        east_value_release(p->cache[k].seg);
+    for (uint32_t e = 0; e < p->cache_used; e++)
+        if (p->cache[e].seg) east_value_release(p->cache[e].seg);
     free(p->cache);
+    free(p->cache_slot);
     if (p->fences) {
         for (size_t i = 0; i < p->index.count; i++)
             if (p->fences[i]) east_value_release(p->fences[i]);
@@ -2071,6 +2240,20 @@ void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *f
 {
     if (segments_decoded) *segments_decoded = p ? p->segments_decoded : 0;
     if (fences_probed) *fences_probed = p ? p->fences_probed : 0;
+}
+
+void east_beast2_pages_cache_stats(Beast2Pages *p, Beast2PagesCacheStats *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    if (!p) return;
+    out->hits = p->cache_hits;
+    out->evictions = p->cache_evictions;
+    out->dropped_behind = p->cache_dropped;
+    out->segments = p->cache_count;
+    out->weight = p->cache_weight;
+    out->peak_weight = p->cache_peak;
+    out->budget = p->cache_budget;
 }
 
 /* ================================================================== */

@@ -33,7 +33,8 @@
     "lint:fix": "eslint . --fix",
     "export:examples": "npm run build && node scripts/export-examples-ir.mjs /tmp/east-examples-ir",
     "query-corpus": "npm run build && node --enable-source-maps scripts/query-corpus.mjs",
-    "query-types": "npm run build && node --enable-source-maps scripts/query-types.mjs"
+    "query-types": "npm run build && node --enable-source-maps scripts/query-types.mjs",
+    "paged-weights": "npm run build && node --enable-source-maps scripts/paged-weights.mjs"
   },
   "repository": {
     "type": "git",

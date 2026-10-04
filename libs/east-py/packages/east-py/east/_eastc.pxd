@@ -563,9 +563,19 @@ cdef extern from "east/serialization.h":
                                                bint frozen,
                                                void (*release)(void *ctx, uint8_t *data, size_t len),
                                                void *ctx)
-    # Byte budget of a pager's decoded-segment cache (#560); the
-    # EAST_PAGED_CACHE_BYTES environment variable overrides the default.
+    # The budget of a pager's decoded-segment cache (#560, #1129), in decoded
+    # weight; the EAST_PAGED_CACHE_BYTES environment variable sets it at open.
     void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
+    # What the cache has done, in decoded weight (#1129): for tests.
+    ctypedef struct Beast2PagesCacheStats:
+        size_t hits
+        size_t evictions
+        size_t dropped_behind
+        size_t segments
+        size_t weight
+        size_t peak_weight
+        size_t budget
+    void east_beast2_pages_cache_stats(Beast2Pages *p, Beast2PagesCacheStats *out)
     EastValue *east_paged_hydrated(EastValue *v)
     bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
                           size_t *fences_probed, cbool *hydrated)
