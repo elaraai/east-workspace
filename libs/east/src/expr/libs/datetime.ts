@@ -5,9 +5,10 @@
 import { DateTimeType, IntegerType } from "../../types.js";
 import { fromComponents, fromEpochMilliseconds, parseFormatted } from "../datetime.js";
 import { Expr } from "../expr.js";
+import { lazyLibrary } from "./lazy.js";
 
 /** Standard library functions for datetimes */
-export default {
+export default lazyLibrary({
   /**
    * Creates a DateTime from milliseconds since Unix epoch.
    *
@@ -138,14 +139,14 @@ export default {
    * compiled(East.DateTime.fromEpochMilliseconds(1234n), 100n);  // Rounded to 1200ms
    * ```
    */
-  roundDownMillisecond: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownMillisecond() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const remainder = $.let(epochMs.remainder(step));
     const roundedMs = $.let(epochMs.subtract(remainder));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest multiple of seconds.
@@ -164,7 +165,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 45n), 30n);  // Rounds to 30s
    * ```
    */
-  roundDownSecond: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownSecond() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(1000n));
@@ -172,7 +173,7 @@ export default {
     const roundedMs = $.let(epochMs.subtract(remainder));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest multiple of minutes.
@@ -191,7 +192,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 22n), 15n);  // Rounds to 15 min
    * ```
    */
-  roundDownMinute: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownMinute() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(60000n));
@@ -199,7 +200,7 @@ export default {
     const roundedMs = $.let(epochMs.subtract(remainder));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest multiple of hours.
@@ -218,7 +219,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 8n), 6n);  // Rounds to 6:00
    * ```
    */
-  roundDownHour: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownHour() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(3600000n));
@@ -226,7 +227,7 @@ export default {
     const roundedMs = $.let(epochMs.subtract(remainder));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime up to the nearest multiple of milliseconds.
@@ -245,7 +246,7 @@ export default {
    * compiled(East.DateTime.fromEpochMilliseconds(1234n), 100n);  // Rounds to 1300ms
    * ```
    */
-  roundUpMillisecond: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundUpMillisecond() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
 
     const remainder = $.let(epochMs.remainder(step));
@@ -257,7 +258,7 @@ export default {
     );
 
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime to the nearest multiple of milliseconds.
@@ -277,7 +278,7 @@ export default {
    * compiled(East.DateTime.fromEpochMilliseconds(1289n), 100n);  // Rounds to 1300ms
    * ```
    */
-  roundNearestMillisecond: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundNearestMillisecond() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const remainder = $.let(epochMs.remainder(step));
@@ -293,7 +294,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime up to the nearest multiple of seconds.
@@ -312,7 +313,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 15n), 30n);  // Rounds to 30s
    * ```
    */
-  roundUpSecond: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundUpSecond() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(1000n));
@@ -325,7 +326,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime to the nearest multiple of seconds.
@@ -345,7 +346,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 0n, 38n), 30n);  // Rounds to 30s
    * ```
    */
-  roundNearestSecond: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundNearestSecond() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(1000n));
@@ -362,7 +363,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime up to the nearest multiple of minutes.
@@ -381,7 +382,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 22n), 15n);  // Rounds to 30 min
    * ```
    */
-  roundUpMinute: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundUpMinute() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
 
     const stepMs = $.let(step.multiply(60000n));
@@ -394,7 +395,7 @@ export default {
     );
 
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime to the nearest multiple of minutes.
@@ -414,7 +415,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 0n, 38n), 15n);  // Rounds to 45 min
    * ```
    */
-  roundNearestMinute: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundNearestMinute() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(60000n));
@@ -431,7 +432,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime up to the nearest multiple of hours.
@@ -450,7 +451,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 8n), 6n);  // Rounds to 12:00
    * ```
    */
-  roundUpHour: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundUpHour() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(3600000n));
@@ -463,7 +464,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime to the nearest multiple of hours.
@@ -483,7 +484,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 10n), 6n);  // Rounds to 12:00
    * ```
    */
-  roundNearestHour: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundNearestHour() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     const stepMs = $.let(step.multiply(3600000n));
@@ -500,7 +501,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest multiple of days.
@@ -519,7 +520,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 12n, 30n), 1n);  // Rounds to start of day
    * ```
    */
-  roundDownDay: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownDay() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
 
     // Convert step from days to milliseconds (step * 24 * 60 * 60 * 1000)
@@ -528,7 +529,7 @@ export default {
     const roundedMs = $.let(epochMs.subtract(remainder));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime up to the nearest multiple of days.
@@ -547,7 +548,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 12n, 30n), 1n);  // Rounds to next day start
    * ```
    */
-  roundUpDay: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundUpDay() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
 
     const stepMs = $.let(step.multiply(86400000n));
@@ -560,7 +561,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime to the nearest multiple of days.
@@ -580,7 +581,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 1n, 16n), 1n);  // Rounds to next day start
    * ```
    */
-  roundNearestDay: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundNearestDay() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
 
     const stepMs = $.let(step.multiply(86400000n));
@@ -597,7 +598,7 @@ export default {
     );
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest Monday (ISO week start).
@@ -616,7 +617,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 3n), 1n);  // Rounds to previous Monday
    * ```
    */
-  roundDownWeek: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownWeek() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     // Reference Monday: 1969-12-29T00:00:00.000Z (Monday before Unix epoch)
@@ -632,7 +633,7 @@ export default {
     const roundedMs = $.let(refMondayMs.add(roundedOffsetFromRef));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime up to the nearest Monday (ISO week start).
@@ -651,7 +652,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 3n), 1n);  // Rounds to next Monday
    * ```
    */
-  roundUpWeek: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundUpWeek() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     // Reference Monday: 1969-12-29T00:00:00.000Z (Monday before Unix epoch)
@@ -672,7 +673,7 @@ export default {
     const roundedMs = $.let(refMondayMs.add(roundedOffsetFromRef));
 
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime to the nearest Monday (ISO week start).
@@ -691,7 +692,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 1n, 3n), 1n);  // Rounds to closest Monday
    * ```
    */
-  roundNearestWeek: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundNearestWeek() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const epochMs = $.let(date.toEpochMilliseconds());
     
     // Reference Monday: 1969-12-29T00:00:00.000Z (Monday before Unix epoch)
@@ -716,7 +717,7 @@ export default {
     const roundedMs = $.let(refMondayMs.add(roundedOffsetFromRef));
     
     return fromEpochMilliseconds(roundedMs);
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest month boundary.
@@ -737,7 +738,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 5n, 15n), 3n);  // Rounds to Apr 1, 2025
    * ```
    */
-  roundDownMonth: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownMonth() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const year = $.let(date.getYear());
 
     const month = $.let(date.getMonth());
@@ -752,7 +753,7 @@ export default {
       year,
       roundedMonth,
     );
-  }),
+  }); },
 
   /**
    * Rounds a DateTime down to the nearest year boundary.
@@ -773,7 +774,7 @@ export default {
    * compiled(East.DateTime.fromComponents(2025n, 6n, 15n), 10n);  // Rounds to Jan 1, 2020
    * ```
    */
-  roundDownYear: Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
+  get roundDownYear() { return Expr.function([DateTimeType, IntegerType], DateTimeType, ($, date, step) => {
     const year = $.let(date.getYear());
     
     // Calculate step-aligned year: floor(year / step) * step
@@ -783,5 +784,5 @@ export default {
     return fromComponents(
       steppedYear,
     );
-  }),
-}
+  }); },
+})

@@ -22,9 +22,11 @@
  * browser, a project without TypeScript, a TypeScript whose package carries no
  * parser (TypeScript 7's exports its version alone) — or a source cannot be
  * read (a REPL line that is gone, a native function), the name stays `_N`,
- * exactly as before: East's own libraries build functions as they are
- * imported, so a parser that fails here would fail the import. Uniqueness is
- * the lowering's job (`ast_to_ir` suffixes a collision), not this module's.
+ * exactly as before: every function's build reads its parameters' names, East's
+ * own library functions' too, the first time each is read, so a parser that
+ * fails here would fail them all. Nothing is built as East is imported, so
+ * importing it loads no compiler (#1127). Uniqueness is the lowering's job
+ * (`ast_to_ir` suffixes a collision), not this module's.
  */
 
 import type { Location } from "./location.js";
