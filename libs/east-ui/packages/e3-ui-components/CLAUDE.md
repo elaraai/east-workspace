@@ -25,6 +25,10 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
   calls without the builder: the root, the one-shot call, the plan and its
   split call, the calls in memory — which loads no React and no renderer,
   so a host in Node uses it (`test/query/node-safe.spec.ts` guards that).
+  The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
+  external, as east-ui-components' does: each is a context the host shares
+  with every renderer package, so one `I18nProvider` reaches them all
+  (#1206, `src/locale.dom.test.tsx`, `test/one-locale.spec.ts`).
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —
