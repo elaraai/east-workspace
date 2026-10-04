@@ -101,7 +101,7 @@ describe("columns stack per value axis and per sign (#743 items 2, 4)", () => {
     });
 
     test("stacks never cross value axes — a right column never sits on a left one, in either layer order", () => {
-        // Distinct units: tonnes on the left (0–100), kilometres on the right
+        // Distinct units: sheets on the left (0–100), kilometres on the right
         // (0–1000). The single shared stack made the right column start at 20.
         const scale = axis(1);
         const leftFirst = chart([

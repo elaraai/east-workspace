@@ -23,8 +23,8 @@ const PROPOSED  = variant("proposed", variant("recommended", null));
 const ESTIMATED = variant("estimated", null);
 
 /**
- * The RAW ops row — deliberately FLAT and scalar: a batch code, the job's
- * window as a start week + a duration, its tonnage, a utilisation reading, and
+ * The RAW ops row — deliberately FLAT and scalar: a job ticket, the job's
+ * window as a start week + a duration, its sheets, a utilisation reading, and
  * the lifecycle state. No dates, no display strings.
  *
  * Everything the canvas shows — the run bars, their labels, quantities, the
@@ -34,26 +34,26 @@ const ESTIMATED = variant("estimated", null);
  * the series.
  */
 export const OpsRow = StructType({
-    batch:     StringType,
+    ticket:    StringType,
     /** ISO week the job starts (2026); the series turns it into an instant. */
     startWeek: IntegerType,
     /** Duration in weeks. */
     weeks:     IntegerType,
-    tonnes:    FloatType,
+    sheets:    FloatType,
     /** % utilisation, which the load series expands into a weekly strip. */
     load:      FloatType,
     state:     EventStateType,
 });
-/** One line's machines (or the dock's berths), keyed by id. */
-export const OpsLine = DictType(StringType, OpsRow);
+/** One hall's presses (or the delivery vans), keyed by id. */
+export const OpsHall = DictType(StringType, OpsRow);
 
 /**
  * The seeded ops schedule — an `e3.input`'s default IS the dataset's initial
  * value, so this is what a freshly-deployed workspace (and the offline
- * snapshot harness) serves windows out of. Fifty machines across five
- * production lines plus a dock's ten berths.
+ * snapshot harness) serves windows out of. Fifty presses across five
+ * halls plus ten delivery vans.
  *
- * GROUPED by line, as the dataflow that produces it would store it: a canvas
+ * GROUPED by hall, as the dataflow that produces it would store it: a canvas
  * nests what its data nests, and a paged source is grouped where it is made —
  * in an e3 task — never on the canvas one window at a time (#822).
  *
@@ -61,80 +61,80 @@ export const OpsLine = DictType(StringType, OpsRow);
  * observed at the back, in-progress across it, confirmed then proposed then
  * estimated ahead of it.
  */
-export const opsInput = e3.input('ops', DictType(StringType, OpsLine), variant('value', new Map([
-    ["Line 1", new Map([
-        ["L1-M01", { batch: "B-201", startWeek: 25n, weeks: 3n, tonnes: 96.0,  load: 78.0, state: ACTUAL }],
-        ["L1-M02", { batch: "B-204", startWeek: 26n, weeks: 2n, tonnes: 64.0,  load: 71.0, state: ACTUAL }],
-        ["L1-M03", { batch: "B-214", startWeek: 28n, weeks: 3n, tonnes: 112.0, load: 88.0, state: RUNNING }],
-        ["L1-M04", { batch: "B-208", startWeek: 27n, weeks: 4n, tonnes: 104.0, load: 84.0, state: RUNNING }],
-        ["L1-M05", { batch: "B-219", startWeek: 31n, weeks: 3n, tonnes: 88.0,  load: 66.0, state: CONFIRMED }],
-        ["L1-M06", { batch: "B-223", startWeek: 32n, weeks: 2n, tonnes: 72.0,  load: 59.0, state: CONFIRMED }],
-        ["L1-M07", { batch: "B-231", startWeek: 33n, weeks: 4n, tonnes: 120.0, load: 92.0, state: PROPOSED }],
-        ["L1-M08", { batch: "B-236", startWeek: 35n, weeks: 3n, tonnes: 96.0,  load: 74.0, state: PROPOSED }],
-        ["L1-M09", { batch: "B-242", startWeek: 36n, weeks: 3n, tonnes: 80.0,  load: 63.0, state: ESTIMATED }],
-        ["L1-M10", { batch: "B-247", startWeek: 37n, weeks: 2n, tonnes: 56.0,  load: 48.0, state: ESTIMATED }],
+export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('value', new Map([
+    ["Hall 1", new Map([
+        ["H1-P01", { ticket: "J-4603", startWeek: 25n, weeks: 3n, sheets: 96.0,  load: 78.0, state: ACTUAL }],
+        ["H1-P02", { ticket: "J-4612", startWeek: 26n, weeks: 2n, sheets: 64.0,  load: 71.0, state: ACTUAL }],
+        ["H1-P03", { ticket: "J-4642", startWeek: 28n, weeks: 3n, sheets: 112.0, load: 88.0, state: RUNNING }],
+        ["H1-P04", { ticket: "J-4624", startWeek: 27n, weeks: 4n, sheets: 104.0, load: 84.0, state: RUNNING }],
+        ["H1-P05", { ticket: "J-4657", startWeek: 31n, weeks: 3n, sheets: 88.0,  load: 66.0, state: CONFIRMED }],
+        ["H1-P06", { ticket: "J-4669", startWeek: 32n, weeks: 2n, sheets: 72.0,  load: 59.0, state: CONFIRMED }],
+        ["H1-P07", { ticket: "J-4693", startWeek: 33n, weeks: 4n, sheets: 120.0, load: 92.0, state: PROPOSED }],
+        ["H1-P08", { ticket: "J-4708", startWeek: 35n, weeks: 3n, sheets: 96.0,  load: 74.0, state: PROPOSED }],
+        ["H1-P09", { ticket: "J-4726", startWeek: 36n, weeks: 3n, sheets: 80.0,  load: 63.0, state: ESTIMATED }],
+        ["H1-P10", { ticket: "J-4741", startWeek: 37n, weeks: 2n, sheets: 56.0,  load: 48.0, state: ESTIMATED }],
     ])],
-    ["Line 2", new Map([
-        ["L2-M01", { batch: "B-302", startWeek: 25n, weeks: 4n, tonnes: 118.0, load: 91.0, state: ACTUAL }],
-        ["L2-M02", { batch: "B-307", startWeek: 27n, weeks: 2n, tonnes: 52.0,  load: 55.0, state: ACTUAL }],
-        ["L2-M03", { batch: "B-311", startWeek: 29n, weeks: 3n, tonnes: 92.0,  load: 80.0, state: RUNNING }],
-        ["L2-M04", { batch: "B-316", startWeek: 30n, weeks: 2n, tonnes: 68.0,  load: 61.0, state: CONFIRMED }],
-        ["L2-M05", { batch: "B-320", startWeek: 31n, weeks: 4n, tonnes: 128.0, load: 96.0, state: CONFIRMED }],
-        ["L2-M06", { batch: "B-325", startWeek: 33n, weeks: 3n, tonnes: 84.0,  load: 69.0, state: PROPOSED }],
-        ["L2-M07", { batch: "B-329", startWeek: 34n, weeks: 2n, tonnes: 60.0,  load: 52.0, state: PROPOSED }],
-        ["L2-M08", { batch: "B-334", startWeek: 35n, weeks: 4n, tonnes: 112.0, load: 87.0, state: PROPOSED }],
-        ["L2-M09", { batch: "B-338", startWeek: 37n, weeks: 3n, tonnes: 76.0,  load: 64.0, state: ESTIMATED }],
-        ["L2-M10", { batch: "B-343", startWeek: 38n, weeks: 2n, tonnes: 48.0,  load: 44.0, state: ESTIMATED }],
+    ["Hall 2", new Map([
+        ["H2-P01", { ticket: "J-4906", startWeek: 25n, weeks: 4n, sheets: 118.0, load: 91.0, state: ACTUAL }],
+        ["H2-P02", { ticket: "J-4921", startWeek: 27n, weeks: 2n, sheets: 52.0,  load: 55.0, state: ACTUAL }],
+        ["H2-P03", { ticket: "J-4933", startWeek: 29n, weeks: 3n, sheets: 92.0,  load: 80.0, state: RUNNING }],
+        ["H2-P04", { ticket: "J-4948", startWeek: 30n, weeks: 2n, sheets: 68.0,  load: 61.0, state: CONFIRMED }],
+        ["H2-P05", { ticket: "J-4960", startWeek: 31n, weeks: 4n, sheets: 128.0, load: 96.0, state: CONFIRMED }],
+        ["H2-P06", { ticket: "J-4975", startWeek: 33n, weeks: 3n, sheets: 84.0,  load: 69.0, state: PROPOSED }],
+        ["H2-P07", { ticket: "J-4987", startWeek: 34n, weeks: 2n, sheets: 60.0,  load: 52.0, state: PROPOSED }],
+        ["H2-P08", { ticket: "J-5002", startWeek: 35n, weeks: 4n, sheets: 112.0, load: 87.0, state: PROPOSED }],
+        ["H2-P09", { ticket: "J-5014", startWeek: 37n, weeks: 3n, sheets: 76.0,  load: 64.0, state: ESTIMATED }],
+        ["H2-P10", { ticket: "J-5029", startWeek: 38n, weeks: 2n, sheets: 48.0,  load: 44.0, state: ESTIMATED }],
     ])],
-    ["Line 3", new Map([
-        ["L3-M01", { batch: "B-401", startWeek: 24n, weeks: 3n, tonnes: 88.0,  load: 73.0, state: ACTUAL }],
-        ["L3-M02", { batch: "B-405", startWeek: 26n, weeks: 4n, tonnes: 124.0, load: 94.0, state: ACTUAL }],
-        ["L3-M03", { batch: "B-410", startWeek: 29n, weeks: 2n, tonnes: 56.0,  load: 51.0, state: RUNNING }],
-        ["L3-M04", { batch: "B-414", startWeek: 30n, weeks: 3n, tonnes: 100.0, load: 82.0, state: RUNNING }],
-        ["L3-M05", { batch: "B-419", startWeek: 32n, weeks: 2n, tonnes: 72.0,  load: 62.0, state: CONFIRMED }],
-        ["L3-M06", { batch: "B-424", startWeek: 33n, weeks: 4n, tonnes: 116.0, load: 90.0, state: CONFIRMED }],
-        ["L3-M07", { batch: "B-428", startWeek: 35n, weeks: 3n, tonnes: 92.0,  load: 76.0, state: PROPOSED }],
-        ["L3-M08", { batch: "B-433", startWeek: 36n, weeks: 2n, tonnes: 64.0,  load: 57.0, state: PROPOSED }],
-        ["L3-M09", { batch: "B-437", startWeek: 37n, weeks: 4n, tonnes: 108.0, load: 85.0, state: ESTIMATED }],
-        ["L3-M10", { batch: "B-441", startWeek: 39n, weeks: 2n, tonnes: 44.0,  load: 41.0, state: ESTIMATED }],
+    ["Hall 3", new Map([
+        ["H3-P01", { ticket: "J-5203", startWeek: 24n, weeks: 3n, sheets: 88.0,  load: 73.0, state: ACTUAL }],
+        ["H3-P02", { ticket: "J-5215", startWeek: 26n, weeks: 4n, sheets: 124.0, load: 94.0, state: ACTUAL }],
+        ["H3-P03", { ticket: "J-5230", startWeek: 29n, weeks: 2n, sheets: 56.0,  load: 51.0, state: RUNNING }],
+        ["H3-P04", { ticket: "J-5242", startWeek: 30n, weeks: 3n, sheets: 100.0, load: 82.0, state: RUNNING }],
+        ["H3-P05", { ticket: "J-5257", startWeek: 32n, weeks: 2n, sheets: 72.0,  load: 62.0, state: CONFIRMED }],
+        ["H3-P06", { ticket: "J-5272", startWeek: 33n, weeks: 4n, sheets: 116.0, load: 90.0, state: CONFIRMED }],
+        ["H3-P07", { ticket: "J-5284", startWeek: 35n, weeks: 3n, sheets: 92.0,  load: 76.0, state: PROPOSED }],
+        ["H3-P08", { ticket: "J-5299", startWeek: 36n, weeks: 2n, sheets: 64.0,  load: 57.0, state: PROPOSED }],
+        ["H3-P09", { ticket: "J-5311", startWeek: 37n, weeks: 4n, sheets: 108.0, load: 85.0, state: ESTIMATED }],
+        ["H3-P10", { ticket: "J-5323", startWeek: 39n, weeks: 2n, sheets: 44.0,  load: 41.0, state: ESTIMATED }],
     ])],
-    ["Line 4", new Map([
-        ["L4-M01", { batch: "B-502", startWeek: 25n, weeks: 2n, tonnes: 60.0,  load: 54.0, state: ACTUAL }],
-        ["L4-M02", { batch: "B-506", startWeek: 27n, weeks: 3n, tonnes: 96.0,  load: 79.0, state: ACTUAL }],
-        ["L4-M03", { batch: "B-511", startWeek: 28n, weeks: 4n, tonnes: 132.0, load: 98.0, state: RUNNING }],
-        ["L4-M04", { batch: "B-515", startWeek: 31n, weeks: 2n, tonnes: 68.0,  load: 60.0, state: CONFIRMED }],
-        ["L4-M05", { batch: "B-520", startWeek: 32n, weeks: 3n, tonnes: 104.0, load: 83.0, state: CONFIRMED }],
-        ["L4-M06", { batch: "B-524", startWeek: 34n, weeks: 2n, tonnes: 76.0,  load: 67.0, state: PROPOSED }],
-        ["L4-M07", { batch: "B-529", startWeek: 35n, weeks: 4n, tonnes: 120.0, load: 93.0, state: PROPOSED }],
-        ["L4-M08", { batch: "B-533", startWeek: 37n, weeks: 3n, tonnes: 84.0,  load: 70.0, state: ESTIMATED }],
-        ["L4-M09", { batch: "B-538", startWeek: 38n, weeks: 2n, tonnes: 52.0,  load: 47.0, state: ESTIMATED }],
-        ["L4-M10", { batch: "B-542", startWeek: 39n, weeks: 3n, tonnes: 88.0,  load: 72.0, state: ESTIMATED }],
+    ["Hall 4", new Map([
+        ["H4-P01", { ticket: "J-5506", startWeek: 25n, weeks: 2n, sheets: 60.0,  load: 54.0, state: ACTUAL }],
+        ["H4-P02", { ticket: "J-5518", startWeek: 27n, weeks: 3n, sheets: 96.0,  load: 79.0, state: ACTUAL }],
+        ["H4-P03", { ticket: "J-5533", startWeek: 28n, weeks: 4n, sheets: 132.0, load: 98.0, state: RUNNING }],
+        ["H4-P04", { ticket: "J-5545", startWeek: 31n, weeks: 2n, sheets: 68.0,  load: 60.0, state: CONFIRMED }],
+        ["H4-P05", { ticket: "J-5560", startWeek: 32n, weeks: 3n, sheets: 104.0, load: 83.0, state: CONFIRMED }],
+        ["H4-P06", { ticket: "J-5572", startWeek: 34n, weeks: 2n, sheets: 76.0,  load: 67.0, state: PROPOSED }],
+        ["H4-P07", { ticket: "J-5587", startWeek: 35n, weeks: 4n, sheets: 120.0, load: 93.0, state: PROPOSED }],
+        ["H4-P08", { ticket: "J-5599", startWeek: 37n, weeks: 3n, sheets: 84.0,  load: 70.0, state: ESTIMATED }],
+        ["H4-P09", { ticket: "J-5614", startWeek: 38n, weeks: 2n, sheets: 52.0,  load: 47.0, state: ESTIMATED }],
+        ["H4-P10", { ticket: "J-5626", startWeek: 39n, weeks: 3n, sheets: 88.0,  load: 72.0, state: ESTIMATED }],
     ])],
-    ["Line 5", new Map([
-        ["L5-M01", { batch: "B-601", startWeek: 24n, weeks: 4n, tonnes: 110.0, load: 86.0, state: ACTUAL }],
-        ["L5-M02", { batch: "B-605", startWeek: 26n, weeks: 2n, tonnes: 58.0,  load: 53.0, state: ACTUAL }],
-        ["L5-M03", { batch: "B-609", startWeek: 28n, weeks: 3n, tonnes: 94.0,  load: 77.0, state: RUNNING }],
-        ["L5-M04", { batch: "B-613", startWeek: 30n, weeks: 4n, tonnes: 126.0, load: 95.0, state: RUNNING }],
-        ["L5-M05", { batch: "B-618", startWeek: 32n, weeks: 2n, tonnes: 70.0,  load: 61.0, state: CONFIRMED }],
-        ["L5-M06", { batch: "B-622", startWeek: 33n, weeks: 3n, tonnes: 98.0,  load: 81.0, state: CONFIRMED }],
-        ["L5-M07", { batch: "B-627", startWeek: 35n, weeks: 2n, tonnes: 66.0,  load: 58.0, state: PROPOSED }],
-        ["L5-M08", { batch: "B-631", startWeek: 36n, weeks: 4n, tonnes: 114.0, load: 89.0, state: PROPOSED }],
-        ["L5-M09", { batch: "B-636", startWeek: 38n, weeks: 3n, tonnes: 82.0,  load: 68.0, state: ESTIMATED }],
-        ["L5-M10", { batch: "B-640", startWeek: 39n, weeks: 2n, tonnes: 50.0,  load: 45.0, state: ESTIMATED }],
+    ["Hall 5", new Map([
+        ["H5-P01", { ticket: "J-5803", startWeek: 24n, weeks: 4n, sheets: 110.0, load: 86.0, state: ACTUAL }],
+        ["H5-P02", { ticket: "J-5815", startWeek: 26n, weeks: 2n, sheets: 58.0,  load: 53.0, state: ACTUAL }],
+        ["H5-P03", { ticket: "J-5827", startWeek: 28n, weeks: 3n, sheets: 94.0,  load: 77.0, state: RUNNING }],
+        ["H5-P04", { ticket: "J-5839", startWeek: 30n, weeks: 4n, sheets: 126.0, load: 95.0, state: RUNNING }],
+        ["H5-P05", { ticket: "J-5854", startWeek: 32n, weeks: 2n, sheets: 70.0,  load: 61.0, state: CONFIRMED }],
+        ["H5-P06", { ticket: "J-5866", startWeek: 33n, weeks: 3n, sheets: 98.0,  load: 81.0, state: CONFIRMED }],
+        ["H5-P07", { ticket: "J-5881", startWeek: 35n, weeks: 2n, sheets: 66.0,  load: 58.0, state: PROPOSED }],
+        ["H5-P08", { ticket: "J-5893", startWeek: 36n, weeks: 4n, sheets: 114.0, load: 89.0, state: PROPOSED }],
+        ["H5-P09", { ticket: "J-5908", startWeek: 38n, weeks: 3n, sheets: 82.0,  load: 68.0, state: ESTIMATED }],
+        ["H5-P10", { ticket: "J-5920", startWeek: 39n, weeks: 2n, sheets: 50.0,  load: 45.0, state: ESTIMATED }],
     ])],
-    // The dock's berths — the same flat row, read as weekly load strips
-    // rather than run bars (see the `docks` series below).
-    ["Docks", new Map([
-        ["D-01", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 46.0, state: CONFIRMED }],
-        ["D-02", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 58.0, state: CONFIRMED }],
-        ["D-03", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 67.0, state: CONFIRMED }],
-        ["D-04", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 74.0, state: CONFIRMED }],
-        ["D-05", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 81.0, state: CONFIRMED }],
-        ["D-06", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 88.0, state: CONFIRMED }],
-        ["D-07", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 93.0, state: CONFIRMED }],
-        ["D-08", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 97.0, state: CONFIRMED }],
-        ["D-09", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 64.0, state: CONFIRMED }],
-        ["D-10", { batch: "—", startWeek: 27n, weeks: 12n, tonnes: 0.0, load: 52.0, state: CONFIRMED }],
+    // The delivery vans — the same flat row, read as weekly load strips
+    // rather than run bars (see the `vans` series below).
+    ["Vans", new Map([
+        ["V-01", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 46.0, state: CONFIRMED }],
+        ["V-02", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 58.0, state: CONFIRMED }],
+        ["V-03", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 67.0, state: CONFIRMED }],
+        ["V-04", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 74.0, state: CONFIRMED }],
+        ["V-05", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 81.0, state: CONFIRMED }],
+        ["V-06", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 88.0, state: CONFIRMED }],
+        ["V-07", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 93.0, state: CONFIRMED }],
+        ["V-08", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 97.0, state: CONFIRMED }],
+        ["V-09", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 64.0, state: CONFIRMED }],
+        ["V-10", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 52.0, state: CONFIRMED }],
     ])],
 ])));
 
@@ -323,11 +323,11 @@ export const dataBindPagedPlan = example({
         "canvas", "series", "collection", "large", "dataset", "Reactive", "stream",
         "grouped", "children", "rollup", "group",
     ],
-    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns the paged handle, the row-source contract the canvas recognises by its East type, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by line where it is made (an e3 task), so the canvas nests what the data nests: a line's span row rolls up the union of its machines' runs, stepped down into with `Plan.children`, and the dock is one collapsed group strip over its berths. The stored rows are FLAT scalars (a start week, a duration, a tonnage, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a setup bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
+    description: "Bind a collection dataset BY WINDOW and hand it straight to a Plan — `Data.bindPaged(ops)` returns the paged handle, the row-source contract the canvas recognises by its East type, and the factory wraps `page` with the series' row-building functions so each window's rows become canvas rows client-side. The dataset is GROUPED by hall where it is made (an e3 task), so the canvas nests what the data nests: a hall's span row rolls up the union of its presses' runs, stepped down into with `Plan.children`, and the vans are one collapsed group strip. The stored rows are FLAT scalars (a start week, a duration, a sheet count, a load reading); the series expressions do the reading — week arithmetic turns indices into instants, one job becomes a make-ready bar plus its run, and `East.Array.generate` expands a single load figure into a twelve-week heat strip. The dataset is never fetched whole and nothing here touches bytes, offsets or beast2",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // The paged handle — the dataset's element type comes from the def,
-            // so `page(offset, limit)` is typed Option<Dict<String, OpsLine>>
+            // so `page(offset, limit)` is typed Option<Dict<String, OpsHall>>
             // with no decode step to write.
             const paged = $.let(Data.bindPaged(opsInput));
             // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The stored
@@ -337,56 +337,56 @@ export const dataBindPagedPlan = example({
                 return w1.addWeeks(n.subtract(1n));
             }));
             const series = $.const([
-                // Lines — one span row per line whose own runs are none: it
+                // Halls — one span row per hall whose own runs are none: it
                 // DECLARES a union rollup, so its ×k concurrency bands are the
-                // renderer's, over the machines stepped down into from the
-                // line's own entry — exact in every window, since a line
-                // arrives with all of its machines.
-                Plan.series.span(OpsLine, {
-                    key: "lines", title: "Lines",
-                    match: (_l, line) => line.equal("Docks").not(),
-                    label: (_l, line) => line,
+                // renderer's, over the presses stepped down into from the
+                // hall's own entry — exact in every window, since a hall
+                // arrives with all of its presses.
+                Plan.series.span(OpsHall, {
+                    key: "halls", title: "Halls",
+                    match: (_h, hall) => hall.equal("Vans").not(),
+                    label: (_h, hall) => hall,
                     runs: _l => [],
                     rollup: "union",
                     children: Plan.children((l) => l, [
-                        // Machines — each flat row becomes TWO bars: a one-week
-                        // setup ahead of the job, then the run itself, with its
-                        // label and quantity built from the batch code and tonnage
-                        // (a quantity carries its unit — the line's bands sum by it).
+                        // Presses — each flat row becomes TWO bars: a one-week
+                        // make-ready ahead of the job, then the run itself, with its
+                        // label and quantity built from the job ticket and sheets
+                        // (a quantity carries its unit — the hall's bands sum by it).
                         Plan.series.span(OpsRow, {
-                            key: "machines", title: "Machines",
+                            key: "presses", title: "Presses",
                             label: (_r, k) => k, id: true,
-                            value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                            value: r => some(East.str`${East.Float.printFixed(r.sheets, 0n)} k sheets`),
                             runs: r => [
                                 Plan.run({
-                                    key: East.str`${r.batch}-set`,
+                                    key: East.str`${r.ticket}-mr`,
                                     start: week(r.startWeek.subtract(1n)), end: week(r.startWeek),
-                                    label: "SET", state: r.state,
+                                    label: "MAKEREADY", state: r.state,
                                 }),
                                 Plan.run({
-                                    key: r.batch,
+                                    key: r.ticket,
                                     start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),
-                                    label: East.str`RUN · ${r.batch}`,
-                                    quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                                    label: East.str`RUN · ${r.ticket}`,
+                                    quantity: Plan.quantity(r.sheets, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
                                     state: r.state,
                                 }),
                             ],
                         }),
                     ]),
                 }),
-                // Docks — one collapsed group strip, its mean derived from the
-                // berths it nests: the SAME flat row read as a load strip, one
+                // Vans — one collapsed group strip, its mean derived from the
+                // vans it nests: the SAME flat row read as a load strip, one
                 // scalar `load` expanded by `East.Array.generate` into a cell
-                // per week, drifting with a per-berth phase so the strip reads
+                // per week, drifting with a per-van phase so the strip reads
                 // as a real profile rather than a flat band.
-                Plan.series.group(OpsLine, {
-                    key: "docks", title: "Docks",
-                    match: (_l, line) => line.equal("Docks"),
-                    label: (_l, line) => line,
+                Plan.series.group(OpsHall, {
+                    key: "vans", title: "Vans",
+                    match: (_h, hall) => hall.equal("Vans"),
+                    label: (_h, hall) => hall,
                     collapsed: true, summaryAggregate: "mean",
                     children: Plan.children((l) => l, [
                         Plan.series.heat(OpsRow, {
-                            key: "berths", title: "Berths",
+                            key: "van-load", title: "Van load",
                             label: (_r, k) => k, id: true,
                             cells: r => Plan.heatCells(
                                 East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {
@@ -405,7 +405,7 @@ export const dataBindPagedPlan = example({
                         }),
                     ]),
                 }),
-            ], ArrayType(Plan.Types.Series(OpsLine)));
+            ], ArrayType(Plan.Types.Series(OpsHall)));
             const axis = $.const(Plan.axis({
                 window: { min: week(24n), max: week(42n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
@@ -477,13 +477,13 @@ export const dataBindPagedIndex = example({
  */
 export const unitCountInput = e3.input('unit_count', IntegerType, variant('value', 3_000n));
 
-/** A generated unit: the weeks it runs, and what it weighs. */
-export const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+/** A generated unit: the weeks it runs, and how many sheets it prints. */
+export const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, sheets: FloatType });
 
 /**
  * The units, generated from their count — keyed `U10000`, `U10001`, …: fixed
  * width, so key order is build order. Each runs two weeks, from one of ten
- * consecutive weeks starting at W27, and weighs 40 to 119 t.
+ * consecutive weeks starting at W27, and prints 40 to 119 k sheets.
  */
 export const generateUnits = East.function([IntegerType], DictType(StringType, UnitRow), ($, count) => {
     // Monday of ISO week 1, 2026.
@@ -493,7 +493,7 @@ export const generateUnits = East.function([IntegerType], DictType(StringType, U
         ($2, i) => $2.const({
             start: w1.addWeeks(i.remainder(10n).add(26n)),
             end: w1.addWeeks(i.remainder(10n).add(28n)),
-            tonnes: i.remainder(80n).add(40n).toFloat(),
+            sheets: i.remainder(80n).add(40n).toFloat(),
         }, UnitRow),
     );
 });
@@ -523,10 +523,10 @@ export const dataBindPagedBlocks = example({
                 Plan.series.span(UnitRow, {
                     key: "jobs", title: "Jobs",
                     label: (_r, k) => k, id: true,
-                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
+                    value: r => some(East.str`${East.Float.printFixed(r.sheets, 0n)} k sheets`),
                     runs: (r, k) => [Plan.run({
                         key: "run", start: r.start, end: r.end, label: East.str`RUN · ${k}`,
-                        quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                        quantity: Plan.quantity(r.sheets, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
                         state: "actual",
                     })],
                 }),

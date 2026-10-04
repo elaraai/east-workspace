@@ -170,15 +170,15 @@ describe("Plan narrow layout (§10 / #570)", () => {
         right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
     });
     const fixture = (opts?: Parameters<typeof planRoot>[1]) => planRoot([
-        planRow("line1", variant("group", { summary: variant("aggregate", variant("mean", null)) }),
-            { gutter: gutter("Line 1", { value: "82%" }) }),
+        planRow("hall1", variant("group", { summary: variant("aggregate", variant("mean", null)) }),
+            { gutter: gutter("Hall 1", { value: "82%" }) }),
         planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]),
-            { parent: "line1", gutter: gutter("L1-M03", { id: true, value: "120 t" }), expand: { height: some("120px"), axis: variant("keep", null) } }),
-        planRow("l1h", heatKind([40, 60]), { parent: "line1" }),
-        planRow("line2", variant("group", { summary: variant("aggregate", variant("max", null)) }),
-            { gutter: gutter("Line 2", { value: "98%" }) }),
-        planRow("l2h", heatKind([70, 98]), { parent: "line2" }),
-        planRow("cov", chartKind, { gutter: gutter("COVERAGE", { id: true }) }),
+            { parent: "hall1", gutter: gutter("H1-P03", { id: true, value: "12k/h" }), expand: { height: some("120px"), axis: variant("keep", null) } }),
+        planRow("h1h", heatKind([40, 60]), { parent: "hall1" }),
+        planRow("hall2", variant("group", { summary: variant("aggregate", variant("max", null)) }),
+            { gutter: gutter("Hall 2", { value: "98%" }) }),
+        planRow("h2h", heatKind([70, 98]), { parent: "hall2" }),
+        planRow("ontime", chartKind, { gutter: gutter("ON-TIME", { id: true }) }),
     ], {
         // The resolver receives the row's typed id (#822).
         expandRender: (id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
@@ -205,30 +205,30 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(container.querySelector("[data-slot='narrowList'] > [data-slot='narrowRuler']")).toBeTruthy();
         expect(container.querySelectorAll("[data-slot='narrowRulerTick']")).toHaveLength(12);
         expect(screen.getByText("W27")).toBeTruthy();
-        // Hottest first: Line 2 peaks at 98, Line 1 at 60; the ungrouped
+        // Hottest first: Hall 2 peaks at 98, Hall 1 at 60; the ungrouped
         // chart row rides an "Other rows" card at the end.
         expect([...container.querySelectorAll("[data-plan-groupcard]")].map((c) => testKeyOf(c.getAttribute("data-plan-groupcard")!)))
-            .toEqual(["line2", "line1", "other"]);
+            .toEqual(["hall2", "hall1", "other"]);
         // A group card's head carries the strip's identity; its body IS the strip.
-        const line2 = container.querySelector(rowSel("line2", "data-plan-groupcard"))!;
-        expect(line2.textContent).toContain("Line 2");
-        expect(line2.textContent).toContain("1 row");
-        expect(line2.textContent).toContain("98%");
-        expect(line2.querySelector("[data-plan-cardbody='group']")).toBeTruthy();
+        const hall2 = container.querySelector(rowSel("hall2", "data-plan-groupcard"))!;
+        expect(hall2.textContent).toContain("Hall 2");
+        expect(hall2.textContent).toContain("1 row");
+        expect(hall2.textContent).toContain("98%");
+        expect(hall2.querySelector("[data-plan-cardbody='group']")).toBeTruthy();
     });
 
     test("a group opens its rows; a second tap drills a row in place while its neighbours keep their size; Esc returns", () => {
         const { container } = renderPlan(fixture(), "plan-570-rows");
-        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-groupcard"))!);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-groupcard"))!);
         expect(container.querySelector("[data-plan-tab='rows']")!.hasAttribute("data-selected")).toBe(true);
         // One group at a time — its rows, in tree order, as cards.
         expect([...container.querySelectorAll("[data-plan-card]")].map((c) => testKeyOf(c.getAttribute("data-plan-card")!)))
-            .toEqual(["m1", "l1h"]);
-        expect(container.querySelector("[data-slot='narrowScope']")!.textContent).toContain("Line 1");
+            .toEqual(["m1", "h1h"]);
+        expect(container.querySelector("[data-slot='narrowScope']")!.textContent).toContain("Hall 1");
         // The card head is the gutter identity; the body is the row's plot.
         const m1 = () => container.querySelector(rowSel("m1", "data-plan-card")) as HTMLElement;
-        expect(m1().textContent).toContain("L1-M03");
-        expect(m1().textContent).toContain("120 t");
+        expect(m1().textContent).toContain("H1-P03");
+        expect(m1().textContent).toContain("12k/h");
         expect(m1().querySelector("[data-run='r1']")).toBeTruthy();
         // Tap selects…
         fireEvent.click(m1());
@@ -240,10 +240,10 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(m1().hasAttribute("data-expanded")).toBe(true);
         expect(m1().querySelector("[data-plan-expandrender]")).toBeTruthy();
         expect(screen.getByText("R · m1")).toBeTruthy();
-        const l1h = container.querySelector(rowSel("l1h", "data-plan-card")) as HTMLElement;
-        expect(l1h).toBeTruthy();
-        expect(l1h.hasAttribute("data-ctx")).toBe(false);
-        expect(l1h.querySelector("[data-ctx]")).toBeNull();
+        const h1h = container.querySelector(rowSel("h1h", "data-plan-card")) as HTMLElement;
+        expect(h1h).toBeTruthy();
+        expect(h1h.hasAttribute("data-ctx")).toBe(false);
+        expect(h1h.querySelector("[data-ctx]")).toBeNull();
         // Esc walks the ladder: the drill returns, the selection holds.
         fireEvent.keyDown(container.querySelector("[data-plan-body]")!, { key: "Escape" });
         expect(m1().hasAttribute("data-expanded")).toBe(false);
@@ -271,12 +271,12 @@ describe("Plan narrow layout (§10 / #570)", () => {
         const { container } = renderPlan(fixture({ slice: some({ slice: handle, affordances: [variant("range", null)] }) }), "plan-570-measures");
         // A tab is Zag's (#819): its click selects on the machine's next turn.
         fireEvent.click(container.querySelector("[data-plan-tab='measures']")!);
-        await waitFor(() => expect(container.querySelector(rowSel("cov", "data-plan-card"))).toBeTruthy());
-        const cov = container.querySelector(rowSel("cov", "data-plan-card")) as HTMLElement;
+        await waitFor(() => expect(container.querySelector(rowSel("ontime", "data-plan-card"))).toBeTruthy());
+        const onTime = container.querySelector(rowSel("ontime", "data-plan-card")) as HTMLElement;
         // Expanded density — the plot's viewBox spans 88px, not the spark's 32.
-        expect(cov.querySelector('[data-plan-mark="line"]')!.closest("svg")!.getAttribute("viewBox")).toBe("0 0 1000 88");
+        expect(onTime.querySelector('[data-plan-mark="line"]')!.closest("svg")!.getAttribute("viewBox")).toBe("0 0 1000 88");
         // The value ticks overlay the plot's left edge (no gutter to print them in).
-        expect(cov.querySelectorAll("[data-plan-tickpx]")).toHaveLength(2);
+        expect(onTime.querySelectorAll("[data-plan-tickpx]")).toHaveLength(2);
 
         // Two fingers dragged LEFT by one period width pan the window one
         // period LATER — through the slice, like the `]` key. jsdom has no
@@ -305,21 +305,21 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // survives as SECTIONS rather than flattening into one list.
         const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const { container } = renderPlan(planRoot([
-            planRow("line1", band, { gutter: gutter("Line 1") }),
-            planRow("m1", spanKind([]), { parent: "line1" }),
-            planRow("m2", spanKind([]), { parent: "line1" }),
-            planRow("dock", spanKind([])),
+            planRow("hall1", band, { gutter: gutter("Hall 1") }),
+            planRow("m1", spanKind([]), { parent: "hall1" }),
+            planRow("m2", spanKind([]), { parent: "hall1" }),
+            planRow("van", spanKind([])),
         ]), "plan-570-sections");
         expect(container.querySelector("[data-plan-tab='rows']")!.hasAttribute("data-selected")).toBe(true);
         // The Groups tab still exists — it is just not where the plan opens.
         expect(container.querySelector("[data-plan-tab='groups']")).toBeTruthy();
         expect([...container.querySelectorAll("[data-plan-section]")].map((x) => testKeyOf(x.getAttribute("data-plan-section")!)))
-            .toEqual(["line1", "other"]);
-        expect(container.querySelector(rowSel("line1", "data-plan-section"))!.textContent).toContain("2 rows");
+            .toEqual(["hall1", "other"]);
+        expect(container.querySelector(rowSel("hall1", "data-plan-section"))!.textContent).toContain("2 rows");
         expect([...container.querySelectorAll("[data-plan-card]")].map((c) => testKeyOf(c.getAttribute("data-plan-card")!)))
-            .toEqual(["m1", "m2", "dock"]);
+            .toEqual(["m1", "m2", "van"]);
         // A section header scopes to its group…
-        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-section"))!);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-section"))!);
         expect([...container.querySelectorAll("[data-plan-card]")].map((c) => testKeyOf(c.getAttribute("data-plan-card")!)))
             .toEqual(["m1", "m2"]);
         expect(container.querySelector("[data-plan-section]")).toBeNull();
@@ -399,13 +399,13 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // FIXED block, its member series a block under it, and the group
         // strips' series a block of its own.
         const w0 = [
-            { fixed: true, parent: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Line 1") })] },
+            { fixed: true, parent: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Hall 1") })] },
             { fixed: false, parent: some(sec), rows: [
                 planRow("s1", heatKind([40, 60]), { parentId: sec }),
                 planRow("s2", heatKind([50, 70]), { parentId: sec }),
             ] },
             { fixed: false, parent: none, rows: [
-                planRow("g1", groupKind, { gutter: gutter("Line 2") }),
+                planRow("g1", groupKind, { gutter: gutter("Hall 2") }),
                 planRow("a", heatKind([70, 98]), { parent: "g1" }),
                 planRow("b", heatKind([60, 80]), { parent: "g1" }),
             ] },

@@ -90,7 +90,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("span rows: 32 default, 42 with a sub line", () => {
         expect(rowHeight(visible(row(spanKind)), false, new Set())).toBe(ROW_H);
-        expect(rowHeight(visible(row(spanKind, { sub: "120 t" })), false, new Set())).toBe(ROW_H_STACKED);
+        expect(rowHeight(visible(row(spanKind, { sub: "12k/h" })), false, new Set())).toBe(ROW_H_STACKED);
     });
 
     test("chart rows: spark 32; expanded uses expandedHeight over the 88 default; fixed wins outright", () => {
@@ -197,7 +197,7 @@ describe("Plan row focus heights (R1 rails)", () => {
         const focus = { kind: "expand" as const, key: rowKey("focal") };
         // Kinds that are 28 / 24 / 88 / 42 at rest all land on the same rhythm.
         expect(rowHeight(visible(row(heatKind, { key: "other" })), false, new Set(), focus)).toBe(STRIP_H);
-        expect(rowHeight(visible(row(spanKind, { key: "other", sub: "120 t" })), false, new Set(), focus)).toBe(STRIP_H);
+        expect(rowHeight(visible(row(spanKind, { key: "other", sub: "12k/h" })), false, new Set(), focus)).toBe(STRIP_H);
         // An explicit per-row height is a REST height; it does not survive a
         // focus, or one tall row would break the strip rhythm for all of them.
         expect(rowHeight(visible(row(spanKind, { key: "other", height: "140px" })), false, new Set(), focus)).toBe(STRIP_H);
@@ -402,9 +402,9 @@ describe("the row stream (#822)", () => {
         const key = rowKeyOf(id);
         expect(rowIdEqual(rowIdOfKey(key)!, id)).toBe(true);
         expect(rowIdEqual(rowIdOfKey(`${key}#3`)!, id)).toBe(true);
-        const section = variant("section", { series: "line2", path: [] }) as PlanRowValue["id"];
+        const section = variant("section", { series: "hall2", path: [] }) as PlanRowValue["id"];
         expect(rowIdEqual(rowIdOfKey(rowKeyOf(section))!, section)).toBe(true);
-        expect(rowIdOfKey("m03")).toBeUndefined();
+        expect(rowIdOfKey("p03")).toBeUndefined();
     });
 
     test("canvasRowsOf keys a decoded canvas once — the controller and the canvas share its rows", () => {

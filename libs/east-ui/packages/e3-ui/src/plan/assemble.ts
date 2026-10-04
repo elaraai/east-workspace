@@ -192,9 +192,9 @@ export interface PlanRowBaseInput {
     key: SubtypeExprOrValue<StringType>;
     /** The gutter name. */
     label: SubtypeExprOrValue<StringType>;
-    /** `true` ⇒ the label renders as a mono row id (`L1-M03`, `COVERAGE`). */
+    /** `true` ⇒ the label renders as a mono row id (`H1-P03`, `ON-TIME`). */
     id?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** The muted mono sub line (`"120 t"`, `"week · 1 lane"`). */
+    /** The muted mono sub line (`"12k/h"`, `"week · 1 lane"`). */
     sub?: SubtypeExprOrValue<StringType>;
     /** The right-aligned mono value slot (`"94.2%"`). */
     value?: SubtypeExprOrValue<StringType>;

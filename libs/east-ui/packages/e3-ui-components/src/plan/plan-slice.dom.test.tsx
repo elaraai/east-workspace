@@ -323,8 +323,8 @@ describe("Plan chrome tracks the slice store (#611)", () => {
             key: "plan.pick.zero-rows",
             state: { read: () => hidden, write: (n: string[]) => { hidden = n; }, has: () => true },
             items: [
-                { id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false },
-                { id: "b", title: "Line load", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "a", title: "Press jobs", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "b", title: "Hall load", subtitle: none, icon: none, count: none, narrowed: false },
             ],
         };
         renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }), "plan-611-pick");
@@ -387,8 +387,8 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
             key: "test.plan.pick",
             state: { read: () => st, write: (n: string[]) => { st = n; }, has: () => true },
             items: [
-                { id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false },
-                { id: "b", title: "Line load", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "a", title: "Press jobs", subtitle: none, icon: none, count: none, narrowed: false },
+                { id: "b", title: "Hall load", subtitle: none, icon: none, count: none, narrowed: false },
                 { id: "c", title: "Crew shifts", subtitle: none, icon: none, count: none, narrowed: false },
             ],
         };
@@ -421,7 +421,7 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
         // inside the terminal surface" — and the panel drops its frame on that,
         // not on a flag the call site had to remember.
         expect(panel.getAttribute("data-density")).toBe("editor");
-        expect(screen.getByText("Machine jobs")).toBeTruthy();
+        expect(screen.getByText("Press jobs")).toBeTruthy();
         // The count rides the popover's head, not the panel's.
         expect(screen.getByText("2 of 3")).toBeTruthy();
     });
@@ -432,10 +432,10 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
         renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
         await user.click(screen.getByRole("button", { name: "Series library" }));
         await waitFor(() => expect(document.querySelector("[data-slot='pickSearch']")).not.toBeNull());
-        expect(screen.getByText("Machine jobs")).toBeTruthy();
+        expect(screen.getByText("Press jobs")).toBeTruthy();
 
         await user.type(screen.getByLabelText("Search series"), "crew");
-        await waitFor(() => expect(screen.queryByText("Machine jobs")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("Press jobs")).toBeNull());
         expect(screen.getByText("Crew shifts")).toBeTruthy();
         // Filtering the LIST is not hiding a series — the canvas is untouched.
         expect(pick.state.read()).toEqual([]);
@@ -447,7 +447,7 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
 
         // Clearing brings everything back.
         await user.click(screen.getByRole("button", { name: "Clear search" }));
-        await waitFor(() => expect(screen.getByText("Machine jobs")).toBeTruthy());
+        await waitFor(() => expect(screen.getByText("Press jobs")).toBeTruthy());
     });
 
     test("two entries sharing an id are ONE switch — reported, and reconciled correctly", async () => {
@@ -487,7 +487,7 @@ describe("the series library is TOOLBAR chrome (#590)", () => {
         renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
         await user.click(screen.getByRole("button", { name: "Series library" }));
         await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
-        await user.click(screen.getByLabelText("Toggle Machine jobs"));
+        await user.click(screen.getByLabelText("Toggle Press jobs"));
         expect(pick.state.read()).toEqual(["a"]);
     });
 });

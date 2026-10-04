@@ -46,12 +46,12 @@ const encodeInteger = encodeBeast2For(IntegerType);
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const NOW = new Date("2026-08-12T00:00:00Z");
-const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, sheets: FloatType });
 const Units = DictType(StringType, UnitRow);
 /** Three units — module scope, so the East bodies call no host helper. */
 const UNITS = new Map(Array.from({ length: 3 }, (_, i) => [
     `u${String(i).padStart(2, "0")}`,
-    { start: W27, end: W39, tonnes: (i + 1) * 5 },
+    { start: W27, end: W39, sheets: (i + 1) * 5 },
 ] as const));
 
 /** The units as a paged source, built in East to the row-source contract: a

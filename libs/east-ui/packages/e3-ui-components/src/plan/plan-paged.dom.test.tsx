@@ -261,11 +261,11 @@ describe("Plan paged source (P-c)", () => {
         // understatement, so it prints `~2 rows` and the band carries
         // `data-plan-partial` — the author's own `meta` is never rewritten,
         // since that is their text rather than a derivation.
-        const line = sectionId("line");
+        const hall = sectionId("hall");
         const w0 = [
-            planRow("line", plainGroup(), { id: line, gutter: gutter("Line 1") }),
-            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
-            planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
+            planRow("hall", plainGroup(), { id: hall, gutter: gutter("Hall 1") }),
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: hall }),
+            planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: hall }),
         ];
         const sourceOf = (total: bigint, id: string) => ({
             page: (offset: bigint) => (offset === 0n ? some(w0) : total > 200n ? none : some([])),
@@ -277,7 +277,7 @@ describe("Plan paged source (P-c)", () => {
         });
         const partial = renderPlan(planRoot([], { source: sourceOf(600n, "dom-test-partial") }), "plan-d9-partial");
         await screen.findByText("R1");
-        const band = partial.container.querySelector(sectionSel("line"))!;
+        const band = partial.container.querySelector(sectionSel("hall"))!;
         expect(band.getAttribute("data-plan-partial")).toBe("");
         expect(band.textContent).toContain("~2 rows");
         cleanup();
@@ -285,7 +285,7 @@ describe("Plan paged source (P-c)", () => {
         // Every element resident: the count is the section's, and final.
         const done = renderPlan(planRoot([], { source: sourceOf(3n, "dom-test-partial-done") }), "plan-d9-partial-done");
         await screen.findByText("R1");
-        const final = done.container.querySelector(sectionSel("line"))!;
+        const final = done.container.querySelector(sectionSel("hall"))!;
         expect(final.getAttribute("data-plan-partial")).toBeNull();
         expect(final.textContent).toContain("2 rows");
         expect(final.textContent).not.toContain("~");
@@ -300,14 +300,14 @@ describe("Plan paged source (P-c)", () => {
         const groupKind = plainGroup();
         const inner = sectionId("inner", "g2");
         const rows = [
-            planRow("g1", groupKind, { gutter: gutter("Line 1") }),
+            planRow("g1", groupKind, { gutter: gutter("Hall 1") }),
             planRow("a", spanKind([run("ra", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
             planRow("b", spanKind([run("rb", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
-            planRow("p1", spanKind([], { rollup: "union" }), { gutter: gutter("Program A") }),
-            planRow("c", spanKind([run("rc", W27, new Date("2026-07-13Z"), variant("actual", null), { quantity: 10, unit: "t" })]), { parent: "p1" }),
-            planRow("d", spanKind([run("rd", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("actual", null), { quantity: 20, unit: "t" })]), { parent: "p1" }),
-            planRow("g2", groupKind, { gutter: gutter("Line 2") }),
-            planRow("inner", groupKind, { id: inner, parentId: rowId("g2"), gutter: gutter("Machines") }),
+            planRow("p1", spanKind([], { rollup: "union" }), { gutter: gutter("Contract A") }),
+            planRow("c", spanKind([run("rc", W27, new Date("2026-07-13Z"), variant("actual", null), { quantity: 10, unit: "k sheets" })]), { parent: "p1" }),
+            planRow("d", spanKind([run("rd", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("actual", null), { quantity: 20, unit: "k sheets" })]), { parent: "p1" }),
+            planRow("g2", groupKind, { gutter: gutter("Hall 2") }),
+            planRow("inner", groupKind, { id: inner, parentId: rowId("g2"), gutter: gutter("Presses") }),
             planRow("e", spanKind([run("re", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: inner }),
         ];
         const source = {
@@ -337,7 +337,7 @@ describe("Plan paged source (P-c)", () => {
         const pagedSaid = said(c);
         expect(pagedSaid.g1).toContain("2 rows");
         expect(pagedSaid.inner).toContain("1 row");
-        expect(pagedSaid.rollup).toContain("×2 · 30 t");
+        expect(pagedSaid.rollup).toContain("×2 · 30 k sheets");
         for (const text of [pagedSaid.g1, pagedSaid.g2, pagedSaid.inner, ...pagedSaid.rollup]) expect(text).not.toContain("~");
         cleanup();
 
@@ -387,8 +387,8 @@ describe("Plan paged source (P-c)", () => {
         initializeStore(new UIStore());
         const queries: { type: string; value: unknown }[] = [];
         const w0 = [
-            planRow("l1m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
-            planRow("l2m9", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("h1p1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("h2p9", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),
@@ -421,10 +421,10 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
 
         // Typing reaches the SOURCE's seek as one debounced prefix query.
-        await userEvent.type(screen.getByPlaceholderText("Search keys"), "l2");
+        await userEvent.type(screen.getByPlaceholderText("Search keys"), "h2");
         await waitFor(() => expect(queries.length).toBeGreaterThan(0));
         expect(queries[0]!.type).toBe("prefix");
-        expect(queries[0]!.value).toBe("l2");
+        expect(queries[0]!.value).toBe("h2");
         // ... and the answer surfaces as the control's match count.
         await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
         // The popup labels arrive on the FIRST search, anchored by the sought
@@ -432,7 +432,7 @@ describe("Plan paged source (P-c)", () => {
         // calls `listRange`, which used to answer from state captured before
         // the search existed (empty), and to index a ROW array by an ELEMENT
         // delta (the answer's row 12) when it didn't.
-        await waitFor(() => expect(screen.getByRole("option", { name: "l2m9" })).toBeTruthy());
+        await waitFor(() => expect(screen.getByRole("option", { name: "h2p9" })).toBeTruthy());
     });
 
     test("a source WITHOUT seek keeps `search` as a scope-badged row filter", async () => {
@@ -550,7 +550,7 @@ describe("Plan paged source (P-c)", () => {
         // must not print `0 rows`, which would be a measured-looking claim about
         // rows that simply have not loaded.
         const w0 = [
-            planRow("chrome", plainGroup(), { id: sectionId("chrome"), gutter: gutter("Line 9") }),
+            planRow("chrome", plainGroup(), { id: sectionId("chrome"), gutter: gutter("Hall 9") }),
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ];
         const source = {
@@ -566,7 +566,7 @@ describe("Plan paged source (P-c)", () => {
 
         const band = container.querySelector(sectionSel("chrome"));
         expect(band).toBeTruthy();
-        expect(screen.getByText("Line 9")).toBeTruthy();
+        expect(screen.getByText("Hall 9")).toBeTruthy();
         // No member count at all — not `0 rows`, and not `~0 rows`.
         expect(band!.textContent).not.toMatch(/\d+\s*rows?\b/);
         // And the canvas says its numbers are over a prefix.
@@ -675,7 +675,7 @@ describe("Plan paged source (P-c)", () => {
         };
         const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
         const unregister = registerReactiveTracker(tracker);
-        // The dataset's content at a revision: one machine whose run is
+        // The dataset's content at a revision: one press whose run is
         // labelled by the revision that served it.
         const state = { revision: "A", open: new Set(["A"]) };
         const rowsAt = (rev: string) => [

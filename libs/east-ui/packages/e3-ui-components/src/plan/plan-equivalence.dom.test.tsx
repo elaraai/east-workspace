@@ -39,13 +39,13 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const NOW = new Date("2026-08-12T00:00:00Z");
 
-const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, sheets: FloatType });
 
-/** Twelve units with tonnes 5, 10, … 60 — generated at module scope (East
+/** Twelve units with sheets 5, 10, … 60 — generated at module scope (East
  *  bodies never call host helpers). */
 const UNITS = new Map(Array.from({ length: 12 }, (_, i) => [
     `u${String(i).padStart(2, "0")}`,
-    { start: W27, end: W39, tonnes: (i + 1) * 5 },
+    { start: W27, end: W39, sheets: (i + 1) * 5 },
 ] as const));
 
 /** The units as a paged source, built by hand to the row-source contract —
@@ -103,7 +103,7 @@ const pagedCanvas = East.compile(East.function([FloatType], Plan.Types.Root, ($,
     const series = $.const([
         Plan.series.span(UnitRow, {
             key: "units", title: "Units",
-            match: (r) => r.tonnes.greater(threshold),
+            match: (r) => r.sheets.greater(threshold),
             label: (_r, k) => k, id: true,
             runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "RUN", state: "actual" })],
         }),

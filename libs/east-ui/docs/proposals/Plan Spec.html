@@ -579,8 +579,8 @@ pre.codeblock .t { color: var(--brand-d); }
   <section class="card" id="s1">
     <span class="sec-eyebrow">§1 · Target state</span>
     <h2 class="sec-title">The whole operation, on one axis</h2>
-    <p class="sec-lead">A production &amp; despatch plan at <b>week</b> resolution. A pinned measure chart, a
-      machine group with one row drilled in place, a collapsed group resting as a heat strip, a Planner
+    <p class="sec-lead">A print &amp; delivery plan at <b>week</b> resolution. A pinned measure chart, a
+      press group with one row drilled in place, a collapsed group resting as a heat strip, a Planner
       allocation row, a Roster crew row, a milestone stream — one slice, one now-line, one hover cursor
       through all of it. Every row's content is its source component's rendering, unchanged — only the shell
       is new. Queue-driven triage is <em>not</em> part of this surface: e3-ui's
@@ -643,7 +643,7 @@ pre.codeblock .t { color: var(--brand-d); }
 
               <!-- pinned measure chart row (spark density) -->
               <div class="pl-row" style="min-height:32px">
-                <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm id">COVERAGE</span>
+                <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm id">ON-TIME</span>
                   <span class="grow"></span><span class="dot warn"></span><span class="val">94.2%</span></div>
                 <div class="pl-plot chart">
                   <svg class="pl-svg" viewBox="0 0 120 32" preserveAspectRatio="none">
@@ -654,21 +654,21 @@ pre.codeblock .t { color: var(--brand-d); }
                 </div>
               </div>
 
-              <!-- group: line 1, expanded -->
+              <!-- group: hall 1, expanded -->
               <div class="pl-row group">
-                <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Line 1</span>
+                <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Hall 1</span>
                   <span class="grow"></span><span class="meta">8 rs · 82%</span></div>
                 <div class="pl-plot"></div>
               </div>
 
               <div class="pl-row">
-                <div class="pl-gut"><span class="nm id">L1-M03</span><span class="grow"></span>
-                  <span class="sub">120 t</span><span class="dot pos"></span></div>
+                <div class="pl-gut"><span class="nm id">H1-P03</span><span class="grow"></span>
+                  <span class="sub">12k/h</span><span class="dot pos"></span></div>
                 <div class="pl-plot">
-                  <div class="bar obs" style="grid-column:1/span 1">SET</div>
-                  <div class="bar obs" style="grid-column:2/span 3">RUN · B-214 <span class="q">96 t</span></div>
-                  <div class="bar appr" style="grid-column:5/span 1">CLN</div>
-                  <div class="bar prop" style="grid-column:6/span 3"><i class="fa-solid fa-grip-vertical grip"></i> RUN · B-221 <span class="q">88 t</span></div>
+                  <div class="bar obs" style="grid-column:1/span 1">MAKEREADY</div>
+                  <div class="bar obs" style="grid-column:2/span 3">RUN · J-4642 <span class="q">96 k sheets</span></div>
+                  <div class="bar appr" style="grid-column:5/span 1">WASH-UP</div>
+                  <div class="bar prop" style="grid-column:6/span 3"><i class="fa-solid fa-grip-vertical grip"></i> RUN · J-4663 <span class="q">88 k sheets</span></div>
                   <div class="dia-slot" style="grid-column:6"><span class="dia"></span></div>
                 </div>
               </div>
@@ -677,19 +677,19 @@ pre.codeblock .t { color: var(--brand-d); }
               <div class="pl-row drilled" style="min-height:96px">
                 <div class="pl-gut" style="align-items:center">
                   <div class="drill-id">
-                    <span class="l1">L1-M04</span>
-                    <span class="l2">120 t · FILL</span>
-                    <span class="l2">B-208 · 88 t · 73%</span>
+                    <span class="l1">H1-P04</span>
+                    <span class="l2">12k/h · FILL</span>
+                    <span class="l2">J-4624 · 88 k sheets · 73%</span>
                     <div class="meter"><i style="width:73%"></i></div>
                     <a class="lnk" href="#s4">open item journey →</a>
                   </div>
                 </div>
                 <div class="pl-plot" style="display:flex; flex-direction:column; align-items:stretch; padding-top:5px">
                   <div style="display:grid; grid-template-columns:repeat(12,1fr); align-items:center; flex:none; height:26px">
-                    <div class="bar obs" style="grid-column:1/span 3">RUN · B-208 <span class="q">112 t</span></div>
-                    <div class="bar appr" style="grid-column:4/span 1">HLD</div>
-                    <div class="bar appr" style="grid-column:5/span 2">QC</div>
-                    <div class="bar prop runoff" style="grid-column:7/span 6">RUN · B-231 <span class="q">104 t</span></div>
+                    <div class="bar obs" style="grid-column:1/span 3">RUN · J-4624 <span class="q">112 k sheets</span></div>
+                    <div class="bar appr" style="grid-column:4/span 1">PLATES</div>
+                    <div class="bar appr" style="grid-column:5/span 2">PROOF</div>
+                    <div class="bar prop runoff" style="grid-column:7/span 6">RUN · J-4693 <span class="q">104 k sheets</span></div>
                   </div>
                   <div style="position:relative; flex:1; margin:2px 0 1px">
                     <svg class="pl-svg" viewBox="0 0 120 30" preserveAspectRatio="none" style="position:absolute">
@@ -699,22 +699,22 @@ pre.codeblock .t { color: var(--brand-d); }
                             fill="color-mix(in srgb, var(--brand-d) 12%, transparent)" stroke="none"/>
                     </svg>
                   </div>
-                  <div class="evline"><span>LEVEL t · DAILY</span><span>START 04 JUL</span><span>TRANSFER W31 · −24 t</span><span>QC W33</span></div>
+                  <div class="evline"><span>LEVEL k sheets · DAILY</span><span>START 04 JUL</span><span>TRANSFER W31 · −24 k sheets</span><span>PROOF W33</span></div>
                 </div>
               </div>
 
               <div class="pl-row">
-                <div class="pl-gut"><span class="nm id">L1-M07</span><span class="grow"></span>
-                  <span class="sub">80 t</span><span class="dot warn"></span></div>
+                <div class="pl-gut"><span class="nm id">H1-P07</span><span class="grow"></span>
+                  <span class="sub">8k/h</span><span class="dot warn"></span></div>
                 <div class="pl-plot">
-                  <div class="bar obs stuck" style="grid-column:1/span 4">HLD · B-197 <span class="q">2.6× dwell</span></div>
-                  <div class="bar prop" style="grid-column:8/span 2">CLN</div>
+                  <div class="bar obs stuck" style="grid-column:1/span 4">PLATES · J-4591 <span class="q">2.6× dwell</span></div>
+                  <div class="bar prop" style="grid-column:8/span 2">WASH-UP</div>
                 </div>
               </div>
 
-              <!-- group: line 2, collapsed to heat strip -->
+              <!-- group: hall 2, collapsed to heat strip -->
               <div class="pl-row group" style="min-height:28px">
-                <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Line 2</span>
+                <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Hall 2</span>
                   <span class="grow"></span><span class="dot warn"></span><span class="val">98%</span></div>
                 <div class="pl-plot">
                   <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 18%, var(--paper))">46</div>
@@ -734,12 +734,12 @@ pre.codeblock .t { color: var(--brand-d); }
 
               <!-- allocation row — the Planner surface -->
               <div class="pl-row group" style="min-height:26px">
-                <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Docks · In</span>
+                <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Deliveries · Local</span>
                   <span class="grow"></span><span class="meta">3 rs</span></div>
                 <div class="pl-plot"></div>
               </div>
               <div class="pl-row">
-                <div class="pl-gut"><span class="nm">Dock 2</span><span class="grow"></span><span class="sub">load/wk</span></div>
+                <div class="pl-gut"><span class="nm">Van 1</span><span class="grow"></span><span class="sub">drops/wk</span></div>
                 <div class="pl-plot lanes"><div class="lane">
                   <div class="pcell" style="grid-column:1"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
                   <div class="pcell" style="grid-column:2"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
@@ -861,7 +861,7 @@ pre.codeblock .t { color: var(--brand-d); }
               </div>
             </div>
             <div class="pl-row" style="min-height:30px">
-              <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm id">COVERAGE %</span></div>
+              <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm id">ON-TIME %</span></div>
               <div class="pl-plot chart">
                 <svg class="pl-svg" viewBox="0 0 120 30" preserveAspectRatio="none">
                   <path d="M0,20 C20,17 32,14 45,13 C60,11.8 70,14 84,17 C98,20 110,19 120,16"
@@ -1023,29 +1023,29 @@ pre.codeblock .t { color: var(--brand-d); }
       <div class="plan" style="--n:12; --nowfrac:0.3333">
         <div class="pl-canvas">
           <div class="pl-now"></div>
-          <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Machine</span><span class="pins"><i class="fa-solid fa-thumbtack"></i><i class="fa-solid fa-angles-down"></i></span></div><div class="pl-plot">
+          <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Press</span><span class="pins"><i class="fa-solid fa-thumbtack"></i><i class="fa-solid fa-angles-down"></i></span></div><div class="pl-plot">
             <span class="tick">W27</span><span class="tick">W28</span><span class="tick">W29</span><span class="tick">W30</span>
             <span class="tick">W31</span><span class="tick">W32</span><span class="tick">W33</span><span class="tick">W34</span>
             <span class="tick">W35</span><span class="tick">W36</span><span class="tick">W37</span><span class="tick">W38</span>
           </div></div>
           <div class="pl-row" style="min-height:32px">
-            <div class="pl-gut"><span class="nm id">L1-M03</span><span class="grow"></span><span class="sub">120 t</span></div>
+            <div class="pl-gut"><span class="nm id">H1-P03</span><span class="grow"></span><span class="sub">12k/h</span></div>
             <div class="pl-plot">
-              <div class="bar obs" style="grid-column:1/span 2">SET</div>
-              <div class="bar obs" style="grid-column:3/span 2">RUN · B-214 <span class="q">96 t</span></div>
-              <div class="bar appr" style="grid-column:5/span 2">QC · B-214</div>
-              <div class="bar prop" style="grid-column:8/span 3"><i class="fa-solid fa-grip-vertical grip"></i> RUN · B-221 <span class="q">88 t</span></div>
+              <div class="bar obs" style="grid-column:1/span 2">MAKEREADY</div>
+              <div class="bar obs" style="grid-column:3/span 2">RUN · J-4642 <span class="q">96 k sheets</span></div>
+              <div class="bar appr" style="grid-column:5/span 2">PROOF · J-4642</div>
+              <div class="bar prop" style="grid-column:8/span 3"><i class="fa-solid fa-grip-vertical grip"></i> RUN · J-4663 <span class="q">88 k sheets</span></div>
               <div class="dia-slot" style="grid-column:3"><span class="dia applied"></span></div>
               <div class="dia-slot" style="grid-column:8"><span class="dia"></span></div>
             </div>
           </div>
           <div class="pl-row" style="min-height:32px">
-            <div class="pl-gut"><span class="nm id">L1-M04</span><span class="grow"></span><span class="sub">80 t</span><span class="dot warn"></span></div>
+            <div class="pl-gut"><span class="nm id">H1-P04</span><span class="grow"></span><span class="sub">8k/h</span><span class="dot warn"></span></div>
             <div class="pl-plot">
               <div class="bar obs" style="grid-column:1/span 1">RUN</div>
-              <div class="bar obs stuck" style="grid-column:2/span 3">HLD · B-197 <span class="q">2.6×</span></div>
-              <div class="bar prop" style="grid-column:6/span 2">CLN</div>
-              <div class="bar prop runoff" style="grid-column:9/span 4">RUN · B-231</div>
+              <div class="bar obs stuck" style="grid-column:2/span 3">PLATES · J-4591 <span class="q">2.6×</span></div>
+              <div class="bar prop" style="grid-column:6/span 2">WASH-UP</div>
+              <div class="bar prop runoff" style="grid-column:9/span 4">RUN · J-4693</div>
             </div>
           </div>
         </div>
@@ -1067,40 +1067,40 @@ pre.codeblock .t { color: var(--brand-d); }
       <div class="plan" style="--n:12; --nowfrac:0.3333">
         <div class="pl-canvas">
           <div class="pl-now"></div>
-          <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Program</span><span class="pins"><i class="fa-solid fa-thumbtack"></i><i class="fa-solid fa-angles-down"></i></span></div><div class="pl-plot">
+          <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Contract</span><span class="pins"><i class="fa-solid fa-thumbtack"></i><i class="fa-solid fa-angles-down"></i></span></div><div class="pl-plot">
             <span class="tick">W27</span><span class="tick">W28</span><span class="tick">W29</span><span class="tick">W30</span>
             <span class="tick">W31</span><span class="tick">W32</span><span class="tick">W33</span><span class="tick">W34</span>
             <span class="tick">W35</span><span class="tick">W36</span><span class="tick">W37</span><span class="tick">W38</span>
           </div></div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Program A</span><span class="grow"></span><span class="val">400 t</span></div>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Contract A</span><span class="grow"></span><span class="val">400 k sheets</span></div>
             <div class="pl-plot">
-              <div class="bar obs roll" style="grid-column:1/span 4">×2 · 208 t</div>
-              <div class="bar prop roll" style="grid-column:6/span 4">×2 · 192 t</div>
+              <div class="bar obs roll" style="grid-column:1/span 4">×2 · 208 k sheets</div>
+              <div class="bar prop roll" style="grid-column:6/span 4">×2 · 192 k sheets</div>
               <div class="bar prop roll runoff" style="grid-column:11/span 2">×1</div>
             </div>
           </div>
           <div class="pl-row" style="min-height:30px">
-            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">L1-M03</span></div>
+            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">H1-P03</span></div>
             <div class="pl-plot">
-              <div class="bar obs" style="grid-column:1/span 4">RUN · B-214</div>
-              <div class="bar prop" style="grid-column:6/span 3">RUN · B-221</div>
+              <div class="bar obs" style="grid-column:1/span 4">RUN · J-4642</div>
+              <div class="bar prop" style="grid-column:6/span 3">RUN · J-4663</div>
             </div>
           </div>
           <div class="pl-row" style="min-height:30px">
-            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">L1-M07</span></div>
+            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">H1-P07</span></div>
             <div class="pl-plot">
-              <div class="bar obs" style="grid-column:2/span 3">RUN · B-197</div>
-              <div class="bar prop" style="grid-column:8/span 2">QC</div>
+              <div class="bar obs" style="grid-column:2/span 3">RUN · J-4591</div>
+              <div class="bar prop" style="grid-column:8/span 2">PROOF</div>
               <div class="bar prop runoff" style="grid-column:11/span 2">RUN</div>
             </div>
           </div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Program B</span><span class="grow"></span><span class="val">656 t</span></div>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Contract B</span><span class="grow"></span><span class="val">656 k sheets</span></div>
             <div class="pl-plot">
-              <div class="bar obs roll" style="grid-column:1/span 3">×3 · 296 t</div>
-              <div class="bar appr roll" style="grid-column:5/span 3">×2 · 184 t</div>
-              <div class="bar prop roll" style="grid-column:9/span 3">×2 · 176 t</div>
+              <div class="bar obs roll" style="grid-column:1/span 3">×3 · 296 k sheets</div>
+              <div class="bar appr roll" style="grid-column:5/span 3">×2 · 184 k sheets</div>
+              <div class="bar prop roll" style="grid-column:9/span 3">×2 · 176 k sheets</div>
             </div>
           </div>
         </div>
@@ -1109,8 +1109,8 @@ pre.codeblock .t { color: var(--brand-d); }
         rollups.</b> A parent's band is the <b>union</b> of its children's runs, to any depth; the ×k chip is
         peak concurrency inside the segment. Certainty rolls up pessimistically — a segment containing any
         proposed run reads dashed — and the band splits at now like every bar. Quantities aggregate at every
-        level too: a segment carries the summed tonnage of its contributors, and the gutter carries the level
-        total — the same aggregate slot a table group header uses. A collapsed parent (Program B) reads as
+        level too: a segment carries the summed sheets of its contributors, and the gutter carries the level
+        total — the same aggregate slot a table group header uses. A collapsed parent (Contract B) reads as
         its rollup line alone.</div>
     </div>
     <ul class="note">
@@ -1137,7 +1137,7 @@ pre.codeblock .t { color: var(--brand-d); }
             <span class="tick">W35</span><span class="tick">W36</span><span class="tick">W37</span><span class="tick">W38</span>
           </div></div>
           <div class="pl-row">
-            <div class="pl-gut"><span class="nm">Dock 2</span><span class="grow"></span><span class="sub">week · 1 lane</span></div>
+            <div class="pl-gut"><span class="nm">Van 2</span><span class="grow"></span><span class="sub">week · 1 lane</span></div>
             <div class="pl-plot lanes"><div class="lane">
               <div class="pcell" style="grid-column:1"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
               <div class="pcell" style="grid-column:2"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
@@ -1164,7 +1164,7 @@ pre.codeblock .t { color: var(--brand-d); }
             <span class="tick">THU</span><span class="tick">FRI</span><span class="tick">SAT</span>
           </div></div>
           <div class="pl-row" style="min-height:64px">
-            <div class="pl-gut"><span class="nm">Dock 2</span><span class="grow"></span><span class="sub">day · am/pm</span></div>
+            <div class="pl-gut"><span class="nm">Van 2</span><span class="grow"></span><span class="sub">day · am/pm</span></div>
             <div class="pl-plot lanes">
               <div class="lane">
                 <div class="pcell" style="grid-column:1"><span class="bl">AM</span><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
@@ -1192,7 +1192,7 @@ pre.codeblock .t { color: var(--brand-d); }
         empty = real free capacity, double-booked = warn ring with a <i>? call</i> chip.</div>
     </div>
     <ul class="note">
-      <li><span class="k">interactions</span> — dragging a <i>plan</i> chip between cells or machines is a
+      <li><span class="k">interactions</span> — dragging a <i>plan</i> chip between cells or vans is a
         <b>Modify</b> on the allocation decision, not a free edit; the rail card updates live.</li>
       <li><span class="k">review</span> — accepting an allocation decision solidifies its chips into ✓ cells;
         the Planner review model (approve / reject / modify, batch foot) carries over unchanged.</li>
@@ -1227,7 +1227,7 @@ pre.codeblock .t { color: var(--brand-d); }
           <div class="pl-row" style="min-height:88px">
             <div class="pl-gut" style="align-items:flex-start; padding-top:9px">
               <div class="drill-id">
-                <span style="display:flex; gap:7px; align-items:center"><i class="fa-solid fa-chevron-down caret"></i><span class="l1">COVERAGE %</span></span>
+                <span style="display:flex; gap:7px; align-items:center"><i class="fa-solid fa-chevron-down caret"></i><span class="l1">ON-TIME %</span></span>
                 <span class="l2">demand · vs 100 target</span>
                 <span class="l2" style="color:var(--warn)">▲ falls behind W35</span>
               </div>
@@ -1248,10 +1248,10 @@ pre.codeblock .t { color: var(--brand-d); }
           </div>
           <div class="pl-row" style="min-height:46px">
             <div class="pl-gut two">
-              <span style="display:inline-flex; align-items:center; gap:8px"><i class="fa-solid fa-chevron-right caret"></i><span class="nm id">OUTPUT · t</span></span>
+              <span style="display:inline-flex; align-items:center; gap:8px"><i class="fa-solid fa-chevron-right caret"></i><span class="nm id">OUTPUT · k</span></span>
               <span class="sub" style="display:inline-flex; align-items:center; gap:5px">
-                <span style="display:inline-block; width:8px; height:8px; background:var(--brand-d)"></span>L1
-                <span style="display:inline-block; width:8px; height:8px; background:var(--ink-2)"></span>L2 · stacked
+                <span style="display:inline-block; width:8px; height:8px; background:var(--brand-d)"></span>H1
+                <span style="display:inline-block; width:8px; height:8px; background:var(--ink-2)"></span>H2 · stacked
               </span></div>
             <div class="pl-plot chart">
               <div class="cstack" style="grid-column:1"><i class="s2" style="height:7px"></i><i class="s1" style="height:12px"></i></div>
@@ -1356,7 +1356,7 @@ pre.codeblock .t { color: var(--brand-d); }
             <span class="tick">W35</span><span class="tick">W36</span><span class="tick">W37</span><span class="tick">W38</span>
           </div></div>
           <div class="pl-row" style="min-height:30px">
-            <div class="pl-gut"><span class="nm">Line 1</span><span class="grow"></span><span class="val">82</span></div>
+            <div class="pl-gut"><span class="nm">Hall 1</span><span class="grow"></span><span class="val">82</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 22%, var(--paper))">55</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 26%, var(--paper))">61</div>
@@ -1373,7 +1373,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row" style="min-height:30px">
-            <div class="pl-gut"><span class="nm">Line 2</span><span class="grow"></span><span class="val">64</span></div>
+            <div class="pl-gut"><span class="nm">Hall 2</span><span class="grow"></span><span class="val">64</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 16%, var(--paper))">41</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 19%, var(--paper))">47</div>
@@ -1402,7 +1402,7 @@ pre.codeblock .t { color: var(--brand-d); }
         <div class="pl-canvas">
           <div class="pl-now"></div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Line 1</span>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Hall 1</span>
               <span class="grow"></span><span class="meta">mean</span><span class="val">74</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 22%, var(--paper))">55</div>
@@ -1420,7 +1420,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row" style="min-height:28px">
-            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">L1-M03</span></div>
+            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">H1-P03</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 26%, var(--paper))">62</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 30%, var(--paper))">68</div>
@@ -1437,7 +1437,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row" style="min-height:28px">
-            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">L1-M04</span></div>
+            <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i><span class="nm id">H1-P04</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 18%, var(--paper))">48</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 21%, var(--paper))">54</div>
@@ -1454,7 +1454,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Line 2</span>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Hall 2</span>
               <span class="grow"></span><span class="meta">mean · collapsed</span><span class="val">64</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 16%, var(--paper))">41</div>
@@ -1476,7 +1476,7 @@ pre.codeblock .t { color: var(--brand-d); }
       <div class="fig-cap"><b>Nested heat — cells aggregate across nestings.</b> A parent's cells are its
         children's <span class="mono">mean</span> (or <span class="mono">max</span> /
         <span class="mono">sum</span>) per bucket, to any depth; the gutter carries the level total in the
-        same aggregate slot a table group header uses. A collapsed parent (Line 2) reads as its aggregate
+        same aggregate slot a table group header uses. A collapsed parent (Hall 2) reads as its aggregate
         strip — §5's group strip is exactly this at canvas level. The warn ring stays on the breaching child;
         parents inherit a warn dot, not a false cell.</div>
     </div>
@@ -1501,7 +1501,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row">
-            <div class="pl-gut two"><span class="nm">Pack line</span><span class="sub">capacity</span></div>
+            <div class="pl-gut two"><span class="nm">Finishing line</span><span class="sub">capacity</span></div>
             <div class="pl-plot">
               <div class="segbar" style="grid-column:1"><i class="com" style="width:60%">60%</i><i class="pen" style="width:25%">25%</i><i class="slk" style="width:15%"></i></div>
               <div class="segbar" style="grid-column:2"><i class="com" style="width:55%">55%</i><i class="pen" style="width:20%">20%</i><i class="slk" style="width:25%"></i></div>
@@ -1527,7 +1527,7 @@ pre.codeblock .t { color: var(--brand-d); }
       <li><span class="k">nesting</span> — heat rows nest like spans and tables:
         <span class="mono">Plan.heat({ …, rows, aggregate: "mean" | "max" | "sum" })</span>; every level
         aggregates its own cells and total.</li>
-      <li><span class="k">use</span> — occupancy, load, coverage, headcount, risk — any per-resource,
+      <li><span class="k">use</span> — occupancy, load, on-time rate, headcount, risk — any per-resource,
         per-bucket scalar or composition. Matrix itself remains for non-temporal grids (category ×
         category).</li>
     </ul>
@@ -1541,13 +1541,13 @@ pre.codeblock .t { color: var(--brand-d); }
       <div class="plan" style="--n:12; --nowfrac:0.3333">
         <div class="pl-canvas">
           <div class="pl-now"></div>
-          <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Flow · t</span><span class="pins"><i class="fa-solid fa-thumbtack"></i><i class="fa-solid fa-angles-down"></i></span></div><div class="pl-plot">
+          <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Sheets · k</span><span class="pins"><i class="fa-solid fa-thumbtack"></i><i class="fa-solid fa-angles-down"></i></span></div><div class="pl-plot">
             <span class="tick">W27</span><span class="tick">W28</span><span class="tick">W29</span><span class="tick">W30</span>
             <span class="tick">W31</span><span class="tick">W32</span><span class="tick">W33</span><span class="tick">W34</span>
             <span class="tick">W35</span><span class="tick">W36</span><span class="tick">W37</span><span class="tick">W38</span>
           </div></div>
           <div class="pl-row group" style="min-height:26px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Despatches</span><span class="grow"></span><span class="meta">sum</span></div>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Deliveries</span><span class="grow"></span><span class="meta">sum</span></div>
             <div class="pl-plot">
               <span class="tcell" style="grid-column:1; font-weight:600">150</span><span class="tcell" style="grid-column:2; font-weight:600">149</span>
               <span class="tcell" style="grid-column:3; font-weight:600">162</span><span class="tcell" style="grid-column:4; font-weight:600">156</span>
@@ -1559,7 +1559,7 @@ pre.codeblock .t { color: var(--brand-d); }
           </div>
           <div class="pl-row" style="min-height:26px">
             <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i>
-              <span class="nm" style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2)">Program A</span></div>
+              <span class="nm" style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2)">Contract A</span></div>
             <div class="pl-plot">
               <span class="tcell" style="grid-column:1">96</span><span class="tcell" style="grid-column:2">88</span>
               <span class="tcell" style="grid-column:3">104</span><span class="tcell" style="grid-column:4">92</span>
@@ -1571,7 +1571,7 @@ pre.codeblock .t { color: var(--brand-d); }
           </div>
           <div class="pl-row" style="min-height:26px">
             <div class="pl-gut" style="padding-left:30px"><i class="fa-solid fa-chevron-right caret" style="font-size:8px"></i>
-              <span class="nm" style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2)">Program B</span></div>
+              <span class="nm" style="font-family:var(--font-mono); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2)">Contract B</span></div>
             <div class="pl-plot">
               <span class="tcell" style="grid-column:1">54</span><span class="tcell" style="grid-column:2">61</span>
               <span class="tcell" style="grid-column:3">58</span><span class="tcell" style="grid-column:4">64</span>
@@ -1606,7 +1606,7 @@ pre.codeblock .t { color: var(--brand-d); }
         </div>
       </div>
       <div class="fig-cap"><b>The Table surface with time-bucket columns — nesting and aggregation included.</b>
-        <span class="mono">groupBy: [section, program]</span> folds rows into collapsible levels of arbitrary
+        <span class="mono">groupBy: [section, contract]</span> folds rows into collapsible levels of arbitrary
         depth; columns with <span class="mono">aggregate: "sum"</span> print their subtotal on every group
         header, so a collapsed group (Receipts) <em>reads as its subtotal line</em>. Shortfalls in
         <span class="mono">--neg</span>, no-data em-dash muted, and Net flow rides
@@ -1706,7 +1706,7 @@ pre.codeblock .t { color: var(--brand-d); }
     <div class="fig-well">
       <div class="plan" style="border-radius:10px">
         <div class="pl-toolbar" style="min-height:36px">
-          <span class="runchip" style="color:var(--ink-2)">JOURNEY · ITEM B-214 · BORN 04 JUL · 118 T</span>
+          <span class="runchip" style="color:var(--ink-2)">JOURNEY · ITEM J-4642 · BORN 04 JUL · 118 K SHEETS</span>
           <span class="tb-spacer"></span>
           <span class="helper">ESC CLOSES · <i class="fa-solid fa-angles-left"></i> <i class="fa-solid fa-angles-right"></i> PREV / NEXT DECISION</span>
         </div>
@@ -1729,34 +1729,34 @@ pre.codeblock .t { color: var(--brand-d); }
           <text x="382" y="12" text-anchor="middle" font-size="8.5" font-weight="600" fill="var(--brand-d)" letter-spacing="1">NOW</text>
 
           <!-- row: ancestor -->
-          <text x="12" y="46" font-size="10" font-weight="600" fill="var(--ink-2)">B-208 · M05</text>
+          <text x="12" y="46" font-size="10" font-weight="600" fill="var(--ink-2)">J-4624 · P05</text>
           <text x="12" y="59" font-size="8.5" fill="var(--ink-4)">ancestor</text>
           <rect x="150" y="34" width="170" height="20" rx="2" fill="var(--ink-2)"/>
-          <text x="158" y="47.5" font-size="9.5" font-weight="600" fill="var(--paper)">RUN · 34 t</text>
+          <text x="158" y="47.5" font-size="9.5" font-weight="600" fill="var(--paper)">RUN · 34 k</text>
 
           <!-- row: focus item -->
-          <text x="12" y="112" font-size="10" font-weight="600" fill="var(--ink)">B-214 · M03</text>
+          <text x="12" y="112" font-size="10" font-weight="600" fill="var(--ink)">J-4642 · P03</text>
           <text x="12" y="125" font-size="8.5" fill="var(--ink-4)">focus item</text>
           <rect x="150" y="100" width="44" height="20" rx="2" fill="var(--ink-2)"/>
-          <text x="158" y="113.5" font-size="9.5" font-weight="600" fill="var(--paper)">SET</text>
+          <text x="158" y="113.5" font-size="9.5" font-weight="600" fill="var(--paper)">PLATES</text>
           <rect x="198" y="100" width="150" height="20" rx="2" fill="var(--ink-2)"/>
-          <text x="206" y="113.5" font-size="9.5" font-weight="600" fill="var(--paper)">RUN · 118 t</text>
+          <text x="206" y="113.5" font-size="9.5" font-weight="600" fill="var(--paper)">RUN · 118 k</text>
           <rect x="352" y="100.75" width="70" height="18.5" rx="2" fill="var(--paper)" stroke="var(--brand-d)" stroke-width="1.5"/>
-          <text x="361" y="113.5" font-size="9.5" font-weight="600" fill="var(--ink-2)">QC</text>
+          <text x="361" y="113.5" font-size="9.5" font-weight="600" fill="var(--ink-2)">PROOF</text>
           <rect x="426" y="100.75" width="88" height="18.5" rx="2" fill="var(--paper)" stroke="var(--brand-d)" stroke-width="1.5"/>
-          <text x="434" y="113.5" font-size="9.5" font-weight="600" fill="var(--ink-2)">PCK · 152 t</text>
+          <text x="434" y="113.5" font-size="9.5" font-weight="600" fill="var(--ink-2)">BIND · 152 k</text>
 
           <!-- row: split 60 -->
-          <text x="12" y="178" font-size="10" font-weight="600" fill="var(--ink-2)">→ M04</text>
+          <text x="12" y="178" font-size="10" font-weight="600" fill="var(--ink-2)">→ P04</text>
           <text x="12" y="191" font-size="8.5" fill="var(--ink-4)">split 60%</text>
           <rect x="560" y="166.75" width="150" height="18.5" rx="2" fill="var(--paper)" stroke="var(--brand-d)" stroke-width="1.5" stroke-dasharray="5 3"/>
-          <text x="568" y="179.5" font-size="9.5" font-weight="600" font-style="italic" fill="var(--ink-2)">DSP · 91 t</text>
+          <text x="568" y="179.5" font-size="9.5" font-weight="600" font-style="italic" fill="var(--ink-2)">DELIVER · 91 k</text>
 
           <!-- row: split 40 -->
-          <text x="12" y="234" font-size="10" font-weight="600" fill="var(--ink-2)">→ M09</text>
+          <text x="12" y="234" font-size="10" font-weight="600" fill="var(--ink-2)">→ P09</text>
           <text x="12" y="247" font-size="8.5" fill="var(--ink-4)">split 40%</text>
           <rect x="560" y="222.75" width="120" height="18.5" rx="2" fill="var(--paper)" stroke="var(--brand-d)" stroke-width="1.5" stroke-dasharray="5 3"/>
-          <text x="568" y="235.5" font-size="9.5" font-weight="600" font-style="italic" fill="var(--ink-2)">DSP · 61 t</text>
+          <text x="568" y="235.5" font-size="9.5" font-weight="600" font-style="italic" fill="var(--ink-2)">DELIVER · 61 k</text>
 
           <!-- decision diamonds -->
           <rect x="420.5" y="104.5" width="11" height="11" rx="1.5" transform="rotate(45 426 110)"
@@ -1765,9 +1765,9 @@ pre.codeblock .t { color: var(--brand-d); }
                 fill="var(--paper)" stroke="var(--brand-d)" stroke-width="1.5"/>
 
           <!-- ribbon quantity labels -->
-          <text x="366" y="79" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink-3)">34 t</text>
-          <text x="530" y="150" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink-3)">91 t</text>
-          <text x="528" y="212" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink-3)">61 t</text>
+          <text x="366" y="79" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink-3)">34 k</text>
+          <text x="530" y="150" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink-3)">91 k</text>
+          <text x="528" y="212" text-anchor="middle" font-size="9" font-weight="600" fill="var(--ink-3)">61 k</text>
         </svg>
       </div>
       <div class="fig-cap"><b>The ITEM grain on a filtered family — ancestors above, descendants below.</b>
@@ -1808,7 +1808,7 @@ pre.codeblock .t { color: var(--brand-d); }
             <span class="tick">W35</span><span class="tick">W36</span><span class="tick">W37</span><span class="tick">W38</span>
           </div></div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Intake</span><span class="grow"></span><span class="meta">22 rs</span><span class="val">31%</span></div>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Prepress</span><span class="grow"></span><span class="meta">22 rs</span><span class="val">31%</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 10%, var(--paper))">18</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 13%, var(--paper))">24</div>
@@ -1825,7 +1825,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Line 1</span><span class="grow"></span><span class="meta">64 rs</span><span class="val">58%</span></div>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Hall 1</span><span class="grow"></span><span class="meta">64 rs</span><span class="val">58%</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 20%, var(--paper))">48</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 22%, var(--paper))">52</div>
@@ -1842,7 +1842,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row group" style="min-height:28px">
-            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Line 2</span><span class="grow"></span><span class="meta">48 rs</span><span class="dot warn"></span><span class="val">98%</span></div>
+            <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Hall 2</span><span class="grow"></span><span class="meta">48 rs</span><span class="dot warn"></span><span class="val">98%</span></div>
             <div class="pl-plot">
               <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 30%, var(--paper))">62</div>
               <div class="heatc" style="grid-column:2; background:color-mix(in srgb, var(--brand-dd) 33%, var(--paper))">66</div>
@@ -1906,38 +1906,38 @@ pre.codeblock .t { color: var(--brand-d); }
           <div class="pl-canvas">
             <div class="pl-now"></div>
             <div class="pl-row" style="min-height:24px">
-              <div class="pl-gut"><span class="nm id">M-201</span><span class="grow"></span><span class="sub">dense 24</span></div>
+              <div class="pl-gut"><span class="nm id">P-201</span><span class="grow"></span><span class="sub">dense 24</span></div>
               <div class="pl-plot">
                 <div class="bar obs dense" style="grid-column:1/span 3">RUN</div>
                 <div class="bar prop dense" style="grid-column:4/span 2">RUN</div>
               </div>
             </div>
             <div class="pl-row" style="min-height:32px">
-              <div class="pl-gut"><span class="nm id">M-202</span><span class="grow"></span><span class="sub">default 32</span></div>
+              <div class="pl-gut"><span class="nm id">P-202</span><span class="grow"></span><span class="sub">default 32</span></div>
               <div class="pl-plot">
-                <div class="bar obs" style="grid-column:1/span 3">RUN · B-118</div>
-                <div class="bar prop" style="grid-column:4/span 3">RUN · B-121</div>
+                <div class="bar obs" style="grid-column:1/span 3">RUN · J-4354</div>
+                <div class="bar prop" style="grid-column:4/span 3">RUN · J-4363</div>
               </div>
             </div>
             <div class="pl-row drilled" style="min-height:72px">
               <div class="pl-gut" style="align-items:center">
                 <div class="drill-id">
-                  <span class="l1">M-203</span>
-                  <span class="l2">B-119 · 72 t · 60%</span>
+                  <span class="l1">P-203</span>
+                  <span class="l2">J-4357 · 72 k sheets · 60%</span>
                   <div class="meter" style="width:88px"><i style="width:60%"></i></div>
                 </div>
               </div>
               <div class="pl-plot" style="display:flex; flex-direction:column; align-items:stretch; padding-top:4px">
                 <div style="display:grid; grid-template-columns:repeat(8,1fr); align-items:center; height:24px">
-                  <div class="bar obs" style="grid-column:1/span 3">RUN · B-119</div>
-                  <div class="bar appr" style="grid-column:4/span 2">QC</div>
+                  <div class="bar obs" style="grid-column:1/span 3">RUN · J-4357</div>
+                  <div class="bar appr" style="grid-column:4/span 2">PROOF</div>
                 </div>
                 <div style="position:relative; flex:1; margin:2px 0">
                   <svg class="pl-svg" viewBox="0 0 120 22" preserveAspectRatio="none" style="position:absolute">
                     <path d="M0,18 C10,14 18,8 30,6.5 L52,6 C64,6 72,8.5 84,9 L120,9.5" fill="none" stroke="var(--brand-d)" stroke-width="1.3" vector-effect="non-scaling-stroke"/>
                   </svg>
                 </div>
-                <div class="evline"><span>LEVEL t</span><span>START W27</span><span>QC W31</span></div>
+                <div class="evline"><span>LEVEL k sheets</span><span>START W27</span><span>PROOF W31</span></div>
               </div>
             </div>
           </div>
@@ -1952,7 +1952,7 @@ pre.codeblock .t { color: var(--brand-d); }
           <div class="pl-canvas">
             <div class="pl-now"></div>
             <div class="pl-row group" style="min-height:28px">
-              <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Line 2</span>
+              <div class="pl-gut"><i class="fa-solid fa-chevron-right caret"></i><span class="nm">Hall 2</span>
                 <span class="grow"></span><span class="dot warn"></span><span class="val">96%</span></div>
               <div class="pl-plot">
                 <div class="heatc" style="grid-column:1; background:color-mix(in srgb, var(--brand-dd) 26%, var(--paper))">58</div>
@@ -1974,22 +1974,22 @@ pre.codeblock .t { color: var(--brand-d); }
           <div class="pl-canvas">
             <div class="pl-now"></div>
             <div class="pl-row group" style="min-height:26px">
-              <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Line 2</span>
+              <div class="pl-gut"><i class="fa-solid fa-chevron-down caret"></i><span class="nm">Hall 2</span>
                 <span class="grow"></span><span class="meta">12 rs</span><span class="dot warn"></span></div>
               <div class="pl-plot"></div>
             </div>
             <div class="pl-row">
-              <div class="pl-gut"><span class="nm id">L2-M11</span><span class="grow"></span><span class="sub">96 t</span></div>
+              <div class="pl-gut"><span class="nm id">H2-P11</span><span class="grow"></span><span class="sub">10k/h</span></div>
               <div class="pl-plot">
-                <div class="bar obs" style="grid-column:1/span 3">RUN · B-241</div>
-                <div class="bar prop" style="grid-column:4/span 3">RUN · B-244</div>
+                <div class="bar obs" style="grid-column:1/span 3">RUN · J-4723</div>
+                <div class="bar prop" style="grid-column:4/span 3">RUN · J-4732</div>
               </div>
             </div>
             <div class="pl-row">
-              <div class="pl-gut"><span class="nm id">L2-M12</span><span class="grow"></span><span class="sub">96 t</span><span class="dot warn"></span></div>
+              <div class="pl-gut"><span class="nm id">H2-P12</span><span class="grow"></span><span class="sub">10k/h</span><span class="dot warn"></span></div>
               <div class="pl-plot">
-                <div class="bar obs stuck" style="grid-column:2/span 4">HLD · B-238</div>
-                <div class="bar prop" style="grid-column:7/span 2">CLN</div>
+                <div class="bar obs stuck" style="grid-column:2/span 4">PLATES · J-4714</div>
+                <div class="bar prop" style="grid-column:7/span 2">WASH-UP</div>
               </div>
             </div>
           </div>
@@ -2017,10 +2017,10 @@ pre.codeblock .t { color: var(--brand-d); }
         <div style="width:212px; flex:none; border:1px solid var(--rule-strong); border-radius:10px; background:var(--paper); overflow:hidden">
           <div class="dq-head">Row library</div>
           <div style="display:flex; flex-direction:column; gap:8px; padding:10px">
-            <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-bars-staggered"></i></span><div><div class="nm">Spans</div><div class="rl">machine occupancy</div></div></div>
-            <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-border-all"></i></span><div><div class="nm">Buckets</div><div class="rl">dock allocation</div></div></div>
+            <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-bars-staggered"></i></span><div><div class="nm">Spans</div><div class="rl">press occupancy</div></div></div>
+            <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-border-all"></i></span><div><div class="nm">Buckets</div><div class="rl">van allocation</div></div></div>
             <div class="libcard" style="border-color:var(--brand); background:var(--brand-tint)"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-chart-line"></i></span><div><div class="nm">Chart</div><div class="rl">utilisation %</div></div></div>
-            <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-table-cells-large"></i></span><div><div class="nm">Heat</div><div class="rl">load per line</div></div></div>
+            <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-table-cells-large"></i></span><div><div class="nm">Heat</div><div class="rl">load per hall</div></div></div>
             <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-table-list"></i></span><div><div class="nm">Table</div><div class="rl">orders due</div></div></div>
             <div class="libcard"><i class="fa-solid fa-grip-vertical grp"></i><span class="ava"><i class="fa-solid fa-user-group" style="font-size:9px"></i></span><div><div class="nm">Cards</div><div class="rl">crew assignments</div></div></div>
           </div>
@@ -2034,10 +2034,10 @@ pre.codeblock .t { color: var(--brand-d); }
                 <span class="tick">W31</span><span class="tick">W32</span><span class="tick">W33</span><span class="tick">W34</span>
               </div></div>
               <div class="pl-row">
-                <div class="pl-gut"><span class="nm id">L1-M03</span></div>
+                <div class="pl-gut"><span class="nm id">H1-P03</span></div>
                 <div class="pl-plot">
-                  <div class="bar obs" style="grid-column:1/span 3">RUN · B-214</div>
-                  <div class="bar prop" style="grid-column:5/span 2">RUN · B-221</div>
+                  <div class="bar obs" style="grid-column:1/span 3">RUN · J-4642</div>
+                  <div class="bar prop" style="grid-column:5/span 2">RUN · J-4663</div>
                 </div>
               </div>
               <div style="position:relative; height:0; z-index:8">
@@ -2053,14 +2053,14 @@ pre.codeblock .t { color: var(--brand-d); }
                 </div>
               </div>
               <div class="pl-row">
-                <div class="pl-gut"><span class="nm id">L1-M04</span></div>
+                <div class="pl-gut"><span class="nm id">H1-P04</span></div>
                 <div class="pl-plot">
-                  <div class="bar obs" style="grid-column:1/span 3">RUN · B-208</div>
-                  <div class="bar appr" style="grid-column:4/span 2">QC</div>
+                  <div class="bar obs" style="grid-column:1/span 3">RUN · J-4624</div>
+                  <div class="bar appr" style="grid-column:4/span 2">PROOF</div>
                 </div>
               </div>
               <div class="pl-row">
-                <div class="pl-gut"><span class="nm">Dock 2</span></div>
+                <div class="pl-gut"><span class="nm">Van 1</span></div>
                 <div class="pl-plot lanes"><div class="lane">
                   <div class="pcell" style="grid-column:1"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
                   <div class="pcell" style="grid-column:2"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
@@ -2115,7 +2115,7 @@ pre.codeblock .t { color: var(--brand-d); }
       <div class="plan" style="--n:12; --nowfrac:0.3333">
         <div class="pl-toolbar" style="min-height:40px">
           <span class="cohort on">Late risk <span class="ct">· 12</span> <i class="fa-solid fa-xmark x"></i></span>
-          <span class="cohort on">Line 1 <span class="ct">· 8</span> <i class="fa-solid fa-xmark x"></i></span>
+          <span class="cohort on">Hall 1 <span class="ct">· 8</span> <i class="fa-solid fa-xmark x"></i></span>
           <span class="cohort add"><i class="fa-solid fa-plus" style="font-size:9px"></i> filter</span>
           <span class="tb-sep"></span>
           <span class="cohort on">JUL 1 → SEP 21 <span class="ct">· 84d</span> <i class="fa-solid fa-chevron-down v"></i></span>
@@ -2126,7 +2126,7 @@ pre.codeblock .t { color: var(--brand-d); }
         <div class="pl-canvas">
           <div class="pl-now"></div>
           <div class="cursor-line" style="left:calc(168px + (100% - 168px)/12*7.5); z-index:8"></div>
-          <div class="cursor-chip" style="left:calc(168px + (100% - 168px)/12*7.5 + 10px); top:34px; z-index:9">W34 · UTIL 91 · DOCK ✓ · COVER 96.8</div>
+          <div class="cursor-chip" style="left:calc(168px + (100% - 168px)/12*7.5 + 10px); top:34px; z-index:9">W34 · UTIL 91 · VAN ✓ · ON-TIME 96.8</div>
           <div class="pl-row pl-ruler"><div class="pl-gut"><span class="cap">Bound rows</span></div><div class="pl-plot">
             <span class="tick">W27</span><span class="tick">W28</span><span class="tick">W29</span><span class="tick">W30</span>
             <span class="tick">W31</span><span class="tick">W32</span><span class="tick">W33</span><span class="tick">W34</span>
@@ -2144,14 +2144,14 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
           </div>
           <div class="pl-row">
-            <div class="pl-gut"><span class="nm id">L1-M03</span></div>
+            <div class="pl-gut"><span class="nm id">H1-P03</span></div>
             <div class="pl-plot">
-              <div class="bar obs" style="grid-column:1/span 4">RUN · B-214</div>
-              <div class="bar prop" style="grid-column:6/span 3">RUN · B-221</div>
+              <div class="bar obs" style="grid-column:1/span 4">RUN · J-4642</div>
+              <div class="bar prop" style="grid-column:6/span 3">RUN · J-4663</div>
             </div>
           </div>
           <div class="pl-row">
-            <div class="pl-gut"><span class="nm">Dock 2</span></div>
+            <div class="pl-gut"><span class="nm">Van 1</span></div>
             <div class="pl-plot lanes"><div class="lane">
               <div class="pcell" style="grid-column:1"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
               <div class="pcell" style="grid-column:2"><span class="chk"><i class="fa-solid fa-check" style="font-size:8px"></i></span></div>
@@ -2201,23 +2201,23 @@ pre.codeblock .t { color: var(--brand-d); }
             <div class="pl-dec" style="justify-content:flex-end"><span class="cap">Decision</span></div>
           </div>
           <div class="pl-row review">
-            <div class="pl-gut two"><span class="nm">Press retool</span><span class="sub">Crew A</span></div>
+            <div class="pl-gut two"><span class="nm">Plate change</span><span class="sub">Crew A</span></div>
             <div class="pl-plot">
-              <div class="bar prop" style="grid-column:1/span 2"><i class="fa-solid fa-grip-vertical grip"></i> RETOOL</div>
+              <div class="bar prop" style="grid-column:1/span 2"><i class="fa-solid fa-grip-vertical grip"></i> PLATE CHANGE</div>
             </div>
             <div class="pl-dec"><button class="abtn">Approve</button><button class="rbtn">Reject</button></div>
           </div>
           <div class="pl-row review">
-            <div class="pl-gut two"><span class="nm">Line balance</span><span class="sub">Crew B</span></div>
+            <div class="pl-gut two"><span class="nm">Hall balance</span><span class="sub">Crew B</span></div>
             <div class="pl-plot">
               <div class="bar prop" style="grid-column:3/span 3"><i class="fa-solid fa-grip-vertical grip"></i> BALANCE</div>
             </div>
             <div class="pl-dec"><span class="dot warn"></span><button class="abtn">Approve</button><button class="rbtn">Reject</button></div>
           </div>
           <div class="pl-row review">
-            <div class="pl-gut two"><span class="nm">QC sweep</span><span class="sub">Crew A</span></div>
+            <div class="pl-gut two"><span class="nm">Press check</span><span class="sub">Crew A</span></div>
             <div class="pl-plot">
-              <div class="bar appr" style="grid-column:5/span 2">QC SWEEP</div>
+              <div class="bar appr" style="grid-column:5/span 2">PRESS CHECK</div>
             </div>
             <div class="pl-dec"><span class="helper" style="color:var(--pos)">APPLIED ✓</span></div>
           </div>
@@ -2231,7 +2231,7 @@ pre.codeblock .t { color: var(--brand-d); }
         </div>
       </div>
       <div class="fig-cap"><b>The review chrome, verbatim from ganttReview / plannerReview.</b> Ghost bars on
-        pending rows, a quiet warn dot on flagged lines, Approve / Reject per row, and the batch foot with
+        pending rows, a quiet warn dot on flagged rows, Approve / Reject per row, and the batch foot with
         Reject all · Rerun · Approve all. Applying turns the ghost solid in place, live.</div>
     </div>
 
@@ -2248,7 +2248,7 @@ pre.codeblock .t { color: var(--brand-d); }
           <div style="border:1px solid var(--rule-strong); border-radius:8px; background:var(--paper); padding:10px 14px">
             <div style="display:flex; justify-content:space-between; align-items:baseline">
               <span class="helper" style="color:var(--warn)">ORDER AT RISK</span>
-              <span class="mono" style="font-size:9.5px; color:var(--ink-3)">OR-1188 · −41 t by W36</span>
+              <span class="mono" style="font-size:9.5px; color:var(--ink-3)">J-6188 · −41 k sheets by W36</span>
             </div>
             <div class="note" style="margin-top:4px">An in-flow banner row pinned under the ruler — never a
               modal. <b>Show cause →</b> filters the canvas to the order's items and highlights the blocking
@@ -2257,7 +2257,7 @@ pre.codeblock .t { color: var(--brand-d); }
           <div style="border:1px solid var(--rule-strong); border-radius:8px; background:var(--paper); padding:10px 14px">
             <div style="display:flex; justify-content:space-between; align-items:baseline">
               <span class="helper" style="color:var(--warn)">ITEM STUCK</span>
-              <span class="mono" style="font-size:9.5px; color:var(--ink-3)">HLD · 2.6× median dwell</span>
+              <span class="mono" style="font-size:9.5px; color:var(--ink-3)">PLATES · 2.6× median dwell</span>
             </div>
             <div class="note" style="margin-top:4px">Dwell beyond the expected band outlines the run in warn
               (§4·K1). The popover names the gate it is waiting on — the same tripwire the engine's
@@ -2294,7 +2294,7 @@ pre.codeblock .t { color: var(--brand-d); }
           <div class="ph-body">
             <div class="ph-card">
               <div style="display:flex; align-items:center; gap:8px">
-                <span style="font-size:13px; font-weight:600; color:var(--ink)">Line 2 · Assy</span>
+                <span style="font-size:13px; font-weight:600; color:var(--ink)">Hall 2 · Digital</span>
                 <span class="mono" style="font-size:9px; color:var(--ink-4)">48 RS</span>
                 <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px">
                   <span class="dot warn"></span><span class="mono" style="font-size:11px; font-weight:600">98%</span></span>
@@ -2312,7 +2312,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
             <div class="ph-card">
               <div style="display:flex; align-items:center; gap:8px">
-                <span style="font-size:13px; font-weight:600; color:var(--ink)">Line 1 · Fill</span>
+                <span style="font-size:13px; font-weight:600; color:var(--ink)">Hall 1 · Offset</span>
                 <span class="mono" style="font-size:9px; color:var(--ink-4)">64 RS</span>
                 <span class="mono" style="margin-left:auto; font-size:11px; font-weight:600">82%</span>
               </div>
@@ -2329,7 +2329,7 @@ pre.codeblock .t { color: var(--brand-d); }
             </div>
             <div class="ph-card">
               <div style="display:flex; align-items:center; gap:8px">
-                <span style="font-size:13px; font-weight:600; color:var(--ink)">Intake</span>
+                <span style="font-size:13px; font-weight:600; color:var(--ink)">Prepress</span>
                 <span class="mono" style="font-size:9px; color:var(--ink-4)">22 RS</span>
                 <span class="mono" style="margin-left:auto; font-size:11px; font-weight:600">31%</span>
               </div>
@@ -2357,7 +2357,7 @@ pre.codeblock .t { color: var(--brand-d); }
       <div>
         <div class="phone"><div class="ph-screen">
           <div class="ph-status"><span>9:41</span><span><i class="fa-solid fa-signal" style="font-size:9px"></i></span></div>
-          <div class="ph-head"><span class="t">Line 1 · Fill</span><span class="mono" style="margin-left:auto; font-size:9.5px; color:var(--ink-4)">8 MACHINES · 82%</span></div>
+          <div class="ph-head"><span class="t">Hall 1 · Offset</span><span class="mono" style="margin-left:auto; font-size:9.5px; color:var(--ink-4)">8 PRESSES · 82%</span></div>
           <div style="display:flex; gap:6px; padding:8px 14px 0">
             <span class="cohort" style="font-size:11px">Week <i class="fa-solid fa-chevron-down v"></i></span>
             <span class="cohort add" style="font-size:11px"><i class="fa-solid fa-plus" style="font-size:9px"></i> filter</span>
@@ -2365,22 +2365,22 @@ pre.codeblock .t { color: var(--brand-d); }
           <div class="ph-tabs"><b>GROUPS</b><b class="on">ROWS</b><b>MEASURES</b></div>
           <div class="ph-body">
             <div class="ph-row">
-              <span class="id">L1-M03</span>
+              <span class="id">H1-P03</span>
               <span class="mini">
                 <i style="flex:2; background:var(--ink-2)"></i>
                 <i style="flex:1.2; border:1.5px solid var(--brand-d); background:var(--paper)"></i>
                 <i style="flex:2.4; border:1.5px dashed var(--brand-d); background:var(--paper)"></i>
                 <i style="flex:1.4"></i>
               </span>
-              <span class="cap">120 t</span>
+              <span class="cap">12k/h</span>
             </div>
             <div class="ph-card">
               <div style="display:flex; align-items:baseline; gap:8px">
-                <span class="mono" style="font-size:12px; font-weight:600">L1-M04</span>
-                <span class="mono" style="font-size:9.5px; color:var(--ink-3)">B-208 · 88 t · 73%</span>
+                <span class="mono" style="font-size:12px; font-weight:600">H1-P04</span>
+                <span class="mono" style="font-size:9.5px; color:var(--ink-3)">J-4624 · 88 k sheets · 73%</span>
               </div>
               <div class="meter" style="width:100%; margin-top:8px"><i style="width:73%"></i></div>
-              <div class="mono" style="font-size:9px; color:var(--ink-4); margin-top:7px">LEVEL t · TRANSFER W31 −24 t · QC W33</div>
+              <div class="mono" style="font-size:9px; color:var(--ink-4); margin-top:7px">LEVEL k sheets · TRANSFER W31 −24 k sheets · PROOF W33</div>
               <div style="display:flex; gap:4px; margin-top:8px">
                 <span class="mini" style="flex:1; display:flex; gap:2px">
                   <i style="flex:2.6; background:var(--ink-2); height:14px; border-radius:2px"></i>
@@ -2390,16 +2390,16 @@ pre.codeblock .t { color: var(--brand-d); }
               </div>
             </div>
             <div class="ph-row">
-              <span class="id">L1-M07</span>
+              <span class="id">H1-P07</span>
               <span class="mini">
                 <i style="flex:4; background:var(--ink-2); box-shadow:0 0 0 1.5px var(--warn)"></i>
                 <i style="flex:1.2; border:1.5px dashed var(--brand-d); background:var(--paper)"></i>
                 <i style="flex:1.6"></i>
               </span>
-              <span class="cap">80 t</span>
+              <span class="cap">8k/h</span>
             </div>
             <div class="ph-row" style="justify-content:center">
-              <span class="mono" style="font-size:10px; color:var(--ink-4)">5 MORE MACHINES</span>
+              <span class="mono" style="font-size:10px; color:var(--ink-4)">5 MORE PRESSES</span>
             </div>
           </div>
         </div></div>
@@ -2410,16 +2410,16 @@ pre.codeblock .t { color: var(--brand-d); }
       <div>
         <div class="phone"><div class="ph-screen">
           <div class="ph-status"><span>9:41</span><span><i class="fa-solid fa-signal" style="font-size:9px"></i></span></div>
-          <div class="ph-head"><i class="fa-solid fa-chevron-left" style="font-size:12px; color:var(--ink-4)"></i><span class="t">B-214</span><span class="mono" style="margin-left:auto; font-size:9.5px; color:var(--ink-4)">BATCH · 118 T</span></div>
+          <div class="ph-head"><i class="fa-solid fa-chevron-left" style="font-size:12px; color:var(--ink-4)"></i><span class="t">J-4642</span><span class="mono" style="margin-left:auto; font-size:9.5px; color:var(--ink-4)">JOB · 118 K SHEETS</span></div>
           <div style="border-bottom:1px solid var(--rule); margin-top:9px"></div>
           <div class="ph-body">
             <div class="ph-sec">Observed · since 04 Jul</div>
-            <div class="ph-row"><span class="id">SET</span><span class="note">04 Jul · M03</span><span class="cap" style="margin-left:auto">118 t</span></div>
-            <div class="ph-row"><span class="id">RUN</span><span class="note">04–18 Jul · M03</span><span class="cap" style="margin-left:auto">118 t</span></div>
-            <div class="ph-row"><span class="id">QC</span><span class="note">19–24 Jul · M03 · now</span><span class="cap" style="margin-left:auto">118 t</span></div>
+            <div class="ph-row"><span class="id">PLATES</span><span class="note">04 Jul · P03</span><span class="cap" style="margin-left:auto">118 k</span></div>
+            <div class="ph-row"><span class="id">RUN</span><span class="note">04–18 Jul · P03</span><span class="cap" style="margin-left:auto">118 k</span></div>
+            <div class="ph-row"><span class="id">PROOF</span><span class="note">19–24 Jul · P03 · now</span><span class="cap" style="margin-left:auto">118 k</span></div>
             <div class="ph-sec">Planned</div>
-            <div class="ph-row" style="border-style:dashed"><span class="id">PCK</span><span class="note">W33 · M03 · +34 t merge</span><span class="cap" style="margin-left:auto">152 t</span></div>
-            <div class="ph-row" style="border-style:dashed"><span class="id">DSP</span><span class="note">W35 · M04 / M09 · 60 / 40</span><span class="cap" style="margin-left:auto">91 / 61 t</span></div>
+            <div class="ph-row" style="border-style:dashed"><span class="id">BIND</span><span class="note">W33 · P03 · +34 k merge</span><span class="cap" style="margin-left:auto">152 k</span></div>
+            <div class="ph-row" style="border-style:dashed"><span class="id">DELIVER</span><span class="note">W35 · P04 / P09 · 60 / 40</span><span class="cap" style="margin-left:auto">91 / 61 k</span></div>
             <div class="ph-card" style="display:flex; align-items:center; gap:8px">
               <span class="mono" style="font-size:10px; font-weight:600; color:var(--warn)">2 PENDING</span>
               <button class="abtn" style="margin-left:auto; font-size:11px">Review</button>
@@ -2427,7 +2427,7 @@ pre.codeblock .t { color: var(--brand-d); }
           </div>
         </div></div>
         <div class="fig-cap" style="text-align:center"><b>C · Item — a pushed page; the journey as cards.</b>
-          Observed and planned separated by headers; merges and splits stated in words and tonnes. Ribbons
+          Observed and planned separated by headers; merges and splits stated in words and sheets. Ribbons
           need width.</div>
       </div>
     </div>

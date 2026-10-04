@@ -57,7 +57,7 @@ function renderPlan(value: PlanRootValue, key: string) {
 /** The body's row items in order — data rows and group bands alike. */
 const rowItems = (c: HTMLElement) => [...c.querySelectorAll("[data-plan-body] [data-plan-item^='r:']")] as HTMLElement[];
 
-/** A row item's id in words — `entry machine-jobs L1/m03`, `section crew-block L1`. */
+/** A row item's id in words — `entry press-jobs H1/p03`, `section crew-block H1`. */
 function idOf(item: Element): string {
     const id = rowIdOfKey(item.getAttribute("data-plan-item")!.slice(2))!;
     return `${id.type} ${id.value.series} ${id.value.path.join("/")}`;
@@ -145,43 +145,43 @@ describe("nesting comes from the data (#822)", () => {
         expect(itemById(container, "entry accounts pnl/0")!.querySelector("[data-cell]")!.textContent).toBe("18");
     });
 
-    test("a step-down: a line's machines as views and its crews as cards, each under its section header", () => {
+    test("a step-down: a hall's presses as views and its crews as cards, each under its section header", () => {
         const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-        const Machine = StructType({ jobs: ArrayType(Job), load: FloatType });
+        const Press = StructType({ jobs: ArrayType(Job), load: FloatType });
         const Crew = StructType({ hours: FloatType });
-        const Line = StructType({ machines: DictType(StringType, Machine), crews: DictType(StringType, Crew) });
-        const LINES = new Map([
-            ["L1", {
-                machines: new Map([
-                    ["m03", { jobs: [{ key: "b1", start: W27, end: W28 }], load: 40.0 }],
-                    ["m04", { jobs: [], load: 60.0 }],
+        const Hall = StructType({ presses: DictType(StringType, Press), crews: DictType(StringType, Crew) });
+        const HALLS = new Map([
+            ["H1", {
+                presses: new Map([
+                    ["p03", { jobs: [{ key: "b1", start: W27, end: W28 }], load: 40.0 }],
+                    ["p04", { jobs: [], load: 60.0 }],
                 ]),
                 crews: new Map([["crewA", { hours: 80.0 }]]),
             }],
         ]);
         const program = East.function([], Plan.Types.Root, ($) => {
-            const lines = $.const(LINES, DictType(StringType, Line));
+            const halls = $.const(HALLS, DictType(StringType, Hall));
             return Plan.Payload({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
-                data: lines,
-                series: [Plan.series.group(Line, {
-                    key: "lines", title: "Lines", label: (_l, k) => k,
+                data: halls,
+                series: [Plan.series.group(Hall, {
+                    key: "halls", title: "Halls", label: (_h, k) => k,
                     children: [
-                        Plan.children((l) => l.machines, [
-                            Plan.series.section(Machine, { key: "machine-block", title: "Machines" }, [
-                                Plan.series.views(Machine, { key: "machines", title: "Machines" }, [
-                                    Plan.series.span(Machine, {
-                                        key: "machine-jobs", title: "Jobs", label: (_m, k) => k,
-                                        runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
+                        Plan.children((h) => h.presses, [
+                            Plan.series.section(Press, { key: "press-block", title: "Presses" }, [
+                                Plan.series.views(Press, { key: "presses", title: "Presses" }, [
+                                    Plan.series.span(Press, {
+                                        key: "press-jobs", title: "Jobs", label: (_p, k) => k,
+                                        runs: (p) => p.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
                                     }),
-                                    Plan.series.heat(Machine, {
-                                        key: "machine-load", title: "Load", label: (_m, k) => k,
-                                        cells: (m) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(m.load), label: none }]),
+                                    Plan.series.heat(Press, {
+                                        key: "press-load", title: "Load", label: (_p, k) => k,
+                                        cells: (p) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(p.load), label: none }]),
                                     }),
                                 ]),
                             ]),
                         ]),
-                        Plan.children((l) => l.crews, [
+                        Plan.children((h) => h.crews, [
                             Plan.series.section(Crew, { key: "crew-block", title: "Crews" }, [
                                 Plan.series.cards(Crew, { key: "crews", title: "Crews", label: (_c, k) => k, chips: _c => [] }),
                             ]),
@@ -192,23 +192,23 @@ describe("nesting comes from the data (#822)", () => {
         });
         const { container } = renderPlan(planOf(program), "plan-822-stepdown");
         expect(ids(container)).toEqual([
-            "entry lines L1",
-            "section machine-block L1",
-            "entry machine-jobs L1/m03", "entry machine-load L1/m03",
-            "entry machine-jobs L1/m04", "entry machine-load L1/m04",
-            "section crew-block L1",
-            "entry crews L1/crewA",
+            "entry halls H1",
+            "section press-block H1",
+            "entry press-jobs H1/p03", "entry press-load H1/p03",
+            "entry press-jobs H1/p04", "entry press-load H1/p04",
+            "section crew-block H1",
+            "entry crews H1/crewA",
         ]);
-        // The headers are group bands under the line, named by their titles.
-        const machines = itemById(container, "section machine-block L1")!;
-        expect(machines.hasAttribute("data-plan-group")).toBe(true);
-        expect(machines.getAttribute("aria-level")).toBe("2");
-        expect(machines.textContent).toContain("Machines");
-        expect(itemById(container, "entry machine-load L1/m04")!.getAttribute("aria-level")).toBe("3");
-        // Closing the machines' header hides its members — and only them.
-        fireEvent.click(machines);
+        // The headers are group bands under the hall, named by their titles.
+        const presses = itemById(container, "section press-block H1")!;
+        expect(presses.hasAttribute("data-plan-group")).toBe(true);
+        expect(presses.getAttribute("aria-level")).toBe("2");
+        expect(presses.textContent).toContain("Presses");
+        expect(itemById(container, "entry press-load H1/p04")!.getAttribute("aria-level")).toBe("3");
+        // Closing the presses' header hides its members — and only them.
+        fireEvent.click(presses);
         expect(ids(container)).toEqual([
-            "entry lines L1", "section machine-block L1", "section crew-block L1", "entry crews L1/crewA",
+            "entry halls H1", "section press-block H1", "section crew-block H1", "entry crews H1/crewA",
         ]);
     });
 
@@ -216,8 +216,8 @@ describe("nesting comes from the data (#822)", () => {
         const Kid = StructType({ v: FloatType });
         const Row = StructType({ v: FloatType, jobs: BooleanType, kids: DictType(StringType, Kid) });
         const DATA = new Map([
-            ["m03", { v: 1.0, jobs: true, kids: new Map([["k1", { v: 5.0 }]]) }],
-            ["m04", { v: 2.0, jobs: false, kids: new Map() }],
+            ["p03", { v: 1.0, jobs: true, kids: new Map([["k1", { v: 5.0 }]]) }],
+            ["p04", { v: 2.0, jobs: false, kids: new Map() }],
         ]);
         const program = East.function([], Plan.Types.Root, ($) => {
             const data = $.const(DATA, DictType(StringType, Row));
@@ -225,33 +225,33 @@ describe("nesting comes from the data (#822)", () => {
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data,
                 series: [Plan.series.views(Row, {
-                    key: "machines", title: "Machines",
+                    key: "presses", title: "Presses",
                     children: Plan.children((r) => r.kids, [
                         Plan.series.heat(Kid, { key: "parts", title: "Parts", label: (_k, key) => key, cells: _k => Plan.heatCells([]) }),
                     ]),
                 }, [
-                    Plan.series.span(Row, { key: "machine-jobs", title: "Jobs", match: r => r.jobs, label: (_r, k) => k, runs: _r => [] }),
-                    Plan.series.heat(Row, { key: "machine-load", title: "Load", label: (_r, k) => k,
+                    Plan.series.span(Row, { key: "press-jobs", title: "Jobs", match: r => r.jobs, label: (_r, k) => k, runs: _r => [] }),
+                    Plan.series.heat(Row, { key: "press-load", title: "Load", label: (_r, k) => k,
                         cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]) }),
-                    Plan.series.table(Row, { key: "machine-tonnes", title: "Tonnes", label: (_r, k) => k,
+                    Plan.series.table(Row, { key: "press-sheets", title: "Sheets", label: (_r, k) => k,
                         cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]) }),
                 ])],
             });
         });
         const { container } = renderPlan(planOf(program), "plan-822-views");
         expect(ids(container)).toEqual([
-            "entry machine-jobs m03", "entry machine-load m03", "entry machine-tonnes m03",
-            "entry parts m03/k1",
-            "entry machine-load m04", "entry machine-tonnes m04",
+            "entry press-jobs p03", "entry press-load p03", "entry press-sheets p03",
+            "entry parts p03/k1",
+            "entry press-load p04", "entry press-sheets p04",
         ]);
-        expect(itemById(container, "entry parts m03/k1")!.getAttribute("aria-level")).toBe("2");
-        expect(itemById(container, "entry machine-load m03")!.getAttribute("aria-level")).toBe("1");
+        expect(itemById(container, "entry parts p03/k1")!.getAttribute("aria-level")).toBe("2");
+        expect(itemById(container, "entry press-load p03")!.getAttribute("aria-level")).toBe("1");
         // The child's parent is the first view row: closing it hides the child,
         // and the view rows between them stay.
-        fireEvent.click(itemById(container, "entry machine-jobs m03")!.querySelector("[role='rowheader']")!);
+        fireEvent.click(itemById(container, "entry press-jobs p03")!.querySelector("[role='rowheader']")!);
         expect(ids(container)).toEqual([
-            "entry machine-jobs m03", "entry machine-load m03", "entry machine-tonnes m03",
-            "entry machine-load m04", "entry machine-tonnes m04",
+            "entry press-jobs p03", "entry press-load p03", "entry press-sheets p03",
+            "entry press-load p04", "entry press-sheets p04",
         ]);
     });
 });
@@ -264,11 +264,11 @@ describe("the series list is the layout (#822)", () => {
         cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
     });
     const table = Plan.series.table(Row, {
-        key: "tonnes", title: "Tonnes", label: (_r, k) => k,
+        key: "sheets", title: "Sheets", label: (_r, k) => k,
         cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
     });
-    const LOAD_FIRST = ["entry load a", "entry load b", "entry tonnes a", "entry tonnes b"];
-    const TONNES_FIRST = ["entry tonnes a", "entry tonnes b", "entry load a", "entry load b"];
+    const LOAD_FIRST = ["entry load a", "entry load b", "entry sheets a", "entry sheets b"];
+    const SHEETS_FIRST = ["entry sheets a", "entry sheets b", "entry load a", "entry load b"];
 
     test("reordering the series list reorders the blocks", () => {
         const canvas = (series: typeof heat[]) => planOf(East.function([], Plan.Types.Root, ($) => {
@@ -279,7 +279,7 @@ describe("the series list is the layout (#822)", () => {
         expect(ids(forward.container)).toEqual(LOAD_FIRST);
         cleanup();
         const reverse = renderPlan(canvas([table, heat]), "plan-822-order-r");
-        expect(ids(reverse.container)).toEqual(TONNES_FIRST);
+        expect(ids(reverse.container)).toEqual(SHEETS_FIRST);
     });
 
     test("a pick's list is the order on screen; switching a series off takes its block", async () => {
@@ -300,11 +300,11 @@ describe("the series list is the layout (#822)", () => {
         const loadFirst = mount(picked("plan.822.pick.a", [heat, table], []));
         await waitFor(() => expect(ids(loadFirst.container)).toEqual(LOAD_FIRST));
         cleanup();
-        const tonnesFirst = mount(picked("plan.822.pick.b", [table, heat], []));
-        await waitFor(() => expect(ids(tonnesFirst.container)).toEqual(TONNES_FIRST));
+        const sheetsFirst = mount(picked("plan.822.pick.b", [table, heat], []));
+        await waitFor(() => expect(ids(sheetsFirst.container)).toEqual(SHEETS_FIRST));
         cleanup();
         const loadOff = mount(picked("plan.822.pick.c", [heat, table], ["load"]));
-        await waitFor(() => expect(ids(loadOff.container)).toEqual(["entry tonnes a", "entry tonnes b"]));
+        await waitFor(() => expect(ids(loadOff.container)).toEqual(["entry sheets a", "entry sheets b"]));
     });
 });
 
@@ -335,7 +335,7 @@ describe("a row's identity (#822)", () => {
         expect(chip.textContent).toBe("1 row skipped");
     });
 
-    test("a Dict<Integer, R> and a Dict<{line, bin}, R> source: each path segment is the key's text, in the source's order", () => {
+    test("a Dict<Integer, R> and a Dict<{hall, bin}, R> source: each path segment is the key's text, in the source's order", () => {
         const Row = StructType({ v: FloatType });
         const byNumber = East.function([], Plan.Types.Root, ($) => {
             const data = $.const(new Map([[20n, { v: 2.0 }], [1n, { v: 1.0 }]]), DictType(IntegerType, Row));
@@ -355,25 +355,25 @@ describe("a row's identity (#822)", () => {
         expect(rowItems(numbers.container)[0]!.textContent).toContain("1");
         cleanup();
 
-        const Key = StructType({ line: StringType, bin: IntegerType });
+        const Key = StructType({ hall: StringType, bin: IntegerType });
         const byStruct = East.function([], Plan.Types.Root, ($) => {
             const data = $.const(new Map([
-                [{ line: "L1", bin: 2n }, { v: 1.0 }],
-                [{ line: "L1", bin: 1n }, { v: 2.0 }],
+                [{ hall: "H1", bin: 2n }, { v: 1.0 }],
+                [{ hall: "H1", bin: 1n }, { v: 2.0 }],
             ]), DictType(Key, Row));
             return Plan.Payload({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data,
                 series: [Plan.series.table(Row, {
                     key: "bins", title: "Bins", keyType: Key,
-                    label: (_r, k) => East.str`${k.line} · ${East.print(k.bin)}`,
+                    label: (_r, k) => East.str`${k.hall} · ${East.print(k.bin)}`,
                     cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
                 })],
             });
         });
         const structs = renderPlan(planOf(byStruct), "plan-822-struct-keys");
-        expect(ids(structs.container)).toEqual(['entry bins (line="L1", bin=1)', 'entry bins (line="L1", bin=2)']);
+        expect(ids(structs.container)).toEqual(['entry bins (hall="H1", bin=1)', 'entry bins (hall="H1", bin=2)']);
         expect(rowItems(structs.container).map((r) => r.querySelector("[role='rowheader']")!.textContent))
-            .toEqual(["L1 · 1", "L1 · 2"]);
+            .toEqual(["H1 · 1", "H1 · 2"]);
     });
 });

@@ -72,7 +72,7 @@ const TARGET_KEY = `u${String(TARGET).padStart(4, "0")}`;
 /** A span row's height (the default density's geometry). */
 const ROW_PX = 32;
 
-const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, sheets: FloatType });
 const Units = DictType(StringType, UnitRow);
 
 /** The fixture, generated at MODULE scope: East bodies never call host helpers
@@ -80,7 +80,7 @@ const Units = DictType(StringType, UnitRow);
  *  which is what makes "element N" and "key uN" the same place. */
 const UNITS = new Map(Array.from({ length: ELEMENTS }, (_, i) => [
     `u${String(i).padStart(4, "0")}`,
-    { start: W27, end: W39, tonnes: (i % 50) + 0.5 },
+    { start: W27, end: W39, sheets: (i % 50) + 0.5 },
 ] as const));
 /** Its keys, in key order. */
 const UNIT_KEYS = [...UNITS.keys()];
@@ -161,7 +161,7 @@ function buildPagedPlan(): PlanRootValue {
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
                     label: East.str`RUN · ${k}`,
-                    quantity: Plan.quantity(r.tonnes, { unit: "t" }), state: "actual",
+                    quantity: Plan.quantity(r.sheets, { unit: "k sheets" }), state: "actual",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
@@ -378,7 +378,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
 /** `n` units of one shape — generated at module scope (East bodies never call host helpers). */
 const uniformUnits = (n: number) => new Map(Array.from({ length: n }, (_, i) => [
     `u${String(i).padStart(4, "0")}`,
-    { start: W27, end: W39, tonnes: i + 0.5 },
+    { start: W27, end: W39, sheets: i + 0.5 },
 ] as const));
 /** One window's worth of units, and two windows' worth. */
 const UNIFORM = { 30: uniformUnits(30), 300: uniformUnits(300) };
@@ -422,7 +422,7 @@ describe("the same canvas inline and paged (#822)", () => {
             });
             const loads = Plan.series.span(UnitRow, {
                 key: "loads", title: "Loads", label: (_r, k) => East.str`${k} · load`,
-                runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "LOAD", quantity: Plan.quantity(r.tonnes, { unit: "t" }), state: "confirmed" })],
+                runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "LOAD", quantity: Plan.quantity(r.sheets, { unit: "k sheets" }), state: "confirmed" })],
             });
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             const series = twoSeries ? [jobs, loads] : [jobs];
@@ -495,105 +495,105 @@ describe("the same canvas inline and paged (#822)", () => {
     }, 30_000);
 });
 
-/** A machine: a run, its tonnes, and three weeks of load. */
-const MachineRow = StructType({
-    start: DateTimeType, end: DateTimeType, tonnes: FloatType, load: ArrayType(Plan.Types.HeatCell),
+/** A press: a run, its sheets, and three weeks of load. */
+const PressRow = StructType({
+    start: DateTimeType, end: DateTimeType, sheets: FloatType, load: ArrayType(Plan.Types.HeatCell),
 });
 const WEEK_MS = 7 * 86_400_000;
-/** Lines grouped in the data (#822): 1,001 lines of one machine, but for L0200,
- *  whose forty machines ride in its entry — in window 1 of six. Module scope:
+/** Halls grouped in the data (#822): 1,001 halls of one press, but for H0200,
+ *  whose forty presses ride in its entry — in window 1 of six. Module scope:
  *  East bodies never call host helpers. */
-const LINES = new Map(Array.from({ length: 1_001 }, (_, i) => {
-    const line = `L${String(i).padStart(4, "0")}`;
-    return [line, new Map(Array.from({ length: i === 200 ? 40 : 1 }, (_u, m) => [
-        `${line}-M${String(m + 1).padStart(2, "0")}`,
+const HALLS = new Map(Array.from({ length: 1_001 }, (_, i) => {
+    const hall = `H${String(i).padStart(4, "0")}`;
+    return [hall, new Map(Array.from({ length: i === 200 ? 40 : 1 }, (_u, p) => [
+        `${hall}-P${String(p + 1).padStart(2, "0")}`,
         {
-            start: new Date(W27.getTime() + (m % 4) * WEEK_MS),
-            end: new Date(W27.getTime() + ((m % 4) + 2) * WEEK_MS),
-            tonnes: m + 1,
+            start: new Date(W27.getTime() + (p % 4) * WEEK_MS),
+            end: new Date(W27.getTime() + ((p % 4) + 2) * WEEK_MS),
+            sheets: p + 1,
             load: [0, 1, 2].map((k) => ({
                 at: variant("time", new Date(W27.getTime() + k * WEEK_MS)),
-                value: some(((m + k) % 5) * 20),
+                value: some(((p + k) % 5) * 20),
                 label: none,
             })),
         },
     ] as const))] as const;
 }));
-const Machines = DictType(StringType, MachineRow);
-const Lines = DictType(StringType, Machines);
+const Presses = DictType(StringType, PressRow);
+const Halls = DictType(StringType, Presses);
 
-/** The lines as a source built to the contract — a window of lines at a time, in key order. */
-const LINES_PAGE = East.function([IntegerType, IntegerType], OptionType(Lines), ($, offset, limit) => {
-    const all = $.const(LINES, Lines);
+/** The halls as a source built to the contract — a window of halls at a time, in key order. */
+const HALLS_PAGE = East.function([IntegerType, IntegerType], OptionType(Halls), ($, offset, limit) => {
+    const all = $.const(HALLS, Halls);
     const keys = $.let(all.toArray((_$, _v, k) => k));
     const n = $.let(keys.size());
     const start = $.let(offset.less(n).ifElse(() => offset, () => n));
     const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
     return some(all.getKeys(keys.slice(start, end).toSet()));
 });
-const LINES_TOTAL = East.function([], OptionType(IntegerType), ($) => {
-    const all = $.const(LINES, Lines);
+const HALLS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(HALLS, Halls);
     return some(all.size());
 });
-const LINES_SOURCE = { id: "lines", page: LINES_PAGE, total: LINES_TOTAL, seek: none };
+const HALLS_SOURCE = { id: "halls", page: HALLS_PAGE, total: HALLS_TOTAL, seek: none };
 
 describe("a parent sits whole in its window (#823)", () => {
-    /** The lines canvas — inline over the Dict, or paged over a source of it. */
-    function buildLines(paged: boolean): PlanRootValue {
+    /** The halls canvas — inline over the Dict, or paged over a source of it. */
+    function buildHalls(paged: boolean): PlanRootValue {
         const program = East.function([], Plan.Types.Root, ($) => {
-            const lines = $.const(LINES, Lines);
+            const halls = $.const(HALLS, Halls);
             const series = [
-                // One strip per line, its machines its members — collapsed, it
+                // One strip per hall, its presses its members — collapsed, it
                 // rests as their summed load.
-                Plan.series.group(Machines, {
-                    key: "lines", title: "Lines", label: (_g, line) => line,
+                Plan.series.group(Presses, {
+                    key: "halls", title: "Halls", label: (_g, hall) => hall,
                     match: (g) => g.size().greater(1n),
                     summaryAggregate: "sum", collapsed: true,
                     children: Plan.children((g) => g, [
-                        Plan.series.heat(MachineRow, {
-                            key: "load", title: "Load", label: (_m, k) => k,
-                            cells: (m) => Plan.heatCells(m.load, { min: 0, max: 100 }),
+                        Plan.series.heat(PressRow, {
+                            key: "load", title: "Load", label: (_p, k) => k,
+                            cells: (p) => Plan.heatCells(p.load, { min: 0, max: 100 }),
                         }),
                     ]),
                 }),
-                // One row per line, rolling its machines' runs into bands —
-                // each band sums their tonnes, the unit riding each quantity.
-                Plan.series.span(Machines, {
-                    key: "line-jobs", title: "Jobs", label: (_g, line) => line,
+                // One row per hall, rolling its presses' runs into bands —
+                // each band sums their sheets, the unit riding each quantity.
+                Plan.series.span(Presses, {
+                    key: "hall-jobs", title: "Jobs", label: (_g, hall) => hall,
                     match: (g) => g.size().greater(1n),
                     runs: () => [], collapsed: true,
                     children: Plan.children((g) => g, [
-                        Plan.series.span(MachineRow, {
-                            key: "machine-jobs", title: "Machine jobs", label: (_m, k) => k,
-                            runs: (m, k) => [Plan.run({ key: "run", start: m.start, end: m.end, label: k, quantity: Plan.quantity(m.tonnes, { unit: "t" }), state: "actual" })],
+                        Plan.series.span(PressRow, {
+                            key: "press-jobs", title: "Press jobs", label: (_p, k) => k,
+                            runs: (p, k) => [Plan.run({ key: "run", start: p.start, end: p.end, label: k, quantity: Plan.quantity(p.sheets, { unit: "k sheets" }), state: "actual" })],
                         }),
                     ]),
                 }),
             ];
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             return paged
-                ? Plan.Payload({ axis, data: $.const(LINES_SOURCE, Paged.Types.Source(Lines)), series })
-                : Plan.Payload({ axis, data: lines, series });
+                ? Plan.Payload({ axis, data: $.const(HALLS_SOURCE, Paged.Types.Source(Halls)), series })
+                : Plan.Payload({ axis, data: halls, series });
         });
         return East.compile(program, getRegisteredPlatformImplementations())();
     }
 
-    /** What the line says: its strip's band — its count and its summed load — and its rollup bands. */
+    /** What the hall says: its strip's band — its count and its summed load — and its rollup bands. */
     const said = (c: HTMLElement) => ({
-        strip: c.querySelector(rowSel("L0200", "data-plan-group", "lines"))!.textContent,
-        bands: [...c.querySelector(rowSel("L0200", "data-plan-row", "line-jobs"))!
+        strip: c.querySelector(rowSel("H0200", "data-plan-group", "halls"))!.textContent,
+        bands: [...c.querySelector(rowSel("H0200", "data-plan-row", "hall-jobs"))!
             .querySelectorAll("[data-state]:not([data-run])")].map((b) => b.textContent),
     });
 
-    test("a line of forty machines reads on a partial paged canvas exactly as it does inline — its count, its strip, its bands", async () => {
-        const inline = renderPlan(buildLines(false), "plan-823-line-inline");
+    test("a hall of forty presses reads on a partial paged canvas exactly as it does inline — its count, its strip, its bands", async () => {
+        const inline = renderPlan(buildHalls(false), "plan-823-hall-inline");
         const expected = said(inline.container);
         expect(expected.strip).toContain("40 rows");
         expect(expected.bands.length).toBeGreaterThan(0);
         cleanup();
         // Windows past the third stay in flight, so the paged canvas is and
         // stays partial — its first three windows are all it holds.
-        const built = buildLines(true);
+        const built = buildHalls(true);
         const src = pagedOf(built);
         const asked: number[] = [];
         const held = {
@@ -603,13 +603,13 @@ describe("a parent sits whole in its window (#823)", () => {
                 return offset >= BigInt(3 * PLAN_PAGE_SIZE) ? none : src.page(offset, limit);
             },
         };
-        const paged = renderPlan({ ...built, rows: variant("paged", held) }, "plan-823-line-paged");
-        await waitFor(() => expect(paged.container.querySelector(rowSel("L0200", "data-plan-group", "lines"))).toBeTruthy(),
+        const paged = renderPlan({ ...built, rows: variant("paged", held) }, "plan-823-hall-paged");
+        await waitFor(() => expect(paged.container.querySelector(rowSel("H0200", "data-plan-group", "halls"))).toBeTruthy(),
             { timeout: 10_000 });
         // The canvas is partial…
         expect(paged.container.querySelector("[data-plan-body][data-plan-partial]")).toBeTruthy();
-        // …and the line is not — its window holds it whole.
-        expect(paged.container.querySelector(`${rowSel("L0200", "data-plan-group", "lines")}[data-plan-partial]`)).toBeNull();
+        // …and the hall is not — its window holds it whole.
+        expect(paged.container.querySelector(`${rowSel("H0200", "data-plan-group", "halls")}[data-plan-partial]`)).toBeNull();
         expect(said(paged.container)).toEqual(expected);
         // One read of each landed window served both blocks.
         expect(asked.filter((w) => w < 3).sort((x, y) => x - y)).toEqual([0, 1, 2]);

@@ -15,8 +15,8 @@ const entry = (series: string, ...path: string[]) => variant("entry", { series, 
 
 describe("row keys", () => {
     test("a key is the id's .east text, and parses back to the id", () => {
-        const id = entry("machines", "Line 3", "L3-M10");
-        expect(rowKeyOf(id)).toBe('.entry (series="machines", path=["Line 3", "L3-M10"])');
+        const id = entry("presses", "Hall 3", "H3-P10");
+        expect(rowKeyOf(id)).toBe('.entry (series="presses", path=["Hall 3", "H3-P10"])');
         expect(rowIdOfKey(rowKeyOf(id))).toEqual(id);
     });
 
@@ -24,7 +24,7 @@ describe("row keys", () => {
         // East's printer takes parameters of its own beyond the value; handed
         // `map`'s index and array as those, it threw on a bound ui state's
         // first non-empty list.
-        const ids = [entry("kpi", "coverage"), entry("lines", "Line 1"), entry("lines", "Line 2")];
+        const ids = [entry("kpi", "ontime"), entry("halls", "Hall 1"), entry("halls", "Hall 2")];
         expect(ids.map(rowKeyOf)).toEqual(ids.map((id) => rowKeyOf(id)));
     });
 });

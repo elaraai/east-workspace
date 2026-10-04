@@ -153,7 +153,7 @@ export interface PlanMessages extends EditingMessages {
     // ── Row focus (R1 / R2) ────────────────────────────────────────────────
     /** The focus band's way back. */
     allRows: () => string;
-    /** The links focus caption — `LINKS · M-214 · 4 UPSTREAM · 6 DOWNSTREAM`;
+    /** The links focus caption — `LINKS · H1-P03 · 4 UPSTREAM · 6 DOWNSTREAM`;
      *  `label` is the focused row's gutter label. */
     focusLinks: (p: { label: string; upstream: string | undefined; downstream: string | undefined }) => string;
     /** The expand focus caption — `label` is the focused row's gutter label. */
@@ -184,13 +184,13 @@ export interface PlanMessages extends EditingMessages {
     retry: () => string;
     /** A run bar's churn counter — `moved ×3`. */
     moved: (p: { n: number; count: string }) => string;
-    /** A rollup band's caption — `×2 · 208 t`. Always exact: a span parent
+    /** A rollup band's caption — `×2 · 208 k sheets`. Always exact: a span parent
      *  rolls up one entry's subtree, which a window holds whole (#822). */
     rollupCaption: (p: { count: string | undefined; quantity: string | undefined }) => string;
-    /** A quantity's caption — `96 t` (#824): `value` is already formatted,
+    /** A quantity's caption — `96 k sheets` (#824): `value` is already formatted,
      *  through the quantity's own format; `unit` is the author's, when declared. */
     quantity: (p: { value: string; unit: string | undefined }) => string;
-    /** Totals in several units, read together — a rollup band's `208 t · 12 h`. */
+    /** Totals in several units, read together — a rollup band's `208 k sheets · 12 h`. */
     quantities: (p: { parts: readonly string[] }) => string;
     /** The resting chip of a proposed bucket tile. */
     planChip: () => string;

@@ -6,7 +6,7 @@
 /**
  * The Plan's moves under test (#825) — ONE canvas, built by the e3-ui
  * factory and COMPILED over a `State.bind` handle written through the
- * `onUpdate` adapter, whose machines hold four lists, each a series that
+ * `onUpdate` adapter, whose presses hold four lists, each a series that
  * declares a move's fields:
  *
  * - `jobs` — runs (a span series) of the `Job` item type;
@@ -14,7 +14,7 @@
  * - `shifts` — chips (a cards series) of the `Shift` item type;
  * - `slots` — tiles (a buckets series) of the `Slot` item type.
  *
- * Each series is a block of the machines' rows, in that order. jsdom has no
+ * Each series is a block of the presses' rows, in that order. jsdom has no
  * layout, so {@link layOutPlots} stacks every row's plot at a fixed rect —
  * twelve weeks, 100px each — and `document.elementFromPoint` answers from them.
  *
@@ -46,15 +46,15 @@ export const D = (n: number, day: number): Date => new Date(W(n).getTime() + day
 export const Job = StructType({ key: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
 export const Shift = StructType({ key: StringType, label: StringType, from: DateTimeType, to: DateTimeType });
 export const Slot = StructType({ key: StringType, label: StringType, at: DateTimeType });
-export const Machine = StructType({
+export const Press = StructType({
     label: StringType, jobs: ArrayType(Job), backlog: ArrayType(Job), shifts: ArrayType(Shift), slots: ArrayType(Slot),
 });
-export const Machines = DictType(StringType, Machine);
-export type MachineValue = ValueTypeOf<typeof Machine>;
+export const Presses = DictType(StringType, Press);
+export type PressValue = ValueTypeOf<typeof Press>;
 export type JobValue = ValueTypeOf<typeof Job>;
 
-/** Machine 1 holds one of everything; Machine 2 nothing. */
-export const SEED: Map<string, MachineValue> = new Map([
+/** Press 1 holds one of everything; Press 2 nothing. */
+export const SEED: Map<string, PressValue> = new Map([
     ["m1", {
         label: "M1",
         jobs: [{ key: "j1", label: "J1", start: W(28), end: W(30) }],
@@ -66,35 +66,35 @@ export const SEED: Map<string, MachineValue> = new Map([
 ]);
 
 /** The canvas's drop-target id. */
-export const SURFACE = "machines-plan";
+export const SURFACE = "presses-plan";
 /** The series, in layout order. */
 export const SERIES_KEYS = ["jobs", "backlog", "shifts", "slots"] as const;
 export type SeriesKey = (typeof SERIES_KEYS)[number];
 
 const SERIES = [
-    Plan.series.span(Machine, {
+    Plan.series.span(Press, {
         key: "jobs", title: "Jobs", label: (m) => m.label,
         runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: "confirmed" })),
         edit: { items: "jobs", key: "key", start: "start", end: "end" },
     }),
-    Plan.series.span(Machine, {
+    Plan.series.span(Press, {
         key: "backlog", title: "Backlog", label: (m) => m.label,
         runs: (m) => m.backlog.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: "confirmed" })),
         edit: { items: "backlog", key: "key", start: "start", end: "end" },
     }),
-    Plan.series.cards(Machine, {
+    Plan.series.cards(Press, {
         key: "shifts", title: "Shifts", label: (m) => m.label,
         chips: (m) => m.shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: "confirmed" })),
         edit: { items: "shifts", key: "key", start: "from", end: "to" },
     }),
-    Plan.series.buckets(Machine, {
+    Plan.series.buckets(Press, {
         key: "slots", title: "Slots", label: (m) => m.label,
         events: (m) => m.slots.map((_$, t) => Plan.event({ key: t.key, at: t.at, label: t.label, state: "confirmed" })),
         edit: { items: "slots", key: "key", at: "at" },
     }),
 ];
 
-/** A `canDrop` that refuses every move onto Machine 2's jobs row. */
+/** A `canDrop` that refuses every move onto Press 2's jobs row. */
 const M2_JOBS = rowKey("m2", "jobs");
 const NOT_M2_JOBS = East.function([DragEventType], BooleanType, ($, event) => {
     const allowed = $.let(true);
@@ -105,22 +105,22 @@ const NOT_M2_JOBS = East.function([DragEventType], BooleanType, ($, event) => {
 /** Twelve weeks, W27 to W38. */
 const AXIS = Plan.axis({ window: { min: W(27), max: W(39) }, resolution: "week" });
 
-const STATE_KEY = "plan-825.machines";
+const STATE_KEY = "plan-825.presses";
 
 // ── The canvas ──────────────────────────────────────────────────────────────
 
 /** One gesture's patch event, decoded. */
-const PatchEventType = Plan.Types.PatchEvent(Machine);
+const PatchEventType = Plan.Types.PatchEvent(Press);
 export type MovePatch = ValueTypeOf<typeof PatchEventType>;
 const decodePatch = decodeBeast2For(PatchEventType);
-const decodeMachines = decodeBeast2For(Machines);
+const decodePresses = decodeBeast2For(Presses);
 
 /** A mounted canvas, and what the test reads and drives it through. */
 export interface MoveCanvas extends RenderResult {
     /** Every gesture's patch event, in order. */
     patches: MovePatch[];
     /** What the source holds now. */
-    stored: () => ReadonlyMap<string, MachineValue>;
+    stored: () => ReadonlyMap<string, PressValue>;
     /** Let everything in flight land. */
     settle: () => Promise<void>;
 }
@@ -133,23 +133,23 @@ export async function settle(): Promise<void> {
 }
 
 /**
- * Build, compile and mount the machines canvas, and wait for it to draw.
+ * Build, compile and mount the presses canvas, and wait for it to draw.
  *
- * @param options - `veto`: a `canDrop` that refuses Machine 2's jobs row; `seed`: the machines, in place of
+ * @param options - `veto`: a `canDrop` that refuses Press 2's jobs row; `seed`: the presses, in place of
  *   {@link SEED}; `id: false`: the canvas declares no drop-target id
  * @returns The mounted canvas
  */
-export async function mountMoves(options: { veto?: boolean; seed?: Map<string, MachineValue>; id?: boolean } = {}): Promise<MoveCanvas> {
+export async function mountMoves(options: { veto?: boolean; seed?: Map<string, PressValue>; id?: boolean } = {}): Promise<MoveCanvas> {
     const seed = options.seed ?? SEED;
     const program = East.compile(East.function([], Plan.Types.Root, ($) => {
-        const machines = $.const(State.bind([Machines], STATE_KEY, seed));
+        const presses = $.const(State.bind([Presses], STATE_KEY, seed));
         return Plan.Payload({
             axis: AXIS,
-            data: machines,
+            data: presses,
             series: SERIES,
             ...(options.id !== false ? { id: SURFACE } : {}),
             ...(options.veto === true ? { canDrop: NOT_M2_JOBS } : {}),
-            editing: { onUpdate: machines.write },
+            editing: { onUpdate: presses.write },
         });
     }), getRegisteredPlatformImplementations());
     const patches: MovePatch[] = [];
@@ -176,42 +176,42 @@ export async function mountMoves(options: { veto?: boolean; seed?: Map<string, M
         </ChakraProvider>,
     );
     await waitFor(() => {
-        if (utils.container.querySelector(rowSel("m1", "data-plan-row", "jobs")) === null) throw new Error("the machines have not drawn yet");
+        if (utils.container.querySelector(rowSel("m1", "data-plan-row", "jobs")) === null) throw new Error("the presses have not drawn yet");
     });
     await settle();
     return {
         ...utils,
         patches,
-        stored: () => decodeMachines(getStore().read(STATE_KEY)!),
+        stored: () => decodePresses(getStore().read(STATE_KEY)!),
         settle,
     };
 }
 
 // ── Reading and driving the canvas ──────────────────────────────────────────
 
-/** A machine's row in a series. */
-export const rowOf = (c: HTMLElement, series: SeriesKey, machine: string): HTMLElement =>
-    c.querySelector<HTMLElement>(rowSel(machine, "data-plan-row", series))!;
+/** A press's row in a series. */
+export const rowOf = (c: HTMLElement, series: SeriesKey, press: string): HTMLElement =>
+    c.querySelector<HTMLElement>(rowSel(press, "data-plan-row", series))!;
 
 /** A row's plot — its drop cell. */
-export const plotOf = (c: HTMLElement, series: SeriesKey, machine: string): HTMLElement =>
-    rowOf(c, series, machine).querySelector<HTMLElement>("[data-plan-plot]")!;
+export const plotOf = (c: HTMLElement, series: SeriesKey, press: string): HTMLElement =>
+    rowOf(c, series, press).querySelector<HTMLElement>("[data-plan-plot]")!;
 
-/** The element a series draws for an item, in a machine's row. */
-export function elementOf(c: HTMLElement, series: SeriesKey, machine: string, key: string): HTMLElement | null {
+/** The element a series draws for an item, in a press's row. */
+export function elementOf(c: HTMLElement, series: SeriesKey, press: string, key: string): HTMLElement | null {
     const attr = series === "shifts" ? "data-chip" : series === "slots" ? "data-event" : "data-run";
-    return rowOf(c, series, machine).querySelector<HTMLElement>(`[${attr}=${JSON.stringify(key)}]`);
+    return rowOf(c, series, press).querySelector<HTMLElement>(`[${attr}=${JSON.stringify(key)}]`);
 }
 
-/** The keys a machine's row draws, in order. */
-export function keysOf(c: HTMLElement, series: SeriesKey, machine: string): string[] {
+/** The keys a press's row draws, in order. */
+export function keysOf(c: HTMLElement, series: SeriesKey, press: string): string[] {
     const attr = series === "shifts" ? "data-chip" : series === "slots" ? "data-event" : "data-run";
-    return [...rowOf(c, series, machine).querySelectorAll(`[${attr}]`)].map((el) => el.getAttribute(attr)!);
+    return [...rowOf(c, series, press).querySelectorAll(`[${attr}]`)].map((el) => el.getAttribute(attr)!);
 }
 
 /** A row's draft mark, when a draft changed it. */
-export function markOf(c: HTMLElement, series: SeriesKey, machine: string): "pending" | "incomplete" | "invalid" | undefined {
-    const row = rowOf(c, series, machine);
+export function markOf(c: HTMLElement, series: SeriesKey, press: string): "pending" | "incomplete" | "invalid" | undefined {
+    const row = rowOf(c, series, press);
     if (!row.hasAttribute("data-draft")) return undefined;
     return row.hasAttribute("data-invalid") ? "invalid" : row.hasAttribute("data-incomplete") ? "incomplete" : "pending";
 }
@@ -227,21 +227,21 @@ export const xAt = (n: number, days = 3.5): number => PLOT_LEFT + (n - 27) * WEE
  * the twelve weeks — and `document.elementFromPoint` answering from them.
  *
  * @param c - The canvas
- * @returns Each plot's vertical centre, by series and machine
+ * @returns Each plot's vertical centre, by series and press
  */
-export function layOutPlots(c: HTMLElement): (series: SeriesKey, machine: string) => number {
+export function layOutPlots(c: HTMLElement): (series: SeriesKey, press: string) => number {
     const rects = new Map<Element, { left: number; top: number; width: number; height: number }>();
     const tops = new Map<string, number>();
     let top = 0;
     for (const series of SERIES_KEYS) {
-        for (const machine of ["m1", "m2"]) {
-            rects.set(plotOf(c, series, machine), { left: PLOT_LEFT, top, width: 12 * WEEK_PX, height: 32 });
-            tops.set(`${series}/${machine}`, top + 16);
+        for (const press of ["m1", "m2"]) {
+            rects.set(plotOf(c, series, press), { left: PLOT_LEFT, top, width: 12 * WEEK_PX, height: 32 });
+            tops.set(`${series}/${press}`, top + 16);
             top += 40;
         }
     }
     layOut(rects);
-    return (series, machine) => tops.get(`${series}/${machine}`)!;
+    return (series, press) => tops.get(`${series}/${press}`)!;
 }
 
 /**

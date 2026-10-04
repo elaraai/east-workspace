@@ -47,8 +47,8 @@ const sameJob = equalFor(Job);
 const sameInstant = equalFor(Plan.Types.Instant);
 /** Each gesture's origin and label, in order. */
 const gestures = (canvas: MoveCanvas) => canvas.patches.map((p) => [p.origin.type, p.label]);
-/** The job a machine's list holds, as the source stores it. */
-const storedJobs = (canvas: MoveCanvas, machine: string, list: "jobs" | "backlog" = "jobs"): JobValue[] => [...canvas.stored().get(machine)![list]];
+/** The job a press's list holds, as the source stores it. */
+const storedJobs = (canvas: MoveCanvas, press: string, list: "jobs" | "backlog" = "jobs"): JobValue[] => [...canvas.stored().get(press)![list]];
 /** An element's left edge, as a window fraction. */
 const fracOf = (el: HTMLElement | null) => el?.getAttribute("data-plan-frac");
 
@@ -146,7 +146,7 @@ describe("the pointer moves a run, a chip and a tile (#825)", () => {
 });
 
 describe("a move reaches the rows of its item type (#825)", () => {
-    test("onto another machine: the job leaves one entry and joins the other, as ONE gesture over both", async () => {
+    test("onto another press: the job leaves one entry and joins the other, as ONE gesture over both", async () => {
         const canvas = await mountMoves();
         const c = canvas.container;
         const y = layOutPlots(c);
@@ -161,7 +161,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         expect(sameJob(storedJobs(canvas, "m2")[0]!, { key: "j1", label: "J1", start: W(29), end: W(31) })).toBe(true);
     }, 30_000);
 
-    test("onto another series of the same item type — the machine's backlog — in one request over its entry", async () => {
+    test("onto another series of the same item type — the press's backlog — in one request over its entry", async () => {
         const canvas = await mountMoves();
         const c = canvas.container;
         const y = layOutPlots(c);
@@ -194,9 +194,9 @@ describe("a move reaches the rows of its item type (#825)", () => {
     }, 30_000);
 
     test("a row already drawing the job's key refuses it — the ⊘ stage and the refusal said, by pointer and by keyboard, and nothing drafted", async () => {
-        // Machine 2 already holds a job keyed j1 — another job, the same key. A
-        // row's jobs keep their keys unique, so Machine 2's jobs row cannot take
-        // Machine 1's j1; its backlog, which holds no j1, can.
+        // Press 2 already holds a job keyed j1 — another job, the same key. A
+        // row's jobs keep their keys unique, so Press 2's jobs row cannot take
+        // Press 1's j1; its backlog, which holds no j1, can.
         const seed = new Map([...SEED, ["m2", {
             label: "M2", jobs: [{ key: "j1", label: "J1 of M2", start: W(34), end: W(36) }], backlog: [], shifts: [], slots: [],
         }]]);
@@ -210,7 +210,7 @@ describe("a move reaches the rows of its item type (#825)", () => {
         await letGo();
         expect(announced()).toBe("J1 was not dropped.");
         expect(canvas.patches).toEqual([]);
-        // By keyboard: ↓ reaches Machine 2's jobs, which refuses it — said, and the carry goes on.
+        // By keyboard: ↓ reaches Press 2's jobs, which refuses it — said, and the carry goes on.
         elementOf(c, "jobs", "m1", "j1")!.focus();
         await keyOn({ key: " " });
         await keyOn({ key: "ArrowDown" });
@@ -288,7 +288,7 @@ describe("a move is a draft of the session (#825)", () => {
         expect(announced()).toBe("J1 was not dropped.");
         expect(canvas.patches).toEqual([]);
         expect(keysOf(c, "jobs", "m1")).toEqual(["j1"]);
-        // The same machine's backlog takes it.
+        // The same press's backlog takes it.
         await dragTo(elementOf(c, "jobs", "m1", "j1")!, { x: xAt(28), y: y("jobs", "m1") }, { x: xAt(28), y: y("backlog", "m2") });
         expect(keysOf(c, "backlog", "m2")).toEqual(["j1"]);
     }, 30_000);
@@ -348,7 +348,7 @@ describe("the keyboard moves an element (#825)", () => {
         // The landing band follows, labelled.
         const band = plotOf(c, "jobs", "m1").querySelector<HTMLElement>("[data-plan-drop-preview]")!;
         expect(band.querySelector("[data-plan-drop-preview-text]")!.textContent).toBe("Jul 6, 2026 – Aug 3, 2026");
-        // Down reaches Machine 2's jobs — the next row of its item type.
+        // Down reaches Press 2's jobs — the next row of its item type.
         await keyOn({ key: "ArrowDown" });
         expect(carrySaid(c)).toBe("J1: M2, Jul 6, 2026 – Aug 3, 2026");
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-active")).toBe(true);

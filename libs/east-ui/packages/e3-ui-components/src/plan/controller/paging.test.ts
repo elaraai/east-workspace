@@ -1028,11 +1028,11 @@ describe("paging driver — blocks page apart (#823)", () => {
 });
 
 describe("the probe, inverted — a window holds its entries whole (#823)", () => {
-    // The #823 probe: two lines of four machines, their keys interleaved across
-    // the lines, one line a window. Grouped by a field, the old canvas drew line
-    // 1's band from window 1 among window 0's machines, and its ledger counted
+    // The #823 probe: two halls of four presses, their keys interleaved across
+    // the halls, one hall a window. Grouped by a field, the old canvas drew hall
+    // 1's band from window 1 among window 0's presses, and its ledger counted
     // each 26px band once per window — 360px against 308 rendered. Nesting from
-    // the data makes a line ONE entry, and its window holds it whole.
+    // the data makes a hall ONE entry, and its window holds it whole.
     const groupKind: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
     const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
     /** A wire row with every field the model reads. */
@@ -1042,15 +1042,15 @@ describe("the probe, inverted — a window holds its entries whole (#823)", () =
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind, collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     }) as unknown as PlanWireRow;
-    /** Window w serves line `L{w+1}` with its machines: m001 m003 m005 m007 in
-     *  window 0, m002 … m008 in window 1. */
-    const lines = {
+    /** Window w serves hall `H{w+1}` with its presses: p001 p003 p005 p007 in
+     *  window 0, p002 … p008 in window 1. */
+    const halls = {
         id: "probe",
         page: (offset: bigint) => {
             const w = Number(offset) / PLAN_PAGE_SIZE;
-            const line = `L${w + 1}`;
-            const machines = [0, 1, 2, 3].map((k) => full(`m${String(w + 1 + 2 * k).padStart(3, "0")}`, spanKind, line));
-            return some([paged([full(line, groupKind), ...machines])]);
+            const hall = `H${w + 1}`;
+            const presses = [0, 1, 2, 3].map((k) => full(`p${String(w + 1 + 2 * k).padStart(3, "0")}`, spanKind, hall));
+            return some([paged([full(hall, groupKind), ...presses])]);
         },
         total: () => some(BigInt(2 * PLAN_PAGE_SIZE)),
         seek: none,
@@ -1066,32 +1066,32 @@ describe("the probe, inverted — a window holds its entries whole (#823)", () =
     /** What rows draw on the canvas — the body's own walk and heights. */
     const drawn = (rows: readonly PlanRowValue[]) => visibleRows(indexRows(rows), { grain: "resource", collapsed: new Set() })
         .reduce((px, v) => px + rowHeight(v, false, new Set()), 0);
-    /** Both lines, each band and its machines once. */
+    /** Both halls, each band and its presses once. */
     const BOTH = 2 * (GROUP_H + 4 * ROW_H);
 
-    test("the rows render in window order — each line whole, from its own window", () => {
-        const { snap } = drive(lines, real);
-        expect(rowKeys(snap())).toEqual(["L1", "m001", "m003", "m005", "m007", "L2", "m002", "m004", "m006", "m008"]);
+    test("the rows render in window order — each hall whole, from its own window", () => {
+        const { snap } = drive(halls, real);
+        expect(rowKeys(snap())).toEqual(["H1", "p001", "p003", "p005", "p007", "H2", "p002", "p004", "p006", "p008"]);
         expect(snap().rows.map((r) => snap().origin.get(r.key)!.w)).toEqual([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
         expect(drawn(snap().rows)).toBe(BOTH);
     });
 
-    test("the ledger holds each window at exactly what its rows draw — an evicted line is its band and machines, once", () => {
+    test("the ledger holds each window at exactly what its rows draw — an evicted hall is its band and presses, once", () => {
         // One window resident at a time: the other is always a band.
         const d = createPagingDriver({
             ...real, policy: { behind: 0, ahead: 0, rebaseGap: 0, maxRows: 4_000, evictTo: 0.75 }, onChange: () => {},
         });
-        d.setSource(lines);
-        const line1 = d.getSnapshot().rows;
-        expect(rowKeys(d.getSnapshot())).toEqual(["L1", "m001", "m003", "m005", "m007"]);
+        d.setSource(halls);
+        const hall1 = d.getSnapshot().rows;
+        expect(rowKeys(d.getSnapshot())).toEqual(["H1", "p001", "p003", "p005", "p007"]);
         d.reportViewport({ kind: "window", block: 0, w: 1 }, false);
         const s = d.getSnapshot();
-        expect(rowKeys(s)).toEqual(["L2", "m002", "m004", "m006", "m008"]);
-        // Window 0 is the head band now — exactly what line 1 drew — and the
-        // canvas is as tall as both lines drawn.
-        expect(head(s)!.px).toBe(drawn(line1));
+        expect(rowKeys(s)).toEqual(["H2", "p002", "p004", "p006", "p008"]);
+        // Window 0 is the head band now — exactly what hall 1 drew — and the
+        // canvas is as tall as both halls drawn.
+        expect(head(s)!.px).toBe(drawn(hall1));
         expect(head(s)!.px + drawn(s.rows)).toBe(BOTH);
-        // And back: window 1's band is line 2's rows.
+        // And back: window 1's band is hall 2's rows.
         d.reportViewport({ kind: "window", block: 0, w: 0 }, false);
         expect(tail(d.getSnapshot())!.px).toBe(drawn(s.rows));
     });

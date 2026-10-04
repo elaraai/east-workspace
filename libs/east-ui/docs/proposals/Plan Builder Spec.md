@@ -343,7 +343,7 @@ accepted and ignored there.
 |---|---|---|---|
 | `name`, `icon`, `label`, `meta` | as the Calendar's | both | The kind and each resource's name and second line. |
 | `group` | `(row, key) => String` | Plan | Groups the kind's rows under strips (a hall), which the grain folds to their summary. |
-| `parent` | `(row, key) => Option<String>` | Plan | Nests a resource under another of its kind: a line's machines under the line, whose bar rolls theirs up. |
+| `parent` | `(row, key) => Option<String>` | Plan | Nests a resource under another of its kind: a hall's presses under the hall, whose bar rolls theirs up. |
 | `sub`, `value`, `status` | accessors returning `Option`s | Plan | The gutter's sub line, value slot and status dot. |
 | `rollup`, `collapsed` | as `Plan.series.span`'s | Plan | How a parent's bands roll its children's events up, and whether it starts folded. |
 | `measures` | `Plan.series.heat`, `table` or `chart` values over the resource's row type | Plan | Read-only rows under each resource, in order: ordinary series, laid out as `Plan.series.views` lays an entry out today. A series that declares `edit` or `review` is refused here. |

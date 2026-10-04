@@ -148,16 +148,16 @@ function renderPlan(value: PlanRootValue, key: string) {
 /** One of every row kind under a group, and a pinned row above them. */
 const EVERY_KIND = () => [
     planRow("pin", span(), { pinned: true, label: "Pinned" }),
-    planRow("G", group(), { label: "Line 1" }),
+    planRow("G", group(), { label: "Hall 1" }),
     planRow("s", span(
         [run("r1", W27, day("2026-07-13"), variant("actual", null), "warning")],
         [{ key: "d1", at: t(day("2026-07-06")), applied: true }],
-        [{ at: t(day("2026-07-20")), label: some("IN · 40 t") }],
+        [{ at: t(day("2026-07-20")), label: some("IN · 40 k sheets") }],
     ), { parent: "G", status: "warning" }),
     planRow("b", variant("buckets", {
         lanes: [{ key: "am", label: some("AM") }],
         events: [{
-            key: "e1", at: t(W27), lane: some("am"), label: some("Pour"), icon: none, state: variant("confirmed", null),
+            key: "e1", at: t(W27), lane: some("am"), label: some("Proof"), icon: none, state: variant("confirmed", null),
             tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
         }],
         markers: [{ at: t(W27), lane: some("am"), status: variant("danger", null), message: "Crew short" }],
@@ -169,7 +169,7 @@ const EVERY_KIND = () => [
         split: variant("horizontal", null), aggregate: none, format: none, emphasis: variant("body", null),
     }), { parent: "G" }),
     planRow("c", variant("cards", {
-        chips: [{ key: "c1", from: t(W27), to: t(day("2026-07-13")), label: "D. OKAFOR", state: variant("confirmed", null), icon: none }],
+        chips: [{ key: "c1", from: t(W27), to: t(day("2026-07-13")), label: "CREW A", state: variant("confirmed", null), icon: none }],
     }), { parent: "G" }),
     planRow("e", variant("events", {
         marks: [
@@ -237,10 +237,10 @@ describe("the canvas is a treegrid (#819)", () => {
         };
         expect(named("[data-run='r1']")).toEqual(["button", "R1, Jun 29, 2026 – Jul 13, 2026, actual, warning"]);
         expect(named(`${itemSel("s")} [data-mark='d1']`)).toEqual(["button", "Decision, Jul 6, 2026, applied"]);
-        expect(named("[data-port]")).toEqual(["img", "IN · 40 t"]);
-        expect(named("[data-event='e1']")).toEqual(["button", "Pour, Week of Jun 29, 2026, AM, confirmed"]);
+        expect(named("[data-port]")).toEqual(["img", "IN · 40 k sheets"]);
+        expect(named("[data-event='e1']")).toEqual(["button", "Proof, Week of Jun 29, 2026, AM, confirmed"]);
         expect(named("[data-marker]")).toEqual(["img", "Crew short"]);
-        expect(named("[data-chip='c1']")).toEqual(["button", "D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed"]);
+        expect(named("[data-chip='c1']")).toEqual(["button", "CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed"]);
         expect(named(`${itemSel("e")} [data-mark='k1'][tabindex]`)).toEqual(["button", "KICKOFF, milestone, Jun 29, 2026"]);
         expect(named(`${itemSel("e")} [data-mark='k2']`)).toEqual(["button", "Decision, pending, Jul 13, 2026"]);
         expect(named(`${itemSel("e")} [data-mark='k3']`)).toEqual(["button", "Exception, Jul 27, 2026"]);
@@ -455,7 +455,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         press("ArrowUp");
         press(" ");
         expect(item(container, "r:G").getAttribute("aria-expanded")).toBe("false");
-        expect(announced(container)).toBe("Line 1 collapsed");
+        expect(announced(container)).toBe("Hall 1 collapsed");
         // The ladder still works from a row: Esc deselects.
         press("Escape");
         expect(item(container, "r:s")).toBeNull();
@@ -465,7 +465,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
     test("Tab walks into a row's widgets; ← → step its elements in time order; Esc returns to the row", () => {
         const links = [{
             key: "m-n", from: { row: rowId("m"), run: "b" }, to: { row: rowId("n"), run: "x" },
-            quantity: some({ value: 1, unit: some("t"), format: none, text: none }),
+            quantity: some({ value: 1, unit: some("k sheets"), format: none, text: none }),
         }];
         const { container } = renderPlan(planRoot([
             // Data order is not time order: the August run comes first.
@@ -509,19 +509,19 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         const armed = watchPopoverArming();
         const clicks: unknown[] = [];
         const popover = () => some(variant("Text", { value: "RUN DETAIL", style: none }));
-        const { container } = renderPlan(planRoot([planRow("m", span([run("b214", W27, day("2026-07-27"))]))],
+        const { container } = renderPlan(planRoot([planRow("m", span([run("j4642", W27, day("2026-07-27"))]))],
             { popover, onElementClick: (e: unknown) => { clicks.push(e); } }), "plan-819-activate");
         act(() => gridOf(container).focus());
         const row = item(container, "r:m");
         press("Tab");
-        const bar = row.querySelector("[data-run='b214']") as HTMLElement;
+        const bar = row.querySelector("[data-run='j4642']") as HTMLElement;
         expect(document.activeElement).toBe(bar);
         press("Enter");
         expect(screen.getByText("RUN DETAIL")).toBeTruthy();
         expect(row.getAttribute("aria-selected")).toBe("true");
         await waitFor(() => expect(clicks).toHaveLength(1));
         // The click is the bar's run ref, its row named by the typed id (#822, #824).
-        expect(clicks[0]).toEqual(variant("run", { row: rowId("m"), run: "b214" }));
+        expect(clicks[0]).toEqual(variant("run", { row: rowId("m"), run: "j4642" }));
         // The popover's Esc first — met, as a user's always is, by its armed
         // layer: the surface closes and focus is back on the bar… (An Esc
         // inside the first frame, before the layer listens, is the canvas's
@@ -603,16 +603,16 @@ describe("one tab stop, and the keyboard map (#819)", () => {
 describe("the live region (#819)", () => {
     test("a click's selection and a band's collapse are announced as well as a key's", () => {
         const { container } = renderPlan(planRoot([
-            planRow("A", group(), { label: "Line A" }),
-            planRow("m", span(), { parent: "A", label: "Mill 3" }),
+            planRow("A", group(), { label: "Hall A" }),
+            planRow("m", span(), { parent: "A", label: "Press 3" }),
         ]), "plan-819-live");
         const region = container.querySelector("[data-plan-announce]")!;
         expect(region.getAttribute("role")).toBe("status");
         expect(region.getAttribute("aria-live")).toBe("polite");
         fireEvent.click(item(container, "r:m"));
-        expect(announced(container)).toBe("Selected Mill 3");
+        expect(announced(container)).toBe("Selected Press 3");
         fireEvent.click(item(container, "r:A"));
-        expect(announced(container)).toBe("Line A collapsed");
+        expect(announced(container)).toBe("Hall A collapsed");
     });
 });
 
@@ -652,7 +652,7 @@ describe("every colour-only cell says its value (#819)", () => {
 
     test("a group's summary strip says each bucket's value as text", () => {
         const { container } = renderPlan(planRoot([
-            planRow("L", group(heatCells([[W27, 80], [day("2026-07-06"), undefined]])), { label: "Line 1", collapsed: true }),
+            planRow("L", group(heatCells([[W27, 80], [day("2026-07-06"), undefined]])), { label: "Hall 1", collapsed: true }),
             planRow("m", span(), { parent: "L" }),
         ]), "plan-819-strip");
         const cells = [...container.querySelectorAll(`${rowSel("L", "data-plan-group")} [data-plan-bucket]`)];

@@ -33,9 +33,9 @@ describeEast("Data", (test) => {
         const units = $.let(ex.generateUnits(12n));
         $(Assert.equal(units.size(), 12n));
         $(Assert.equal(units.toArray((_$, _u, k) => k).slice(0n, 3n), ["U10000", "U10001", "U10002"]));
-        // Two weeks from W28 (the second of ten start weeks), at 41 t.
+        // Two weeks from W28 (the second of ten start weeks), at 41 k sheets.
         $(Assert.equal(units.get("U10001"), {
-            start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), tonnes: 41.0,
+            start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), sheets: 41.0,
         }));
         // The eleventh unit starts in W27 again.
         $(Assert.equal(units.get("U10010").start, new Date("2026-06-29T00:00:00Z")));

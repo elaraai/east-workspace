@@ -6,7 +6,7 @@
 /**
  * Drag and drop in a real browser (#608) — the drag layer's pointer path,
  * where jsdom has no layout to measure it. `planRowDrop` is a Library over a
- * Plan bounded shorter than its rows, so the Line 3 machine starts below the
+ * Plan bounded shorter than its rows, so the Hall 3 press starts below the
  * fold:
  *
  * - a card held at the canvas's bottom edge scrolls it there, and drops on it;
@@ -27,12 +27,12 @@ import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { openExample, rowId, rowSel } from "./plan-page";
 
-/** The Line 3 machine — below the fold — and the first machine, above it. */
-const M11 = rowSel("gmach", "m11");
-const M03 = rowSel("mach", "m03");
+/** The Hall 3 press — below the fold — and the first press, above it. */
+const P11 = rowSel("gpress", "p11");
+const P03 = rowSel("press", "p03");
 
-/** The job card a machine row takes. */
-const weld = (entry: Locator) => entry.locator("[data-draggable]", { hasText: "Weld cell" });
+/** The job card a press row takes. */
+const poster = (entry: Locator) => entry.locator("[data-draggable]", { hasText: "Poster run" });
 
 /** The canvas's scroll frame. */
 const frameOf = (entry: Locator) => entry.locator('[data-virtual-rows="bounded"]');
@@ -57,12 +57,12 @@ const EDGE = 48;
  * planRowDrop at rest, its canvas at its first row, placed so the page's own
  * scroller stays still: the card 70px under the scroller's top, and the
  * canvas below it — the whole drag — clear of the scroller's edge bands. A
- * press inside a band would scroll the page, and move the canvas away from
- * the point the drag was aimed at.
+ * pointer pressed inside a band would scroll the page, and move the canvas
+ * away from the point the drag was aimed at.
  */
 async function open(page: Page): Promise<Locator> {
     const entry = await openExample(page, "planRowDrop");
-    await weld(entry).evaluate((card) => {
+    await poster(entry).evaluate((card) => {
         card.scrollIntoView({ block: "start" });
         let scroller = card.parentElement;
         while (scroller !== null && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) {
@@ -74,9 +74,9 @@ async function open(page: Page): Promise<Locator> {
     // The canvas opens at its first row (#944).
     const frame = frameOf(entry);
     await expect.poll(() => frame.evaluate((el) => el.scrollTop)).toBe(0);
-    // The layout the drags rely on: the press below the scroller's top band,
+    // The layout the drags rely on: the card below the scroller's top band,
     // the canvas above its bottom one.
-    const clear = await weld(entry).evaluate((card, frameSel) => {
+    const clear = await poster(entry).evaluate((card, frameSel) => {
         let scroller = card.parentElement;
         while (scroller !== null && !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) {
             scroller = scroller.parentElement;
@@ -84,20 +84,20 @@ async function open(page: Page): Promise<Locator> {
         const s = (scroller ?? document.documentElement).getBoundingClientRect();
         const c = card.getBoundingClientRect();
         const f = card.closest("[data-index]")!.querySelector(frameSel)!.getBoundingClientRect();
-        return { press: c.top + c.height / 2 - s.top, canvas: s.bottom - f.bottom };
+        return { card: c.top + c.height / 2 - s.top, canvas: s.bottom - f.bottom };
     }, '[data-virtual-rows="bounded"]');
-    expect(clear.press).toBeGreaterThan(EDGE);
+    expect(clear.card).toBeGreaterThan(EDGE);
     expect(clear.canvas).toBeGreaterThan(EDGE);
     return entry;
 }
 
 /** Press the card and carry it past the drag threshold — the drag is in flight. */
 async function pickUp(page: Page, entry: Locator): Promise<void> {
-    const at = await centre(weld(entry));
+    const at = await centre(poster(entry));
     await page.mouse.move(at.x, at.y);
     await page.mouse.down();
     await page.mouse.move(at.x + 12, at.y + 12, { steps: 3 });
-    await expect(weld(entry)).toHaveAttribute("data-dragging", "");
+    await expect(poster(entry)).toHaveAttribute("data-dragging", "");
 }
 
 test.describe("Plan drag and drop (#608)", () => {
@@ -108,7 +108,7 @@ test.describe("Plan drag and drop (#608)", () => {
         const frame = frameOf(entry);
         const fold = await boxOf(frame);
         const bottom = fold.y + fold.height;
-        const target = entry.locator(M11);
+        const target = entry.locator(P11);
         const cell = target.locator("[data-drag-cell]");
         // Below the fold, and the frame not yet scrolled.
         const start = await target.boundingBox();
@@ -117,34 +117,34 @@ test.describe("Plan drag and drop (#608)", () => {
 
         await pickUp(page, entry);
         // Over the plot column, 8px inside the frame's bottom edge — and held there.
-        const plotX = (await centre(entry.locator(`${M03} [data-drag-cell]`))).x;
+        const plotX = (await centre(entry.locator(`${P03} [data-drag-cell]`))).x;
         await page.mouse.move(plotX, bottom - 8, { steps: 8 });
         // The frame scrolls to its end under the still pointer, and the
-        // machine comes into view.
+        // press comes into view.
         await expect.poll(() => frame.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(1);
         await expect.poll(async () => {
             const box = await cell.boundingBox();
             return box !== null && box.y + box.height <= bottom + 0.5;
         }).toBe(true);
 
-        // Onto it, and let go: the machine's entry is drafted with the job in it.
+        // Onto it, and let go: the press's entry is drafted with the job in it.
         const on = await centre(cell);
         await page.mouse.move(on.x, on.y, { steps: 4 });
         await expect(cell).toHaveAttribute("data-drop-active", "");
         await page.mouse.up();
         await expect(target).toHaveAttribute("data-draft", "");
-        await expect(target.locator('[data-run="drop-job-weld-1"]')).toHaveCount(1);
-        await expect(weld(entry)).not.toHaveAttribute("data-dragging", "");
+        await expect(target.locator('[data-run="drop-job-poster-1"]')).toHaveCount(1);
+        await expect(poster(entry)).not.toHaveAttribute("data-dragging", "");
     });
 
     test("content scrolled under a still pointer is read again — the row under the pointer is where the drag rests", async ({ page }) => {
         const entry = await open(page);
         const frame = frameOf(entry);
-        const m03 = entry.locator(`${M03} [data-drag-cell]`);
+        const p03 = entry.locator(`${P03} [data-drag-cell]`);
         await pickUp(page, entry);
-        const at = await centre(m03);
+        const at = await centre(p03);
         await page.mouse.move(at.x, at.y, { steps: 8 });
-        await expect(m03).toHaveAttribute("data-drop-active", "");
+        await expect(p03).toHaveAttribute("data-drop-active", "");
 
         // The wheel scrolls the canvas; the pointer stays.
         await page.mouse.wheel(0, 64);
@@ -159,10 +159,10 @@ test.describe("Plan drag and drop (#608)", () => {
         }, at);
         await expect.poll(async () => {
             const now = await rest();
-            return now.under !== rowId("mach", "m03") && now.agrees;
+            return now.under !== rowId("press", "p03") && now.agrees;
         }).toBe(true);
         await page.keyboard.press("Escape");
-        await expect(weld(entry)).not.toHaveAttribute("data-dragging", "");
+        await expect(poster(entry)).not.toHaveAttribute("data-dragging", "");
         await page.mouse.up();
     });
 });
@@ -170,15 +170,15 @@ test.describe("Plan drag and drop (#608)", () => {
 test.describe("Plan moves by touch (#825)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "elements move at the desktop width — the narrow layout takes no moves");
 
-    test("a touch held on a run picks it up, and a drag along its machine moves it two weeks — Chromium's own touch input", async ({ page }) => {
+    test("a touch held on a run picks it up, and a drag along its press moves it two weeks — Chromium's own touch input", async ({ page }) => {
         const entry = await openExample(page, "planEditing");
-        const row = entry.locator(rowSel("machines", "L1", "M03"));
+        const row = entry.locator(rowSel("presses", "H1", "P03"));
         const plot = row.locator("[data-plan-plot]");
-        const run = row.locator('[data-run="b214"]');
+        const run = row.locator('[data-run="j4642"]');
         await row.scrollIntoViewIfNeeded();
         await settled(page);
         await expect(run).toHaveAttribute("data-draggable", "");
-        // B-214 spans W28–W31 of a twelve-week window: pressed inside its first week.
+        // J-4642 spans W28–W31 of a twelve-week window: pressed inside its first week.
         const bar = await boxOf(run);
         const week = (await boxOf(plot)).width / 12;
         const at = { x: bar.x + week / 2, y: bar.y + bar.height / 2 };
@@ -212,7 +212,7 @@ test.describe("Plan moves by touch (#825)", () => {
         await touch("touchEnd");
         // A draft, drawn where it was made: two weeks on, marked pending.
         await expect(row).toHaveAttribute("data-draft", "");
-        await expect(row.locator('[data-run="b214"]')).toHaveAttribute("aria-label", /Jul 20, 2026 – Aug 10, 2026/);
-        await expect(row.locator('[data-run="b214"]')).not.toHaveAttribute("data-dragging", "");
+        await expect(row.locator('[data-run="j4642"]')).toHaveAttribute("aria-label", /Jul 20, 2026 – Aug 10, 2026/);
+        await expect(row.locator('[data-run="j4642"]')).not.toHaveAttribute("data-dragging", "");
     });
 });
