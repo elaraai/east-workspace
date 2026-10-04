@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-import numpy.typing as npt
-
 from east.types.values._helpers import (
     EAST_ELEMENT_TO_DTYPE,
     _call_builtin,
@@ -31,6 +28,8 @@ from east.types.values.collections import (
 )
 
 if TYPE_CHECKING:
+    import numpy as np
+    import numpy.typing as npt
     import torch
 
     from east.types.types import EastType
@@ -78,6 +77,8 @@ class EastVector:
                 contiguous); its dtype must be compatible with ``element_type``.
             length: Length for a zero-initialized vector (used if data is None)
         """
+        import numpy as np
+
         if element_type.type not in EAST_ELEMENT_TO_DTYPE:
             raise TypeError(
                 f"Vector element type must be Float, Integer, or Boolean, got {element_type.type}"
@@ -118,6 +119,8 @@ class EastVector:
             A 1-D array: a read-only view of the backing buffer by default, or a
             writeable copy when ``dtype`` differs or ``copy`` is True.
         """
+        import numpy as np
+
         if dtype is not None and np.dtype(dtype) != self._data.dtype:
             return self._data.astype(dtype, copy=True)
         if copy:
@@ -143,6 +146,8 @@ class EastVector:
         self, dtype: npt.DTypeLike | None = None, copy: bool | None = None
     ) -> npt.NDArray[Any]:
         """NumPy array protocol so ``np.asarray(vector)`` returns the buffer."""
+        import numpy as np
+
         if copy is False and dtype is not None and np.dtype(dtype) != self._data.dtype:
             raise ValueError("cannot return a no-copy view with a different dtype")
         return self.to_numpy(dtype=dtype, copy=bool(copy))
@@ -154,6 +159,8 @@ class EastVector:
         The logical element type is inferred from the array's dtype
         (float→Float, int→Integer, bool→Boolean) unless ``element_type`` is given.
         """
+        import numpy as np
+
         arr = np.asarray(array)
         return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
@@ -163,6 +170,8 @@ class EastVector:
 
         The element type is inferred from the tensor's dtype unless given.
         """
+        import numpy as np
+
         arr = np.asarray(tensor.detach().cpu().numpy())
         return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
@@ -176,6 +185,8 @@ class EastVector:
 
     def __eq__(self, other: object) -> bool:
         """Structural equality."""
+        import numpy as np
+
         if not isinstance(other, EastVector):
             return NotImplemented
         return (
@@ -269,6 +280,8 @@ class EastVector:
         Returns:
             A new vector holding a contiguous copy of the selected range.
         """
+        import numpy as np
+
         if _is_traced(start) or _is_traced(end):
             return _lift_traced(self).slice(start, end)
         return EastVector(self.element_type, np.ascontiguousarray(self._data[start:end]))
@@ -285,6 +298,8 @@ class EastVector:
             A new vector with ``self`` then ``other`` (this vector's element
             type).
         """
+        import numpy as np
+
         if _is_traced(other):
             return _lift_traced(self).concat(other)
         return EastVector(self.element_type, np.concatenate([self._data, other._data]))
@@ -717,6 +732,8 @@ class EastVector:
         Returns:
             A new vector of ``length`` ones in the canonical storage dtype.
         """
+        import numpy as np
+
         return cls(element_type, np.ones(length, dtype=EAST_ELEMENT_TO_DTYPE[element_type.type]))
 
     @classmethod
@@ -731,6 +748,8 @@ class EastVector:
         Returns:
             A new vector with every element set to ``value``.
         """
+        import numpy as np
+
         return cls(element_type, np.full(length, value, dtype=EAST_ELEMENT_TO_DTYPE[element_type.type]))
 
     @classmethod
@@ -745,6 +764,8 @@ class EastVector:
         Returns:
             A new vector holding ``items`` in the canonical storage dtype.
         """
+        import numpy as np
+
         return cls(element_type, np.asarray(list(items), dtype=EAST_ELEMENT_TO_DTYPE[element_type.type]))
 
 
@@ -782,6 +803,8 @@ class EastMatrix:
             rows: Number of rows (used with flat/None data)
             cols: Number of columns (used with flat/None data)
         """
+        import numpy as np
+
         if element_type.type not in EAST_ELEMENT_TO_DTYPE:
             raise TypeError(
                 f"Matrix element type must be Float, Integer, or Boolean, got {element_type.type}"
@@ -829,6 +852,8 @@ class EastMatrix:
             default, or a writeable copy when ``dtype`` differs or ``copy`` is
             True.
         """
+        import numpy as np
+
         if dtype is not None and np.dtype(dtype) != self._data.dtype:
             return self._data.astype(dtype, copy=True)
         if copy:
@@ -854,6 +879,8 @@ class EastMatrix:
         self, dtype: npt.DTypeLike | None = None, copy: bool | None = None
     ) -> npt.NDArray[Any]:
         """NumPy array protocol so ``np.asarray(matrix)`` returns the buffer."""
+        import numpy as np
+
         if copy is False and dtype is not None and np.dtype(dtype) != self._data.dtype:
             raise ValueError("cannot return a no-copy view with a different dtype")
         return self.to_numpy(dtype=dtype, copy=bool(copy))
@@ -864,6 +891,8 @@ class EastMatrix:
 
         The logical element type is inferred from the array's dtype unless given.
         """
+        import numpy as np
+
         arr = np.asarray(array)
         return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
@@ -873,6 +902,8 @@ class EastMatrix:
 
         The element type is inferred from the tensor's dtype unless given.
         """
+        import numpy as np
+
         arr = np.asarray(tensor.detach().cpu().numpy())
         return cls(element_type if element_type is not None else _infer_element_type(arr.dtype), arr)
 
@@ -882,6 +913,8 @@ class EastMatrix:
 
     def __eq__(self, other: object) -> bool:
         """Structural equality."""
+        import numpy as np
+
         if not isinstance(other, EastMatrix):
             return NotImplemented
         return (
@@ -986,6 +1019,8 @@ class EastMatrix:
             A new ``EastVector`` over a contiguous copy of the row (not a view;
             mutating it does not write back into the matrix).
         """
+        import numpy as np
+
         if _is_traced(row):
             return _lift_traced(self).get_row(row)
         if row < 0 or row >= self._rows:
@@ -1006,6 +1041,8 @@ class EastMatrix:
             A new ``EastVector`` over a contiguous copy of the column (not a
             view; mutating it does not write back into the matrix).
         """
+        import numpy as np
+
         if _is_traced(col):
             return _lift_traced(self).get_col(col)
         if col < 0 or col >= self._cols:
@@ -1021,6 +1058,8 @@ class EastMatrix:
             A new ``cols x rows`` matrix; the transposed data is made row-major
             contiguous so the result is a copy, not a view.
         """
+        import numpy as np
+
         return EastMatrix(self.element_type, np.ascontiguousarray(self._data.T))
 
     def to_vector(self) -> EastVector:
@@ -1054,6 +1093,8 @@ class EastMatrix:
             An ``EastArray`` of element type ``Vector<element_type>``: one
             ``EastVector`` per row, each over a contiguous copy of that row.
         """
+        import numpy as np
+
         from east.types.types import VectorType
 
         return EastArray(
@@ -1082,6 +1123,8 @@ class EastMatrix:
             returned unchanged in shape without invoking ``fn``.
         """
         import warnings
+
+        import numpy as np
 
         warnings.warn(
             "EastMatrix.map_elements is deprecated — a per-element python loop "
@@ -1245,6 +1288,8 @@ class EastMatrix:
             A new ``rows x cols`` ``EastMatrix`` of ones in the element type's
             storage dtype.
         """
+        import numpy as np
+
         return cls(element_type, np.ones((rows, cols), dtype=EAST_ELEMENT_TO_DTYPE[element_type.type]))
 
     @classmethod
@@ -1261,6 +1306,8 @@ class EastMatrix:
             A new ``rows x cols`` ``EastMatrix`` with every cell set to
             ``value``.
         """
+        import numpy as np
+
         return cls(element_type, np.full((rows, cols), value, dtype=EAST_ELEMENT_TO_DTYPE[element_type.type]))
 
     @classmethod
@@ -1277,6 +1324,8 @@ class EastMatrix:
             A new ``EastMatrix`` with one row per inner sequence, cells coerced
             into the element type's storage dtype.
         """
+        import numpy as np
+
         data = np.asarray(
             [list(r) for r in rows],
             dtype=EAST_ELEMENT_TO_DTYPE[element_type.type],
@@ -1298,6 +1347,8 @@ class EastMatrix:
             A new ``EastMatrix`` with one row per entry, cells coerced into the
             element type's storage dtype.
         """
+        import numpy as np
+
         data = np.asarray(
             [r._data if isinstance(r, EastVector) else r for r in rows],
             dtype=EAST_ELEMENT_TO_DTYPE[element_type.type],

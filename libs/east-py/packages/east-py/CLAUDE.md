@@ -161,12 +161,22 @@ make test-file FILE=tests/conformance                    # IR round trip, ~1 min
    builtins take the target type explicitly.
 5. **Operators only where python agrees with East** (#624): `//`, `%` and
    Integer `**`/`/` raise at build time naming the East spelling.
+6. **Importing east loads neither numpy nor asyncio** (#1128). Every
+   east-py unit is a process of its own and pays for what `import east`
+   loads: the two were half of it. numpy is imported where a value needs it,
+   a Vector or a Matrix or a numpy column, and an `isinstance` check against
+   a numpy type asks `sys.modules` first; asyncio is imported where an async
+   platform function runs. `tests/test_import_cost.py` pins both, and
+   east-py-cli's `test_runner.py` pins a runner process.
 
 ## Cython
 
 Every `.pyx` is a bridge to east-c (or an accelerator: `_values_cy`,
 `_ordering_cy`). `setup.py` discovers all `.pyx` files; `make build-cython`
-rebuilds them in place. A `cpdef` is callable from python and Cython; class
+rebuilds them in place. `_tensor_bridge.pyx` is the only one that cimports
+numpy, which makes its module import numpy as it loads: it holds the value
+bridge's Vector, Matrix and numpy-column code, and `_eastc_bridge` imports
+it the first time a value needs it (invariant 6). A `cpdef` is callable from python and Cython; class
 swaps (`EastStruct = CyEastStruct`) happen in `types/values`, so test with
 `is_east_struct()` / `is_east_variant()`, not `isinstance`.
 

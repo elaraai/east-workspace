@@ -24,10 +24,9 @@ bigint/float split), never inferred — so a Float-intended ``3`` is coerced to
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
-from typing import Any
-
-import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from east.runtime.errors import EastError
 from east.types.types import (
@@ -57,6 +56,9 @@ from east.types.values import (
     is_east_variant,
     is_value_of,
 )
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # Location struct type for boundary errors (no IR location is available).
 _LOCATION_TYPE = StructType(
@@ -92,6 +94,16 @@ def _describe(value: Any) -> str:
     if value is None:
         return "None"
     return type(value).__name__
+
+
+def _loaded_numpy() -> Any:
+    """numpy, if this process has imported it; ``None`` before.
+
+    No value is a numpy scalar or array before numpy is imported, so a
+    coercion asks this rather than import numpy to check a value's type: a
+    process whose values hold none never loads it (#1128).
+    """
+    return sys.modules.get("numpy")
 
 
 # =============================================================================
@@ -281,7 +293,8 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
     if kind == "Boolean":
         if isinstance(value, bool):
             return value
-        if isinstance(value, np.bool_):
+        numpy = _loaded_numpy()
+        if numpy is not None and isinstance(value, numpy.bool_):
             return bool(value)
         raise EastTypeError(f"expected Boolean, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Integer":
@@ -289,7 +302,8 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
             raise EastTypeError("expected Integer, got bool", value=value, expected=typ, path=path)
         if isinstance(value, int):
             return value
-        if isinstance(value, np.integer):
+        numpy = _loaded_numpy()
+        if numpy is not None and isinstance(value, numpy.integer):
             return int(value)
         raise EastTypeError(f"expected Integer, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "Float":
@@ -297,7 +311,10 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
             raise EastTypeError("expected Float, got bool", value=value, expected=typ, path=path)
         if isinstance(value, float):
             return value
-        if isinstance(value, (int, np.integer, np.floating)):
+        if isinstance(value, int):
+            return float(value)
+        numpy = _loaded_numpy()
+        if numpy is not None and isinstance(value, (numpy.integer, numpy.floating)):
             return float(value)
         raise EastTypeError(f"expected Float, got {_describe(value)}", value=value, expected=typ, path=path)
     if kind == "String":
@@ -322,6 +339,8 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
         elem = typ["value"]
         if elem["type"] not in EAST_ELEMENT_TO_DTYPE:
             raise EastTypeError(f"{kind} element must be Float/Integer/Boolean, got {elem['type']}", value=value, expected=typ, path=path)
+        import numpy as np
+
         canonical = EAST_ELEMENT_TO_DTYPE[elem["type"]]
         cls = EastVector if kind == "Vector" else EastMatrix
         if isinstance(value, cls):
@@ -347,7 +366,8 @@ def _coerce(value: Any, typ: EastType, path: str, type_ctx: dict[int, EastType])
 
     if kind == "Array":
         elem = _close_recursive_refs(typ["value"], type_ctx) if type_ctx else typ["value"]
-        if isinstance(value, np.ndarray):
+        numpy = _loaded_numpy()
+        if numpy is not None and isinstance(value, numpy.ndarray):
             return _coerce_array_from_numpy(value, typ, elem, path)
         if (
             isinstance(value, EastArray)
@@ -460,6 +480,8 @@ def _coerce_array_from_numpy(value: np.ndarray, typ: EastType, elem: EastType, p
         )
     buf = value
     if buf.dtype != canonical or not buf.flags["C_CONTIGUOUS"]:
+        import numpy as np
+
         buf = np.ascontiguousarray(buf, dtype=canonical)
     out: EastArray = EastArray(elem, [])
     out.extend(buf)

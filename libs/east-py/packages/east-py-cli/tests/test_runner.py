@@ -2,7 +2,8 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""``run``'s lazy inputs, and ``exec``'s account of them and its stdin lifeline.
+"""``run``'s lazy inputs and what a runner imports, and ``exec``'s account of the
+inputs and its stdin lifeline.
 
 The fixtures in ``tests/fixtures`` are generated from the TypeScript side by
 ``libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs`` and shared
@@ -10,7 +11,9 @@ with east-c's CLI gates. ``run`` opens an indexed collection input lazily,
 whatever it weighs, unless ``--decode whole`` says to decode it before the
 program runs (#1033), and its verbose account says how each input opened and
 what reading it came to, as ``exec -v``'s does (#1004); ``exec
---exit-with-parent`` exits once its stdin pipe closes (#770).
+--exit-with-parent`` exits once its stdin pipe closes (#770). A runner whose
+program holds no Vector or Matrix and calls no async platform function loads
+neither numpy nor asyncio (#1128).
 The errors a lazily opened input raises are runner protocol corpus cases
 (test_exec_corpus.py).
 """
@@ -106,6 +109,27 @@ def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
     )
     assert refused.returncode == 1
     assert refused.stderr.strip() == "Error: --decode takes lazy or whole, not eager"
+
+
+def test_a_runner_loads_neither_numpy_nor_asyncio_for_a_program_that_needs_neither(tmp_path):
+    # Every e3 unit is a runner process of its own, so what one imports is
+    # paid per unit (#1128): numpy and asyncio came to half of `import east`.
+    # A program with no Vector or Matrix that calls no async platform function
+    # loads neither, east-py-std's platform functions loaded beside it, its
+    # async `time_sleep` among them. `-X importtime` lists every module the
+    # process imports.
+    table = tmp_path / "table.beast2"
+    _write_wide_table(table, 1_000)
+    proc = subprocess.run(
+        [sys.executable, "-X", "importtime", "-m", "east_py_cli", "run",
+         str(FIXTURES / "paged_has.beast2"), "-i", str(table), "-p", "east-py-std"],
+        capture_output=True, text=True, check=True,
+    )
+    assert proc.stdout.strip() == "true"
+    imported = {line.rsplit("|", 1)[-1].strip() for line in proc.stderr.splitlines()
+                if line.startswith("import time:")}
+    assert "east_py_std.time" in imported, "the runner did not load east-py-std"
+    assert not imported & {"numpy", "asyncio"}, sorted(imported & {"numpy", "asyncio"})
 
 
 def test_what_a_lazy_read_came_to(tmp_path, monkeypatch, capsys):

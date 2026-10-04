@@ -7,7 +7,6 @@
 Provides time-related operations for East programs running in Python.
 """
 
-import asyncio
 import time
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -41,6 +40,10 @@ async def time_sleep(ms: int) -> None:
     Raises:
         ValueError: If ``ms`` is negative.
     """
+    # Imported here, so a process that loads east-py-std but never sleeps
+    # never loads asyncio (#1128).
+    import asyncio
+
     if ms < 0:
         raise ValueError(f"Sleep duration must be non-negative, got {ms}")
     await asyncio.sleep(ms / 1000.0)
