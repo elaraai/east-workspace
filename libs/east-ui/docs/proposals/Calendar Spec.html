@@ -2933,10 +2933,10 @@ const KINDS = [
 ];
 const KIND = Object.fromEntries(KINDS.map(k => [k.id, k]));
 const RES = [
-  { id: 'p1', name: 'Fox, A.', kind: 'people', meta: 'Operator' },
-  { id: 'p2', name: 'Yu, R.', kind: 'people', meta: 'Operator' },
-  { id: 'p3', name: 'Lee, M.', kind: 'people', meta: 'Technician' },
-  { id: 'p4', name: 'Ada, K.', kind: 'people', meta: 'Technician' },
+  { id: 'p1', name: 'Ash, A.', kind: 'people', meta: 'Operator' },
+  { id: 'p2', name: 'Birch, R.', kind: 'people', meta: 'Operator' },
+  { id: 'p3', name: 'Cedar, M.', kind: 'people', meta: 'Technician' },
+  { id: 'p4', name: 'Larch, K.', kind: 'people', meta: 'Technician' },
   { id: 'm1', name: 'Press 1', kind: 'equipment', meta: 'Press brake' },
   { id: 'm2', name: 'Press 2', kind: 'equipment', meta: 'Press brake' },
   { id: 'm3', name: 'Lathe 4', kind: 'equipment', meta: 'Lathe' },
@@ -3015,7 +3015,7 @@ const BACKLOG0 = [
   { id: 'b2', type: 'inspection', title: 'Torque audit · Press 1', res: 'm1', dur: 90, due: 4, values: { inspector: 'p3', standard: 'ISO 45001', location: { site: 'North yard', detail: 'Press bay' }, checks: ['Gauge points 1–6', 'Log torque readings', 'Sign off'] } },
   { id: 'b3', type: 'inspection', title: 'Fire door audit', res: 's2', dur: 60, due: 5, values: { inspector: 'p3', standard: 'Fire & egress', location: { site: 'Dock B', detail: 'Doors D1–D6' }, checks: ['Closers', 'Seals', 'Signage'] } },
   { id: 'b4', type: 'production', title: 'Run · Part 118-C', res: 'm2', dur: 420, due: 7, values: { part: 'Part 118-C · housing', qty: 1800, rate: 260, changeover_min: 45, operator: 'p2' } },
-  { id: 'b5', type: 'fieldjob', title: 'Pump station · Kerr St', res: 'v1', dur: 150, due: 8, values: { customer: 'City Water', address: { site: 'Off-site', detail: '2 Kerr St' }, lead: 'p4', travel_min: 35, work: ['Repair'], onsite: SITE } },
+  { id: 'b5', type: 'fieldjob', title: 'Pump station · Elm St', res: 'v1', dur: 150, due: 8, values: { customer: 'Elm Water Co.', address: { site: 'Off-site', detail: '2 Elm St' }, lead: 'p4', travel_min: 35, work: ['Repair'], onsite: SITE } },
   { id: 'b6', type: 'maintenance', title: 'Burner tune · Oven 2', res: 'm4', dur: 240, due: 9, values: { work_order: 'WO-4479', priority: 'P3 · normal', technician: 'p3', labour_h: 4, parts: ['Air filter'], procedure: PROC } },
 ];
 
@@ -3041,11 +3041,11 @@ function seedEvents() {
   add('production', 'Run · Part 118-C', 3, 570, 780, 'm3', 'Confirmed', { part: 'Part 118-C · housing', qty: 900, rate: 260, changeover_min: 45, operator: 'p1' });
   add('shift', 'Evening shift', 3, 840, 1320, 'p2', 'Confirmed', shift('Operator', 0));
   add('inspection', 'Safety walk · North yard', 3, 870, 930, 's1', 'Confirmed', walk(0));
-  add('fieldjob', 'Meter install · Hollis Rd', 3, 900, 1050, 'v1', 'Confirmed', { customer: 'Hollis Rd Strata', address: { site: 'Off-site', detail: '14 Hollis Rd' }, lead: 'p4', travel_min: 25, work: ['Install'], onsite: ck(SITE, 0) });
+  add('fieldjob', 'Meter install · Maple Ave', 3, 900, 1050, 'v1', 'Confirmed', { customer: 'Maple Ave Strata', address: { site: 'Off-site', detail: '14 Maple Ave' }, lead: 'p4', travel_min: 25, work: ['Install'], onsite: ck(SITE, 0) });
   add('shift', 'Night shift', 3, 1320, 1800, 'p3', 'Confirmed', shift('Technician', 0));
   add('shift', 'Day shift', 4, 360, 840, 'p4', 'Confirmed', shift('Technician', 0));
   add('production', 'Run · Part 310-A', 4, 420, 900, 'm2', 'Confirmed', RUN310);
-  add('fieldjob', 'Site survey · Granger', 4, 540, 720, 'v1', 'Tentative', { customer: 'Granger Holdings', address: { site: 'Off-site', detail: 'Lot 7, Granger Rd' }, lead: 'p2', travel_min: 45, work: ['Survey'], onsite: ck(SITE, 0) });
+  add('fieldjob', 'Site survey · Ridge Rd', 4, 540, 720, 'v1', 'Tentative', { customer: 'Ridge Holdings', address: { site: 'Off-site', detail: 'Lot 7, Ridge Rd' }, lead: 'p2', travel_min: 45, work: ['Survey'], onsite: ck(SITE, 0) });
   add('maintenance', 'Thermocouple swap · Oven 2', 4, 600, 720, 'm4', 'Tentative', { work_order: 'WO-4468', priority: 'P3 · normal', technician: 'p3', labour_h: 2, parts: [], procedure: ck(PROC, 0) });
   add('inspection', 'Torque audit · Press 2', 4, 900, 960, 'm2', 'Tentative', { inspector: 'p3', standard: 'ISO 45001', location: { site: 'North yard', detail: 'Press bay' }, checks: ck(['Gauge points 1–6', 'Log torque readings', 'Sign off'], 0) });
   add('shift', 'Weekend cover', 5, 420, 900, 'p2', 'Tentative', shift('Supervisor', 0));

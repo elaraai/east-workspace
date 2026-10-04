@@ -13,7 +13,7 @@ the sections it owns. `Calendar Spec.html` beside it is the visual design.
 
 | File | What it is |
 |---|---|
-| `Calendar Spec.html` | The hi-fi mock: Claude Design's "Calendar Editor v2" export, its sample data moved to metal fabrication, self-contained but for React 18 (unpkg), Font Awesome (cdnjs) and the fonts (Google Fonts). |
+| `Calendar Spec.html` | The hi-fi mock: Claude Design's "Calendar Editor v2" export, its sample data moved to metal fabrication and its people, customers and addresses made up, self-contained but for React 18 (unpkg), Font Awesome (cdnjs) and the fonts (Google Fonts). |
 | `Calendar Spec.png` and `Calendar Spec - <view>.png` | Resting renders of the week, month, resources, timeline and inspector views and the dark theme, for people browsing the repo. They are generated from the mock and never read by an agent. |
 | `Calendar Spec.md` | This design. |
 
@@ -97,8 +97,9 @@ These are settled.
     `ready`, drops), with the three differences in §6, and the timeline shares
     Plan's time parts in the renderer.
 13. **The mock's sample data is metal fabrication**: presses, lathes, brackets,
-    housings, calibration and torque checks. Nothing names a client or
-    winemaking, in the mock, the examples, the showcase or the tests.
+    housings, calibration and torque checks. Its people, customers and
+    addresses are made up. Nothing names a client or winemaking, in the mock,
+    the examples, the showcase or the tests.
 
 ## 2a. Example data idiom
 
@@ -699,7 +700,7 @@ days outside the month on paper-2; event chips 21px tall, padding 0 6px — icon
 - sections padded 16px with a rule between.
 - **One event:**
   - header: a 22px icon tile, the kind's name as an eyebrow, a Pending or New
-    chip, the title in DM Sans 17px 700, `Thu 1 Oct · 06:00–14:00 · Fox, A.`
+    chip, the title in DM Sans 17px 700, `Thu 1 Oct · 06:00–14:00 · Ash, A.`
     mono 10.5px, and the status;
   - the overlaps banner (`Banner`, guard), listing each overlapping event's
     time and title;
