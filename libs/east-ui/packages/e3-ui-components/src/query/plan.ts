@@ -25,8 +25,8 @@
  *   cut partitioned, and those cut at the same keys with it; the output kind,
  *   with its programs and a fold's zero; the final function; and a one-shot
  *   call's runner, so a caller who may read the workspace may run it, and its
- *   limits but for the time limit, which e3 gives a split call's job. A
- *   re-keyed join's two ({@link rekeyCallRequests}).
+ *   limits, which name no time limit unless the options do: e3 gives a split
+ *   call's job the server's. A re-keyed join's two ({@link rekeyCallRequests}).
  * - **The explanation** ({@link PlanExplanation}): the path and why; for a
  *   split, what each piece runs, how the pieces combine, what runs once after
  *   them, what every piece reads whole and what it reads cut at the same keys,
@@ -461,11 +461,9 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
  * - `runner` is a one-shot call's (`QueryOptions`): east-c given no platform
  *   package, and no program calls a platform function, so a caller who may
  *   read the workspace may launch it.
- * - `limits` are a one-shot call's, but for the time limit: a split call is a
- *   job, which e3 gives the server's ceiling (ten minutes on a local server)
- *   when the request asks for no time limit, as it asks for none unless the
- *   options set one. A one-shot call's limit would cut a large dataset's job
- *   short.
+ * - `limits` are a one-shot call's: no time limit unless the options set one,
+ *   so e3 gives the job the server's ceiling (ten minutes on a local server),
+ *   as it gives a one-shot call that names none the server's default.
  *
  * @example
  * ```ts
@@ -487,7 +485,7 @@ export function splitCallRequest(split: JqSplitCall, root: QueryRoot, options: Q
         output: outputOf(split.output),
         then: then === null ? none : some(encodeEastIR(then.toIR())),
         runner,
-        limits: jobLimits(limits, options),
+        limits,
     };
 }
 
@@ -521,7 +519,6 @@ export function rekeyCallRequests(split: JqSplitCall, root: QueryRoot, options: 
     const rekey = split.rekey;
     if (rekey === null) throw new Error("rekeyCallRequests: the split re-keys no join");
     const { limits, runner } = queryLimits(options);
-    const job = jobLimits(limits, options);
     const path = (name: string) => entryNamed(root, name, "rekeyCallRequests").path;
     const first: SplitCallRequest = {
         bodyIr: encodeEastIR(rekey.piece().toIR()),
@@ -529,7 +526,11 @@ export function rekeyCallRequests(split: JqSplitCall, root: QueryRoot, options: 
         output: variant("dict", { merge: some(encodeEastIR(rekey.output.merge().toIR())) }),
         then: none,
         runner,
-        limits: some({ timeoutMs: job.type === "some" ? job.value.timeoutMs : none, maxResultBytes: some(1n), maxLogBytes: job.type === "some" ? job.value.maxLogBytes : none }),
+        limits: some({
+            timeoutMs: limits.type === "some" ? limits.value.timeoutMs : none,
+            maxResultBytes: some(1n),
+            maxLogBytes: limits.type === "some" ? limits.value.maxLogBytes : none,
+        }),
     };
     const piece = encodeEastIR(rekey.joinPiece().toIR());
     const then = rekey.joinThen();
@@ -544,26 +545,13 @@ export function rekeyCallRequests(split: JqSplitCall, root: QueryRoot, options: 
             output: outputOf(split.output),
             then: thenIr,
             runner,
-            limits: job,
+            limits,
         }),
         answer: (firstResult, joinResult) => ({
             ...(joinResult ?? firstResult),
             inputs: [...firstResult.inputs, ...(joinResult?.inputs ?? [])],
         }),
     };
-}
-
-/**
- * A split call's limits: a one-shot call's, with no time limit asked unless
- * the options set one, so its job runs to the server's ceiling.
- *
- * @param limits - a one-shot call's limits, from the options
- * @param options - the call's options
- * @returns the limits
- */
-function jobLimits(limits: SplitCallRequest["limits"], options: QueryOptions): SplitCallRequest["limits"] {
-    if (options.timeoutMs !== undefined || limits.type === "none") return limits;
-    return some({ ...limits.value, timeoutMs: none });
 }
 
 /** A split's output kind as a split call's request holds it. */

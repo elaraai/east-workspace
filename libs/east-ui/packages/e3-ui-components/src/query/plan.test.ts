@@ -334,7 +334,7 @@ describe("the request", () => {
         ]);
     });
 
-    test("a one-shot call's runner, and its limits but the time limit: east-c given no platform package, 1 MiB, and no time limit asked — the job runs to the server's ceiling; no program calls a platform function", () => {
+    test("a one-shot call's runner and limits: east-c given no platform package, 1 MiB, and no time limit asked — the job runs to the server's ceiling; no program calls a platform function", () => {
         for (const [program] of SPLITS) {
             const { request } = splitOf(program);
             expect(request.runner).toEqual(variant("east_c", { decode: variant("lazy", null), platforms: [] }));
@@ -611,6 +611,13 @@ describe("joins (#942): two dicts keyed alike cut at the same keys, and two larg
         for (const ir of [p.first.bodyIr, join.bodyIr, ...(join.then.type === "some" ? [join.then.value] : [])]) expect(platformCalls(ir)).toEqual([]);
         // What the run reads: the orders, which the re-key call reads, then the customers.
         expect(p.reading.entries.map(e => e.name)).toEqual(["orders", "customers"]);
+    });
+
+    test("a time limit the options name reaches both calls of a re-keyed join, as a split call's (#1131)", () => {
+        const planned = planQuery(REKEYED[1]!, ROOT, BOTH_HEAVY, { timeoutMs: 120_000 });
+        if ("result" in planned || planned.plan.kind !== "rekey") throw new Error("expected a re-keyed join");
+        expect(planned.plan.first.limits).toEqual(some({ timeoutMs: some(120_000n), maxResultBytes: some(1n), maxLogBytes: none }));
+        expect(planned.plan.join("ab".repeat(32)).limits).toEqual(some({ timeoutMs: some(120_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }));
     });
 
     test("the other side within one piece, or not weighed, is read whole by every piece: one split call", () => {

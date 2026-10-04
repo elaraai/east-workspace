@@ -119,15 +119,12 @@ const MAX_OUTPUTS = 100_000;
 /** The largest answer a call returns, in bytes, by default: 1 MiB. */
 const DEFAULT_MAX_BYTES = 1_048_576;
 
-/** A call's time limit, in milliseconds, by default: 30 s. */
-const DEFAULT_TIMEOUT_MS = 30_000;
-
 /**
  * Options for {@link prepareQuery}: the call's limits, and its runner.
  *
  * @property maxOutputs - The most outputs a `many` query returns: 1 000 by default, at most 100 000
  * @property maxBytes - The largest answer the call returns, in bytes: 1 MiB by default
- * @property timeoutMs - The call's time limit, in milliseconds: 30 s by default
+ * @property timeoutMs - The call's time limit, in milliseconds: the server's when omitted
  * @property runner - The runner: east-c given no platform package, by default
  */
 export interface QueryOptions {
@@ -135,7 +132,11 @@ export interface QueryOptions {
     readonly maxOutputs?: number;
     /** The largest answer the call returns, in bytes: 1 MiB by default. */
     readonly maxBytes?: number;
-    /** The call's time limit, in milliseconds: 30 s by default. */
+    /**
+     * The call's time limit, in milliseconds. Omitted, the call names none and
+     * the server's applies: its default for a call that names none, under the
+     * longest a request to it may take (#1131).
+     */
     readonly timeoutMs?: number;
     /** The runner: east-c given no platform package by default, which any caller who may read the workspace may run. */
     readonly runner?: RunnerValue;
@@ -206,15 +207,16 @@ export type QueryReading = Pick<PreparedQuery, "checked" | "entries" | "maxOutpu
 export interface QueryLimits {
     /** The most outputs a `many` query returns. */
     readonly maxOutputs: number;
-    /** The call's limits: its time limit, and its largest answer as `maxResultBytes`. */
+    /** The call's limits: its largest answer as `maxResultBytes`, and its time limit when the options name one. */
     readonly limits: OneShotRequest["limits"];
     /** The runner: east-c given no platform package, unless the options name another. */
     readonly runner: RunnerValue;
 }
 
 /**
- * A call's limits and runner, from its options, each limit its default when
- * the options give none.
+ * A call's limits and runner, from its options: its most outputs and its
+ * largest answer their defaults when the options give none, and no time limit
+ * unless the options name one, so the server's applies (#1131).
  *
  * @param options - the call's limits and its runner
  * @returns the most outputs, the limits and the runner
@@ -223,10 +225,10 @@ export interface QueryLimits {
 export function queryLimits(options: QueryOptions = {}): QueryLimits {
     const maxOutputs = Math.min(limitOf(options.maxOutputs, DEFAULT_MAX_OUTPUTS, "maxOutputs"), MAX_OUTPUTS);
     const maxBytes = limitOf(options.maxBytes, DEFAULT_MAX_BYTES, "maxBytes");
-    const timeoutMs = limitOf(options.timeoutMs, DEFAULT_TIMEOUT_MS, "timeoutMs");
+    const timeoutMs = options.timeoutMs === undefined ? none : some(BigInt(checkedLimit(options.timeoutMs, "timeoutMs")));
     return {
         maxOutputs,
-        limits: some({ timeoutMs: some(BigInt(timeoutMs)), maxResultBytes: some(BigInt(maxBytes)), maxLogBytes: none }),
+        limits: some({ timeoutMs, maxResultBytes: some(BigInt(maxBytes)), maxLogBytes: none }),
         runner: options.runner ?? platformFreeEastC(),
     };
 }
@@ -259,8 +261,10 @@ export function queryLimits(options: QueryOptions = {}): QueryLimits {
  *   encoded with its source map, so a runtime error names its place in the
  *   jq; `args` is one `dataset` argument per dataset read, in the
  *   translation's order; `runner` is east-c given no platform package, unless
- *   the options name another; `limits` holds `timeoutMs`, and `maxBytes` as
- *   `maxResultBytes`.
+ *   the options name another; `limits` holds `maxBytes` as `maxResultBytes`,
+ *   and `timeoutMs` when the options give one. A call that names no time limit
+ *   runs under the server's: its default for a call that names none, under
+ *   the longest a request to it may take (#1131).
  * - **Platform-free.** A translation calls East's builtins only, so the body
  *   holds no `Platform` node, and with the default runner any caller who may
  *   read the workspace may run the call (#1031).
@@ -316,7 +320,18 @@ export function prepareCheckedQuery(checked: CheckJqResult, root: QueryRoot, opt
  * @throws {RangeError} When it is not a whole number of at least 1.
  */
 function limitOf(value: number | undefined, fallback: number, name: string): number {
-    if (value === undefined) return fallback;
+    return value === undefined ? fallback : checkedLimit(value, name);
+}
+
+/**
+ * A limit the options give, checked.
+ *
+ * @param value - the limit
+ * @param name - its name, for the error
+ * @returns the limit
+ * @throws {RangeError} When it is not a whole number of at least 1.
+ */
+function checkedLimit(value: number, name: string): number {
     if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`prepareQuery: ${name} is ${value}, not a whole number of at least 1`);
     return value;
 }

@@ -241,7 +241,8 @@ describe("C2: the request", () => {
         expect(translateJq(checked).inputs.map(i => i.name)).toEqual(["customers", "orders"]);
         expect(call.entries).toEqual([entry("customers"), entry("orders")]);
         expect(call.request.args).toEqual([variant("dataset", pathOf("customers")), variant("dataset", pathOf("orders"))]);
-        expect(call.request.limits).toEqual(some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }));
+        // No time limit of the builder's own: the server's applies (#1131)
+        expect(call.request.limits).toEqual(some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }));
         expect(call.maxOutputs).toBe(1_000);
         // The program as written, and the types the checker gives it: what reading the answer decodes with.
         expect(equalFor(JqType)(call.checked.program, checked.program!)).toBe(true);
@@ -268,7 +269,7 @@ describe("C2: the request", () => {
         expect(answer.value).toEqual(evaluateJq(DEFAULT_QUERY, fixture.value, { inputType: ROOT_TYPE, root: true }));
     });
 
-    test("the options set the limits and the runner; maxOutputs is at most 100 000, and a limit is a whole number", () => {
+    test("the options set the limits, a time limit among them, and the runner; maxOutputs is at most 100 000, and a limit is a whole number", () => {
         const runner: RunnerValue = variant("east_node", { decode: variant("whole", null), platforms: [] });
         const call = prepared(".orders[] | .id", { maxOutputs: 250_000, maxBytes: 4_096, timeoutMs: 5_000, runner });
         expect(call.maxOutputs).toBe(100_000);

@@ -554,7 +554,8 @@ Beside the pane, the result of the last run:
 **A run** (Run or ⌘⏎) checks and translates the query in the browser and runs it on e3 as a one-shot call
 over its root (#935's `prepareQuery`, sent with e3-api-client's `oneShotExecute`), with the call's limits —
 or, when the dataset it works through weighs more than one piece, as a split call over that dataset's pieces
-(§4.15); a new run abandons the one before. Opening a saved query runs it; starting a new one does not;
+(§4.15); a new run abandons the one before. The call names no time limit, so the server's applies: its
+default for a call that names none, under the longest a request to it may take (#1131). Opening a saved query runs it; starting a new one does not;
 editing never does. After a fresh run each shape line counts its rows: in the visual view a one-shot run's
 program counts its own stages (`length as $nK` after each stage whose shape is rows), so one run gives every
 line (#938); a split run counts the source and the result only.
@@ -635,8 +636,8 @@ is the builder's (e3-ui-components `src/query/plan.ts`); the split is east's.
 - **The split call** (`splitCallRequest`): the piece program; one `dataset` argument per data source the query
   reads, at its path — the one cut partitioned with no `by`, the others reaching each piece whole; the output
   kind, with its merge or combine and a fold's zero; the final function; a one-shot call's runner, so a
-  reader may run it; and a one-shot call's limits but for the time limit, which it asks none of: a split call
-  is a job, which e3 gives the server's ceiling (ten minutes on a local server). The builder launches it and
+  reader may run it; and a one-shot call's limits, which name no time limit: a split call is a job, which e3
+  gives the server's ceiling (ten minutes on a local server). The builder launches it and
   polls it, and reads its answer as a one-shot call's (`queryResultOf`): the two answer at the same type, and
   alike.
 - **What a split run sends**: in the jq view, the jq; in the visual view, the query itself — a rows result
