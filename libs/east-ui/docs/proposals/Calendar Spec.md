@@ -394,6 +394,13 @@ job: Calendar.events(jobs, {
 
 ## 4. The options
 
+The event and resource kinds are e3-ui's `Schedule` contract, which the
+Calendar and Plan's builder share (epic #1175): `Calendar.events`,
+`Calendar.resources`, `Calendar.field`, `Calendar.days`,
+`Calendar.unscheduled` and the shared `Calendar.Types` are aliases of
+`Schedule`'s (#1149). Plan's own options on them are accepted here and
+ignored.
+
 ### 4.1 `Calendar.events(record, config)` — an event kind
 
 The record comes first, as a `Record.bind` handle bound with its patch
@@ -593,7 +600,7 @@ It differs in three places on purpose:
 time scale (units, ticks, the panning window), lane packing, the drag machine
 (snapping, ghosts, refusals), the now line and weekend and night shading become
 React parts both renderers use, taken out of Plan's renderer once
-(`east-ui-components/src/shared/time/`). The calendar never composes `<Plan>`
+(`e3-ui-components/src/shared/time/`, after Plan moves to e3, #1177). The calendar never composes `<Plan>`
 and its payload holds none of Plan's types. In the timeline, Day · Week · Month
 set the zoom, which is Plan's `resolution`; in the calendar layout the same
 control sets the stretch shown, hence `period`.
