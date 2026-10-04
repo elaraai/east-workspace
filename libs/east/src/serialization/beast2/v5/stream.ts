@@ -58,6 +58,7 @@ import {
 import { type Beast2SyncRangeReader, TAG_OR_TERMINATOR_FRAME, bytesReader, isBeast2SyncRangeReader, readExact, readU64LE, readBeast2ExtentsSync } from "./range.js";
 import { SegmentCutter, decodeBeast2FenceFor } from "./boundary.js";
 import { isBeast2ManifestSource, type Beast2ManifestSource } from "./manifest.js";
+import { decodedWeightFor } from "./weight.js";
 
 /** The collection kinds a v5 stream can hold at the root. */
 type SegmentedKind = "Array" | "Set" | "Dict";
@@ -1055,13 +1056,61 @@ export function iterBeast2SegmentsFor<T extends EastType>(type: T | EastTypeValu
 // Paging reader
 // =============================================================================
 
-/** Decoded segments retained by a {@link Beast2Pages} for its element and
- *  keyed read paths: a keyed/indexed read loop over neighbouring rows then
- *  decodes each segment once instead of once per element. Bounded — at most
- *  this many decoded segments live per reader. A scan never enters it: it
- *  reads each segment fresh and keeps one at a time. (east-c's pager keeps a
- *  byte budget of segments instead; #1129 brings the two to one rule.) */
-const SEGMENT_CACHE_CAPACITY = 4;
+/** The decoded weight a {@link Beast2Pages}' cache keeps by default: enough
+ *  for any input the query planner reads whole in each piece, which decodes to
+ *  at most about 16 times its stored 16 MiB (v5/SPEC.md, "The pager's
+ *  cache"). */
+const PAGES_CACHE_BYTES_DEFAULT = 256 * 1024 * 1024;
+
+/** The misses of a run — its first, then each one or two segments past the
+ *  last — from which it drops what it passed: one keyed read can straddle a
+ *  segment boundary, and four misses in order are not chance. */
+const RUN_DROPS_FROM = 4;
+
+/** Options accepted by {@link openBeast2PagesFor}: the decode options, and
+ *  what the reader's cache keeps. */
+export type Beast2PagesOptions = Beast2DecodeOptions & {
+  /**
+   * The decoded weight, in bytes, that the cache of the reader's element and
+   * keyed reads keeps of the segments they decode (v5/SPEC.md, "The pager's
+   * cache"). Defaults to 256 MiB. The segment read last always stays, so `1`
+   * keeps exactly one.
+   */
+  cacheBytes?: number;
+};
+
+/** What a {@link Beast2Pages}' cache has done, and what it holds: the figures
+ *  east-c's pager keeps (`east_beast2_pages_cache_stats`). */
+export type Beast2PagesCacheStats = {
+  /** Element and keyed reads a segment the cache held served. */
+  hits: number;
+  /** Segments let go, least recently used first, to keep within the budget. */
+  evictions: number;
+  /** Segments dropped behind a run of reads in key order. */
+  droppedBehind: number;
+  /** The segments it holds. */
+  segments: number;
+  /** Their decoded weight. */
+  weight: number;
+  /** The most decoded weight it has held. */
+  peakWeight: number;
+  /** Its budget, in decoded weight. */
+  budget: number;
+};
+
+/** A segment a {@link Beast2Pages}' cache holds. */
+interface CachedSegment {
+  /** The decoded segment, frozen. */
+  seg: any;
+  /** A Set or Dict segment's first key. */
+  first: any;
+  /** A Set or Dict segment's last key. */
+  last: any;
+  /** Its decoded weight. */
+  weight: number;
+  /** The run of misses that decoded it. */
+  run: number;
+}
 
 /** The bytes a fence probe reads first: the frame header plus enough of the
  *  payload for the first key of any ordinary row. A key that does not fit
@@ -1076,9 +1125,12 @@ const FENCE_PROBE_BYTES = 4096;
  * {@link segment} seeks to and decodes exactly one segment. Requires the blob
  * to carry an index (written by default by {@link Beast2Writer}); random
  * access additionally requires self-contained segments. The element and keyed
- * read paths ({@link element} / {@link get}) reuse decoded segments through a
- * small LRU, so a read loop over neighbouring rows decodes each segment once
- * rather than once per element; {@link segment} itself always decodes fresh.
+ * read paths ({@link element} / {@link get}) keep the segments they decode in
+ * a cache of the reader's own — up to `cacheBytes` of decoded weight, least
+ * recently used first, and dropping behind reads in key order (v5/SPEC.md,
+ * "The pager's cache") — so a read loop over neighbouring rows decodes each
+ * segment once rather than once per element; {@link segment} itself always
+ * decodes fresh.
  *
  * The blob is either a whole `Uint8Array` or a {@link Beast2SyncRangeReader}:
  * through a reader the open reads only the tail (footer + index) and the
@@ -1128,15 +1180,34 @@ export class Beast2Pages<T extends EastType = EastType> {
   private fenceDec: ((reader: BufferReader, ctx: V5DecodeContext) => any) | null = null;
   /** The decoder of a manifest's stored fence bytes, built on first use. */
   private manifestFenceDec: ((bytes: Uint8Array) => any) | null = null;
-  /** Decoded segments kept hot for the element and keyed read paths, keyed
-   *  by segment index in LRU order. Only {@link element} and {@link get}
+  /** The decoded segments the element and keyed reads keep, by segment
+   *  index, least recently used first: the Map's order is the recency list,
+   *  and a hit moves its segment last. Only {@link element} and {@link get}
    *  route through it: every scan — {@link segment}, {@link segmentDisjoint},
    *  {@link slice} — decodes fresh. Its segments decode frozen, so a caller
    *  cannot change what a later read is served through what one read
    *  returned (#1129). `first`/`last` carry a Set/Dict segment's key range so
    *  a hit can maintain the caller's order threading without a container
    *  walk. */
-  private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
+  private readonly segmentCache = new Map<number, CachedSegment>();
+  /** The cache's budget, in decoded weight. */
+  private readonly cacheBudget: number;
+  /** The decoded weight of the segments the cache holds. */
+  private cacheWeight = 0;
+  /** What the cache has done — see {@link cacheStats}. */
+  private cacheHits = 0;
+  private cacheEvictions = 0;
+  private cacheDropped = 0;
+  private cachePeak = 0;
+  /** Weighs a decoded segment; built on the first decode the cache keeps. */
+  private weighSegment: ((segment: unknown) => number) | null = null;
+  /** Drop-behind: the segment the last miss read (-1 before any), the run's
+   *  misses so far, its first included, the first segment of the run not yet
+   *  dropped behind, and what the run marks the segments its misses decode. */
+  private runLast = -1;
+  private runMisses = 0;
+  private runNextDrop = 0;
+  private runId = 0;
   /** Segments decoded so far — see {@link segmentsDecoded}. */
   private decodes = 0;
   /** Fences probed so far — see {@link fencesProbed}. */
@@ -1146,7 +1217,12 @@ export class Beast2Pages<T extends EastType = EastType> {
   private readonly keptFences: any[] = [];
 
   /** @internal Use {@link openBeast2PagesFor}. */
-  constructor(source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
+  constructor(source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource, typeValue: EastTypeValue, options?: Beast2PagesOptions) {
+    const cacheBytes = options?.cacheBytes ?? PAGES_CACHE_BYTES_DEFAULT;
+    if (!(cacheBytes >= 0)) {
+      throw new TypeError(`beast2 v5: cacheBytes is a decoded weight in bytes, 0 or more, not ${cacheBytes}`);
+    }
+    this.cacheBudget = cacheBytes;
     let kind: SegmentedKind;
     let sourceMap: SourceMap;
     let index: Beast2Index;
@@ -1229,6 +1305,36 @@ export class Beast2Pages<T extends EastType = EastType> {
     return this.probes;
   }
 
+  /**
+   * What the cache of the element and keyed reads has done, and what it holds
+   * now: the figures east-c's pager keeps, by the same rules (v5/SPEC.md, "The
+   * pager's cache").
+   */
+  get cacheStats(): Beast2PagesCacheStats {
+    return {
+      hits: this.cacheHits,
+      evictions: this.cacheEvictions,
+      droppedBehind: this.cacheDropped,
+      segments: this.segmentCache.size,
+      weight: this.cacheWeight,
+      peakWeight: this.cachePeak,
+      budget: this.cacheBudget,
+    };
+  }
+
+  /**
+   * Lets every segment the cache holds go, and forgets the run of reads in key
+   * order they were in: what a lazy value does once it has read its
+   * collection whole, after which its reads never come here again.
+   *
+   * @internal
+   */
+  clearCache(): void {
+    this.segmentCache.clear();
+    this.cacheWeight = 0;
+    this.runLast = -1;
+  }
+
   /** Reads segment `i`'s frame — exactly its wire bytes, from its index
    *  offset to the next segment's (or the terminator) — and opens its
    *  logical chunk. The only place segment bytes are fetched, so a ranged
@@ -1300,17 +1406,20 @@ export class Beast2Pages<T extends EastType = EastType> {
     return value;
   }
 
-  /** Decodes segment `i` through the LRU cache, threading the caller's
-   *  order state exactly as a fresh decode would: a hit replays the
-   *  boundary-ascent check against the cached segment's first key and
-   *  advances `order` to its last. Serves {@link element} and {@link get}
-   *  only — see {@link segmentCache} — and decodes frozen, since every read
-   *  the segment serves shares it. */
+  /** Decodes segment `i` through the cache, threading the caller's order
+   *  state exactly as a fresh decode would: a hit replays the boundary-ascent
+   *  check against the cached segment's first key and advances `order` to its
+   *  last. A miss steps the run of misses ({@link runStep}), decodes the
+   *  segment frozen — every read it serves shares it — and weighs it, and the
+   *  least recently used go until the cache is within its budget; the newest
+   *  never does, so one segment over budget still caches. Serves
+   *  {@link element} and {@link get} only — see {@link segmentCache}. */
   private segmentCached(i: number, order: SegmentOrder | undefined): any {
     const hit = this.segmentCache.get(i);
     if (hit !== undefined) {
       this.segmentCache.delete(i);
-      this.segmentCache.set(i, hit); // refresh recency
+      this.segmentCache.set(i, hit); // the most recently used goes last
+      this.cacheHits++;
       if (order !== undefined && this.orderCmp !== null) {
         if (order.has && this.orderCmp(order.prev, hit.first) >= 0) {
           throw new Error(`beast2 v5: ${this.kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
@@ -1320,6 +1429,7 @@ export class Beast2Pages<T extends EastType = EastType> {
       }
       return hit.seg;
     }
+    this.runStep(i);
     const seg = this.decodeSegmentCore(i, order, true);
     let first: any;
     let last: any;
@@ -1329,11 +1439,52 @@ export class Beast2Pages<T extends EastType = EastType> {
       // order state on the segment's last key.
       last = order?.prev;
     }
-    this.segmentCache.set(i, { seg, first, last });
-    if (this.segmentCache.size > SEGMENT_CACHE_CAPACITY) {
-      this.segmentCache.delete(this.segmentCache.keys().next().value!);
+    this.weighSegment ??= decodedWeightFor(this.typeValue);
+    const weight = this.weighSegment(seg);
+    this.segmentCache.set(i, { seg, first, last, weight, run: this.runId });
+    this.cacheWeight += weight;
+    for (const [k, entry] of this.segmentCache) {
+      if (this.cacheWeight <= this.cacheBudget || k === i) break;
+      this.letGo(k, entry);
+      this.cacheEvictions++;
     }
+    if (this.cacheWeight > this.cachePeak) this.cachePeak = this.cacheWeight;
     return seg;
+  }
+
+  /** A miss reading segment `s`: it continues the run of misses when it reads
+   *  one or two segments past the last — a join's lookups can skip a segment
+   *  holding no key they want — and starts a run otherwise. From the run's
+   *  fourth miss on ({@link RUN_DROPS_FROM}), what the run itself decoded, from
+   *  its first segment to two before `s`, is let go: a reader in key order
+   *  keeps the segment it is in and the one before. A reader at random lands
+   *  one or two past its last miss with odds of about 2 in the segment count
+   *  S, so three such misses in a row are (2/S)³ — 1 in 80,000 over 87
+   *  segments. Hits never touch the run. */
+  private runStep(s: number): void {
+    const last = this.runLast;
+    this.runLast = s;
+    if (last < 0 || s <= last || s - last > 2) {
+      this.runId++;
+      this.runMisses = 1;
+      this.runNextDrop = s;
+      return;
+    }
+    if (++this.runMisses < RUN_DROPS_FROM) return;
+    for (let k = this.runNextDrop; k + 2 <= s; k++) {
+      const entry = this.segmentCache.get(k);
+      if (entry !== undefined && entry.run === this.runId) {
+        this.letGo(k, entry);
+        this.cacheDropped++;
+      }
+    }
+    if (s - 1 > this.runNextDrop) this.runNextDrop = s - 1;
+  }
+
+  /** Lets cached segment `k` go. */
+  private letGo(k: number, entry: CachedSegment): void {
+    this.segmentCache.delete(k);
+    this.cacheWeight -= entry.weight;
   }
 
   /** Segment `i`'s first key or element, probed ({@link probeFirstKey}) and
@@ -1659,11 +1810,13 @@ export class Beast2Pages<T extends EastType = EastType> {
  * whose fences are already decoded, so a keyed read touches exactly one.
  *
  * @param type - the collection type (Array/Set/Dict)
- * @param options - decode options (platform functions for decoded functions)
- * @returns a function opening a blob for paged reads
+ * @param options - decode options (platform functions for decoded functions),
+ *   and the decoded weight the reader's cache keeps (`cacheBytes`)
+ * @returns a function opening a blob for paged reads, which throws a
+ *   `TypeError` when `cacheBytes` is negative or not a number
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => Beast2Pages<T> {
+export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2PagesOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => Beast2Pages<T> {
   const typeValue = asTypeValue(type);
   checkSegmented(typeValue);
   return (source) => new Beast2Pages<T>(source, typeValue, options);

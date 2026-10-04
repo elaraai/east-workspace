@@ -571,6 +571,12 @@ export interface UnitInputOptions {
    *  weighs a read of it whole by (`beast2LazyStats`), and what an input
    *  decoded whole is said to add. Without it, both come to 0. */
   resident?: () => number;
+  /** The decoded weight, in bytes, each lazily opened input's pager keeps of
+   *  the segments its keyed and index reads decode (v5/SPEC.md, "The pager's
+   *  cache"): 256 MiB without it. A runner sets it from
+   *  `EAST_PAGED_CACHE_BYTES`, as east-c's pager reads that variable, so a
+   *  test runs every runner in the one-segment mode alike. */
+  cacheBytes?: number;
 }
 
 /**
@@ -593,7 +599,8 @@ export interface UnitInputOptions {
  *
  * @param io - the unit's files
  * @param path - the input's file
- * @param options - the unit's `fetch`, and the host's resident-memory gauge
+ * @param options - the unit's `fetch`, the host's resident-memory gauge, and
+ *   the decoded weight the input's pager keeps
  * @returns the lazy collection value, or `undefined` when the input cannot be
  *   opened lazily — another encoding, a version 4 or index-less blob, a root
  *   that is no collection, segments that alias one another, an unsafe element
@@ -602,7 +609,11 @@ export interface UnitInputOptions {
 export function openUnitInputLazy(io: UnitIO, path: string, options: UnitInputOptions): unknown | undefined {
   if (unitFileFormat(path) !== "beast2") return undefined;
   const counter = { bytes: 0 };
-  const lazy: Beast2LazyOptions = options.resident !== undefined ? { frozen: true, resident: options.resident } : { frozen: true };
+  const lazy: Beast2LazyOptions = {
+    frozen: true,
+    ...(options.resident !== undefined && { resident: options.resident }),
+    ...(options.cacheBytes !== undefined && { cacheBytes: options.cacheBytes }),
+  };
   try {
     const reader = countedReader(io, path, counter);
     // A file whose value is a manifest is the collection it names, its
@@ -680,7 +691,8 @@ export interface UnitInputsOptions extends UnitInputOptions {
  * @param paths - the input files, in parameter order
  * @param types - the parameters' types
  * @param decode - how the collection inputs are read
- * @param options - the unit's `fetch`, the host's gauge, and the report
+ * @param options - the unit's `fetch`, the host's gauge, the decoded weight a
+ *   lazy input's pager keeps, and the report
  * @returns the inputs, in parameter order
  * @throws {Error} When an input decoded whole cannot be read or decoded.
  */

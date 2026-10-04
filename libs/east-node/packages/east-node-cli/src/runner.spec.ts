@@ -64,6 +64,20 @@ async function stderrOf(run: () => Promise<unknown>): Promise<string> {
   return lines.join('\n');
 }
 
+/** Runs `run` with `EAST_PAGED_CACHE_BYTES` set to `value`, or unset, and puts
+ *  the variable back as it was. */
+async function withPagedCacheBytes<T>(value: string | undefined, run: () => Promise<T>): Promise<T> {
+  const saved = process.env.EAST_PAGED_CACHE_BYTES;
+  if (value === undefined) delete process.env.EAST_PAGED_CACHE_BYTES;
+  else process.env.EAST_PAGED_CACHE_BYTES = value;
+  try {
+    return await run();
+  } finally {
+    if (saved === undefined) delete process.env.EAST_PAGED_CACHE_BYTES;
+    else process.env.EAST_PAGED_CACHE_BYTES = saved;
+  }
+}
+
 /** `promise`'s value, or `undefined` once `ms` pass first — a bounded wait. */
 async function within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: NodeJS.Timeout | undefined;
@@ -204,8 +218,9 @@ describe('lazy inputs', () => {
   });
 
   it('says a lazy input\'s reads decoded its segments again, in east-c\'s and east-py\'s words', async () => {
-    // Keyed reads that cycle over five segments, one more than the pager
-    // keeps: each read decodes its segment again.
+    // Keyed reads that cycle over five segments, under the one-segment mode
+    // east-c's and east-py's gates run their own cycles in: each read decodes
+    // its segment again.
     const DT = DictType(IntegerType, StringType);
     const entries = Array.from({ length: 500 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]);
     const inputPath = join(tempDir, 'table.beast2');
@@ -221,11 +236,18 @@ describe('lazy inputs', () => {
     });
     const outputPath = join(tempDir, 'output.beast2');
 
-    const err = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true));
+    const err = await withPagedCacheBytes('1', () => stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true)));
     assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 50n);
     const account = /input 0: (\d+) segment decodes of its (\d+) segments, (\d+) fences probed — it read segments again that the pager no longer held \(a scan repeated, or reads at random\); decoding it whole would decode each once, but hold the whole input at once/.exec(err);
     assert.ok(account !== null, `the reads' account:\n${err}`);
     assert.deepEqual(account.slice(1).map(Number), [50, 5, 5], 'every read decoded its segment, and the fences were probed once');
+
+    // At the default budget the five segments stay, and each decodes once
+    // but for drop-behind: the cycle's first pass reads them in key order,
+    // its fourth miss and fifth let the first three go, and the second pass
+    // decodes those three again before every read is a hit.
+    const kept = await withPagedCacheBytes(undefined, () => stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true)));
+    assert.ok(kept.includes('input 0: 8 segment decodes of its 5 segments, 5 fences probed'), `the reads' account at the default budget:\n${kept}`);
 
     // Decoded whole before the program runs, the input has no reads to account for.
     const whole = await stderrOf(() => runProgram(writeIr(fn), [], [], [inputPath], outputPath, true, variant('whole', null)));

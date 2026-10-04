@@ -22,7 +22,7 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
 import { openUnitInputs, printTypeValue } from '@elaraai/east/internal';
-import { fetchingSegments, inputBytes, lazyInputBytesRead, loadEastIR, nodeUnitIO, residentBytes } from './loader.js';
+import { fetchingSegments, inputBytes, lazyInputBytesRead, loadEastIR, nodeUnitIO, pagedCacheBytes, residentBytes } from './loader.js';
 
 function now(): bigint { return process.hrtime.bigint(); }
 function elapsed(start: bigint, end: bigint): number { return Number(end - start) / 1e6; }
@@ -110,9 +110,11 @@ const INPUT_REPORT: UnitInputReport = { openedLazily: reportInputLazy, decodedWh
  * too. With `whole`, every input is decoded before the program runs. An input
  * that cannot open lazily — another format, an index-less blob, an element
  * shape holding a Ref or a function — is decoded whole either way. A manifest
- * is the collection it names, its segments the files beside it. It is east's
- * `openUnitInputs` — what `exec` opens a run unit's inputs by — over this
- * machine's files.
+ * is the collection it names, its segments the files beside it. A lazy input's
+ * pager keeps the segments keyed and index reads decode, up to
+ * `EAST_PAGED_CACHE_BYTES` of decoded weight ({@link pagedCacheBytes}). It is
+ * east's `openUnitInputs` — what `exec` opens a run unit's inputs by — over
+ * this machine's files.
  *
  * @param paths - the input files, in parameter order
  * @param types - the parameters' types
@@ -123,9 +125,11 @@ const INPUT_REPORT: UnitInputReport = { openedLazily: reportInputLazy, decodedWh
  * @internal
  */
 export function openInputs(paths: readonly string[], types: readonly EastTypeValue[], decode: UnitDecode, verbose: boolean): unknown[] {
+    const cacheBytes = pagedCacheBytes();
     return openUnitInputs(nodeUnitIO, paths, types, decode, {
         fetch: fetchingSegments(),
         resident: residentBytes,
+        ...(cacheBytes !== undefined && { cacheBytes }),
         ...(verbose && { report: INPUT_REPORT }),
     });
 }

@@ -219,12 +219,15 @@ Options:
 Indexed `.beast2` collection inputs (Array/Set/Dict) open **lazily**, whatever
 they weigh: size, iteration and keyed reads are served from the blob's segment
 index with O(segment) decoded memory, and any other operation transparently
-decodes the whole value once. `--decode whole` decodes every input before the
-program runs instead, which suits a program that reads most of an input at
-random: lazily, a read beyond the segments the pager keeps decodes its segment
-again. `exec` reads the same choice from its unit's `decode`, and east-c and
-east-py take it alike. Semantics are identical either way: it is a memory and
-time choice, not a behavior toggle.
+decodes the whole value once. A loop holds only the segment it walks. Keyed
+reads keep the segments they decode, up to 256 MiB of decoded weight per input
+(`EAST_PAGED_CACHE_BYTES`; `1` keeps one segment), and reads in key order keep
+about two. `--decode whole` decodes every input before the program runs
+instead, which suits a program that reads at random across more than that, or
+loops over an input more than once: lazily, a read beyond the segments the
+pager keeps decodes its segment again. `exec` reads the same choice from its
+unit's `decode`, and east-c and east-py take it alike. Semantics are identical
+either way: it is a memory and time choice, not a behavior toggle.
 
 ```bash
 east-node run ./lookup.beast2 -p @elaraai/east-node-std -i table.beast2 --decode whole

@@ -139,6 +139,11 @@ export interface ExecuteUnitOptions {
    *  the result's `peakBytes`. Without it the result says 0 — the host does
    *  not measure memory, as a browser does not. */
   peakBytes?: () => bigint;
+  /** The decoded weight, in bytes, each lazily opened input's pager keeps of
+   *  the segments its keyed and index reads decode (v5/SPEC.md, "The pager's
+   *  cache"): 256 MiB without it. east-node's reads it from
+   *  `EAST_PAGED_CACHE_BYTES`, as east-c's pager does. */
+  cacheBytes?: number;
   /** Hears how a run unit reads its inputs: without it, nothing is reported
    *  and nothing is measured for a report. */
   report?: UnitRunReport;
@@ -150,6 +155,7 @@ interface Host {
   platforms: PlatformFunction[];
   fetch: boolean;
   resident: (() => number) | undefined;
+  cacheBytes: number | undefined;
   report: UnitRunReport | undefined;
   lap: Lap;
 }
@@ -160,8 +166,9 @@ interface Host {
  *
  * @param unit - the unit; the files it names are read and written through `io`
  * @param io - the unit's files
- * @param options - the host's platform resolver, its memory gauges, and who
- *   hears how the inputs are read
+ * @param options - the host's platform resolver, its memory gauges, the
+ *   decoded weight a lazy input's pager keeps, and who hears how the inputs
+ *   are read
  * @returns the result — a failure is its outcome, never a throw. The host
  *   writes it where the unit's `result` says, if it keeps it
  *
@@ -192,7 +199,7 @@ export async function executeUnit(unit: Unit, io: UnitIO, options: ExecuteUnitOp
   try {
     const platforms: PlatformFunction[] = [];
     for (const name of unit.platforms) platforms.push(...await options.platforms(name));
-    const host: Host = { io, platforms, fetch: unit.fetch, resident: options.resident, report: options.report, lap };
+    const host: Host = { io, platforms, fetch: unit.fetch, resident: options.resident, cacheBytes: options.cacheBytes, report: options.report, lap };
     if (unit.work.type === "run") {
       await runWork(unit.work.value, host);
     } else if (unit.work.type === "merge") {
@@ -230,6 +237,7 @@ async function runWork(work: RunWork, host: Host): Promise<void> {
   const inputs = openUnitInputs(io, work.inputs, params, work.decode, {
     fetch: host.fetch,
     ...(host.resident !== undefined && { resident: host.resident }),
+    ...(host.cacheBytes !== undefined && { cacheBytes: host.cacheBytes }),
     ...(report !== undefined && { report }),
   });
   lap("load");

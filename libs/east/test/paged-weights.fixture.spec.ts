@@ -10,8 +10,11 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { ArrayType, BlobType, EAST_CAPTURES_SYMBOL, IntegerType, StructType, decodeBeast2, equalFor, openBeast2PagesFor, type RuntimeContext } from "../src/index.js";
-import { pagedWeightCases, pagedWeightsBytes } from "./paged-weights.fixture.js";
+import {
+  ArrayType, BlobType, EAST_CAPTURES_SYMBOL, IntegerType, StructType,
+  decodeBeast2, decodeBeast2For, equalFor, openBeast2PagesFor, readBeast2Type, type RuntimeContext,
+} from "../src/index.js";
+import { PagedWeightsFixture, SEGMENT_OF_ONE, pagedWeightCases, pagedWeightsBytes } from "./paged-weights.fixture.js";
 
 const FIXTURE_FILE = new URL("../../test/fixtures/paged-weights.beast2", import.meta.url);
 
@@ -22,6 +25,21 @@ describe("paged weights fixture", () => {
         "test/fixtures/paged-weights.beast2 is not what test/paged-weights.fixture.ts makes now: " +
         "run `make paged-weights` in libs/east and commit the file",
       );
+    }
+  });
+
+  test("TypeScript's pager weighs every case as the fixture says, as east-c's and east-py's do", () => {
+    // The checked-in cases, as the other runtimes read them: each read
+    // through the pager's cache leaves it holding the one segment, the
+    // case's value and the Array of one around it.
+    const cases = decodeBeast2For(PagedWeightsFixture)(new Uint8Array(readFileSync(FIXTURE_FILE)));
+    assert.ok(cases.length >= 30, `the fixture holds ${cases.length} cases, not every kind`);
+    for (const { name, blob, weight } of cases) {
+      const pages = openBeast2PagesFor(readBeast2Type(blob))(blob);
+      pages.element(0);
+      const { segments, weight: held } = pages.cacheStats;
+      assert.equal(segments, 1, name);
+      assert.equal(BigInt(held), SEGMENT_OF_ONE + weight, `${name}: the cache weighs its segment ${held}`);
     }
   });
 

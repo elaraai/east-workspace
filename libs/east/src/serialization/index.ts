@@ -28,7 +28,7 @@ export {
   manifestElementCount, manifestByteSize, Beast2ManifestWriter, type Beast2ManifestSink, sha256Hex,
   configureFramePool, type FramePoolSettings,
   type Beast2EncodeOptions, type Beast2DecodeOptions, type Beast2WriterOptions, type Beast2ElementWriterOptions, type Beast2ElementOf,
-  type Beast2PagedEncodeOptions, type Beast2Codec, type Beast2Version,
+  type Beast2PagedEncodeOptions, type Beast2PagesOptions, type Beast2PagesCacheStats, type Beast2Codec, type Beast2Version,
   type Beast2Extents, type RebuildBeast2Options, type Beast2LazySafeOptions, type Beast2LazyOptions, type Beast2LazyStats,
   type Beast2RangeReader, type Beast2SyncRangeReader, type Beast2RangedExtents, type ReadBeast2ExtentsRangedOptions,
 } from "./beast2/index.js";

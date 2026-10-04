@@ -45,10 +45,9 @@ import { LazyReadError } from "../../../error.js";
 import { markFrozen } from "../../../frozen.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
-import { type Beast2DecodeOptions } from "../shared.js";
 import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
-import { Beast2Pages } from "./stream.js";
+import { Beast2Pages, type Beast2PagesOptions } from "./stream.js";
 import { type Beast2SyncRangeReader } from "./range.js";
 import { type Beast2ManifestSource } from "./manifest.js";
 
@@ -120,10 +119,11 @@ const READ_WHOLE = Symbol("east.lazy.readWhole");
 const LAZY_STATS = Symbol("east.lazy.stats");
 
 /**
- * Options accepted by {@link openBeast2LazyFor}: the decode options, and the
- * gauge a whole read of the value is weighed by.
+ * Options accepted by {@link openBeast2LazyFor}: the decode options, the
+ * decoded weight its pager's cache keeps (`cacheBytes`), and the gauge a whole
+ * read of the value is weighed by.
  */
-export type Beast2LazyOptions = Beast2DecodeOptions & {
+export type Beast2LazyOptions = Beast2PagesOptions & {
   /** The process's resident memory now, in bytes. It is read before and after
    *  an operation the pager cannot serve reads the value whole, so the value
    *  can say what that read added ({@link beast2LazyStats}). Core reads no
@@ -141,7 +141,8 @@ export type Beast2LazyStats = {
   /** The segments the collection is stored in. */
   segments: number;
   /** The segment decodes its reads have made: above `segments` when its reads
-   *  decoded a segment again, beyond the few the pager keeps. */
+   *  decoded a segment again — a scan repeated, which keeps no segment, or a
+   *  read of one the pager's cache had let go. */
   segmentsDecoded: number;
   /** The segment fences its reads probed. */
   fencesProbed: number;
@@ -210,7 +211,8 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
 
   /** Decodes every segment into the underlying B-tree once, weighing what that
    *  adds to resident memory. A read that fails leaves the map unread rather
-   *  than half-filled, so the next access reads again. */
+   *  than half-filled, so the next access reads again. Every read goes to the
+   *  whole map from here, so the segments the pager's cache kept go. */
   private hydrate(): void {
     if (this.hydrated) return;
     const before = this.resident?.() ?? 0;
@@ -224,6 +226,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     }
     this.hydrated = true;
     this.wholeBytes = grownSince(this.resident, before);
+    this.pages.clearCache();
   }
 
   /** What {@link readLazyWhole} runs. */
@@ -280,6 +283,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     }
     this.hydrated = true;
     super.clear();
+    this.pages.clearCache();
   }
 
   override forEach(callbackfn: (value: V, key: K, map: Map<K, V>) => void, thisArg?: unknown): void {
@@ -373,7 +377,8 @@ class LazySortedSet<K> extends SortedSet<K> {
 
   /** Decodes every segment into the underlying B-tree once, weighing what that
    *  adds to resident memory. A read that fails leaves the set unread rather
-   *  than half-filled, so the next access reads again. */
+   *  than half-filled, so the next access reads again. Every read goes to the
+   *  whole set from here, so the segments the pager's cache kept go. */
   private hydrate(): void {
     if (this.hydrated) return;
     const before = this.resident?.() ?? 0;
@@ -387,6 +392,7 @@ class LazySortedSet<K> extends SortedSet<K> {
     }
     this.hydrated = true;
     this.wholeBytes = grownSince(this.resident, before);
+    this.pages.clearCache();
   }
 
   /** What {@link readLazyWhole} runs. */
@@ -439,6 +445,7 @@ class LazySortedSet<K> extends SortedSet<K> {
     }
     this.hydrated = true;
     super.clear();
+    this.pages.clearCache();
   }
 
   override forEach(callbackfn: (value: K, value2: K, set: Set<K>) => void, thisArg?: unknown): void {
@@ -544,7 +551,8 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () =>
   // the pager cannot serve has.
   let wholeBytes: number | undefined;
   // A read that fails leaves the array unread rather than half-filled, so
-  // the next access reads again.
+  // the next access reads again. Every read goes to the whole array from
+  // there, so the segments the pager's cache kept go.
   const hydrate = (): void => {
     if (hydrated) return;
     const before = resident?.() ?? 0;
@@ -561,6 +569,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false, resident?: () =>
     }
     hydrated = true;
     wholeBytes = grownSince(resident, before);
+    pages.clearCache();
   };
   const stats = (): Beast2LazyStats => statsOf(pages, wholeBytes);
   function* elements(): Generator<unknown> {
@@ -743,8 +752,11 @@ export function beast2LazyStats(value: unknown): Beast2LazyStats | undefined {
  *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions,
- *   frozen), and the gauge a whole read of the value is weighed by
- * @returns a function opening a blob as a lazy collection value
+ *   frozen), the decoded weight the pager's cache keeps of the segments keyed
+ *   and index reads decode (`cacheBytes`, 256 MiB by default), and the gauge a
+ *   whole read of the value is weighed by
+ * @returns a function opening a blob as a lazy collection value, which throws
+ *   a `TypeError` when `cacheBytes` is negative or not a number
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
 export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2LazyOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => ValueTypeOf<T> {

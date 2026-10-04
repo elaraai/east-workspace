@@ -9,7 +9,7 @@
  * transparent hydration on everything else, for Dict, Set and Array roots.
  */
 
-import { describe, test } from "node:test";
+import { describe, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   IntegerType, StringType, ArrayType, SetType, DictType, StructType,
@@ -31,6 +31,7 @@ import {
   beast2LazyStats,
   readBeast2Extents,
   spliceBeast2,
+  Beast2Pages,
   type Beast2Codec,
 } from "../index.js";
 import type { Beast2SyncRangeReader } from "../index.js";
@@ -38,14 +39,14 @@ import type { Beast2SyncRangeReader } from "../index.js";
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
 
-/** A collection in canonical order as a blob of 100-element segments — a
- *  geometry chosen here rather than by the cut rule, so that a small value
- *  still spans several segments. */
-function paged(type: EastType, value: Iterable<unknown>, codec?: Beast2Codec): Uint8Array {
+/** A collection in canonical order as a blob of 100-element segments, or
+ *  `per` — a geometry chosen here rather than by the cut rule, so that a small
+ *  value still spans several segments. */
+function paged(type: EastType, value: Iterable<unknown>, codec?: Beast2Codec, per = 100): Uint8Array {
   const items = [...value];
   const batches: unknown[] = [];
-  for (let i = 0; i < items.length; i += 100) {
-    const chunk = items.slice(i, i + 100);
+  for (let i = 0; i < items.length; i += per) {
+    const chunk = items.slice(i, i + per);
     batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
   }
   return encodeBeast2SegmentsFor(type, codec === undefined ? undefined : { codec })(batches as never);
@@ -384,19 +385,20 @@ describe("Beast2 v5 — pages segment cache", () => {
   const RowsT = ArrayType(RowType);
   const structRows = Array.from({ length: 500 }, (_, i) => ({ id: BigInt(i), name: `r-${i}` }));
 
-  test("element reads reuse the decoded segment; eviction decodes fresh", () => {
-    const pages = openBeast2PagesFor(RowsT)(paged(RowsT, structRows));
+  test("element reads reuse the decoded segment; a segment the cache let go decodes fresh", () => {
+    // One segment kept: a read of another lets the first go.
+    const pages = openBeast2PagesFor(RowsT, { cacheBytes: 1 })(paged(RowsT, structRows));
     const a = pages.element(42);
     const b = pages.element(43);
-    assert.equal(a, pages.element(42), "a re-read within the cache window returns the cached decode");
+    assert.equal(a, pages.element(42), "a re-read of the kept segment returns the cached decode");
     assert.equal((a as { id: bigint }).id, 42n);
     assert.equal((b as { id: bigint }).id, 43n);
-    // Touch more segments than the cache holds; the first segment is evicted
-    // and re-decodes to a fresh (equal) object.
-    for (const row of [142, 242, 342, 442]) pages.element(row);
+    pages.element(142);
     const again = pages.element(42);
-    assert.notEqual(again, a, "evicted segments decode fresh");
+    assert.notEqual(again, a, "a segment let go decodes fresh");
     assert.deepEqual(again, a, "with identical content");
+    const { hits, evictions, segments } = pages.cacheStats;
+    assert.deepEqual([pages.segmentsDecoded, hits, evictions, segments], [3, 2, 2, 1]);
   });
 
   test("keyed reads reuse the decoded segment; the public segment() stays fresh", () => {
@@ -439,6 +441,146 @@ describe("Beast2 v5 — pages segment cache", () => {
     rows.fence(1);
     assert.equal(rows.fencesProbed, 2, "an Array's fence is probed afresh each time");
   });
+
+  // The cache's rules, as east-c's gate holds its own pager to them
+  // (test_beast2_pages_cache.c): segments of 8 elements, weighed as
+  // v5/SPEC.md's "The pager's cache" says.
+  const IntRows = ArrayType(IntegerType);
+  const RowTable = DictType(IntegerType, StringType);
+  /** An Array of 8 Integers: its Array (104), its 8 slots and its 8 Integers. */
+  const ARRAY_SEGMENT = 104 + 8 * 8 + 8 * 16;
+  /** A Dict of 8 Integers to "row-N": its Dict (104), its 8 entries, and 8
+   *  Integer keys and 8 Strings that fit their nodes. */
+  const DICT_SEGMENT = 104 + 8 * 16 + 8 * (16 + 72);
+  /** 0 to n - 1 as an Array of Integers, in segments of 8. */
+  const intRows = (n: number): Uint8Array => paged(IntRows, Array.from({ length: n }, (_, i) => BigInt(i)), undefined, 8);
+  /** i to "row-i" for i from 0 to n - 1 as a Dict, in segments of 8. */
+  const rowTable = (n: number): Uint8Array =>
+    paged(RowTable, new SortedMap(Array.from({ length: n }, (_, i): [bigint, string] => [BigInt(i), `row-${i}`]), compareFor(IntegerType)), undefined, 8);
+
+  test("keeps 256 MiB of decoded weight unless cacheBytes says otherwise, and refuses a budget that is no number of bytes", () => {
+    const blob = intRows(96);
+    assert.equal(openBeast2PagesFor(IntRows)(blob).cacheStats.budget, 256 * 1024 * 1024);
+    assert.equal(openBeast2PagesFor(IntRows, { cacheBytes: 1 })(blob).cacheStats.budget, 1);
+    for (const cacheBytes of [-1, Number.NaN]) {
+      assert.throws(() => openBeast2PagesFor(IntRows, { cacheBytes })(blob), {
+        name: "TypeError",
+        message: `beast2 v5: cacheBytes is a decoded weight in bytes, 0 or more, not ${cacheBytes}`,
+      });
+    }
+  });
+
+  test("keeps the most recently used segments within its budget of decoded weight", () => {
+    const pages = openBeast2PagesFor(IntRows, { cacheBytes: 3 * ARRAY_SEGMENT })(intRows(96));
+    assert.equal(pages.segmentCount, 12);
+    // Rows of these segments, in an order no four misses of which run in key
+    // order, beside a model: the three most recently used, newest first.
+    const order = [5, 0, 9, 5, 2, 11, 0, 7, 9, 3, 5, 10, 1, 9, 6, 0, 6, 11];
+    const model: number[] = [];
+    let misses = 0;
+    let hits = 0;
+    let evictions = 0;
+    order.forEach((s, r) => {
+      const at = model.indexOf(s);
+      if (at >= 0) {
+        hits++;
+        model.splice(at, 1);
+      } else {
+        misses++;
+        if (model.length === 3) {
+          model.pop();
+          evictions++;
+        }
+      }
+      model.unshift(s);
+      assert.equal(pages.element(s * 8 + (r % 8)), BigInt(s * 8 + (r % 8)));
+    });
+    const stats = pages.cacheStats;
+    assert.deepEqual([pages.segmentsDecoded, stats.hits, stats.evictions, stats.droppedBehind], [misses, hits, evictions, 0]);
+    assert.deepEqual([stats.segments, stats.weight, stats.peakWeight], [3, 3 * ARRAY_SEGMENT, 3 * ARRAY_SEGMENT]);
+    for (const s of model) pages.element(s * 8);
+    assert.deepEqual([pages.cacheStats.hits, pages.segmentsDecoded], [hits + 3, misses], "the model's segments are the ones cached");
+  });
+
+  test("keeps the newest segment, over budget, alone at a budget of 1", () => {
+    const pages = openBeast2PagesFor(IntRows, { cacheBytes: 1 })(intRows(96));
+    pages.element(4 * 8);
+    pages.element(4 * 8);
+    assert.deepEqual([pages.segmentsDecoded, pages.cacheStats.segments, pages.cacheStats.weight], [1, 1, ARRAY_SEGMENT]);
+    pages.element(8 * 8);
+    pages.element(4 * 8);
+    assert.deepEqual([pages.segmentsDecoded, pages.cacheStats.segments], [3, 1], "segment 4 went when segment 8 came");
+  });
+
+  test("drops behind keyed reads and row reads in key order, decoding each segment once and keeping two", () => {
+    const table = openBeast2PagesFor(RowTable)(rowTable(160));
+    for (let k = 0; k < 160; k++) assert.equal(table.get(BigInt(k)), `row-${k}`);
+    const kept = table.cacheStats;
+    assert.deepEqual([table.segmentsDecoded, kept.hits, kept.droppedBehind], [20, 140, 18]);
+    assert.deepEqual([kept.segments, kept.weight, kept.peakWeight], [2, 2 * DICT_SEGMENT, 3 * DICT_SEGMENT]);
+
+    const rows = openBeast2PagesFor(IntRows)(intRows(96));
+    for (let row = 0; row < 96; row++) rows.element(row);
+    assert.deepEqual([rows.segmentsDecoded, rows.cacheStats.droppedBehind, rows.cacheStats.segments], [12, 10, 2]);
+  });
+
+  test("leaves a working set read at random to survive a run in key order over the same input", () => {
+    // Segments 15, 2 and 7 are read first, then every key of 5 through 12. The
+    // run reads 7 as a hit, skips from 6 to 8, and drops only what it decoded
+    // itself: 5, 6, 8, 9 and 10.
+    const pages = openBeast2PagesFor(RowTable)(rowTable(160));
+    for (const s of [15, 2, 7]) pages.get(BigInt(s * 8));
+    for (let k = 5 * 8; k < 13 * 8; k++) pages.get(BigInt(k));
+    const after = pages.cacheStats;
+    assert.deepEqual([pages.segmentsDecoded, after.droppedBehind, after.segments], [10, 5, 5]);
+    for (const s of [15, 2, 7, 12]) pages.get(BigInt(s * 8 + 1));
+    assert.deepEqual([pages.segmentsDecoded, pages.cacheStats.hits], [10, after.hits + 4], "the working set survived the run");
+  });
+
+  test("ends a run at a backward read: the next drops nothing until its own fourth miss", () => {
+    const pages = openBeast2PagesFor(RowTable)(rowTable(160));
+    for (let k = 0; k < 10 * 8; k++) pages.get(BigInt(k));
+    assert.equal(pages.cacheStats.droppedBehind, 8);
+    for (const s of [3, 4, 5]) pages.get(BigInt(s * 8));
+    assert.deepEqual([pages.cacheStats.droppedBehind, pages.cacheStats.segments], [8, 5]);
+    pages.get(BigInt(6 * 8));
+    assert.deepEqual([pages.cacheStats.droppedBehind, pages.cacheStats.segments], [10, 4]);
+  });
+
+  test("lets its segments go when its lazy value is read whole, and only then", () => {
+    const pages = openBeast2PagesFor(RowTable)(rowTable(32));
+    pages.get(1n);
+    pages.get(9n);
+    assert.equal(pages.cacheStats.segments, 2);
+    pages.clearCache();
+    assert.deepEqual([pages.cacheStats.segments, pages.cacheStats.weight], [0, 0]);
+    pages.get(1n);
+    assert.deepEqual([pages.segmentsDecoded, pages.cacheStats.segments], [3, 1], "a read after is a miss");
+
+    // A lazy value lets its pager's segments go once it holds its collection
+    // whole — read whole for an operation the pager cannot serve, or cleared —
+    // since every read goes to the whole collection from there.
+    const cleared = mock.method(Beast2Pages.prototype, "clearCache");
+    try {
+      const map = openBeast2LazyFor(RowTable)(rowTable(32)) as SortedMap<bigint, string>;
+      assert.equal(map.get(17n), "row-17");
+      assert.equal(cleared.mock.callCount(), 0, "a keyed read keeps its segment");
+      map.set(99n, "added");
+      const tags = openBeast2LazyFor(SetType(StringType))(paged(SetType(StringType), ["a", "b", "c"], undefined, 1)) as SortedSet<string>;
+      assert.ok(tags.has("b"));
+      tags.clear();
+      const rows = openBeast2LazyFor(IntRows)(intRows(32));
+      assert.equal(rows[9], 9n);
+      rows.push(32n);
+      assert.equal(cleared.mock.callCount(), 3, "a write to the map, a clear of the set, a write to the array");
+      for (const call of cleared.mock.calls) {
+        const pager = call.this as Beast2Pages;
+        assert.deepEqual([pager.cacheStats.segments, pager.cacheStats.weight], [0, 0]);
+      }
+    } finally {
+      cleared.mock.restore();
+    }
+  });
 });
 
 describe("Beast2 v5 — what a lazy value's reads came to (beast2LazyStats)", () => {
@@ -446,7 +588,9 @@ describe("Beast2 v5 — what a lazy value's reads came to (beast2LazyStats)", ()
     const blob = paged(TableType, makeTable(500));
     // The gauge the whole read is weighed by: read once before it, once after.
     const readings = [1_000, 4_096];
-    const lazy = openBeast2LazyFor(TableType, { resident: () => readings.shift()! })(blob) as SortedMap<bigint, { id: bigint; name: string }>;
+    // One segment kept, so the reads below that cycle over five decode each
+    // again.
+    const lazy = openBeast2LazyFor(TableType, { resident: () => readings.shift()!, cacheBytes: 1 })(blob) as SortedMap<bigint, { id: bigint; name: string }>;
     assert.deepEqual(beast2LazyStats(lazy), { segments: 5, segmentsDecoded: 0, fencesProbed: 0, hydrated: false, hydratedBytes: 0 });
 
     lazy.get(42n);
@@ -454,7 +598,7 @@ describe("Beast2 v5 — what a lazy value's reads came to (beast2LazyStats)", ()
     assert.deepEqual(beast2LazyStats(lazy), { segments: 5, segmentsDecoded: 1, fencesProbed: 5, hydrated: false, hydratedBytes: 0 });
 
     // Keyed reads that cycle over more segments than the pager keeps decode
-    // each again: every read of the second round misses.
+    // each again: every read but the first, of the segment kept, misses.
     for (let round = 0; round < 2; round++) {
       for (const key of [0n, 100n, 200n, 300n, 400n]) lazy.get(key);
     }
