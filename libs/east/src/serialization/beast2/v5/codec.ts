@@ -222,6 +222,39 @@ function beginContainer(value: any, writer: BufferWriter, ctx: V5EncodeContext):
 }
 
 /**
+ * The IR's codec for one codec build: built the first time a function type
+ * needs it, then shared by every other function type the build reaches. A
+ * function value carries its IR, so each function type used to build the whole
+ * IRType codec of its own — a type holding many function fields paid for it
+ * once per field, and UIComponentType holds 727, which made its encoder
+ * ~170 MB and ~170 ms to build. The IR's codec is built in the build's own
+ * recursion context, as each function type's was; the context is the key,
+ * since a build threads one through every call.
+ */
+const irEncoderOfBuild = new WeakMap<Map<bigint, V5Encoder>, V5Encoder>();
+const irDecoderOfBuild = new WeakMap<Map<bigint, V5Decoder>, V5Decoder>();
+
+/** The IR's encoder for the build whose recursion context is `typeCtx`. */
+function irEncoderFor(typeCtx: Map<bigint, V5Encoder>): V5Encoder {
+  let enc = irEncoderOfBuild.get(typeCtx);
+  if (enc === undefined) {
+    enc = buildV5Encoder(irTypeValue, typeCtx);
+    irEncoderOfBuild.set(typeCtx, enc);
+  }
+  return enc;
+}
+
+/** The IR's decoder for the build whose recursion context is `typeCtx`. */
+function irDecoderFor(typeCtx: Map<bigint, V5Decoder>): V5Decoder {
+  let dec = irDecoderOfBuild.get(typeCtx);
+  if (dec === undefined) {
+    dec = buildV5Decoder(irTypeValue, typeCtx);
+    irDecoderOfBuild.set(typeCtx, dec);
+  }
+  return dec;
+}
+
+/**
  * Builds a v5 value encoder closure tree for the given type.
  *
  * @param type - the type to encode
@@ -369,7 +402,7 @@ export function buildV5Encoder(type: EastTypeValue, typeCtx: Map<bigint, V5Encod
 
     case "Function":
     case "AsyncFunction": {
-      const fnIrEncoder = buildV5Encoder(irTypeValue, typeCtx);
+      const fnIrEncoder = irEncoderFor(typeCtx);
       const captureEncoderCache = new Map<EastTypeValue, V5Encoder>();
 
       return (value: any, writer: BufferWriter, ctx: V5EncodeContext) => {
@@ -651,7 +684,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
     case "AsyncFunction": {
       const isAsync = type.type === "AsyncFunction";
       const fnType = type;
-      const fnIrDecoder = buildV5Decoder(irTypeValue, typeCtx);
+      const fnIrDecoder = irDecoderFor(typeCtx);
       const captureDecoderCache = new Map<EastTypeValue, V5Decoder>();
 
       return (reader: BufferReader, ctx: V5DecodeContext) => {
