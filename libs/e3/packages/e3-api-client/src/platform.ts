@@ -15,7 +15,7 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction } from '@elaraai/east/internal';
 import { EastError } from '@elaraai/east/internal';
-import { TreePathType, WorkspaceStateType, PackageObjectType, dataflowForceOption } from '@elaraai/e3-types';
+import { CallArgType, TreePathType, WorkspaceStateType, PackageObjectType, dataflowForceOption } from '@elaraai/e3-types';
 
 import {
   RepositoryStatusType,
@@ -256,7 +256,9 @@ export const platform_task_logs = East.asyncPlatform(
 // =============================================================================
 
 /** Call a named function of a workspace's deployed package, run to
- *  completion, returning the inline ExecuteResult. */
+ *  completion, returning the inline ExecuteResult. An argument is a value, or
+ *  a dataset of the workspace (`CallArg`'s `dataset`), pinned by its hash at
+ *  launch and named in the result's `inputs`. */
 export const platform_function_call = East.asyncPlatform(
   'e3_function_call',
   [StringType, StringType, StringType, StringType, FunctionCallRequestType, StringType],  // url, repo, workspace, fn, request, token
@@ -705,6 +707,7 @@ export const Platform = {
     DataflowResult: DataflowResultType,
     LogChunk: LogChunkType,
     LogOptions: LogOptionsType,
+    CallArg: CallArgType,
     FunctionCallRequest: FunctionCallRequestType,
     ExecuteResult: ExecuteResultType,
     OneShotRequest: OneShotRequestType,

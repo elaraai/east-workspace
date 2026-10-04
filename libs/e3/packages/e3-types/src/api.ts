@@ -1085,8 +1085,8 @@ export const DiagnosticType = StructType({
  *
  * `inputs` names what the call read: each dataset argument's path and the hash
  * it was pinned at, in argument order, so an answer can be reproduced and a
- * stale one noticed. It is empty for a named function call, for a one-shot
- * with value arguments only, and for an `invalid` result.
+ * stale one noticed. It is empty for a call with value arguments only, and for
+ * an `invalid` result.
  */
 export const ExecuteResultType = StructType({
   outcome: VariantType({
@@ -1103,9 +1103,24 @@ export const ExecuteResultType = StructType({
   inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),
 });
 
-/** Named function call. Positional args, one beast2-encoded value per param. */
+/**
+ * A call's argument: a beast2-encoded value, or a dataset of the workspace the
+ * call runs in, resolved and pinned by its content hash at launch and named in
+ * the result's `inputs`. A named function call and a one-shot take it alike.
+ */
+export const CallArgType = VariantType({
+  value:   BlobType,
+  dataset: TreePathType,
+});
+
+/**
+ * Named function call. Positional args, one per param: a value, or a dataset
+ * of the workspace ({@link CallArgType}). The package-scoped route has no
+ * workspace to read a dataset from, and answers a dataset argument `invalid`;
+ * the workspace-scoped route pins it, as a one-shot's is.
+ */
 export const FunctionCallRequestType = StructType({
-  args:   ArrayType(BlobType),
+  args:   ArrayType(CallArgType),
   runner: OptionType(RunnerType),       // optional override; only the known runtimes
   limits: OptionType(ExecuteLimitsType),
 });
@@ -1131,10 +1146,7 @@ export const FunctionSignatureType = StructType({
  */
 export const OneShotRequestType = StructType({
   bodyIr: BlobType,                       // anonymous EastIR, not deployed
-  args:   ArrayType(VariantType({         // each arg: an inline value OR a live dataset
-    value:   BlobType,
-    dataset: TreePathType,                // workspace-scoped; resolved + pinned by content hash at launch
-  })),
+  args:   ArrayType(CallArgType),         // each arg: an inline value OR a live dataset, pinned at launch
   runner: RunnerType,
   limits: OptionType(ExecuteLimitsType),
 });
@@ -1363,6 +1375,7 @@ export type DatasetStatusDetail = ValueTypeOf<typeof DatasetStatusDetailType>;
 export type ExecuteLimits = ValueTypeOf<typeof ExecuteLimitsType>;
 export type Diagnostic = ValueTypeOf<typeof DiagnosticType>;
 export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
+export type CallArg = ValueTypeOf<typeof CallArgType>;
 export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
 export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
 export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;

@@ -383,10 +383,10 @@ and its commit takes it in.
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/packages/:pkg/:version/functions` | A package's functions and their signatures |
 | GET | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | One function's signature |
-| POST | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | Call a package's function: its result, inline |
+| POST | `/api/repos/:repo/packages/:pkg/:version/functions/:fn` | Call a package's function with values: its result, inline. A dataset argument is `invalid` here, with no workspace to read it from |
 | GET | `/api/repos/:repo/workspaces/:ws/functions` | The deployed package's functions |
 | GET | `/api/repos/:repo/workspaces/:ws/functions/:fn` | One function's signature |
-| POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them |
+| POST | `/api/repos/:repo/workspaces/:ws/functions/:fn` | Call one of them: each argument a value, or one of the workspace's datasets, pinned at its hash when the call starts; the result names the datasets it read (`inputs`) |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot` | Run a caller's program over the workspace's datasets: its result, naming the datasets it read (`inputs`) |
 | POST | `/api/repos/:repo/workspaces/:ws/one-shot/split` | Launch a split call — a caller's program over a dataset's pieces — as a job: answers the job's id; with `?explain=1` the job plans the pieces the call would run, and runs nothing |
 | GET | `/api/repos/:repo/workspaces/:ws/one-shot/split/:id` | Poll a split call: how far it has got, its result, the pieces an explain planned, or why it failed |

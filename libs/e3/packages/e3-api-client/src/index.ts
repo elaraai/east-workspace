@@ -66,6 +66,7 @@ export type {
   ExecuteLimits,
   Diagnostic,
   ExecuteResult,
+  CallArg,
   FunctionCallRequest,
   FunctionSignature,
   OneShotRequest,

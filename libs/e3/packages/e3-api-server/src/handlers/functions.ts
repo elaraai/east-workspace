@@ -6,9 +6,11 @@
 /**
  * Handlers for named package functions.
  *
- * A call reduces to the graph-free `runDetached` primitive: marshal inputs →
- * run a body IR on a runner → return the result inline. Nothing durable is
- * written — no output object, no execution record, no logs, no dataset ref.
+ * A call reduces to the graph-free `runDetached` primitive: marshal inputs —
+ * values, and through a workspace its datasets, pinned by their hashes as a
+ * one-shot's are — → run a body IR on a runner → return the result inline.
+ * Nothing durable is written — no output object, no execution record, no
+ * logs, no dataset ref.
  * Named functions are author-published IR (same trust as a deployed task),
  * which any caller the route admits runs on the function's own runner; a
  * runner the caller names instead is held to its grant (`callFunctionSync`).
@@ -24,6 +26,7 @@ import {
   TaskNotFoundError,
   detachedToExecuteResult,
   invalidExecuteResult,
+  pinCallArguments,
   resolveExecuteLimits,
   resolveJobLimits,
   splitCallInvalid,
@@ -31,8 +34,8 @@ import {
   splitCallPrepare,
   splitCallResult,
 } from '@elaraai/e3-core/portable';
-import type { ExecuteCeilings, OneShotGrant, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
-import { type FunctionObject, type RunnerValue, decodeFunctionObject } from '@elaraai/e3-types';
+import type { DetachedArg, ExecuteCeilings, OneShotGrant, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
+import { type FunctionObject, type RunnerValue, decodeFunctionObject, pathToString } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -103,17 +106,46 @@ function overrideRefusal(stored: RunnerValue, override: RunnerValue, grant: OneS
 }
 
 /**
+ * The arguments a named call hands its runner: each value as its bytes, and
+ * each dataset of the workspace pinned by its hash, as a one-shot's is, with
+ * what the call read. A call with no workspace — through the package route —
+ * has none to read a dataset from, and is `invalid`.
+ */
+async function callArguments(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string | null,
+  fnName: string,
+  args: FunctionCallRequest['args'],
+): Promise<{ args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult> {
+  if (workspace !== null) return pinCallArguments(storage, repoPath, workspace, args);
+  const values: DetachedArg[] = [];
+  for (const [i, arg] of args.entries()) {
+    if (arg.type === 'dataset') {
+      return invalidExecuteResult(
+        `Argument ${i} is the dataset ${pathToString(arg.value)}, and a call through the package has no workspace to read it from: `
+        + `call the function through a workspace it is deployed to, at …/workspaces/<ws>/functions/${fnName}`
+      );
+    }
+    values.push(arg.value);
+  }
+  return { args: values, inputs: [] };
+}
+
+/**
  * Execute a resolved named function: arity check → the caller's runner, when
- * it names one → read bodyIr → runDetached. Never throws for execution
- * outcomes — only for storage/infra errors, and a runner the caller's grant
- * does not allow.
+ * it names one → its arguments, a dataset pinned in the workspace → read
+ * bodyIr → runDetached. Never throws for execution outcomes — only for
+ * storage/infra errors, and a runner the caller's grant does not allow.
  */
 async function executeFunction(
   storage: StorageBackend,
   repoPath: string,
   runner: TaskRunner,
+  fnName: string,
   fnObj: FunctionObject,
   req: FunctionCallRequest,
+  workspace: string | null,
   syncDeadlineMs: number | undefined,
   grant: OneShotGrant,
   signal?: AbortSignal,
@@ -131,6 +163,8 @@ async function executeFunction(
     const refused = overrideRefusal(fnObj.runner, req.runner.value, grant);
     if (refused !== null) return refused;
   }
+  const pinned = await callArguments(storage, repoPath, workspace, fnName, req.args);
+  if (!('args' in pinned)) return pinned;
 
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
   const runnerValue: RunnerValue = req.runner.type === 'some' ? req.runner.value : fnObj.runner;
@@ -139,15 +173,15 @@ async function executeFunction(
   const result = await runner.runDetached(
     {
       bodyIr,
-      args: req.args,
+      args: pinned.args,
       runner: runnerValue,
       limits,
       environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
     },
     { signal, storage, verbose }
   );
-  // A named function reads no dataset: its result names none.
-  return detachedToExecuteResult(result);
+  // The result names each dataset argument the call read, at its pinned hash
+  return detachedToExecuteResult(result, pinned.inputs);
 }
 
 // =============================================================================
@@ -216,6 +250,12 @@ export async function describePackageFunction(
  * (`invalid`), and a platform package the function's own runner does not
  * load unless the grant is `any` (`permission_denied`, `path` `runner`).
  *
+ * An argument is a value or a dataset of the workspace the call runs in,
+ * pinned by its hash at launch and named in the result's `inputs`, as a
+ * one-shot's is; an unassigned one is `invalid`. A call with no workspace, the
+ * package route's, has none to read a dataset from, and a dataset argument is
+ * `invalid`: nothing runs.
+ *
  * @param storage - Storage backend
  * @param repoPath - The repository
  * @param runner - The repository's task runner
@@ -229,6 +269,9 @@ export async function describePackageFunction(
  * @param grant - The caller's one-shot grant, which decides whether its call
  *   may give the function a platform package the function does not load:
  *   only `any` may (default `platform_free`)
+ * @param workspace - The workspace the call runs in, whose datasets its
+ *   arguments may name: the workspace route's; `null`, the default, for the
+ *   package route's, which has none
  * @returns The call's result, or the error that stopped it
  */
 export async function callFunctionSync(
@@ -241,11 +284,12 @@ export async function callFunctionSync(
   req: FunctionCallRequest,
   verbose?: boolean,
   syncDeadlineMs?: number,
-  grant: OneShotGrant = 'platform_free'
+  grant: OneShotGrant = 'platform_free',
+  workspace: string | null = null
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    const result = await executeFunction(storage, repoPath, runner, fnObj, req, syncDeadlineMs, grant, undefined, verbose);
+    const result = await executeFunction(storage, repoPath, runner, fnName, fnObj, req, workspace, syncDeadlineMs, grant, undefined, verbose);
     return sendSuccess(ExecuteResultType, result);
   } catch (err) {
     return sendError(ExecuteResultType, errorToVariant(err));

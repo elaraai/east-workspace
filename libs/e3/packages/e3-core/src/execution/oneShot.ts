@@ -23,7 +23,7 @@
  */
 
 import { IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type IR, type ValueIR } from '@elaraai/east';
-import type { ExecuteLimits, ExecuteResult, OneShotRequest, RunnerValue, TreePath } from '@elaraai/e3-types';
+import type { CallArg, ExecuteLimits, ExecuteResult, OneShotRequest, RunnerValue, TreePath } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
@@ -152,7 +152,7 @@ export function resolveJobLimits(
  *
  * @param result - The run's result
  * @param inputs - Each dataset argument's path and the hash it was pinned at,
- *   in argument order; none for a named function call
+ *   in argument order; none for a call with value arguments only
  * @returns The call's result
  */
 export function detachedToExecuteResult(result: DetachedResult, inputs: ExecuteResult['inputs'] = []): ExecuteResult {
@@ -283,17 +283,23 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
 }
 
 /**
- * The arguments a runner is handed: a value as its bytes, and a dataset by the
- * hash it is pinned at, with each dataset's path and hash.
+ * The arguments a runner is handed for a call's ({@link CallArg}): a value as
+ * its bytes, and a dataset of the workspace by the hash it is pinned at now,
+ * with each dataset's path and hash, which the call's result names. A one-shot
+ * and a named function call pin theirs alike.
  *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param workspace - The workspace whose datasets the call reads
+ * @param args - The call's arguments
  * @returns The arguments and what they read, or the `invalid` result an
  *   unassigned dataset answers
  */
-async function pinArguments(
+export async function pinCallArguments(
   storage: StorageBackend,
   repo: string,
   workspace: string,
-  args: OneShotRequest['args'],
+  args: readonly CallArg[],
 ): Promise<{ args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult> {
   const pinned: DetachedArg[] = [];
   const inputs: ExecuteResult['inputs'] = [];
@@ -364,7 +370,7 @@ export async function oneShotExecute(
   }
 
   await workspaceGetPackage(storage, repo, workspace);
-  const pinned = await pinArguments(storage, repo, workspace, request.args);
+  const pinned = await pinCallArguments(storage, repo, workspace, request.args);
   if (!('args' in pinned)) return pinned;
 
   const result = await runner.runDetached(

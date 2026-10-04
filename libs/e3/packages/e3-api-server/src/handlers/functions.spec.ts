@@ -78,8 +78,9 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
   await storage.refs.packageWrite(REPO, PKG, VERSION, pkgHash);
 }
 
+/** A call of value arguments, each one's bytes. */
 function callRequest(args: Uint8Array[], runner?: FunctionCallRequest['runner']): FunctionCallRequest {
-  return { args, runner: runner ?? none, limits: none };
+  return { args: args.map((arg) => variant('value', arg)), runner: runner ?? none, limits: none };
 }
 
 describe('function handlers', () => {
@@ -198,6 +199,23 @@ describe('function handlers', () => {
     assert.equal(result.type, 'success');
     assert.equal(result.value.outcome.type, 'invalid');
     assert.match(result.value.outcome.value.diagnostics[0].message, /Expected 1 argument/);
+    assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
+  });
+
+  it('answers a dataset argument through the package, which has no workspace to read it from, invalid without executing', async () => {
+    const response = await callFunctionSync(
+      storage, REPO, runner, PKG, VERSION, 'double',
+      { args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'n')])], runner: none, limits: none }
+    );
+    const result = await decodeResponse<any>(response, ExecuteResultType);
+    assert.equal(result.type, 'success');
+    assert.equal(result.value.outcome.type, 'invalid');
+    assert.equal(
+      result.value.outcome.value.diagnostics[0].message,
+      'Argument 0 is the dataset .inputs.n, and a call through the package has no workspace to read it from: '
+      + 'call the function through a workspace it is deployed to, at …/workspaces/<ws>/functions/double',
+    );
+    assert.deepEqual(result.value.inputs, []);
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 

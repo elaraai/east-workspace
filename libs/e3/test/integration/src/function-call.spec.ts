@@ -76,4 +76,43 @@ describe('e3 call (local repository)', { timeout: 120_000, concurrency: false },
     const result = await runE3Command(['call', repoPath, 'local-fn-pkg.add', 'one', '2'], process.cwd());
     assert.notEqual(result.exitCode, 0);
   });
+
+  describe('a dataset argument, written @<keypath>', { concurrency: false }, () => {
+    before(async () => {
+      for (const command of [['workspace', 'create', repoPath, 'ws'], ['workspace', 'deploy', repoPath, 'ws', 'local-fn-pkg@1.0.0']]) {
+        const result = await runE3Command(command, process.cwd());
+        assert.equal(result.exitCode, 0, `${command.join(' ')}: ${result.stderr}`);
+      }
+    });
+
+    it('is the dataset of the workspace the call runs in', async () => {
+      // `value` holds 10
+      const result = await runE3Command(['call', repoPath, '-w', 'ws', 'add', '@.inputs.value', '5'], process.cwd());
+      assert.equal(result.exitCode, 0, `Failed: ${result.stderr}`);
+      assert.match(result.stdout, /\b15\b/);
+    });
+
+    it('is refused without -w, before the repository is read', async () => {
+      const result = await runE3Command(['call', join(testDir, 'no-such-repo'), 'local-fn-pkg.add', '5', '@.inputs.value'], process.cwd());
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /Argument 2 \(@\.inputs\.value\) is a dataset, which a call reads from the workspace it runs in: pass -w <ws>/);
+    });
+
+    it('names an unassigned dataset', async () => {
+      const result = await runE3Command(['call', repoPath, '-w', 'ws', 'add', '5', '@.inputs.apply'], process.cwd());
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /Dataset argument 1 is not assigned \(ref type: unassigned\)/);
+    });
+
+    it('names an @ that is not a dataset\'s keypath', async () => {
+      for (const [raw, message] of [
+        ['@inputs.value', /Argument 1 \(@inputs\.value\) is not a dataset's keypath, as @\.inputs\.sales is: parseKeypath: unexpected character at position 0: 'i'/],
+        ['@', /Argument 1 \(@\) names the workspace's root, which is a tree/],
+      ] as const) {
+        const result = await runE3Command(['call', repoPath, '-w', 'ws', 'add', raw, '5'], process.cwd());
+        assert.notEqual(result.exitCode, 0, raw);
+        assert.match(result.stderr, message, raw);
+      }
+    });
+  });
 });

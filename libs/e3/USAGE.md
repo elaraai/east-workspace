@@ -407,10 +407,12 @@ const processData = e3.customTask(
 
 ### `e3.function(name, fn, config?)`
 
-Define a named function — invoked by name with argument values, result
-returned inline to the caller. Unlike a task it is not wired to datasets and
-is not part of the dataflow graph; calling it writes nothing to the
-repository. Think "stored procedure" for on-demand compute.
+Define a named function — invoked by name with arguments, result returned
+inline to the caller. An argument is a value, or, in a call through a
+workspace, one of its datasets, which the function reads where it is stored.
+Unlike a task it is not wired to datasets and is not part of the dataflow
+graph; calling it writes nothing to the repository. Think "stored procedure"
+for on-demand compute.
 
 ```typescript
 const add = e3.function(
@@ -707,13 +709,19 @@ Task spec uses dots: `pkg.task` (or `pkg@version.task`). Slashes are no longer a
 ```bash
 e3 call <repo> <pkg.fn> [args...]            # call by package: pkg.fn or pkg@1.0.0.fn
 e3 call <repo> -w <ws> <fn> [args...]        # call the workspace's deployed package
+e3 call <repo> -w <ws> <fn> @.inputs.sales 5 # pass a dataset of the workspace
 e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # write raw result to a file
 e3 call <repo> <pkg.fn> 2 3 -v               # print the runner's timing/perf to stderr (local repos)
 ```
 
 Arguments are `.east` literals (`5`, `"hello"`, `[1.0, 2.0]`) or paths to
 `.beast2` / `.json` / `.east` files, parsed against the function's declared
-parameter types. On success the decoded result prints to stdout; failures
+parameter types. With `-w`, an argument written `@<keypath>` is that dataset
+of the workspace — no East literal starts with `@` — which the function reads
+where it is stored, at the hash it holds when the call starts, as a task reads
+its inputs: a large collection is never sent with the call. Without `-w` one is
+refused, and an unassigned dataset is refused before anything runs. On success
+the decoded result prints to stdout; failures
 (wrong arity, runtime error, timeout, over-size result) exit non-zero with
 a diagnostic. Calls are graph-free — they trigger no dataflow and leave the
 repository byte-for-byte unchanged.

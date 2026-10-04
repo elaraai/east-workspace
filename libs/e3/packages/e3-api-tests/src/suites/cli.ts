@@ -301,6 +301,22 @@ export function cliTests(
         assert.notStrictEqual(result.exitCode, 0);
         assert.match(result.stderr, /argument/i);
       });
+
+      it('passes a dataset of the workspace, written @<keypath>, with -w', async (t) => {
+        const { remoteUrl, workDir, env } = await withFunctionPackage(t);
+        const wsName = `call-cli-ws-${Date.now()}`;
+        for (const command of [['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-cli-pkg@1.0.0']]) {
+          const setup = await runE3Command(command, workDir, { env });
+          assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+        }
+
+        // `value` holds 10
+        const result = await runE3Command(['call', remoteUrl, '-w', wsName, 'add', '@.inputs.value', '5'], workDir, { env });
+        assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
+        assert.match(result.stdout, /\b15\b/);
+
+        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
+      });
     });
 
     describe('mutate command', { concurrency: false }, () => {

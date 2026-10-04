@@ -10,10 +10,14 @@
  *   e3 call <repo> <pkg.fn> [args...] [-o out.beast2]      # package-scoped
  *   e3 call <repo> <pkg@1.0.0.fn> [args...]
  *   e3 call <repo> -w <ws> <fn> [args...]                   # workspace-scoped
+ *   e3 call <repo> -w <ws> <fn> @.inputs.sales 5           # a dataset argument
  *
  * Each positional argument is an .east literal (e.g. `5`, `"hello"`,
  * `[1.0, 2.0]`) or a path to a .beast2 / .json / .east file, parsed against
- * the function's declared parameter type.
+ * the function's declared parameter type. With -w, one written `@<keypath>`
+ * is that dataset of the workspace, read where it is stored and pinned at the
+ * hash it holds when the call starts, as a server pins it; no East literal
+ * starts with `@`. Without -w a dataset argument is refused.
  *
  * Calls are graph-free and persist nothing: the result is returned inline
  * and printed (or written with -o); the repository is unchanged.
@@ -28,6 +32,7 @@ import {
   parseFor,
   printFor,
   none,
+  variant,
   type EastTypeValue,
   type EastType,
 } from '@elaraai/east';
@@ -36,11 +41,13 @@ import {
   packageGetLatestVersion,
   workspaceGetPackage,
   detachedToExecuteResult,
+  pinCallArguments,
   LocalStorage,
   LocalTaskRunner,
   type Budget,
+  type DetachedArg,
 } from '@elaraai/e3-core';
-import { type RunnerValue, decodeFunctionObject } from '@elaraai/e3-types';
+import { type CallArg, type RunnerValue, decodeFunctionObject, parseKeypath } from '@elaraai/e3-types';
 import {
   functionDescribe,
   functionCall,
@@ -115,6 +122,37 @@ export async function encodeArg(raw: string, typeValue: EastTypeValue, index: nu
     throw new Error(`Argument ${index + 1}: failed to parse '${raw}': ${result.error}`);
   }
   return encodeBeast2For(type)(result.value);
+}
+
+/**
+ * Read one positional argument of a call: a dataset of the workspace the call
+ * runs in, written `@<keypath>` (as `@.inputs.sales`), or a value, as
+ * {@link encodeArg} reads one.
+ *
+ * @remarks
+ * No East literal starts with `@`, so the two never collide. A call with no
+ * workspace has no dataset to read, and `callCommand` refuses one before any
+ * argument is read.
+ *
+ * @param raw - The argument as written
+ * @param typeValue - The parameter's type, which a value is read as
+ * @param index - The argument's position from 0; an error names it from 1
+ * @returns The argument
+ * @throws {Error} For an `@` that names no dataset's keypath, and a value that
+ *   does not match the parameter type
+ */
+export async function callArg(raw: string, typeValue: EastTypeValue, index: number): Promise<CallArg> {
+  if (!raw.startsWith('@')) return variant('value', await encodeArg(raw, typeValue, index));
+  let path;
+  try {
+    path = parseKeypath(raw.slice(1));
+  } catch (err) {
+    throw new Error(`Argument ${index + 1} (${raw}) is not a dataset's keypath, as @.inputs.sales is: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (path.length === 0) {
+    throw new Error(`Argument ${index + 1} (${raw}) names the workspace's root, which is a tree: a dataset argument names a dataset, as @.inputs.sales does`);
+  }
+  return variant('dataset', path);
 }
 
 /**
@@ -219,23 +257,41 @@ async function callLocal(
   if (rawArgs.length !== signature.inputTypes.length) {
     exitError(`Function '${spec.fn}' expects ${signature.inputTypes.length} argument(s), got ${rawArgs.length}`);
   }
-  const args: Uint8Array[] = [];
-  for (let i = 0; i < rawArgs.length; i++) {
-    args.push(await encodeArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+  // Through a workspace an argument may be one of its datasets, pinned at the
+  // hash it holds now, as a server pins it, and named in the result; a call
+  // with none takes values only (`callCommand` refuses a dataset without -w)
+  let pinned: { args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult;
+  if (workspace === undefined) {
+    const values: DetachedArg[] = [];
+    for (let i = 0; i < rawArgs.length; i++) {
+      values.push(await encodeArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+    }
+    pinned = { args: values, inputs: [] };
+  } else {
+    const args: CallArg[] = [];
+    for (let i = 0; i < rawArgs.length; i++) {
+      args.push(await callArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+    }
+    pinned = await pinCallArguments(storage, repoPath, workspace, args);
+  }
+  if (!('args' in pinned)) {
+    // An unassigned dataset, and nothing ran
+    await renderResult(pinned, signature.outputType, outputPath);
+    return;
   }
 
   const runner = new LocalTaskRunner(repoPath, budget);
   const bodyIr = await storage.objects.read(repoPath, fnObj.bodyIr);
   const detached = await runner.runDetached({
     bodyIr,
-    args,
+    args: pinned.args,
     runner: fnObj.runner as RunnerValue,
     limits: LOCAL_LIMITS,
     environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
   }, { storage, verbose });
 
   // The wire shape a server answers, rendered the same way
-  await renderResult(detachedToExecuteResult(detached), signature.outputType, outputPath);
+  await renderResult(detachedToExecuteResult(detached, pinned.inputs), signature.outputType, outputPath);
 }
 
 /**
@@ -272,9 +328,10 @@ async function callRemote(
   if (rawArgs.length !== signature.inputTypes.length) {
     exitError(`Function '${spec.fn}' expects ${signature.inputTypes.length} argument(s), got ${rawArgs.length}`);
   }
-  const args: Uint8Array[] = [];
+  // The server pins a dataset argument in the workspace
+  const args: CallArg[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
-    args.push(await encodeArg(rawArgs[i]!, signature.inputTypes[i]!, i));
+    args.push(await callArg(rawArgs[i]!, signature.inputTypes[i]!, i));
   }
 
   const request = { args, runner: none, limits: none };
@@ -296,6 +353,12 @@ export async function callCommand(
 ): Promise<void> {
   try {
     const spec = parseFunctionSpec(fnSpec, options.workspace !== undefined);
+    // A dataset argument is the workspace's: without one it is refused,
+    // before anything is read
+    const dataset = args.findIndex((arg) => arg.startsWith('@'));
+    if (dataset !== -1 && options.workspace === undefined) {
+      throw new Error(`Argument ${dataset + 1} (${args[dataset]}) is a dataset, which a call reads from the workspace it runs in: pass -w <ws>`);
+    }
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
       await callLocal(location.path, spec, options.workspace, args, commandBudget(options), options.output, options.verbose);
