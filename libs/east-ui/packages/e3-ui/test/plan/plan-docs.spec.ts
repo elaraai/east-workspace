@@ -7,12 +7,15 @@
 // precedent). Each `@example` under `src/plan/` — the `<Plan.View>` tag's
 // among them — is the verbatim `fn` of an `example()` in
 // `test/plan/plan*.examples.tsx` that a spec runs, behind imports from the
-// public packages and any module-scope declaration of that file. An example
-// edited without its docs, or a doc example no test runs, fails here.
+// public packages and the module-scope statements of that file it reaches,
+// each written as it is there — an example's data is an e3 declaration beside
+// it (#1178). An example edited without its docs, or a doc example no test
+// runs, fails here.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
+import * as ts from "typescript";
 
 /** The package root — this spec runs from `dist/test/plan/`. */
 const ROOT = new URL("../../../", import.meta.url);
@@ -24,7 +27,14 @@ const SOURCES = list("src/plan/", /\.ts$/);
 const EXAMPLES = list("test/plan/", /^plan[\w-]*\.examples\.tsx?$/);
 const SPECS = list("test/plan/", /^plan[\w-]*\.spec\.ts$/).map(read).join("\n");
 const PRAGMA = "// .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma";
-const PUBLIC_IMPORT = /^import \{ [^}]+ \} from "@elaraai\/(east|east-ui|e3-ui)";$/;
+const PUBLIC_IMPORT = /^import \{ [^}]+ \} from "@elaraai\/(east|east-ui|e3-ui)";$|^import e3 from "@elaraai\/e3";$/;
+
+/** The top-level statements of a TypeScript source, each as written — its
+ *  leading comments aside, which a doc writes as its own. */
+function statementsOf(name: string, text: string): string[] {
+    const sf = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, name.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    return sf.statements.map((s) => s.getText(sf));
+}
 
 /** One example's `fn` as a doc prints it: the head after `fn: `, the body dedented four spaces, the tail closed with `;`. */
 interface Mirror {
@@ -91,12 +101,15 @@ function flaw(doc: DocExample, m: Mirror): string | undefined {
     if (doc.fence !== fence) return `fenced ${doc.fence}, not ${fence}`;
     if (tsx && doc.code[0] !== PRAGMA) return "a .tsx example opens with the pragma note";
     const code = tsx ? doc.code.slice(1) : doc.code;
-    if (code.some((l) => l.startsWith("import ") && !PUBLIC_IMPORT.test(l))) return "an import from outside @elaraai/east, @elaraai/east-ui and @elaraai/e3-ui";
+    if (code.some((l) => l.startsWith("import ") && !PUBLIC_IMPORT.test(l))) return "an import from outside @elaraai/east, @elaraai/east-ui, @elaraai/e3-ui and @elaraai/e3";
     let imports = 0;
     while (code[imports]?.startsWith("import ")) imports++;
-    const moduleScope = new Set(read(m.file).split("\n").filter((l) => l !== "" && !/^\s/.test(l)));
-    const stray = code.slice(imports, code.length - m.lines.length).find((l) => l !== "" && !moduleScope.has(l));
-    if (stray !== undefined) return `\`${stray}\` is not a module-scope line of ${m.file}`;
+    // Between the imports and the fn: whole statements of the examples file's
+    // module scope — its e3 declarations and their types — each as it is there.
+    const moduleScope = new Set(statementsOf(m.file, read(m.file)));
+    const between = code.slice(imports, code.length - m.lines.length).join("\n");
+    const stray = statementsOf(`${m.file}.doc.tsx`, between).find((s) => !moduleScope.has(s));
+    if (stray !== undefined) return `\`${stray.split("\n")[0]}\` is not a module-scope statement of ${m.file}, written as it is there`;
     if (!new RegExp(`\\b${m.name}: \\w+\\.${m.name}\\b`).test(SPECS)) return "not wired into a spec's Assert.examples";
     return undefined;
 }
