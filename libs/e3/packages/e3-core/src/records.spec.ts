@@ -15,14 +15,16 @@ import { execFileSync } from 'node:child_process';
 import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
+import { East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { RecordIndexObjectType, decodePackageObject } from '@elaraai/e3-types';
-import type { Structure, TreePath } from '@elaraai/e3-types';
+import {
+  RecordCommitType, RecordIndexObjectType, RecordStateType, TaskObjectType, decodeCollectionManifest, decodePackageObject, isCollectionManifestType,
+} from '@elaraai/e3-types';
+import type { DatasetRef, Structure, TreePath } from '@elaraai/e3-types';
 import * as root from './index.js';
 import * as portable from './portable.js';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
-import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
+import { commitDeployIndexes, recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, recordSystemCommit, readRecordState, resolveRecordIndex } from './records.js';
 import { summarizeDelta } from './record-apply.js';
 import { repoGc } from './gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
@@ -93,6 +95,215 @@ async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Pr
       else process.env[k] = v;
     }
   }
+}
+
+/** What a store was asked during a call: an object write's start and end,
+ *  with the object's hash and kind; a read of an object; and a ref's
+ *  compare-and-swap, with the object writes then in flight. */
+interface StoreEvent {
+  event: 'start' | 'end' | 'read' | 'ref';
+  hash: string;
+  kind: string;
+  /** Whether a unit's run asked it: a run reads what it is handed. */
+  unit: boolean;
+  /** The object writes in flight when a ref was written. */
+  inFlight?: number;
+}
+
+/** One object write, by where its start and its end are in the log. */
+interface WriteSpan {
+  hash: string;
+  kind: string;
+  unit: boolean;
+  start: number;
+  end: number;
+}
+
+/** The kind of object some bytes are, as a log names it. */
+function objectKind(bytes: Uint8Array): string {
+  let type: EastTypeValue;
+  try {
+    type = readBeast2Type(bytes);
+  } catch {
+    return 'object';
+  }
+  if (isCollectionManifestType(type)) return 'manifest';
+  const kinds: Array<[string, EastTypeValue]> = [
+    ['commit', toEastTypeValue(RecordCommitType)],
+    ['state', toEastTypeValue(RecordStateType)],
+    ['args', toEastTypeValue(ArrayType(BlobType))],
+    ['task', toEastTypeValue(TaskObjectType)],
+  ];
+  return kinds.find(([, of]) => isTypeValueEqual(type, of))?.[0] ?? 'object';
+}
+
+/** The type an object's bytes hold, printed, or `raw` for bytes that hold
+ *  none. */
+function typeOfObject(bytes: Uint8Array): string {
+  try {
+    return printFor(EastTypeValueType)(readBeast2Type(bytes));
+  } catch {
+    return 'raw';
+  }
+}
+
+/**
+ * A store that logs what it is asked, and wraps a runner so that what a
+ * unit's run asks is marked the unit's.
+ *
+ * @param inner - The store asked
+ * @param options - `holdFirst`: the first object written waits, until a write
+ *   of an object of another type begins, for 10 s — what shows two stores
+ *   overlap whatever the timing
+ */
+function watchedStore(inner: StorageBackend, options: { holdFirst?: boolean } = {}): {
+  storage: StorageBackend;
+  log: StoreEvent[];
+  watch: (runner: TaskRunner) => TaskRunner;
+} {
+  const log: StoreEvent[] = [];
+  let units = 0;
+  let inFlight = 0;
+  let held: { type: string; release: () => void } | null | undefined = options.holdFirst === true ? undefined : null;
+  /** Releases the held write once a write of another type begins. */
+  const begun = async (type: string): Promise<void> => {
+    if (held === undefined) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('no write of another object began while the first was in flight')), 10_000);
+        held = { type, release: () => { clearTimeout(timer); resolve(); } };
+      });
+    } else if (held !== null && held.type !== type) {
+      held.release();
+      held = null;
+    }
+  };
+  const objects = new Proxy(inner.objects, {
+    get(target, property, receiver) {
+      if (property === 'write') {
+        return async (repo: string, bytes: Uint8Array): Promise<string> => {
+          const write = { hash: sha256Hex(bytes), kind: objectKind(bytes), unit: units > 0 };
+          log.push({ event: 'start', ...write });
+          inFlight++;
+          try {
+            await begun(typeOfObject(bytes));
+            return await target.write(repo, bytes);
+          } finally {
+            inFlight--;
+            log.push({ event: 'end', ...write });
+          }
+        };
+      }
+      if (property === 'read' || property === 'readRange' || property === 'stat') {
+        const method = Reflect.get(target, property, receiver) as (repo: string, hash: string, ...rest: unknown[]) => unknown;
+        return (repo: string, hash: string, ...rest: unknown[]): unknown => {
+          log.push({ event: 'read', hash, kind: property, unit: units > 0 });
+          return method.call(target, repo, hash, ...rest);
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  const datasets = new Proxy(inner.datasets, {
+    get(target, property, receiver) {
+      if (property === 'writeIf') {
+        return (repo: string, ws: string, path: string, ref: DatasetRef, revision: string | null) => {
+          log.push({ event: 'ref', hash: ref.type === 'value' ? ref.value.hash : '', kind: path, unit: false, inFlight });
+          return target.writeIf(repo, ws, path, ref, revision);
+        };
+      }
+      if (property === 'write') {
+        return (repo: string, ws: string, path: string, ref: DatasetRef) => {
+          log.push({ event: 'ref', hash: ref.type === 'value' ? ref.value.hash : '', kind: path, unit: false, inFlight });
+          return target.write(repo, ws, path, ref);
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  // A Proxy, not a spread: a store is a class instance, and its methods live
+  // on the prototype, where a spread does not reach them.
+  const storage = new Proxy(inner, {
+    get(target, property, receiver) {
+      if (property === 'objects') return objects;
+      if (property === 'datasets') return datasets;
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  const watch = (runner: TaskRunner): TaskRunner => ({
+    execute: async (...args: Parameters<TaskRunner['execute']>): Promise<TaskResult> => {
+      units++;
+      try {
+        return await runner.execute(...args);
+      } finally {
+        units--;
+      }
+    },
+  }) as unknown as TaskRunner;
+  return { storage, log, watch };
+}
+
+/** The object writes a log records, each by where it began and ended. */
+function writesOf(log: readonly StoreEvent[]): WriteSpan[] {
+  const writes: WriteSpan[] = [];
+  const open: WriteSpan[] = [];
+  for (const [at, event] of log.entries()) {
+    if (event.event === 'start') {
+      const write = { hash: event.hash, kind: event.kind, unit: event.unit, start: at, end: -1 };
+      writes.push(write);
+      open.push(write);
+    } else if (event.event === 'end') {
+      const write = open.find((candidate) => candidate.hash === event.hash)!;
+      open.splice(open.indexOf(write), 1);
+      write.end = at;
+    }
+  }
+  return writes;
+}
+
+/** Whether two writes were in flight together. */
+function together(a: WriteSpan, b: WriteSpan): boolean {
+  return a.start < b.end && b.start < a.end;
+}
+
+/**
+ * Asserts a record operation stored every object before its ref named any, a
+ * manifest after the segments it names, and read back nothing it wrote — its
+ * unit's run aside, which reads what it is handed.
+ *
+ * @returns The writes, for a test's own assertions
+ */
+async function assertSafelyStored(storage: StorageBackend, repo: string, log: readonly StoreEvent[]): Promise<WriteSpan[]> {
+  const writes = writesOf(log);
+  const ref = log.findIndex((event) => event.event === 'ref');
+  assert.ok(ref >= 0, 'the ref was written');
+  assert.strictEqual(log[ref]!.inFlight, 0, 'no object write was in flight when the ref was written');
+  for (const write of writes) {
+    assert.ok(write.end >= 0 && write.end < ref, `the ${write.kind} ${write.hash.slice(0, 8)} was stored before the ref named it`);
+  }
+  for (const manifest of writes.filter((write) => write.kind === 'manifest')) {
+    for (const entry of decodeCollectionManifest(await storage.objects.read(repo, manifest.hash)).entries) {
+      const segment = writes.find((write) => write.hash === entry.hash);
+      if (segment !== undefined) {
+        assert.ok(segment.end < manifest.start, `segment ${entry.hash.slice(0, 8)} was stored before the manifest naming it`);
+      }
+    }
+  }
+  for (const [at, event] of log.entries()) {
+    if (event.event !== 'read' || event.unit) continue;
+    const wrote = writes.find((write) => write.hash === event.hash && !write.unit && write.start < at);
+    assert.strictEqual(wrote, undefined, `the ${wrote?.kind} ${event.hash.slice(0, 8)} it wrote was read back (${event.kind})`);
+  }
+  return writes;
+}
+
+/** The one write of a kind a log records. */
+function writeOf(writes: readonly WriteSpan[], kind: string): WriteSpan {
+  const found = writes.filter((write) => write.kind === kind && !write.unit);
+  assert.strictEqual(found.length, 1, `one ${kind} written, not ${found.length}`);
+  return found[0]!;
 }
 
 describe('records', () => {
@@ -183,6 +394,40 @@ describe('records', () => {
     // nothing names them; no state, args tuple or commit is written after it
     // fails.
     assert.strictEqual((await storage.objects.list(repo)).length, objectsBefore + 2, 'only the run\'s task object and its argument');
+  });
+
+  it('a whole-state write stores its run\'s task object and argument together, then its tuple and commit together (#1088)', async () => {
+    const watched = watchedStore(storage);
+    const by = encodeInt(5n);
+    const outcome = await recordMutate(watched.storage, watched.watch(successRunner(encodeInt(5n))), repo, ws, 'counter', 'increment', [by],
+      { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed');
+
+    const writes = await assertSafelyStored(storage, repo, watched.log);
+    const argument = writes.find((write) => write.hash === sha256Hex(by) && !write.unit);
+    assert.ok(argument !== undefined && together(writeOf(writes, 'task'), argument), 'the run\'s task object and its argument are stored together');
+    assert.ok(together(writeOf(writes, 'args'), writeOf(writes, 'commit')), 'the arguments\' tuple and the commit are stored together');
+  });
+
+  it('refuses a store that names an object otherwise than by its content\'s hash, and writes no ref naming it (#1088)', async () => {
+    // A commit is encoded from the hashes of the objects it names before they
+    // are stored, so a store naming them otherwise would leave it naming
+    // nothing.
+    const objects = storage.objects;
+    const write = objects.write.bind(objects);
+    objects.write = async (r: string, bytes: Uint8Array) => {
+      const hash = await write(r, bytes);
+      return objectKind(bytes) === 'args' ? 'f'.repeat(64) : hash;
+    };
+    try {
+      await assert.rejects(
+        recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' }),
+        { message: `the store named an object ${'f'.repeat(64)}, whose content's hash is ${sha256Hex(encodeBeast2For(ArrayType(BlobType))([encodeInt(5n)]))}` });
+    } finally {
+      objects.write = write;
+    }
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n, 'the record holds what it held');
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 1, 'and no commit');
   });
 
   it('rejects unknown records, unknown mutations, and wrong arity', async () => {
@@ -1684,6 +1929,84 @@ describe('the mutation delta', () => {
       'a second sweep takes nothing: what is left is the record\'s own closure');
     const delta = await DatasetSegments.open(storage, repo, head!.commit.delta.value);
     for (const segment of delta.manifest!.entries) await storage.objects.read(repo, segment.hash);
+  });
+
+  // A store whose writes are round trips is waited on once per wave of an
+  // edit, and an edit is stored crash-safely: every object before the ref
+  // names it, and a manifest after the segments it names (#1088).
+
+  it('a patch stores its delta while it applies it from the entries in hand, then its tuple and commit together, and reads back nothing it wrote', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, plain, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    // The delta's first object is held until the new state's first is begun.
+    const watched = watchedStore(storage, { holdFirst: true });
+    const outcome = await recordMutate(watched.storage, noRunner, repo, plain, 'plans', 'patch',
+      [encodePlansPatch(variant('patch', new SortedMap<string, PlanOp>([
+        ['p-7', variant('update', variant('patch', {
+          status: variant('unchanged', null),
+          due: variant('unchanged', null),
+          title: variant('replace', { before: 'Plan 7', after: 'PATCHED' }),
+        }))],
+      ], planKeys)))],
+      { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const writes = await assertSafelyStored(storage, repo, watched.log);
+    assert.ok(together(writeOf(writes, 'args'), writeOf(writes, 'commit')), 'the arguments\' tuple and the commit are stored together');
+  });
+
+  it('an edit stores its run\'s task object and argument together, then its state, tuple and commit together', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const watched = watchedStore(storage);
+    const key = encodeBeast2For(StringType)('p-7');
+    const outcome = await recordMutate(watched.storage, watched.watch(realRunner), repo, ws, 'plans', 'retitle', [key], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const writes = await assertSafelyStored(storage, repo, watched.log);
+    const argument = writes.find((write) => write.hash === sha256Hex(key) && !write.unit);
+    assert.ok(argument !== undefined && together(writeOf(writes, 'task'), argument), 'the run\'s task object and its argument are stored together');
+    const [state, tuple, commit] = ['state', 'args', 'commit'].map((kind) => writeOf(writes, kind));
+    assert.ok(together(state!, tuple!) && together(tuple!, commit!) && together(state!, commit!),
+      'the state, the arguments\' tuple and the commit are stored together');
+  });
+
+  it('a reindex stores its state and commit together', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const watched = watchedStore(storage);
+    const outcome = await recordReindex(watched.storage, watched.watch(realRunner), repo, ws, 'plans', { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const writes = await assertSafelyStored(storage, repo, watched.log);
+    assert.ok(together(writeOf(writes, 'state'), writeOf(writes, 'commit')), 'the state and the commit are stored together');
+  });
+
+  it('a system commit stores its state, arguments and commit together', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const [seeded] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
+      [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' })).kind, 'committed');
+    const watched = watchedStore(storage);
+    const outcome = await recordSystemCommit(watched.storage, watched.watch(realRunner), repo, ws, 'plans', {
+      name: '$rollback', target: { commit: seeded!.hash }, actor: 'cli:test', args: [encodeBeast2For(StringType)('backup 1')],
+    });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const writes = await assertSafelyStored(storage, repo, watched.log);
+    const [state, tuple, commit] = ['state', 'args', 'commit'].map((kind) => writeOf(writes, kind));
+    assert.ok(together(state!, tuple!) && together(tuple!, commit!) && together(state!, commit!),
+      'the state, the arguments\' tuple and the commit are stored together');
+  });
+
+  it('a deploy\'s index commit stores its state and commit together', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const ref = await storage.datasets.read(repo, ws, 'records/plans');
+    assert.ok(ref && ref.type === 'value');
+    const held = await readRecordState(storage, repo, ref.value.hash);
+    const watched = watchedStore(storage);
+    await commitDeployIndexes(watched.storage, repo, ws,
+      [{ path: 'records/plans', state: ref.value.hash, primary: held.primary, indexes: held.indexes }]);
+
+    const writes = await assertSafelyStored(storage, repo, watched.log);
+    assert.ok(together(writeOf(writes, 'state'), writeOf(writes, 'commit')), 'the state and the commit are stored together');
   });
 });
 

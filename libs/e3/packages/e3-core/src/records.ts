@@ -43,8 +43,10 @@ import {
   type RecordIndexPlan,
   type Structure,
 } from '@elaraai/e3-types';
-import { DeltaConflictError, applyDelta } from './record-apply.js';
+import { DeltaConflictError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
 import { openDatasetObject, readManifest } from './dataset-open.js';
+import { storeObjects } from './concurrency.js';
+import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
@@ -301,12 +303,89 @@ export async function readRecordState(storage: StorageBackend, repo: string, has
  * @returns the hash the record ref should carry
  */
 export async function writeRecordState(storage: StorageBackend, repo: string, state: RecordStateRefs): Promise<string> {
-  if (state.indexes.size === 0) return state.primary;
-  return storage.objects.write(repo, encodeRecordState({
+  const bytes = recordStateObject(state);
+  return bytes === null ? state.primary : storage.objects.write(repo, bytes);
+}
+
+/** The `$record` object a state with indexes is, or `null` for one with
+ *  none, which names its primary manifest directly. */
+function recordStateObject(state: RecordStateRefs): Uint8Array | null {
+  if (state.indexes.size === 0) return null;
+  return encodeRecordState({
     kind: RECORD_STATE_KIND,
     primary: state.primary,
     indexes: state.indexes,
-  }));
+  });
+}
+
+/** An object's bytes, and the hash its content gives it before it is
+ *  stored. */
+interface NamedObject {
+  bytes: Uint8Array;
+  hash: string;
+}
+
+/** An object named by its content's hash. */
+function named(bytes: Uint8Array): NamedObject {
+  return { bytes, hash: computeHash(bytes) };
+}
+
+/**
+ * Stores objects named before they were stored, together, and checks each was
+ * stored under the name its content gave it.
+ *
+ * @throws {Error} When the store names an object otherwise: what names it here
+ *   would name nothing there.
+ */
+async function storeNamed(storage: StorageBackend, repo: string, objects: readonly NamedObject[]): Promise<void> {
+  const stored = await storeObjects(storage, repo, objects.map((object) => object.bytes));
+  for (const [i, hash] of stored.entries()) {
+    if (hash !== objects[i]!.hash) {
+      throw new Error(`the store named an object ${hash}, whose content's hash is ${objects[i]!.hash}`);
+    }
+  }
+}
+
+/**
+ * Stores a commit with the state object it names and its arguments' tuple, and
+ * answers both hashes.
+ *
+ * @remarks
+ * Every object is named by its content's hash, so the commit is encoded from
+ * the state's hash and the tuple's before either is stored, and the three go
+ * to the store together: a store whose writes are round trips is waited on
+ * once, not three times. The manifests the state names are stored already,
+ * and the ref that names the commit is written once this returns, so a crash
+ * leaves only objects nothing names, which gc reclaims. A record with no index
+ * writes no state object: its ref names its primary manifest.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param state - The primary and the indexes the state names
+ * @param commit - The commit, but for the state and the arguments it names
+ * @param args - The arguments' tuple, when the commit has arguments
+ * @returns The state's hash, which the ref names, and the commit's
+ */
+async function storeCommit(
+  storage: StorageBackend,
+  repo: string,
+  state: RecordStateRefs,
+  commit: Omit<RecordCommit, 'state' | 'args'>,
+  args?: NamedObject,
+): Promise<{ stateHash: string; commitHash: string }> {
+  const objects: NamedObject[] = [];
+  const stateBytes = recordStateObject(state);
+  let stateHash = state.primary;
+  if (stateBytes !== null) {
+    const stateObject = named(stateBytes);
+    stateHash = stateObject.hash;
+    objects.push(stateObject);
+  }
+  if (args !== undefined) objects.push(args);
+  const commitObject = named(encodeCommit({ ...commit, state: stateHash, args: args === undefined ? none : some(args.hash) }));
+  objects.push(commitObject);
+  await storeNamed(storage, repo, objects);
+  return { stateHash, commitHash: commitObject.hash };
 }
 
 /**
@@ -411,6 +490,13 @@ async function runUnit(
  * swing the record ref. On a concurrent commit the conditional write conflicts
  * and the loop retries against fresher state. Two mutations on the same record
  * serialize; mutations on different records never contend.
+ *
+ * A write's objects go to the store in waves, the objects of each together:
+ * the run's task object and its arguments; the new state's segments, then each
+ * target's manifest; and the state object, the arguments' tuple and the
+ * commit. A wave is stored before the next names it, and every one before the
+ * ref does. Nothing written is read back: a patch's delta is applied from the
+ * entries in hand while it is stored.
  */
 export async function recordMutate(
   storage: StorageBackend,
@@ -441,6 +527,8 @@ export async function recordMutate(
       return { kind: 'invalid', message: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has indexes: re-export its package` };
     }
     const limits = opts.limits ?? DEFAULT_LIMITS;
+    // The arguments as the commit records them, named once for every attempt
+    const argsTuple = args.length > 0 ? named(encodeArgsTuple(args)) : undefined;
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     // Hard wall-clock cap for the whole call (OPS-1): when set, no reducer run
     // may overrun it and the loop returns a typed terminal before a caller's
@@ -488,21 +576,17 @@ export async function recordMutate(
       if ('failure' in write) return write.failure;
       if ('conflictDetail' in write) return { kind: 'conflict', attempts: attempt, detail: write.conflictDetail };
 
-      const newStateHash = await writeRecordState(storage, repo, { primary: write.primary, indexes: write.indexes });
-      const argsHash = args.length > 0
-        ? await storage.objects.write(repo, encodeArgsTuple(args))
-        : undefined;
       const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
-      const commit: RecordCommit = {
-        parent: prevCommit !== undefined ? some(prevCommit) : none,
-        state: newStateHash,
-        mutation: mutationName,
-        args: argsHash !== undefined ? some(argsHash) : none,
-        actor: opts.actor,
-        at: new Date(),
-        delta: write.delta !== undefined ? some(write.delta) : none,
-      };
-      const commitHash = await storage.objects.write(repo, encodeCommit(commit));
+      const { stateHash: newStateHash, commitHash } = await storeCommit(storage, repo,
+        { primary: write.primary, indexes: write.indexes },
+        {
+          parent: prevCommit !== undefined ? some(prevCommit) : none,
+          mutation: mutationName,
+          actor: opts.actor,
+          at: new Date(),
+          delta: write.delta !== undefined ? some(write.delta) : none,
+        },
+        argsTuple);
 
       // Self-vector carries the head commit; the idempotency slots (when keyed)
       // let the next retry short-circuit. Every mutation rewrites them — one
@@ -608,7 +692,8 @@ async function writeWholeState(
   args: Uint8Array[],
   run: RunContext,
 ): Promise<MutationWrite> {
-  const taskHash = await storage.objects.write(repo, encodeTaskObject({
+  // The run's task object and its arguments, stored together
+  const [taskHash, ...argHashes] = await storeObjects(storage, repo, [encodeTaskObject({
     kind: TASK_OBJECT_KIND,
     body: variant('east', { program: mutObj.bodyIr }),
     runner: mutObj.runner,
@@ -616,10 +701,8 @@ async function writeWholeState(
     output: { path: [], kind: variant('value', null) },
     role: variant('data', null),
     environment: none,
-  }));
-  const inputs = [state.primary];
-  for (const arg of args) inputs.push(await storage.objects.write(repo, arg));
-  const ran = await runUnit(storage, runner, repo, taskHash, inputs, run);
+  }), ...args]);
+  const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
   if ('failure' in ran) return ran;
   return { primary: ran.output, indexes: state.indexes };
 }
@@ -654,33 +737,40 @@ async function writeDelta(
   const targets = new Map<string, string>([['primary', state.primary]]);
   for (const [name, entry] of state.indexes) targets.set(name, entry.manifest);
 
-  let deltaHash = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
-    ? await patchAsDelta(storage, repo, state.primary, args[0])
+  const patch = mutObj.form.type === 'patch' && state.indexes.size === 0 && args[0] !== undefined
+    ? await patchDelta(storage, repo, state.primary, args[0])
     : null;
-  if (deltaHash === null) {
-    const taskHash = await storage.objects.write(repo, encodeTaskObject({
-      kind: TASK_OBJECT_KIND,
-      body: variant('east', { program: mutObj.programIr }),
-      runner: mutObj.runner,
-      inputs: [state.primary, ...args].map(() => ({ path: [], partition: none })),
-      output: { path: [], kind: variant('dict', { merge: none }) },
-      role: variant('data', null),
-      environment: none,
-    }));
-    const inputs = [state.primary];
-    for (const arg of args) inputs.push(await storage.objects.write(repo, arg));
-    const ran = await runUnit(storage, runner, repo, taskHash, inputs, run);
-    if ('failure' in ran) return ran;
-    deltaHash = ran.output;
-  }
 
   // A program that found the write stale says so in the delta's first entry,
   // as the apply says so of an op that disagrees with the state: a caller
   // retries a conflict and gives up on a failure, so the two doors agree on
   // which a stale write is.
+  let deltaHash: string;
   let written: Map<string, string>;
   try {
-    written = await applyDelta(storage, repo, targets, deltaHash);
+    if (patch !== null) {
+      // The client's patch is the delta, held here: it is applied from the
+      // entries in hand while it is stored, and never read back
+      [written, deltaHash] = await bothSettled(
+        applyDeltaEntries(storage, repo, targets, heldEntries(patch)),
+        storeDelta(storage, repo, patch),
+      );
+    } else {
+      // The run's task object and its arguments, stored together
+      const [taskHash, ...argHashes] = await storeObjects(storage, repo, [encodeTaskObject({
+        kind: TASK_OBJECT_KIND,
+        body: variant('east', { program: mutObj.programIr }),
+        runner: mutObj.runner,
+        inputs: [state.primary, ...args].map(() => ({ path: [], partition: none })),
+        output: { path: [], kind: variant('dict', { merge: none }) },
+        role: variant('data', null),
+        environment: none,
+      }), ...args]);
+      const ran = await runUnit(storage, runner, repo, taskHash!, [state.primary, ...argHashes], run);
+      if ('failure' in ran) return ran;
+      deltaHash = ran.output;
+      written = await applyDelta(storage, repo, targets, deltaHash);
+    }
   } catch (err) {
     if (err instanceof DeltaConflictError) return { conflictDetail: err.message };
     throw err;
@@ -694,8 +784,41 @@ async function writeDelta(
   return { primary: written.get('primary') ?? state.primary, indexes, delta: deltaHash };
 }
 
+/** A delta held in memory: its type and its entries, keyed as the delta
+ *  object keys them, and the `primary` ops it is made of, in key order. */
+interface HeldDelta {
+  type: EastType;
+  entries: SortedMap<unknown, unknown>;
+  ops: SortedMap<unknown, unknown>;
+}
+
+/** A held delta's entries, as the apply takes them. */
+function* heldEntries(delta: HeldDelta): Generator<DeltaEntry> {
+  for (const [key, op] of delta.ops) yield { target: 'primary', key, op };
+}
+
+/** Stores a held delta, which the commit names: its segments together, then
+ *  its manifest. */
+async function storeDelta(storage: StorageBackend, repo: string, delta: HeldDelta): Promise<string> {
+  return storage.objects.write(repo,
+    await encodeDatasetBlob(delta.type, delta.entries, (bytes) => storage.objects.write(repo, bytes)));
+}
+
 /**
- * The delta a client's patch already is, stored — or `null` when the patch is
+ * Two calls' results, once both have settled, so neither runs on after its
+ * caller returns.
+ *
+ * @throws The first call's failure, else the second's.
+ */
+async function bothSettled<A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> {
+  const [a, b] = await Promise.allSettled([first, second]);
+  if (a.status === 'rejected') throw a.reason;
+  if (b.status === 'rejected') throw b.reason;
+  return [a.value, b.value];
+}
+
+/**
+ * The delta a client's patch already is, held — or `null` when the patch is
  * not one this can read without running the program.
  *
  * @remarks
@@ -708,14 +831,14 @@ async function writeDelta(
  * @param repo - Repository identifier
  * @param primary - CollectionManifest hash of the record's own collection
  * @param patchBytes - the client's encoded `PatchType(State)`
- * @returns the delta object's hash, or `null`
+ * @returns the delta, or `null`
  */
-async function patchAsDelta(
+async function patchDelta(
   storage: StorageBackend,
   repo: string,
   primary: string,
   patchBytes: Uint8Array,
-): Promise<string | null> {
+): Promise<HeldDelta | null> {
   const manifest = await readManifest(storage, repo, primary);
   if (manifest === null) return null;
   // The state's own type, not the package's: a patch applies to what is
@@ -736,11 +859,14 @@ async function patchAsDelta(
   const deltaKeyType = (deltaType as unknown as { key: EastType }).key;
   const entries = new SortedMap<unknown, unknown>(
     undefined, compareFor(toEastTypeValue(deltaKeyType)) as (a: unknown, b: unknown) => -1 | 0 | 1);
+  // One target's ops, in the order its keys take in the delta
+  const ops = new SortedMap<unknown, unknown>(
+    undefined, compareFor(toEastTypeValue(collection.key)) as (a: unknown, b: unknown) => -1 | 0 | 1);
   for (const [key, op] of patch.value as Iterable<[unknown, unknown]>) {
     entries.set(variant('primary', key), variant('primary', op));
+    ops.set(key, op);
   }
-  const blob = await encodeDatasetBlob(deltaType, entries, (bytes) => storage.objects.write(repo, bytes));
-  return storage.objects.write(repo, blob);
+  return { type: deltaType, entries, ops };
 }
 
 /**
@@ -894,17 +1020,14 @@ export async function recordReindex(
       // of them replaces the table, so an index the package has dropped goes
       // with it.
       const indexes = opts.index === undefined ? outcome.built : new Map([...state.indexes, ...outcome.built]);
-      const stateHash = await writeRecordState(storage, repo, { primary: state.primary, indexes });
       const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
-      const commitHash = await storage.objects.write(repo, encodeCommit({
+      const { stateHash, commitHash } = await storeCommit(storage, repo, { primary: state.primary, indexes }, {
         parent: prevCommit !== undefined ? some(prevCommit) : none,
-        state: stateHash,
         mutation: opts.index === undefined ? '$reindex' : `$reindex:${opts.index}`,
-        args: none,
         actor: opts.actor,
         at: new Date(),
         delta: none,
-      }));
+      });
 
       try {
         // A reindex changes no row a retry could apply twice, so it carries
@@ -1064,18 +1187,15 @@ export async function commitDeployIndexes(
     if (!existing || existing.type !== 'value' || existing.value.hash !== state) {
       throw new Error(`record '${path}' does not hold the state its indexes were built over (${state})`);
     }
-    const stateHash = await writeRecordState(storage, repo, { primary, indexes });
     const selfKeypath = refPathToKeypath(path);
     const prevCommit = existing.value.versions.get(selfKeypath);
-    const commitHash = await storage.objects.write(repo, encodeCommit({
+    const { stateHash, commitHash } = await storeCommit(storage, repo, { primary, indexes }, {
       parent: prevCommit !== undefined ? some(prevCommit) : none,
-      state: stateHash,
       mutation: '$reindex',
-      args: none,
       actor: 'system:deploy',
       at,
       delta: none,
-    }));
+    });
     // A reindex, like the one recordReindex commits: the idempotency slots
     // ride along.
     await storage.datasets.write(repo, ws, path,
@@ -1502,9 +1622,8 @@ export async function recordSystemCommit(
   return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
     const resolved = await resolveRecord(storage, repo, ws, recordName);
     if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
-    const argsHash = opts.args !== undefined && opts.args.length > 0
-      ? await storage.objects.write(repo, encodeArgsTuple(opts.args))
-      : undefined;
+    // The arguments as the commit records them, named once for every attempt
+    const argsTuple = opts.args !== undefined && opts.args.length > 0 ? named(encodeArgsTuple(opts.args)) : undefined;
 
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     for (let attempt = 1; ; attempt++) {
@@ -1542,17 +1661,13 @@ export async function recordSystemCommit(
       if ('failure' in outcome) return outcome.failure;
       const indexes = new Map<string, { manifest: string; index: string }>();
       for (const name of resolved.indexes.keys()) indexes.set(name, outcome.built.get(name) ?? state.indexes.get(name)!);
-      const stateHash = await writeRecordState(storage, repo, { primary: state.primary, indexes });
-
-      const commitHash = await storage.objects.write(repo, encodeCommit({
+      const { stateHash, commitHash } = await storeCommit(storage, repo, { primary: state.primary, indexes }, {
         parent: head !== undefined ? some(head) : none,
-        state: stateHash,
         mutation: opts.name,
-        args: argsHash !== undefined ? some(argsHash) : none,
         actor: opts.actor,
         at: new Date(),
         delta: none,
-      }));
+      }, argsTuple);
       try {
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,

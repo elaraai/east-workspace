@@ -60,6 +60,63 @@ import {
 export type SegmentSink = (bytes: Uint8Array) => Promise<string>;
 
 /**
+ * How many objects {@link writeCollectionManifest} has a sink write at once,
+ * unless its caller says otherwise: a store whose writes are round trips is
+ * waited on once for this many segments, rather than once for each.
+ */
+export const SEGMENT_WRITES_IN_FLIGHT = 16;
+
+/**
+ * The writes of one manifest's objects: each started in the order it is
+ * handed over, at most `width` in flight, and none left running once the
+ * manifest's writer returns.
+ *
+ * @internal
+ */
+class SinkWrites {
+  private readonly inFlight = new Set<Promise<void>>();
+  private failure: { error: unknown } | undefined;
+
+  constructor(private readonly sink: SegmentSink, private readonly width: number) {}
+
+  /**
+   * Starts writing `bytes` once fewer than `width` writes are in flight.
+   *
+   * @param bytes - The object
+   * @param named - Told the object's hash once it is stored
+   * @throws The first failed write's error, once one has failed: nothing more
+   *   is started after it.
+   */
+  async start(bytes: Uint8Array, named: (hash: string) => void): Promise<void> {
+    while (this.failure === undefined && this.inFlight.size >= this.width) await Promise.race(this.inFlight);
+    if (this.failure !== undefined) throw this.failure.error;
+    const write: Promise<void> = this.sink(bytes)
+      .then(named, (error: unknown) => {
+        this.failure ??= { error };
+      })
+      .finally(() => {
+        this.inFlight.delete(write);
+      });
+    this.inFlight.add(write);
+  }
+
+  /** Waits for every write started, whatever its outcome. */
+  async settled(): Promise<void> {
+    await Promise.all(this.inFlight);
+  }
+
+  /**
+   * Waits for every write started.
+   *
+   * @throws The first failed write's error.
+   */
+  async stored(): Promise<void> {
+    await this.settled();
+    if (this.failure !== undefined) throw this.failure.error;
+  }
+}
+
+/**
  * Whether a dataset root type is a collection — the kinds stored segmented +
  * indexed so the paged read API can seek.
  *
@@ -106,49 +163,69 @@ export type CollectionPiece = Beast2RecutPiece<EastType, CollectionSegmentRef>;
  * Writer's own: a piece's segments are carried over only when that is the
  * header they are under, which is the caller's to establish.
  *
+ * The objects are written at once, `inFlight` at a time — the segments in
+ * order, then the header — and the manifest is returned once every one is
+ * stored, so the caller stores the manifest after the objects it names. The
+ * sink is called in segment order, and each segment's blob is held until its
+ * write ends.
+ *
  * @param type - The collection type (Array / Set / Dict)
  * @param pieces - The collection's pieces, in order
  * @param sink - Writes one object and returns its hash
+ * @param options - `inFlight`, the most objects the sink writes at once
+ *   (default {@link SEGMENT_WRITES_IN_FLIGHT})
  * @returns The manifest's bytes — the caller stores them, and its hash is the
  *   dataset's content address
  * @throws {Error} When a piece's elements do not ascend (Set / Dict), a
  *   segment's blob is not the one segment its reference describes, or the sink
- *   rejects.
+ *   rejects: once the writes in flight have ended, so none runs on after the
+ *   writer returns.
  */
 export async function writeCollectionManifest(
   type: EastType | EastTypeValue,
   pieces: Iterable<CollectionPiece> | AsyncIterable<CollectionPiece>,
   sink: SegmentSink,
+  options: { inFlight?: number } = {},
 ): Promise<Uint8Array> {
   const typeValue = asTypeValue(type);
   const entries: CollectionManifestEntry[] = [];
+  const writes = new SinkWrites(sink, options.inFlight ?? SEGMENT_WRITES_IN_FLIGHT);
+  /** Writes a segment the manifest names at the place it takes now. */
+  const write = (blob: Uint8Array, fence: Uint8Array, count: number): Promise<void> => {
+    const at = entries.push({ hash: '', fence, count: BigInt(count), bytes: BigInt(blob.byteLength) }) - 1;
+    return writes.start(blob, (hash) => {
+      entries[at] = { ...entries[at]!, hash };
+    });
+  };
   // Frames deflate on the worker pool once the value is large enough to be
   // worth it; the pool holds the frames in flight and nothing more.
   const recut = recutBeast2For<EastType, CollectionSegmentRef>(typeValue, { parallel: true });
-  const stats = await recut(pieces, {
-    written: async (segment) => {
-      entries.push({
-        hash: await sink(segment.blob),
-        fence: segment.fence,
-        count: BigInt(segment.count),
-        bytes: BigInt(segment.blob.byteLength),
-      });
-    },
-    carried: async (ref) => {
-      if (ref.entry !== undefined) {
-        entries.push(ref.entry);
-        return;
-      }
-      const blob = await ref.read();
-      entries.push({ hash: await sink(blob), fence: ref.fence, count: BigInt(ref.count), bytes: BigInt(blob.byteLength) });
-    },
-  });
+  let header = '';
+  try {
+    const stats = await recut(pieces, {
+      written: (segment) => write(segment.blob, segment.fence, segment.count),
+      carried: async (ref) => {
+        if (ref.entry !== undefined) {
+          entries.push(ref.entry);
+          return;
+        }
+        await write(await ref.read(), ref.fence, ref.count);
+      },
+    });
+    await writes.start(stats.header, (hash) => {
+      header = hash;
+    });
+  } catch (error) {
+    await writes.settled();
+    throw error;
+  }
+  await writes.stored();
   return encodeCollectionManifest({
     kind: COLLECTION_MANIFEST_KIND,
     level: 0n,
     type: typeValue,
     rule: segmentRuleFor(typeValue),
-    header: await sink(stats.header),
+    header,
     entries,
   });
 }

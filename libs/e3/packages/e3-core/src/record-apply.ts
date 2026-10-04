@@ -41,7 +41,7 @@ import { storeCollection, type CollectionSource } from './store-collection.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** One entry of a delta: the target it changes, the key, and the op. */
-interface DeltaEntry {
+export interface DeltaEntry {
   /** `primary`, an index name, or {@link DELTA_CONFLICT}. */
   target: string;
   /** The key in the target's own key type. */
@@ -112,8 +112,33 @@ export async function applyDelta(
   targets: Map<string, string>,
   deltaHash: string,
 ): Promise<Map<string, string>> {
+  return applyDeltaEntries(storage, repo, targets, deltaEntries(storage, repo, deltaHash));
+}
+
+/**
+ * Apply a mutation delta given as its entries: how a caller that holds the
+ * delta applies it, rather than reading back the object it stored.
+ *
+ * @remarks
+ * As {@link applyDelta}, over the entries in the delta's canonical order:
+ * each target's ops one contiguous run, in that target's key order.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param targets - target name -> the manifest hash it currently holds
+ * @param entries - the delta's entries, in canonical order
+ * @returns target name -> its new manifest hash, for the targets that changed
+ * @throws {DeltaConflictError} As {@link applyDelta} does.
+ * @throws {Error} When the delta names a target the record does not have.
+ */
+export async function applyDeltaEntries(
+  storage: StorageBackend,
+  repo: string,
+  targets: Map<string, string>,
+  entries: Iterable<DeltaEntry> | AsyncIterable<DeltaEntry>,
+): Promise<Map<string, string>> {
   const written = new Map<string, string>();
-  const cursor = new DeltaCursor(deltaEntries(storage, repo, deltaHash)[Symbol.asyncIterator]());
+  const cursor = new DeltaCursor(inOrder(entries));
   for (let entry = await cursor.peek(); entry !== undefined; entry = await cursor.peek()) {
     if (entry.target === DELTA_CONFLICT) throw new DeltaConflictError(entry.key as string);
     const hash = targets.get(entry.target);
@@ -125,6 +150,11 @@ export async function applyDelta(
     written.set(entry.target, await applyTarget(storage, repo, entry.target, hash, cursor));
   }
   return written;
+}
+
+/** A delta's entries as the cursor takes them, held or read. */
+async function* inOrder(entries: Iterable<DeltaEntry> | AsyncIterable<DeltaEntry>): AsyncGenerator<DeltaEntry> {
+  yield* entries;
 }
 
 /**
