@@ -5,16 +5,16 @@
 
 /**
  * The ref store's contract: what any backend's records do — the repository
- * record, package and workspace refs, execution attempts with their owners and
- * plans, the adoption memo, and dataflow runs.
+ * record and the upgrade under way, package and workspace refs, execution
+ * attempts with their owners and plans, the adoption memo, and dataflow runs.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { equalFor, none, some, variant } from '@elaraai/east';
 import {
-  DataflowRunType, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType,
-  type DataflowRun, type ExecutionOwner, type ExecutionStatus,
+  DataflowRunType, ExecutionOwnerType, ExecutionStatusType, RepositoryRecordType, RepositoryUpgradeProgressType,
+  type DataflowRun, type ExecutionOwner, type ExecutionStatus, type RepositoryUpgradeProgress,
 } from '@elaraai/e3-types';
 import { ExecutionCorruptError } from '../errors.js';
 import { uuidv7 } from '../uuid.js';
@@ -49,6 +49,25 @@ export function refStoreTests(setup: BackendSetup): void {
       await storage.refs.repositoryWrite(repo, next);
       const read = await storage.refs.repositoryRead(repo);
       assert.ok(read !== null && equalFor(RepositoryRecordType)(read, next));
+    });
+
+    it('keeps the store upgrade under way beside the record, which a write replaces and a write of none clears', async (t) => {
+      const { storage, repo } = await setup(t);
+      assert.equal(await storage.refs.repositoryUpgradeRead(repo), null, 'a created repository has none under way');
+      const record = await storage.refs.repositoryRead(repo);
+      const equal = equalFor(RepositoryUpgradeProgressType);
+      const first: RepositoryUpgradeProgress = { step: 'contract-step', release: '0.0.1', cursor: `${TASK}/${INPUTS}` };
+      for (const progress of [first, { ...first, release: '0.0.2', cursor: `${TASK}/${HASH}` }]) {
+        await storage.refs.repositoryUpgradeWrite(repo, progress);
+        const read = await storage.refs.repositoryUpgradeRead(repo);
+        assert.ok(read !== null && equal(read, progress), `it reads as written: ${progress.cursor}`);
+      }
+      const after = await storage.refs.repositoryRead(repo);
+      assert.ok(record !== null && after !== null && equalFor(RepositoryRecordType)(after, record), 'the record is left as it was');
+
+      await storage.refs.repositoryUpgradeWrite(repo, null);
+      await storage.refs.repositoryUpgradeWrite(repo, null);
+      assert.equal(await storage.refs.repositoryUpgradeRead(repo), null, 'cleared, and clearing it again does nothing');
     });
 
     it('keeps a package\'s ref by its name and version, until it is removed', async (t) => {

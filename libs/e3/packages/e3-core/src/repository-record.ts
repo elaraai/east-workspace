@@ -44,6 +44,10 @@ export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [executionStopReasons, d
  *  repository to finish, unless its caller says otherwise. */
 const UPGRADE_WAIT_MS = 30_000;
 
+/** How long a part of a step an open applies runs before the open records
+ *  where it stopped: what a crash mid-step loses of its work at most. */
+const UPGRADE_PART_MS = 10_000;
+
 /** How {@link repositoryOpen} treats a repository that owes upgrades, and
  *  work running in it. */
 export interface RepositoryOpenOptions {
@@ -94,7 +98,9 @@ export function newRepositoryRecord(backendUpgrades: readonly RepositoryUpgrade[
  * the steps and the other finds them applied. The backend's own steps apply
  * first, then the shared ones, and each is recorded, with this release, as soon
  * as it is applied, so a repository opened again after a crash between two
- * steps is given only the second.
+ * steps is given only the second. A step applies in parts of 10 s, and where
+ * each stopped is recorded beside the record, so a step a crash cut short is
+ * taken up where its last part stopped, by this open or another process.
  *
  * A repository that has had a step this e3 does not know was upgraded by a
  * newer e3, and is refused, naming the release that applied it. Releases that
@@ -132,9 +138,103 @@ export async function repositoryOpen(storage: StorageBackend, repo: string, opti
   if (options.apply === false) {
     throw new RepositoryUpgradePendingError(repo, owed(record, known).map((upgrade) => upgrade.name), null, true);
   }
-  const waitMs = options.waitMs ?? UPGRADE_WAIT_MS;
-  // One open in this process applies the steps, and the others wait for it and
-  // find them applied.
+  return applyHeld(storage, repo, known, options.waitMs ?? UPGRADE_WAIT_MS, Infinity);
+}
+
+/** How {@link repositoryUpgradeStep} applies a part of the upgrades a
+ *  repository owes. */
+export interface RepositoryUpgradeStepOptions {
+  /**
+   * How long the part runs, in milliseconds, once it has done at least a unit
+   * of a step's work: a whole number of zero or more. A host whose steps run
+   * on compute with a time limit sets it under that limit, with room to record
+   * where the part stopped.
+   */
+  budgetMs: number;
+  /**
+   * How long, in milliseconds, the part waits for work running in the
+   * repository to finish before it refuses: 30 s unless set; `0` refuses at
+   * once.
+   */
+  waitMs?: number;
+}
+
+/** What a part of the upgrades a repository owes leaves
+ *  ({@link repositoryUpgradeStep}). */
+export interface RepositoryUpgradeStepResult {
+  /** The steps the repository still owes, in order: none once every step this
+   *  e3 knows is applied */
+  readonly owed: readonly string[];
+}
+
+/**
+ * Applies a part of the upgrades a repository owes, bounded in time: what a
+ * host's job runs in each of its invocations, where a step outlasts one, as
+ * `repoGcStep` is for gc.
+ *
+ * @remarks
+ * The part takes up the first step the repository owes where its last part
+ * stopped, by this process or another (`RefStore.repositoryUpgradeRead`),
+ * applies it until `options.budgetMs` has passed, and records where it
+ * stopped; a step it finishes is recorded in the repository's record, and the
+ * part goes on to the next while its time lasts. It runs with the repository
+ * held still, as an open's steps do, waiting for work running in it for as
+ * long as `options.waitMs` says.
+ *
+ * The job calls it until nothing is owed, and meanwhile an open that leaves the
+ * steps to a job refuses (`repositoryOpen`'s `apply: false`), naming them. An
+ * open that applies the steps takes them up as this does, so the job, or a
+ * person running the CLI, finishes what either began.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param options - How long the part runs, and how long it waits for work
+ *   running in the repository
+ * @returns The steps the repository still owes
+ * @throws {RangeError} When `options.budgetMs` is not a whole number of zero
+ *   or more
+ * @throws {RepoNotFoundError} When there is no repository
+ * @throws {RepoLayoutError} When the repository has no record this e3 reads,
+ *   or has had an upgrade this e3 does not know
+ * @throws {RepositoryUpgradePendingError} When work running in the repository
+ *   holds it past the wait
+ */
+export async function repositoryUpgradeStep(
+  storage: StorageBackend,
+  repo: string,
+  options: RepositoryUpgradeStepOptions,
+): Promise<RepositoryUpgradeStepResult> {
+  if (!Number.isSafeInteger(options.budgetMs) || options.budgetMs < 0) {
+    throw new RangeError(`a part's budgetMs is a whole number of zero or more, not ${options.budgetMs}`);
+  }
+  await storage.validateRepository(repo);
+  const known = knownUpgrades(storage.upgrades);
+  const record = await readRecord(storage, repo, known);
+  if (owed(record, known).length === 0) return { owed: [] };
+  const after = await applyHeld(storage, repo, known, options.waitMs ?? UPGRADE_WAIT_MS, Date.now() + options.budgetMs);
+  return { owed: owed(after, known).map((upgrade) => upgrade.name) };
+}
+
+/**
+ * Applies the steps a repository owes with it held still, in parts, until none
+ * is owed or the clock passes `until`, recording where each part stopped.
+ *
+ * @remarks
+ * One open in this process applies the steps, and the others wait for it and
+ * find them applied. A part runs until 10 s have passed or `until` does,
+ * whichever is first.
+ *
+ * @returns The record as the parts left it
+ * @throws {RepositoryUpgradePendingError} When work running in the repository
+ *   holds it past the wait
+ */
+async function applyHeld(
+  storage: StorageBackend,
+  repo: string,
+  known: readonly RepositoryUpgrade[],
+  waitMs: number,
+  until: number,
+): Promise<RepositoryRecord> {
   return withKeyedLock(`repository-open\u0000${repo}`, async () => {
     const before = await readRecord(storage, repo, known);
     if (owed(before, known).length === 0) return before;
@@ -143,9 +243,17 @@ export async function repositoryOpen(storage: StorageBackend, repo: string, opti
       return await withRepositoryHeld(storage, repo, hold, async () => {
         let current = await readRecord(storage, repo, known);
         for (const upgrade of owed(current, known)) {
-          await upgrade.apply(storage, repo);
+          let at = await takenUpAt(storage, repo, upgrade);
+          for (;;) {
+            at = await upgrade.apply(storage, repo, at, Math.min(until, Date.now() + UPGRADE_PART_MS));
+            if (at === null) break;
+            await storage.refs.repositoryUpgradeWrite(repo, { step: upgrade.name, release: E3_RELEASE, cursor: at });
+            if (Date.now() >= until) return current;
+          }
           current = { release: E3_RELEASE, upgrades: [...current.upgrades, { name: upgrade.name, release: E3_RELEASE }] };
           await storage.refs.repositoryWrite(repo, current);
+          await storage.refs.repositoryUpgradeWrite(repo, null);
+          if (Date.now() >= until) return current;
         }
         return current;
       });
@@ -156,6 +264,16 @@ export async function repositoryOpen(storage: StorageBackend, repo: string, opti
       throw err;
     }
   });
+}
+
+/**
+ * Where an owed step is taken up: where its last part stopped, when the step
+ * under way is this one, or `null` to start it. A record of another step —
+ * one recorded done before its progress was cleared — is passed over.
+ */
+async function takenUpAt(storage: StorageBackend, repo: string, upgrade: RepositoryUpgrade): Promise<string | null> {
+  const progress = await storage.refs.repositoryUpgradeRead(repo);
+  return progress !== null && progress.step === upgrade.name ? progress.cursor : null;
 }
 
 /**

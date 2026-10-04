@@ -629,6 +629,8 @@ export async function packageZipOpenFrom(
       refs: {
         repositoryRead: refs.repositoryRead.bind(refs),
         repositoryWrite: refuse('write the repository record'),
+        repositoryUpgradeRead: refs.repositoryUpgradeRead.bind(refs),
+        repositoryUpgradeWrite: refuse('record an upgrade\'s progress'),
         packageList: async (repo) => [
           ...(await refs.packageList(repo)).filter((p) => p.name !== name || p.version !== version),
           { name, version },

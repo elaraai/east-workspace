@@ -25,7 +25,9 @@ import {
   decodeBeast2For, encodeBeast2For, isTypeValueEqual, readBeast2Type, toEastTypeValue, variant,
   type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
+import type { StoredRunState } from '../dataflow/state-store/interfaces.js';
 import type { RepositoryUpgrade } from '../storage/interfaces.js';
+import { workInParts } from './parts.js';
 
 /** A task's state in a run, as both forms hold it. */
 const FrozenTaskStateType = StructType({
@@ -198,17 +200,28 @@ function withForceTasks(state: StateBeforeForceTasks): StateWithForceTasks {
  * (`StorageBackend.runStates`, `ExecutionStateStore.readStored`), so the
  * upgrade goes through every backend's store alike, and written back through
  * the stored run's own `replace`. A run already in the form this upgrade
- * writes is left as it is, so the upgrade runs again whole after a crash cut
- * it short; and so is one in neither form, which a crash or a failing disk
- * left, and which a read refuses as it did before.
+ * writes is left as it is; and so is one in neither form, which a crash or a
+ * failing disk left, and which a read refuses as it did before.
+ *
+ * A unit of the step is a workspace: every run of it the store holds. The
+ * units go in the order of the workspaces' names, one at a time, and a part
+ * stops between them once its time is up, with the name of the last workspace
+ * it carried as its cursor.
  */
 export const dataflowForceTasks: RepositoryUpgrade = {
   name: DATAFLOW_FORCE_TASKS,
-  async apply(storage, repo) {
+  async apply(storage, repo, at, until) {
+    const byWorkspace = new Map<string, StoredRunState[]>();
     for (const stored of await storage.runStates(repo).readStored(repo)) {
-      if (isForm(stored.bytes, WITH_TYPE)) continue;
-      const earlier = beforeForceTasks(stored.bytes);
-      if (earlier !== null) await stored.replace(encodeWith(withForceTasks(earlier)));
+      byWorkspace.set(stored.workspace, [...(byWorkspace.get(stored.workspace) ?? []), stored]);
     }
+    const units = [...byWorkspace].map(([key, runs]) => ({ key, unit: runs }));
+    return workInParts(units, at, until, 1, async (runs) => {
+      for (const stored of runs) {
+        if (isForm(stored.bytes, WITH_TYPE)) continue;
+        const earlier = beforeForceTasks(stored.bytes);
+        if (earlier !== null) await stored.replace(encodeWith(withForceTasks(earlier)));
+      }
+    });
   },
 };

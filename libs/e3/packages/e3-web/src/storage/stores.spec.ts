@@ -287,6 +287,18 @@ describe('what WebStorage keeps beside its objects and records', () => {
     assert.deepEqual(new Set([...first.objects, ...second.objects].map(({ hash }) => hash)), written);
   });
 
+  it('answers none for the record of an upgrade under way that does not decode, so the step under way starts again', async (t) => {
+    const storage = await origin(t)();
+    await storage.repos.create(REPO);
+    await storage.refs.repositoryUpgradeWrite(REPO, { step: 'a-step', release: '1.0.0', cursor: 'here' });
+    await storage.adapters.records.transact((tx) => {
+      tx.put(recordKeys.upgrade(REPO), encoder.encode('not a record'));
+      return Promise.resolve();
+    });
+
+    assert.equal(await storage.refs.repositoryUpgradeRead(REPO), null);
+  });
+
   it('keeps one blob of the bytes two writes store at once', async (t) => {
     const blobs = new GatedBlobs();
     const storage = await origin(t, blobs)();

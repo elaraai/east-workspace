@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { encodeBeast2For, none, variant } from '@elaraai/east';
-import { repositoryOpen } from '@elaraai/e3-core';
+import { repositoryUpgradeStep } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { WorkspaceRecordType } from '@elaraai/e3-types';
 import { createRepositoryGate } from './repository.js';
@@ -32,7 +32,7 @@ describe('the repository gate', () => {
     // which the repository, created before it, owes.
     const before = (await storage.refs.repositoryRead(repo))?.upgrades.map(({ name }) => name) ?? [];
     const applied: string[] = [];
-    storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); } });
+    storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); return null; } });
 
     const app = new Hono();
     app.use('/api/repos/:repo/*', createRepositoryGate(storage, (r) => r));
@@ -84,7 +84,7 @@ describe('the repository gate', () => {
     await storage.repos.create(repo);
     await storage.refs.workspaceWrite(repo, 'main', encodeBeast2For(WorkspaceRecordType)(none));
     const applied: string[] = [];
-    storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); } });
+    storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); return null; } });
 
     // The host starts its job as it is told; the second time, starting it
     // fails, which the host reports itself.
@@ -117,8 +117,8 @@ describe('the repository gate', () => {
     assert.deepEqual(told, [['gated', ['host-layout-2']], ['gated', ['host-layout-2']], ['gated', ['host-layout-2']]]);
     assert.deepEqual(applied, []);
 
-    // The host's job opens the repository, which applies the step.
-    await repositoryOpen(storage, repo);
+    // The host's job applies the step, a part at a time until none is owed.
+    assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 10_000 }), { owed: [] });
     assert.deepEqual(applied, ['host-layout-2']);
     const status = await app.request(`/api/repos/${repo}/workspaces/main/status`);
     assert.equal(await status.text(), 'the status route ran');

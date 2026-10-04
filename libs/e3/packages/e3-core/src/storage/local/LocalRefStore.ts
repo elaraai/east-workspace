@@ -6,8 +6,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
-import { ExecutionOwnerType, ExecutionStatusType, DataflowRunType, RepositoryRecordType, decodeExecutionStatus } from '@elaraai/e3-types';
-import type { ExecutionOwner, ExecutionStatus, DataflowRun, RepositoryRecord } from '@elaraai/e3-types';
+import {
+  ExecutionOwnerType, ExecutionStatusType, DataflowRunType, RepositoryRecordType, RepositoryUpgradeProgressType, decodeExecutionStatus,
+} from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, DataflowRun, RepositoryRecord, RepositoryUpgradeProgress } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError, checkHash, checkId, checkName } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
@@ -24,9 +26,15 @@ const decodeOwner = decodeBeast2For(ExecutionOwnerType);
 /** The repository record's file, at the repository's root. */
 export const REPOSITORY_RECORD_FILE = 'repository.beast2';
 
+/** The file of the store upgrade under way, beside the repository record:
+ *  there only while a step is. */
+export const REPOSITORY_UPGRADE_FILE = 'repository-upgrade.beast2';
+
 /** Encodes a repository record as a local repository keeps it. */
 export const encodeRepositoryRecord: (record: RepositoryRecord) => Uint8Array = encodeBeast2For(RepositoryRecordType);
 const decodeRepositoryRecord = decodeBeast2For(RepositoryRecordType);
+const encodeUpgradeProgress = encodeBeast2For(RepositoryUpgradeProgressType);
+const decodeUpgradeProgress = decodeBeast2For(RepositoryUpgradeProgressType);
 
 /**
  * Reads a record that names an object, or `null` when there is none or it is
@@ -64,6 +72,8 @@ async function unlinkIfPresent(file: string): Promise<void> {
  * The `repo` parameter is the path to the e3 repository directory. Every
  * record is an East value in beast2:
  * - `repository.beast2`: the repository record;
+ * - `repository-upgrade.beast2`: the store upgrade under way, and where its
+ *   last part stopped, while one is;
  * - `packages/<name>/<version>.beast2`: a package object's hash;
  * - `workspaces/<ws>.beast2`: a workspace's record, which the caller encodes;
  * - `executions/<task>/<inputs>/<id>/status.beast2` and `owner.beast2`: an
@@ -97,6 +107,29 @@ export class LocalRefStore implements RefStore {
 
   async repositoryWrite(repo: string, record: RepositoryRecord): Promise<void> {
     await atomicWriteFile(path.join(repo, REPOSITORY_RECORD_FILE), encodeRepositoryRecord(record));
+  }
+
+  async repositoryUpgradeRead(repo: string): Promise<RepositoryUpgradeProgress | null> {
+    let data: Buffer;
+    try {
+      data = await fs.readFile(path.join(repo, REPOSITORY_UPGRADE_FILE));
+    } catch (err) {
+      if (isNotFoundError(err)) return null;
+      throw err;
+    }
+    // One that does not decode says nowhere a step stopped, so the step under
+    // way starts again, which a step's idempotence makes safe.
+    try {
+      return decodeUpgradeProgress(data);
+    } catch {
+      return null;
+    }
+  }
+
+  async repositoryUpgradeWrite(repo: string, progress: RepositoryUpgradeProgress | null): Promise<void> {
+    const file = path.join(repo, REPOSITORY_UPGRADE_FILE);
+    if (progress === null) await unlinkIfPresent(file);
+    else await atomicWriteFile(file, encodeUpgradeProgress(progress));
   }
 
   // -------------------------------------------------------------------------

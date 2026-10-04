@@ -20,7 +20,7 @@ e3-types' `E3_RELEASE` with them (`scripts/set-npm-version.mjs`, guarded by
 | Kind | Examples | At a change |
 |---|---|---|
 | **Package-borne** — written by the SDK at export and carried in a package | task objects, package objects, function objects, record, mutation and index objects, IR bundles, environment specs and the files they name (each a Blob), and the package zip's package ref and release (each a String) | Packages are re-exported with the new SDK. A package from an older SDK fails with an error that says to re-export it. An import refuses a zip a newer release exported, naming that release. |
-| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | The release that changes a stored form ships a repository upgrade step, and a repository an older release wrote is upgraded in place when that release first opens it: its records keep their states and histories. A reader refuses a stored form no step carried forward, naming the release that wrote it. A repository from before repositories recorded their upgrades is re-created: deployed again, and its data imported again. |
+| **Stored state** — written by e3 as it runs and kept in a repository | datasets and their segment manifests, record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans, and the repository's own records: its repository record and the upgrade under way, package refs, workspace state, dataset refs, execution owners and plan pointers, the adoption memo, locks and run records | The release that changes a stored form ships a repository upgrade step, and a repository an older release wrote is upgraded in place when that release first opens it: its records keep their states and histories. A reader refuses a stored form no step carried forward, naming the release that wrote it. A repository from before repositories recorded their upgrades is re-created: deployed again, and its data imported again. |
 
 No reader keeps a decoder for an earlier form. Readers read the current form,
 as writers write it; an upgrade step carries a repository's records into it,
@@ -43,14 +43,23 @@ A PR that changes a wire says which kind it changes.
   repository's files, the cloud's items — is that backend's step
   (`StorageBackend.upgrades`). A step is idempotent — it leaves a record
   already in the new form as it is — and once released it is never edited,
-  reordered or removed. The repository record, which every backend keeps
-  through its ref store, lists the steps a repository has had, each with the
-  release that applied it. Every way into a repository opens it
-  (`repositoryOpen`): the steps it has not had are applied, the backend's
-  before the shared ones, in order, before anything reads it and with the
-  repository held still; and a repository that has had a step this e3 does not
-  know is refused, naming the release that applied it. One with no repository
-  record is refused before anything in it is read, naming the fix.
+  reordered or removed. It applies in parts, so a host whose compute has a
+  time limit applies a step of any size: each part goes on from where the last
+  stopped, by a cursor of the step's own, which is kept beside the repository
+  record (`RefStore.repositoryUpgradeRead`). Any process takes a step up from
+  its cursor, and a step a crash cut short is taken up, not started again. A
+  step's cursor, like the step, never changes once released. The repository
+  record, which every backend keeps through its ref store, lists the steps a
+  repository has had, each with the release that applied it, once each is
+  done. Every way into a repository opens it (`repositoryOpen`): the steps it
+  has not had are applied, the backend's before the shared ones, in order,
+  before anything reads it and with the repository held still; and a
+  repository that has had a step this e3 does not know is refused, naming the
+  release that applied it. One with no repository record is refused before
+  anything in it is read, naming the fix. A host whose requests have a time
+  limit leaves the steps to a job of its own (`repositoryOpen`'s
+  `apply: false`), which applies them a part per run
+  (`repositoryUpgradeStep`).
 - **A new object kind names other objects:** it carries a `kind` tag, and lands
   with a GC test. GC dispatches a tagged object on its tag, through a table
   listing the field names of each kind. An object whose fields begin with the

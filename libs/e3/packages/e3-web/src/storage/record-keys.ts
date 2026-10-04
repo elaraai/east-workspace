@@ -33,6 +33,8 @@ export const recordKeys = {
   kind: (repo: string, kind: string): RecordKey => ['repo', repo, kind],
   /** The repository record */
   record: (repo: string): RecordKey => ['repo', repo, 'record'],
+  /** The store upgrade under way, and where its last part stopped, while one is */
+  upgrade: (repo: string): RecordKey => ['repo', repo, 'upgrade'],
   /** A package's ref: the package object's hash */
   package: (repo: string, name: string, version: string): RecordKey => ['repo', repo, 'package', name, version],
   /** A workspace's record */

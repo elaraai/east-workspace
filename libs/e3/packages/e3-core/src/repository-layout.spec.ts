@@ -25,7 +25,8 @@ import {
 import e3 from '@elaraai/e3';
 import {
   DataflowExecutionStateType, DataflowRunType, DatasetRefType, E3_RELEASE, ExecutionOwnerType, ExecutionStatusType,
-  LockStateType, RepoMetadataType, RepositoryRecordType, UNIT_PLAN_KIND, WorkspaceRecordType, encodeUnitPlan,
+  LockStateType, RepoMetadataType, RepositoryRecordType, RepositoryUpgradeProgressType, UNIT_PLAN_KIND, WorkspaceRecordType,
+  encodeUnitPlan,
 } from '@elaraai/e3-types';
 import { datasetAdoptFile } from './dataset-adopt-file.js';
 import { LocalOrchestrator } from './execution/local-orchestrator.js';
@@ -48,6 +49,7 @@ import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js'
 /** Each record a repository keeps: what it is, where, and its East type. */
 const RECORDS: ReadonlyArray<readonly [name: string, path: RegExp, type: EastType]> = [
   ['the repository record', /^repository\.beast2$/, RepositoryRecordType],
+  ['the store upgrade under way', /^repository-upgrade\.beast2$/, RepositoryUpgradeProgressType],
   ['the repository\'s metadata', /^metadata\.beast2$/, RepoMetadataType],
   ['a package ref', /^packages\/[^/]+\/[^/]+\.beast2$/, StringType],
   ['a workspace record', /^workspaces\/[^/]+\.beast2$/, WorkspaceRecordType],
@@ -110,9 +112,11 @@ describe('the repository\'s records', () => {
 
   it('holds nothing but East values in beast2 of the types their paths say, a log and an object aside', async () => {
     // An undeployed workspace beside the deployed one, a split task's plan
-    // mid-stage, and a lock of each kind, held across a gc: the exclusive one
-    // a deploy's, which has said how far it has got.
+    // mid-stage, a store upgrade under way, as a part of one leaves it, and a
+    // lock of each kind, held across a gc: the exclusive one a deploy's, which
+    // has said how far it has got.
     await workspaceCreate(storage, repo, 'idle');
+    await storage.refs.repositoryUpgradeWrite(repo, { step: 'a-step', release: E3_RELEASE, cursor: 'here' });
     const [execution] = await storage.refs.executionList(repo);
     assert.ok(execution !== undefined, 'the run recorded an execution');
     const plan = await storage.objects.write(repo, encodeUnitPlan({
@@ -211,6 +215,7 @@ describe('the repository\'s records', () => {
             rmSync(text);
           }
         }
+        return null;
       },
     };
 

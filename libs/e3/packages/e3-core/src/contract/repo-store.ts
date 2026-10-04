@@ -97,6 +97,7 @@ export function repoStoreTests(setup: RepositoriesSetup): void {
         executionId: id, inputHashes: [], startedAt: new Date(), completedAt: new Date(), exitCode: 1n, peakBytes: none, unit: false,
       }));
       await storage.refs.adoptionWrite(repo, HASH, HASH);
+      await storage.refs.repositoryUpgradeWrite(repo, { step: 'contract-step', release: E3_RELEASE, cursor: 'here' });
       await storage.datasets.write(repo, 'ws', 'inputs/sales', variant('unassigned', null));
       await storage.logs.append(repo, TASK, INPUTS, id, 'stdout', 'a log');
       await storage.refs.packageWrite(repoOf('beta'), 'kept', '1.0.0', HASH);
@@ -124,6 +125,7 @@ export function repoStoreTests(setup: RepositoriesSetup): void {
       assert.deepEqual(await storage.refs.workspaceList(repo), []);
       assert.deepEqual(await storage.refs.executionList(repo), []);
       assert.equal(await storage.refs.adoptionRead(repo, HASH), null);
+      assert.equal(await storage.refs.repositoryUpgradeRead(repo), null, 'no upgrade is under way');
       assert.deepEqual(await storage.datasets.list(repo, 'ws'), []);
       assert.equal((await storage.logs.read(repo, TASK, INPUTS, id, 'stdout')).totalSize, 0);
       assert.deepEqual(await storage.refs.packageList(repoOf('beta')), [{ name: 'kept', version: '1.0.0' }], 'another repository keeps its own');

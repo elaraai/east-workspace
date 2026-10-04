@@ -438,6 +438,7 @@ describe('packages', () => {
           await assert.rejects(view.refs.packageWrite(testRepo, 'orders', '1.0.0', expected.packageHash), /was asked to write a package ref$/);
           await assert.rejects(view.datasets.write(testRepo, 'main', 'records/orders', variant('unassigned', null)), /was asked to write a dataset ref$/);
           await assert.rejects(view.logs.flush(testRepo, 'c'.repeat(64), 'd'.repeat(64), '0190a0b0-8888-7000-8000-000000000000'), /was asked to flush a log$/);
+          await assert.rejects(view.refs.repositoryUpgradeWrite(testRepo, null), /was asked to record an upgrade's progress$/);
         } finally {
           zip.close();
         }

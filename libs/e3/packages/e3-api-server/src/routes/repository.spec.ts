@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { decodeBeast2For, variant } from '@elaraai/east';
-import { InMemoryTransferBackend, TASKS_LOCK, repositoryOpen } from '@elaraai/e3-core';
+import { InMemoryTransferBackend, TASKS_LOCK, repositoryUpgradeStep } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import { RepositoryRecordType } from '@elaraai/e3-types';
 import { getRecord } from '../handlers/repository.js';
@@ -30,7 +30,7 @@ async function owing(): Promise<{ storage: InMemoryStorage; applied: string[] }>
   const storage = new InMemoryStorage();
   await storage.repos.create('owing');
   const applied: string[] = [];
-  storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); } });
+  storage.upgrades.push({ name: 'host-layout-2', apply: async () => { applied.push('host-layout-2'); return null; } });
   return { storage, applied };
 }
 
@@ -68,7 +68,7 @@ describe('the repository record route', () => {
     assert.deepEqual(applied, [], 'no read applies the step');
 
     // Once the host's job has applied it, the record is read.
-    await repositoryOpen(storage, 'owing');
+    assert.deepEqual(await repositoryUpgradeStep(storage, 'owing', { budgetMs: 10_000 }), { owed: [] });
     const read = decodeRecord(new Uint8Array(await (await app.request('/api/repos/owing/record')).arrayBuffer()));
     assert.equal(read.type, 'success');
     if (read.type !== 'success') return;

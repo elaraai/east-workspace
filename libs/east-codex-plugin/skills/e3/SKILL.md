@@ -615,7 +615,7 @@ takes a runner, `new LocalTaskRunner(repo)`.
 
 | Area | Functions |
 |---|---|
-| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; `repoGcStep(storage, repo, step, { windowMs, … })` runs that one step at a time, each returning the next (`GcStepType`) |
+| Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repositoryUpgradeStep(storage, repo, { budgetMs, waitMs? })` → `{ owed }` — a host's job applies them so, a part per run under its time limit, each part taking a step up where the last stopped, `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; `repoGcStep(storage, repo, step, { windowMs, … })` runs that one step at a time, each returning the next (`GcStepType`) |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
 | Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
 | Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |
@@ -730,6 +730,7 @@ What a browser cannot do — each fails naming it, never a partial answer:
 ```
 repo/
 ├── repository.beast2  # the release that last wrote it, and the upgrades it has had
+├── repository-upgrade.beast2  # while an upgrade is under way: where its last part stopped
 ├── metadata.beast2    # its name and status
 ├── objects/           # content-addressed: values, segments, manifests, programs
 ├── packages/          # package refs

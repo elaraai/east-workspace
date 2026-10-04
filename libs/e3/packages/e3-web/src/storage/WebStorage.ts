@@ -44,6 +44,7 @@ import {
   LockStateType,
   RepoMetadataType,
   RepositoryRecordType,
+  RepositoryUpgradeProgressType,
   decodeExecutionStatus,
   type DataflowRun,
   type DatasetRef,
@@ -52,6 +53,7 @@ import {
   type LockHolderVariant,
   type LockProgress,
   type RepositoryRecord,
+  type RepositoryUpgradeProgress,
 } from '@elaraai/e3-types';
 import {
   DatasetRefConflictError,
@@ -234,6 +236,8 @@ const decodeProgress = decodeBeast2For(ProgressRecordType);
 
 const encodeRepositoryRecord = encodeBeast2For(RepositoryRecordType);
 const decodeRepositoryRecord = decodeBeast2For(RepositoryRecordType);
+const encodeUpgradeProgress = encodeBeast2For(RepositoryUpgradeProgressType);
+const decodeUpgradeProgress = decodeBeast2For(RepositoryUpgradeProgressType);
 const encodeMetadata = encodeBeast2For(RepoMetadataType);
 const decodeMetadata = decodeBeast2For(RepoMetadataType);
 const encodeStatus = encodeBeast2For(ExecutionStatusType);
@@ -513,6 +517,25 @@ class WebRefStore implements RefStore {
 
   async repositoryWrite(repo: string, record: RepositoryRecord): Promise<void> {
     await writeRecords(this.records, (tx) => tx.put(recordKeys.record(repo), encodeRepositoryRecord(record)));
+  }
+
+  async repositoryUpgradeRead(repo: string): Promise<RepositoryUpgradeProgress | null> {
+    const data = await this.records.get(recordKeys.upgrade(repo));
+    if (data === null) return null;
+    // One that does not decode says nowhere a step stopped, so the step under
+    // way starts again, which a step's idempotence makes safe.
+    try {
+      return decodeUpgradeProgress(data);
+    } catch {
+      return null;
+    }
+  }
+
+  async repositoryUpgradeWrite(repo: string, progress: RepositoryUpgradeProgress | null): Promise<void> {
+    await writeRecords(this.records, (tx) => {
+      if (progress === null) tx.delete(recordKeys.upgrade(repo));
+      else tx.put(recordKeys.upgrade(repo), encodeUpgradeProgress(progress));
+    });
   }
 
   async packageList(repo: string): Promise<{ name: string; version: string }[]> {
