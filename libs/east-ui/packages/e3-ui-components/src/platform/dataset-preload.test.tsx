@@ -17,7 +17,6 @@ import { render, cleanup, screen, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient } from "@tanstack/react-query";
 import { IntegerType, encodeBeast2For, none, some, toEastTypeValue, variant } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui/internal";
 import {
     BEAST2_CONTENT_TYPE, DatasetStatusDetailType, ResponseType, TaskDetailsType, WorkspaceStatusResultType, type TreePath,
 } from "@elaraai/e3-types";
@@ -222,10 +221,10 @@ describe("a preload that fails", () => {
 });
 
 describe("a UITaskPreview whose preload fails", () => {
-    /** The task's output, a UI component, as the status route answers it. */
+    /** A dataset holding an Integer value, as the status route answers it. */
     const STATUS = encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
         path: ".out",
-        type: toEastTypeValue(UIComponentType),
+        type: toEastTypeValue(IntegerType),
         refType: "value",
         hash: some("1".repeat(64)),
         size: some(9n),

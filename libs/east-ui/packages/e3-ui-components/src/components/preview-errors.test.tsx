@@ -13,8 +13,7 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient } from "@tanstack/react-query";
-import { IntegerType, encodeBeast2For, none, some, toEastTypeValue, variant, type EastType } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui/internal";
+import { IntegerType, encodeBeast2For, none, some, toEastTypeValue, variant } from "@elaraai/east";
 import { DatasetStatusDetailType, ResponseType, TaskDetailsType } from "@elaraai/e3-types";
 import { system } from "@elaraai/east-ui-components";
 import { E3Provider } from "../platform/e3-config.js";
@@ -29,18 +28,16 @@ afterEach(() => {
 
 const API = "http://e3.test";
 
-/** A dataset holding a value of `type`, as the status route answers it. */
-function statusOf(type: EastType): Uint8Array {
-    return encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
-        path: ".out",
-        type: toEastTypeValue(type),
-        refType: "value",
-        hash: some("1".repeat(64)),
-        size: some(9n),
-        segments: none,
-        rows: none,
-    }));
-}
+/** A dataset holding an Integer value, as the status route answers it. */
+const STATUS = encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
+    path: ".out",
+    type: toEastTypeValue(IntegerType),
+    refType: "value",
+    hash: some("1".repeat(64)),
+    size: some(9n),
+    segments: none,
+    rows: none,
+}));
 
 /** A ui task binding nothing, whose output is `.out`. */
 const TASK = encodeBeast2For(ResponseType(TaskDetailsType))(variant("success", {
@@ -55,11 +52,11 @@ const TASK = encodeBeast2For(ResponseType(TaskDetailsType))(variant("success", {
 
 const FAILURE = () => new Response(JSON.stringify({ error: { type: "internal", message: "the server fell over" } }), { status: 500 });
 
-/** Serves the task as given and the status of a value of `status`'s type, or fails it, and fails the rest. */
-function serve(routes: { task?: boolean; status: EastType | "fails" }) {
+/** Serves the task and the status as given, and fails the rest. */
+function serve(routes: { task?: boolean; status: boolean }) {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
         if (routes.task === true && url.includes("/tasks/view")) return new Response(TASK.slice(), { status: 200 });
-        if (url.includes("status=true")) return routes.status === "fails" ? FAILURE() : new Response(statusOf(routes.status).slice(), { status: 200 });
+        if (url.includes("status=true")) return routes.status ? new Response(STATUS.slice(), { status: 200 }) : FAILURE();
         return FAILURE();
     }));
 }
@@ -75,21 +72,21 @@ function renderIn(children: React.ReactNode) {
 
 describe("a preview whose load fails", () => {
     test("DatasetPreview shows the value's failure", async () => {
-        serve({ status: IntegerType });
+        serve({ status: true });
         renderIn(<DatasetPreview apiUrl={API} repo="default" workspace="w" path="out" pollInterval={60_000} />);
         expect(await screen.findByText("Load failed")).not.toBe(null);
         expect(screen.queryByText("Loading...")).toBe(null);
     });
 
     test("UITaskPreview shows its output's status failure", async () => {
-        serve({ task: true, status: "fails" });
+        serve({ task: true, status: false });
         renderIn(<UITaskPreview task="view" />);
         expect(await screen.findByText("Error")).not.toBe(null);
         expect(screen.queryByText("Loading...")).toBe(null);
     });
 
     test("UITaskPreview shows its output's value failure", async () => {
-        serve({ task: true, status: UIComponentType });
+        serve({ task: true, status: true });
         renderIn(<UITaskPreview task="view" />);
         expect(await screen.findByText("Load failed")).not.toBe(null);
         expect(screen.queryByText("Loading...")).toBe(null);
@@ -100,13 +97,13 @@ describe("a UITaskPreview whose config names a workspace", () => {
     test("refuses one other than the workspace its provider serves", async () => {
         // The data bindings read the provider's workspace, `w`: rendering the
         // other workspace's task over `w`'s data would mix the two.
-        serve({ task: true, status: UIComponentType });
+        serve({ task: true, status: true });
         renderIn(<ReactiveDatasetProvider><UITaskPreview task="view" config={{ apiUrl: API, workspace: "other" }} /></ReactiveDatasetProvider>);
         expect(await screen.findByText("Workspace mismatch")).not.toBe(null);
     });
 
     test("renders the provider's own", async () => {
-        serve({ task: true, status: UIComponentType });
+        serve({ task: true, status: true });
         renderIn(<ReactiveDatasetProvider><UITaskPreview task="view" config={{ apiUrl: API, workspace: "w" }} /></ReactiveDatasetProvider>);
         expect(await screen.findByText("Load failed")).not.toBe(null);
         expect(screen.queryByText("Workspace mismatch")).toBe(null);

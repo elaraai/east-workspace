@@ -15,8 +15,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { encodeBeast2For, none, some, toEastTypeValue, variant } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui/internal";
+import { IntegerType, encodeBeast2For, none, some, toEastTypeValue, variant } from "@elaraai/east";
 import { DatasetStatusDetailType, ResponseType, TaskDetailsType } from "@elaraai/e3-types";
 import { system } from "@elaraai/east-ui-components";
 import { E3Provider, e3RequestOptions } from "./e3-config.js";
@@ -31,10 +30,10 @@ import { TaskPreview } from "../components/TaskPreview.js";
 const API = "http://e3.test";
 const HASH = "1".repeat(64);
 
-/** The ui task's output, a UI component, as the status route answers it. */
+/** A dataset holding an Integer value, as the status route answers it. */
 const STATUS = encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
     path: ".out",
-    type: toEastTypeValue(UIComponentType),
+    type: toEastTypeValue(IntegerType),
     refType: "value",
     hash: some(HASH),
     size: some(9n),

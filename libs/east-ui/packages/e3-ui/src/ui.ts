@@ -21,7 +21,7 @@ import { task, type DatasetDef, type Runner, type TaskDef } from '@elaraai/e3/br
 import { UIComponentType } from '@elaraai/east-ui';
 import {
   Expr,
-  isSubtype,
+  isTypeEqual,
   printTypeSummary,
   type EastType,
   type CallableFunctionExpr,
@@ -34,9 +34,10 @@ import { deriveManifest } from './utils/derive.js';
 /**
  * Create a UI task — an e3 task that produces a UIComponentType value.
  *
- * Its function returns a UI component: `UIComponentType`, or a subtype of it,
- * which is what the task's preview renders. Any other output is refused here,
- * so no package deploys one.
+ * Its function returns `UIComponentType`, exactly: a task in the `ui` role is
+ * rendered by its role alone, so its output is never anything else. The
+ * signature takes no other function, and one that slips past it, through a
+ * cast, is refused here, so no package deploys one.
  *
  * The task's manifest combines:
  * - **Compute-time reads** — every dataset in `inputs` (the runner passes
@@ -50,12 +51,11 @@ import { deriveManifest } from './utils/derive.js';
  *
  * @param name - The task's name
  * @param inputs - The datasets the runner passes `fn`, in order
- * @param fn - Builds the UI component: returns `UIComponentType`, or a subtype
- *   of it
+ * @param fn - Builds the UI component: returns `UIComponentType`
  * @param options - `runner`, which defaults to east-c with no platforms
  * @returns The task, whose output is the UI component
- * @throws {Error} When `fn` returns a type that is not `UIComponentType` or a
- *   subtype of it, naming the task and the type.
+ * @throws {Error} When `fn` returns another type than `UIComponentType`,
+ *   naming the task and the type.
  *
  * @example
  * ```ts
@@ -84,17 +84,16 @@ import { deriveManifest } from './utils/derive.js';
 export function ui<
   Name extends string,
   Inputs extends readonly DatasetDef[],
-  O extends EastType = typeof UIComponentType,
 >(
   name: Name,
   inputs: [...Inputs],
-  fn: CallableFunctionExpr<any, O> | CallableAsyncFunctionExpr<any, O>,
+  fn: CallableFunctionExpr<any, UIComponentType> | CallableAsyncFunctionExpr<any, UIComponentType>,
   options?: {
     runner?: Runner,
   },
-): TaskDef<O, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
+): TaskDef<UIComponentType, [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]> {
   return buildUiTask(name, inputs, fn, options) as TaskDef<
-    O,
+    UIComponentType,
     [variant<'field', 'tasks'>, variant<'field', Name>, variant<'field', 'output'>]
   >;
 }
@@ -105,12 +104,13 @@ function buildUiTask(
   fn: CallableFunctionExpr<any, EastType> | CallableAsyncFunctionExpr<any, EastType>,
   options?: { runner?: Runner },
 ): TaskDef {
-  // The output is what the task's preview renders: a UI component (#1118).
+  // A ui task is rendered by its role alone, so its output is UIComponentType,
+  // exactly: a function that slipped past the signature is refused (#1118).
   const output = Expr.type(fn as unknown as Expr<any>).output as EastType;
-  if (!isSubtype(output, UIComponentType)) {
+  if (!isTypeEqual(output, UIComponentType)) {
     throw new Error(
-      `ui '${name}': its function returns ${printTypeSummary(output)}, not a UI component — ` +
-      `a ui() task's function returns UIComponentType, or a subtype of it`
+      `ui '${name}': its function returns ${printTypeSummary(output)}, not UIComponentType — ` +
+      `a ui() task's function returns UIComponentType`
     );
   }
   const derived = deriveManifest(fn);

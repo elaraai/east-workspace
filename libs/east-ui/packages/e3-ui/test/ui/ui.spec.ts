@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, equalFor, isTypeEqual, variant } from "@elaraai/east";
+import { type CallableFunctionExpr, ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, equalFor, isTypeEqual, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
 import { input, record, recordIndex } from "@elaraai/e3";
 import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
@@ -18,6 +18,14 @@ const pathEqual = equalFor(TreePathType);
 const manifestEqual = equalFor(DataManifestType);
 
 const blankUI = East.function([], UIComponentType, (_$) => Text.Root("hello"));
+
+// ui() takes no function returning a String (#1118): the build fails if it
+// ever did. Asked as a type rather than a call with `@ts-expect-error`, whose
+// report of the mismatch spells out all of UIComponentType and costs the
+// build half a second.
+type TakesStringFunction = CallableFunctionExpr<[], StringType> extends Parameters<typeof ui>[2] ? true : false;
+const refusesString: TakesStringFunction = false;
+void refusesString;
 
 describe("ui()", () => {
     test("returns a TaskDef with kind='task' in the ui role", () => {
@@ -139,24 +147,34 @@ describe("ui()", () => {
         assert.ok(dashboard.output.type, "output.type should be set");
     });
 
-    test("refuses a function whose output is not a UI component, naming the task and the type (#1118)", () => {
-        assert.throws(() => ui("label", [], East.function([], StringType, (_$) => "hello")), {
-            message: "ui 'label': its function returns .String, not a UI component — " +
-                "a ui() task's function returns UIComponentType, or a subtype of it",
+    // A ui task is rendered by its role alone, so its output is UIComponentType,
+    // exactly. The signature takes no other function (`refusesString` above),
+    // and one cast past it is refused (#1118).
+    test("refuses a function whose output is not UIComponentType, naming the task and the type (#1118)", () => {
+        const label = East.function([], StringType, (_$) => "hello");
+        const rows = East.asyncFunction([], ArrayType(IntegerType), (_$) => [1n]);
+        assert.throws(() => ui("label", [], label as never), {
+            message: "ui 'label': its function returns .String, not UIComponentType — " +
+                "a ui() task's function returns UIComponentType",
         });
-        assert.throws(() => ui("rows", [], East.asyncFunction([], ArrayType(IntegerType), (_$) => [1n])), {
-            message: /^ui 'rows': its function returns \.Array \.Integer, not a UI component/,
-        });
+        assert.throws(() => ui("rows", [], rows as never),
+            { message: /^ui 'rows': its function returns \.Array \.Integer, not UIComponentType/ });
     });
 
-    test("takes a function whose output is a subtype of UIComponentType (#1118)", () => {
-        // UIComponentType's Text case alone: a UI component, which the preview renders.
+    test("refuses a function whose output is a subtype of UIComponentType (#1118)", () => {
+        // UIComponentType's Text case alone: a value of it is a UI component,
+        // but the task's output would not be UIComponentType.
         const TextOnly = VariantType({ Text: UIComponentType.node.cases.Text });
         const hello = East.compile(blankUI, [])();
         assert.ok(hello.type === "Text");
         const text = variant("Text", hello.value);
-        const label = ui("text_only", [], East.function([], TextOnly, (_$) => text));
-        assert.equal(label.role.type, "ui");
-        assert.ok(isTypeEqual(label.output.type, TextOnly), "the output keeps the function's type");
+        const textOnly = East.function([], TextOnly, (_$) => text);
+        assert.throws(() => ui("text_only", [], textOnly as never),
+            { message: /^ui 'text_only': its function returns \.Variant .*, not UIComponentType/ });
+    });
+
+    test("types the task's output UIComponentType", () => {
+        const dashboard = ui("typed", [], blankUI);
+        assert.ok(isTypeEqual(dashboard.output.type, UIComponentType));
     });
 });
