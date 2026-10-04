@@ -73,6 +73,7 @@ import {
   stepDetectInputChanges,
   stepInvalidateTasks,
   stepCheckVersionConsistency,
+  stepTaskResultStale,
   stepGetRunSet,
   stepTaskForced,
 } from '../steps.js';
@@ -957,6 +958,13 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             const served = { inputsHash: inputsHash(prepared.inputHashes), executionId: cached.executionId };
             // Cache hit — wrap in mutex to serialize with concurrent .then() callbacks
             await execution.mutex.runExclusive(async () => {
+              // An input may have moved while the cache was read: the cached
+              // result is then stale, and the task waits for its inputs again
+              if (stepTaskResultStale(state, taskName, vvCheck.mergedVV)) {
+                (state.tasks.get(taskName) as Mutable<TaskState>).status = 'pending';
+                return;
+              }
+
               // Write ref with merged VV and update state
               await stepApplyTreeUpdate(
                 storage, repo, state.workspace,
@@ -1414,21 +1422,10 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
       // Handle task completion
       if (result.state === 'success') {
-        // Check if task's inputs changed during execution by comparing
-        // the launch-time merged VV against current. handleInputChanges may
-        // have updated root input VVs while this task was in_progress,
-        // making its result stale.
-        const currentVVCheck = stepCheckVersionConsistency(state, taskName);
-        const inputsStale = !currentVVCheck.consistent || (() => {
-          const current = currentVVCheck.mergedVV;
-          if (launchMergedVV.size !== current.size) return true;
-          for (const [key, value] of launchMergedVV) {
-            if (current.get(key) !== value) return true;
-          }
-          return false;
-        })();
-
-        if (inputsStale) {
+        // A result computed from inputs the run has since moved past is
+        // stale: handleInputChanges may have changed a root input while this
+        // task was in_progress, or invalidated a task whose output it read
+        if (stepTaskResultStale(state, taskName, launchMergedVV)) {
           // Task computed with stale inputs — discard result, reset to pending.
           // The reactive loop will re-execute it with the updated inputs.
           const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;

@@ -418,6 +418,7 @@ export {
   stepDetectInputChanges,
   stepInvalidateTasks,
   stepCheckVersionConsistency,
+  stepTaskResultStale,
   type StepInitializeOptions,
   // State store
   type ExecutionStateStore,

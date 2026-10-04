@@ -510,14 +510,14 @@ A workspace holds one ref per dataset (`DatasetRefType`, at `workspaces/<ws>/dat
 
 Versions are content and commit hashes, not counters. A value that changes and changes back has its old version again, and the execution cache serves it. Tasks are pure functions of their inputs, so the root inputs are the only sources of change; an impure task would need an entry of its own.
 
-**Consistency.** Before the loop launches a task, it checks that the task's inputs agree on every root input they share (`checkVersionConsistency`). Two inputs derived from different versions of one root input would mix old and new data, as the two arms of a diamond can while one of them is recomputed. A task whose inputs disagree is **deferred** (`task_deferred`), and launched once its upstream has caught up. A task is never given inconsistent inputs.
+**Consistency.** Before the loop launches a task, it checks that the task's inputs agree on every root input they share (`checkVersionConsistency`). Two inputs derived from different versions of one root input would mix old and new data, as the two arms of a diamond can while one of them is recomputed. A task whose inputs disagree is **deferred** (`task_deferred`), and goes back to pending once a task whose output it reads completes, to be checked again (`stepTaskCompleted`). A task is never given inconsistent inputs.
 
 **Reacting to changes.** A dataflow run holds its workspace lock shared (§3.16), so dataset writes and record mutations go on while it runs. After each task completes, run or served from the cache, the loop reads the root inputs' refs again and compares them with its snapshot (`stepDetectInputChanges`). For each change:
 - it records `input_changed`;
 - every completed task downstream of the change goes back to pending (`task_invalidated`), to run again;
 - a deferred task is evaluated again.
 
-A task that was running when its input changed runs to its end. Its result is then discarded when the inputs it was launched with are no longer current, and it runs again with the new ones.
+A task that was running when its input changed runs to its end. Its result is then discarded when a root input it was launched with has changed since, and the task runs again once its inputs are complete (`stepTaskResultStale`). That holds when it read the output of a task the change sent back to pending, which has yet to run again: that output's version vector still names the root input as it was. A result the cache serves is judged the same way as it is applied, since an input can move while the cache is read.
 
 **Fixpoint.** The run ends when no task is ready, running or deferred: every output is then consistent with the root inputs as they stand. Datasets may disagree with each other while a run is in flight, and their version vectors say so. A run that stops with a task still pending or deferred and nothing running reports the dataflow stuck, naming them.
 

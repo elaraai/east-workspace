@@ -19,6 +19,7 @@ import {
   stepInvalidateTasks,
   stepDetectInputChanges,
   stepCheckVersionConsistency,
+  stepTaskResultStale,
   stepYield,
   stepTaskSplit,
   stepTaskMergeStarted,
@@ -629,5 +630,83 @@ describe('stepCheckVersionConsistency', () => {
       () => stepCheckVersionConsistency(state, 'nonexistent'),
       { message: /nonexistent.*not found/ },
     );
+  });
+});
+
+describe('stepTaskResultStale', () => {
+  // input → a → c: c reads a's output; x reads two outputs
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.a_out', dependsOn: [] },
+      { name: 'c', hash: 'hash-c', inputs: ['.a_out'], output: '.c_out', dependsOn: ['a'] },
+      { name: 'x', hash: 'hash-x', inputs: ['.a_out', '.c_out'], output: '.x_out', dependsOn: ['a', 'c'] },
+    ],
+  };
+
+  /** A run whose snapshot holds the input at `input`, a's output carrying `aOut`. */
+  function run(input: string | null, aOut: string): DataflowExecutionState {
+    const state = makeState(graph, new Map(graph.tasks.map((task) => [task.name, makeTaskState(task.name, 'in_progress')] as const)));
+    if (input !== null) state.inputSnapshot.set('.input', input);
+    state.versionVectors.set('.a_out', new Map([['.input', aOut]]));
+    return state;
+  }
+  const given = (hash: string) => new Map([['.input', hash]]);
+
+  it('is fresh while the root inputs and the inputs\' version vectors are those the task was given', () => {
+    assert.strictEqual(stepTaskResultStale(run('v1', 'v1'), 'c', given('v1')), false);
+  });
+
+  it('is stale once a root input the task was given has changed, though the output it read has yet to move', () => {
+    assert.strictEqual(stepTaskResultStale(run('v2', 'v1'), 'c', given('v1')), true);
+  });
+
+  it('is stale once its inputs\' version vectors have moved, or no longer agree, where the snapshot holds no root they name', () => {
+    assert.strictEqual(stepTaskResultStale(run(null, 'v2'), 'c', given('v1')), true, 'moved');
+    assert.strictEqual(stepTaskResultStale(run(null, 'v1'), 'c', new Map([['.input', 'v1'], ['.other', 'v1']])), true, 'one fewer');
+    const another = run(null, 'v1');
+    another.versionVectors.set('.a_out', new Map([['.input', 'v1'], ['.other', 'v1']]));
+    assert.strictEqual(stepTaskResultStale(another, 'c', given('v1')), true, 'one more');
+    assert.strictEqual(stepTaskResultStale(run(null, 'v1'), 'c', given('v1')), false, 'unmoved');
+    const disagreeing = run(null, 'v1');
+    disagreeing.versionVectors.set('.c_out', new Map([['.input', 'v2']]));
+    assert.strictEqual(stepTaskResultStale(disagreeing, 'x', given('v1')), true, 'disagreeing');
+  });
+});
+
+describe('stepTaskCompleted', () => {
+  // b, c → k; d reads the input alone
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'b', hash: 'hash-b', inputs: ['.input'], output: '.b_out', dependsOn: [] },
+      { name: 'c', hash: 'hash-c', inputs: ['.input'], output: '.c_out', dependsOn: [] },
+      { name: 'k', hash: 'hash-k', inputs: ['.b_out', '.c_out'], output: '.k_out', dependsOn: ['b', 'c'] },
+      { name: 'd', hash: 'hash-d', inputs: ['.input'], output: '.d_out', dependsOn: [] },
+    ],
+  };
+  const execution = { inputsHash: 'inputs-c', executionId: 'execution-c' };
+
+  it('decides its deferred dependents again: pending, and ready once their inputs are all complete', () => {
+    const state = makeState(graph, new Map([
+      ['b', makeTaskState('b', 'completed')],
+      ['c', makeTaskState('c', 'in_progress')],
+      ['k', makeTaskState('k', 'deferred')],
+      ['d', makeTaskState('d', 'deferred')],
+    ]));
+    const { result } = stepTaskCompleted(state, 'c', 'c-v2', false, 10, execution);
+    assert.deepStrictEqual(result.newlyReady, ['k']);
+    assert.strictEqual(state.tasks.get('k')!.status, 'ready');
+    assert.strictEqual(state.tasks.get('d')!.status, 'deferred', 'a task that does not read the output stays deferred');
+  });
+
+  it('leaves a deferred dependent pending while another of its inputs is still to complete', () => {
+    const state = makeState(graph, new Map([
+      ['b', makeTaskState('b', 'in_progress')],
+      ['c', makeTaskState('c', 'in_progress')],
+      ['k', makeTaskState('k', 'deferred')],
+      ['d', makeTaskState('d', 'completed')],
+    ]));
+    const { result } = stepTaskCompleted(state, 'c', 'c-v2', false, 10, execution);
+    assert.deepStrictEqual(result.newlyReady, []);
+    assert.strictEqual(state.tasks.get('k')!.status, 'pending');
   });
 });
