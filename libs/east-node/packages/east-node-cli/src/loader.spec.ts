@@ -17,10 +17,12 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
   DictType, East, IntegerType, StringType, SortedMap, compareFor,
@@ -158,6 +160,46 @@ describe('loadPlatform — E3_RUNNER_SEARCH_DIRS (the e3 dataflow-run path)', ()
       );
     } finally {
       rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('loadPlatform — a global install, whose bin links into the install', () => {
+  it("resolves a package installed beside the CLI from its script's real path, with no NODE_PATH", () => {
+    // npm's global layout: <prefix>/lib/node_modules holds the CLI and the
+    // packages installed beside it, and the bin node is started with links
+    // into the CLI's own. The walk up from the link's directory reaches no
+    // node_modules; the walk up from the script's real path does. A link to
+    // the CLI's bin directory stands for npm's link to its script: as a
+    // junction, it links on Windows too.
+    const packageDir = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const prefix = mkdtempSync(join(tmpdir(), 'enc-global-'));
+    const scratch = mkdtempSync(join(tmpdir(), 'enc-scratch-'));
+    const platform = makeFakeProject(
+      'acme-global',
+      'export default [{ name: "acme.global", inputs: [], output: { type: "String" }, type: "sync", fn: () => "" }];\n',
+    );
+    try {
+      const modules = join(prefix, 'lib', 'node_modules');
+      const cli = join(modules, '@elaraai', 'east-node-cli');
+      mkdirSync(cli, { recursive: true });
+      cpSync(join(packageDir, 'package.json'), join(cli, 'package.json'));
+      cpSync(join(packageDir, 'bin'), join(cli, 'bin'), { recursive: true });
+      symlinkSync(join(packageDir, 'dist'), join(cli, 'dist'), 'junction');
+      cpSync(platform, join(modules, 'acme-global'), { recursive: true });
+      symlinkSync(join(cli, 'bin'), join(prefix, 'bin'), 'junction');
+
+      const env = { ...process.env };
+      delete env.NODE_PATH;
+      delete env.E3_RUNNER_SEARCH_DIRS;
+      const result = spawnSync(process.execPath, [join(prefix, 'bin', 'east-node.mjs'), 'version', '-p', 'acme-global'],
+        { cwd: scratch, env, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /^ {2}acme-global 2\.3\.4 \(1 platform functions\)$/m, result.stdout);
+    } finally {
+      rmSync(prefix, { recursive: true, force: true });
+      rmSync(scratch, { recursive: true, force: true });
+      rmSync(dirname(platform), { recursive: true, force: true });
     }
   });
 });
