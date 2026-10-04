@@ -7,9 +7,9 @@
  * Tests for LocalRepoStore.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, promises as fsPromises, readFileSync, readdirSync, renameSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { NullType, encodeBeast2For, none, variant } from '@elaraai/east';
 import { E3_RELEASE, ExecutionStatusType, type ExecutionStatus } from '@elaraai/e3-types';
@@ -483,6 +483,62 @@ describe('LocalRepoStore', () => {
       assert.deepStrictEqual(await storage.objects.adoptFile(repoPath, delivery, hash), { hash, size });
       assert.strictEqual(looks, 1, 'it looked after the touch');
       assert.strictEqual(readFileSync(objectPath(repoPath, hash), 'utf8'), 'a delivery');
+    });
+
+    /** The error Windows answers a move or an unlink of a file another handle holds open with. */
+    const refused = (syscall: string, at: string): Error =>
+      Object.assign(new Error(`EPERM: operation not permitted, ${syscall} '${at}'`), { code: 'EPERM', syscall, path: at });
+
+    it('deletes an object another handle holds a moment, trying its move and its unlink again, as Windows refuses both while it is held', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const hash = await storage.objects.write(repoPath, new TextEncoder().encode('held a moment'));
+      await store.gcNoteUnreachable(repoPath, [hash], 1_000_000);
+      const file = objectPath(repoPath, hash);
+      // A scanner holds the object through two moves, and the object moved
+      // aside through one unlink
+      const [rename, unlink] = [fsPromises.rename, fsPromises.unlink];
+      let [moves, unlinks] = [0, 0];
+      const renames = mock.method(fsPromises, 'rename', async (from: string, to: string) => {
+        if (from === file && ++moves <= 2) throw refused('rename', from);
+        return rename(from, to);
+      });
+      const unlinked = mock.method(fsPromises, 'unlink', async (at: string) => {
+        if (at.endsWith(GC_ASIDE_SUFFIX) && ++unlinks <= 1) throw refused('unlink', at);
+        return unlink(at);
+      });
+      try {
+        assert.strictEqual(await store.gcDeleteUnreachable(repoPath, hash, 1_000_000), true);
+      } finally {
+        renames.mock.restore();
+        unlinked.mock.restore();
+      }
+      assert.deepStrictEqual([moves, unlinks], [3, 2], 'each refusal is tried again');
+      assert.strictEqual(existsSync(file), false);
+      assert.strictEqual(existsSync(unreachableNotePath(repoPath, hash)), false, 'the note went with it');
+    });
+
+    it('leaves an object another handle holds past the retries for the next sweep, its note standing', async () => {
+      await store.create('my-repo');
+      const repoPath = join(testDir, 'my-repo');
+      const hash = await storage.objects.write(repoPath, new TextEncoder().encode('held throughout'));
+      await store.gcNoteUnreachable(repoPath, [hash], 1_000_000);
+      const file = objectPath(repoPath, hash);
+      const rename = fsPromises.rename;
+      const renames = mock.method(fsPromises, 'rename', async (from: string, to: string) => {
+        if (from === file) throw refused('rename', from);
+        return rename(from, to);
+      });
+      try {
+        assert.strictEqual(await store.gcDeleteUnreachable(repoPath, hash, 1_000_000), false);
+      } finally {
+        renames.mock.restore();
+      }
+      assert.strictEqual(readFileSync(file, 'utf8'), 'held throughout');
+      assert.deepStrictEqual((await store.gcScanObjects(repoPath)).objects.map(({ unreachableSince }) => unreachableSince), [1_000_000]);
+      // Once the handle is gone, the next sweep's delete goes through
+      assert.strictEqual(await store.gcDeleteUnreachable(repoPath, hash, 1_000_000), true);
+      assert.strictEqual(existsSync(file), false);
     });
 
     it('puts back an object a delete left aside, as when a crash cut it short', async () => {
