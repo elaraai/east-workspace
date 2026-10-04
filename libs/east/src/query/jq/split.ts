@@ -35,8 +35,6 @@ import { SortedSet } from "../../containers/sortedset.js";
 import { none } from "../../containers/variant.js";
 import { func } from "../../expr/block.js";
 import { withLocationCapture } from "../../location.js";
-import { decodeBeast2 } from "../../serialization/beast2/index.js";
-import { fromEastTypeValue } from "../../type_of_type.js";
 import type { Expr } from "../../expr/expr.js";
 import type { FunctionExpr } from "../../expr/function.js";
 import {
@@ -44,6 +42,7 @@ import {
   isImmutableType, isTypeEqual, type EastType,
 } from "../../types.js";
 import type { CheckJqResult } from "./check.js";
+import type { JqLiteral } from "./literals.js";
 import { nullablePayload, unwrap } from "./shapes.js";
 import { childPath, jqChildren, type JqNode, type JqPattern, type JqRange } from "./spans.js";
 import { addInto } from "./translate-builtins.js";
@@ -943,8 +942,8 @@ function indexLiteral(node: Node<"index">): "first" | "last" | undefined {
   if (node.value.optional) return undefined;
   const index = node.value.index;
   // `.[-1]` is a negated literal.
-  const literal = index.type === "literal" ? decodeIndex(index.value)
-    : index.type === "negate" && index.value.type === "literal" ? negated(decodeIndex(index.value.value)) : undefined;
+  const literal = index.type === "literal" ? integerOf(index.value)
+    : index.type === "negate" && index.value.type === "literal" ? negated(integerOf(index.value.value)) : undefined;
   return literal === 0n ? "first" : literal === -1n ? "last" : undefined;
 }
 
@@ -962,7 +961,7 @@ function negated(n: bigint | undefined): bigint | undefined {
 function leadingRows(node: JqNode): number | undefined {
   const count = (n: bigint | undefined): number | undefined => n === undefined || n < 0n || n > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(n);
   const literal = (option: { type: "none" | "some"; value?: any }): bigint | undefined | null =>
-    option.type === "none" ? null : (option.value as JqNode).type === "literal" ? decodeIndex((option.value as Extract<JqNode, { type: "literal" }>).value) : undefined;
+    option.type === "none" ? null : (option.value as JqNode).type === "literal" ? integerOf((option.value as Extract<JqNode, { type: "literal" }>).value) : undefined;
   if (isCall(node, "first", 0)) return 1;
   switch (node.type) {
     case "field":
@@ -970,7 +969,7 @@ function leadingRows(node: JqNode): number | undefined {
     case "index": {
       const { index, target } = node.value;
       if (target.type !== "identity") return readsInput(index) ? undefined : leadingRows(target);
-      const k = index.type === "literal" ? count(decodeIndex(index.value)) : undefined;
+      const k = index.type === "literal" ? count(integerOf(index.value)) : undefined;
       return k === undefined ? undefined : k + 1;
     }
     case "slice": {
@@ -992,10 +991,9 @@ function leadingRows(node: JqNode): number | undefined {
 
 // ─── Values and zeros ───────────────────────────────────────────────────────
 
-/** An Integer literal's value, or `undefined`. */
-function decodeIndex(blob: Uint8Array): bigint | undefined {
-  const { value } = decodeBeast2(blob);
-  return typeof value === "bigint" ? value : undefined;
+/** An Integer literal's value, or `undefined` for a literal of another type. */
+function integerOf(literal: JqLiteral): bigint | undefined {
+  return literal.type === "integer" ? literal.value : undefined;
 }
 
 /** `add`'s start, as the `add` rule starts: its identity, for its output type. */
@@ -1252,12 +1250,12 @@ function reduceOf(checked: CheckJqResult, node: Node<"reduce">, path: string): E
  * ```
  */
 export function splitJq(checked: CheckJqResult, options: SplitJqOptions = {}): JqSplit {
-  if (checked.query === null || checked.rewritten === null || checked.elementType === null || checked.multiplicity === null) {
+  if (checked.program === null || checked.elementType === null || checked.multiplicity === null) {
     const errors = checked.diagnostics.filter(d => d.severity.type === "error").map(d => d.message);
     throw new TranslationError(`the program does not check: ${errors.join(" ")}`);
   }
   if (!checked.source.root) throw new TranslationError("splitJq splits a query checked as an e3 root");
-  const program = checked.rewritten;
+  const program = checked.program;
   const pruning = pruningOf(checked, program);
   const whole = (r: JqWholeReason): JqWhole => ({ kind: "whole", reason: r, pruning });
 
@@ -1699,7 +1697,7 @@ function orderBlind(plan: Plan): boolean {
 
 /** The input names and types of a split's programs: the root fields the query reads, as `translateJq` takes them. */
 function inputsOf(checked: CheckJqResult): { name: string; type: EastType }[] {
-  const fields = parts(unwrap(fromEastTypeValue(checked.query!.value.input_type))).fields;
+  const fields = parts(unwrap(checked.inputType)).fields;
   return checked.reads.map(name => ({ name, type: fields[name]! }));
 }
 

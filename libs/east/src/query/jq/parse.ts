@@ -11,8 +11,7 @@
  */
 
 import { none, some, variant, type option } from "../../containers/variant.js";
-import { encodeBeast2For } from "../../serialization/beast2/index.js";
-import { BooleanType, FloatType, IntegerType, NullType, StringType, type ValueTypeOf } from "../../types.js";
+import type { ValueTypeOf } from "../../types.js";
 import type { QueryErrorType, QueryFixType } from "../types.js";
 import { scanJq, type JqLexeme } from "./lex.js";
 import {
@@ -48,12 +47,6 @@ export interface ParsedJq {
   /** The syntax problems, each with its span and any fix. */
   diagnostics: QueryError[];
 }
-
-const encodeNull = encodeBeast2For(NullType);
-const encodeBoolean = encodeBeast2For(BooleanType);
-const encodeInteger = encodeBeast2For(IntegerType);
-const encodeFloat = encodeBeast2For(FloatType);
-const encodeString = encodeBeast2For(StringType);
 
 const INTEGER_MAX = 9223372036854775807n;
 
@@ -635,9 +628,9 @@ class Parser {
   private parseIdentifier(t: JqLexeme): JqNode {
     this.next();
     if (!this.isPunct("(")) {
-      if (t.value === "null") return this.mk(variant("literal", encodeNull(null)), t.from);
-      if (t.value === "true") return this.mk(variant("literal", encodeBoolean(true)), t.from);
-      if (t.value === "false") return this.mk(variant("literal", encodeBoolean(false)), t.from);
+      if (t.value === "null") return this.mk(variant("literal", variant("null", null)), t.from);
+      if (t.value === "true") return this.mk(variant("literal", variant("boolean", true)), t.from);
+      if (t.value === "false") return this.mk(variant("literal", variant("boolean", false)), t.from);
       return this.mk(variant("call", { args: [], name: t.value }), t.from);
     }
     this.next();
@@ -743,13 +736,13 @@ class Parser {
         throw new JqSyntaxError(diagnostic(this.text, "syntax", t,
           `syntax: ${t.value} is too large for an Integer; write ${t.value}.0 for a Float.`), this.at - 1);
       }
-      return variant("literal", encodeInteger(value));
+      return variant("literal", variant("integer", value));
     }
     const value = Number(t.value);
     if (!Number.isFinite(value)) {
       throw new JqSyntaxError(diagnostic(this.text, "syntax", t, `syntax: ${t.value} is too large for a Float.`), this.at - 1);
     }
-    return variant("literal", encodeFloat(value));
+    return variant("literal", variant("float", value));
   }
 
   /** A string naming a field or a key: `@format` must be followed by its
@@ -799,7 +792,7 @@ class Parser {
         break;   // string_end: the lexer and the bracket check guarantee it
       }
     }
-    if (parts.length === 0) return { constant: text, node: this.mk(variant("literal", encodeString(text)), start.from) };
+    if (parts.length === 0) return { constant: text, node: this.mk(variant("literal", variant("string", text)), start.from) };
     if (text !== "") parts.push(variant("text", text));
     return { constant: undefined, node: this.mk(variant("string", parts), start.from) };
   }
@@ -989,11 +982,11 @@ function spansOf(root: JqNode, ranges: ReadonlyMap<object, JqRange>, length: num
  * @remarks
  * The parser keeps jq's sugar, so printing gives back what was written:
  * `.a.b` is two `field` nodes, `.a?` sets `optional`, and `f?` is a `try`
- * with no `catch`. Literals are self-describing beast2 blobs: a number
- * written without `.` or an exponent is an Integer (64-bit; larger is a
- * problem), any other number a Float, and a string without interpolation a
- * String. `$__loc__` is the variable `__loc__`; `import`, `include` and
- * `module` are `unsupported`.
+ * with no `catch`. A literal is the typed East value it writes
+ * (`JqLiteralType`): a number written without `.` or an exponent is an
+ * Integer (64-bit; larger is a problem), any other number a Float, and a
+ * string without interpolation a String. `$__loc__` is the variable
+ * `__loc__`; `import`, `include` and `module` are `unsupported`.
  *
  * A problem is a `syntax` diagnostic with its span, and a fix where one is
  * obvious: an unclosed bracket or string is closed, a trailing `|` removed.

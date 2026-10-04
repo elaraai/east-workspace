@@ -25,8 +25,8 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
+from east.query.jq.literals import iso_date_time, literal_value
 from east.query.jq.lower import UNKNOWN_LOC_ID, A, Label, external, variable
-from east.query.jq.print import literal_value
 from east.query.jq.shapes import (
     Facts,
     Result,
@@ -256,7 +256,6 @@ class Translator:
         self.checked = checked
         self.max_outputs = max_outputs
         self.tooling = tooling
-        self._literals: dict[bytes, tuple[EastType, Any]] = {}
         self._locs: dict[str, int] = {}
         self._retyped: dict[str, str | None] = {}
 
@@ -723,16 +722,11 @@ class Translator:
     # ─── Literals and the checker's types ───────────────────────────────────
 
     def literal(self, n: JqNode) -> tuple[EastType, Any]:
-        """A literal node's type and value."""
-        blob = bytes(n.value)
-        known = self._literals.get(blob)
-        if known is None:
-            known = literal_value(blob)  # type: ignore[assignment]
-            self._literals[blob] = known  # type: ignore[assignment]
-        return known  # type: ignore[return-value]
+        """A literal node's type and value, as the program writes it."""
+        return literal_value(n.value)
 
     def literal_of(self, n: JqNode | None) -> tuple[EastType, Any] | None:
-        """A node's value when it is a literal, as the query wrote it or the checker rewrote it."""
+        """A node's value when it is a literal, as the program writes it."""
         return self.literal(n) if n is not None and n.type == "literal" else None
 
     def constant(self, e: A) -> tuple[Any] | None:
@@ -785,6 +779,10 @@ class Translator:
     def widen_to(self, b: Block, e: A, to: EastType, path: str) -> A:  # noqa: C901
         """A value as a type the checker widened it to: Integer as Float, ``T`` or ``null`` as ``Option<T>``, …
 
+        Arrays, dicts, structs and variants are widened element by element;
+        and a string literal the checker read as a DateTime is the DateTime it
+        writes.
+
         Raises:
             TranslationError: When the type is not wider.
         """
@@ -822,11 +820,13 @@ class Translator:
             if c is not None:
                 return self.float_(float(c[0]), path)
             return self.b("IntegerToFloat", [], [e], FloatType, path)
-        # A literal the checker rewrote to a Float, where this instance of it has an Integer.
-        if source.type == "Float" and to.type == "Integer":
+        # An ISO-8601 string the checker read as a DateTime: the date it writes, through East's RFC 3339 reader, as the
+        # checker read it.
+        if source.type == "String" and to.type == "DateTime":
             c = self.constant(e)
-            if c is not None and isinstance(c[0], float) and math.isfinite(c[0]) and c[0].is_integer():
-                return self.int_(int(c[0]), path)
+            date = None if c is None else iso_date_time(c[0])
+            if date is not None:
+                return self.value(date, to, path)
         if is_subtype(source, to) and not _holds_never(source):
             return self.as_(e, to)
         f = self.open(e).type
@@ -926,7 +926,8 @@ class Translator:
         """Generates a node: code in ``b`` that gives each of its outputs to ``emit``, as the checker's type for them."""
         if self.ended(b):
             return
-        # A literal is its own value, as the checker rewrote it.
+        # A literal is its own value, as the checker read it; a builtin that reads an argument as a literal never
+        # checked it.
         if n.type == "literal":
             self.gen_node(n, path, b, x, env, emit)
             return
@@ -944,6 +945,8 @@ class Translator:
 
     def collected(self, n: JqNode, path: str, b: Block, x: Value, env: Env, emit: Emit) -> None:
         """Generates a node, each output as the one type its outputs share."""
+        # A literal is its own value, as the checker read it (an ISO date as a DateTime), never collected as another
+        # type.
         if n.type == "literal":
             self.gen_node(n, path, b, x, env, emit)
             return
@@ -1055,8 +1058,13 @@ class Translator:
             emit(b, self.expr(x, path))
             return
         if kind == "literal":
+            # As written, or as the type the checker read it as here: an ISO-8601 string as the DateTime it writes.
             t, value = self.literal(n)
-            emit(b, self.value(value, t, path))
+            written = self.value(value, t, path)
+            record = self.result(path, env)
+            read_as = None if record is None else unify_shape(record.shape)
+            emit(b, written if read_as is None or read_as.type == "Never" or type_equal(read_as, t)
+                 else self.widen_to(b, written, read_as, path))
             return
         if kind == "variable":
             if v == "__loc__":
@@ -1670,32 +1678,17 @@ class Translator:
                     self.branch(b2, truth, decided, undecided, path)
             self.gen(left, left_path, b, x, env, on_left)
             return
-        # A literal the checker made a Float, for an instance of this node whose
-        # other operand is a Float, stays one in every instance; where this
-        # instance's result is an Integer, it is its whole number.
-        integral = self.result(path, env)
-        shared = None if integral is None else unify_shape(integral.shape)
-        whole = shared is not None and shared.type == "Integer"
 
         # jq takes the right side's outputs first, and the left side's for each.
+        # An Integer with a Float is widened by the operator, as the checker typed it.
         def on_right(b2: Block, rv: A) -> None:
             def on_left(b3: Block, lv: A) -> None:
                 if op in _COMPARISONS:
                     emit(b3, self.compare(b3, op, lv, rv, path))
                 else:
-                    self.give(b3, self.arith(b3, op, self.integer(lv, path) if whole else lv,
-                                             self.integer(rv, path) if whole else rv, path), emit)
+                    self.give(b3, self.arith(b3, op, lv, rv, path), emit)
             self.collected(left, left_path, b2, x, env, on_left)
         self.collected(right, right_path, b, x, env, on_right)
-
-    def integer(self, e: A, path: str) -> A:
-        """A Float constant with a whole value, as an Integer; anything else as it is."""
-        if e.type.type != "Float":
-            return e
-        c = self.constant(e)
-        if c is not None and isinstance(c[0], float) and math.isfinite(c[0]) and c[0].is_integer():
-            return self.int_(int(c[0]), path)
-        return e
 
     def compare(self, b: Block, op: str, a: A, b2: A, path: str) -> A:
         """A comparison: East's order within a kind, jq's order across kinds."""
@@ -2489,8 +2482,8 @@ class Translator:
             optional = tv["optional"]
             literal = self.literal_of(index)
             key_path = at("index.index")
-            # The key is taken on the index's own input, as jq takes it; a literal is its own value, as the
-            # checker rewrote it.
+            # The key is taken on the index's own input, as jq takes it; a literal is its own value, which the
+            # key's type widens.
             key: A | None
             if literal is not None and literal[0].type == "String":
                 key = None
@@ -3466,8 +3459,8 @@ class JqTranslation:
         root = checked.source.root
         x: Value = RootValue({i.name: values[k] for k, i in enumerate(self.inputs)}) if root else values[0]  # type: ignore[misc]
         env = Env({}, {}, {}, "", {})
-        # The rewritten program: the checker's rewrites mean no translation parses text.
-        program = checked.rewritten
+        # The program as written: each value it holds is given as the type the checker read it as.
+        program = checked.program
         if multiplicity == "one":
             return t.one(program, "", b, x, env, element)
         if multiplicity == "maybe":
@@ -3601,8 +3594,8 @@ class JqTranslation:
         names = [name for name, _t in self._fields]
         values = [parameters[names.index(i.name)] for i in self.inputs] if root else parameters
         translation = self._function_ast(parameters, values)
-        constant = variant("v1", {"inputs": some(names) if root else none,
-                                  "program": self._checked.query.value["program"]}, QueryCallType)
+        constant = variant("v1", {"inputs": some(names) if root else none, "program": self._checked.program},
+                           QueryCallType)
         builtin = A("Builtin", fn_type, loc, builtin="Query", type_parameters=[fn_type],
                     arguments=[_value_ast(constant, QueryCallType, loc), translation])
         arguments = []
@@ -3656,14 +3649,11 @@ def translate_jq(checked: Any, *, max_outputs: int | None = None, tooling: bool 
         TranslationError: When the program does not check, or holds something
             the translator cannot express.
     """
-    if checked.query is None or checked.rewritten is None or checked.element_type is None \
-            or checked.multiplicity is None:
+    if checked.program is None or checked.element_type is None or checked.multiplicity is None:
         errors = [d["message"] for d in checked.diagnostics if d["severity"].type == "error"]
         raise TranslationError(f"the program does not check: {' '.join(errors)}")
     element = checked.element_type
     multiplicity = checked.multiplicity
-    # The type as it was given: python's canonical copy numbers its wrappers
-    # from 0, as every other canonical type does.
     input_type = checked.input_type
     # What the `Query` builtin's function takes: every field of a root, in order, or the one input.
     fields = list(fields_of(unwrap(input_type)).items()) if checked.source.root else []

@@ -4,9 +4,9 @@
  */
 
 /**
- * jq's `strftime` / `strptime` formats as East's datetime format tokens, and
- * back: the checker rewrites a format into its tokens, and the printer writes
- * a checked program's tokens as the format again.
+ * jq's `strftime` / `strptime` formats as East's datetime format tokens: the
+ * checker reads a format by them, reporting a code East has no token for, and
+ * the translator gives the tokens they make (`devdocs/QUERY.md` §10).
  *
  * @packageDocumentation
  */
@@ -29,11 +29,6 @@ const FORMAT_CODES: Readonly<Record<string, readonly DateTimeFormatToken[]>> = {
   F: [variant("year4", null), variant("literal", "-"), variant("month2", null), variant("literal", "-"), variant("day2", null)],
   T: [variant("hour24_2", null), variant("literal", ":"), variant("minute2", null), variant("literal", ":"), variant("second2", null)],
 };
-
-/** The one-token codes, by the token each writes. */
-const CODE_OF: ReadonlyMap<string, string> = new Map(
-  Object.entries(FORMAT_CODES).filter(([, tokens]) => tokens.length === 1).map(([code, tokens]) => [tokens[0]!.type, code]),
-);
 
 /**
  * A strftime format as East datetime format tokens.
@@ -69,22 +64,4 @@ export function formatTokens(format: string): { tokens: DateTimeFormatToken[] } 
   }
   if (text !== "") tokens.push(variant("literal", text));
   return { tokens };
-}
-
-/**
- * The strftime format that gives some tokens: {@link formatTokens} read back.
- *
- * @param tokens - tokens a format gave
- * @returns the format, with `%%` for each percent sign in literal text
- * @throws {Error} When a token is not one a format gives.
- *
- * @internal
- */
-export function formatText(tokens: readonly DateTimeFormatToken[]): string {
-  return tokens.map(token => {
-    if (token.type === "literal") return (token.value as string).replaceAll("%", "%%");
-    const code = CODE_OF.get(token.type);
-    if (code === undefined) throw new Error(`printJq: the datetime token ${token.type} has no strftime code`);
-    return `%${code}`;
-  }).join("");
 }

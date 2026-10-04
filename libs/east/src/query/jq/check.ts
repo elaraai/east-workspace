@@ -5,23 +5,21 @@
 
 /**
  * The jq checker: types a program against the East type of its input, and
- * gives the checked query every surface translates, or the problems that stop
- * it (`devdocs/QUERY.md` §2–§13).
+ * gives the program and its types, which every surface translates, or the
+ * problems that stop it (`devdocs/QUERY.md` §2–§13). It only checks: it
+ * rewrites nothing.
  *
  * @packageDocumentation
  */
 
 import { variant } from "../../containers/variant.js";
 import { printFor } from "../../serialization/east.js";
-import { decodeBeast2, encodeBeast2For } from "../../serialization/beast2/index.js";
-import { jsonParseDateTime } from "../../serialization/json.js";
-import { canonicalTypeValue, fromEastTypeValue, toEastTypeValue } from "../../type_of_type.js";
 import {
   ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NeverType, NullType, StringType, StructType, VariantType,
-  isImmutableType, isTypeEqual, printType, type EastType, type ValueTypeOf,
+  isImmutableType, isTypeEqual, printType, type EastType,
 } from "../../types.js";
-import type { QueryType } from "../types.js";
 import { BUILTINS, type Builtin, type CallContext } from "./catalog.js";
+import { isoDateTime, literalValue, type JqLiteral } from "./literals.js";
 import { MESSAGES, closest, edit, report, type QueryError, type QueryFix } from "./messages.js";
 import { parseJq, type ParsedJq } from "./parse.js";
 import {
@@ -71,16 +69,15 @@ export interface CheckedStage {
 
 /** What {@link checkJq} makes of a program. */
 export interface CheckJqResult {
-  /** The checked query, its program as written: present exactly when no diagnostic is an error. */
-  query: ValueTypeOf<typeof QueryType> | null;
   /**
-   * The program with the checker's rewrites applied, which the translator
-   * reads: an ISO string compared with a DateTime is a DateTime literal, a
-   * `strftime` format its tokens, and `keys` or `has` on a root the answer
-   * its type gives. Present exactly when {@link CheckJqResult.query} is.
+   * The program as written: present exactly when no diagnostic is an error.
+   * The translator, the split planner and every host read it, with the
+   * types beside it.
    */
-  rewritten: JqNode | null;
-  /** The type of each output, when the outputs share one. */
+  program: JqNode | null;
+  /** The type the program was checked against: a root's struct of datasets, with `root`. */
+  inputType: EastType;
+  /** The type of each output, when the program checks. */
   elementType: EastType | null;
   /** How many outputs the program gives, when it checks. */
   multiplicity: JqMultiplicity | null;
@@ -192,16 +189,12 @@ interface Env {
   readonly lenient: boolean;
 }
 
-const encodeDateTime = encodeBeast2For(DateTimeType);
-const encodeFloat = encodeBeast2For(FloatType);
 /** A name as a jq string literal: JSON's escapes, which East's text shares for strings. */
 const printString = printFor(StringType);
 
-/** The operands of an arithmetic operator, and the text it covers. */
+/** Where the operands of an arithmetic operator are, and the text it covers. */
 interface Operands {
-  readonly left: JqNode;
   readonly leftPath: string;
-  readonly right: JqNode;
   readonly rightPath: string;
   readonly range: JqRange | undefined;
 }
@@ -210,24 +203,6 @@ interface Operands {
 interface LiteralValue {
   type: EastType;
   value: unknown;
-}
-
-/** Rewrites a literal: the node the checked program holds instead. */
-function literalNode(blob: Uint8Array): JqNode {
-  return variant("literal", blob);
-}
-
-/** Reads ISO-8601 text as a DateTime, through East's RFC 3339 reader: a full
- *  date-time with its offset, a date-time with none (UTC), or a date (midnight UTC). */
-function parseIsoDateTime(text: string): Date | undefined {
-  const forms = /^\d{4}-\d{2}-\d{2}$/.test(text) ? [`${text}T00:00:00Z`]
-    : /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(text) ? [`${text}Z`]
-    : [text];
-  for (const form of forms) {
-    const ms = jsonParseDateTime(form);
-    if (typeof ms === "number") return new Date(ms);
-  }
-  return undefined;
 }
 
 /** What a node that never runs gives. */
@@ -322,17 +297,6 @@ function openOptions(shape: Shape): Shape | undefined {
 class Checker {
   readonly diagnostics: QueryError[] = [];
   readonly records = new Map<string, Result>();
-  readonly rewrites = new Map<string, JqNode>();
-  /** The Integer literals rewritten as Floats, by path. */
-  readonly floatLiterals = new Set<string>();
-  /**
-   * The literals a check kept whole, by path: an operand of Integer
-   * arithmetic or of an Integer comparison. Where another check (a `def`
-   * called with a Float, a `walk` meeting one) made one a Float, the checked
-   * program keeps it whole, so its text means what the query does; each
-   * translation widens it where it needs a Float.
-   */
-  readonly wholeLiterals = new Set<string>();
   /** The nodes checked, by path. */
   readonly nodes = new Map<string, JqNode>();
   /** What is in scope at each node checked, by instance and path. */
@@ -593,10 +557,9 @@ class Checker {
 
   // ─── Leaves ────────────────────────────────────────────────────────────
 
-  /** A literal's value and type: a jq literal's, or one the checker rewrote a literal to. */
-  literal(blob: Uint8Array): LiteralValue {
-    const { type, value } = decodeBeast2(blob);
-    return { type: fromEastTypeValue(type), value };
+  /** A literal's value and type, as the program writes it. */
+  literal(value: JqLiteral): LiteralValue {
+    return literalValue(value);
   }
 
   variable(name: string, path: string, env: Env): Result {
@@ -779,7 +742,7 @@ class Checker {
         if (optional) return { shape: typed(NeverType), mult: ZERO };
         return this.mismatch(lenient, range, "not_indexable", MESSAGES.notIndexable(this.source(childPath(path, "index.target")) || ".", describeType(member.type)));
       }
-      if (!this.keyFits(keyType, element.key, index, keyPath)) {
+      if (!this.keyFits(keyType, element.key, index, keyPath, env)) {
         return this.mismatch(lenient, this.range(keyPath), "type_mismatch", MESSAGES.keyType(form, describeType(element.key), this.source(keyPath), describeType(keyType)));
       }
       const value = orNull(element.value);
@@ -789,35 +752,35 @@ class Checker {
     return { shape: out.shape, mult: piped(key.mult, piped(base.mult, out.mult)) };
   }
 
-  /** Whether a key of `given` type indexes by `wanted`, rewriting a literal that takes its operand's type. */
-  keyFits(given: EastType, wanted: EastType, node: JqNode, path: string): boolean {
+  /** Whether a key of `given` type indexes by `wanted`, reading a literal as its operand's type. */
+  keyFits(given: EastType, wanted: EastType, node: JqNode, path: string, env: Env): boolean {
     const w = unwrap(wanted);
     if (isTypeEqual(given, w)) return true;
-    if (node.type === "literal") return this.coerceLiteral(node, path, w) !== undefined;
+    if (node.type === "literal") return this.coerceLiteral(node, path, w, env) !== undefined;
     return false;
   }
 
   /**
    * A literal used where `wanted` is: an Integer where a Float is, an ISO
-   * string where a DateTime is. Records the rewrite.
+   * string where a DateTime is, a string that is not an ISO-8601 date
+   * reported. The program keeps the literal as written (`devdocs/QUERY.md`
+   * §7). An Integer needs nothing more: its translation widens it wherever
+   * it meets a Float. A string read as a DateTime is recorded as one in this
+   * instance, and its translation gives the DateTime it writes.
    *
-   * @returns the literal's new type, or `undefined` when it does not fit
+   * @returns the type the literal is read as, or `undefined` when it does
+   *   not fit
    */
-  coerceLiteral(node: Extract<JqNode, { type: "literal" }>, path: string, wanted: EastType): EastType | undefined {
+  coerceLiteral(node: Extract<JqNode, { type: "literal" }>, path: string, wanted: EastType, env: Env): EastType | undefined {
     const literal = this.literal(node.value);
     if (isTypeEqual(literal.type, wanted)) return wanted;
-    if (wanted.type === "Float" && literal.type.type === "Integer") {
-      this.rewrites.set(path, literalNode(encodeFloat(Number(literal.value as bigint))));
-      this.floatLiterals.add(path);
-      return FloatType;
-    }
+    if (wanted.type === "Float" && literal.type.type === "Integer") return FloatType;
     if (wanted.type === "DateTime" && literal.type.type === "String") {
-      const date = parseIsoDateTime(literal.value as string);
-      if (date === undefined) {
+      if (isoDateTime(literal.value as string) === undefined) {
         this.fail(this.range(path), "type_mismatch", MESSAGES.isoDate(this.source(path)));
         return undefined;
       }
-      this.rewrites.set(path, literalNode(encodeDateTime(date)));
+      this.records.set(`${env.instance}|${path}`, { shape: typed(DateTimeType), mult: ONE });
       return DateTimeType;
     }
     return undefined;
@@ -825,8 +788,8 @@ class Checker {
 
   /**
    * An array literal of literals (`["2026-01-01", "2026-02-01"]`) used where
-   * an array of `wanted` is: each element rewritten as {@link coerceLiteral}
-   * rewrites it, and what checking the array recorded retyped to match.
+   * an array of `wanted` is: each element read as {@link coerceLiteral} reads
+   * it, and what checking the array recorded retyped to match.
    *
    * @returns the array's new type, or `undefined` when it is not such an
    *   array, or an element does not fit
@@ -842,7 +805,7 @@ class Checker {
       return collect(n.value.left, childPath(at, "comma.left")) && collect(n.value.right, childPath(at, "comma.right"));
     };
     if (!collect(node.value.value, childPath(path, "array.some"))) return undefined;
-    for (const literal of literals) if (this.coerceLiteral(literal.node, literal.path, wanted) === undefined) return undefined;
+    for (const literal of literals) if (this.coerceLiteral(literal.node, literal.path, wanted, env) === undefined) return undefined;
     const retype = (at: string, type: EastType): void => {
       const key = `${env.instance}|${at}`;
       const r = this.records.get(key);
@@ -863,7 +826,7 @@ class Checker {
       const r = this.check(bound.value, boundPath, input, env);
       mult = piped(mult, r.mult);
       const t = this.collect(r, this.range(boundPath));
-      if (t !== undefined && !this.keyFits(t, IntegerType, bound.value, boundPath) && !canBeNull(t)) {
+      if (t !== undefined && !this.keyFits(t, IntegerType, bound.value, boundPath, env) && !canBeNull(t)) {
         this.mismatch(env, this.range(boundPath), "type_mismatch", MESSAGES.sliceBound(describeType(t)));
       }
     }
@@ -1045,7 +1008,7 @@ class Checker {
     const mult = piped(left.mult, right.mult);
     if (COMPARISON.has(op)) return { ...this.comparison(op, node, path, left, right, env), mult };
     if (ARITHMETIC.has(op)) {
-      const out = this.arithmetic(op, left, right, { left: node.value.left, leftPath, right: node.value.right, rightPath, range: this.range(path) }, env);
+      const out = this.arithmetic(op, left, right, { leftPath, rightPath, range: this.range(path) }, env);
       return { shape: out.shape, mult: piped(mult, out.mult), partial: out.partial };
     }
     throw new Error(`checkJq: ${printString(op)} is not a jq binary operator`);
@@ -1104,7 +1067,7 @@ class Checker {
       }
     }
     const reported = this.diagnostics.length;
-    const fits = this.comparable(lt, rt, node, path);
+    const fits = this.comparable(lt, rt, node, path, env);
     // A literal that failed to parse as the other side's type has said so.
     if (this.diagnostics.length > reported) return { shape: ERROR, mult: ONE };
     if (fits) {
@@ -1120,33 +1083,20 @@ class Checker {
     return this.mismatch(env, this.range(path), "type_mismatch", MESSAGES.compares(op, describeType(lt), describeType(rt)));
   }
 
-  /** Notes that a literal operand stays an Integer in this check (see {@link Checker.wholeLiterals}). */
-  keepWhole(node: JqNode, path: string): void {
-    if (node.type === "literal") this.wholeLiterals.add(path);
-  }
-
-  /** Whether two types compare: equal, numbers, a value and its option, or a literal rewritten to the other's type. */
-  comparable(a: EastType, b: EastType, node: Extract<JqNode, { type: "binary" }>, path: string): boolean {
+  /** Whether two types compare: equal, numbers, a value and its option, or a literal read as the other's type. */
+  comparable(a: EastType, b: EastType, node: Extract<JqNode, { type: "binary" }>, path: string, env: Env): boolean {
     const ua = unwrap(a);
     const ub = unwrap(b);
-    if (ua.type === "Integer" && ub.type === "Integer") {
-      this.keepWhole(node.value.left, childPath(path, "binary.left"));
-      this.keepWhole(node.value.right, childPath(path, "binary.right"));
-    }
     if (isTypeEqual(ua, ub)) return true;
-    if (isNumber(ua) && isNumber(ub)) {
-      // A literal takes its operand's type.
-      if (ua.type === "Float" && node.value.right.type === "literal") this.coerceLiteral(node.value.right, childPath(path, "binary.right"), FloatType);
-      if (ub.type === "Float" && node.value.left.type === "literal") this.coerceLiteral(node.value.left, childPath(path, "binary.left"), FloatType);
-      return true;
-    }
+    // Numbers compare: the translation widens an Integer it compares with a Float.
+    if (isNumber(ua) && isNumber(ub)) return true;
     if (ua.type === "Null" && canBeNull(ub)) return true;
     if (ub.type === "Null" && canBeNull(ua)) return true;
     const pa = nullablePayload(ua);
     const pb = nullablePayload(ub);
-    if (pa !== undefined || pb !== undefined) return this.comparable(pa ?? ua, pb ?? ub, node, path);
-    if (ua.type === "DateTime" && node.value.right.type === "literal") return this.coerceLiteral(node.value.right, childPath(path, "binary.right"), DateTimeType) !== undefined;
-    if (ub.type === "DateTime" && node.value.left.type === "literal") return this.coerceLiteral(node.value.left, childPath(path, "binary.left"), DateTimeType) !== undefined;
+    if (pa !== undefined || pb !== undefined) return this.comparable(pa ?? ua, pb ?? ub, node, path, env);
+    if (ua.type === "DateTime" && node.value.right.type === "literal") return this.coerceLiteral(node.value.right, childPath(path, "binary.right"), DateTimeType, env) !== undefined;
+    if (ub.type === "DateTime" && node.value.left.type === "literal") return this.coerceLiteral(node.value.left, childPath(path, "binary.left"), DateTimeType, env) !== undefined;
     return unify(ua, ub) !== undefined && ua.type === ub.type;
   }
 
@@ -1185,14 +1135,8 @@ class Checker {
       if (op === "/") return { shape: typed(FloatType), mult: ONE };
       // jq's remainder of the numbers truncated to integers: a Float operand, which can be NaN, gives a Float.
       if (op === "%") return { shape: typed(a.type === "Integer" && b.type === "Integer" ? IntegerType : FloatType), mult: ONE };
-      if (a.type === "Float" || b.type === "Float") {
-        if (a.type === "Integer" && operands.left.type === "literal") this.coerceLiteral(operands.left, leftPath, FloatType);
-        if (b.type === "Integer" && operands.right.type === "literal") this.coerceLiteral(operands.right, rightPath, FloatType);
-        return { shape: typed(FloatType), mult: ONE };
-      }
-      this.keepWhole(operands.left, leftPath);
-      this.keepWhole(operands.right, rightPath);
-      return { shape: typed(IntegerType), mult: ONE };
+      // An Integer with a Float is a Float: the translation widens the Integer.
+      return { shape: typed(a.type === "Float" || b.type === "Float" ? FloatType : IntegerType), mult: ONE };
     }
     switch (op) {
       case "+":
@@ -1732,7 +1676,7 @@ class Checker {
       literalOf: (node: Extract<JqNode, { type: "literal" }>) => this.literal(node.value),
       coerceArg: (i: number, wanted: EastType) => {
         const arg = args[i];
-        return arg?.type === "literal" ? this.coerceLiteral(arg, argPaths[i]!, unwrap(wanted)) : undefined;
+        return arg?.type === "literal" ? this.coerceLiteral(arg, argPaths[i]!, unwrap(wanted), env) : undefined;
       },
       coerceArgElements: (i: number, wanted: EastType) => {
         const arg = args[i];
@@ -1748,11 +1692,8 @@ class Checker {
         return range !== undefined && isPipePosition(path) ? edit("Skip nulls", range.from, range.from, "values | ") : undefined;
       },
       warn: (code: string, message: string, fixes?: QueryFix[]) => this.warn(this.range(path), code, message, fixes),
-      rewrite: (replacement: JqNode) => { this.rewrites.set(path, replacement); },
-      rewriteArg: (i: number, replacement: JqNode) => { this.rewrites.set(argPaths[i]!, replacement); },
       source: (i?: number) => i === undefined ? this.source(path) : this.source(argPaths[i]!),
       collect: (result: Result, arg?: number) => this.collect(result, arg !== undefined ? this.range(argPaths[arg]!) : this.range(path)),
-      isRoot: (shape: Shape) => shape.kind === "type" && this.isRootShape(shape),
       refuseRoot: () => this.refuseRoot(input, path, env),
       narrow: (result: Result, proves: readonly Proof[]) => this.narrow(result, proves),
       narrowFirst: (type: EastType) => this.narrowFirst(env, this.range(path), type, input.partial!),
@@ -1800,7 +1741,7 @@ class Checker {
         });
         return { shape: union([...membersOf(kept.shape), ...membersOf(value!.shape)]), mult: ONE };
       }
-      return this.arithmetic(operator, current, value!, { left: node.value.path, leftPath: pathPath, right: node.value.value, rightPath: valuePath, range: this.range(path) }, env);
+      return this.arithmetic(operator, current, value!, { leftPath: pathPath, rightPath: valuePath, range: this.range(path) }, env);
     };
     const assigned = this.assign(input.shape, node.value.path, pathPath, at, env);
     if (assigned === undefined) return { shape: ERROR, mult: ONE };
@@ -1939,7 +1880,7 @@ class Checker {
         const at = childPath(path, s);
         const t = one(bound.value, at);
         if (t === undefined) return undefined;
-        if (!this.keyFits(t, IntegerType, bound.value, at) && !canBeNull(unwrap(t))) {
+        if (!this.keyFits(t, IntegerType, bound.value, at, env) && !canBeNull(unwrap(t))) {
           this.fail(this.range(at), "type_mismatch", MESSAGES.sliceBound(describeType(t)));
           return undefined;
         }
@@ -2027,7 +1968,7 @@ class Checker {
         const keyPath = childPath(path, "index.index");
         const keyType = keys.key!;
         if (t.type === "Array") {
-          if (!this.keyFits(keyType, IntegerType, step.value.index, keyPath)) {
+          if (!this.keyFits(keyType, IntegerType, step.value.index, keyPath, env)) {
             return this.mismatch(env, this.range(keyPath), "type_mismatch", MESSAGES.keyType(".[…]", "Integer", this.source(keyPath), describeType(keyType)));
           }
           // The element itself: an index past the end is an error, where jq pads with nulls (§13.23).
@@ -2040,7 +1981,7 @@ class Checker {
         if (t.type === "Dict" || (t.type === "Struct" && Object.keys(t.fields).length === 0) || t.type === "Null") {
           const dictKey = t.type === "Dict" ? t.key as EastType : keyType;
           const dictValue = t.type === "Dict" ? t.value as EastType : NeverType;
-          if (!this.keyFits(keyType, dictKey, step.value.index, keyPath)) {
+          if (!this.keyFits(keyType, dictKey, step.value.index, keyPath, env)) {
             return this.mismatch(env, this.range(keyPath), "type_mismatch", MESSAGES.keyType(".[…]", describeType(dictKey), this.source(keyPath), describeType(keyType)));
           }
           if (!isImmutableType(dictKey)) return this.fail(this.range(keyPath), "type_mismatch", MESSAGES.mutableKey(this.source(keyPath), describeType(dictKey)));
@@ -2182,68 +2123,6 @@ class Checker {
     this.diagnostics.length = reported;
     return failed ? null : next;
   }
-
-  // ─── The checked query ─────────────────────────────────────────────────
-
-  /** The program with every recorded rewrite applied, but a Float's of a literal a check kept whole. */
-  rewrite(node: JqNode, path: string): JqNode {
-    const replacement = this.rewrites.get(path);
-    if (replacement !== undefined && !(this.floatLiterals.has(path) && this.wholeLiterals.has(path))) return replacement;
-    const children = jqChildren(node);
-    if (children.length === 0) return node;
-    const map = (child: JqNode, step: string): JqNode => this.rewrite(child, childPath(path, step));
-    const opt = (o: { type: "none" | "some"; value: any }, step: string) => o.type === "some" ? variant("some", map(o.value, `${step}.some`)) : o;
-    switch (node.type) {
-      case "alternative": case "comma": case "pipe":
-        return variant(node.type, { left: map(node.value.left, `${node.type}.left`), right: map(node.value.right, `${node.type}.right`) }) as JqNode;
-      case "binary":
-        return variant("binary", { left: map(node.value.left, "binary.left"), op: node.value.op, right: map(node.value.right, "binary.right") }) as JqNode;
-      case "array":
-        return variant("array", opt(node.value, "array")) as JqNode;
-      case "bind":
-        return variant("bind", { body: map(node.value.body, "bind.body"), patterns: node.value.patterns, source: map(node.value.source, "bind.source") }) as JqNode;
-      case "call":
-        return variant("call", { args: node.value.args.map((a, i) => map(a, `call.args[${i}]`)), name: node.value.name }) as JqNode;
-      case "def":
-        return variant("def", { body: map(node.value.body, "def.body"), name: node.value.name, params: node.value.params, rest: map(node.value.rest, "def.rest") }) as JqNode;
-      case "field":
-        return variant("field", { name: node.value.name, optional: node.value.optional, target: map(node.value.target, "field.target") }) as JqNode;
-      case "foreach":
-        return variant("foreach", { extract: opt(node.value.extract, "foreach.extract"), init: map(node.value.init, "foreach.init"), pattern: node.value.pattern, source: map(node.value.source, "foreach.source"), update: map(node.value.update, "foreach.update") }) as JqNode;
-      case "format":
-        return variant("format", { name: node.value.name, string: opt(node.value.string, "format.string") }) as JqNode;
-      case "if":
-        return variant("if", {
-          branches: node.value.branches.map((b, i) => ({ condition: map(b.condition, `if.branches[${i}].condition`), then: map(b.then, `if.branches[${i}].then`) })),
-          otherwise: opt(node.value.otherwise, "if.otherwise"),
-        }) as JqNode;
-      case "index":
-        return variant("index", { index: map(node.value.index, "index.index"), optional: node.value.optional, target: map(node.value.target, "index.target") }) as JqNode;
-      case "iterate":
-        return variant("iterate", { optional: node.value.optional, target: map(node.value.target, "iterate.target") }) as JqNode;
-      case "label":
-        return variant("label", { body: map(node.value.body, "label.body"), name: node.value.name }) as JqNode;
-      case "negate":
-        return variant("negate", map(node.value, "negate")) as JqNode;
-      case "object":
-        return variant("object", node.value.map((entry, i) => ({
-          key: entry.key.type === "computed" ? variant("computed", map(entry.key.value, `object[${i}].key.computed`)) : entry.key,
-          value: opt(entry.value, `object[${i}].value`),
-        }))) as JqNode;
-      case "reduce":
-        return variant("reduce", { init: map(node.value.init, "reduce.init"), pattern: node.value.pattern, source: map(node.value.source, "reduce.source"), update: map(node.value.update, "reduce.update") }) as JqNode;
-      case "slice":
-        return variant("slice", { from: opt(node.value.from, "slice.from"), optional: node.value.optional, target: map(node.value.target, "slice.target"), to: opt(node.value.to, "slice.to") }) as JqNode;
-      case "string":
-        return variant("string", node.value.map((part, i) => part.type === "interpolate" ? variant("interpolate", map(part.value, `string[${i}].interpolate`)) : part)) as JqNode;
-      case "try":
-        return variant("try", { body: map(node.value.body, "try.body"), catch: opt(node.value.catch, "try.catch") }) as JqNode;
-      case "update":
-        return variant("update", { op: node.value.op, path: map(node.value.path, "update.path"), value: map(node.value.value, "update.value") }) as JqNode;
-      default:
-        return node;
-    }
-  }
 }
 
 /** The field names of outputs that are field reads side by side, `.a, .b`: what `{a, b}` would hold. */
@@ -2296,21 +2175,22 @@ function spine(node: JqNode, path: string): { node: JqNode; path: string }[] {
  * @param program - the program's text, or what {@link parseJq} made of it
  * @param input - the type the program runs on
  * @param options - `root` for an e3 root, `tooling` for the tooling-only builtins
- * @returns the checked query when there is no error, the element type and
- *   multiplicity, the root fields read, the stages, every node's type, and
- *   the diagnostics
+ * @returns the program as written when there is no error, the type it was
+ *   checked against, the element type and multiplicity, the root fields
+ *   read, the stages, every node's type, and the diagnostics
  *
  * @remarks
  * The checker types every node over East types as `devdocs/QUERY.md` says: it
  * narrows variants through `select` and `if`, infers `reduce` and `foreach`
- * accumulators and recursive `def`s by fixpoint, and rewrites what no runtime
- * should parse (an ISO string compared with a DateTime becomes a DateTime
- * literal; a `strftime` format becomes its tokens). A problem is a diagnostic
- * with its span, one sentence, suggestions and fixes; lints are warnings. The
- * checked query holds the program as written, the input type, the element
- * type, the multiplicity and whether the input is a root, and is present
- * exactly when no diagnostic is an error; the program with the rewrites
- * applied is `rewritten`, which the translator reads.
+ * accumulators and recursive `def`s by fixpoint, and reads a literal as the
+ * type it is used as (an Integer where a Float is, an ISO-8601 string where a
+ * DateTime is), reporting a string that is not a date or a `strftime` format
+ * East has no token for. It rewrites nothing: the translator gives each value
+ * from the types it reads (#1138). A problem is a diagnostic with its span,
+ * one sentence, suggestions and fixes; lints are warnings. `program` is
+ * present exactly when no diagnostic is an error, and with `inputType`,
+ * `elementType` and `multiplicity` it is what every reader of the query —
+ * the translator, the split planner, a host — works from.
  *
  * @example
  * ```ts
@@ -2326,7 +2206,7 @@ function spine(node: JqNode, path: string): { node: JqNode; path: string }[] {
 export function checkJq(program: string | ParsedJq, input: EastType, options: CheckJqOptions = {}): CheckJqResult {
   const parsed = typeof program === "string" ? parseJq(program) : program;
   const empty = (diagnostics: QueryError[]): CheckJqResult => ({
-    query: null, rewritten: null, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
+    program: null, inputType: input, elementType: null, multiplicity: null, reads: [], stages: [], typeAt: () => null, diagnostics,
     resultAt: () => null, scopeAt: () => null, source: { text: parsed.text, spans: parsed.spans, root: options.root === true },
     inputAt: () => null, retype: () => null, updatedCases: () => null, opened: () => null,
   });
@@ -2362,18 +2242,12 @@ export function checkJq(program: string | ParsedJq, input: EastType, options: Ch
     const type = unifyShape(record.shape);
     return type === undefined ? null : { type, multiplicity: wireMultiplicity(record.mult) };
   };
-  const query = errors || elementType === undefined ? null : variant("v1", {
-    element_type: canonicalTypeValue(toEastTypeValue(elementType)),
-    input_type: canonicalTypeValue(toEastTypeValue(input)),
-    multiplicity: variant(multiplicity, null),
-    program: root,
-    root: options.root === true,
-  });
+  const checks = !errors && elementType !== undefined;
   return {
-    query,
-    rewritten: query === null ? null : checker.rewrite(root, ""),
-    elementType: errors || elementType === undefined ? null : elementType,
-    multiplicity: errors ? null : multiplicity,
+    program: checks ? root : null,
+    inputType: input,
+    elementType: checks ? elementType : null,
+    multiplicity: checks ? multiplicity : null,
     reads: checker.reads,
     stages,
     typeAt,

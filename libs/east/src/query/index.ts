@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 export {
-  JqPatternType, JqType,
-  QueryMultiplicityType, QueryV1Type, QueryType, QueryCallType,
+  JqLiteralType, JqPatternType, JqType,
+  QueryMultiplicityType, QueryCallType,
   QuerySpanType, QueryEditType, QueryFixType, QueryErrorType,
 } from "./types.js";
 export { QueryError, evaluateJq, runtimeErrorAt, type EvaluateJqOptions, type QueryDiagnostic } from "./evaluate.js";

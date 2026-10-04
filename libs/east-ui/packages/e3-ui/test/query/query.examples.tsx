@@ -13,7 +13,7 @@
 
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType,
-    StructType, VariantType, checkJq, compareFor, example, none, some, variant, type ValueTypeOf,
+    StructType, VariantType, compareFor, example, none, some, variant,
 } from "@elaraai/east";
 import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
 import { Data, Query, Record } from "@elaraai/e3-ui";
@@ -182,75 +182,80 @@ export const bom = e3.input("bom", Part, variant("value", {
 // The saved queries — the one record the operators build
 // ============================================================================
 
-/** The data sources the builders bind, in the order they bind them: what a query is checked against. */
-const SOURCES = [
-    { name: "orders", path: orders.path, type: orders.type },
-    { name: "customers", path: customers.path, type: customers.type },
-    { name: "forecast", path: forecast.path, type: forecast.type },
-    { name: "model", path: model.path, type: model.type },
-    { name: "bom", path: bom.path, type: bom.type },
-] as const;
-const Root = StructType(Object.fromEntries(SOURCES.map(s => [s.name, s.type])));
-
 /**
- * The mock's seven saved queries (`Query Editor Spec.md` §6): each its
- * canonical jq — what the builder's steps print — checked against the data
- * sources, reading the ones it reads, and described where the mock describes
- * it; the rest describe themselves.
+ * The saved queries record: the mock's seven (`Query Editor Spec.md` §6),
+ * each its canonical jq — what the builder's steps print — checked against the
+ * data sources the builders bind when the package builds, and described where
+ * the mock describes it; the rest describe themselves.
  */
-const SAVED: readonly (readonly [name: string, program: string, description: string | undefined, savedAt: Date])[] = [
-    ["Top shipped orders, 2026", `.customers as $customers
+export const queries = e3.record("queries", Query.Types.Saved, Query.saved({ orders, customers, forecast, model, bom }, [
+    {
+        name: "Top shipped orders, 2026",
+        jq: `.customers as $customers
 | .orders
 | map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
 | map(. + {name: $customers[.customer_id].name, region: $customers[.customer_id].region})
 | map({order: .id, customer: .name, region, total, shipped: .status.value.date})
 | sort_by(-.total)
-| .[:10]`, undefined, new Date("2026-10-01T09:00:00Z")],
-    ["Revenue by region", `.customers as $customers
+| .[:10]`,
+        savedAt: new Date("2026-10-01T09:00:00Z"),
+    },
+    {
+        name: "Revenue by region",
+        jq: `.customers as $customers
 | .orders
 | map(select(.status.type == "shipped") | select(.total >= 100 and (.status.value.date | year) == 2026))
 | map(. + {region: $customers[.customer_id].region})
 | group_by(.region)
 | map({region: .[0].region, revenue: map(.total) | add, orders: length})
 | sort_by(-.revenue)
-| .[:3]`, "Top 3 regions by shipped revenue in 2026, from orders of $100 or more.", new Date("2026-09-29T09:00:00Z")],
-    ["Shipped revenue by month", `.orders
+| .[:3]`,
+        description: "Top 3 regions by shipped revenue in 2026, from orders of $100 or more.",
+        savedAt: new Date("2026-09-29T09:00:00Z"),
+    },
+    {
+        name: "Shipped revenue by month",
+        jq: `.orders
 | map(select(.status.type == "shipped"))
 | map(. + {ship_month: .status.value.date | strftime("%Y-%m")})
 | group_by(.ship_month)
 | map({ship_month: .[0].ship_month, revenue: map(.total) | add, orders: length})
-| sort_by(.ship_month)`, undefined, new Date("2026-09-12T09:00:00Z")],
-    ["Large orders with no discount", `.orders
+| sort_by(.ship_month)`,
+        savedAt: new Date("2026-09-12T09:00:00Z"),
+    },
+    {
+        name: "Large orders with no discount",
+        jq: `.orders
 | map(select(.total >= 1000 and .discount == null))
 | map({id, customer_id, total, status})
-| sort_by(-.total)`, undefined, new Date("2026-09-03T09:00:00Z")],
-    ["Units by SKU", `.orders
+| sort_by(-.total)`,
+        savedAt: new Date("2026-09-03T09:00:00Z"),
+    },
+    {
+        name: "Units by SKU",
+        jq: `.orders
 | [.[] | . as $order | .lines[] | . + {order_id: $order.id}]
 | group_by(.sku)
 | map({sku: .[0].sku, units: map(.qty) | add, orders: map(.order_id) | unique | length})
-| sort_by(-.units)`, undefined, new Date("2026-08-28T09:00:00Z")],
-    ["Pump parts cost", `.bom
+| sort_by(-.units)`,
+        savedAt: new Date("2026-08-28T09:00:00Z"),
+    },
+    {
+        name: "Pump parts cost",
+        jq: `.bom
 | [recurse(.children[]) | {cost, sku}]
 | {total_cost: map(.cost) | add, parts: length, dearest: map(.cost) | max}`,
-    "Total cost, part count and dearest part in the PUMP-A bill of materials.", new Date("2026-08-20T09:00:00Z")],
-    ["Demand at $10–$12, NSW", `.model
+        description: "Total cost, part count and dearest part in the PUMP-A bill of materials.",
+        savedAt: new Date("2026-08-20T09:00:00Z"),
+    },
+    {
+        name: "Demand at $10–$12, NSW",
+        jq: `.model
 | [range(10.0; 12.0 + 0.5 / 2; 0.5) as $price | {price: $price, demand: call(.; {price: $price, region: "NSW"})}]`,
-    "Modelled demand in NSW at prices from $10 to $12, in $0.50 steps.", new Date("2026-08-14T09:00:00Z")],
-];
-
-/** The saved queries record: the mock's seven, by name. */
-export const queries = e3.record("queries", Query.Types.Saved, new SortedMap(SAVED.map(([name, program, description, savedAt]) => {
-    const checked = checkJq(program, Root, { root: true });
-    if (checked.query === null) throw new Error(`${name} does not check: ${checked.diagnostics.map(d => d.message).join("; ")}`);
-    const saved: ValueTypeOf<typeof Query.Types.SavedQuery> = {
-        name,
-        description: description === undefined ? none : some(description),
-        query: checked.query,
-        root: SOURCES.filter(s => checked.reads.includes(s.name)).map(s => ({ name: s.name, path: s.path })),
-        saved_at: savedAt,
-    };
-    return [name, saved] as const;
-}), compareFor(StringType)));
+        description: "Modelled demand in NSW at prices from $10 to $12, in $0.50 steps.",
+        savedAt: new Date("2026-08-14T09:00:00Z"),
+    },
+]));
 
 /** The record's one write. */
 export const queriesPatch = e3.mutation.patch(queries);

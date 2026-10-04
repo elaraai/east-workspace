@@ -131,13 +131,13 @@ function compile(program: string | CheckJqResult, options: EvaluateJqOptions): C
     checked = checkJq(program, options.inputType, { root: options.root === true, tooling: options.tooling === true });
   } else {
     checked = program;
-    if (checked.query === null) throw new QueryError(checked.diagnostics);
-    const q = checked.query.value;
-    key = `${printJq(q.program).text}\u0000${printTypeValue(q.input_type)}\u0000${checked.source.root}\u0000${options.tooling === true}`;
+    if (checked.program === null) throw new QueryError(checked.diagnostics);
+    const typeKey = printTypeValue(canonicalTypeValue(toEastTypeValue(checked.inputType)));
+    key = `${printJq(checked.program).text}\u0000${typeKey}\u0000${checked.source.root}\u0000${options.tooling === true}`;
     const hit = cache.get(key);
     if (hit !== undefined) return hit;
   }
-  if (checked.query === null) throw new QueryError(checked.diagnostics);
+  if (checked.program === null) throw new QueryError(checked.diagnostics);
   const translation = translateJq(checked, { tooling: options.tooling === true });
   const run = translation.fn().toIR().compile(options.platform ?? []) as (...args: unknown[]) => unknown;
   const compiled: Compiled = { translation, checked, run };
@@ -178,7 +178,7 @@ export function runtimeErrorAt(checked: CheckJqResult, message: string, at?: { r
   let range: { from: number; to: number } | undefined;
   if (at !== undefined) {
     const offset = offsetOf(text, at.line, at.column);
-    const kinds = checked.rewritten === null ? new Map<string, string>() : nodeKinds(checked.rewritten);
+    const kinds = checked.program === null ? new Map<string, string>() : nodeKinds(checked.program);
     for (const [path, span] of checked.source.spans) {
       if (span.from !== offset || LEAVES.has(kinds.get(path) ?? "")) continue;
       if (range === undefined || span.to - span.from < range.to - range.from) range = span;

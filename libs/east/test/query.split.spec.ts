@@ -190,7 +190,7 @@ function close(type: EastType, a: unknown, b: unknown): boolean {
 /** A query checked against a root: the fixture's, by default. */
 function checked(program: string, root: EastType = FixtureRoot) {
   const result = checkJq(program, root, { root: true });
-  assert.ok(result.query !== null, `${program}: ${result.diagnostics.map(d => d.message).join(" ")}`);
+  assert.ok(result.program !== null, `${program}: ${result.diagnostics.map(d => d.message).join(" ")}`);
   return result;
 }
 

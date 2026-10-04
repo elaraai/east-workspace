@@ -248,11 +248,10 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     // run sends the counting program, which is not the query — its name and what it read.
     const { recent, remember } = useRecentQueries(recentKey);
     const onRan = useCallback((result: QueryResult, plan: RunPlan) => {
-        if (result.query.type !== "some") return;
-        const own = checkJq(plan.canonical, root.type, { root: true }).query;
+        const own = checkJq(plan.canonical, root.type, { root: true }).program;
         if (own === null) return;
         remember({
-            name: plan.name, description: plan.description, query: own,
+            name: plan.name, description: plan.description, program: own,
             root: result.inputs.map(input => ({ name: input.name, path: input.path })), saved_at: new Date(),
         });
     }, [remember, root]);

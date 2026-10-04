@@ -96,7 +96,7 @@ describe("the query corpus over the fixture (E1)", () => {
   test("every case that checks has its output", () => {
     for (const c of QUERY_CORPUS) {
       const checked = checkJq(c.program, c.input, { root: c.root === true });
-      assert.equal(c.output !== undefined, checked.query !== null, c.name);
+      assert.equal(c.output !== undefined, checked.program !== null, c.name);
     }
   });
 
@@ -175,7 +175,7 @@ describe("every corpus case's call of the Query builtin prints as the East.jq th
     try {
       for (const c of QUERY_CORPUS) {
         const checked = checkJq(c.program, c.input, { root: c.root === true });
-        if (checked.query === null) continue;
+        if (checked.program === null) continue;
         const ir = calledIR(checked);
         const source = toSource(ir, { importFrom: INDEX_URL });
         assert.match(source, /East\.jq\(/, c.name);
@@ -214,7 +214,7 @@ describe("the query editor's default query (E2)", () => {
     assertValue(ArrayType(FloatType), rows.map(r => r.total), [2381.61, 1913.4, 1765.97, 1537.52, 1352.32, 1225.5, 1171.58, 1162.92, 1109.6, 1041.68]);
   });
 
-  test("East.jq's IR is a call of the Query builtin: the checked query, its translation, and every input (#1041)", () => {
+  test("East.jq's IR is a call of the Query builtin: the program as written, its translation, and every input (#1041)", () => {
     const datasets = StructType({ customers: FixtureRoot.fields.customers, forecast: FixtureRoot.fields.forecast, orders: FixtureRoot.fields.orders });
     const checked = checkJq(DEFAULT_QUERY, datasets, { root: true });
     const resultType = translateJq(checked).resultType;
@@ -229,7 +229,7 @@ describe("the query editor's default query (E2)", () => {
     assert.ok(builtin.type === "Builtin" && builtin.value.builtin === "Query");
     // The query as the constant its first argument holds: the program as written, and the root's input names.
     const query = constValueOf(builtin.value.arguments[0]!) as ValueTypeOf<typeof QueryCallType>;
-    const expected = variant("v1", { inputs: some(["customers", "forecast", "orders"]), program: checked.query!.value.program });
+    const expected = variant("v1", { inputs: some(["customers", "forecast", "orders"]), program: checked.program! });
     assert.ok(equalFor(QueryCallType)(query, expected));
     assert.equal(printJq(query.value.program).text, DEFAULT_QUERY.replaceAll("\n", " "));
     // The translation, whose type carries the query's types, takes every input, forecast too, which the query
@@ -246,7 +246,7 @@ describe("the query editor's default query (E2)", () => {
 describe("the Query builtin (#1041)", () => {
   const Numbers = ArrayType(IntegerType);
   // The query as the builtin carries it: its program as written, and no input names for a query of one input.
-  const doubled = variant("v1", { inputs: none, program: checkJq("map(. * 2)", Numbers).query!.value.program });
+  const doubled = variant("v1", { inputs: none, program: checkJq("map(. * 2)", Numbers).program! });
 
   test("running a call runs its translation", () => {
     const F = FunctionType([Numbers], Numbers);
@@ -394,7 +394,7 @@ describe("the translation", () => {
   test("is deterministic: a checked program gives the same IR bytes each time, its translation and its call", () => {
     for (const c of QUERY_CORPUS.slice(0, 40)) {
       const checked = checkJq(c.program, c.input, { root: c.root === true });
-      if (checked.query === null) continue;
+      if (checked.program === null) continue;
       const again = checkJq(c.program, c.input, { root: c.root === true });
       assert.deepEqual(translatedBytes(checked), translatedBytes(again), c.name);
       assert.ok(equalFor(IRType)(calledIR(checked), calledIR(again)), c.name);
@@ -487,7 +487,7 @@ describe("the translation", () => {
     assertValue(Skus, evaluateJq("[recurse | .sku?]", tree, { inputType: Part.node as EastType }), ["A", "B", "C"]);
   });
 
-  test("a literal the checker made a Float for one kind of value stays whole for another", () => {
+  test("a literal read as a Float where one kind of value meets it stays an Integer for another (#1138)", () => {
     const Row = StructType({ n: IntegerType, x: FloatType });
     assertValue(Row, evaluateJq("(.. | numbers) |= . + 1", { n: 1n, x: 0.5 }, { inputType: Row }), { n: 2n, x: 1.5 });
   });

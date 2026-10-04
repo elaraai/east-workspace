@@ -10,15 +10,11 @@
  * @packageDocumentation
  */
 
-import { DateTimeFormatTokenType, type DateTimeFormatToken } from "../../datetime_format/types.js";
-import { decodeBeast2 } from "../../serialization/beast2/index.js";
 import { printFor } from "../../serialization/east.js";
-import { toJSONFor } from "../../serialization/json.js";
-import { fromEastTypeValue } from "../../type_of_type.js";
-import { BooleanType, DateTimeType, FloatType, IntegerType, StringType, isTypeEqual, type EastType } from "../../types.js";
+import { BooleanType, FloatType, IntegerType, StringType } from "../../types.js";
 import { isJqKeyword } from "./lex.js";
+import type { JqLiteral } from "./literals.js";
 import { childPath, type JqNode, type JqPattern, type JqRange, type JqSpans } from "./spans.js";
-import { formatText } from "./strftime.js";
 
 /** Options for {@link printJq}. */
 export interface PrintJqOptions {
@@ -84,7 +80,6 @@ const printBoolean = printFor(BooleanType);
 const printInteger = printFor(IntegerType);
 const printFloat = printFor(FloatType);
 const printString = printFor(StringType);
-const dateTimeText = toJSONFor(DateTimeType);
 
 /** A literal's text and how it prints. */
 interface Literal {
@@ -102,50 +97,30 @@ interface Literal {
 /**
  * The jq text of a literal.
  *
- * @param blob - the literal's self-describing beast2 blob
+ * @param literal - the literal
  * @returns its text, as East prints the value
- * @throws {Error} When its type is not one a jq literal writes, nor one the
- *   checker rewrites a literal to.
- *
- * @remarks
- * A checked program holds literals the checker rewrote (`devdocs/QUERY.md`
- * §14), and each prints as the text it was rewritten from, which checks to
- * it again: a DateTime as its RFC 3339 string, a format's tokens as the
- * format, and the names a folded `keys` gives as an array of strings.
  */
-function literalOf(blob: Uint8Array): Literal {
-  const { type, value } = decodeBeast2(blob);
-  const t = fromEastTypeValue(type);
-  if (t.type === "Array" && isTypeEqual(t.value as EastType, DateTimeFormatTokenType)) {
-    return { type: "String", text: printString(formatText(value as DateTimeFormatToken[])), negative: false, digits: false };
-  }
-  if (t.type === "Array" && (t.value as EastType).type === "String") {
-    return { type: "Array", text: `[${(value as string[]).map(name => printString(name)).join(", ")}]`, negative: false, digits: false };
-  }
-  switch (type.type) {
-    case "DateTime":
-      return { type: "String", text: printString(dateTimeText(value) as string), negative: false, digits: false };
-    case "Null":
+function literalOf(literal: JqLiteral): Literal {
+  switch (literal.type) {
+    case "null":
       return { type: "Null", text: "null", negative: false, digits: false };
-    case "Boolean":
-      return { type: "Boolean", text: printBoolean(value), negative: false, digits: false };
-    case "Integer": {
-      const text = printInteger(value);
+    case "boolean":
+      return { type: "Boolean", text: printBoolean(literal.value), negative: false, digits: false };
+    case "integer": {
+      const text = printInteger(literal.value);
       const negative = text.startsWith("-");
       return { type: "Integer", text, negative, digits: !negative };
     }
-    case "Float": {
+    case "float": {
       // East prints an integral Float with its `.0`, so it reads back as a
       // Float; jq writes the values East prints as NaN and Infinity with its
       // builtins.
-      const printed = printFloat(value);
+      const printed = printFloat(literal.value);
       const text = printed === "NaN" ? "nan" : printed === "Infinity" ? "infinite" : printed === "-Infinity" ? "-infinite" : printed;
       return { type: "Float", text, negative: text.startsWith("-"), digits: false };
     }
-    case "String":
-      return { type: "String", text: printString(value), negative: false, digits: false };
-    default:
-      throw new Error(`printJq: a ${type.type} literal has no jq text`);
+    case "string":
+      return { type: "String", text: printString(literal.value), negative: false, digits: false };
   }
 }
 
@@ -166,7 +141,7 @@ function checkName(ok: boolean, what: string, name: string): void {
 class Printer {
   text = "";
   readonly spans = new Map<string, JqRange>();
-  private readonly literals = new Map<Uint8Array, Literal>();
+  private readonly literals = new Map<JqLiteral, Literal>();
 
   constructor(private readonly pipeline: boolean) {}
 
@@ -174,11 +149,11 @@ class Printer {
     this.text += s;
   }
 
-  private literal(blob: Uint8Array): Literal {
-    let literal = this.literals.get(blob);
+  private literal(value: JqLiteral): Literal {
+    let literal = this.literals.get(value);
     if (literal === undefined) {
-      literal = literalOf(blob);
-      this.literals.set(blob, literal);
+      literal = literalOf(value);
+      this.literals.set(value, literal);
     }
     return literal;
   }
@@ -595,9 +570,9 @@ class Printer {
  * @param options - the layout
  * @returns the text, and the span of every node in it
  * @throws {Error} When the program holds something no jq text reads back as:
- *   a literal of a type jq has no literal for, a name the lexer would not
- *   read as one (a keyword as a function's name, `true` called with no
- *   arguments), an operator jq lacks, or an empty `if` or pattern.
+ *   a name the lexer would not read as one (a keyword as a function's name,
+ *   `true` called with no arguments), an operator jq lacks, or an empty `if`
+ *   or pattern.
  *
  * @remarks
  * Every program has one canonical text: one space around binary operators

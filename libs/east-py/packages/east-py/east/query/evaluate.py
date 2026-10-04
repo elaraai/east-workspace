@@ -127,14 +127,14 @@ def _compile(program: str | CheckJqResult, input_type: EastType | None, root: bo
         checked = check_jq(program, input_type, root=root, tooling=tooling)
     else:
         checked = program
-        if checked.query is None:
+        if checked.program is None:
             raise QueryError(checked.diagnostics)
-        q = checked.query.value
-        key = f"{print_jq(q['program']).text}\0{_print_type_value(q['input_type'])}\0{checked.source.root}\0{tooling}"
+        type_key = _print_type_value(canonical_type_value(checked.input_type))
+        key = f"{print_jq(checked.program).text}\0{type_key}\0{checked.source.root}\0{tooling}"
         hit = _CACHE.get(key)
         if hit is not None:
             return hit
-    if checked.query is None:
+    if checked.program is None:
         raise QueryError(checked.diagnostics)
     translation = translate_jq(checked, tooling=tooling)
     from east.expression.location import source_map_scope
@@ -161,10 +161,9 @@ def _runtime_diagnostic(checked: CheckJqResult, error: EastError) -> EastStruct:
     span: JqRange | None = None
     if at is not None:
         # The node that raised it: the innermost that starts at that line and
-        # column and can raise (a literal, `.` or a variable cannot), as the
-        # translation ran it: the program with the checker's rewrites.
+        # column and can raise (a literal, `.` or a variable cannot).
         offset = _offset_of(text, int(at["line"]), int(at["column"]))
-        kinds = {} if checked.rewritten is None else _node_kinds(checked.rewritten)
+        kinds = {} if checked.program is None else _node_kinds(checked.program)
         for path, candidate in checked.source.spans.items():
             if candidate.from_ != offset or kinds.get(path, "") in _LEAVES:
                 continue

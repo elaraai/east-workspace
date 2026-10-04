@@ -10,12 +10,10 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  ArrayType, BlobType, BooleanType, DateTimeType, FloatType, IntegerType, JqType, NullType, QueryErrorType, QuerySpanType,
-  StringType,
-  encodeBeast2For, equalFor, lexJq, none, parseFor, parseJq, pathAt, printJq, some, spanOf, toQuerySpan, variant,
+  JqLiteralType, JqType, QueryErrorType, QuerySpanType,
+  equalFor, lexJq, none, parseJq, pathAt, printJq, some, spanOf, toQuerySpan, variant,
   type JqNode, type JqPattern, type JqSpans, type JqTokenKind, type ValueTypeOf,
 } from "../src/index.js";
-import { DateTimeFormatTokenType } from "../src/datetime_format/types.js";
 import { jqChildren } from "../src/query/jq/spans.js";
 import { QUERY_CORPUS } from "./query.corpus.js";
 
@@ -135,12 +133,6 @@ class Choices {
   }
 }
 
-const encodeNull = encodeBeast2For(NullType);
-const encodeBoolean = encodeBeast2For(BooleanType);
-const encodeInteger = encodeBeast2For(IntegerType);
-const encodeFloat = encodeBeast2For(FloatType);
-const encodeString = encodeBeast2For(StringType);
-
 /** Names a field or a key can have: identifiers, keywords, and names that
  *  must be quoted. */
 const KEYS = ["a", "total", "orders", "if", "not", "__loc__", "a b", "", "1x", "é", "🚚", "a\"b", "a\\(b", "x::y"];
@@ -179,7 +171,7 @@ function generate(r: Choices, depth: number): JqNode {
     case 6: return variant("def", { body: g(), name: r.pick(["f", "g", "revenue"]), params: r.times(r.int(3), () => r.pick(["$x", "f", "$y", "g"])), rest: g() });
     case 7: return variant("field", { name: r.pick(KEYS), optional: r.chance(30), target: g() });
     case 8: return variant("foreach", { extract: r.chance(50) ? some(g()) : none, init: g(), pattern: generatePattern(r, 2), source: g(), update: g() });
-    case 9: return variant("format", { name: r.pick(FORMATS), string: some(r.chance(50) ? generateString(r, depth - 1) : variant("literal", encodeString(r.pick(TEXTS)))) });
+    case 9: return variant("format", { name: r.pick(FORMATS), string: some(r.chance(50) ? generateString(r, depth - 1) : variant("literal", variant("string", r.pick(TEXTS)))) });
     case 10: return variant("if", { branches: r.times(1 + r.int(2), () => ({ condition: g(), then: g() })), otherwise: r.chance(60) ? some(g()) : none });
     case 11: return variant("index", { index: g(), optional: r.chance(30), target: g() });
     case 12: return variant("iterate", { optional: r.chance(30), target: g() });
@@ -204,11 +196,11 @@ function generateLeaf(r: Choices): JqNode {
     case 1: return variant("descend", null);
     case 2:
       switch (r.int(5)) {
-        case 0: return variant("literal", encodeNull(null));
-        case 1: return variant("literal", encodeBoolean(r.chance(50)));
-        case 2: return variant("literal", encodeInteger(r.pick(INTEGERS)));
-        case 3: return variant("literal", encodeFloat(r.pick(FLOATS)));
-        default: return variant("literal", encodeString(r.pick(["", ...TEXTS])));
+        case 0: return variant("literal", variant("null", null));
+        case 1: return variant("literal", variant("boolean", r.chance(50)));
+        case 2: return variant("literal", variant("integer", r.pick(INTEGERS)));
+        case 3: return variant("literal", variant("float", r.pick(FLOATS)));
+        default: return variant("literal", variant("string", r.pick(["", ...TEXTS])));
       }
     case 3: return variant("variable", r.pick(VARIABLES));
     case 4: return variant("call", { args: [], name: r.pick(FUNCTIONS) });
@@ -346,25 +338,29 @@ describe("canonical text", () => {
     });
   }
 
-  test("prints a checked program's rewritten literals as the text they were rewritten from", () => {
-    const date = parseFor(DateTimeType)("2026-09-01T00:00:00.000");
-    assert.ok(date.success);
-    const tokens = encodeBeast2For(ArrayType(DateTimeFormatTokenType))([
-      variant("year4", null), variant("literal", "-%"), variant("month2", null),
-    ]);
-    const program: JqNode = variant("comma", {
-      left: variant("comma", {
-        left: variant("literal", encodeBeast2For(DateTimeType)(date.value)),
-        right: variant("call", { args: [variant("literal", tokens)], name: "strftime" }),
-      }),
-      right: variant("literal", encodeBeast2For(ArrayType(StringType))(["a", "b"])),
-    });
-    assert.equal(printJq(program).text, "\"2026-09-01T00:00:00.000+00:00\", strftime(\"%Y-%%%m\"), [\"a\", \"b\"]");
+  test("a literal is the typed East value it writes, and prints back as written: 1001 and 1001.0 stay apart (#1138)", () => {
+    const text = "[1001, 1001.0, \"C01\", true, false, null, 9223372036854775807, 1e+21]";
+    const program = programOf(text);
+    const literals: JqNode[] = [];
+    const visit = (node: JqNode): void => {
+      if (node.type === "literal") literals.push(node);
+      for (const child of jqChildren(node)) if (child.node !== undefined) visit(child.node);
+    };
+    visit(program);
+    const expected = [
+      variant("integer", 1001n), variant("float", 1001), variant("string", "C01"), variant("boolean", true),
+      variant("boolean", false), variant("null", null), variant("integer", 9223372036854775807n), variant("float", 1e21),
+    ];
+    const equalLiteral = equalFor(JqLiteralType);
+    assert.equal(literals.length, expected.length);
+    literals.forEach((node, i) => assert.ok(node.type === "literal" && equalLiteral(node.value, expected[i]!), `literal ${i}`));
+    assert.ok(!equalLiteral(expected[0]!, expected[1]!), "an Integer is not the Float of its value");
+    assert.equal(printJq(program).text, text);
+    assertRoundTrip(program, text);
   });
 
   test("prints nothing that reads back as another program", () => {
     const refused: readonly (readonly [JqNode, RegExp])[] = [
-      [variant("literal", encodeBeast2For(BlobType)(new Uint8Array([1, 2]))), /a Blob literal has no jq text/],
       [variant("call", { args: [], name: "if" }), /"if" is not a jq function name/],
       [variant("call", { args: [], name: "true" }), /"true" is not a jq function name/],
       [variant("binary", { left: variant("identity", null), op: "**", right: variant("identity", null) }), /"\*\*" is not a jq binary operator/],

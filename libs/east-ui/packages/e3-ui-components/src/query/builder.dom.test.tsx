@@ -24,7 +24,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, PatchType, QueryType, checkJq, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
+import { East, JqType, PatchType, checkJq, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
 import { Query } from "@elaraai/e3-ui/internal";
 import {
@@ -45,7 +45,7 @@ const DEFAULT_PROGRAM = [
 const TOP = savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM);
 const BIG = savedQuery("Big orders", ".orders | map(select(.total >= 1000))");
 const COUNT = savedQuery("Order count", ".orders | length");
-const queryEqual = equalFor(QueryType);
+const programEqual = equalFor(JqType);
 const savedEqual = equalFor(Query.Types.SavedQuery);
 
 let harness: RecordHarness;
@@ -129,8 +129,8 @@ function statusOf(container: HTMLElement) {
     };
 }
 
-/** A saved query's checked query, as the record holds it. */
-const savedProgramOf = (name: string) => recordOf(harness).get(name)!.query;
+/** A saved query's program, as the record holds it. */
+const savedProgramOf = (name: string) => recordOf(harness).get(name)!.program;
 
 /** The pane's rail, while it is collapsed: its icon, its badge and its name. */
 const railOf = (container: HTMLElement) => builderOf(container).querySelector<HTMLElement>("[data-collapsed] [title=Query]")!;
@@ -483,7 +483,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await closed();
         expect(await committed(harness)).toEqual(["patch", "$init"]);
         const saved = recordOf(harness).get("Big orders")!;
-        expect(queryEqual(saved.query, checkJq(".orders\n| map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).query!)).toBe(true);
+        expect(programEqual(saved.program, checkJq(".orders\n| map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(saved.description).toEqual(some("The first ten big orders."));
         expect(statusOf(container).save).toEqual(["saved", "Saved", "Big orders"]);
         expect(container.querySelector("[data-query-save]")!.hasAttribute("data-fresh")).toBe(true);
@@ -520,7 +520,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await press("Save", screen.getByRole("dialog"));
         expect(await committed(harness)).toEqual(["patch", "$init"]);
         expect([...recordOf(harness).keys()]).toEqual(["Large orders", "Order count", "Top shipped orders, 2026"]);
-        expect(queryEqual(savedProgramOf("Large orders"), BIG.query)).toBe(true);
+        expect(programEqual(savedProgramOf("Large orders"), BIG.program)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"Large orders"`);
     }, 30_000);
 
@@ -579,7 +579,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.change(dialog.getByRole("textbox", { name: "Query name" }), { target: { value: "First ten orders" } }); });
         await press("Save", screen.getByRole("dialog"));
         expect(await committed(harness)).toEqual(["patch", "$init"]);
-        expect(queryEqual(savedProgramOf("First ten orders"), checkJq(".orders\n| .[:10]", ROOT.type, { root: true }).query!)).toBe(true);
+        expect(programEqual(savedProgramOf("First ten orders"), checkJq(".orders\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"First ten orders"`);
         expect(statusOf(container).save).toEqual(["saved", "Saved", "First ten orders"]);
     }, 30_000);

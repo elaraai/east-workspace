@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
-    ArrayType, East, EastError, IntegerType, OptionType, QueryError, StringType, StructType,
+    ArrayType, East, EastError, IntegerType, JqType, OptionType, QueryError, StringType, StructType,
     checkJq, decodeBeast2, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeEastIR, equalFor, evaluateJq,
     fromEastTypeValue, isTypeEqual, none, parseJq, some, translateJq, variant, walkIR,
     type EastType, type EastTypeValue, type QueryDiagnostic,
@@ -243,7 +243,10 @@ describe("C2: the request", () => {
         expect(call.request.args).toEqual([variant("dataset", pathOf("customers")), variant("dataset", pathOf("orders"))]);
         expect(call.request.limits).toEqual(some({ timeoutMs: some(30_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }));
         expect(call.maxOutputs).toBe(1_000);
-        expect(call.query).toEqual(checked.query);
+        // The program as written, and the types the checker gives it: what reading the answer decodes with.
+        expect(equalFor(JqType)(call.checked.program, checked.program!)).toBe(true);
+        expect(isTypeEqual(call.checked.elementType, checked.elementType!)).toBe(true);
+        expect(call.checked.multiplicity).toBe("one");
     });
 
     test("the call is platform-free: east-c given no platform package, and a body with no Platform node", () => {
@@ -288,7 +291,7 @@ describe("C2: one check against the whole root", () => {
     test("a query that reads one dataset is checked against them all, and is given that one", () => {
         const call = prepared("{names: keys, orders: (.orders | length), model: has(\"model\")}");
         expect(call.request.args).toEqual([variant("dataset", pathOf("orders"))]);
-        expect(isTypeEqual(fromEastTypeValue(call.query.value.input_type), ROOT_TYPE)).toBe(true);
+        expect(isTypeEqual(call.checked.inputType, ROOT_TYPE)).toBe(true);
         expect(decodeBeast2(run(call)).value).toEqual({
             names: ["bom", "byId", "cells", "customers", "forecast", "model", "orders"], orders: 40n, model: true,
         });
@@ -296,13 +299,12 @@ describe("C2: one check against the whole root", () => {
 });
 
 describe("C2: a program that does not check", () => {
-    test("a program that fails its check is an error result of the checker's diagnostics, and no query, since nothing ran", () => {
+    test("a program that fails its check is an error result of the checker's diagnostics, and no input, since nothing ran", () => {
         const program = ".orders | map(.totl)";
         const result = refusedResult(program);
         expect(result).toEqual({
             inputs: [],
             outcome: variant("error", checkJq(program, ROOT_TYPE, { root: true }).diagnostics),
-            query: none,
         });
         expect(result.outcome.type === "error" ? result.outcome.value.map(d => d.message) : []).toEqual([
             "unknown_field: .totl is not a field of Struct{customer_id: String, discount: Option<Float>, id: Integer, " +
@@ -317,7 +319,6 @@ describe("C2: a program that does not check", () => {
                 code: "unsupported", fixes: [], message: "unsupported: reading the whole root loads every dataset — name them: .bom, .byId, .cells, ….",
                 severity: variant("error", null), span: some({ column: 1n, length: 1n, line: 1n, offset: 0n }), suggestions: [],
             }]),
-            query: none,
         });
     });
 
@@ -325,7 +326,6 @@ describe("C2: a program that does not check", () => {
         expect(refusedResult(".orders |")).toEqual({
             inputs: [],
             outcome: variant("error", parseJq(".orders |").diagnostics),
-            query: none,
         });
     });
 });
@@ -339,7 +339,6 @@ describe("C3: every outcome of a call", () => {
         expect(queryResultOf(call, executed(call, variant("success", { value: bytes })))).toEqual({
             inputs: [read("customers"), read("orders")],
             outcome: variant("ok", { outputs: 1n, result: bytes, truncated: false }),
-            query: some(call.query),
         });
     });
 
@@ -367,7 +366,6 @@ describe("C3: every outcome of a call", () => {
             expect(queryResultOf(call, executed(call, variant("success", { value: bytes })))).toEqual({
                 inputs: [read("orders")],
                 outcome: variant("ok", { outputs, result: bytes, truncated: false }),
-                query: some(call.query),
             });
         }
         // Four outputs, one more than three: truncated, the fourth dropped.
@@ -375,7 +373,7 @@ describe("C3: every outcome of a call", () => {
         expect(decodeBeast2For(ids)(four.bytes)).toEqual([1001n, 1002n, 1003n, 1004n]);
         const truncated = variant("ok", { outputs: 3n, result: encodeBeast2For(ids)([1001n, 1002n, 1003n]), truncated: true });
         expect(queryResultOf(four.call, executed(four.call, variant("success", { value: four.bytes })))).toEqual({
-            inputs: [read("orders")], outcome: truncated, query: some(four.call.query),
+            inputs: [read("orders")], outcome: truncated,
         });
         // Forty orders: the translation stops at maxOutputs + 1.
         const forty = answer(".orders[] | .id");
@@ -412,7 +410,6 @@ describe("C3: every outcome of a call", () => {
             expect(queryResultOf(call, executed(call, variant("failed", { exitCode: 1n }), stderr))).toEqual({
                 inputs: [read("orders")],
                 outcome: variant("error", [raised]),
-                query: some(call.query),
             });
         }
     });
@@ -437,7 +434,6 @@ describe("C3: every outcome of a call", () => {
         expect(queryResultOf(call, executed(call, variant("failed", { exitCode: 1n }), "Error: Unknown platform function: console_log\n  at jq:1:1\n  at jq:1:1\n"))).toEqual({
             inputs: [read("model")],
             outcome: variant("needs_platform", { functions: ["console_log"] }),
-            query: some(call.query),
         });
         // east-node and east-py say so as they compile the model, and of one marked optional as they call
         // it; and said without the runners' `Error:` lead, it is still named.
@@ -458,7 +454,6 @@ describe("C3: every outcome of a call", () => {
             outcome: variant("error", [{
                 code: "no_value", fixes: [], message: "no_value: orders has no value yet.", severity: variant("error", null), span: none, suggestions: [],
             }]),
-            query: some(call.query),
         });
         expect(queryResultOf(call, invalid("the body does not decode as a function: Invalid Beast2 magic at offset 0")).outcome).toEqual(variant("error", [{
             code: "invalid", fixes: [], message: "invalid: the body does not decode as a function: Invalid Beast2 magic at offset 0",
@@ -471,12 +466,10 @@ describe("C3: every outcome of a call", () => {
         expect(queryResultOf(call, executed(call, variant("timed_out", { ms: 30_000n })))).toEqual({
             inputs: [read("customers"), read("orders")],
             outcome: variant("timed_out", { ms: 30_000n }),
-            query: some(call.query),
         });
         expect(queryResultOf(call, executed(call, variant("too_large", { bytes: 2_097_152n, limit: 1_048_576n })))).toEqual({
             inputs: [read("customers"), read("orders")],
             outcome: variant("too_large", { bytes: 2_097_152n, limit: 1_048_576n }),
-            query: some(call.query),
         });
     });
 

@@ -13,17 +13,19 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { fromEastTypeValue, printJq } from "@elaraai/east";
+import { StructType, printJq } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { checkSteps } from "../../src/query/steps/check.js";
 import { parseSteps } from "../../src/query/steps/parse.js";
 import { printSteps } from "../../src/query/steps/print.js";
 
+/** The root the showcase's builders bind, which its saved queries are checked against: the five datasets, by the names its queries read them. */
+const root = StructType({ orders: ex.orders.type, customers: ex.customers.type, forecast: ex.forecast.type, model: ex.model.type, bom: ex.bom.type });
+
 describe("the showcase's saved queries (#940)", () => {
     for (const [name, saved] of ex.queries.default!) {
         test(`${name}: opens as steps that check clean and print back to its text`, () => {
-            const root = fromEastTypeValue(saved.query.value.input_type);
-            const text = printJq(saved.query.value.program, { layout: "pipeline" }).text;
+            const text = printJq(saved.program, { layout: "pipeline" }).text;
             const parsed = parseSteps(text, root);
             if ("error" in parsed) assert.fail(`${name} does not parse: ${parsed.error.message}`);
             assert.deepEqual(parsed.query.steps.filter(s => s.type === "jq").map(s => s.type), [], `${name} has no jq step`);

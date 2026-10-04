@@ -16,7 +16,7 @@ import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, VectorType,
-    decodeBeast2For, encodeBeast2For, evaluateJq, fromEastTypeValue, isTypeEqual, isValueOf, none, printFor, some, toEastTypeValue, variant,
+    decodeBeast2For, encodeBeast2For, evaluateJq, isTypeEqual, isValueOf, none, printFor, some, toEastTypeValue, variant,
     type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Table } from "@elaraai/east-ui/internal";
@@ -70,10 +70,9 @@ type FirstLine = ValueTypeOf<typeof FirstLineType>;
 function run(program: string): DecodedResult {
     const prepared = prepareQuery(program, ROOT);
     if (!("prepared" in prepared)) throw new Error(`${program} does not check`);
-    const { query, checked } = prepared.prepared;
-    const { element_type, multiplicity } = query.value;
-    const element = fromEastTypeValue(element_type);
-    const type: EastType = multiplicity.type === "one" ? element : multiplicity.type === "maybe" ? OptionType(element) : ArrayType(element);
+    const { checked } = prepared.prepared;
+    const { elementType: element, multiplicity } = checked;
+    const type: EastType = multiplicity === "one" ? element : multiplicity === "maybe" ? OptionType(element) : ArrayType(element);
     return { type, value: evaluateJq(checked, FIXTURE_VALUE, { root: true }) };
 }
 

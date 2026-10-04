@@ -7,15 +7,17 @@ motivation and the plan are issue #875.
 A **query** is a jq 1.8 program run on an East value. Values and types are
 East's, and every departure from jq 1.8 is deliberate and listed in §13.
 
-A query's text is parsed and checked **once, in an SDK**, against the type of
-its input. Checking gives a **checked query**: a `QueryType` value holding
-the program as written, the input type, the type of each output and how many
-outputs there are. That value is East's narrow waist for queries, as the
-token array of a datetime format string is for `DateTime.printFormatted`. An
-SDK translates a checked query to ordinary East IR, which every runtime runs
-as it runs any program (§15). In code, a query is a call of the `Query`
-builtin, which carries the program beside its translation and gives the
-translation (§15.7), so no runtime reads query text or evaluates jq.
+A query's text is parsed and checked against the type of the data it reads,
+wherever its types are needed: in an SDK as a program is built, in a host
+before a run, in an editor as it is typed. Checking gives the **program as
+written** — a `JqType` tree, each constant in it a typed East value — with the
+type of each output and how many outputs there are. A query's types are never
+kept with it: they follow from the program and the data it reads, and every
+place that needs them checks the program (#1138). An SDK translates a checked
+program to ordinary East IR, which every runtime runs as it runs any program
+(§15). In code, a query is a call of the `Query` builtin, which carries the
+program beside its translation and gives the translation (§15.7), so no
+runtime reads query text or evaluates jq.
 
 | Piece | Where |
 |---|---|
@@ -150,7 +152,7 @@ A jq filter gives a stream of outputs. Every filter has a static
 `a | b` and `a, b` compose the multiplicities: `one | one` is one, anything
 with `many` in it is many, and `a, b` is always many.
 
-A checked query records its **element type** — the type of each output — and
+Checking a query gives its **element type** — the type of each output — and
 its multiplicity. Its **result** is the element type `T` for one, `Option<T>`
 for maybe, and `Array<T>` for many: the stream collected in order.
 
@@ -194,9 +196,8 @@ first(.orders[]) | .id, .customer_id
 `{id, customer_id}`.
 
 **The multiplicity is the checker's.** A one query gives exactly one output.
-A query is translated from the checker's own result (§15), so a hand-built
-`QueryType` that claims other types or another multiplicity is checked again
-before it runs, and refused.
+A query is translated from the checker's own result (§15): nothing a query
+carries states its types, so nothing can claim others.
 
 ---
 
@@ -246,8 +247,8 @@ a field read, as in jq (`null | .a` is `null`), so `.orders[0].id` is
 ```
 → `.none` · Option<Struct{name: String, region: String, tier: Variant{gold, standard}}>, one
 
-- On a `Dict<DateTime, V>`, an ISO-8601 string is a key: `.byDay["2026-09-01"]`
-  is parsed when the query is checked (§7).
+- On a `Dict<DateTime, V>`, an ISO-8601 string literal is a key:
+  `.byDay["2026-09-01"]` reads it as the DateTime it writes (§7).
 - A key of another type is `type_mismatch`: `.byId["1035"]` needs an Integer.
 
 **Dict builtins** work for every key type. `.[]` gives the values in key
@@ -408,8 +409,14 @@ first(.orders[] | select(.id == 1002)) | .discount // 0.0
 ## 7. DateTime
 
 **DateTime is a type.** It compares with DateTimes, and with **ISO-8601
-string literals**, which the checker parses when it checks the query:
-`"2026-09-01"` is midnight UTC.
+string literals**. A string literal compared with a DateTime, used as a
+DateTime key or passed as a DateTime argument, alone or as an element of an
+array literal (`index(["2026-09-01"])`), is read as the DateTime it writes:
+the checker reports text that is not a date, and the translation gives the
+DateTime, through East's RFC 3339 reader. `"2026-09-01"` is midnight UTC, and
+a date-time with no offset is UTC. As a filter's input
+(`"2026-09-01" | in($byDay)`) it stays a String. The program keeps the
+literal as written (§14).
 
 ```jq
 [.orders[] | select(.status.type == "shipped") | select(.status.value.date >= "2026-01-01")] | length
@@ -428,7 +435,8 @@ string literals**, which the checker parses when it checks the query:
   offsets. jq 1.8 rejects `2026-09-07T00:00:00.000+00:00`; East reads it.
 
 **Formatting.** `strftime(fmt)` and `strptime(fmt)` map jq's `%` codes onto
-East's datetime format tokens when the query is checked, and evaluate with
+East's datetime format tokens — the checker reads the format, and the
+translation makes its tokens with the same function — and evaluate with
 `DateTimePrintFormat` and `DateTimeParseFormat`:
 
 | jq | `%Y` | `%m` | `%d` | `%H` | `%M` | `%S` | `%b` | `%B` | `%a` | `%A` |
@@ -544,7 +552,7 @@ reimplemented. The rest are refused with `unsupported`, saying why (§12).
   an Integer argument where a Float is needed is promoted.
 - **Literal arguments.** A regular expression, its flags, a `strftime` /
   `strptime` format and a `datetime_add` unit are written in the query: the
-  checker validates each and rewrites a format into its tokens (§14).
+  checker validates each, and the translation makes a format's tokens (§7).
 - **Options.** A builtin that needs a value refuses an `Option<T>` input with
   the fix "Skip nulls", which puts `values | ` before it (§13.16).
 - **Streams.** A builtin that needs an array, on each element of a stream, is
@@ -556,7 +564,7 @@ reimplemented. The rest are refused with `unsupported`, saying why (§12).
   and for East's own types `datetime`, `blob` and `function`.
 
 A catalog name is a **string** in the wire type (§14), so adding one never
-changes `QueryType`.
+changes `JqType`.
 
 <!-- catalog: written by `make query-corpus` from src/query/jq/catalog.ts -->
 | Builtin | Arities | Takes → gives | Outputs | East definition |
@@ -672,7 +680,7 @@ changes `QueryType`.
 | `split` | 1, 2 | `split(s)`: String → Array<String> | one | StringSplit (a literal separator) |
 | `sqrt` | 0 | a number → Float | one | FloatSqrt |
 | `startswith` | 1 | String, String → Boolean | one | StringStartsWith |
-| `strftime` | 1 | DateTime or epoch seconds, a literal format → String | one | DateTimePrintFormat with the format's tokens, made when the query is checked |
+| `strftime` | 1 | DateTime or epoch seconds, a literal format → String | one | DateTimePrintFormat with the format's tokens, made when the query is translated |
 | `strings` | 0 | the input when it is a String; narrows | maybe | a type test |
 | `strptime` | 1 | String, a literal format → DateTime (§13.4) | one | DateTimeParseFormat with the format's tokens (gives a DateTime, §13.4) |
 | `sub` | 2, 3 | String, a literal regex, a replacement of text and named groups `\(.name)` → String | one | RegexReplace of ^([\s\S]*?)(?:re), captures as $<name> |
@@ -967,8 +975,8 @@ gives `9007199254740992`, and `9223372036854775807 + 1` is
 
 ### 13.4 DateTime is a type
 
-It compares with ISO-8601 literals parsed when the query is checked, and
-`fromdateiso8601` accepts milliseconds and offsets (§7). `fromdate`,
+It compares with ISO-8601 string literals, read as the DateTimes they write,
+and `fromdateiso8601` accepts milliseconds and offsets (§7). `fromdate`,
 `fromdateiso8601` and `strptime` give a DateTime, not epoch seconds or jq's
 broken-down time, which `strftime` does not take either, and `gmtime` and
 `mktime`, which work on it, are not yet available; `todate` writes East's RFC
@@ -1192,6 +1200,8 @@ wire type's type value as bytes, and `tests/test_query_types.py` compares
 python's against them.
 
 ```ts
+export const JqLiteralType = VariantType({ boolean: BooleanType, float: FloatType, integer: IntegerType, null: NullType, string: StringType });
+
 export const JqPatternType = RecursiveType(pattern => VariantType({          // as / reduce / foreach patterns
   array: ArrayType(pattern),                                                 // [$a, $b]
   object: ArrayType(StructType({ key: StringType, value: OptionType(pattern) })),   // {name: $n, $id}
@@ -1216,7 +1226,7 @@ export const JqType = RecursiveType(jq => VariantType({
   index: StructType({ index: jq, optional: BooleanType, target: jq }),               // t[e]: an index or a key, by type
   iterate: StructType({ optional: BooleanType, target: jq }),                        // t[], t[]?
   label: StructType({ body: jq, name: StringType }),                                 // label $name | body
-  literal: BlobType,                                                                 // a self-describing beast2 constant
+  literal: JqLiteralType,                                                            // a constant, as the East value it writes
   negate: jq,                                                                        // -f
   object: ArrayType(StructType({ key: VariantType({ computed: jq, name: StringType, variable: StringType }), value: OptionType(jq) })),
   pipe: StructType({ left: jq, right: jq }),                                         // a | b
@@ -1229,15 +1239,6 @@ export const JqType = RecursiveType(jq => VariantType({
 }));
 
 export const QueryMultiplicityType = VariantType({ many: NullType, maybe: NullType, one: NullType });
-
-export const QueryV1Type = StructType({
-  element_type: EastTypeType,     // the type of each output
-  input_type: EastTypeType,       // the type the program was checked against
-  multiplicity: QueryMultiplicityType,
-  program: JqType,                // as written: printJq prints it back exactly
-  root: BooleanType,              // checked as an e3 root: each field of the input is its own input
-});
-export const QueryType = VariantType({ v1: QueryV1Type });
 
 export const QueryCallType = VariantType({ v1: StructType({   // what the Query builtin carries (§15.7)
   inputs: OptionType(ArrayType(StringType)),                  // a root's field names, in order; none for one input
@@ -1257,9 +1258,12 @@ export const QueryErrorType = StructType({
 });
 ```
 
-**Why a checked query carries its types.** A runtime then never needs the
-checker, and a client knows the result's shape before anything runs: the
-result type follows from `element_type` and `multiplicity` (§3).
+**A query keeps no types.** A query's types are a function of its program
+and the data it reads, so nothing stores them beside the program (#1138):
+`checkJq(program, inputType)` gives them wherever they are needed, and a
+client knows the result's shape before anything runs (§3). A runtime never
+needs the checker: it runs the translation, whose function type holds the
+types.
 
 **What code carries.** A query in code is a call of the `Query` builtin
 (§15.7), whose query is a `QueryCallType`: the program as written, and a
@@ -1267,15 +1271,9 @@ root's field names. The builtin's type parameter, the translation's function
 type, carries the input and result types, so the call does not hold them
 twice.
 
-**Type values are numbered canonically.** `element_type` and `input_type` are
-written with `canonicalTypeValue`: each recursive wrapper numbered in
-pre-order from 0. A wrapper's id is otherwise an artefact of the process that
-built the type, and the same query must encode to the same bytes in every
-SDK.
-
-**Literals carry their type.** A `literal` is a self-describing beast2 blob, so
-`1001` is an Integer, `1001.0` a Float, and `"2026-09-01"` a String until the
-checker parses it against a DateTime.
+**Literals are typed values.** A `literal` is a `JqLiteralType` value, the
+constant as written: `1001` is an Integer, `1001.0` a Float, and
+`"2026-09-01"` a String, which is read as a DateTime where one is used (§7).
 
 **Spans count UTF-16 code units**, the unit browsers and TypeScript index
 strings in. `offset` is 0-based over the whole text; `line` and `column` are
@@ -1286,35 +1284,26 @@ Multilingual Plane gets the same spans in both.
 **A fix is text edits**, so every client applies it the same way. The query
 editor turns the fixes it recognises into edits of its steps.
 
-**The checker's rewrites.** A checked query holds its program as written, so
-that it prints back as its author wrote it. The checker's rewrites are the
-check result's `rewritten` tree, which the translator reads, so that no
-runtime parses text:
+**The checker only checks.** It changes nothing in the program, which prints
+back exactly as its author wrote it (§18.4). What a constant stands for is
+the translator's, derived from the types the checker gives each node, in each
+place the node is checked (a `def` checked at each call, a `walk` meeting
+values of several types):
 
-- an ISO string compared with a DateTime, used as a DateTime key or passed as
-  a DateTime argument, alone or as an element of an array literal
-  (`index(["2026-09-01"])`), becomes a DateTime literal (`"2026-09-01"` is
-  midnight UTC, and a date-time with no offset is UTC); one that is a
-  filter's input (`"2026-09-01" | in($byDay)`) stays a String;
-- a number literal takes its operand's type, unless another check of it
-  keeps it an Integer (a `def` called with an Integer and with a Float, a
-  `walk` meeting both): then it stays as written, and each translation
-  widens it where it needs a Float;
-- a `strftime` or `strptime` format becomes a token array;
-- a regular expression is validated;
-- on an e3 root, `keys`, `keys_unsorted` and `has("name")` are answered from
-  its type (§15.6).
-
-The rewritten tree prints (§18.4) as text that checks to it again: a DateTime
-literal prints as its RFC 3339 string, a token array as its format, and a
-folded `keys` as an array of strings. That text is not always what was
-written (`"2026-01-01"` compared with a DateTime comes back as
-`"2026-01-01T00:00:00.000+00:00"`), which is why a checked query keeps the
-program as written.
+- an Integer literal where a Float is used is widened to a Float, as any
+  Integer operand is;
+- an ISO-8601 string literal read as a DateTime (§7) is the DateTime East's
+  RFC 3339 reader makes of it;
+- a `strftime` or `strptime` format's tokens are made by the function the
+  checker validates the format with;
+- a regular expression is validated when the query is checked, and its text
+  given to East's regex builtins;
+- on an e3 root, `keys`, `keys_unsorted` and `has` are answered from the
+  root's type (§15.6).
 
 **Evolution.** Operators, builtin names and error codes are strings. A
-structural change is a new case of `QueryType`, sorting after `v1`, and every
-reader accepts every released version. Inserting a case before an existing one
+structural change is a new case of `QueryCallType`, sorting after `v1`, and
+every reader accepts every released version. Inserting a case before an existing one
 would renumber it, because a variant's cases are ordered by name.
 (`PathSegmentType` in e3-types is the example: its `index`, `key` and `case`
 are still marked "Future" because adding them would renumber its existing
@@ -1324,8 +1313,8 @@ cases.)
 
 ## 15. Translation
 
-`translateJq(checked, options?)` turns a checked query into ordinary East IR
-with East's own builder, typed by the checker's types. `East.jq` and
+`translateJq(checked, options?)` turns a checked program, `checkJq`'s result,
+into ordinary East IR with East's own builder, typed by the checker's types. `East.jq` and
 `evaluateJq` are built on it. TypeScript compiles the IR as it compiles any
 program, east-c runs it natively, and python runs it through east-c. `East.jq`
 emits the translation inside a call of the `Query` builtin, which gives it
@@ -1809,10 +1798,10 @@ run on each of the shape's values: a **case**.
 | Refused by | Pairs |
 |---|---|
 | jq raises an error too | 3: boolean:every.length, string:string.at-base32, string-escapes:string.at-base32 |
+| §7 DateTime | 3: array-datetime:sequence.inside-probe, set-datetime:sequence.inside-probe, dict-datetime-float:dict.in |
 | §10 Builtins | 3: datetime:every.length, function-integer:every.length, function-struct:every.length |
 | §13.5 A program's outputs share one element type | 2: variant:variant.payload, recursive-json:variant.payload |
 | §13.27 Values of two types do not compare | 2: array-array-integer:sequence.index-of, array-array-integer:sequence.indices-of |
-| §14 Wire types | 3: array-datetime:sequence.inside-probe, set-datetime:sequence.inside-probe, dict-datetime-float:dict.in |
 <!-- /matrix -->
 
 ---
@@ -2034,7 +2023,7 @@ The parser keeps jq's sugar, so printing gives back what was written:
 - `f?` and `try f` are both a `try` with no `catch`;
 - `.a.[0]` is `.a[0]`, as in jq 1.7 and later.
 
-**Literals** are self-describing beast2 blobs:
+**Literals** are typed East values (`JqLiteralType`, §14):
 
 - a number written without `.` or an exponent is an Integer, exact to 64
   bits; a larger one is a problem;
@@ -2083,8 +2072,7 @@ Every program has one canonical text:
   JSON string otherwise;
 - literals as East prints them: Integers as digits, and Floats in East's
   shortest round-trip form with `.0` when integral (`100.0`, `1e+21`). NaN and
-  ±Infinity print as `nan`, `infinite` and `-infinite`. A literal the checker
-  rewrote prints as the text it came from (§14);
+  ±Infinity print as `nan`, `infinite` and `-infinite`;
 - strings with JSON's minimal escapes;
 - parentheses only where the grammar needs them: around a looser operand, a
   binding with more text after it, and an Integer or `..` before a postfix;

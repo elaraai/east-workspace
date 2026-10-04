@@ -596,7 +596,7 @@ export const REFUSALS: readonly Refusal[] = [
   { section: "13.27", why: "an array argument is a run of elements, whose type is not the elements'", applies: p => is(p, "sequence", "index-of", "indices-of") && p.shape.probes.element?.startsWith("[") === true },
   { section: "10", why: "length takes no DateTime and no function", applies: p => is(p, "every", "length") && ["DateTime", "Function"].includes(unwrap(p.shape.type).type) },
   {
-    section: "14",
+    section: "7",
     why: "an ISO-8601 string is a DateTime where it is compared with one, used as a key or passed as an argument; as a filter's input it is a String",
     applies: p => (is(p, "sequence", "inside-probe") || is(p, "dict", "in")) && holdsDateTimeKeys(p.shape.type),
   },

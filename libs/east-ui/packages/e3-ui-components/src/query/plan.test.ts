@@ -427,7 +427,7 @@ describe("the visual view's split program: the query, a rows result counted once
             "Every piece reads customers whole.",
         ].join("\n"));
         // What it reads its answer by is the wrapped program's: {counts, result}.
-        const answer = fromEastTypeValue(p.reading.query.value.element_type);
+        const answer = p.reading.checked.elementType;
         expect(answer.type === "Struct" && Object.keys(answer.fields)).toEqual(["counts", "result"]);
     });
 

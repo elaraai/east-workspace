@@ -61,9 +61,9 @@ const DEFAULT_PROGRAM = [
 /** A saved query over another root, checked as a save there checks it. */
 function savedOver(name: string, program: string, root: QueryRoot): SavedQuery {
     const checked = checkJq(program, root.type, { root: true });
-    if (checked.query === null) throw new Error(`${program}: ${checked.diagnostics.map((d) => d.message).join("; ")}`);
+    if (checked.program === null) throw new Error(`${program}: ${checked.diagnostics.map((d) => d.message).join("; ")}`);
     return {
-        name, description: none, query: checked.query, saved_at: NOW,
+        name, description: none, program: checked.program, saved_at: NOW,
         root: root.entries.filter((e) => checked.reads.includes(e.name)).map((e) => ({ name: e.name, path: e.path })),
     };
 }

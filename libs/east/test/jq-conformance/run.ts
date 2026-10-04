@@ -163,7 +163,7 @@ function attempt(c: JqTestCase): NonNullable<CaseRun["passed"]> | Miss {
   const typed = typeOf(json);
   if ("untypeable" in typed) return { kind: "untypeable", why: typed.untypeable };
   const checked = checkJq(c.program, typed.type);
-  if (checked.query === null || checked.elementType === null) return { kind: "diagnostics", checked };
+  if (checked.program === null || checked.elementType === null) return { kind: "diagnostics", checked };
   const element = checked.elementType;
   const input = valueOf(json, typed.type);
   let result: unknown;

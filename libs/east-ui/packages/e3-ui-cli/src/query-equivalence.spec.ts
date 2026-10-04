@@ -78,8 +78,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IRType, IntegerType, NullType, OptionType,
-    QueryErrorType, QueryType, RecursiveType, SortedMap, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IRType, IntegerType, JqType, NullType, OptionType,
+    QueryErrorType, QueryMultiplicityType, RecursiveType, SortedMap, StringType, StructType, VariantType,
     checkJq, compareFor, decodeBeast2, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeValueEqual, isVariant, none, printFor,
     some, toEastTypeValue, variant,
     type EastType, type EastTypeValue, type ValueTypeOf,
@@ -136,7 +136,7 @@ const CorpusType = StructType({
         called: OptionType(IRType),
         canonical: StringType,
         case: StructType({ input: EastTypeType, name: StringType, output: OptionType(StringType), program: StringType, root: BooleanType }),
-        checked: OptionType(QueryType),
+        checked: OptionType(StructType({ element_type: EastTypeType, multiplicity: QueryMultiplicityType, program: JqType })),
         diagnostics: ArrayType(QueryErrorType),
         translated: OptionType(BlobType),
     })),
@@ -334,7 +334,7 @@ function corpusQueries(): CorpusPlans {
     const byProgram = new SortedMap<string, string[]>([], compareFor(StringType));
     for (const entry of corpus.cases) {
         if (!isTypeValueEqual(entry.case.input, rootType)) continue;
-        if (checkJq(entry.case.program, FixtureRoot, { root: true }).query === null) continue;
+        if (checkJq(entry.case.program, FixtureRoot, { root: true }).program === null) continue;
         byProgram.set(entry.case.program, [...byProgram.get(entry.case.program) ?? [], entry.case.name]);
     }
     const byCall = new SortedMap<string, { program: string; names: string[] }>([], compareFor(StringType));

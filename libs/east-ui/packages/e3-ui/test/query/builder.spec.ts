@@ -15,7 +15,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SortedMap,
+    ArrayType, AsyncFunctionType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, JqType, NullType, OptionType, PatchType, SortedMap,
     StringType, StructType, ConflictError, applyFor, checkJq, compareFor, decodeBeast2For, equalFor, isTypeEqual, none, printType, some, toEastTypeValue, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
@@ -58,8 +58,8 @@ const ROOT = StructType({ orders: OrdersType, customers: CustomersType });
 /** A saved query over the root, checked, reading what it reads. */
 function savedQuery(name: string, program: string, root: { name: string; path: TreePath }[], description = none as ValueTypeOf<OptionType<typeof StringType>>): SavedQuery {
     const checked = checkJq(program, ROOT, { root: true });
-    if (checked.query === null) assert.fail(`${program} does not check: ${checked.diagnostics.map((d) => d.message).join("; ")}`);
-    return { name, description, query: checked.query, root, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)) };
+    if (checked.program === null) assert.fail(`${program} does not check: ${checked.diagnostics.map((d) => d.message).join("; ")}`);
+    return { name, description, program: checked.program, root, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)) };
 }
 
 const BIG_ORDERS = savedQuery("Big orders", ".orders | map(select(.total >= 1000))", [{ name: "orders", path: ORDERS }]);
@@ -198,9 +198,10 @@ describe("<Query.Builder> (#935)", () => {
         assert.ok(paths(manifest.paths, [CUSTOMERS, [variant("field", "records"), variant("field", "queries")]]), "the value source, and the record");
     });
 
-    test("M4: Query.Types never depends on the data sources — a saved query is its name, description, checked query, root and time", () => {
+    test("M4: Query.Types never depends on the data sources — a saved query is its name, description, program as written, root and time, and holds no types", () => {
         assert.ok(isTypeEqual(Query.Types.Saved, DictType(StringType, Query.Types.SavedQuery)));
-        assert.deepEqual(Object.keys(Query.Types.SavedQuery.fields), ["name", "description", "query", "root", "saved_at"]);
+        assert.deepEqual(Object.keys(Query.Types.SavedQuery.fields), ["name", "description", "program", "root", "saved_at"]);
+        assert.ok(isTypeEqual(Query.Types.SavedQuery.fields.program, JqType), "the program is a jq tree, as written");
         assert.equal(printType(Query.Types.RootEntry), printType(StructType({ name: StringType, path: TreePathType })));
         assert.ok(isTypeEqual(QueryInternal.Types.Handle, QueriesHandleType));
     });

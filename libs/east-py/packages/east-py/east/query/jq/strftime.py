@@ -2,10 +2,11 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""jq's ``strftime`` / ``strptime`` formats as East's datetime format tokens, and back.
+"""jq's ``strftime`` / ``strptime`` formats as East's datetime format tokens.
 
-The twin of ``strftime.ts``: the checker rewrites a format into its tokens, and
-the printer writes a checked program's tokens as the format again.
+The twin of ``strftime.ts``: the checker reads a format by them, reporting a
+code East has no token for, and the translator gives the tokens they make
+(``libs/east/devdocs/QUERY.md`` §10).
 """
 
 from __future__ import annotations
@@ -37,9 +38,6 @@ _FORMAT_CODES: dict[str, list[EastVariant]] = {
     "F": [_token("year4"), _literal("-"), _token("month2"), _literal("-"), _token("day2")],
     "T": [_token("hour24_2"), _literal(":"), _token("minute2"), _literal(":"), _token("second2")],
 }
-
-# The one-token codes, by the token each writes.
-_CODE_OF: dict[str, str] = {tokens[0].type: code for code, tokens in _FORMAT_CODES.items() if len(tokens) == 1}
 
 
 def format_tokens(fmt: str) -> tuple[list[EastVariant], None] | tuple[None, str]:
@@ -80,28 +78,4 @@ def format_tokens(fmt: str) -> tuple[list[EastVariant], None] | tuple[None, str]
     return tokens, None
 
 
-def format_text(tokens: list[EastVariant]) -> str:
-    """The strftime format that gives some tokens: :func:`format_tokens` read back.
-
-    Args:
-        tokens: Tokens a format gave.
-
-    Returns:
-        The format, with ``%%`` for each percent sign in literal text.
-
-    Raises:
-        ValueError: When a token is not one a format gives.
-    """
-    out: list[str] = []
-    for token in tokens:
-        if token.type == "literal":
-            out.append(token.value.replace("%", "%%"))
-            continue
-        code = _CODE_OF.get(token.type)
-        if code is None:
-            raise ValueError(f"printJq: the datetime token {token.type} has no strftime code")
-        out.append(f"%{code}")
-    return "".join(out)
-
-
-__all__ = ["format_text", "format_tokens"]
+__all__ = ["format_tokens"]

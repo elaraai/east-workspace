@@ -49,7 +49,7 @@ import {
 } from "@elaraai/east";
 import { PIECE_SIZES, type ExecuteResult, type SplitCallRequest } from "@elaraai/e3-types";
 import {
-    entryNamed, prepareCheckedQuery, prepareQuery, queryLimits,
+    entryNamed, prepareCheckedQuery, prepareQuery, programChecks, queryLimits,
     type PreparedQuery, type QueryOptions, type QueryReading, type QueryResult, type QueryRoot,
 } from "./one-shot.js";
 
@@ -270,7 +270,7 @@ export function draftPlan(programs: PlanPrograms | string, root: QueryRoot, opti
     const { maxOutputs } = queryLimits(options);
     pieceBytesOf(options);
     const checked = checkJq(all.query, root.type, { root: true });
-    if (checked.query === null) {
+    if (checked.program === null) {
         const refused = prepareCheckedQuery(checked, root, options);
         if ("result" in refused) return refused;
     }
@@ -415,7 +415,7 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
     let call = split;
     if (programs.split !== programs.query) {
         checked = checkJq(programs.split, root.type, { root: true });
-        if (checked.query === null) throw new Error(`the run's split program does not check: ${checked.diagnostics[0]?.message ?? ""}`);
+        if (checked.program === null) throw new Error(`the run's split program does not check: ${checked.diagnostics[0]?.message ?? ""}`);
         const wrapped = splitJq(checked, checked.multiplicity === "many" ? { maxOutputs } : {});
         const same = wrapped.kind === "split" && wrapped.over === split.over && wrapped.output.kind === split.output.kind
             && wrapped.copartitioned.join("\n") === split.copartitioned.join("\n") && wrapped.rekey?.name === split.rekey?.name;
@@ -424,13 +424,12 @@ function splitCallOf(draft: PlanDraft, split: JqSplitCall, rekey: boolean): { re
         }
         call = wrapped;
     }
-    const query = checked.query;
-    if (query === null) throw new Error("the query does not check");
+    if (!programChecks(checked)) throw new Error("the query does not check");
     const entry = (name: string) => entryNamed(root, name, "splitCallRequest");
-    if (!rekey) return { request: splitCallRequest(call, root, options), reading: { query, checked, entries: call.inputs.map(input => entry(input.name)), maxOutputs } };
+    if (!rekey) return { request: splitCallRequest(call, root, options), reading: { checked, entries: call.inputs.map(input => entry(input.name)), maxOutputs } };
     // The re-key call reads the dataset, and the join call the rest: what the run read, in that order.
     const joined = call.inputs.filter(input => input.name !== call.over).map(input => entry(input.name));
-    return { ...rekeyCallRequests(call, root, options), reading: { query, checked, entries: [entry(call.over), ...joined], maxOutputs } };
+    return { ...rekeyCallRequests(call, root, options), reading: { checked, entries: [entry(call.over), ...joined], maxOutputs } };
 }
 
 // ─── The request ─────────────────────────────────────────────────────────────

@@ -86,6 +86,20 @@ type BoundRecordSource = ExprType<StructType<{
 /** A name a jq program can read as a root field: `.orders`. */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/**
+ * Refuses a data source's name that a jq program can't read as a root field.
+ *
+ * @param component - The component or function, for the message (`"Query.Builder"`)
+ * @param name - The data source's name
+ * @throws {Error} When the name is not letters, digits and `_`, not starting
+ *   with a digit, naming it
+ */
+export function assertRootField(component: string, name: string): void {
+    if (!IDENTIFIER.test(name)) {
+        throw new Error(`${component}: the data source "${name}" can't be read as a root field — name it with letters, digits and _, not starting with a digit`);
+    }
+}
+
 /** The fields of a handle's East struct. */
 function handleFields(handle: BoundSource): Record<string, EastType> {
     const type = Expr.type(handle as unknown as Expr) as EastType;
@@ -128,9 +142,7 @@ export function dataSources(component: string, sources: Readonly<Record<string, 
         throw new Error(`${component}: datasets is empty — bind at least one data source for it to read`);
     }
     return East.value(entries.map(([name, handle]) => {
-        if (!IDENTIFIER.test(name)) {
-            throw new Error(`${component}: the data source "${name}" can't be read as a root field — name it with letters, digits and _, not starting with a digit`);
-        }
+        assertRootField(component, name);
         const fields = handleFields(handle);
         if (fields["page"] !== undefined) {
             // `page(offset, limit)` returns `Option<T>`: the source's type is `T`.

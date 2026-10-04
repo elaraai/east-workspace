@@ -208,7 +208,7 @@ function mapOf(maps: WeakMap<UIStoreInterface, Map<string, QueryBase>>, store: U
  * @returns The entries; the steps' ids are fresh
  */
 export function savedEntries(saved: SavedQuery, root: EastType): QueryEntry[] {
-    const text = printJq(saved.query.value.program, { layout: "pipeline" }).text;
+    const text = printJq(saved.program, { layout: "pipeline" }).text;
     const parsed = parseSteps(text, root);
     if ("error" in parsed) {
         return queryEntries({ id: QUERY_HEADER_ID, name: saved.name, description: saved.description, source: "", jq: some(text) }, []);
@@ -463,7 +463,7 @@ export function queryApply(ctx: QueryApplyContext): (bytes: Uint8Array) => Promi
         const next: SavedQuery = {
             name: header.name,
             description: header.description,
-            query: prepared.prepared.query,
+            program: prepared.prepared.checked.program,
             root: ctx.root.entries.filter(e => reads.has(e.name)).map(e => ({ name: e.name, path: e.path })),
             saved_at: (ctx.now ?? (() => new Date()))(),
         };

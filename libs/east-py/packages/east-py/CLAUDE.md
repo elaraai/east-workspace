@@ -136,8 +136,9 @@ uv run pytest tests/conformance -q --no-cov              # IR round trip, ~1 min
     call to its query, the build's CSE (`finalize.py`) leaves its arguments
     as built, and the printer prints it back as `East.jq` from its query. On
     values `East.jq` runs now. The corpus fixture holds them to TypeScript:
-    `tests/test_query_corpus.py` (checked queries, diagnostics, translations
-    and `Query` calls under `diff_ir`), `tests/test_query.py` (outputs over
+    `tests/test_query_corpus.py` (checked programs with their element types
+    and multiplicities, diagnostics, translations and `Query` calls under
+    `diff_ir`), `tests/test_query.py` (outputs over
     the fixture, the builtin), `tests/test_codegen_printer_jq.py` (every
     corpus call printed as `East.jq` and rebuilt), `tests/test_query_types.py`
     (the wire types' bytes, which the header of

@@ -19,13 +19,10 @@ import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from functools import cmp_to_key
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from east.datetime_format import DateTimeFormatTokenType
 from east.query.jq.messages import MESSAGES, edit
-from east.query.jq.parse import node as jq_node
 from east.query.jq.print import json_string
 from east.query.jq.regex import js_regex_error, validate_cross_platform
 from east.query.jq.shapes import (
@@ -60,7 +57,6 @@ from east.query.jq.shapes import (
 )
 from east.query.jq.spans import JqNode
 from east.query.jq.strftime import format_tokens
-from east.serialization.beast2 import encode_beast2_with_header_for
 from east.types.types import (
     ArrayType,
     BooleanType,
@@ -77,7 +73,6 @@ from east.types.types import (
     VariantType,
     is_immutable_type,
 )
-from east.utils.ordering import compare_for
 
 if TYPE_CHECKING:
     from east.query.jq.check import CallContext
@@ -248,16 +243,16 @@ _NOT_ISO: Any = object()
 
 
 def coerce_argument(ctx: CallContext, i: int, wanted: EastType, as_: str) -> Any:
-    """Argument ``i`` rewritten as ``wanted`` is written.
+    """Argument ``i`` read as ``wanted`` is written.
 
     When it is a literal of another type (``as_`` ``"value"``), or an array
     literal of them (``"elements"``, each element a ``wanted``): an ISO-8601
     string as a DateTime, an Integer as a Float.
 
     Returns:
-        The argument's new type; ``None`` when it is no such literal; or
-        ``_NOT_ISO`` when it is a string that is not an ISO-8601 date, which
-        the rewrite has reported.
+        The type the argument is read as; ``None`` when it is no such literal;
+        or ``_NOT_ISO`` when it is a string that is not an ISO-8601 date,
+        which reading it has reported.
     """
     reported = ctx.problems()
     coerced = ctx.coerce_arg(i, wanted) if as_ == "value" else ctx.coerce_arg_elements(i, wanted)
@@ -324,14 +319,11 @@ def check_flags(ctx: CallContext, i: int | None) -> str | None:
     return flags
 
 
-_compare_string = cmp_to_key(compare_for(StringType))
-_encode_tokens = encode_beast2_with_header_for(ArrayType(DateTimeFormatTokenType))
-_encode_strings = encode_beast2_with_header_for(ArrayType(StringType))
-_encode_boolean = encode_beast2_with_header_for(BooleanType)
+def check_format(ctx: CallContext) -> bool:
+    """Checks a strftime/strptime format argument: a literal string whose every code East has a token for.
 
-
-def rewrite_format(ctx: CallContext) -> bool:
-    """Rewrites a strftime/strptime format argument as its tokens."""
+    The translator makes the tokens from it.
+    """
     fmt = literal_string(ctx, 0, "format")
     if fmt is None:
         return False
@@ -339,7 +331,6 @@ def rewrite_format(ctx: CallContext) -> bool:
     if tokens is None:
         ctx.fail("unsupported", MESSAGES.format_code(code or ""), arg=0)
         return False
-    ctx.rewrite_arg(0, jq_node("literal", _encode_tokens(tokens)))
     return True
 
 
@@ -1106,15 +1097,15 @@ def _t_length(ctx: CallContext) -> Result:
     return on_input(ctx, "a value with a length", rule)
 
 
-def _keys(ctx: CallContext, is_sorted: bool) -> Result:
-    def rule(t: EastType, member: TypeShape) -> Result | None:
+def _keys(ctx: CallContext) -> Result:
+    """``keys`` and ``keys_unsorted``.
+
+    A struct's names, a root's included, are its type's, which the translator gives.
+    """
+    def rule(t: EastType, _m: TypeShape) -> Result | None:
         if t.type == "Dict":
             return one(ArrayType(dict_key(t)))
         if t.type == "Struct":
-            names = list(fields_of(t))
-            if ctx.is_root(member):
-                ordered = sorted(names, key=_compare_string) if is_sorted else names
-                ctx.rewrite(jq_node("literal", _encode_strings(ordered)))
             return one(ArrayType(StringType))
         if t.type == "Variant" and nullable_payload(t) is None:
             return one(ArrayType(StringType))
@@ -1130,7 +1121,7 @@ def _t_has(ctx: CallContext) -> Result:
     if key_type is None:
         return _error()
 
-    def rule(t: EastType, member: TypeShape) -> Result | None:
+    def rule(t: EastType, _m: TypeShape) -> Result | None:
         if t.type == "Dict":
             the_key = unwrap(dict_key(t))
             if type_equal(unwrap(key_type), the_key):
@@ -1143,13 +1134,11 @@ def _t_has(ctx: CallContext) -> Result:
                 return one(BooleanType, key.mult)
             return ctx.fail("type_mismatch", MESSAGES.key_type(
                 "has", describe_type(dict_key(t)), ctx.source(0), describe_type(key_type)), arg=0)
+        # A struct's names, a root's included, are its type's, which the translator answers from.
         if t.type == "Struct":
             if unwrap(key_type).type != "String":
                 return ctx.fail("type_mismatch", MESSAGES.key_type(
                     "has", "String", ctx.source(0), describe_type(key_type)), arg=0)
-            literal = ctx.literal(0)
-            if ctx.is_root(member) and literal is not None:
-                ctx.rewrite(jq_node("literal", _encode_boolean(literal.value in fields_of(t))))
             return one(BooleanType, key.mult)
         if element_of(t) is not None:
             if unwrap(key_type).type == "Integer":
@@ -1721,8 +1710,8 @@ _supported("transpose", _t_transpose)
 # Collections.
 _supported("length", _t_length)
 _supported("utf8bytelength", _on_string(IntegerType))
-_supported("keys", lambda ctx: _keys(ctx, True))
-_supported("keys_unsorted", lambda ctx: _keys(ctx, False))
+_supported("keys", _keys)
+_supported("keys_unsorted", _keys)
 _supported("has", _t_has)
 _supported("in", _t_in)
 _supported("map", _t_map)
@@ -1801,10 +1790,10 @@ for _name in ("todate", "todateiso8601"):
 for _name in ("fromdate", "fromdateiso8601"):
     _supported(_name, lambda ctx: on_input(ctx, "a string",
                                            lambda t, _m: one(DateTimeType) if t.type == "String" else None))
-_supported("strftime", lambda ctx: date_input(ctx, StringType) if rewrite_format(ctx) else _error())
+_supported("strftime", lambda ctx: date_input(ctx, StringType) if check_format(ctx) else _error())
 _supported("strptime", lambda ctx: on_input(ctx, "a string",
                                             lambda t, _m: one(DateTimeType) if t.type == "String" else None)
-           if rewrite_format(ctx) else _error())
+           if check_format(ctx) else _error())
 for _name in ("year", "month", "day", "hour", "minute", "second", "millisecond", "weekday", "epoch_ms"):
     _supported(_name, _date_parts)
 _supported("datetime_add", _t_datetime_add)
