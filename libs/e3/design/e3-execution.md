@@ -52,6 +52,8 @@ This organization provides:
 
 The `plan` record names the `$plan` of the stage a split task's execution is in, from its first stage until the execution ends, when it is removed (see Split Tasks).
 
+Every store also indexes the attempts recorded running, which `RefStore.executionListRunning` reads: a task's running attempts, whatever it has run before. The store keeps the index in its own `executionWrite`: a `running` status adds the attempt, and any other status, or the attempt's deletion, takes it out. A local repository keeps an attempt's place at `running/<taskHash>/<inputsHash>.<executionId>.beast2`, an East `null`, written before the `running` status and removed after any other, so the index holds every attempt recorded running; a place a crash left between the two writes is passed over by a read, which reads each named inputs' latest attempt, and taken out by gc's sweep.
+
 ### Status File Format
 
 `status.beast2` holds an `ExecutionStatusType` value (`e3-types/src/execution.ts`), a variant with one case per state. Every case carries the attempt's `executionId` (a UUIDv7), the `inputHashes`, `startedAt` and `unit`:
@@ -73,7 +75,7 @@ The `plan` record names the `$plan` of the stage a split task's execution is in,
 
 `unit` says whether the execution is a unit of a split task — a piece, or a merge of the pieces' outputs — rather than a task's own execution. The one unit of a task whose input closes no piece runs under the task's own identity, and is the task's own execution. A unit is an execution of its task's hash, so what lists a task's runs skips units: a task's history (`GET …/tasks/:task/executions`, `e3 task logs`), the workspace status, and `executionFindCurrent`. A unit's own logs open by its reference (`e3 task logs <repo> --execution <task>/<inputs>/<id>`).
 
-The status is stored state (`docs/conventions/WIRE_MIGRATION.md`), read with `decodeExecutionStatus` in the current form alone. A repository's upgrade steps carry its records into it when an e3 first opens the repository: `execution-stop-reasons` rewrites every record a release before stop reasons wrote, of every case, since a record's beast2 header names the whole status type, and gives a stopped one the reason `unrecorded`. A package import carries a zip's records forward the same way. A record from before repositories recorded their upgrades is refused, saying to re-create the repository.
+The status is stored state (`docs/conventions/WIRE_MIGRATION.md`), read with `decodeExecutionStatus` in the current form alone. A repository's upgrade steps carry its records into it when an e3 first opens the repository: `execution-stop-reasons` rewrites every record a release before stop reasons wrote, of every case, since a record's beast2 header names the whole status type, and gives a stopped one the reason `unrecorded`; `running-executions-indexed` writes every record recorded `running` again, through its store, which indexes it. A package import carries a zip's records forward the same way. A record from before repositories recorded their upgrades is refused, saying to re-create the repository.
 
 `taskHash` is not stored in the status file since it is encoded in the directory path (while the input hashes are hashed together into a single hash in the path).
 
@@ -106,7 +108,7 @@ function isProcessAlive(status: RunningStatus): boolean {
 
 This handles: process crashes, machine restarts, and PID wraparound/reuse.
 
-Whether an execution recorded `running` can still finish is its runner's to say (`TaskRunner.executionAlive`), since only the runner that started it knows: the local runner answers as the cache probe judges it (see Stopped Executions), in progress while its runner or the owner recorded for it is alive, and a remote runner from its own compute. The workspace status asks it, so a task whose execution can still finish reads `in-progress` and one whose execution cannot reads `stale-running`, wherever the status is answered.
+Whether an execution recorded `running` can still finish is its runner's to say (`TaskRunner.executionAlive`), since only the runner that started it knows: the local runner answers as the cache probe judges it (see Stopped Executions), in progress while its runner or the owner recorded for it is alive, and a remote runner from its own compute. The workspace status asks it, so a task whose execution can still finish reads `in-progress` and one whose execution cannot reads `stale-running`, wherever the status is answered. It finds a task's executions recorded running in its store's index of them (`RefStore.executionListRunning`), never in the task's history, so a poll costs the same however long the workspace has run.
 
 ## Reading Executions
 
@@ -326,7 +328,7 @@ A recorded execution's `success` status is a GC root: the output hash it holds k
 
 `e3 repo gc --keep-runs <n> --keep-days <d>`, `repoGc`'s `keepRuns` and `keepDays`, and the API's gc request set the bounds.
 
-gc also removes what a local repository keeps beside its objects, in the local `RepoStore`'s sweep (`gcSweepBackend`): a built environment (`envs/<hash>/`) once the mark no longer reaches its spec, and the build directory of a builder that has exited (`envs/<hash>.building-<pid>-<pidStartTime>/`); scratch directories whose owner has exited; and staging files (`.partial`s) older than its `minAge`, in the record trees, beside the repository's record at its root, and in `tmp/transfers/`.
+gc also removes what a local repository keeps beside its objects, in the local `RepoStore`'s sweep (`gcSweepBackend`): a built environment (`envs/<hash>/`) once the mark no longer reaches its spec, and the build directory of a builder that has exited (`envs/<hash>.building-<pid>-<pidStartTime>/`); scratch directories whose owner has exited; staging files (`.partial`s) older than its `minAge`, in the record trees, beside the repository's record at its root, and in `tmp/transfers/`; and, while gc holds the repository still, the places in the index of running attempts at which no attempt is recorded running, which a crash between an attempt's two writes left.
 
 GC dispatches a kind-tagged object — a manifest, a record state, a task object, a unit plan — on its tag, through one table that lists each kind's field names and the objects a value of it names. An object is walked as a kind when its fields begin with the kind's and it carries the kind's tag, so a later version, which appends fields, is walked for the fields this build knows. Every other object is recognised by its current shape exactly, each pinned by a test; an object of an earlier shape, which only an older e3's repository holds, is a leaf. So every object a split task's execution can resume from is kept until the execution ends. After that, a piece or range no plan names is swept, and a later run cuts the same pieces again, with the same hashes, and finds its units in the cache.
 

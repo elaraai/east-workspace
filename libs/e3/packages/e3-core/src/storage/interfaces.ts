@@ -505,6 +505,16 @@ export interface RefStore {
 
   /**
    * Write execution status.
+   *
+   * @remarks
+   * The store indexes the attempts recorded running, which
+   * {@link executionListRunning} answers from: a `running` status adds the
+   * attempt to the index, and any other status takes it out. A store that
+   * cannot write both at once adds the attempt before it writes a `running`
+   * status, and takes it out after it writes any other, so the index holds
+   * every attempt recorded running, and at most a few a crash left, which
+   * {@link executionListRunning} passes over.
+   *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -514,9 +524,10 @@ export interface RefStore {
   executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void>;
 
   /**
-   * Delete an execution attempt's record: its status and its owner. gc, which
-   * bounds the history a repository keeps, removes the attempt's logs first,
-   * through the log store.
+   * Delete an execution attempt's record: its status, its owner, and its
+   * place in the index of attempts recorded running. gc, which bounds the
+   * history a repository keeps, removes the attempt's logs first, through the
+   * log store.
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
@@ -562,17 +573,42 @@ export interface RefStore {
    *
    * Semantically equivalent to executionListForTask + executionGetLatest per
    * entry, but exposed as one call so backends can serve the whole set in a
-   * single round trip. This matters for remote stores: workspaceStatus calls
-   * this once per task, and composing it client-side from N individual
-   * lookups made status requests O(repo history) network round trips — the
-   * DynamoDB backend's listing query already fetches the status bytes it
-   * would then re-fetch one by one.
+   * single round trip. This matters for remote stores: composing it
+   * client-side from N individual lookups made a caller O(repo history)
+   * network round trips — the DynamoDB backend's listing query already
+   * fetches the status bytes it would then re-fetch one by one. It reads
+   * every inputs the task has run over, so a caller that wants only what is
+   * running, as a workspace's status does, lists {@link executionListRunning}.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @returns Latest execution status per inputsHash (order unspecified)
    */
   executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
+
+  /**
+   * List the latest execution status of every inputsHash of a task whose
+   * latest attempt is recorded running: {@link executionListLatest}'s answer,
+   * of those that are `running`.
+   *
+   * @remarks
+   * It reads the store's index of the attempts recorded running, which
+   * {@link executionWrite} keeps, and the latest attempt of each inputs the
+   * index names, and no other record: what it costs is what runs, not what
+   * the task has run, so a workspace's status, which lists it once per task
+   * on every poll, costs the same however long the workspace has run. An
+   * attempt the index names whose inputs have a later attempt, or whose own
+   * record says it ended — what a crash between an attempt's two writes
+   * leaves — is passed over.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @returns The latest status of each inputsHash whose latest attempt is
+   *   `running`, a split task's units among them (order unspecified)
+   * @throws {ExecutionCorruptError} When the latest attempt of inputs the
+   *   index names is there and does not decode
+   */
+  executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
 
   /**
    * Record the orchestrator that launched an execution, beside its status. A
@@ -1258,6 +1294,22 @@ export interface DatasetRefStore {
    * @returns Array of dataset paths (e.g., ["inputs/sales", "tasks/etl/output"])
    */
   list(repo: string, ws: string): Promise<string[]>;
+
+  /**
+   * Read every dataset ref of a workspace, in one call: what a whole
+   * workspace's status reads, so a store whose reads are requests answers
+   * it in a query, not a request per ref.
+   *
+   * @remarks
+   * Each ref is as {@link read} would answer it, at some moment of the call;
+   * a ref written meanwhile may be read before its write or after it.
+   *
+   * @param repo - Repository identifier
+   * @param ws - Workspace name
+   * @returns Each ref, by its dataset path (e.g. "inputs/sales"); none for a
+   *   workspace with no refs
+   */
+  readAll(repo: string, ws: string): Promise<Map<string, DatasetRef>>;
 
   /**
    * Remove a single dataset ref.

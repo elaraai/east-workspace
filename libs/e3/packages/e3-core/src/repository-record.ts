@@ -22,10 +22,11 @@ import type { RepositoryUpgrade, StorageBackend } from './storage/interfaces.js'
 import { dataflowEventsApart } from './upgrades/dataflow-events-apart.js';
 import { dataflowForceTasks } from './upgrades/dataflow-force-tasks.js';
 import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
+import { runningExecutionsIndexed } from './upgrades/running-executions-indexed.js';
 
 /**
  * The store upgrades every backend applies, in the order they apply: a change
- * to a record's East type.
+ * to a record's East type, or to what every store keeps beside its records.
  *
  * @remarks
  * - `execution-stop-reasons`: a stopped execution's record says why it
@@ -34,6 +35,8 @@ import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
  *   all of them, or the ones it names ({@link dataflowForceTasks}).
  * - `dataflow-events-apart`: a stored dataflow run's events are kept apart
  *   from its state ({@link dataflowEventsApart}).
+ * - `running-executions-indexed`: every store indexes the executions
+ *   recorded running ({@link runningExecutionsIndexed}).
  *
  * A release that changes a stored form appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -41,7 +44,7 @@ import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
  *
  * @internal
  */
-export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [executionStopReasons, dataflowForceTasks, dataflowEventsApart];
+export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [executionStopReasons, dataflowForceTasks, dataflowEventsApart, runningExecutionsIndexed];
 
 /** How long an open that owes upgrades waits for work running in the
  *  repository to finish, unless its caller says otherwise. */

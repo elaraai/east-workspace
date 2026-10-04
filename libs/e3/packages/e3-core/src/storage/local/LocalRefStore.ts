@@ -5,7 +5,7 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { NullType, StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
   ExecutionOwnerType, ExecutionStatusType, DataflowRunType, RepositoryRecordType, RepositoryUpgradeProgressType, decodeExecutionStatus,
 } from '@elaraai/e3-types';
@@ -14,7 +14,7 @@ import type { RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError, checkHash, checkId, checkName } from '../../errors.js';
 import { isUuidv7 } from '../../uuid.js';
 import { isObjectHash } from '../../objects.js';
-import { atomicWriteFile, executionPath } from './localHelpers.js';
+import { atomicWriteFile, executionPath, runningAttemptOf, runningPath } from './localHelpers.js';
 import { removeStaleLocks } from './LocalLockService.js';
 
 /** A record that names an object by its hash. */
@@ -22,6 +22,10 @@ const encodeHash = encodeBeast2For(StringType);
 const decodeHash = decodeBeast2For(StringType);
 const encodeOwner = encodeBeast2For(ExecutionOwnerType);
 const decodeOwner = decodeBeast2For(ExecutionOwnerType);
+
+/** An attempt's place in its task's index of running attempts: its name says
+ *  which attempt, and it holds an East `null`. */
+const RUNNING_PLACE = encodeBeast2For(NullType)(null);
 
 /** The repository record's file, at the repository's root. */
 export const REPOSITORY_RECORD_FILE = 'repository.beast2';
@@ -80,6 +84,8 @@ async function unlinkIfPresent(file: string): Promise<void> {
  *   execution attempt and the orchestrator that launched it;
  * - `executions/<task>/<inputs>/plan.beast2`: the `$plan` a split task's
  *   execution is in;
+ * - `running/<task>/<inputs>.<id>.beast2`: an attempt's place in its task's
+ *   index of the attempts recorded running, an East `null`;
  * - `adoptions/<ab>/<rest>.beast2`: the manifest a delivery became;
  * - `dataflows/<ws>/<runId>.beast2`: a run's record.
  */
@@ -291,8 +297,16 @@ export class LocalRefStore implements RefStore {
     }
   }
 
+  /**
+   * Writes an attempt's `status.beast2`, and keeps its place in its task's
+   * index of running attempts: put there before a `running` status is
+   * written, and taken away once any other is, so the index holds every
+   * attempt recorded running, whatever a crash between the two writes leaves.
+   */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     const execDir = executionPath(repo, taskHash, inputsHash, executionId);
+    const place = runningPath(repo, taskHash, inputsHash, executionId);
+    if (status.type === 'running') await atomicWriteFile(place, RUNNING_PLACE);
 
     // A single execution rewrites status.beast2 several times over its lifetime
     // (running → success/failed). A bare overwrite truncates the file to 0 bytes
@@ -302,16 +316,20 @@ export class LocalRefStore implements RefStore {
     // status object.
     const encoder = encodeBeast2For(ExecutionStatusType);
     await atomicWriteFile(path.join(execDir, 'status.beast2'), encoder(status));
+
+    if (status.type !== 'running') await unlinkIfPresent(place);
   }
 
   /**
-   * Deletes an attempt's status and owner, and then each directory it leaves
-   * empty: the attempt's, its inputs', and its task's.
+   * Deletes an attempt's status and owner, and then its place in the index of
+   * running attempts, and each directory it leaves empty: the attempt's, its
+   * inputs', and its task's.
    */
   async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
     const execDir = executionPath(repo, taskHash, inputsHash, executionId);
     await unlinkIfPresent(path.join(execDir, 'status.beast2'));
     await unlinkIfPresent(path.join(execDir, 'owner.beast2'));
+    await unlinkIfPresent(runningPath(repo, taskHash, inputsHash, executionId));
     for (const dir of [execDir, executionPath(repo, taskHash, inputsHash), path.join(repo, 'executions', taskHash)]) {
       try {
         await fs.rmdir(dir);
@@ -403,6 +421,31 @@ export class LocalRefStore implements RefStore {
       })
     );
     return entries.filter((e): e is { inputsHash: string; status: ExecutionStatus } => e !== null);
+  }
+
+  /**
+   * Lists the task's index of running attempts, `running/<taskHash>`, and
+   * reads the latest attempt of each inputs it names, keeping those recorded
+   * running.
+   */
+  async executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
+    let names: string[];
+    try {
+      names = await fs.readdir(runningPath(repo, taskHash));
+    } catch (err) {
+      if (isNotFoundError(err)) return [];
+      throw err;
+    }
+    const inputs = new Set<string>();
+    for (const name of names) {
+      const attempt = runningAttemptOf(name);
+      if (attempt !== null) inputs.add(attempt.inputsHash);
+    }
+    const listed = await Promise.all([...inputs].map(async (inputsHash): Promise<{ inputsHash: string; status: ExecutionStatus } | null> => {
+      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      return status?.type === 'running' ? { inputsHash, status } : null;
+    }));
+    return listed.filter((entry): entry is { inputsHash: string; status: ExecutionStatus } => entry !== null);
   }
 
   /**

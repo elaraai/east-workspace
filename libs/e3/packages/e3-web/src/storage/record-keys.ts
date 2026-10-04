@@ -43,6 +43,9 @@ export const recordKeys = {
   execution: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'execution', task, inputs, id],
   /** An execution attempt's owner */
   owner: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'owner', task, inputs, id],
+  /** An execution attempt's place in its task's index of the attempts
+   *  recorded running: an East `null`, there while it is */
+  running: (repo: string, task: string, inputs: string, id: string): RecordKey => ['repo', repo, 'running', task, inputs, id],
   /** The `$plan` a split task's execution is in */
   plan: (repo: string, task: string, inputs: string): RecordKey => ['repo', repo, 'plan', task, inputs],
   /** An entry of the adoption memo */

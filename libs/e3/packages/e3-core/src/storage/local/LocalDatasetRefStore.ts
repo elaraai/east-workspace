@@ -23,6 +23,7 @@ import { randomUUID } from 'crypto';
 import { encodeBeast2For, decodeBeast2For, variant, StructType, StringType } from '@elaraai/east';
 import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
 import { DatasetRefConflictError, checkName } from '../../errors.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
 import { withKeyedLock } from '../../keyed-mutex.js';
@@ -224,6 +225,24 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     }
 
     return paths;
+  }
+
+  /**
+   * Lists the workspace's refs and reads each, {@link OBJECT_CONCURRENCY} at
+   * once: a ref removed between the two is left out.
+   */
+  async readAll(repo: string, ws: string): Promise<Map<string, DatasetRef>> {
+    const paths = await this.list(repo, ws);
+    const refs: (DatasetRef | null)[] = new Array<DatasetRef | null>(paths.length);
+    await eachAtMost(paths.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+      refs[i] = await this.read(repo, ws, paths[i]!);
+    });
+    const all = new Map<string, DatasetRef>();
+    paths.forEach((datasetPath, i) => {
+      const ref = refs[i];
+      if (ref !== null && ref !== undefined) all.set(datasetPath, ref);
+    });
+    return all;
   }
 
   /**

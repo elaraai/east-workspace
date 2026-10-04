@@ -23,6 +23,7 @@
 import {
   DateTimeType,
   IntegerType,
+  NullType,
   OptionType,
   StringType,
   StructType,
@@ -247,6 +248,10 @@ const encodeRun = encodeBeast2For(DataflowRunType);
 const decodeRun = decodeBeast2For(DataflowRunType);
 const encodeLockState = encodeBeast2For(LockStateType);
 const decodeLockState = decodeBeast2For(LockStateType);
+
+/** An attempt's place in its task's index of running attempts: its key says
+ *  which attempt, and it holds an East `null`. */
+const RUNNING_PLACE = encodeBeast2For(NullType)(null);
 
 /**
  * Whether a lock's state record is the one a holder wrote: of its holder, and
@@ -602,9 +607,15 @@ class WebRefStore implements RefStore {
     return this.records.get(recordKeys.execution(repo, taskHash, inputsHash, executionId));
   }
 
+  /** Writes an attempt's status, and its place in the index of running
+   *  attempts, in one transaction. */
   async executionWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, status: ExecutionStatus): Promise<void> {
     checkExecution(taskHash, inputsHash, executionId);
-    await writeRecords(this.records, (tx) => tx.put(recordKeys.execution(repo, taskHash, inputsHash, executionId), encodeStatus(status)));
+    await writeRecords(this.records, (tx) => {
+      tx.put(recordKeys.execution(repo, taskHash, inputsHash, executionId), encodeStatus(status));
+      if (status.type === 'running') tx.put(recordKeys.running(repo, taskHash, inputsHash, executionId), RUNNING_PLACE);
+      else tx.delete(recordKeys.running(repo, taskHash, inputsHash, executionId));
+    });
   }
 
   async executionDelete(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<void> {
@@ -612,6 +623,7 @@ class WebRefStore implements RefStore {
     await writeRecords(this.records, (tx) => {
       tx.delete(recordKeys.execution(repo, taskHash, inputsHash, executionId));
       tx.delete(recordKeys.owner(repo, taskHash, inputsHash, executionId));
+      tx.delete(recordKeys.running(repo, taskHash, inputsHash, executionId));
     });
   }
 
@@ -655,6 +667,19 @@ class WebRefStore implements RefStore {
     // In key order, so an inputs' last attempt is its latest.
     for (const { key, value } of await this.records.scan([...recordKeys.kind(repo, 'execution'), taskHash])) latest.set(key[4]!, value);
     return [...latest].map(([inputsHash, data]) => ({ inputsHash, status: statusOf(taskHash, inputsHash, data) }));
+  }
+
+  /** Lists the task's places in the index of running attempts, and reads the
+   *  latest attempt of each inputs they name, keeping those recorded running. */
+  async executionListRunning(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>> {
+    checkHash('task hash', taskHash);
+    const inputs = new Set((await this.records.keys([...recordKeys.kind(repo, 'running'), taskHash])).map((key) => key[4]!));
+    const listed: Array<{ inputsHash: string; status: ExecutionStatus }> = [];
+    for (const inputsHash of inputs) {
+      const status = await this.executionGetLatest(repo, taskHash, inputsHash);
+      if (status?.type === 'running') listed.push({ inputsHash, status });
+    }
+    return listed;
   }
 
   async executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void> {
@@ -1041,6 +1066,14 @@ class WebDatasetRefStore implements DatasetRefStore {
   async list(repo: string, ws: string): Promise<string[]> {
     checkName('workspace', ws);
     return (await this.records.keys([...recordKeys.kind(repo, 'dataset'), ws])).map((key) => key[4]!);
+  }
+
+  /** Reads every ref of the workspace in one scan of its records. */
+  async readAll(repo: string, ws: string): Promise<Map<string, DatasetRef>> {
+    checkName('workspace', ws);
+    const all = new Map<string, DatasetRef>();
+    for (const { key, value } of await this.records.scan([...recordKeys.kind(repo, 'dataset'), ws])) all.set(key[4]!, decodeRevisioned(value).ref);
+    return all;
   }
 
   async remove(repo: string, ws: string, path: string): Promise<void> {

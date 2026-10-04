@@ -19,6 +19,7 @@ import {
   decodePackageObject,
   WorkspaceRecordType,
   pathToString,
+  type DatasetRef,
   type StopReason,
   type TaskObject,
   type TreePath,
@@ -29,7 +30,6 @@ import {
   executionGetLatest,
   inputsHash,
 } from './executions.js';
-import { workspaceGetDatasetHash } from './trees.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import {
   WorkspaceNotFoundError,
@@ -214,6 +214,14 @@ async function readWorkspaceState(storage: StorageBackend, repo: string, ws: str
  * so a backend whose reads are requests pays its latency a few times over,
  * not once per object.
  *
+ * What it reads is the workspace's and what runs in it, never its history:
+ * each dataset ref once — a whole workspace's in one call
+ * (`DatasetRefStore.readAll`), named datasets' and their tasks' inputs and
+ * outputs each on its own — and of each task's executions, those recorded
+ * running (`RefStore.executionListRunning`) and the latest over its current
+ * inputs. So a poll costs the same on the day a workspace is deployed and a
+ * year on.
+ *
  * @param storage - Storage backend
  * @param runner - The runner the workspace's tasks run on
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -296,6 +304,16 @@ export async function workspaceStatus(
     for (const depName of taskDependsOn.get(taskName) ?? []) computed.add(depName);
   }
 
+  // The refs read, each once: the whole workspace's in one store call, or
+  // those of the datasets answered for and of the inputs and outputs of the
+  // tasks whose statuses are computed, a few at a time.
+  const refs = named === null
+    ? await storage.datasets.readAll(repo, ws)
+    : await readRefs(storage, repo, ws, [
+      ...datasetPaths,
+      ...[...computed].flatMap((taskName) => [...taskNodes.get(taskName)!.inputPaths, taskNodes.get(taskName)!.outputPath]),
+    ]);
+
   // Determine which tasks are stale (need to rerun)
   // A task is stale if:
   // 1. No cached execution for current inputs, OR
@@ -315,7 +333,7 @@ export async function workspaceStatus(
       storage,
       runner,
       repo,
-      ws,
+      refs,
       taskNodes.get(taskName)!,
       outputToTask,
       taskNodes,
@@ -347,12 +365,10 @@ export async function workspaceStatus(
     }
   }
 
-  // Build dataset status, the refs read a few at a time
-  const datasetStatusInfos = new Array<DatasetStatusInfo>(datasetPaths.length);
-  await eachAtMost(datasetPaths.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
-    const datasetPath = datasetPaths[i]!;
+  // Build dataset status, from the refs read
+  const datasetStatusInfos = datasetPaths.map((datasetPath): DatasetStatusInfo => {
     const pathStr = pathToString(datasetPath);
-    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, datasetPath);
+    const { refType, hash } = refOf(refs, datasetPath);
 
     const producerTask = outputToTask.get(pathStr) ?? null;
     const isTaskOutput = producerTask !== null;
@@ -366,7 +382,7 @@ export async function workspaceStatus(
       status = { type: 'up-to-date' };
     }
 
-    datasetStatusInfos[i] = {
+    return {
       path: pathStr,
       status,
       hash,
@@ -443,16 +459,48 @@ function collectDatasetPaths(
 }
 
 /**
+ * Reads the refs at `paths`, each once however often it is named, a few at a
+ * time.
+ *
+ * @returns Each ref there is, by its dataset path
+ */
+async function readRefs(storage: StorageBackend, repo: string, ws: string, paths: readonly TreePath[]): Promise<Map<string, DatasetRef>> {
+  const refPaths = [...new Set(paths.map(refPathOf))];
+  const refs = new Map<string, DatasetRef>();
+  await eachAtMost(refPaths, OBJECT_CONCURRENCY, async (refPath) => {
+    const ref = await storage.datasets.read(repo, ws, refPath);
+    if (ref !== null) refs.set(refPath, ref);
+  });
+  return refs;
+}
+
+/** A dataset's ref path, as its store keys it: `inputs/sales` for `.inputs.sales`. */
+function refPathOf(path: TreePath): string {
+  return path.map((segment) => segment.value).join('/');
+}
+
+/**
+ * A dataset's ref, as status reads it from the refs read: whether it is
+ * assigned, and its value's hash. A dataset with no ref is unassigned.
+ */
+function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType: DatasetRef['type']; hash: string | null } {
+  const ref = refs.get(refPathOf(path));
+  if (ref === undefined || ref.type === 'unassigned') return { refType: 'unassigned', hash: null };
+  if (ref.type === 'null') return { refType: 'null', hash: null };
+  return { refType: 'value', hash: ref.value.hash };
+}
+
+/**
  * Compute the status of a task, and the peak memory of the execution it comes
  * from: the one its output came from, or its failure; or, for a task that
  * reads ready because its latest attempt was cancelled or interrupted, why
- * that attempt stopped.
+ * that attempt stopped. Its inputs and output are read from the refs read.
  */
 async function computeTaskStatus(
   storage: StorageBackend,
   runner: TaskRunner,
   repo: string,
-  ws: string,
+  refs: ReadonlyMap<string, DatasetRef>,
   node: TaskNode,
   outputToTask: Map<string, string>,
   _taskNodes: Map<string, TaskNode>,
@@ -471,7 +519,7 @@ async function computeTaskStatus(
 
   for (const inputPath of node.inputPaths) {
     const inputPathStr = pathToString(inputPath);
-    const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
+    const { refType, hash } = refOf(refs, inputPath);
 
     if (refType === 'unassigned' || hash === null) {
       hasUnsetInputs = true;
@@ -554,12 +602,7 @@ async function computeTaskStatus(
     case 'success': {
       // Execution succeeded - check if workspace output matches
       const cachedOutputHash = execStatus.value.outputHash;
-      const { refType, hash: wsOutputHash } = await workspaceGetDatasetHash(
-        storage,
-        repo,
-        ws,
-        node.outputPath
-      );
+      const { refType, hash: wsOutputHash } = refOf(refs, node.outputPath);
 
       if (refType !== 'value' || wsOutputHash !== cachedOutputHash) {
         // Workspace output doesn't match - task needs to run
@@ -585,7 +628,8 @@ async function computeTaskStatus(
  *
  * Looks for a 'running' execution status the runner says can still finish:
  * whose judgement is `true`, where `false` and a host's reason both say it
- * cannot.
+ * cannot. Only the task's attempts recorded running are read, from the
+ * store's index of them, whatever the task has run before.
  */
 async function checkInProgress(
   storage: StorageBackend,
@@ -593,12 +637,9 @@ async function checkInProgress(
   repo: string,
   taskHash: string
 ): Promise<TaskStatus | null> {
-  // One backend round trip for the latest status of every inputsHash.
-  // (Previously executionListForTask + executionGetLatest per entry — an
-  // N+1 that made status requests O(repo history) on remote backends.)
-  const latest = await storage.refs.executionListLatest(repo, taskHash);
+  const running = await storage.refs.executionListRunning(repo, taskHash);
 
-  for (const { inputsHash: inHash, status } of latest) {
+  for (const { inputsHash: inHash, status } of running) {
     // A split task's units are recorded under its hash too; while they run,
     // the task's own execution is recorded running, from when it started.
     if (status.type === 'running' && !status.value.unit) {
