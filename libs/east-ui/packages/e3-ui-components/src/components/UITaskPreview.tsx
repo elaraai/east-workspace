@@ -15,6 +15,14 @@
  * which still takes these as explicit props), whose workspace must be the one
  * the provider serves.
  *
+ * Each stage that fails shows its failure, and recovers by itself for as long
+ * as the preview is mounted, so a preview on a screen no one touches, such as
+ * a kiosk's, goes on once the server answers again: the task's details, the
+ * preload, and the output's status and value are tried again after waits that
+ * back off from 1 s to 30 s, drawn at random so previews that failed together
+ * try again apart. The failure shows until a try reads, never going back to
+ * loading.
+ *
  * @packageDocumentation
  */
 
@@ -43,6 +51,7 @@ import {
     type ReactiveDatasetToPreload,
 } from '../platform/dataset-hooks.js';
 import { e3RequestOptions, useE3ConfigOptional, type E3Config } from '../platform/e3-config.js';
+import { useQueryRecovery } from '../platform/recovery.js';
 import { createScopedBindPlatform } from '../platform/bind-runtime.js';
 import { createScopedPagedPlatform } from '../platform/paged-runtime.js';
 import { createScopedFuncPlatform } from '../platform/func-runtime.js';
@@ -108,6 +117,7 @@ export const UITaskPreview = memo(function UITaskPreview({
     const foreign = config?.workspace !== undefined && bound !== undefined && config.workspace !== bound;
 
     const detailsQuery = useTaskDetails(apiUrl ?? '', repo, workspace, task, { requestOptions });
+    const detailsFailure = useQueryRecovery(detailsQuery);
     const details = detailsQuery.data;
 
     const manifest = useMemo(() => (details?.role.type === 'ui' ? details.role.value : null), [details]);
@@ -166,12 +176,14 @@ export const UITaskPreview = memo(function UITaskPreview({
 
     // Fetch the output value (no size gate — UI is wanted in full).
     const statusQuery = useDatasetStatus(apiUrl ?? '', repo, workspace, outputPath, { requestOptions });
+    const statusFailure = useQueryRecovery(statusQuery);
     const valueQuery = useDatasetValue(apiUrl ?? '', repo, workspace, outputPath, {
         requestOptions,
         type: statusQuery.data?.type as never,
         hash: statusQuery.data?.hash ?? null,
         ...(scopedPlatforms && { platforms: scopedPlatforms }),
     });
+    const valueFailure = useQueryRecovery(valueQuery);
 
     // Stable UIStore per UI tree (re-create when task changes — `task`
     // listed as a dep so a new store is allocated whenever the task
@@ -183,18 +195,19 @@ export const UITaskPreview = memo(function UITaskPreview({
     if (foreign) {
         return <StatusDisplay variant="error" title="Workspace mismatch" message={`config names workspace "${config?.workspace}", and the data bindings read workspace "${bound}", the one the surrounding <ReactiveDatasetProvider> serves: a page previews one workspace.`} />;
     }
+    // Each stage's failure before its loading state: a query that failed has
+    // no data, and would otherwise show as loading forever, and one tried
+    // again shows its failure until it reads, never going back to loading.
+    if (detailsFailure) return <StatusDisplay variant="error" title="Error" message={detailsFailure.message} />;
     if (detailsQuery.isLoading) return <StatusDisplay variant="loading" title="Loading task..." />;
-    if (detailsQuery.error) return <StatusDisplay variant="error" title="Error" message={detailsQuery.error.message} />;
     if (!details) return <StatusDisplay variant="info" title="No task" message={`Task "${task}" not found`} />;
     if (!manifest) return <StatusDisplay variant="error" title="Not a UI task" message={`Task "${task}" is a ${details.role.type} task`} />;
     if (preloadError) return <StatusDisplay variant="error" title="Preload failed" message={preloadError.message} />;
     if (preloading) return <StatusDisplay variant="loading" title="Loading datasets..." />;
-    // Each query's error before its loading state: a query that failed has no
-    // data, and would otherwise show as loading forever.
-    if (statusQuery.error) return <StatusDisplay variant="error" title="Error" message={statusQuery.error.message} />;
+    if (statusFailure) return <StatusDisplay variant="error" title="Error" message={statusFailure.message} />;
     if (statusQuery.isLoading || !statusQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
     if (statusQuery.data.refType !== 'value') return <StatusDisplay variant="info" title="No output yet" message="Task has not produced a value" />;
-    if (valueQuery.error) return <StatusDisplay variant="error" title="Load failed" message={valueQuery.error.message} />;
+    if (valueFailure) return <StatusDisplay variant="error" title="Load failed" message={valueFailure.message} />;
     if (valueQuery.isLoading || !valueQuery.data) return <StatusDisplay variant="loading" title="Loading..." />;
 
     return (
