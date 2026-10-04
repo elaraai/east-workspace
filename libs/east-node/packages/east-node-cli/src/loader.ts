@@ -282,6 +282,25 @@ export function residentBytes(): number {
     return process.memoryUsage.rss();
 }
 
+/** The variable east-c's pager reads its cache's budget from as it opens an
+ *  input, which this runner reads for its own. */
+export const PAGED_CACHE_BYTES_ENV = 'EAST_PAGED_CACHE_BYTES';
+
+/**
+ * The decoded weight, in bytes, a lazily opened input's pager keeps of the
+ * segments its keyed and index reads decode (`v5/SPEC.md`, "The pager's
+ * cache"): {@link PAGED_CACHE_BYTES_ENV}, read as east-c's pager reads it, so a
+ * test runs all three runners in one mode — `1` keeps one segment.
+ *
+ * @returns the budget, or `undefined` — the pager's default, 256 MiB — when
+ *   the variable is unset or not a whole number in decimal digits, which
+ *   east-c ignores too
+ */
+export function pagedCacheBytes(): number | undefined {
+    const text = process.env[PAGED_CACHE_BYTES_ENV];
+    return text !== undefined && /^\d+$/.test(text) ? Number(text) : undefined;
+}
+
 /**
  * The {@link UnitIO} over this machine's files, by the paths it is given — a
  * relative one taken against the working directory, as every `fs` call takes
@@ -451,11 +470,19 @@ export function lazyInputBytesRead(value: unknown): number | undefined {
  * collections compare by value. Only `Ref` (an identity cell even when
  * frozen) and function shapes fall back to the eager (frozen) decode.
  *
+ * Its pager keeps the segments keyed and index reads decode, up to
+ * {@link pagedCacheBytes} of decoded weight.
+ *
  * @param filePath - Path to the input file
  * @returns The lazy collection value, or `undefined` to fall back
  */
 export function loadInputLazy(filePath: string): unknown | undefined {
-    return openUnitInputLazy(nodeUnitIO, filePath, { fetch: fetchingSegments(), resident: residentBytes });
+    const cacheBytes = pagedCacheBytes();
+    return openUnitInputLazy(nodeUnitIO, filePath, {
+        fetch: fetchingSegments(),
+        resident: residentBytes,
+        ...(cacheBytes !== undefined && { cacheBytes }),
+    });
 }
 
 /**

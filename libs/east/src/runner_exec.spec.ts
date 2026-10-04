@@ -144,6 +144,39 @@ describe("executeUnit", () => {
     assert.ok(isTypeValueEqual(inputTypes[1]!, toEastTypeValue(IntegerType)), "the key is read as its parameter's type");
   });
 
+  it("gives each lazily opened input's pager the decoded weight its host keeps", async () => {
+    // Keyed reads that cycle over three segments far apart, so no run of reads
+    // in key order forms: kept, each segment decodes once; at a budget of 1,
+    // every read decodes its segment again.
+    const program = East.function([DT], IntegerType, ($, table) => {
+      const hits = $.let(0n);
+      $.for(East.Array.range(0n, 30n), ($, i) => {
+        $.if(table.has(i.remainder(3n).multiply(9_000n)), ($) => {
+          $.assign(hits, hits.add(1n));
+        });
+      });
+      return hits;
+    });
+    for (const [cacheBytes, decodes] of [[1, 30], [undefined, 3]] as const) {
+      const io = new InMemoryUnitIO(staged(20_000, [["program.beast2", encodeEastIR(program.toIR())]]));
+      let stats: Beast2LazyStats | undefined;
+      const report: UnitRunReport = {
+        running: () => {},
+        openedLazily: () => {},
+        decodedWhole: () => {},
+        lazyReads: (_i, _path, read) => { stats = read; },
+      };
+      const result = await executeUnit(runUnit(["table.beast2"]), io, {
+        platforms: noPackages,
+        report,
+        ...(cacheBytes !== undefined && { cacheBytes }),
+      });
+      assert.ok(equalFor(UnitOutcomeType)(result.outcome, variant("ok", null)), printOutcome(result.outcome));
+      assert.equal(decodeBeast2For(IntegerType)(io.read("out.beast2")), 30n);
+      assert.equal(stats?.segmentsDecoded, decodes, `at a budget of ${cacheBytes ?? "256 MiB"}`);
+    }
+  });
+
   it("measures nothing its host gives it no gauge for", async () => {
     const io = new InMemoryUnitIO([["program.beast2", encodeEastIR(East.function([], IntegerType, (_$) => 1n).toIR())]]);
     const result = await executeUnit(runUnit([]), io, { platforms: noPackages });

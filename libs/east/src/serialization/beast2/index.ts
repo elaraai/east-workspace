@@ -58,6 +58,8 @@ export {
   iterBeast2SegmentsFor,
   Beast2Pages,
   openBeast2PagesFor,
+  type Beast2PagesOptions,
+  type Beast2PagesCacheStats,
 } from "./v5/stream.js";
 export {
   type Beast2Extents,

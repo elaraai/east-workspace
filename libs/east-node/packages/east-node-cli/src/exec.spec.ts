@@ -38,6 +38,7 @@ import {
     decodeBeast2For,
     decodeCollectionManifest,
     encodeBeast2For,
+    encodeBeast2SegmentsFor,
     encodeEastIR,
     equalFor,
     executeUnit,
@@ -250,6 +251,47 @@ describe('exec -v: the account of each input', () => {
         const whole = exec('-v');
         assert.ok(!whole.includes('opened lazily'), `a whole unit opened its input lazily:\n${whole}`);
         assert.match(whole, /input 0: decoded whole — \+[\d.]+ (B|KB|MB) resident/);
+    });
+
+    it('keeps what its keyed reads decode within EAST_PAGED_CACHE_BYTES of decoded weight, as east-c\'s and east-py\'s runners do', () => {
+        // Keyed reads that cycle over five segments. In the one-segment mode
+        // every read decodes its segment again; at the default budget the
+        // segments stay, but for the three the first pass, reading in key
+        // order, dropped behind it, which the second pass decodes again.
+        const DT = DictType(IntegerType, StringType);
+        const entries = Array.from({ length: 500 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]);
+        writeFileSync(join(dir, 'cycle.beast2'), encodeBeast2SegmentsFor(DT)(Array.from({ length: 5 }, (_, i) => new Map(entries.slice(i * 100, (i + 1) * 100)))));
+        const program = East.function([DT], IntegerType, ($, table) => {
+            const hits = $.let(0n);
+            $.for(East.Array.range(0n, 50n), ($, i) => {
+                $.if(table.has(i.remainder(5n).multiply(100n)), ($) => {
+                    $.assign(hits, hits.add(1n));
+                });
+            });
+            return hits;
+        });
+        writeFileSync(join(dir, 'cycle-program.beast2'), encodeEastIR(program.toIR()));
+        writeFileSync(join(dir, 'cycle-unit.beast2'), encodeBeast2For(UnitType)({
+            work: variant('run', { program: 'cycle-program.beast2', inputs: ['cycle.beast2'], output: variant('value', 'cycle-out.beast2'), decode: variant('lazy', null) }),
+            platforms: [],
+            threads: 1n,
+            fetch: false,
+            result: 'cycle-result.beast2',
+        }));
+        const { EAST_PAGED_CACHE_BYTES: _budget, ...env } = process.env;
+        const decodes = (budget?: string): number => {
+            const run = spawnSync(process.execPath, [bin, 'exec', join(dir, 'cycle-unit.beast2'), '-v'], {
+                env: budget === undefined ? env : { ...env, EAST_PAGED_CACHE_BYTES: budget },
+                encoding: 'utf8',
+            });
+            assert.equal(run.status, 0, run.stderr);
+            assert.equal(decodeBeast2For(IntegerType)(readFileSync(join(dir, 'cycle-out.beast2'))), 50n);
+            const account = /input 0: (\d+) segment decodes of its 5 segments, 5 fences probed/.exec(run.stderr);
+            assert.ok(account !== null, `the reads' account:\n${run.stderr}`);
+            return Number(account[1]);
+        };
+        assert.equal(decodes('1'), 50, 'one segment kept: every read decodes its segment');
+        assert.equal(decodes(), 8, 'the default budget: each segment decoded once, and the three dropped behind again');
     });
 });
 

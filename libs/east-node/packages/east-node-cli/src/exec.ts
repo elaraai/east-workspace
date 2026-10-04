@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { FETCH_SEGMENTS_ENV, UnitType, decodeBeast2For, executeUnit, type Unit, type UnitResult } from '@elaraai/east';
 import { resolveUnitPaths } from '@elaraai/east/internal';
-import { loadPlatform, nodeUnitIO, residentBytes } from './loader.js';
+import { loadPlatform, nodeUnitIO, pagedCacheBytes, residentBytes } from './loader.js';
 import { peakBytes, unitRunReport } from './runner.js';
 
 /**
@@ -59,15 +59,19 @@ export function readUnit(unitPath: string): Unit {
  * grant of one frames every output inline. A unit whose host places its
  * segments as they are read (`fetch`) turns on {@link FETCH_SEGMENTS_ENV} for
  * the process, and has a segment of a staged manifest that is absent asked for
- * as it is first read.
+ * as it is first read. A lazy input's pager keeps the segments keyed and index
+ * reads decode, up to `EAST_PAGED_CACHE_BYTES` of decoded weight
+ * ({@link pagedCacheBytes}).
  */
 export async function execUnit(unit: Unit, verbose = false): Promise<UnitResult> {
     if (unit.fetch) process.env[FETCH_SEGMENTS_ENV] = '1';
     else delete process.env[FETCH_SEGMENTS_ENV];
+    const cacheBytes = pagedCacheBytes();
     return executeUnit(unit, nodeUnitIO, {
         platforms: loadPlatform,
         resident: residentBytes,
         peakBytes,
+        ...(cacheBytes !== undefined && { cacheBytes }),
         ...(verbose && { report: unitRunReport }),
     });
 }
