@@ -9,14 +9,14 @@
  * Exercises the record write path end-to-end against a real server + real
  * east-node runner: describe, deploy genesis, committed mutations (with the
  * state readable back), arity/unknown rejection, a reducer that aborts, and
- * the commit history.
+ * the commit history, each commit with its arguments previewed.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { IntegerType, encodeBeast2For, decodeBeast2For, variant, some, none } from '@elaraai/east';
+import { IntegerType, encodeBeast2For, decodeBeast2For, isTypeValueEqual, toEastTypeValue, variant, some, none } from '@elaraai/east';
 import {
   packageImport,
   workspaceCreate,
@@ -96,6 +96,25 @@ export function recordTests(setup: TestSetup<TestContext>): void {
       const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts);
       assert.equal(commits.length, 2);
       assert.equal(commits[0]!.mutation, 'increment'); // newest first
+    });
+
+    it('history previews each commit\'s arguments: each one\'s own type, its size and its East text', async (t) => {
+      const ctx = await withRecords(t);
+      const opts = await ctx.opts();
+
+      const five = encodeInt(5n);
+      const result = await workspaceRecordMutate(
+        ctx.config.baseUrl, ctx.repoName, WS, 'counter', 'increment',
+        { args: [five], actor: none, limits: none }, opts,
+      );
+      assert.equal(result.outcome.type, 'committed', `expected committed, got ${result.outcome.type}`);
+
+      const [increment, init] = (await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts)).commits;
+      assert.ok(increment!.args.type === 'some', 'a commit with arguments previews them');
+      const [value] = increment!.args.value.values;
+      assert.ok(isTypeValueEqual(value!.type, toEastTypeValue(IntegerType)), 'the argument\'s own type');
+      assert.deepEqual([value!.bytes, value!.text, value!.truncated], [BigInt(five.length), '5', false]);
+      assert.equal(init!.args.type, 'none', 'the $init commit has none');
     });
 
     it('rejects an arity mismatch without writing', async (t) => {

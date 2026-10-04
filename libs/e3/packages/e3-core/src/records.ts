@@ -17,15 +17,20 @@
  */
 
 import {
-  variant, some, none, ArrayType, BlobType, PatchType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, fromEastTypeValue,
-  isTypeValueEqual, printTypeValueSummary, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue,
+  variant, some, none, ArrayType, BlobType, DateTimeType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
+  decodeBeast2For, fromEastTypeValue, isTypeValueEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
+  toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import {
+  RECORD_ARGS_READ_BYTES,
+  RECORD_ARG_TEXT_BYTES,
+  RECORD_ARG_TEXT_CHARS,
   RECORD_STATE_KIND,
   RecordCommitType,
   RecordStateType,
   TASK_OBJECT_KIND,
   TaskObjectType,
+  decodeMigrationObject,
   decodeMutationObject,
   decodePackageObject,
   decodeRecordCommit,
@@ -38,14 +43,17 @@ import {
   mutationDeltaType,
   type DeltaTarget,
   type MutationObject,
+  type RecordArgPreview,
   type RecordCommit,
+  type RecordCommitArgs,
   type RecordIndexObject,
   type RecordIndexPlan,
+  type RecordSignature,
   type Structure,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
 import { openDatasetObject, readManifest } from './dataset-open.js';
-import { storeObjects } from './concurrency.js';
+import { OBJECT_CONCURRENCY, eachAtMost, storeObjects } from './concurrency.js';
 import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
@@ -60,7 +68,10 @@ const encodeCommit = encodeBeast2For(RecordCommitType);
 const encodeRecordState = encodeBeast2For(RecordStateType);
 const decodeRecordState = decodeBeast2For(RecordStateType);
 const encodeArgsTuple = encodeBeast2For(ArrayType(BlobType));
+const decodeArgsTuple = decodeBeast2For(ArrayType(BlobType));
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
+const printTime = printFor(DateTimeType);
+const parseTime = parseFor(DateTimeType);
 
 /** How long a mutation's program may run, and how much of its stderr a
  *  failure returns. Its output is stored as segments and never read whole, so
@@ -95,6 +106,60 @@ const IDEM_COMMIT_SLOT = '$idem.commit';
  *  it. A step is known by its name, an identifier, and never by its object's
  *  hash, which changes with the SDK that exported it. */
 const SCHEMA_SLOT = '$schema';
+
+/** Reserved slot beside {@link SCHEMA_SLOT} naming, for each migration a
+ *  record has applied, when it was applied and the commit that applied it:
+ *  `name=commit@time` entries in the chain's order, separated by commas, the
+ *  time as East prints a DateTime and the commit empty once a compaction has
+ *  cut it from the chain. Only a deploy writes it, and a compaction rewrites
+ *  it, so a record's describe says when each step was applied without reading
+ *  its history. A step applied before e3 kept the slot has no entry. */
+const MIGRATIONS_SLOT = '$migrations';
+
+/** When a record applied one migration, and the commit that did, as its
+ *  ref's {@link MIGRATIONS_SLOT} names them. */
+interface MigrationApplied {
+  at: Date;
+  /** Absent once a compaction has cut the commit from the chain. */
+  commit?: string;
+}
+
+/**
+ * The applications of migrations a record's ref names, by the step's name.
+ *
+ * @remarks
+ * An entry this cannot read is left out, as a step the slot does not name is:
+ * a describe then says the step is applied without saying when.
+ *
+ * @param versions - the record ref's version vector
+ * @returns each step's application, in the slot's order
+ */
+function migrationsApplied(versions: ReadonlyMap<string, string>): Map<string, MigrationApplied> {
+  const applied = new Map<string, MigrationApplied>();
+  const slot = versions.get(MIGRATIONS_SLOT);
+  if (slot === undefined || slot === '') return applied;
+  for (const entry of slot.split(',')) {
+    const name = entry.indexOf('=');
+    const time = entry.lastIndexOf('@');
+    if (name <= 0 || time < name) continue;
+    const at = parseTime(entry.slice(time + 1));
+    if (!at.success) continue;
+    const commit = entry.slice(name + 1, time);
+    applied.set(entry.slice(0, name), { at: at.value, ...(commit !== '' && { commit }) });
+  }
+  return applied;
+}
+
+/**
+ * The {@link MIGRATIONS_SLOT} naming these applications.
+ *
+ * @param applied - each step's name and application, in the chain's order
+ * @returns the slot, or `undefined` for none, which drops it
+ */
+function migrationsSlot(applied: Iterable<readonly [string, MigrationApplied]>): string | undefined {
+  const entries = [...applied].map(([name, { at, commit }]) => `${name}=${commit ?? ''}@${printTime(at)}`);
+  return entries.length === 0 ? undefined : entries.join(',');
+}
 
 /** A record's ref once it holds a state: the state object and the version
  *  vector. */
@@ -255,6 +320,9 @@ export interface ResolvedRecord {
   /** Index name -> RecordIndexObject hash, as the deployed package declares
    *  them. What the state names is what was BUILT; deploy reconciles the two. */
   indexes: Map<string, string>;
+  /** The migration chain the deployed package declares, in order: each
+   *  step's name and MigrationObject hash. */
+  migrations: ReadonlyArray<{ name: string; migration: string }>;
 }
 
 /**
@@ -434,6 +502,7 @@ export async function resolveRecord(
     type,
     mutations: recObj.mutations,
     indexes: recObj.indexes,
+    migrations: recObj.migrations,
   };
 }
 
@@ -635,8 +704,8 @@ export async function recordMutate(
  * @remarks
  * A `$`-prefixed slot is reserved bookkeeping whose owner is whichever writer
  * set it — the last idempotency key and the commit it answers, and the
- * applied-schema frontier deploy keeps — so a commit that does not own one
- * **carries it forward verbatim**.
+ * applied-schema frontier deploy keeps, with when each step was applied — so a
+ * commit that does not own one **carries it forward verbatim**.
  * That is not automatic and it fails silently when it is missed: every commit
  * path builds its vector fresh, so a path that forgets erases the slot, and
  * the writer that set it reads the record afterwards as one that never had it.
@@ -1246,13 +1315,16 @@ export type DeployRecordCommit =
  * @remarks
  * What each commit does to the reserved slots is the commit protocol's, and it
  * decides whether a keyed retry is answered or applied again:
- * - `$init` writes `$schema`, and there is no key to answer;
+ * - `$init` writes `$schema`, and `$migrations` naming itself as the commit
+ *   that applied every step, and there is no key to answer;
  * - `$deploy` carries every slot, since it changes no row;
  * - `$migrate` points `$idem.commit` at itself, since its state holds the
  *   keyed write in the type the record now has, and the last one writes
- *   `$schema`;
+ *   `$schema`, and `$migrations` naming each step's own commit beside the
+ *   steps applied before;
  * - `$reset` drops the idempotency slots, since the keyed write went with the
- *   state, and writes `$schema`.
+ *   state, and writes `$schema`, and `$migrations` naming itself as the commit
+ *   that applied every step.
  *
  * Deploy holds the workspace lock exclusively, so every ref write here is
  * uncontended, and the tasks lock, since a migration's states are named by
@@ -1288,7 +1360,10 @@ export async function commitDeployRecords(
         const head = await system(undefined, commit.state, '$init');
         await storage.datasets.write(repo, ws, commit.path, variant('value', {
           hash: commit.state,
-          versions: nextVersions(undefined, selfKeypath, head, { [SCHEMA_SLOT]: schema }),
+          versions: nextVersions(undefined, selfKeypath, head, {
+            [SCHEMA_SLOT]: schema,
+            [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
+          }),
         }));
         break;
       }
@@ -1301,12 +1376,22 @@ export async function commitDeployRecords(
         break;
       }
       case 'migrate': {
+        // The steps applied before keep the applications the ref names; a
+        // step applied before e3 kept them has none to keep
+        const applied = migrationsApplied(commit.prior.versions);
         let head = commit.prior.versions.get(selfKeypath);
-        for (const step of commit.steps) head = await system(head, step.state, `$migrate:${step.name}`);
+        for (const step of commit.steps) {
+          head = await system(head, step.state, `$migrate:${step.name}`);
+          applied.set(step.name, { at, commit: head });
+        }
         await storage.datasets.write(repo, ws, commit.path, variant('value', {
           hash: commit.steps[commit.steps.length - 1]!.state,
           versions: nextVersions(commit.prior.versions, selfKeypath, head!, {
             [SCHEMA_SLOT]: schema,
+            [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.flatMap((name) => {
+              const known = applied.get(name);
+              return known === undefined ? [] : [[name, known] as const];
+            })),
             ...(commit.prior.versions.has(IDEM_SLOT) && { [IDEM_COMMIT_SLOT]: head }),
           }),
         }));
@@ -1320,6 +1405,7 @@ export async function commitDeployRecords(
             [IDEM_SLOT]: undefined,
             [IDEM_COMMIT_SLOT]: undefined,
             [SCHEMA_SLOT]: schema,
+            [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
           }),
         }));
         break;
@@ -1412,23 +1498,33 @@ export async function recordIndexNames(storage: StorageBackend, repo: string, st
   return [...(await readRecordState(storage, repo, stateHash)).indexes.keys()];
 }
 
-/** A record's surface: each mutation's name, write form and EXTRA arg types,
- *  and each index's name, key type, projection type and whether it is multi.
- *  The form tells a caller what the arguments MEAN — a `patch` mutation's one
- *  argument is a `PatchType(State)`, not a value of the record's own type. The
- *  index types are what a read through the index decodes its window by. */
-export interface RecordSignature {
-  name: string;
-  mutations: Array<{ name: string; form: string; argTypes: EastTypeValue[] }>;
-  indexes: Array<{ name: string; keyType: EastTypeValue; valueType: EastTypeValue; multi: boolean }>;
-}
+/** A record's surface, as {@link recordDescribe} answers it: e3-types'
+ *  `RecordSignature`, the value the describe route carries. */
+export type { RecordSignature } from '@elaraai/e3-types';
 
 /**
- * Describe a record's mutations (name + extra arg types), so dynamic callers
- * can encode arguments, and its indexes (name, key and projection types), so
- * they can read through them. The indexes are the package's declarations,
- * which a deploy builds the state's to. Returns null if the workspace has no
- * such record.
+ * Describe a record: its mutations, so a dynamic caller can encode arguments;
+ * its indexes, so it can read through them; and its migration chain, so a
+ * console can show the record whole without reading its history.
+ *
+ * @remarks
+ * Each mutation gives its name, write form and EXTRA arg types: the form says
+ * what the arguments MEAN, a `patch` mutation's one argument being a
+ * `PatchType(State)` rather than a value of the record's own type. Each index
+ * gives its name, key and projection types, which a read through it decodes
+ * its window by, whether it is multi, and whether the record's state holds it
+ * built under its declaration. Each migration gives its name, form and types,
+ * and, for a step the record has applied, when it was applied and by which
+ * commit, as the ref's reserved slots name them.
+ *
+ * The declarations are the deployed package's. What the record holds is read
+ * from its ref and its state object, and nothing of its history.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param recordName - The record's name, as the package declares it
+ * @returns The record's surface, or null when the workspace has no such record
  */
 export async function recordDescribe(
   storage: StorageBackend,
@@ -1438,6 +1534,10 @@ export async function recordDescribe(
 ): Promise<RecordSignature | null> {
   const resolved = await resolveRecord(storage, repo, ws, recordName);
   if (!resolved) return null;
+  const ref = await storage.datasets.read(repo, ws, resolved.refPath);
+  const held = ref !== null && ref.type === 'value' ? ref.value : undefined;
+  const state = held === undefined ? undefined : await readRecordState(storage, repo, held.hash);
+
   const mutations: RecordSignature['mutations'] = [];
   for (const [name, mutHash] of resolved.mutations) {
     const mutObj = decodeMutationObject(await storage.objects.read(repo, mutHash));
@@ -1446,9 +1546,34 @@ export async function recordDescribe(
   const indexes: RecordSignature['indexes'] = [];
   for (const [name, indexHash] of resolved.indexes) {
     const indexObj: RecordIndexObject = decodeRecordIndexObject(await storage.objects.read(repo, indexHash));
-    indexes.push({ name, keyType: indexObj.keyType, valueType: indexObj.valueType, multi: indexObj.multi });
+    indexes.push({
+      name,
+      keyType: indexObj.keyType,
+      valueType: indexObj.valueType,
+      multi: indexObj.multi,
+      built: state?.indexes.get(name)?.index === indexHash,
+    });
   }
-  return { name: recordName, mutations, indexes };
+  const applied = new Set(held === undefined ? [] : appliedMigrations(held.versions));
+  const times = held === undefined ? new Map<string, MigrationApplied>() : migrationsApplied(held.versions);
+  const migrations: RecordSignature['migrations'] = [];
+  for (const { name, migration } of resolved.migrations) {
+    const step = decodeMigrationObject(await storage.objects.read(repo, migration));
+    const when = times.get(name);
+    migrations.push({
+      name,
+      form: step.form.type,
+      from: step.from,
+      to: step.to,
+      applied: applied.has(name)
+        ? some({
+          at: when === undefined ? none : some(when.at),
+          commit: when?.commit === undefined ? none : some(when.commit),
+        })
+        : none,
+    });
+  }
+  return { name: recordName, mutations, indexes, migrations };
 }
 
 /** What {@link recordCompact} commits as, and how it retries. */
@@ -1472,7 +1597,8 @@ export interface RecordCompactOptions {
  * Compact a record's history: write a fresh `$compact` root commit
  * (`parent: none`) over the current state and swing the ref to it. The prior
  * commit chain becomes unreachable and is reclaimed by GC; the state itself is
- * unchanged.
+ * unchanged. The ref still says when each migration was applied, and names no
+ * commit that applied one, since the chain no longer holds it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -1519,13 +1645,20 @@ export async function recordCompact(
         // A compaction cuts the keyed commit out of the chain, and its state
         // holds the keyed write, so it answers the key: a retry arriving after
         // it is answered, not applied again.
-        const keyed = existing.ref.value.versions.has(IDEM_SLOT);
+        const owned: Record<string, string | undefined> = existing.ref.value.versions.has(IDEM_SLOT)
+          ? { [IDEM_COMMIT_SLOT]: commitHash }
+          : {};
+        // It cuts the commits that applied the migrations out of it too, so
+        // the slot naming them keeps when each step was applied, and no commit
+        if (existing.ref.value.versions.has(MIGRATIONS_SLOT)) {
+          owned[MIGRATIONS_SLOT] = migrationsSlot(
+            [...migrationsApplied(existing.ref.value.versions)].map(([name, { at }]) => [name, { at }] as const));
+        }
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {
             hash: stateHash,
-            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash,
-              keyed ? { [IDEM_COMMIT_SLOT]: commitHash } : {}),
+            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, owned),
           }),
           existing.revision,
         );
@@ -1777,10 +1910,75 @@ async function systemCommitState(
   };
 }
 
+/**
+ * A preview of a record commit's arguments, as its history shows them.
+ *
+ * @remarks
+ * The arguments are one object, a beast2 `Array<Blob>` of the encoded
+ * arguments, which is read only when it is at most
+ * {@link RECORD_ARGS_READ_BYTES}: over it, the preview names the object and its
+ * size, and no argument, so a page of history reads at most that much of each
+ * commit's arguments. Each argument read gives its own type, from its
+ * encoding, and its size, and one at most {@link RECORD_ARG_TEXT_BYTES} its
+ * value printed as East text, cut at {@link RECORD_ARG_TEXT_CHARS} characters.
+ *
+ * A mutation's arguments are East values, since its program read them. A
+ * system commit records its caller's as they were given, so arguments that are
+ * not East values are previewed as an object too large to read is: by the
+ * object and its size, and no argument.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The arguments' object, as the commit names it
+ * @returns The preview
+ */
+export async function recordCommitArgs(storage: StorageBackend, repo: string, hash: string): Promise<RecordCommitArgs> {
+  const { size } = await storage.objects.stat(repo, hash);
+  const bytes = BigInt(size);
+  if (size > RECORD_ARGS_READ_BYTES) return { hash, bytes, values: [] };
+  const object = await storage.objects.read(repo, hash);
+  let args: { arg: Uint8Array; type: EastTypeValue }[];
+  try {
+    args = decodeArgsTuple(object).map((arg) => ({ arg, type: readBeast2Type(arg) }));
+  } catch {
+    return { hash, bytes, values: [] };
+  }
+  return { hash, bytes, values: args.map(({ arg, type }) => argPreview(arg, type)) };
+}
+
+/** One argument's preview: its type, read from its encoding, and its size,
+ *  and its text when it is small enough to print. */
+function argPreview(arg: Uint8Array, type: EastTypeValue): RecordArgPreview {
+  const bytes = BigInt(arg.length);
+  if (arg.length > RECORD_ARG_TEXT_BYTES) return { type, bytes, text: '', truncated: true };
+  let text: string;
+  try {
+    const decoded = decodeBeast2(arg);
+    text = printFor(decoded.type)(decoded.value);
+  } catch {
+    // An argument that does not print, such as a function naming a platform
+    // function this server does not have, is previewed by its type and size
+    return { type, bytes, text: '', truncated: true };
+  }
+  const cut = firstCodePoints(text, RECORD_ARG_TEXT_CHARS);
+  return { type, bytes, text: cut, truncated: cut.length < text.length };
+}
+
+/** `text`'s first `count` characters, counting a surrogate pair as one, so a
+ *  cut never splits a character. */
+function firstCodePoints(text: string, count: number): string {
+  let end = 0;
+  for (let n = 0; n < count && end < text.length; n++) end += text.codePointAt(end)! > 0xffff ? 2 : 1;
+  return text.slice(0, end);
+}
+
 /** A commit in a record's history, with its content hash. */
 export interface RecordHistoryEntry {
   hash: string;
   commit: RecordCommit;
+  /** A preview of the commit's arguments, when the walk was asked for them
+   *  and the commit has any. */
+  args?: RecordCommitArgs;
 }
 
 /**
@@ -1791,13 +1989,16 @@ export interface RecordHistoryEntry {
  *   trusted to be a hash this endpoint previously returned for this record);
  *   defaults to the record's head commit. A missing/undecodable cursor (or a
  *   corrupt link mid-walk) terminates the walk rather than throwing.
+ * @param opts.args - Preview each commit's arguments
+ *   ({@link recordCommitArgs}), reading at most {@link OBJECT_CONCURRENCY} of
+ *   them at once
  */
 export async function recordHistory(
   storage: StorageBackend,
   repo: string,
   ws: string,
   recordName: string,
-  opts: { limit?: number; from?: string } = {},
+  opts: { limit?: number; from?: string; args?: boolean } = {},
 ): Promise<RecordHistoryEntry[]> {
   const resolved = await resolveRecord(storage, repo, ws, recordName);
   if (!resolved) return [];
@@ -1821,6 +2022,11 @@ export async function recordHistory(
     }
     entries.push({ hash: next, commit });
     next = commit.parent.type === 'some' ? commit.parent.value : undefined;
+  }
+  if (opts.args === true) {
+    await eachAtMost(entries, OBJECT_CONCURRENCY, async (entry) => {
+      if (entry.commit.args.type === 'some') entry.args = await recordCommitArgs(storage, repo, entry.commit.args.value);
+    });
   }
   return entries;
 }

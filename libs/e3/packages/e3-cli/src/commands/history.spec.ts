@@ -29,6 +29,7 @@ function commit(hash: string, parent: string | undefined): Commit {
     actor: 'test',
     at: new Date(0),
     delta: none,
+    args: none,
   };
 }
 

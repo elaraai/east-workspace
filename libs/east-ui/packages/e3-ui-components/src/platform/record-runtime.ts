@@ -52,6 +52,7 @@ import {
     type RecordSignature,
     type MutationResult,
     type RecordHistoryResult,
+    type RecordHistoryCommit,
     type RecordCommitInfo,
     type RequestOptions,
 } from "@elaraai/e3-api-client";
@@ -135,6 +136,23 @@ type RecordError = ValueTypeOf<RecordErrorType>;
 type RecordOutcome = ValueTypeOf<RecordOutcomeType>;
 type RecordMutateTag = "idle" | "running" | "committed" | "failed" | "cancelled";
 type CommitInfo = RecordCommitInfo;
+
+/**
+ * A commit of the API's history as `record.history` carries it: its own
+ * fields, without the preview of its arguments, which `RecordCommitInfoType`
+ * does not hold.
+ */
+function commitInfo(commit: RecordHistoryCommit): CommitInfo {
+    return {
+        hash: commit.hash,
+        parent: commit.parent,
+        state: commit.state,
+        mutation: commit.mutation,
+        actor: commit.actor,
+        at: commit.at,
+        delta: commit.delta,
+    };
+}
 
 const eastTypeEqual = equalFor(EastTypeType) as (a: EastTypeValue, b: EastTypeValue) => boolean;
 
@@ -366,7 +384,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             try {
                 if (!api) throw new Error("no RecordApi installed");
                 const result = await api.history(workspace, record, undefined);
-                this.histories.set(key, result.commits);
+                this.histories.set(key, result.commits.map(commitInfo));
                 this.historyFailed.delete(key);
             } catch {
                 // Mark failed so `history()` stops re-issuing on every render;
@@ -825,7 +843,8 @@ export function createInMemoryRecordApi(
             const c = compiled.get(record);
             if (!c) throw new Error(`no in-memory record "${record}"`);
             const commits = limit !== undefined ? c.commits.slice(0, limit) : c.commits;
-            return { commits } as RecordHistoryResult;
+            // The offline commits keep no arguments, so none is previewed
+            return { commits: commits.map((commit) => ({ ...commit, args: none })) };
         },
     };
 }

@@ -9,9 +9,10 @@
  * A deploy decides for each record whether it mints, keeps, migrates, resets,
  * drops or refuses it, and a server runs the deploy as a job the client polls.
  * This takes each decision through the API against a real server and runner:
- * what the job reports, the commits it leaves, and the state it carries — and,
- * while the job runs, how far it has got, which its status and the workspace's
- * lock both say.
+ * what the job reports, the commits it leaves, the state it carries and what
+ * the record's describe says of each step it applied — and, while the job
+ * runs, how far it has got, which its status and the workspace's lock both
+ * say.
  */
 
 import { describe, it, type TestContext as NodeTestContext } from 'node:test';
@@ -19,13 +20,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { inspect } from 'node:util';
 
-import { StringType, decodeBeast2For, encodeBeast2For, variant, none, type EastType, type ValueTypeOf } from '@elaraai/east';
+import {
+  OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, variant, none, some, type EastType, type ValueTypeOf,
+} from '@elaraai/east';
 import {
   BEAST2_CONTENT_TYPE,
   PackageJobResponseType,
+  RecordMigrationAppliedType,
   ResponseType,
   WorkspaceDeployRequestType,
   WorkspaceDeployStatusType,
+  type RecordMigrationApplied,
 } from '@elaraai/e3-types';
 import {
   packageImport,
@@ -33,6 +38,7 @@ import {
   workspaceDeploy,
   workspaceLockStatus,
   datasetGet,
+  workspaceRecordDescribe,
   workspaceRecordMutate,
   workspaceRecordHistory,
   requestFetch,
@@ -139,6 +145,15 @@ export function recordDeployTests(setup: TestSetup<TestContext>): void {
         ['a', { title: 'A', owner: 'nobody' }],
         ['b', { title: 'B', owner: 'nobody' }],
       ]);
+
+      // Its describe says when the step was applied, and by the commit the
+      // history shows, without reading the history
+      const [migrated] = (await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'tasks', 1, await ctx.opts())).commits;
+      const { migrations } = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'tasks', await ctx.opts());
+      assert.deepEqual(migrations.map(({ name, form }) => [name, form]), [['add_owner', 'rows']]);
+      assert.ok(equalFor(OptionType(RecordMigrationAppliedType))(migrations[0]!.applied,
+        some<RecordMigrationApplied>({ at: some(migrated!.at), commit: some(migrated!.hash) })),
+      'applied by its $migrate commit, when it was made');
 
       // The same package again keeps the record as it is, and another package
       // over it says so in the record's history.
