@@ -43,6 +43,7 @@ import { SortedMap } from '../containers/sortedmap.js';
 import { variant } from '../containers/variant.js';
 import { matrix } from '../containers/matrix.js';
 import { ref } from '../containers/ref.js';
+import { EastTypeValueType, toEastTypeValue } from '../type_of_type.js';
 
 
 describe('parseFor (value parsing)', () => {
@@ -1952,6 +1953,29 @@ describe('back-references read back to the one container', () => {
       if (!result.success) {
         assert.ok(result.error.includes(`unknown variant case .${name}, expected one of: .a`), result.error);
       }
+    }
+  });
+
+  test('a reference names a container of the type it stands at, as East\'s type equality has it, or is refused', () => {
+    // A type read back off its text holds an object of its own for each
+    // field's type: equal types, but not one object
+    const type = StructType({ a: ints, b: ints });
+    const read = parseFor(EastTypeValueType)(printFor(EastTypeValueType)(toEastTypeValue(type)));
+    assert.equal(read.success, true);
+    if (read.success) {
+      const [a, b] = read.value.value;
+      assert.ok(a.type !== b.type, 'an object of its own for each field\'s type');
+      const aliased = parseFor(read.value)('(a=[1], b=1#.a)');
+      assert.equal(aliased.success, true, aliased.success ? '' : aliased.error);
+      if (aliased.success) {
+        assert.ok(aliased.value.a === aliased.value.b, 'the one array');
+      }
+    }
+
+    const other = parseFor(StructType({ a: ints, b: DictType(IntegerType, IntegerType) }))('(a=[1], b=1#.a)');
+    assert.equal(other.success, false);
+    if (!other.success) {
+      assert.equal(other.error, 'Error occurred because invalid reference 1#.a: it names a value of another type at .b (line 1, col 11) while parsing value of type ".Struct [(name="a", type=.Array .Integer), (name="b", type=.Dict (key=.Integer, value=.Integer))]"');
     }
   });
 });

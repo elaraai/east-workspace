@@ -103,6 +103,31 @@ static void test_refusals(void)
      * read as a count wrapped round, far above the root */
     refuses("(a=[1], b=-1#.a)", two, "expected '[' to start array at .b");
     east_type_release(two);
+
+    /* A back-reference to a container of another type than the text expects
+     * where it stands, which read would be a value of the wrong type (#1139) */
+    EastType *ints_dict = east_dict_type(&east_integer_type, &east_integer_type);
+    EastType *dict_types[2] = {ints, ints_dict};
+    EastType *to_dict = east_struct_type(pair, dict_types, 2);
+    refuses("(a=[1], b=1#.a)", to_dict,
+            "invalid reference 1#.a: it names a value of another type at .b");
+    east_type_release(to_dict);
+    east_type_release(ints_dict);
+    EastType *strings = east_array_type(&east_string_type);
+    EastType *string_types[2] = {ints, strings};
+    EastType *to_strings = east_struct_type(pair, string_types, 2);
+    refuses("(a=[1], b=1#.a)", to_strings,
+            "invalid reference 1#.a: it names a value of another type at .b");
+    east_type_release(to_strings);
+    east_type_release(strings);
+    const char *ref_pair[2] = {"r", "x"};
+    EastType *ref_ints = east_ref_type(ints);
+    EastType *ref_types[2] = {ref_ints, ints};
+    EastType *to_ref = east_struct_type(ref_pair, ref_types, 2);
+    refuses("(r=&[1], x=1#.r)", to_ref,
+            "invalid reference 1#.r: it names a value of another type at .x");
+    east_type_release(to_ref);
+    east_type_release(ref_ints);
     east_type_release(ints);
 }
 

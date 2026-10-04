@@ -1664,6 +1664,16 @@ await describe("East", (test) => {
         $(assert.throws(East.value("(a=[1], b=-1#.a)").parse(Pair), /expected '\[' to start array at \.b/));
     });
 
+    test("parse() refuses a back-reference to a container of another type than the text expects where it stands", $ => {
+        const ints = ArrayType(IntegerType);
+        $(assert.throws(East.value("(a=[1], b=1#.a)").parse(StructType({ a: ints, b: DictType(IntegerType, IntegerType) })), /invalid reference 1#\.a: it names a value of another type at \.b/));
+        $(assert.throws(East.value("(a=[1], b=1#.a)").parse(StructType({ a: ints, b: ArrayType(StringType) })), /invalid reference 1#\.a: it names a value of another type at \.b/));
+        $(assert.throws(East.value("(r=&[1], x=1#.r)").parse(StructType({ r: RefType(ints), x: ints })), /invalid reference 1#\.r: it names a value of another type at \.x/));
+        // one of the type expected there reads back to the one container
+        const parsed = $.let(East.value("(a=[1], b=1#.a)").parse(StructType({ a: ints, b: ints })));
+        $(assert.is(parsed.a, parsed.b));
+    });
+
 
     test("Recursive type - tree without cycles", $ => {
         // Create a simple binary tree: node(1, leaf, leaf)

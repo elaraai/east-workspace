@@ -14,7 +14,8 @@ missing, trailing input — with east-c's message, where ``parse_east`` once rea
 A string is double-quoted: ``parse_east`` once read a single-quoted one, which
 TypeScript refuses (#1135). And a back-reference TypeScript writes — under a
 quoted field or case name, a Dict key holding ``]``, through a Ref — reads back
-to the one container, which prints as the same text again (#1135).
+to the one container, which prints as the same text again (#1135); one to a
+container of another type than the text expects there is refused (#1139).
 """
 
 import pytest
@@ -114,6 +115,16 @@ def test_a_back_reference_reads_back_as_the_one_python_object():
 def test_parse_east_refuses_a_back_reference_to_nothing_the_text_holds():
     with pytest.raises(ValueError, match=r"undefined reference 1#\.c at \.b"):
         parse_east(StructType([("a", INTS), ("b", INTS)]), "(a=[1], b=1#.c)")
+
+
+def test_parse_east_refuses_a_back_reference_to_a_container_of_another_type():
+    # Read, `b` would be an array where a Dict belongs
+    with pytest.raises(
+        ValueError, match=r"invalid reference 1#\.a: it names a value of another type at \.b"
+    ):
+        parse_east(
+            StructType([("a", INTS), ("b", DictType(IntegerType, IntegerType))]), "(a=[1], b=1#.a)"
+        )
 
 
 def test_a_string_of_every_control_character_prints_as_itself_and_parses_back():
