@@ -37,6 +37,18 @@ adds it, so the same component sits framed in one place and bare in another.
 The rules inside a component — under its toolbar, between its rows, beside a
 pane — are its own.
 
+**A builder is laid out with `BuilderFrame`.** A builder-style component —
+one toolbar over a pane or two beside a main area, as Studio's builder and
+the query builder are — has its renderer lay it out with east-ui-components'
+`BuilderFrame` (#1125), never by hand. The renderer names the regions: the
+toolbar's items, the banners under it, a start and an end pane, main, and a
+footer. The frame places them. Each pane is pinned beside main or overlaid
+on it, by the frame's own width, with its rail, and a scrim on a phone. The
+frame is a React part, as `Toolbar` and `DockPane` are: never an East
+component, and never in a payload. Its anatomy, props and pane modes are in
+[`east-ui-components/CLAUDE.md`](../../libs/east-ui/packages/east-ui-components/CLAUDE.md)
+› Builder frame.
+
 ## The two prop kinds
 
 Every component prop is exactly one of:

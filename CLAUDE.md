@@ -41,7 +41,10 @@ never composes other East UI components (`Box`, `Stack`, `Reactive`,
 `SnapGrid`, `Dock`, `Library`, …) to build a component, and a payload never
 carries a view built from them. A component made of parts reuses the parts'
 interface types. A component draws no outer border — toolbars and footers
-included — so a host can frame it or place it bare. See
+included — so a host can frame it or place it bare. A builder-style
+renderer — one toolbar over a pane or two beside a main area, as Studio's
+builder and the query builder are — is laid out with east-ui-components'
+`BuilderFrame`, never by hand. See
 [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
 
 ## What this repo is
