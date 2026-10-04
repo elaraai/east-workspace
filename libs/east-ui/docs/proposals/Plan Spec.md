@@ -206,8 +206,8 @@ PlanRowType = StructType({
 ```ts
 PlanGutterType = StructType({
     label:    StringType,                    // .nm — 12.5/500 (groups, names)
-    id:       OptionType(BooleanType),       // true ⇒ .nm.id — mono 11.5/600 (L1-M03, COVERAGE)
-    sub:      OptionType(StringType),        // mono 9.5/500 muted ("120 t", "week · 1 lane")
+    id:       OptionType(BooleanType),       // true ⇒ .nm.id — mono 11.5/600 (H1-P03, ON-TIME)
+    sub:      OptionType(StringType),        // mono 9.5/500 muted ("12k/h", "week · 1 lane")
     value:    OptionType(StringType),        // right mono 10.5/600 ("94.2%", "82")
     meta:     OptionType(StringType),        // group meta ("8 rs · 82%")
     stacked:  OptionType(BooleanType),       // two-line layout (.pl-gut.two; row min-height 42px)
@@ -220,10 +220,10 @@ named events, journey link:
 
 ```ts
 PlanDrillType = StructType({
-    lines:   ArrayType(StringType),          // "120 t · FILL", "B-208 · 88 t · 73%"
+    lines:   ArrayType(StringType),          // "12k/h · FILL", "J-4624 · 88 k sheets · 73%"
     meter:   OptionType(FloatType),          // 0..1 → 108×5px meter bar
     series:  OptionType(ArrayType(StructType({ at: DateTimeType, value: FloatType }))), // level trace (area + line)
-    events:  ArrayType(StringType),          // evline: "TRANSFER W31 · −24 t"
+    events:  ArrayType(StringType),          // evline: "TRANSFER W31 · −24 k sheets"
     journey: OptionType(StringType),         // item key → "open item journey →" (K8 overlay)
 });
 ```
@@ -236,7 +236,7 @@ events` — each keeping its source component's rendered surface exactly
 
 | Kind | A row of… | Positions | Subsumes |
 |---|---|---|---|
-| `span` | **state-runs**: continuous `[start, end)` intervals where the resource is in one quantity-bearing state ("RUN · B-214 · 96 t") — *not tasks*: no dependency arrows, no critical path; cross-row relations are quantity through ports | continuous (real datetimes, may cross bucket edges) | Gantt rows (`tasks`), `Planner.Span` events (`slot → endSlot`) |
+| `span` | **state-runs**: continuous `[start, end)` intervals where the resource is in one quantity-bearing state ("RUN · J-4642 · 96 k sheets") — *not tasks*: no dependency arrows, no critical path; cross-row relations are quantity through ports | continuous (real datetimes, may cross bucket edges) | Gantt rows (`tasks`), `Planner.Span` events (`slot → endSlot`) |
 | `buckets` | allocation tiles in discrete slots, optionally sub-divided into lanes (AM/PM) | quantised | `Planner.Point` |
 | `chart` | measure marks (line/area/column/scatter/band + refs) | per-bucket / continuous | standalone Chart *placement* (Chart itself stays) |
 | `heat` | per-bucket cells: heat depth, weight bars, or segment compositions | quantised | Matrix cell recipes (Matrix stays) |
@@ -325,16 +325,16 @@ first-class on every nestable kind (levels accept an accessor or the Table
 `shared/reify.ts`, never spliced):
 
 ```ts
-Plan.span.of(machines, {
-    key: r => r.id, label: r => r.id, sub: r => East.str`${r.cap} t`,
+Plan.span.of(presses, {
+    key: r => r.id, label: r => r.id, sub: r => East.str`${r.rate}k/h`,
     runs: r => [ /* Plan.run(...) */ ],
-    groupBy: [r => r.program],  rollup: "union",
+    groupBy: [r => r.contract],  rollup: "union",
 });
-Plan.heat.of(lines,  { key: r => r.id, label: r => r.name,
+Plan.heat.of(halls,  { key: r => r.id, label: r => r.name,
     cells: r => /* per-bucket values */, groupBy: [r => r.area], aggregate: "mean" });
-Plan.table.of(flows, { key: r => r.key, label: r => r.name,
-    cells: r => /* per-bucket numerals */, groupBy: [r => r.section, r => r.program], aggregate: "sum" });
-Plan.rows(resources, { groupBy: [r => r.line],        // heterogeneous canvas grouping → Plan.group strips
+Plan.table.of(lots,  { key: r => r.key, label: r => r.name,
+    cells: r => /* per-bucket numerals */, groupBy: [r => r.section, r => r.contract], aggregate: "sum" });
+Plan.rows(resources, { groupBy: [r => r.hall],        // heterogeneous canvas grouping → Plan.group strips
     summary: "mean", row: ($, r) => /* any kind */ });
 ```
 
@@ -343,8 +343,8 @@ Leaf structs (UIComp-coupled ones spelled with `node`):
 ```ts
 PlanRunType = StructType({
     key: StringType, start: DateTimeType, end: DateTimeType,
-    label: StringType,                       // "RUN · B-214"
-    quantity: OptionType(StringType),        // "96 t" — the .q muted suffix
+    label: StringType,                       // "RUN · J-4642"
+    quantity: OptionType(StringType),        // "96 k sheets" — the .q muted suffix
     state: EventStateType,                   // the full lifecycle ladder drives the bar recipe (truth table below)
     status: OptionType(StatusValueType),     // warning ⇒ .stuck warn ring (over-dwell)
     moved: OptionType(IntegerType),          // same-status churn collapsed to "moved ×k"
@@ -524,7 +524,7 @@ Hover is three tiers, strictest first:
 
 1. **Cursor readout** (§8) — automatic. One hairline through every bound row
    with a mono chip composed by the *renderer* from each row's value at the
-   cursor bucket (`W34 · UTIL 91 · DOCK ✓ · COVER 96.8`). Data-derived; no
+   cursor bucket (`W34 · UTIL 91 · VAN ✓ · ON-TIME 96.8`). Data-derived; no
    API, no host callback.
 2. **`hovercard: Option<node>`** on runs, bucket events, and cards chips —
    the Planner hovercard mechanism verbatim (delayed HoverCard overlay,
@@ -556,13 +556,13 @@ behavior prop — called with an item key at interaction time:
 
 ```ts
 PlanJourneyType = StructType({
-    title:     StringType,                          // "JOURNEY · ITEM B-214 · BORN 04 JUL · 118 T"
+    title:     StringType,                          // "JOURNEY · ITEM J-4642 · BORN 04 JUL · 118 K SHEETS"
     rows:      ArrayType(StructType({ key: StringType, label: StringType,
                     sublabel: OptionType(StringType),          // "ancestor" / "focus item" / "split 60%"
                     runs: ArrayType(PlanRunType) })),
     ribbons:   ArrayType(StructType({ fromRow: StringType, fromRun: StringType,
                     toRow: StringType, toRun: StringType,
-                    quantity: FloatType, label: StringType })), // "34 t"
+                    quantity: FloatType, label: StringType })), // "34 k sheets"
     decisions: ArrayType(PlanDecisionMarkType),
 });
 ```
@@ -621,28 +621,28 @@ spliced).
 ### K1 · Span rows (the Gantt surface) with nesting + rollup
 
 ```tsx
-const machines = $.const(MACHINES, ArrayType(MachineType));
+const presses = $.const(PRESSES, ArrayType(PressType));
 <Plan
     axis={Plan.axis({ window: { min: w27, max: w39 }, resolution: "week",
                       resolutions: ["week", "day"], now })}
     rows={[
-        Plan.span({ key: "prog-a", label: "Program A", value: "400 t", rollup: "union", rows:
-            Plan.rows(machines, ($, m) => Plan.span({
-                key: m.id, label: m.id, id: true, sub: East.str`${m.capacity} t`,
-                status: m.late.ifElse(() => some("warning"), () => none),
-                runs: m.runs.map((_$, r) => Plan.run({
+        Plan.span({ key: "contract-a", label: "Contract A", value: "400 k sheets", rollup: "union", rows:
+            Plan.rows(presses, ($, p) => Plan.span({
+                key: p.id, label: p.id, id: true, sub: East.str`${p.rate}k/h`,
+                status: p.late.ifElse(() => some("warning"), () => none),
+                runs: p.runs.map((_$, r) => Plan.run({
                     key: r.key, start: r.start, end: r.end,
-                    label: East.str`${r.kind} · ${r.batch}`, quantity: some(East.str`${r.tonnes} t`),
+                    label: East.str`${r.kind} · ${r.ticket}`, quantity: some(East.str`${r.sheets} k sheets`),
                     state: r.state,        // "actual" · "in-progress" · "confirmed" · "recommended" · "estimated" · …
                     status: r.dwellRatio.greater(2.0).ifElse(() => some("warning"), () => none),
                 })),
-                decisions: m.decisions.map((_$, d) =>
+                decisions: p.decisions.map((_$, d) =>
                     Plan.decision({ key: d.key, at: d.at, applied: d.applied, popover: some(<DecisionPopover d={d} />) })),
             })),
         }),
     ]}
 />
-// The parent span row carries factory-computed union bands: "×2 · 208 t"
+// The parent span row carries factory-computed union bands: "×2 · 208 k sheets"
 // rollup bars, dashed when any contributor is proposed; gaps are real idle
 // time at that level. Collapsed, the parent reads as its rollup line alone.
 ```
@@ -651,7 +651,7 @@ const machines = $.const(MACHINES, ArrayType(MachineType));
 
 ```tsx
 Plan.buckets({
-    key: "dock2", label: "Dock 2", sub: "day · am/pm",
+    key: "van2", label: "Van 2", sub: "day · am/pm",
     lanes: [{ key: "am", label: "AM" }, { key: "pm", label: "PM" }],
     events: allocations.map((_$, a) => Plan.event({
         key: a.key, at: a.day, lane: some(a.shift),        // slot key composes "2026-07-04:am"
@@ -663,7 +663,7 @@ Plan.buckets({
     markers: [Plan.marker({ at: fri, lane: some("pm"), status: "danger",
                             message: "capacity breach — 2 allocations" })],
 })
-Plan.buckets({ key: "dock5", label: "Dock 5", sub: "load/wk",
+Plan.buckets({ key: "van5", label: "Van 5", sub: "drops/wk",
     events: weekly.map((_$, a) => Plan.event({ key: a.key, at: a.week, state: a.state })) })
     // lanes omitted ⇒ UNBUCKETED — one slot per column, the Planner default
 // The FULL Planner event grammar rides along: tone / color / colorPalette /
@@ -678,7 +678,7 @@ Plan.buckets({ key: "dock5", label: "Dock 5", sub: "load/wk",
 ### K3 · Chart rows (Chart layers, canvas-imposed scale)
 
 ```tsx
-Plan.chart({ key: "coverage", label: "COVERAGE", id: true, pinned: true,
+Plan.chart({ key: "ontime", label: "ON-TIME", id: true, pinned: true,
     value: "94.2%", status: "warning", height: "spark", expandable: true,
     layers: [
         Chart.Line(observed, { x: r => r.week, y: r => r.pct }),
@@ -694,8 +694,8 @@ Plan.chart({ key: "outdef", label: "OUT + DEFECTS", id: true, height: Plan.fixed
     swatches: [{ color: "ink.3", label: "col" }, { color: "brand.d", label: "trend" },
                { color: "purple.500", label: "ppm · rh" }],
     layers: [
-        Chart.Column(output, { x: r => r.week, y: r => r.tonnes }),
-        Chart.Line(trend,    { x: r => r.week, y: r => r.tonnes }),
+        Chart.Column(output, { x: r => r.week, y: r => r.sheets }),
+        Chart.Line(trend,    { x: r => r.week, y: r => r.sheets }),
         Plan.layer(Chart.Scatter(defects, { x: r => r.week, y: r => r.ppm }), { axis: "right" }),
     ] })
 // FIRST-CLASS rows: `layers` takes the Chart layer builders directly — no
@@ -712,15 +712,15 @@ Plan.chart({ key: "outdef", label: "OUT + DEFECTS", id: true, height: Plan.fixed
 ### K4 · Heat / matrix rows
 
 ```tsx
-Plan.heat({ key: "line1", label: "Line 1", value: "82",
+Plan.heat({ key: "hall1", label: "Hall 1", value: "82",
     cells: Plan.heatCells(load.map((_$, w) => ({ at: w.week, value: some(w.pct), label: some(w.pct.printFixed(0n)) })),
                           { min: 0, max: 100, warnAt: 95 }),
     aggregate: "mean",                       // parents average per bucket; gutter carries the level total
-    rows: [ /* nested machine heat rows */ ],
+    rows: [ /* nested press heat rows */ ],
 })
 Plan.heat({ key: "crewA", label: "Crew A", sub: "booked h", stacked: true,
     cells: Plan.weightCells(booked.map((_$, w) => ({ at: w.week, fraction: w.frac, planned: w.future }))) })
-Plan.heat({ key: "pack", label: "Pack line", sub: "capacity", stacked: true,
+Plan.heat({ key: "finishing", label: "Finishing line", sub: "capacity", stacked: true,
     cells: Plan.segmentCells(cap.map((_$, w) => ({ at: w.week, segments: [
         { fill: "success", weight: w.committed, label: some(East.str`${w.committed.printFixed(0n)}%`) },
         { fill: "warning", weight: w.pending }, { fill: "slack", weight: w.slack },
@@ -730,16 +730,16 @@ Plan.heat({ key: "pack", label: "Pack line", sub: "capacity", stacked: true,
 ### K5 · Table rows (bucketed numerals, groupBy vocabulary)
 
 ```tsx
-Plan.table({ key: "despatch", label: "Despatches", meta: "sum", aggregate: "sum", rows: [
-    Plan.table({ key: "prog-a", label: "Program A", cells: Plan.tableCells(byWeek(progA), { format: "0" }) }),
-    Plan.table({ key: "prog-b", label: "Program B", cells: Plan.tableCells(byWeek(progB), { format: "0" }) }),
+Plan.table({ key: "deliveries", label: "Deliveries", meta: "sum", aggregate: "sum", rows: [
+    Plan.table({ key: "contract-a", label: "Contract A", cells: Plan.tableCells(byWeek(contractA), { format: "0" }) }),
+    Plan.table({ key: "contract-b", label: "Contract B", cells: Plan.tableCells(byWeek(contractB), { format: "0" }) }),
 ] }),                                        // parent prints per-bucket subtotals; collapsed it reads as its subtotal line
 Plan.table({ key: "net", label: "Net flow", emphasis: "footer",
     cells: Plan.tableCells(net, { format: "0" }) }),   // 2px top rule; negatives --neg; none ⇒ muted em-dash
 // Or data-driven with arbitrary groupBy depth (the §4.3 matrix):
-// Plan.table.of(flows, { key: r => r.key, label: r => r.name,
+// Plan.table.of(lots,  { key: r => r.key, label: r => r.name,
 //     cells: r => Plan.tableCells(r.byWeek, { format: "0" }),
-//     groupBy: [r => r.section, r => r.program], aggregate: "sum" })
+//     groupBy: [r => r.section, r => r.contract], aggregate: "sum" })
 ```
 
 ### K6 · Cards rows (Roster chips)

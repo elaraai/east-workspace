@@ -82,53 +82,53 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const WEEK = 7 * 86_400_000;
 const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-const Machine = StructType({ line: StringType, jobs: ArrayType(Job) });
-const Line = DictType(StringType, Machine);
+const Press = StructType({ hall: StringType, jobs: ArrayType(Job) });
+const Hall = DictType(StringType, Press);
 const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
 const pad = (n: number) => String(n).padStart(2, "0");
 
-type MachineValue = ValueTypeOf<typeof Machine>;
-/** One machine's entry — its line, and a fortnight's run `w` weeks in. */
-const machineEntry = (key: string, line: string, w: number): [string, MachineValue] => [key, {
-    line,
+type PressValue = ValueTypeOf<typeof Press>;
+/** One press's entry — its hall, and a fortnight's run `w` weeks in. */
+const pressEntry = (key: string, hall: string, w: number): [string, PressValue] => [key, {
+    hall,
     jobs: [{ key: "run", start: new Date(W27.getTime() + w * WEEK), end: new Date(W27.getTime() + (w + 2) * WEEK) }],
 }];
-/** Lines 1 and 2 hold two machines each, Line 3 thirty — so most of Line 3
+/** Halls 1 and 2 hold two presses each, Hall 3 thirty — so most of Hall 3
  *  lies below the 400px view. Module scope: East bodies call no host helpers. */
-const MACHINES = new Map<string, MachineValue>([
-    ...[1, 2].flatMap((line) => [1, 2].map((m) => machineEntry(`L${line}-M${pad(m)}`, `Line ${line}`, m))),
-    ...Array.from({ length: 30 }, (_u, i) => machineEntry(`L3-M${pad(i + 1)}`, "Line 3", i % 8)),
+const PRESSES = new Map<string, PressValue>([
+    ...[1, 2].flatMap((hall) => [1, 2].map((p) => pressEntry(`H${hall}-P${pad(p)}`, `Hall ${hall}`, p))),
+    ...Array.from({ length: 30 }, (_u, i) => pressEntry(`H3-P${pad(i + 1)}`, "Hall 3", i % 8)),
 ]);
-const COVERAGE = Array.from({ length: 12 }, (_u, i) => ({ week: new Date(W27.getTime() + i * WEEK), pct: 88 + (i % 5) }));
+const ON_TIME = Array.from({ length: 12 }, (_u, i) => ({ week: new Date(W27.getTime() + i * WEEK), pct: 88 + (i % 5) }));
 
 /** Where the host keeps the canvas's state. */
 const KEY = "plan.824.ui";
 
-/** A coverage chart the gutter opens, then one strip per line with its
- *  machines — the state bound at {@link KEY}, seeded with Line 3 folded. */
+/** An on-time chart the gutter opens, then one strip per hall with its
+ *  presses — the state bound at {@link KEY}, seeded with Hall 3 folded. */
 const program = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const machines = $.const(MACHINES, DictType(StringType, Machine));
-    const lines = $.let(machines.groupToDicts((_$2, m) => m.line, (_$2, _m, k) => k));
-    const coverage = $.const(COVERAGE, ArrayType(MeasureRow));
-    const ui = $.let(State.bind([Plan.Types.UiState], KEY, Plan.uiState({ collapsed: [Plan.ref("lines", "Line 3")] })));
+    const presses = $.const(PRESSES, DictType(StringType, Press));
+    const halls = $.let(presses.groupToDicts((_$2, p) => p.hall, (_$2, _p, k) => k));
+    const onTime = $.const(ON_TIME, ArrayType(MeasureRow));
+    const ui = $.let(State.bind([Plan.Types.UiState], KEY, Plan.uiState({ collapsed: [Plan.ref("halls", "Hall 3")] })));
     return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
-        data: lines,
+        data: halls,
         series: [
-            Plan.series.rows(Line, { key: "kpi", title: "Coverage" }, [
+            Plan.series.rows(Hall, { key: "kpi", title: "On-time" }, [
                 Plan.chart({
-                    key: "coverage", label: "COVERAGE", id: true, height: "spark", expandable: true,
-                    layers: [Chart.Line(coverage, { x: (p) => p.week, y: (p) => p.pct })],
+                    key: "ontime", label: "ON-TIME", id: true, height: "spark", expandable: true,
+                    layers: [Chart.Line(onTime, { x: (p) => p.week, y: (p) => p.pct })],
                 }),
             ]),
-            Plan.series.group(Line, {
-                key: "lines", title: "Lines",
-                label: (_g, line) => line,
+            Plan.series.group(Hall, {
+                key: "halls", title: "Halls",
+                label: (_g, hall) => hall,
                 children: Plan.children((g) => g, [
-                    Plan.series.span(Machine, {
-                        key: "machines", title: "Machines",
-                        label: (_m, k) => k, id: true,
-                        runs: (m) => m.jobs.map((_$2, j) => Plan.run({
+                    Plan.series.span(Press, {
+                        key: "presses", title: "Presses",
+                        label: (_p, k) => k, id: true,
+                        runs: (p) => p.jobs.map((_$2, j) => Plan.run({
                             key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed",
                         })),
                     }),
@@ -152,9 +152,9 @@ function mount(storageKey = "plan-824-ui") {
 // ── The rows, by id ───────────────────────────────────────────────────────
 /** A row's id — the series that made it and the path of keys to it. */
 const entry = (series: string, ...path: string[]) => variant("entry", { series, path }) as PlanRowId;
-const LINE = (n: number) => entry("lines", `Line ${n}`);
-const MACHINE = (line: number, m: number) => entry("machines", `Line ${line}`, `L${line}-M${pad(m)}`);
-const KPI = entry("kpi", "coverage");
+const HALL = (n: number) => entry("halls", `Hall ${n}`);
+const PRESS = (hall: number, p: number) => entry("presses", `Hall ${hall}`, `H${hall}-P${pad(p)}`);
+const KPI = entry("kpi", "ontime");
 /** A selector for a row's element — its `data-plan-row`, or a group band's `data-plan-group`. */
 const sel = (id: PlanRowId, attr = "data-plan-row") => `[${attr}=${JSON.stringify(rowKeyOf(id))}]`;
 /** A selector for a row's body item — what holds the canvas's tab stop. */
@@ -180,24 +180,24 @@ const selectedKey = () => {
 };
 
 describe("a bound ui state (#824)", () => {
-    test("the host's state is drawn from the first frame — Line 3 folded as it says, every other row as it declares", () => {
+    test("the host's state is drawn from the first frame — Hall 3 folded as it says, every other row as it declares", () => {
         const { container } = mount();
-        expect(container.querySelector(sel(LINE(3), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
-        expect(container.querySelector(sel(MACHINE(3, 1)))).toBeNull();
-        expect(container.querySelector(sel(MACHINE(1, 1)))).toBeTruthy();
-        expect(container.querySelector(sel(MACHINE(2, 2)))).toBeTruthy();
+        expect(container.querySelector(sel(HALL(3), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(sel(PRESS(3, 1)))).toBeNull();
+        expect(container.querySelector(sel(PRESS(1, 1)))).toBeTruthy();
+        expect(container.querySelector(sel(PRESS(2, 2)))).toBeTruthy();
         // Nothing done yet, nothing written back: the host's seed stands.
-        expect(uiEqual(held(), state({ collapsed: [LINE(3)] }))).toBe(true);
+        expect(uiEqual(held(), state({ collapsed: [HALL(3)] }))).toBe(true);
     });
 
-    test("an outside write selects a row, folds a line, opens another and expands a chart — and nothing comes back", async () => {
+    test("an outside write selects a row, folds a hall, opens another and expands a chart — and nothing comes back", async () => {
         const { container } = mount();
-        const written = state({ selected: some(MACHINE(2, 1)), collapsed: [LINE(1)], expanded: [LINE(3)], charts: [KPI] });
+        const written = state({ selected: some(PRESS(2, 1)), collapsed: [HALL(1)], expanded: [HALL(3)], charts: [KPI] });
         hostWrites(written);
-        expect(container.querySelector(sel(MACHINE(2, 1)))!.hasAttribute("data-selected")).toBe(true);
-        expect(container.querySelector(sel(MACHINE(1, 1)))).toBeNull();
-        expect(container.querySelector(sel(LINE(1), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
-        expect(container.querySelector(sel(MACHINE(3, 1)))).toBeTruthy();
+        expect(container.querySelector(sel(PRESS(2, 1)))!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector(sel(PRESS(1, 1)))).toBeNull();
+        expect(container.querySelector(sel(HALL(1), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(sel(PRESS(3, 1)))).toBeTruthy();
         // The chart at its expanded height — 88px, where the spark is 32.
         expect(container.querySelector(`${sel(KPI)} [data-plan-mark="line"]`)!.closest("svg")!.getAttribute("viewBox"))
             .toBe("0 0 1000 88");
@@ -205,43 +205,43 @@ describe("a bound ui state (#824)", () => {
         await act(async () => { await Promise.resolve(); });
         expect(uiEqual(held(), written)).toBe(true);
         // A row in neither list follows its declaration again.
-        hostWrites(state({ selected: some(MACHINE(2, 1)) }));
-        expect(container.querySelector(sel(MACHINE(1, 1)))).toBeTruthy();
-        expect(container.querySelector(sel(MACHINE(3, 1)))).toBeTruthy();
+        hostWrites(state({ selected: some(PRESS(2, 1)) }));
+        expect(container.querySelector(sel(PRESS(1, 1)))).toBeTruthy();
+        expect(container.querySelector(sel(PRESS(3, 1)))).toBeTruthy();
     });
 
-    test("a focus request opens the folded line, scrolls its row to the top of the view and makes it the tab stop — and is spent", async () => {
+    test("a focus request opens the folded hall, scrolls its row to the top of the view and makes it the tab stop — and is spent", async () => {
         const { container } = mount();
         expect(frameOf(container).scrollTop).toBe(0);
-        hostWrites(state({ collapsed: [LINE(3)], focus: some(MACHINE(3, 10)) }));
-        // The row at the top of the view — Line 3 opened to show it: the spark
-        // 32, two open lines of 26 + 2 × 32 each, Line 3's band 26 and nine
-        // machines of 32 — 526px.
+        hostWrites(state({ collapsed: [HALL(3)], focus: some(PRESS(3, 10)) }));
+        // The row at the top of the view — Hall 3 opened to show it: the spark
+        // 32, two open halls of 26 + 2 × 32 each, Hall 3's band 26 and nine
+        // presses of 32 — 526px.
         await waitFor(() => expect(frameOf(container).scrollTop).toBe(526));
-        expect(container.querySelector(sel(MACHINE(3, 10)))).toBeTruthy();
-        expect(container.querySelector(item(MACHINE(3, 10)))!.getAttribute("tabindex")).toBe("0");
+        expect(container.querySelector(sel(PRESS(3, 10)))).toBeTruthy();
+        expect(container.querySelector(item(PRESS(3, 10)))!.getAttribute("tabindex")).toBe("0");
         // DOM focus stays where it was: the host asked for the row to be shown.
         expect(document.activeElement).toBe(document.body);
-        // Spent — and the line it opened is the host's to hold, like any open.
+        // Spent — and the hall it opened is the host's to hold, like any open.
         await waitFor(() => expect(held().focus.type).toBe("none"));
         expect(keys(held().collapsed)).toEqual([]);
-        expect(keys(held().expanded)).toEqual([rowKeyOf(LINE(3))]);
-        // Back at the top, Line 3's band says it is open.
+        expect(keys(held().expanded)).toEqual([rowKeyOf(HALL(3))]);
+        // Back at the top, Hall 3's band says it is open.
         act(() => { frameOf(container).scrollTo({ top: 0 }); });
-        expect(container.querySelector(sel(LINE(3), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("true");
+        expect(container.querySelector(sel(HALL(3), "data-plan-group"))!.getAttribute("aria-expanded")).toBe("true");
     });
 
     test("what the user does is written back — a selection, a fold, a chart — and no toggle is kept in storage", async () => {
         const { container } = mount("plan-824-writeback");
-        fireEvent.click(container.querySelector(sel(MACHINE(1, 2)))!);
-        await waitFor(() => expect(selectedKey()).toBe(rowKeyOf(MACHINE(1, 2))));
+        fireEvent.click(container.querySelector(sel(PRESS(1, 2)))!);
+        await waitFor(() => expect(selectedKey()).toBe(rowKeyOf(PRESS(1, 2))));
         // A fold joins the host's list after the rows it placed there.
-        fireEvent.click(container.querySelector(sel(LINE(2), "data-plan-group"))!);
-        expect(container.querySelector(sel(MACHINE(2, 1)))).toBeNull();
-        await waitFor(() => expect(keys(held().collapsed)).toEqual([rowKeyOf(LINE(3)), rowKeyOf(LINE(2))]));
+        fireEvent.click(container.querySelector(sel(HALL(2), "data-plan-group"))!);
+        expect(container.querySelector(sel(PRESS(2, 1)))).toBeNull();
+        await waitFor(() => expect(keys(held().collapsed)).toEqual([rowKeyOf(HALL(3)), rowKeyOf(HALL(2))]));
         fireEvent.click(container.querySelector(sel(KPI))!.children[0]!);
         await waitFor(() => expect(keys(held().charts)).toEqual([rowKeyOf(KPI)]));
-        expect(selectedKey()).toBe(rowKeyOf(MACHINE(1, 2)));
+        expect(selectedKey()).toBe(rowKeyOf(PRESS(1, 2)));
         expect(held().focus.type).toBe("none");
         // Bound, the host holds the toggles: the canvas persists none of its own.
         const toggles = Object.keys(localStorage).flatMap((k) => {

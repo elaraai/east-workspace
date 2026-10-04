@@ -138,7 +138,7 @@ describe("Plan span rows (§4·K1)", () => {
     test("run bars carry the state truth table on data-state, the stuck ring and the runoff mask", () => {
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([
-                run("obs1", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "t" }),
+                run("obs1", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "k sheets" }),
                 run("appr1", new Date("2026-07-13Z"), new Date("2026-07-27Z"), variant("confirmed", null)),
                 run("prop1", new Date("2026-07-27Z"), new Date("2026-08-10Z"), variant("proposed", variant("recommended", null)), { stuck: true }),
                 run("ghost1", new Date("2026-08-10Z"), new Date("2026-08-24Z"), variant("estimated", null)),
@@ -155,41 +155,41 @@ describe("Plan span rows (§4·K1)", () => {
         expect(states).toContainEqual(["rej1", "rejected"]);
         expect(container.querySelector('[data-run="prop1"]')!.hasAttribute("data-stuck")).toBe(true);
         expect(container.querySelector('[data-run="runoff1"]')!.hasAttribute("data-runoff")).toBe(true);
-        expect(screen.getByText("96 t")).toBeTruthy();
+        expect(screen.getByText("96 k sheets")).toBeTruthy();
     });
 
     test("declared rollups render renderer-DERIVED ×k · qty band captions", () => {
         // Parent declares union; the overlapping child runs derive one ×2 band
-        // summing their quantities, 146 t, in the pessimistic (confirmed) state.
+        // summing their quantities, 146 k sheets, in the pessimistic (confirmed) state.
         renderPlan(planRoot([
-            planRow("prog", spanKind([], { rollup: "union" })),
+            planRow("contract", spanKind([], { rollup: "union" })),
             planRow("m1", spanKind([
-                run("ra", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "t" }),
-                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { quantity: 50, unit: "t" }),
-            ]), { parent: "prog" }),
+                run("ra", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "k sheets" }),
+                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { quantity: 50, unit: "k sheets" }),
+            ]), { parent: "contract" }),
         ]));
-        expect(screen.getByText("×2 · 146 t")).toBeTruthy();
+        expect(screen.getByText("×2 · 146 k sheets")).toBeTruthy();
     });
 
     test("a run prints its ONE quantity — its text, else its value through its format and its unit; a band totals unit by unit (#824)", () => {
         const oneDp = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
         const { container } = renderPlan(planRoot([
-            planRow("prog", spanKind([], { rollup: "union" })),
+            planRow("contract", spanKind([], { rollup: "union" })),
             planRow("m1", spanKind([
                 { ...run("ra", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null)),
-                    quantity: some({ value: 96.25, unit: some("t"), format: some(oneDp), text: none }) },
-                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { quantity: 112, unit: "t", text: "one hundred twelve" }),
+                    quantity: some({ value: 96.25, unit: some("k sheets"), format: some(oneDp), text: none }) },
+                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { quantity: 112, unit: "k sheets", text: "one hundred twelve" }),
                 run("rc", new Date("2026-07-06Z"), new Date("2026-07-13Z"), variant("confirmed", null), { quantity: 12, unit: "h" }),
-            ]), { parent: "prog" }),
+            ]), { parent: "contract" }),
         ]));
         // The bar's caption, and its accessible name, say the same thing.
         const ra = container.querySelector('[data-run="ra"]')!;
-        expect(ra.textContent).toContain("96.3 t");
-        expect(ra.getAttribute("aria-label")).toMatch(/96\.3 t/u);
+        expect(ra.textContent).toContain("96.3 k sheets");
+        expect(ra.getAttribute("aria-label")).toMatch(/96\.3 k sheets/u);
         expect(container.querySelector('[data-run="rb"]')!.textContent).toContain("one hundred twelve");
-        // The band sums values, never captions — tonnes with tonnes, hours
+        // The band sums values, never captions — sheets with sheets, hours
         // with hours — each total through its first member's format.
-        expect(screen.getByText("×3 · 208.3 t · 12 h")).toBeTruthy();
+        expect(screen.getByText("×3 · 208.3 k sheets · 12 h")).toBeTruthy();
     });
 });
 
@@ -224,25 +224,25 @@ describe("Plan group strips (§5)", () => {
     test("a group toggles its subtree in place and shows the member meta", () => {
         const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
         const { container } = renderPlan(planRoot([
-            planRow("line1", band, { gutter: gutter("LINE 1", { meta: "2 rows" }) }),
-            planRow("m1", spanKind([]), { parent: "line1" }),
-            planRow("m2", spanKind([]), { parent: "line1" }),
+            planRow("hall1", band, { gutter: gutter("HALL 1", { meta: "2 rows" }) }),
+            planRow("m1", spanKind([]), { parent: "hall1" }),
+            planRow("m2", spanKind([]), { parent: "hall1" }),
         ]));
         expect(screen.getByText("2 rows")).toBeTruthy();
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
-        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
         expect(container.querySelector(rowSel("m1"))).toBeNull();
         expect(container.querySelector(rowSel("m2"))).toBeNull();
-        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
     });
 
     test("an IR-collapsed group starts collapsed and renders its summary heat strip", () => {
         const { container } = renderPlan(planRoot([
-            planRow("line2", variant("group", {
+            planRow("hall2", variant("group", {
                 summary: variant("cells", heatArm([{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }], 0, 100)),
             }), { collapsed: true }),
-            planRow("m3", spanKind([]), { parent: "line2" }),
+            planRow("m3", spanKind([]), { parent: "hall2" }),
         ]));
         expect(container.querySelector(rowSel("m3"))).toBeNull();
         expect(screen.getByText("80")).toBeTruthy();
@@ -252,10 +252,10 @@ describe("Plan group strips (§5)", () => {
         // The cells used to select the GROUP key — a click that visibly did
         // nothing, and it swallowed the band's own toggle.
         const { container } = renderPlan(planRoot([
-            planRow("line2", variant("group", {
+            planRow("hall2", variant("group", {
                 summary: variant("cells", heatArm([{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }], 0, 100)),
             }), { collapsed: true }),
-            planRow("m3", spanKind([]), { parent: "line2" }),
+            planRow("m3", spanKind([]), { parent: "hall2" }),
         ]), "plan-strip-toggle");
         expect(container.querySelector(rowSel("m3"))).toBeNull();
         fireEvent.click(screen.getByText("80"));
@@ -266,7 +266,7 @@ describe("Plan group strips (§5)", () => {
 describe("Plan heat rows (§4·K4)", () => {
     test("heat cells: depth labels, ≥ warnAt ring, no-data hatch, an ink per level (#949)", () => {
         const { container } = renderPlan(planRoot([
-            planRow("l1", variant("heat", {
+            planRow("h1", variant("heat", {
                 cells: heatArm([
                     { at: t(new Date("2026-06-29Z")), value: some(30), label: some("30") },
                     { at: t(new Date("2026-07-06Z")), value: some(96), label: some("96") },
@@ -316,15 +316,15 @@ describe("Plan chart rows (§4·K3)", () => {
             expandable: false,
         });
         const spark = renderPlan(planRoot([
-            planRow("cov", chart(variant("spark", null)), { gutter: gutter("COVERAGE", { id: true, value: "94.2%" }) }),
+            planRow("ontime", chart(variant("spark", null)), { gutter: gutter("ON-TIME", { id: true, value: "94.2%" }) }),
         ]));
-        expect(spark.container.querySelector(`${rowSel("cov")} svg [data-plan-mark="line"]`)).toBeTruthy();
+        expect(spark.container.querySelector(`${rowSel("ontime")} svg [data-plan-mark="line"]`)).toBeTruthy();
         expect(screen.queryByText("TARGET 100")).toBeNull();   // too shallow for the label
         expect(screen.getByText("94.2%")).toBeTruthy();
         expect(screen.getByText("80")).toBeTruthy();           // left tick in the gutter edge
         cleanup();
         renderPlan(planRoot([
-            planRow("cov", chart(variant("expanded", null)), { gutter: gutter("COVERAGE", { id: true }) }),
+            planRow("ontime", chart(variant("expanded", null)), { gutter: gutter("ON-TIME", { id: true }) }),
         ]));
         expect(screen.getByText("TARGET 100")).toBeTruthy();
     });
@@ -346,13 +346,13 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
 describe("Plan bucket rows (§4·K2)", () => {
     test("tiles wear the state axis with the resting ✓ / plan looks; labels, tones and markers print", () => {
         const { container } = renderPlan(planRoot([
-            planRow("dock", variant("buckets", {
+            planRow("van", variant("buckets", {
                 lanes: [],
                 events: [
                     bucketEvent("e1", new Date("2026-06-29Z"), variant("actual", null)),
                     bucketEvent("e2", new Date("2026-07-06Z"), variant("proposed", variant("recommended", null))),
                     bucketEvent("e3", new Date("2026-07-13Z"), variant("confirmed", null),
-                        { label: "TRIM · 4 t", stretch: "horizontal", tone: "warning" }),
+                        { label: "TRIM · 4 k sheets", stretch: "horizontal", tone: "warning" }),
                 ],
                 markers: [{ at: t(new Date("2026-07-20Z")), lane: none, status: variant("danger", null), message: "short 2 ops" }],
             })),
@@ -363,7 +363,7 @@ describe("Plan bucket rows (§4·K2)", () => {
         expect(screen.getByText("plan")).toBeTruthy();                                // proposed resting look
         // The label is its own ellipsizing span inside the tile; the tile is
         // what wears the tone.
-        const trim = screen.getByText("TRIM · 4 t").closest("[data-event]")!;
+        const trim = screen.getByText("TRIM · 4 k sheets").closest("[data-event]")!;
         expect(trim.getAttribute("data-tone")).toBe("warning");
         expect(container.querySelector('[data-status="danger"]')).toBeTruthy();       // marker ring + icon
     });
@@ -486,7 +486,7 @@ describe("Plan table rows (§4·K5)", () => {
             fold: variant("sum", null),
         });
         const { container } = renderPlan(planRoot([
-            planRow("flow", variant("table", {
+            planRow("lot", variant("table", {
                 series: [
                     mkSeries([tableCell(new Date("2026-06-29Z"), 96)], { strong: true }),
                     mkSeries([tableCell(new Date("2026-06-29Z"), 12)], { tone: "muted" }),
@@ -495,7 +495,7 @@ describe("Plan table rows (§4·K5)", () => {
                 aggregate: none, format: none, emphasis: variant("body", null),
             })),
         ]));
-        const cell = container.querySelector(`${rowSel("flow")} [data-split="horizontal"]`)!;
+        const cell = container.querySelector(`${rowSel("lot")} [data-split="horizontal"]`)!;
         expect(cell).toBeTruthy();
         const parts = cell.querySelectorAll("span");
         expect(parts).toHaveLength(2);
@@ -538,11 +538,11 @@ describe("Plan cards rows (§4·K6)", () => {
         const { container } = renderPlan(planRoot([
             planRow("ops", variant("cards", {
                 chips: [
-                    { key: "c1", from: t(new Date("2026-06-29Z")), to: t(new Date("2026-07-13Z")), label: "D. OKAFOR",
+                    { key: "c1", from: t(new Date("2026-06-29Z")), to: t(new Date("2026-07-13Z")), label: "CREW A",
                         state: variant("confirmed", null), icon: none },
                     { key: "c2", from: t(new Date("2026-07-13Z")), to: t(new Date("2026-07-27Z")), label: "+64h",
                         state: variant("proposed", variant("recommended", null)), icon: none },
-                    { key: "c3", from: t(new Date("2026-07-27Z")), to: t(new Date("2026-08-10Z")), label: "L. CHEN",
+                    { key: "c3", from: t(new Date("2026-07-27Z")), to: t(new Date("2026-08-10Z")), label: "CREW B",
                         state: variant("proposed", variant("removed", null)), icon: none },
                 ],
             })),
@@ -550,7 +550,7 @@ describe("Plan cards rows (§4·K6)", () => {
         expect(container.querySelector('[data-chip="c1"]')!.getAttribute("data-state")).toBe("appr");
         expect(container.querySelector('[data-chip="c2"]')!.getAttribute("data-state")).toBe("prop");
         expect(container.querySelector('[data-chip="c3"]')!.getAttribute("data-state")).toBe("propRemoved");
-        expect(screen.getByText("D. OKAFOR")).toBeTruthy();
+        expect(screen.getByText("CREW A")).toBeTruthy();
     });
 });
 
@@ -613,13 +613,13 @@ describe("a coarser resolution FOLDS — one cell per bucket per row (#824)", ()
     const texts = (row: Element | null, sel: string) => Array.from(row!.querySelectorAll(sel)).map((n) => n.textContent);
 
     test("WEEK → MONTH: a heat row's weeks fold to their MEAN, a table's to their SUM, a column layer's to its SUM", () => {
-        const { container } = renderPlan(planRoot([weeklyHeat("load"), weeklyTable("desp"), weeklyColumns], { axis: monthAxis }));
+        const { container } = renderPlan(planRoot([weeklyHeat("load"), weeklyTable("dlv"), weeklyColumns], { axis: monthAxis }));
         const heat = container.querySelector(rowSel("load"));
         // Four months hold data — four cells, never twelve overlapping.
         expect(heat!.querySelectorAll("[data-cell]")).toHaveLength(4);
         // June's lone week keeps its own cell; July is the mean of 20, 30, 40, 50.
         expect(texts(heat, "[data-cell] > span")).toEqual(["10", "35", "80", "115"]);
-        const table = container.querySelector(rowSel("desp"));
+        const table = container.querySelector(rowSel("dlv"));
         expect(table!.querySelectorAll("[data-cell]")).toHaveLength(4);
         expect(texts(table, "[data-cell]")).toEqual(["10", "40", "50", "20"]);
         // One column a month, each the sum of its weeks' points.
@@ -627,9 +627,9 @@ describe("a coarser resolution FOLDS — one cell per bucket per row (#824)", ()
     });
 
     test("at the data's own resolution nothing folds — twelve weekly cells", () => {
-        const { container } = renderPlan(planRoot([weeklyHeat("load"), weeklyTable("desp")], { axis: weekAxis }));
+        const { container } = renderPlan(planRoot([weeklyHeat("load"), weeklyTable("dlv")], { axis: weekAxis }));
         expect(container.querySelector(rowSel("load"))!.querySelectorAll("[data-cell]")).toHaveLength(12);
-        expect(container.querySelector(rowSel("desp"))!.querySelectorAll("[data-cell]")).toHaveLength(12);
+        expect(container.querySelector(rowSel("dlv"))!.querySelectorAll("[data-cell]")).toHaveLength(12);
     });
 
     test("a declared fold is honoured — a heat row's max, a table's last", () => {

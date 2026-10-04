@@ -87,11 +87,11 @@ describe("moving an element", () => {
     it("moves by the step on a number axis, and by position on an ordinal one — never out of the list", () => {
         const num = planScale({ kind: "number", window: { min: 0, max: 20 }, step: 2 })!;
         expect(moveSpan(num, spanOf(n(3), n(7)), 2, false)).toEqual(spanOf(n(7), n(11)));
-        const ord = planScale({ kind: "ordinal", values: ["INTAKE", "PREP", "BUILD", "QC"] })!;
-        expect(moveSpan(ord, spanOf(o("PREP"), o("BUILD")), 1, false)).toEqual(spanOf(o("BUILD"), o("QC")));
-        // Two further would run QC off the list's end: it stops at the edge.
-        expect(moveSpan(ord, spanOf(o("PREP"), o("BUILD")), 2, false)).toEqual(spanOf(o("BUILD"), o("QC")));
-        expect(moveSpan(ord, spanOf(o("PREP"), o("BUILD")), -3, false)).toEqual(spanOf(o("INTAKE"), o("PREP")));
+        const ord = planScale({ kind: "ordinal", values: ["PREPRESS", "PLATES", "PRINT", "FINISH"] })!;
+        expect(moveSpan(ord, spanOf(o("PLATES"), o("PRINT")), 1, false)).toEqual(spanOf(o("PRINT"), o("FINISH")));
+        // Two further would run FINISH off the list's end: it stops at the edge.
+        expect(moveSpan(ord, spanOf(o("PLATES"), o("PRINT")), 2, false)).toEqual(spanOf(o("PRINT"), o("FINISH")));
+        expect(moveSpan(ord, spanOf(o("PLATES"), o("PRINT")), -3, false)).toEqual(spanOf(o("PREPRESS"), o("PLATES")));
     });
 
     it("leaves an element on another arm where it is", () => {
@@ -122,9 +122,9 @@ describe("resizing an element", () => {
     });
 
     it("on an ordinal axis one bucket is start = end, the end naming its last bucket", () => {
-        const ord = planScale({ kind: "ordinal", values: ["INTAKE", "PREP", "BUILD", "QC"] })!;
-        expect(resizeSpan(ord, spanOf(o("PREP"), o("BUILD")), "end", -5, false)).toEqual(spanOf(o("PREP"), o("PREP")));
-        expect(resizeSpan(ord, spanOf(o("PREP"), o("BUILD")), "end", 5, false)).toEqual(spanOf(o("PREP"), o("QC")));
+        const ord = planScale({ kind: "ordinal", values: ["PREPRESS", "PLATES", "PRINT", "FINISH"] })!;
+        expect(resizeSpan(ord, spanOf(o("PLATES"), o("PRINT")), "end", -5, false)).toEqual(spanOf(o("PLATES"), o("PLATES")));
+        expect(resizeSpan(ord, spanOf(o("PLATES"), o("PRINT")), "end", 5, false)).toEqual(spanOf(o("PLATES"), o("FINISH")));
     });
 
     it("a keyboard step is one bucket, for a move or either end", () => {

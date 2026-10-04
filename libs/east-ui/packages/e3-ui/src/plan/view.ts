@@ -51,27 +51,27 @@ import { createPlanRoot, type PlanConfig } from "./root.js";
  * import { Data, Plan } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const SeriesJob = StructType({ batch: StringType, start: DateTimeType, end: DateTimeType, tonnes: FloatType, state: EventStateType });
+ * export const SeriesJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, sheets: FloatType, state: EventStateType });
  * export const SeriesShift = StructType({ key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType });
  * export const SeriesOpsRow = StructType({
- *     line: StringType,
+ *     hall: StringType,
  *     kind: VariantType({
- *         machine: StructType({ jobs: ArrayType(SeriesJob) }),
+ *         press: StructType({ jobs: ArrayType(SeriesJob) }),
  *         crew:    StructType({ shifts: ArrayType(SeriesShift) }),
  *     }),
  * });
  * export const planSeriesOps = e3.input("plan_series_ops", DictType(StringType, SeriesOpsRow), variant("value", new Map([
- *     ["L1-M03", { line: "Line 1", kind: variant("machine", { jobs: [
- *         { batch: "B-214", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), tonnes: 96.0, state: variant("in-progress", null) },
- *         { batch: "B-221", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), tonnes: 88.0, state: variant("proposed", variant("recommended", null)) },
+ *     ["H1-P03", { hall: "Hall 1", kind: variant("press", { jobs: [
+ *         { ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), sheets: 96.0, state: variant("in-progress", null) },
+ *         { ticket: "J-4663", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), sheets: 88.0, state: variant("proposed", variant("recommended", null)) },
  *     ] }) }],
- *     ["L1-M04", { line: "Line 1", kind: variant("machine", { jobs: [
- *         { batch: "B-208", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), tonnes: 112.0, state: variant("actual", null) },
+ *     ["H1-P04", { hall: "Hall 1", kind: variant("press", { jobs: [
+ *         { ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), sheets: 112.0, state: variant("actual", null) },
  *     ] }) }],
- *     ["L2-M11", { line: "Line 2", kind: variant("machine", { jobs: [
- *         { batch: "B-241", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), tonnes: 92.0, state: variant("confirmed", null) },
+ *     ["H2-P11", { hall: "Hall 2", kind: variant("press", { jobs: [
+ *         { ticket: "J-4723", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), sheets: 92.0, state: variant("confirmed", null) },
  *     ] }) }],
- *     ["crewA", { line: "Line 1", kind: variant("crew", { shifts: [
+ *     ["crewA", { hall: "Hall 1", kind: variant("crew", { shifts: [
  *         { key: "s1", from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), hours: 80.0, state: variant("confirmed", null) },
  *         { key: "s2", from: new Date("2026-07-27T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z"), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
  *     ] }) }],
@@ -87,10 +87,10 @@ import { createPlanRoot, type PlanConfig } from "./root.js";
  *             return w1.addWeeks(n.subtract(1n));
  *         }));
  *         // Hierarchy is the DATA's (#822): one `groupToDicts` groups the rows
- *         // into the canvas's blocks — each machine under its line, the crews
+ *         // into the canvas's blocks — each press under its hall, the crews
  *         // under one "Crews" block. An entry of the result holds its rows.
  *         const blocks = $.let(ops.read().groupToDicts(
- *             ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.line),
+ *             ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.hall),
  *             ($, _r, k) => k));
  *         const Block = DictType(StringType, SeriesOpsRow);
  *         // The series — real East values bound in the body, typed by the
@@ -99,26 +99,26 @@ import { createPlanRoot, type PlanConfig } from "./root.js";
  *         // labels, quantity displays and chip text all derive CLIENT-SIDE,
  *         // inside each series' `derive`.
  *         const series = $.const([
- *             // One row per line, its machines stepped down into
+ *             // One row per hall, its presses stepped down into
  *             // (`Plan.children`) and their runs rolled up into its bands —
  *             // which sum the runs' quantities, unit by unit.
  *             Plan.series.span(Block, {
- *                 key: "lines", title: "Lines",
+ *                 key: "halls", title: "Halls",
  *                 match: (_b, name) => name.equal("Crews").not(),
  *                 label: (_b, name) => name,
  *                 runs: _b => [],
  *                 rollup: "union",
  *                 children: Plan.children((b) => b, [
  *                     Plan.series.span(SeriesOpsRow, {
- *                         key: "machines", title: "Machines",
- *                         match: r => r.kind.hasTag("machine"),
+ *                         key: "presses", title: "Presses",
+ *                         match: r => r.kind.hasTag("press"),
  *                         label: (_r, k) => k, id: true,
- *                         runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
- *                             key: j.batch, start: j.start, end: j.end,
- *                             label: East.str`RUN · ${j.batch}`,
- *                             // A quantity is one value: the bar prints `96 t`,
- *                             // and the line's band sums the tonnes.
- *                             quantity: Plan.quantity(j.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+ *                         runs: r => r.kind.unwrap("press").jobs.map((_$, j) => Plan.run({
+ *                             key: j.ticket, start: j.start, end: j.end,
+ *                             label: East.str`RUN · ${j.ticket}`,
+ *                             // A quantity is one value: the bar prints `96 k sheets`,
+ *                             // and the hall's band sums the sheets.
+ *                             quantity: Plan.quantity(j.sheets, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
  *                             state: j.state,
  *                         })),
  *                     }),

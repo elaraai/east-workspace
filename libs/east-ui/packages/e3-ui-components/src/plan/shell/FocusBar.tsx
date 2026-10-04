@@ -5,8 +5,8 @@
 
 /**
  * The row-focus header band (R1 links / R2 expand) — `← ALL ROWS` on the
- * left, the focus caption on the right (`LINKS · M-214 · 4 UPSTREAM ·
- * 6 DOWNSTREAM` / `EXPANDED · L4-M13`). Returning: the chip, esc, any rail
+ * left, the focus caption on the right (`LINKS · H1-P03 · 4 UPSTREAM ·
+ * 6 DOWNSTREAM` / `EXPANDED · H4-P13`). Returning: the chip, esc, any rail
  * (R1), or the row's own control.
  */
 

@@ -226,27 +226,27 @@ describe("the canvas over its controller (#815)", () => {
         initializeStore(new UIStore());
         const bar = variant("span", {
             runs: [{
-                key: "b214", start: variant("time", W27), end: variant("time", new Date("2026-07-27T00:00:00Z")),
-                label: "B-214", quantity: none, state: variant("actual", null),
+                key: "j4642", start: variant("time", W27), end: variant("time", new Date("2026-07-27T00:00:00Z")),
+                label: "J-4642", quantity: none, state: variant("actual", null),
                 status: none, moved: none, icon: none,
             }],
             decisions: [], ports: [], rollup: none,
         });
-        const popover = () => some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
+        const popover = () => some(variant("Text", { value: "RUN DETAIL · J-4642", style: none }));
         const all = [planRow("m1", bar), planRow("m2")];
         const commits: string[] = [];
         const { container, rerender } = render(tree(planRoot(all, { popover }), "plan-815-overlay", commits));
-        await userEvent.setup().click(container.querySelector('[data-run="b214"]')!);
-        expect(await screen.findByText("RUN DETAIL · B-214")).toBeTruthy();
+        await userEvent.setup().click(container.querySelector('[data-run="j4642"]')!);
+        expect(await screen.findByText("RUN DETAIL · J-4642")).toBeTruthy();
         // The row goes — its bar, and the popover the bar opened, with it.
         rerender(tree(planRoot(all.slice(1), { popover }), "plan-815-overlay", commits));
-        await waitFor(() => expect(screen.queryByText("RUN DETAIL · B-214")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("RUN DETAIL · J-4642")).toBeNull());
         // The row comes back: its bar mounts CLOSED. An open surface belongs to
         // its element; the canvas does not keep it for one that has gone.
         rerender(tree(planRoot(all, { popover }), "plan-815-overlay", commits));
         await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
-        expect(container.querySelector('[data-run="b214"]')).toBeTruthy();
-        expect(screen.queryByText("RUN DETAIL · B-214")).toBeNull();
+        expect(container.querySelector('[data-run="j4642"]')).toBeTruthy();
+        expect(screen.queryByText("RUN DETAIL · J-4642")).toBeNull();
     });
 
     test("under StrictMode a paged canvas keeps listening — its rehearsed unmount does not deafen it", async () => {

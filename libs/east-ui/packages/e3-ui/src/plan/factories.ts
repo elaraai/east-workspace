@@ -658,16 +658,16 @@ export interface PlanSpanInput<K extends PlanAxisKindLiteral = never> extends Pl
  * import { Data, Plan } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const LiteralJob = StructType({ batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
- * export const LiteralMachine = StructType({ jobs: ArrayType(LiteralJob) });
- * export const planLiteralMachines = e3.input("plan_literal_machines", DictType(StringType, LiteralMachine), variant("value", new Map([
- *     ["L1-M03", { jobs: [{ batch: "B-214", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
- *     ["L1-M04", { jobs: [{ batch: "B-208", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
+ * export const LiteralJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+ * export const LiteralPress = StructType({ jobs: ArrayType(LiteralJob) });
+ * export const planLiteralPresses = e3.input("plan_literal_presses", DictType(StringType, LiteralPress), variant("value", new Map([
+ *     ["H1-P03", { jobs: [{ ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
+ *     ["H1-P04", { jobs: [{ ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
  * ])));
  *
  * const canvas = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const machines = $.let(Data.bind(planLiteralMachines));
+ *         const presses = $.let(Data.bind(planLiteralPresses));
  *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
  *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
  *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
@@ -677,28 +677,28 @@ export interface PlanSpanInput<K extends PlanAxisKindLiteral = never> extends Pl
  *         return (
  *             <Plan.View
  *                 axis={axis}
- *                 data={machines}
+ *                 data={presses}
  *                 series={[
- *                     Plan.series.span(LiteralMachine, {
- *                         key: "machines", title: "Machines",
+ *                     Plan.series.span(LiteralPress, {
+ *                         key: "presses", title: "Presses",
  *                         label: (_r, k) => k, id: true,
  *                         runs: r => r.jobs.map((_$, j) => Plan.run({
- *                             key: j.batch, start: j.start, end: j.end,
- *                             label: East.str`RUN · ${j.batch}`, state: j.state,
+ *                             key: j.ticket, start: j.start, end: j.end,
+ *                             label: East.str`RUN · ${j.ticket}`, state: j.state,
  *                         })),
  *                     }),
  *                     // Rows no dataset holds — the planned shutdown, written out once.
  *                     // `Plan.span` nests: the parent DECLARES its rollup and the canvas
  *                     // derives the band from its two rows' runs. The series list is the
- *                     // layout, so this block sits below the machines.
- *                     Plan.series.rows(LiteralMachine, { key: "works", title: "Planned works", subtitle: "literal rows" }, [
+ *                     // layout, so this block sits below the presses.
+ *                     Plan.series.rows(LiteralPress, { key: "works", title: "Planned works", subtitle: "literal rows" }, [
  *                         Plan.span({
  *                             key: "shutdown", label: "Shutdown", rollup: "union", rows: [
  *                                 Plan.span({ key: "elec", label: "Electrical", runs: [
  *                                     Plan.run({ key: "iso", start: week(33n), end: week(34n), label: "ISOLATE", state: "confirmed" }),
  *                                 ] }),
  *                                 Plan.span({ key: "mech", label: "Mechanical", runs: [
- *                                     Plan.run({ key: "reline", start: week(34n), end: week(36n), label: "RELINE", state: "recommended" }),
+ *                                     Plan.run({ key: "rollers", start: week(34n), end: week(36n), label: "ROLLERS", state: "recommended" }),
  *                                 ] }),
  *                             ],
  *                         }),

@@ -93,7 +93,7 @@ describe("Plan link graph (R1)", () => {
     // the graph keys by the ids' text.
     const link = (from: string, to: string): PlanLinkValue => ({
         key: `${from}-${to}`, from: { row: rowId(from), run: "a" }, to: { row: rowId(to), run: "b" },
-        quantity: some({ value: 10, unit: some("t"), format: none, text: none }),
+        quantity: some({ value: 10, unit: some("k sheets"), format: none, text: none }),
     } as unknown as PlanLinkValue);
     const sorted = (keys: Iterable<string>) => [...keys].map(testKeyOf).sort();
 
@@ -120,12 +120,12 @@ describe("Plan link graph (R1)", () => {
         // `views` puts one entry on several rows; a link to its chart row is
         // not a link to its span row.
         const links = [{
-            key: "l", from: { row: rowId("m03", "machine-jobs"), run: "a" }, to: { row: rowId("m04", "machine-jobs"), run: "b" },
+            key: "l", from: { row: rowId("p03", "press-jobs"), run: "a" }, to: { row: rowId("p04", "press-jobs"), run: "b" },
             quantity: none,
         } as unknown as PlanLinkValue];
-        const fam = deriveLinkFamily(links, rowKey("m03", "machine-jobs"));
-        expect([...fam.downstream]).toEqual([rowKey("m04", "machine-jobs")]);
-        expect(deriveLinkFamily(links, rowKey("m03", "machine-util")).all.size).toBe(0);
+        const fam = deriveLinkFamily(links, rowKey("p03", "press-jobs"));
+        expect([...fam.downstream]).toEqual([rowKey("p04", "press-jobs")]);
+        expect(deriveLinkFamily(links, rowKey("p03", "press-util")).all.size).toBe(0);
     });
 });
 

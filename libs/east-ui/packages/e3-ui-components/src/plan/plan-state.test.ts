@@ -154,18 +154,18 @@ describe('planReducer', () => {
 
     describe('row focus (R1 links / R2 expand) — one per canvas', () => {
         it('links focus toggles on the same row and switches rows in one step', () => {
-            const on = run(init(), { t: "focus.links", key: "m214" });
-            expect(on.state.focus).toEqual({ kind: "links", key: "m214" });
-            const moved = run(on.state, { t: "focus.links", key: "m208" });
-            expect(moved.state.focus).toEqual({ kind: "links", key: "m208" });
-            const off = run(moved.state, { t: "focus.links", key: "m208" });
+            const on = run(init(), { t: "focus.links", key: "p214" });
+            expect(on.state.focus).toEqual({ kind: "links", key: "p214" });
+            const moved = run(on.state, { t: "focus.links", key: "p208" });
+            expect(moved.state.focus).toEqual({ kind: "links", key: "p208" });
+            const off = run(moved.state, { t: "focus.links", key: "p208" });
             expect(off.state.focus).toBeNull();
         });
 
         it('invoking the other control returns the first (one active per canvas)', () => {
-            const links = run(init(), { t: "focus.links", key: "m214" });
-            const expand = run(links.state, { t: "focus.expand", key: "l4m13" });
-            expect(expand.state.focus).toEqual({ kind: "expand", key: "l4m13" });
+            const links = run(init(), { t: "focus.links", key: "p214" });
+            const expand = run(links.state, { t: "focus.expand", key: "h4p13" });
+            expect(expand.state.focus).toEqual({ kind: "expand", key: "h4p13" });
         });
 
         it('focus.expand focuses the row; focus.clear returns', () => {
@@ -175,7 +175,7 @@ describe('planReducer', () => {
         });
 
         it('grain.set returns any active focus (grain changes rows)', () => {
-            const focused = run(init(), { t: "focus.links", key: "m214" }).state;
+            const focused = run(init(), { t: "focus.links", key: "p214" }).state;
             const { state } = run(focused, { t: "grain.set", grain: "group" });
             expect(state.focus).toBeNull();
         });
@@ -186,10 +186,10 @@ describe('planReducer', () => {
 
     describe('charts', () => {
         it('toggle flips spark ↔ expanded per row', () => {
-            const a = run(init(), { t: "chart.toggle", key: "cov" });
-            expect(a.state.chartsExpanded.has("cov")).toBe(true);
-            const b = run(a.state, { t: "chart.toggle", key: "cov" });
-            expect(b.state.chartsExpanded.has("cov")).toBe(false);
+            const a = run(init(), { t: "chart.toggle", key: "ontime" });
+            expect(a.state.chartsExpanded.has("ontime")).toBe(true);
+            const b = run(a.state, { t: "chart.toggle", key: "ontime" });
+            expect(b.state.chartsExpanded.has("ontime")).toBe(false);
         });
     });
 

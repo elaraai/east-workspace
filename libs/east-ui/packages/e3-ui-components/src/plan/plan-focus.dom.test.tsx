@@ -133,10 +133,10 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 }
 
 describe("Plan links focus (R1)", () => {
-    /** A link keyed by the runs it joins, moving 34 t (#824: one quantity). */
+    /** A link keyed by the runs it joins, moving 34 k sheets (#824: one quantity). */
     const link = (from: string, fromRun: string, to: string, toRun: string) => ({
         key: `${fromRun}>${toRun}`, from: { row: rowId(from), run: fromRun }, to: { row: rowId(to), run: toRun },
-        quantity: some({ value: 34, unit: some("t"), format: none, text: none }),
+        quantity: some({ value: 34, unit: some("k sheets"), format: none, text: none }),
     });
 
     test("the control gathers the TRANSITIVE family; unrelated rows rail; ← ALL ROWS returns", () => {
@@ -208,10 +208,10 @@ describe("Plan links focus (R1)", () => {
 });
 
 describe("Plan link ribbons (#818)", () => {
-    /** A link keyed by the runs it joins, moving 34 t (#824: one quantity). */
+    /** A link keyed by the runs it joins, moving 34 k sheets (#824: one quantity). */
     const link = (from: string, fromRun: string, to: string, toRun: string) => ({
         key: `${fromRun}>${toRun}`, from: { row: rowId(from), run: fromRun }, to: { row: rowId(to), run: toRun },
-        quantity: some({ value: 34, unit: some("t"), format: none, text: none }),
+        quantity: some({ value: 34, unit: some("k sheets"), format: none, text: none }),
     });
     const confirmed = variant("confirmed", null);
     const JUL13 = new Date("2026-07-13Z");
@@ -419,10 +419,10 @@ describe("Plan link ribbons (#818)", () => {
             ], { links: [link("a", "ra", "b", "rb")] }), "plan-818-tip");
             focusLinks(container, "a");
             const hit = container.querySelector('[data-link="0"]')!;
-            expect(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-caption]')!.textContent).toBe("34 t");
-            expect(hit.getAttribute("aria-label")).toBe("34 t");
+            expect(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-caption]')!.textContent).toBe("34 k sheets");
+            expect(hit.getAttribute("aria-label")).toBe("34 k sheets");
             fireEvent.pointerOver(hit);
-            await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')?.textContent).toBe("34 t"));
+            await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')?.textContent).toBe("34 k sheets"));
             fireEvent.pointerOut(hit);
             await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')).toBeNull());
         } finally {
@@ -487,25 +487,25 @@ describe("Plan link ribbons (#818)", () => {
 describe("Plan expand-in-place (R2)", () => {
     test("the control opens the render; neighbours COMPRESS rather than disappear; esc returns", () => {
         const { container } = renderPlan(planRoot([
-            planRow("l4m13", spanKind([run("rb", W27, new Date("2026-07-27Z"), variant("actual", null))]), {
+            planRow("h4p13", spanKind([run("rb", W27, new Date("2026-07-27Z"), variant("actual", null))]), {
                 expand: { height: some("152px"), axis: variant("dim", null) },
             }),
-            planRow("l4m14", spanKind([])),
+            planRow("h4p14", spanKind([])),
         ], {
             // The render is the ROOT's resolver, called with the row's id (#822).
             expandRender: (id: PlanRowId) =>
                 variant("Text", { value: `UTIL RENDER · ${id.value.path.join("/")}`, style: none }),
         }));
         // Only the declaring row grows the control.
-        expect(container.querySelector(`${rowSel("l4m13")} [data-plan-control="expand"]`)).toBeTruthy();
-        expect(container.querySelector(`${rowSel("l4m14")} [data-plan-control="expand"]`)).toBeNull();
+        expect(container.querySelector(`${rowSel("h4p13")} [data-plan-control="expand"]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("h4p14")} [data-plan-control="expand"]`)).toBeNull();
 
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeTruthy();
-        expect(screen.getByText("EXPANDED · l4m13")).toBeTruthy();
+        expect(screen.getByText("EXPANDED · h4p13")).toBeTruthy();
         // The focused row keeps its NORMAL anatomy, with the axis treatment on
         // its own plot; the render mounts as its own body item beneath it.
-        const focal = container.querySelector(rowSel("l4m13")) as HTMLElement;
+        const focal = container.querySelector(rowSel("h4p13")) as HTMLElement;
         expect(focal).toBeTruthy();
         expect(focal.hasAttribute("data-ctx")).toBe(false);
         // The row EXPANDS to hold the render — the render is inside the focal
@@ -513,23 +513,23 @@ describe("Plan expand-in-place (R2)", () => {
         expect(focal.hasAttribute("data-expanded")).toBe(true);
         const region = focal.querySelector("[data-plan-expandrender]") as HTMLElement;
         expect(region).toBeTruthy();
-        expect(screen.getByText("UTIL RENDER · l4m13")).toBeTruthy();
-        expect(container.querySelector(`${rowSel("l4m13")} [data-axis="dim"]`)).toBeTruthy();
+        expect(screen.getByText("UTIL RENDER · h4p13")).toBeTruthy();
+        expect(container.querySelector(`${rowSel("h4p13")} [data-axis="dim"]`)).toBeTruthy();
 
         // ── The #591 contract: COLLAPSE, NEVER REMOVE ──
         // The neighbour is still mounted, still in order, wearing the strip.
-        const ctxRow = container.querySelector(rowSel("l4m14")) as HTMLElement;
+        const ctxRow = container.querySelector(rowSel("h4p14")) as HTMLElement;
         expect(ctxRow).toBeTruthy();
         expect(ctxRow.hasAttribute("data-ctx")).toBe(true);
         // ...and it is BELOW the focal row and its render, not reordered.
         const order = [...container.querySelectorAll("[data-plan-row]")]
             .map((el) => testKeyOf(el.getAttribute("data-plan-row")!));
-        expect(order).toEqual(["l4m13", "l4m14"]);
+        expect(order).toEqual(["h4p13", "h4p14"]);
 
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
         expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
-        expect(container.querySelector(rowSel("l4m13"))!.hasAttribute("data-expanded")).toBe(false);
-        expect(container.querySelector(rowSel("l4m14"))!.hasAttribute("data-ctx")).toBe(false);
+        expect(container.querySelector(rowSel("h4p13"))!.hasAttribute("data-expanded")).toBe(false);
+        expect(container.querySelector(rowSel("h4p14"))!.hasAttribute("data-ctx")).toBe(false);
     });
 
     test("a strip is the return click target — clicking one leaves the focus, never selects it", () => {
@@ -556,7 +556,7 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("e", variant("events", { marks: [{
                 key: "m1", at: t(W27), kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
             }] })),
-            planRow("cov", variant("chart", {
+            planRow("ontime", variant("chart", {
                 layers: [variant("line", {
                     points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
                     axis: variant("left", null), breach: none, fold: variant("mean", null),
@@ -569,14 +569,14 @@ describe("Plan expand-in-place (R2)", () => {
                 variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
         }));
         // At rest the chart row draws its marks and prints its axis.
-        expect(container.querySelector(`${rowSel("cov")} [data-plan-mark="line"]`)).toBeTruthy();
-        expect(container.querySelector(`${rowSel("cov")} [data-plan-tickpx]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("ontime")} [data-plan-mark="line"]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`)).toBeTruthy();
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         // R2 — values RE-ENCODE: the strip is a tone strip, so there is no SVG
         // to squash and no value axis to label in 16px — the ticks go with it.
-        expect(container.querySelector(rowSel("cov"))!.hasAttribute("data-ctx")).toBe(true);
-        expect(container.querySelector(`${rowSel("cov")} [data-plan-mark="line"]`)).toBeNull();
-        expect(container.querySelector(`${rowSel("cov")} [data-plan-tickpx]`)).toBeNull();
+        expect(container.querySelector(rowSel("ontime"))!.hasAttribute("data-ctx")).toBe(true);
+        expect(container.querySelector(`${rowSel("ontime")} [data-plan-mark="line"]`)).toBeNull();
+        expect(container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`)).toBeNull();
         // R1 — the span bar is still there, still positioned, flagged for 7px.
         const bar = container.querySelector(`${rowSel("s")} [data-run="r1"]`) as HTMLElement;
         expect(bar).toBeTruthy();
@@ -595,7 +595,7 @@ describe("Plan expand-in-place (R2)", () => {
         // suddenly printed its ref label, and the ticks drifted down the tall
         // gutter cell. All three read the band now.
         const { container } = renderPlan(planRoot([
-            planRow("cov", variant("chart", {
+            planRow("ontime", variant("chart", {
                 layers: [
                     variant("line", {
                         points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
@@ -618,16 +618,16 @@ describe("Plan expand-in-place (R2)", () => {
         }), "plan-591-chart-band");
         // The plot SVG is the one holding the line — the gutter's control
         // icon is an SVG too.
-        const plotSvg = () => container.querySelector(`${rowSel("cov")} [data-plan-mark="line"]`)!.closest("svg")!;
-        const tick = () => container.querySelector(`${rowSel("cov")} [data-plan-tickpx]`)!;
+        const plotSvg = () => container.querySelector(`${rowSel("ontime")} [data-plan-mark="line"]`)!.closest("svg")!;
+        const tick = () => container.querySelector(`${rowSel("ontime")} [data-plan-tickpx]`)!;
         // At rest: a 32px spark. The scale's floor sits at the 4px pad + the
         // 24px inner height = 28px; too shallow for the ref label.
         expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 32");
         expect(tick().getAttribute("data-plan-tickpx")).toBe("28");
         expect(screen.queryByText("TARGET 100")).toBeNull();
 
-        fireEvent.click(container.querySelector(`${rowSel("cov")} [data-plan-control="expand"]`)!);
-        const focal = container.querySelector(rowSel("cov")) as HTMLElement;
+        fireEvent.click(container.querySelector(`${rowSel("ontime")} [data-plan-control="expand"]`)!);
+        const focal = container.querySelector(rowSel("ontime")) as HTMLElement;
         expect(focal.hasAttribute("data-expanded")).toBe(true);
         expect(focal.querySelector("[data-plan-expandrender]")).toBeTruthy();
         // The ROW grew (32 + 240); the band did not — and the plot, the tick

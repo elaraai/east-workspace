@@ -370,16 +370,16 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
                 read(): { range: { value: { value: { from: Date; to: Date } } } };
             };
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            axis: variant("ordinal", { values: ["INTAKE", "PREP", "BUILD", "QC", "PACK", "SHIP"], now: some("BUILD") }),
+            axis: variant("ordinal", { values: ["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"], now: some("PRINT") }),
             slice: some({ slice: handle, affordances: [variant("brush", null)] }),
         }), "plan-631-ordinal");
-        expect(ticks(container)).toEqual(["INTAKE", "PREP", "BUILD", "QC", "PACK", "SHIP"]);
+        expect(ticks(container)).toEqual(["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"]);
         expect(screen.getByText("NOW")).toBeTruthy();
         expect(container.querySelector("[data-slot='horizon']")).toBeNull();
         expect(container.querySelector("[data-brush-track]")).toBeNull();
         const before = handle.read().range.value.value.from.getTime();
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
         expect(handle.read().range.value.value.from.getTime()).toBe(before);
-        expect(ticks(container)[0]).toBe("INTAKE");
+        expect(ticks(container)[0]).toBe("PREPRESS");
     });
 });

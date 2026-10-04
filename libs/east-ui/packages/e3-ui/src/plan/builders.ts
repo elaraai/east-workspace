@@ -385,12 +385,12 @@ export const createAxis: PlanAxisBuilder = Object.assign(
 /**
  * How a quantity prints — see {@link Plan.quantity}.
  *
- * @property unit - The unit it is in (`"t"`); quantities in different units never sum together
+ * @property unit - The unit it is in (`"k sheets"`); quantities in different units never sum together
  * @property format - How the value prints (a `Format.*` spec); omit ⇒ the canvas's plain number
  * @property text - The caption to print instead of the formatted value and unit
  */
 export interface PlanQuantityOptions {
-    /** The unit the value is in (`"t"`) — printed after it, and what a rollup sums by. */
+    /** The unit the value is in (`"k sheets"`) — printed after it, and what a rollup sums by. */
     unit?: SubtypeExprOrValue<StringType>;
     /** How the value prints — a `Format.*` spec (the shared `TickFormatType`), in the viewer's locale. */
     format?: SubtypeExprOrValue<TickFormatType>;
@@ -431,8 +431,8 @@ export function createQuantity(
  * @property key - Stable run identity (drag refs, link edges)
  * @property start - Run start (inclusive) — an instant input (a Date / number / string, or a typed expression)
  * @property end - Run end (exclusive)
- * @property label - The bar text (`"RUN · B-214"`)
- * @property quantity - Optional quantity (`Plan.quantity(96, { unit: "t" })`) — printed after the label, summed into rollup bands per unit
+ * @property label - The bar text (`"RUN · J-4642"`)
+ * @property quantity - Optional quantity (`Plan.quantity(96, { unit: "k sheets" })`) — printed after the label, summed into rollup bands per unit
  * @property state - The lifecycle state (string shorthand or `EventStateType`)
  * @property status - Optional status tint (`"warning"` ⇒ the over-dwell ring)
  * @property moved - Optional same-status churn counter (`moved ×k`)
@@ -445,9 +445,9 @@ export interface PlanRunInput<S extends PlanInstantInput = PlanInstantInput, E e
     start: S;
     /** Run end (exclusive). */
     end: E;
-    /** The bar text (`"RUN · B-214"`). */
+    /** The bar text (`"RUN · J-4642"`). */
     label: SubtypeExprOrValue<StringType>;
-    /** Optional quantity — `Plan.quantity(96, { unit: "t" })`: the bar prints its caption after the label
+    /** Optional quantity — `Plan.quantity(96, { unit: "k sheets" })`: the bar prints its caption after the label
      *  (the muted `.q` text), and a parent's rollup band sums it with its siblings' in the same unit. */
     quantity?: SubtypeExprOrValue<PlanQuantityType>;
     /** The lifecycle state — a string shorthand or an `EventStateType` value. */
@@ -525,12 +525,12 @@ export function createDecision<A extends PlanInstantInput>(input: PlanDecisionIn
  *
  * @typeParam A - The `at` input's type — its axis kind brands the result
  * @property at - The instant the quantity moves
- * @property label - Optional caption (`"−24 t"`)
+ * @property label - Optional caption (`"−24 k sheets"`)
  */
 export interface PlanPortInput<A extends PlanInstantInput = PlanInstantInput> {
     /** The instant the quantity moves (see {@link PlanInstantLikeType}). */
     at: A;
-    /** Optional caption (`"−24 t"`). */
+    /** Optional caption (`"−24 k sheets"`). */
     label?: SubtypeExprOrValue<StringType>;
 }
 
@@ -655,8 +655,8 @@ export function createLane(input: PlanLaneInput): ExprType<PlanLaneType> {
 }
 
 /**
- * A row's id by its series and path — `Plan.ref("machine-jobs", "L1", "m03")`
- * is the row series `machine-jobs` made from entry `m03` under `L1` (#822).
+ * A row's id by its series and path — `Plan.ref("press-jobs", "H1", "p03")`
+ * is the row series `press-jobs` made from entry `p03` under `H1` (#822).
  * What `links` name their ends with, and what a callback's row compares to.
  *
  * @remarks
@@ -676,8 +676,8 @@ export function createRef(
 }
 
 /**
- * A section header's id — `Plan.sectionRef("crew-block", "L1")` is the
- * `crew-block` section's header under entry `L1`; a top-level section's path
+ * A section header's id — `Plan.sectionRef("crew-block", "H1")` is the
+ * `crew-block` section's header under entry `H1`; a top-level section's path
  * is empty (#822).
  *
  * @param series - The section's series key
@@ -743,7 +743,7 @@ export function createUiState(init?: PlanUiStateInput): ExprType<PlanUiStateType
  * @property fromRun - The source run key (the ribbon leaves this run's end edge)
  * @property to - The destination row's id
  * @property toRun - The destination run key (the ribbon lands on this run's start edge)
- * @property quantity - The moved quantity (`Plan.quantity(34, { unit: "t" })`) — the ribbon's share, opacity and caption
+ * @property quantity - The moved quantity (`Plan.quantity(34, { unit: "k sheets" })`) — the ribbon's share, opacity and caption
  */
 export interface PlanLinkInput {
     /** The link's identity — what the `link` element ref a ribbon click reports names it by (#824). */
@@ -756,7 +756,7 @@ export interface PlanLinkInput {
     to: SubtypeExprOrValue<PlanRowIdType>;
     /** The destination run key (the ribbon lands on this run's start edge). */
     toRun: SubtypeExprOrValue<StringType>;
-    /** The moved quantity — `Plan.quantity(34, { unit: "t" })`: its value weighs the ribbon's share of the
+    /** The moved quantity — `Plan.quantity(34, { unit: "k sheets" })`: its value weighs the ribbon's share of the
      *  family's largest, and its caption prints on the ribbon. Omit ⇒ the faintest ribbon, no caption. */
     quantity?: SubtypeExprOrValue<PlanQuantityType>;
 }

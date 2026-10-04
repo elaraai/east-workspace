@@ -77,7 +77,7 @@ function spanText(scale: PlanScale, from: RunValue["start"], to: RunValue["end"]
  * @param run - The run
  * @param scale - The shared scale
  * @param w - The canvas's words
- * @returns `B-214, Jun 29, 2026 – Jul 27, 2026, actual, 96 t`
+ * @returns `J-4642, Jun 29, 2026 – Jul 27, 2026, actual, 96 k sheets`
  */
 export function runName(run: RunValue, scale: PlanScale, w: PlanWords): string {
     const moved = run.moved.type === "some" ? Number(run.moved.value) : 0;
@@ -113,7 +113,7 @@ export function decisionName(dec: DecisionValue, scale: PlanScale, w: PlanWords)
  * @param lane - Its lane's caption, when the lane has one
  * @param scale - The shared scale
  * @param w - The canvas's words
- * @returns `Pour, Week of Jul 6, 2026, AM, proposed`
+ * @returns `Proof, Week of Jul 6, 2026, AM, proposed`
  */
 export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string | undefined, scale: PlanScale, w: PlanWords): string {
     return w.m.tileName({
@@ -131,7 +131,7 @@ export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string 
  * @param chip - The chip
  * @param scale - The shared scale
  * @param w - The canvas's words
- * @returns `D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed`
+ * @returns `CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed`
  */
 export function chipName(chip: ChipValue, scale: PlanScale, w: PlanWords): string {
     return w.m.chipName({ label: chip.label, span: spanText(scale, chip.from, chip.to, w), state: stateText(chip.state, w) });

@@ -108,7 +108,7 @@ describe('planScale — time axis', () => {
         it('an instant of ANOTHER arm positions nowhere (#631)', () => {
             expect(Number.isNaN(scale.fracOf(n(3)))).toBe(true);
             expect(scale.bucketOf(n(3))).toBe(-1);
-            expect(scale.bucketOf(o("PREP"))).toBe(-1);
+            expect(scale.bucketOf(o("PLATES"))).toBe(-1);
             expect(scale.renderBucketOf(n(3))).toBeUndefined();
             expect(scale.snap(n(3))).toEqual(n(3));
         });
@@ -413,7 +413,7 @@ describe('planScale — number axis (#631)', () => {
         expect(scale.nowFrac).toBeCloseTo(0.5, 10);
         expect(num(1, 9, 1, 12).nowFrac).toBeUndefined();
         expect(Number.isNaN(scale.fracOf(t("2026-06-29T00:00:00Z")))).toBe(true);
-        expect(scale.bucketOf(o("PREP"))).toBe(-1);
+        expect(scale.bucketOf(o("PLATES"))).toBe(-1);
         expect(scale.renderBucketOf(t("2026-06-29T00:00:00Z"))).toBeUndefined();
     });
 
@@ -445,7 +445,7 @@ describe('planScale — number axis (#631)', () => {
 });
 
 describe('planScale — ordinal axis (#631)', () => {
-    const PH = ["INTAKE", "PREP", "BUILD", "QC", "PACK", "SHIP"];
+    const PH = ["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"];
     const ord = (now?: string) => planScale({ kind: "ordinal", values: PH, now })!;
 
     it('the declared list IS the axis — one bucket per value, in order, labelled by it', () => {
@@ -454,21 +454,21 @@ describe('planScale — ordinal axis (#631)', () => {
         expect(scale.resolution).toBeUndefined();
         expect(scale.n).toBe(6);
         expect(scale.buckets.map(b => b.label)).toEqual(PH);
-        expect(scale.buckets[2]!.start).toEqual(o("BUILD"));
-        expect(scale.buckets[2]!.end).toEqual(o("BUILD"));         // the bucket IS its value
+        expect(scale.buckets[2]!.start).toEqual(o("PRINT"));
+        expect(scale.buckets[2]!.end).toEqual(o("PRINT"));         // the bucket IS its value
         expect(scale.buckets[2]!.x0).toBeCloseTo(2 / 6, 10);
         expect(scale.buckets[5]!.x1).toBe(1);
-        expect(scale.window).toEqual({ min: o("INTAKE"), max: o("SHIP") });
+        expect(scale.window).toEqual({ min: o("PREPRESS"), max: o("DELIVER") });
     });
 
     it('an instant is its bucket; an interval END names its LAST bucket (inclusive)', () => {
         const scale = ord();
-        expect(scale.fracOf(o("BUILD"))).toBeCloseTo(2 / 6, 10);
-        expect(scale.endFracOf(o("BUILD"))).toBeCloseTo(3 / 6, 10);
-        expect(scale.bucketOf(o("QC"))).toBe(3);
-        expect(scale.xOf(o("SHIP"))).toBeCloseTo(5 / 6, 10);
-        // [PREP, QC] covers PREP, BUILD, QC — three columns.
-        expect(scale.endFracOf(o("QC")) - scale.fracOf(o("PREP"))).toBeCloseTo(3 / 6, 10);
+        expect(scale.fracOf(o("PRINT"))).toBeCloseTo(2 / 6, 10);
+        expect(scale.endFracOf(o("PRINT"))).toBeCloseTo(3 / 6, 10);
+        expect(scale.bucketOf(o("FINISH"))).toBe(3);
+        expect(scale.xOf(o("DELIVER"))).toBeCloseTo(5 / 6, 10);
+        // [PLATES, FINISH] covers PLATES, PRINT, FINISH — three columns.
+        expect(scale.endFracOf(o("FINISH")) - scale.fracOf(o("PLATES"))).toBeCloseTo(3 / 6, 10);
     });
 
     it('a value outside the list positions nowhere; off-arm instants too', () => {
@@ -480,23 +480,23 @@ describe('planScale — ordinal axis (#631)', () => {
     });
 
     it('now names a phase; the list overscans nothing; offsets walk the list and clamp', () => {
-        const scale = ord("BUILD");
+        const scale = ord("PRINT");
         expect(scale.nowFrac).toBeCloseTo(2 / 6, 10);
         expect(ord("DONE").nowFrac).toBeUndefined();
         expect(scale.renderMin).toBe(0);
         expect(scale.renderMax).toBe(1);
-        expect(scale.renderBucketOf(o("PACK"))).toBe(scale.buckets[4]);
-        expect(scale.offset(o("PREP"), 2)).toEqual(o("QC"));
-        expect(scale.floor(o("QC"))).toEqual(o("QC"));
-        expect(scale.fromNumber(99)).toEqual(o("SHIP"));
-        expect(scale.toNumber(o("PACK"))).toBe(4);
-        expect(scale.snap(o("QC"))).toEqual(o("QC"));
+        expect(scale.renderBucketOf(o("BIND"))).toBe(scale.buckets[4]);
+        expect(scale.offset(o("PLATES"), 2)).toEqual(o("FINISH"));
+        expect(scale.floor(o("FINISH"))).toEqual(o("FINISH"));
+        expect(scale.fromNumber(99)).toEqual(o("DELIVER"));
+        expect(scale.toNumber(o("BIND"))).toBe(4);
+        expect(scale.snap(o("FINISH"))).toEqual(o("FINISH"));
     });
 
     it('an instant and a bucket are their value in words (#819)', () => {
         const scale = ord();
-        expect(scale.instantText(o("QC"))).toBe("QC");
-        expect(scale.bucketText(scale.buckets[1]!)).toBe("PREP");
+        expect(scale.instantText(o("FINISH"))).toBe("FINISH");
+        expect(scale.bucketText(scale.buckets[1]!)).toBe("PLATES");
         expect(scale.instantText(o("DONE"))).toBe("");
     });
 

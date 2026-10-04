@@ -38,7 +38,7 @@ function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
 const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
 
 /** A decoded quantity — a value in a unit, printed plainly (#824). */
-const qty = (value: number, unit: string = "t") => ({ value, unit: some(unit), format: none, text: none });
+const qty = (value: number, unit: string = "k sheets") => ({ value, unit: some(unit), format: none, text: none });
 /** A heat scale value — every bound `none` unless given. */
 const hscale = (min?: number, max?: number, warnAt?: number) => ({
     min: min !== undefined ? some(min) : none,
@@ -61,7 +61,7 @@ const W30 = new Date("2026-07-20T00:00:00Z");
 const W31 = new Date("2026-07-27T00:00:00Z");
 const W32 = new Date("2026-08-03T00:00:00Z");
 
-function mkRun(key: string, start: Date, end: Date, state: unknown, amount?: number, unit: string = "t") {
+function mkRun(key: string, start: Date, end: Date, state: unknown, amount?: number, unit: string = "k sheets") {
     return {
         key, start: t(start), end: t(end), label: key,
         quantity: amount !== undefined ? some(qty(amount, unit)) : none,
@@ -77,9 +77,9 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
             mkRun("rc", W31, W32, variant("proposed", variant("recommended", null)), 88),
         ], "union");
         expect(bands).toHaveLength(2);
-        expect(bands[0]).toMatchObject({ from: t(W27), to: t(W30), count: 2, quantity: "146 t" });
+        expect(bands[0]).toMatchObject({ from: t(W27), to: t(W30), count: 2, quantity: "146 k sheets" });
         expect((bands[0]!.state as { type: string }).type).toBe("confirmed");   // rank 2 < actual 3
-        expect(bands[1]).toMatchObject({ from: t(W31), to: t(W32), count: 1, quantity: "88 t" });
+        expect(bands[1]).toMatchObject({ from: t(W31), to: t(W32), count: 1, quantity: "88 k sheets" });
     });
 
     test("rejected runs are excluded; a member with no quantity suppresses the total", () => {
@@ -102,7 +102,7 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
         expect((bands[1]!.state as { type: string }).type).toBe("confirmed");
     });
 
-    test("quantities total UNIT BY UNIT — tonnes never add to hours; each total prints through its first member's format (#824)", () => {
+    test("quantities total UNIT BY UNIT — sheets never add to hours; each total prints through its first member's format (#824)", () => {
         const pct = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
         const bands = deriveBands([
             mkRun("ra", W27, W29, variant("confirmed", null), 96),
@@ -113,13 +113,13 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
         expect(bands).toHaveLength(1);
         // One total per unit, in the order the units first appear; `m` prints
         // through its member's one-decimal format, the rest plainly.
-        expect(bands[0]!.quantity).toBe("208 t · 12 h · 4.3 m");
+        expect(bands[0]!.quantity).toBe("208 k sheets · 12 h · 4.3 m");
         // A member's caption override is a caption — its value still totals.
         const told = deriveBands([
-            { ...mkRun("x", W27, W28, variant("confirmed", null)), quantity: some({ value: 24, unit: some("t"), format: none, text: some("−24 t") }) },
+            { ...mkRun("x", W27, W28, variant("confirmed", null)), quantity: some({ value: 24, unit: some("k sheets"), format: none, text: some("−24 k sheets") }) },
             mkRun("y", W27, W28, variant("confirmed", null), 6),
         ], "union");
-        expect(told[0]!.quantity).toBe("30 t");
+        expect(told[0]!.quantity).toBe("30 k sheets");
     });
 });
 
@@ -312,20 +312,20 @@ describe("Plan derived heat / table aggregates", () => {
     });
 
     test("ordinal cells derive in DECLARED order when the axis's index is given; without it, insertion order (#631)", () => {
-        const PH = new Map([["INTAKE", 0], ["PREP", 1], ["BUILD", 2], ["QC", 3]]);
+        const PH = new Map([["PREPRESS", 0], ["PLATES", 1], ["PRINT", 2], ["FINISH", 3]]);
         const cells = [
-            { at: o("QC"), value: some(4), label: none },
-            { at: o("PREP"), value: some(1), label: none },
-            { at: o("PREP"), value: some(3), label: none },
-            { at: o("INTAKE"), value: some(9), label: none },
+            { at: o("FINISH"), value: some(4), label: none },
+            { at: o("PLATES"), value: some(1), label: none },
+            { at: o("PLATES"), value: some(3), label: none },
+            { at: o("PREPRESS"), value: some(9), label: none },
         ] as unknown as Parameters<typeof deriveHeatCells>[0];
         expect(deriveHeatCells(cells, "mean", PH).map((c) => (c.at.type === "ordinal" ? c.at.value : "?")))
-            .toEqual(["INTAKE", "PREP", "QC"]);
+            .toEqual(["PREPRESS", "PLATES", "FINISH"]);
         expect(deriveHeatCells(cells, "mean", PH)[1]).toMatchObject({ value: some(2) });
         // The ledger's height measure derives without the axis — order is
         // insertion, the numbers are the same.
         expect(deriveHeatCells(cells, "mean").map((c) => (c.at.type === "ordinal" ? c.at.value : "?")))
-            .toEqual(["QC", "PREP", "INTAKE"]);
+            .toEqual(["FINISH", "PLATES", "PREPRESS"]);
         // Number instants order numerically, no map needed.
         const nums = [
             { at: n(3), value: some(1), text: none, tone: none },
@@ -335,21 +335,21 @@ describe("Plan derived heat / table aggregates", () => {
     });
 
     test("ordinal rollup bands close on the END's own bucket — an end names its last bucket (#631)", () => {
-        const PH = new Map([["INTAKE", 0], ["PREP", 1], ["BUILD", 2], ["QC", 3], ["PACK", 4]]);
+        const PH = new Map([["PREPRESS", 0], ["PLATES", 1], ["PRINT", 2], ["FINISH", 3], ["BIND", 4]]);
         const run = (key: string, start: string, end: string) => ({
             key, start: o(start), end: o(end), label: key,
             quantity: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
         }) as unknown as Parameters<typeof deriveBands>[0][number];
-        // [INTAKE, PREP] and [BUILD, QC] touch at the PREP|BUILD edge — on a
-        // half-open axis they would merge; with inclusive ends PREP is covered
-        // by the first run, so BUILD starts a NEW band.
-        const bands = deriveBands([run("a", "INTAKE", "PREP"), run("b", "BUILD", "QC")], "union", PH);
+        // [PREPRESS, PLATES] and [PRINT, FINISH] touch at the PLATES|PRINT edge — on a
+        // half-open axis they would merge; with inclusive ends PLATES is covered
+        // by the first run, so PRINT starts a NEW band.
+        const bands = deriveBands([run("a", "PREPRESS", "PLATES"), run("b", "PRINT", "FINISH")], "union", PH);
         expect(bands).toHaveLength(2);
-        expect(bands[0]).toMatchObject({ from: o("INTAKE"), to: o("PREP") });
-        // [INTAKE, BUILD] and [BUILD, QC] share BUILD — one band, ×2.
-        const merged = deriveBands([run("a", "INTAKE", "BUILD"), run("b", "BUILD", "QC")], "union", PH);
+        expect(bands[0]).toMatchObject({ from: o("PREPRESS"), to: o("PLATES") });
+        // [PREPRESS, PRINT] and [PRINT, FINISH] share PRINT — one band, ×2.
+        const merged = deriveBands([run("a", "PREPRESS", "PRINT"), run("b", "PRINT", "FINISH")], "union", PH);
         expect(merged).toHaveLength(1);
-        expect(merged[0]).toMatchObject({ from: o("INTAKE"), to: o("QC"), count: 2 });
+        expect(merged[0]).toMatchObject({ from: o("PREPRESS"), to: o("FINISH"), count: 2 });
     });
 
     test("axisKindMismatches names every row whose instants ride another arm (#631)", () => {
@@ -360,7 +360,7 @@ describe("Plan derived heat / table aggregates", () => {
         const rows = [
             trow("ok", undefined, heat(n(2))),
             trow("bad", undefined, heat(t(W27))),
-            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("QC"), kind: variant("milestone", null), icon: none, label: none }] })),
+            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("FINISH"), kind: variant("milestone", null), icon: none, label: none }] })),
             trow("empty", undefined, variant("events", { marks: [] })),
         ];
         expect(axisKindMismatches(indexRows(rows), "number")).toEqual([
@@ -488,14 +488,14 @@ describe("Plan derivations at scale (#810)", () => {
         expect(strip.value.cells).toEqual([expect.objectContaining({ value: some(50) })]);
     });
 
-    test("derived numbers print through the shared formatter (en-US): a heat mean labels 0.787, a band total captions 1,234.5 t", () => {
+    test("derived numbers print through the shared formatter (en-US): a heat mean labels 0.787, a band total captions 1,234.5 k sheets", () => {
         const mean = deriveHeatCells([0.82, 0.64, 0.9].map((v) => ({ at: t(W27), value: some(v), label: none })) as unknown as Parameters<typeof deriveHeatCells>[0], "mean");
         expect(mean[0]!.label).toEqual(some("0.787"));      // was "1" — `toFixed(0)`
         const bands = deriveBands([
             mkRun("ra", W27, W29, variant("confirmed", null), 1000),
             mkRun("rb", W28, W30, variant("confirmed", null), 234.5),
         ], "union");
-        expect(bands[0]!.quantity).toBe("1,234.5 t");       // was "1235 t"
+        expect(bands[0]!.quantity).toBe("1,234.5 k sheets");       // was "1235 k sheets"
     });
 });
 
@@ -538,8 +538,8 @@ describe("Plan diagnostic rows (#811)", () => {
             ["h2", { kind: "axis", found: "time", expected: "number" }],
             ["h4", { kind: "axis", found: "time", expected: "number" }],
         ]);
-        // The rollup band is the placeable child's alone — not "12 t".
-        expect(derived.bands.get("p")).toEqual([expect.objectContaining({ from: n(1), to: n(3), count: 1, quantity: "5 t" })]);
+        // The rollup band is the placeable child's alone — not "12 k sheets".
+        expect(derived.bands.get("p")).toEqual([expect.objectContaining({ from: n(1), to: n(3), count: 1, quantity: "5 k sheets" })]);
         // The aggregate has one bucket on the axis, not a second at a time instant.
         expect(derived.heatArms.get("hp")!.value.cells).toEqual([expect.objectContaining({ at: n(1), value: some(10) })]);
         // The strip and its inherited scale come from the placeable member only.
@@ -590,8 +590,8 @@ describe("Plan diagnostic rows (#811)", () => {
         expect([...derived.diagnostics]).toEqual([
             [`${rowKey("c")}#1`, { kind: "duplicate", of: rowKey("c") }],
         ]);
-        // The rollup is the first c's runs alone — the repeat's 7 t is not in it.
-        expect(derived.bands.get(rowKey("p"))).toEqual([expect.objectContaining({ from: n(1), to: n(3), quantity: "5 t" })]);
+        // The rollup is the first c's runs alone — the repeat's 7 k sheets is not in it.
+        expect(derived.bands.get(rowKey("p"))).toEqual([expect.objectContaining({ from: n(1), to: n(3), quantity: "5 k sheets" })]);
         // A repeat is diagnosed with or without an axis kind: it is never a
         // second row answering to one id.
         expect(derivePlan(indexRows(rows)).diagnostics.size).toBe(1);

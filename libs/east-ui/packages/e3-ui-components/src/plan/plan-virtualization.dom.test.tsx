@@ -471,17 +471,17 @@ function stubScrollTo(notify: boolean): () => void {
 }
 
 describe("the sticky parent (#823)", () => {
-    // Line 1 holds a cell of forty machines — a parent inside a parent — and
-    // line 2 ten. A band is 26px, a machine 32px.
+    // Hall 1 holds a cell of forty presses — a parent inside a parent — and
+    // hall 2 ten. A band is 26px, a press 32px.
     const rows = () => [
-        planRow("L1", group()),
-        planRow("L1a", group(), { parent: "L1" }),
-        ...Array.from({ length: 40 }, (_u, i) => planRow(`L1a-m${pad(i, 2)}`, span(), { parent: "L1a" })),
-        planRow("L2", group()),
-        ...Array.from({ length: 10 }, (_u, i) => planRow(`L2-m${pad(i, 2)}`, span(), { parent: "L2" })),
+        planRow("H1", group()),
+        planRow("H1a", group(), { parent: "H1" }),
+        ...Array.from({ length: 40 }, (_u, i) => planRow(`H1a-p${pad(i, 2)}`, span(), { parent: "H1a" })),
+        planRow("H2", group()),
+        ...Array.from({ length: 10 }, (_u, i) => planRow(`H2-p${pad(i, 2)}`, span(), { parent: "H2" })),
     ];
-    const INSIDE_L1A = 2 * 26 + 10 * 32 + 5;
-    const L2_TOP = 2 * 26 + 40 * 32;
+    const INSIDE_H1A = 2 * 26 + 10 * 32 + 5;
+    const H2_TOP = 2 * 26 + 40 * 32;
     // A scroll it asks for is clamped to the frame's scroll height, which
     // jsdom reports as 0: the frame scrolls as far as it is asked.
     const realScrollHeight = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!;
@@ -502,35 +502,35 @@ describe("the sticky parent (#823)", () => {
     for (const arm of ["inline", "paged"] as const) {
         test(`${arm}: scrolled inside a parent whose band has gone, the band pins with its ancestors — and a click goes to it`, async () => {
             const all = rows();
-            // Paged, both lines are entries of one window.
+            // Paged, both halls are entries of one window.
             const source = {
                 id: "dom-823-sticky", page: (offset: bigint) => (offset === 0n ? some(all) : some([])),
                 total: () => some(2n), seek: none, revision: () => none, refresh: () => null,
             };
             const { container } = renderPlan(
                 planRoot(all, { height: "400px", ...(arm === "paged" ? { source } : {}) }), `plan-823-sticky-${arm}`);
-            await waitFor(() => expect(container.querySelector(rowSel("L1", "data-plan-group"))).toBeTruthy());
-            // At the top, the first row is line 1's own band: nothing to pin.
+            await waitFor(() => expect(container.querySelector(rowSel("H1", "data-plan-group"))).toBeTruthy());
+            // At the top, the first row is hall 1's own band: nothing to pin.
             expect(sticky(container)).toBeNull();
-            // Ten machines into the cell: its band and line 1's have scrolled
+            // Ten presses into the cell: its band and hall 1's have scrolled
             // off. The strip names the cell, after the path down to it.
-            scrollFrame(container, INSIDE_L1A);
+            scrollFrame(container, INSIDE_H1A);
             const strip = sticky(container)!;
-            expect(strip.getAttribute("data-plan-sticky")).toBe(rowKey("L1a"));
-            expect([...strip.querySelectorAll("span")].map((x) => x.textContent)).toEqual(["L1", "L1a"]);
+            expect(strip.getAttribute("data-plan-sticky")).toBe(rowKey("H1a"));
+            expect([...strip.querySelectorAll("span")].map((x) => x.textContent)).toEqual(["H1", "H1a"]);
             expect(strip.getAttribute("aria-hidden")).toBe("true");
-            // Line 2's own band at the top: nothing to pin; inside it, line 2.
-            scrollFrame(container, L2_TOP);
+            // Hall 2's own band at the top: nothing to pin; inside it, hall 2.
+            scrollFrame(container, H2_TOP);
             expect(sticky(container)).toBeNull();
-            scrollFrame(container, L2_TOP + 26 + 3 * 32);
-            expect(sticky(container)!.getAttribute("data-plan-sticky")).toBe(rowKey("L2"));
+            scrollFrame(container, H2_TOP + 26 + 3 * 32);
+            expect(sticky(container)!.getAttribute("data-plan-sticky")).toBe(rowKey("H2"));
             // A click on the strip goes to its parent's row: the cell's band is
-            // at the top of the view — and line 1, off the top above it, pins.
-            scrollFrame(container, INSIDE_L1A);
+            // at the top of the view — and hall 1, off the top above it, pins.
+            scrollFrame(container, INSIDE_H1A);
             fireEvent.click(sticky(container)!);
             await waitFor(() => expect(frameOf(container).scrollTop).toBe(26));
-            expect(sticky(container)!.getAttribute("data-plan-sticky")).toBe(rowKey("L1"));
-            expect([...sticky(container)!.querySelectorAll("span")].map((x) => x.textContent)).toEqual(["L1"]);
+            expect(sticky(container)!.getAttribute("data-plan-sticky")).toBe(rowKey("H1"));
+            expect([...sticky(container)!.querySelectorAll("span")].map((x) => x.textContent)).toEqual(["H1"]);
         });
     }
 });
@@ -601,7 +601,7 @@ describe("a link into an evicted window (#823, #818)", () => {
     // A row of window 7 feeds a row of window 1.
     const links = [{
         key: "w7>w1", from: { row: rowId("w0007r000"), run: "x" }, to: { row: rowId("w0001r000"), run: "x" },
-        quantity: some({ value: 5, unit: some("t"), format: none, text: none }),
+        quantity: some({ value: 5, unit: some("k sheets"), format: none, text: none }),
     }];
     /** A triangle's tip — its second vertex. */
     const tipOf = (d: string): [number, number] => {

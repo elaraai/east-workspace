@@ -101,7 +101,7 @@ test.describe("Plan geometry (#817)", () => {
         // (Layout boxes, which is all this measures, are not clipped.)
         const toggleChart = () => chart.locator("> :first-child").dispatchEvent("click");
         // A one-line span row — the shared row, which density sets.
-        const spanRow = entry.locator(rowSel("mach", "m04"));
+        const spanRow = entry.locator(rowSel("press", "p04"));
         const rowAt: Record<string, number> = {};
         for (const density of ["COMFORTABLE", "CONDENSED", "COMPACT"]) {
             await entry.getByText(density, { exact: true }).click();
@@ -197,25 +197,25 @@ test.describe("Plan link ribbons (#818)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     /** planSpanRows' rows the links join — each its series and path. */
-    const M07 = rowSel("flavours", "L1-M07");
-    const M09 = rowSel("detail", "L1-M09");
-    const M03 = rowSel("rollup", "Program A", "L1-M03");
-    const M11 = rowSel("rollup", "Program A", "L2-M11");
-    const DSP = rowSel("despatch", "dsp");
+    const P07 = rowSel("flavours", "H1-P07");
+    const P09 = rowSel("detail", "H1-P09");
+    const P03 = rowSel("rollup", "Contract A", "H1-P03");
+    const P11 = rowSel("rollup", "Contract A", "H2-P11");
+    const DLV = rowSel("delivery", "dlv");
     /** planSpanRows' six links, in order: [from row, run, to row, run], each
      *  row by its selector. Every routing case is among them — forward, the
-     *  loopbacks, a same-row feed, and a landing past the window (dsp's run
+     *  loopbacks, a same-row feed, and a landing past the window (dlv's run
      *  starts where it ends). */
     const LINKS = [
-        [M07, "run", M09, "a"], [M09, "a", M09, "b"], [M09, "b", M03, "b221"],
-        [M03, "b214", M11, "b241"], [M11, "b241", M09, "b"], [M09, "b", DSP, "d1"],
+        [P07, "run", P09, "a"], [P09, "a", P09, "b"], [P09, "b", P03, "j4663"],
+        [P03, "j4642", P11, "j4723"], [P11, "j4723", P09, "b"], [P09, "b", DLV, "d1"],
     ];
 
-    /** Focus L1-M09's links — every link above touches its family — and let
+    /** Focus H1-P09's links — every link above touches its family — and let
      *  the focused canvas come to rest. */
     async function focusLinks(page: Page): Promise<Locator> {
         const entry = await openExample(page, "planSpanRows");
-        await entry.locator(`${M09} [data-plan-control="links"]`).click();
+        await entry.locator(`${P09} [data-plan-control="links"]`).click();
         await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(LINKS.length);
         await settled(page);
         return entry;
@@ -264,7 +264,7 @@ test.describe("Plan link ribbons (#818)", () => {
         const g = entry.locator('[data-plan-link="2"]');
         await expect(g).toHaveAttribute("data-lit", "");
         await expect(g.locator("[data-plan-linkend]")).toHaveCount(2);
-        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("88 t");
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("88 k sheets");
         // Off the band: it dims again.
         await page.mouse.move(at.x, at.y + 40);
         await expect(g).not.toHaveAttribute("data-lit", "");
@@ -273,56 +273,56 @@ test.describe("Plan link ribbons (#818)", () => {
 
 /**
  * A bound ui state (#824), in a real layout: `planUiState`'s host folds and
- * opens its lines and expands its chart from outside, its picker brings a
- * machine into view — opening the line the machine sits in, selecting it and
+ * opens its halls and expands its chart from outside, its picker brings a
+ * press into view — opening the hall the press sits in, selecting it and
  * scrolling to it — and the host's readout follows what the user does on the
  * canvas.
  */
 test.describe("Plan bound ui state (#824)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    /** A line's group band. */
-    const band = (entry: Locator, line: string) =>
-        entry.locator(`[data-plan-group=${JSON.stringify(rowId("lines", line))}]`);
+    /** A hall's group band. */
+    const band = (entry: Locator, hall: string) =>
+        entry.locator(`[data-plan-group=${JSON.stringify(rowId("halls", hall))}]`);
 
-    test("outside writes fold, open and expand; the picker brings a folded machine into view; the user's own actions come back", async ({ page }) => {
+    test("outside writes fold, open and expand; the picker brings a folded press into view; the user's own actions come back", async ({ page }) => {
         const entry = await openExample(page, "planUiState");
         const readout = entry.getByText(/^SELECTED · /);
-        // Line 3 starts folded — the host's seed.
-        await expect(band(entry, "Line 3")).toHaveAttribute("aria-expanded", "false");
-        await expect(entry.locator(rowSel("machines", "Line 3", "L3-M21"))).toHaveCount(0);
+        // Hall 3 starts folded — the host's seed.
+        await expect(band(entry, "Hall 3")).toHaveAttribute("aria-expanded", "false");
+        await expect(entry.locator(rowSel("presses", "Hall 3", "H3-P21"))).toHaveCount(0);
         await expect(readout).toHaveText("SELECTED · nothing · 1 FOLDED · 0 OPENED");
 
-        // The host opens every line, then folds them all.
-        await entry.getByRole("button", { name: "Open lines" }).click();
-        await expect(band(entry, "Line 3")).toHaveAttribute("aria-expanded", "true");
+        // The host opens every hall, then folds them all.
+        await entry.getByRole("button", { name: "Open halls" }).click();
+        await expect(band(entry, "Hall 3")).toHaveAttribute("aria-expanded", "true");
         await expect(readout).toHaveText("SELECTED · nothing · 0 FOLDED · 3 OPENED");
-        await entry.getByRole("button", { name: "Fold lines" }).click();
+        await entry.getByRole("button", { name: "Fold halls" }).click();
         await expect(entry.locator("[data-plan-group][aria-expanded='true']")).toHaveCount(0);
         await expect(readout).toHaveText("SELECTED · nothing · 3 FOLDED · 0 OPENED");
 
         // The host expands the chart: the spark grows, at its model height.
-        const chart = entry.locator(rowSel("kpi", "coverage"));
+        const chart = entry.locator(rowSel("kpi", "ontime"));
         const rest = await chart.getAttribute("data-plan-h") ?? "";
-        await entry.getByRole("button", { name: "Coverage chart" }).click();
+        await entry.getByRole("button", { name: "On-time chart" }).click();
         await expect(chart).not.toHaveAttribute("data-plan-h", rest);
         await expect.poll(() => mismatches(entry), "chart expanded").toEqual([]);
 
-        // The user opens Line 2 on the canvas: the host reads it back.
-        await band(entry, "Line 2").click();
+        // The user opens Hall 2 on the canvas: the host reads it back.
+        await band(entry, "Hall 2").click();
         await expect(readout).toHaveText("SELECTED · nothing · 2 FOLDED · 1 OPENED");
 
-        // The picker: Line 3's machine is selected, its line opened, and it is in view.
+        // The picker: Hall 3's press is selected, its hall opened, and it is in view.
         await entry.getByRole("combobox").click();
-        await page.getByRole("option", { name: "Go to L3-M21" }).click();
-        const target = entry.locator(rowSel("machines", "Line 3", "L3-M21"));
+        await page.getByRole("option", { name: "Go to H3-P21" }).click();
+        const target = entry.locator(rowSel("presses", "Hall 3", "H3-P21"));
         await expect(target).toHaveAttribute("data-selected", "");
         await expect(readout).toHaveText(/ · 1 FOLDED · 2 OPENED$/);
         const inView = () => entry.evaluate((root, sel) => {
             const frame = root.querySelector('[data-virtual-rows="bounded"]')!.getBoundingClientRect();
             const row = root.querySelector(sel)!.getBoundingClientRect();
             return row.top >= frame.top && row.bottom <= frame.bottom;
-        }, rowSel("machines", "Line 3", "L3-M21"));
+        }, rowSel("presses", "Hall 3", "H3-P21"));
         await expect.poll(inView).toBe(true);
         await expect.poll(() => mismatches(entry), "after the focus").toEqual([]);
     });

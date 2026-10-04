@@ -130,7 +130,7 @@ function planPickOptions(
  * The list is the layout (#822): the canvas shows the series still switched
  * on, in the order they are listed, one block each — so the order written here
  * is the order on screen. A section, a group or a views series is the unit a
- * person picks — "add Machines" — and hiding one takes its whole subtree with
+ * person picks — "add Presses" — and hiding one takes its whole subtree with
  * it, because its members are built by its own `derive`.
  *
  * Identity is read through ONE match rather than one match per accessor —
@@ -155,14 +155,14 @@ function planPickOptions(
  * import { Data, Plan } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const PickJob = StructType({ batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+ * export const PickJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
  * export const PickOpsRow = StructType({ series: StringType, jobs: ArrayType(PickJob), cells: ArrayType(Plan.Types.HeatCell) });
  * export const planPickOps = e3.input("plan_pick_ops", DictType(StringType, PickOpsRow), variant("value", new Map([
- *     ["L1-M03", { series: "machines", cells: [],
- *                  jobs: [{ batch: "B-214", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
- *     ["L1-M04", { series: "machines", cells: [],
- *                  jobs: [{ batch: "B-208", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
- *     ["L2-load", { series: "load", jobs: [], cells: [
+ *     ["H1-P03", { series: "presses", cells: [],
+ *                  jobs: [{ ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }] }],
+ *     ["H1-P04", { series: "presses", cells: [],
+ *                  jobs: [{ ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("actual", null) }] }],
+ *     ["H2-load", { series: "load", jobs: [], cells: [
  *         { at: variant("time", new Date("2026-06-29T00:00:00Z")), value: some(46.0), label: none },
  *         { at: variant("time", new Date("2026-07-13T00:00:00Z")), value: some(58.0), label: none },
  *         { at: variant("time", new Date("2026-07-27T00:00:00Z")), value: some(66.0), label: none },
@@ -184,16 +184,16 @@ function planPickOptions(
  *         // canvas shows the ones switched on in this order.
  *         const all = $.const([
  *             Plan.series.span(PickOpsRow, {
- *                 key: "machines", title: "Machine jobs", subtitle: "one row per machine",
- *                 match: r => r.series.equal("machines"),
+ *                 key: "presses", title: "Press jobs", subtitle: "one row per press",
+ *                 match: r => r.series.equal("presses"),
  *                 label: (_r, k) => k, id: true,
  *                 runs: r => r.jobs.map((_$, j) => Plan.run({
- *                     key: j.batch, start: j.start, end: j.end,
- *                     label: East.str`RUN · ${j.batch}`, state: j.state,
+ *                     key: j.ticket, start: j.start, end: j.end,
+ *                     label: East.str`RUN · ${j.ticket}`, state: j.state,
  *                 })),
  *             }),
  *             Plan.series.heat(PickOpsRow, {
- *                 key: "load", title: "Line load", subtitle: "% per fortnight",
+ *                 key: "load", title: "Hall load", subtitle: "% per fortnight",
  *                 match: r => r.series.equal("load"),
  *                 label: (_r, k) => k,
  *                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),

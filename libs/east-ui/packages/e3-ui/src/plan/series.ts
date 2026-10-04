@@ -296,9 +296,9 @@ export type PlanKindedAccessor<R extends EastType, V, KT extends EastType = Stri
 export interface PlanSeriesIdentity {
     /** Stable identity — unique across the canvas's whole series tree; what row ids, the library and persistence address. */
     key: string;
-    /** The series' name, as a user reads it ("Machine jobs"). */
+    /** The series' name, as a user reads it ("Press jobs"). */
     title: string;
-    /** The series' muted role line ("one row per machine"). */
+    /** The series' muted role line ("one row per press"). */
     subtitle?: string;
     /** Card-icon override; omit ⇒ the icon this series' KIND declares. */
     icon?: PlanIconInput;
@@ -468,7 +468,7 @@ export interface PlanReviewInput<R extends EastType> {
  * With `key` declared, a row's list keeps its keys unique: a card whose item
  * repeats a key the list holds, and a move onto a row whose list already holds
  * the moved item's key, are refused. So `key` is the item's identity across
- * every row it can move to — a job's own id, not its place in one machine's
+ * every row it can move to — a job's own id, not its place in one press's
  * list.
  *
  * @typeParam R - The entry type
@@ -936,7 +936,7 @@ type ChildRef = { readonly kind: "field"; readonly field: string } | { readonly 
 /**
  * How `accessor` reaches the child collection it returns, read off the
  * expression it builds (#880): a plain field of the entry (`r => r.children`,
- * `Plan.children(r => r.lines, …)`), or the entry itself (`g => g`). A write
+ * `Plan.children(r => r.presses, …)`), or the entry itself (`g => g`). A write
  * follows either back into the entry. Anything else — a filtered or computed
  * collection — is a copy a write would be lost in, and is `undefined`.
  *
@@ -1623,7 +1623,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             if (ref === undefined) {
                 throw new Error(
                     `${at}: a series under this step-down takes gestures, and one on its rows is written back into ` +
-                    "the entry through `Plan.children(of, …)` — `of` must read a field of the entry (`r => r.lines`) " +
+                    "the entry through `Plan.children(of, …)` — `of` must read a field of the entry (`r => r.presses`) " +
                     "or be the entry itself (`g => g`), not compute a collection");
             }
             const { entry: childType, key: kc } = shapeOf(cc, at);
@@ -2531,8 +2531,8 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
 /**
  * A views series — each entry gets one row per member series, adjacent and in
  * declared order; the entry's children follow its view rows, nested under the
- * first of them (#822). How one entity is shown several ways: a machine's jobs,
- * utilisation and tonnes as three rows side by side.
+ * first of them (#822). How one entity is shown several ways: a press's jobs,
+ * utilisation and sheets as three rows side by side.
  *
  * @remarks
  * A member series' own `match` decides whether its row shows for an entry; a

@@ -267,11 +267,11 @@ describe("one overlay layer (#816)", () => {
     /** A one-run canvas with its row selected (the gutter), so the canvas's own
      *  esc rung has something to spend, and the run's bar focused. */
     function selectedBar(key: string, popover: unknown) {
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4)]))], { popover }), key);
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4)]))], { popover }), key);
         const row = container.querySelector<HTMLElement>(rowSel("m1"))!;
         fireEvent.click(row.children[0]!);
         expect(row.hasAttribute("data-selected")).toBe(true);
-        const bar = container.querySelector<HTMLElement>('[data-run="b214"]')!;
+        const bar = container.querySelector<HTMLElement>('[data-run="j4642"]')!;
         act(() => bar.focus());
         expect(document.activeElement).toBe(bar);
         return { row, bar };
@@ -282,14 +282,14 @@ describe("one overlay layer (#816)", () => {
         const pop = recording("POP");
         const { row, bar } = selectedBar("plan-816-keys", pop.fn);
         fireEvent.keyDown(bar, { key: "Enter" });
-        expect(await screen.findByText("POP · run:m1/b214")).toBeTruthy();
+        expect(await screen.findByText("POP · run:m1/j4642")).toBeTruthy();
         // Enter again while it is open: the same open, not a second resolve.
         fireEvent.keyDown(bar, { key: "Enter" });
-        expect(pop.calls).toEqual(["run:m1/b214"]);
+        expect(pop.calls).toEqual(["run:m1/j4642"]);
         await armed();
         const user = userEvent.setup();
         await user.keyboard("{Escape}");
-        await waitFor(() => expect(screen.queryByText("POP · run:m1/b214")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("POP · run:m1/j4642")).toBeNull());
         expect(document.activeElement).toBe(bar);
         // The popover's layer took that Esc — the selection stands.
         expect(row.hasAttribute("data-selected")).toBe(true);
@@ -301,7 +301,7 @@ describe("one overlay layer (#816)", () => {
         // The one after is the canvas's: it deselects.
         await user.keyboard("{Escape}");
         expect(row.hasAttribute("data-selected")).toBe(false);
-        expect(pop.calls).toEqual(["run:m1/b214"]);
+        expect(pop.calls).toEqual(["run:m1/j4642"]);
     });
 
     test("Esc inside the open popover closes it and hands focus back to the element", async () => {
@@ -309,14 +309,14 @@ describe("one overlay layer (#816)", () => {
         const pop = recording("POP");
         const { row, bar } = selectedBar("plan-816-return", pop.fn);
         fireEvent.keyDown(bar, { key: "Enter" });
-        expect(await screen.findByText("POP · run:m1/b214")).toBeTruthy();
+        expect(await screen.findByText("POP · run:m1/j4642")).toBeTruthy();
         await armed();
         // Into the popover, as a reader of its body goes.
         const content = document.querySelector<HTMLElement>('[data-plan-overlay="popover"]')!;
         act(() => content.focus());
         expect(document.activeElement).toBe(content);
         await userEvent.setup().keyboard("{Escape}");
-        await waitFor(() => expect(screen.queryByText("POP · run:m1/b214")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("POP · run:m1/j4642")).toBeNull());
         expect(document.activeElement).toBe(bar);
         expect(row.hasAttribute("data-selected")).toBe(true);
     });
@@ -327,9 +327,9 @@ describe("one overlay layer (#816)", () => {
         // Synchronous from here on: no frame passes, so no layer is listening
         // and the Escape reaches the canvas — whose top rung is the popover.
         fireEvent.keyDown(bar, { key: "Enter" });
-        expect(screen.getByText("POP · run:m1/b214")).toBeTruthy();
+        expect(screen.getByText("POP · run:m1/j4642")).toBeTruthy();
         fireEvent.keyDown(bar, { key: "Escape" });
-        expect(screen.queryByText("POP · run:m1/b214")).toBeNull();
+        expect(screen.queryByText("POP · run:m1/j4642")).toBeNull();
         expect(document.activeElement).toBe(bar);
         expect(row.hasAttribute("data-selected")).toBe(true);
     });
@@ -365,21 +365,21 @@ describe("one overlay layer (#816)", () => {
         const hov = recording("HOV");
         const popCalls: string[] = [];
         const popover = (ref: PlanElementRefValue) => { popCalls.push(refText(ref)); return none; };
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4), run("c1", 5, 6)]))],
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4), run("c1", 5, 6)]))],
             { popover, hover: hov.fn }), "plan-816-lazy");
         expect(hov.calls).toEqual([]);
-        const bar = container.querySelector<HTMLElement>('[data-run="b214"]')!;
+        const bar = container.querySelector<HTMLElement>('[data-run="j4642"]')!;
         const user = userEvent.setup();
         await user.hover(bar);
-        expect(await screen.findByText("HOV · run:m1/b214")).toBeTruthy();
+        expect(await screen.findByText("HOV · run:m1/j4642")).toBeTruthy();
         // Moving about INSIDE the element is not a new open.
         fireEvent.pointerOver(bar.querySelector("span")!);
         fireEvent.pointerOver(bar);
         await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
-        expect(hov.calls).toEqual(["run:m1/b214"]);
+        expect(hov.calls).toEqual(["run:m1/j4642"]);
         // Leaving the element closes the card.
         await user.unhover(bar);
-        await waitFor(() => expect(screen.queryByText("HOV · run:m1/b214")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("HOV · run:m1/j4642")).toBeNull());
         // A popover resolver answering `none` opens nothing — no empty surface.
         await user.click(container.querySelector('[data-run="c1"]')!);
         expect(popCalls).toEqual(["run:m1/c1"]);
@@ -389,7 +389,7 @@ describe("one overlay layer (#816)", () => {
     test("a click still selects the row and reports its element; a group strip still toggles and opens nothing", async () => {
         const clicks: unknown[] = [];
         const pop = recording("POP");
-        const group = planRow("line", variant("group", {
+        const group = planRow("hall", variant("group", {
             summary: variant("cells", variant("heat", {
                 cells: [{ at: t(week(0)), value: some(80), label: some("80") }],
                 scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
@@ -397,7 +397,7 @@ describe("one overlay layer (#816)", () => {
         }), undefined, true);
         const { container } = renderPlan(planRoot([
             group,
-            planRow("m1", spanKind([run("b214", 1, 4)]), "line"),
+            planRow("m1", spanKind([run("j4642", 1, 4)]), "hall"),
             planRow("m2", spanKind([run("c7", 1, 4)])),
         ], { popover: pop.fn, onElementClick: (e: unknown) => { clicks.push(e); } }), "plan-816-semantics");
         const user = userEvent.setup();
@@ -407,7 +407,7 @@ describe("one overlay layer (#816)", () => {
         await waitFor(() => expect(clicks).toHaveLength(1));
         expect(clicks[0]).toEqual(variant("run", { row: rowId("m2"), run: "c7" }));
         // The strip's cell is the band's toggle, not an element.
-        expect(container.querySelector(`${rowSel("line", "data-plan-group")} [data-cell]`)).toBeNull();
+        expect(container.querySelector(`${rowSel("hall", "data-plan-group")} [data-cell]`)).toBeNull();
         await user.click(screen.getByText("80"));
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         expect(pop.calls).toEqual(["run:m2/c7"]);
@@ -416,11 +416,11 @@ describe("one overlay layer (#816)", () => {
     test("a second click on the same element closes its popover", async () => {
         const armed = watchPopoverArming();
         const pop = recording("POP");
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4)]))], { popover: pop.fn }), "plan-816-toggle");
-        const bar = container.querySelector<HTMLElement>('[data-run="b214"]')!;
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4)]))], { popover: pop.fn }), "plan-816-toggle");
+        const bar = container.querySelector<HTMLElement>('[data-run="j4642"]')!;
         const user = userEvent.setup();
         await user.click(bar);
-        expect(await screen.findByText("POP · run:m1/b214")).toBeTruthy();
+        expect(await screen.findByText("POP · run:m1/j4642")).toBeTruthy();
         await armed();
         // A real click outlasts a frame, and the popover judges a press outside
         // it a frame after the press — its own element's press must not count,
@@ -428,29 +428,29 @@ describe("one overlay layer (#816)", () => {
         await user.pointer({ keys: "[MouseLeft>]", target: bar });
         await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
         await user.pointer({ keys: "[/MouseLeft]", target: bar });
-        await waitFor(() => expect(screen.queryByText("POP · run:m1/b214")).toBeNull());
-        expect(pop.calls).toEqual(["run:m1/b214"]);
+        await waitFor(() => expect(screen.queryByText("POP · run:m1/j4642")).toBeNull());
+        expect(pop.calls).toEqual(["run:m1/j4642"]);
     });
 
     test("a surface closes once its element scrolls out of view", async () => {
         const pop = recording("POP");
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4)]))], { popover: pop.fn }), "plan-816-scroll");
-        const bar = container.querySelector<HTMLElement>('[data-run="b214"]')!;
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4)]))], { popover: pop.fn }), "plan-816-scroll");
+        const bar = container.querySelector<HTMLElement>('[data-run="j4642"]')!;
         await userEvent.setup().click(bar);
-        expect(await screen.findByText("POP · run:m1/b214")).toBeTruthy();
+        expect(await screen.findByText("POP · run:m1/j4642")).toBeTruthy();
         const watcher = observers.find((o) => o.targets.includes(bar))!;
         expect(watcher).toBeDefined();
         act(() => watcher.cb([{ target: bar, isIntersecting: false } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
-        await waitFor(() => expect(screen.queryByText("POP · run:m1/b214")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("POP · run:m1/j4642")).toBeNull());
     });
 
     test("a labelled port shows its label as the tooltip, and hides it when the pointer leaves", async () => {
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4)], [port(2, "IN · 40 t")]))]), "plan-816-tip");
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("j4642", 1, 4)], [port(2, "IN · 40 k sheets")]))]), "plan-816-tip");
         const p = container.querySelector<HTMLElement>("[data-port]")!;
         const user = userEvent.setup();
         await user.hover(p);
-        expect(await screen.findByText("IN · 40 t")).toBeTruthy();
+        expect(await screen.findByText("IN · 40 k sheets")).toBeTruthy();
         await user.unhover(p);
-        await waitFor(() => expect(screen.queryByText("IN · 40 t")).toBeNull());
+        await waitFor(() => expect(screen.queryByText("IN · 40 k sheets")).toBeNull());
     });
 });

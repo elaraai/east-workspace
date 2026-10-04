@@ -140,7 +140,7 @@ describe("Plan row-layer memoization (#616)", () => {
                 planRow("m1", spanKind([])),
                 planRow("m2", spanKind([])),
                 planRow("m3", spanKind([])),
-                planRow("cov", variant("chart", {
+                planRow("ontime", variant("chart", {
                     layers: [], left: none, right: none,
                     height: variant("spark", null), expandedHeight: none,
                     expandable: true,
@@ -159,8 +159,8 @@ describe("Plan row-layer memoization (#616)", () => {
             // A chart spark↔expanded toggle re-renders exactly the toggled
             // row (its `chartExpanded` + height moved; nothing else did).
             rendered.length = 0;
-            fireEvent.click(container.querySelector(rowSel("cov"))!.children[0]!);
-            expect(rendered).toEqual(["cov"]);
+            fireEvent.click(container.querySelector(rowSel("ontime"))!.children[0]!);
+            expect(rendered).toEqual(["ontime"]);
         } finally {
             setBodyRowRenderProbe(undefined);
         }
@@ -186,7 +186,7 @@ describe("Plan DOM scale (#616)", () => {
 
     test("bucket cells mount only where OCCUPIED; the empty wash is one band per lane", () => {
         const { container } = renderPlan(planRoot([
-            planRow("dock", variant("buckets", {
+            planRow("van", variant("buckets", {
                 lanes: [],
                 events: [
                     bucketEvent("e1", new Date("2026-06-29Z"), variant("actual", null)),
@@ -242,8 +242,8 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
     const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
     const rowsAt = (tag: string, opts?: { withM2?: boolean; withGroup?: boolean }) => [
         ...(opts?.withGroup === false ? [] : [
-            planRow("line1", band, { collapsed: true }),
-            planRow("m1", spanKind([]), { parent: "line1" }),
+            planRow("hall1", band, { collapsed: true }),
+            planRow("m1", spanKind([]), { parent: "hall1" }),
         ]),
         ...(opts?.withM2 === false ? [] : [
             planRow("m2", spanKind([]), { gutter: gutter("m2", { value: tag }) }),
@@ -262,7 +262,7 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
         const { container, rerender } = renderPlan(planRoot(rowsAt("v1")), "plan-reconcile");
         // The DECLARED-collapsed group starts collapsed; the user opens it...
         expect(container.querySelector(rowSel("m1"))).toBeNull();
-        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         // ... and selects m2.
         fireEvent.click(container.querySelector(rowSel("m2"))!);
@@ -286,14 +286,14 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
 
     test("a group that vanishes and returns re-seeds its declared collapse", () => {
         const { container, rerender } = renderPlan(planRoot(rowsAt("v1")), "plan-reseed");
-        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);   // the user opens it
+        fireEvent.click(container.querySelector(rowSel("hall1", "data-plan-group"))!);   // the user opens it
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         // The group leaves the data entirely, then returns declared-collapsed:
         // a returning key is a NEW row, so the declaration applies again.
         remount(rerender, rowsAt("v2", { withGroup: false }), "plan-reseed");
-        expect(container.querySelector(rowSel("line1", "data-plan-group"))).toBeNull();
+        expect(container.querySelector(rowSel("hall1", "data-plan-group"))).toBeNull();
         remount(rerender, rowsAt("v3"), "plan-reseed");
-        expect(container.querySelector(rowSel("line1", "data-plan-group"))).toBeTruthy();
+        expect(container.querySelector(rowSel("hall1", "data-plan-group"))).toBeTruthy();
         expect(container.querySelector(rowSel("m1"))).toBeNull();
     });
 });

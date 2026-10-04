@@ -49,17 +49,17 @@ describe("Plan examples read e3", () => {
 });
 
 describeEast("Plan — the fixtures a task makes", (test) => {
-    test("the §1 horizon: its count of despatch orders over the 27 weeks from W21, a third at risk of running late", $ => {
+    test("the §1 horizon: its count of deliveries over the 27 weeks from W21, a third at risk of running late", $ => {
         const horizon = $.let(ex.generateTargetHorizon(36n));
         $(Assert.equal(horizon.size(), 36n));
-        $(Assert.equal(horizon.get(0n), { key: "h1", at: new Date("2026-05-18T00:00:00Z"), line: "Line 1", risk: "late", tonnes: 20.0 }));
-        $(Assert.equal(horizon.get(35n), { key: "h36", at: new Date("2026-11-16T00:00:00Z"), line: "Line 2", risk: "on-time", tonnes: 45.0 }));
+        $(Assert.equal(horizon.get(0n), { key: "h1", at: new Date("2026-05-18T00:00:00Z"), hall: "Hall 1", risk: "late", sheets: 20.0 }));
+        $(Assert.equal(horizon.get(35n), { key: "h36", at: new Date("2026-11-16T00:00:00Z"), hall: "Hall 2", risk: "on-time", sheets: 45.0 }));
         // The cohorts the §1 toolbar seeds: 12 late, 5 with nothing booked.
         $(Assert.equal(horizon.filter(($, h) => h.risk.equal("late")).size(), 12n));
-        $(Assert.equal(horizon.filter(($, h) => h.tonnes.equal(0.0)).size(), 5n));
+        $(Assert.equal(horizon.filter(($, h) => h.sheets.equal(0.0)).size(), 5n));
     });
 
-    test("the narrow horizon: two orders a week over W27–W38, every third late", $ => {
+    test("the narrow horizon: two deliveries a week over W27–W38, every third late", $ => {
         const horizon = $.let(ex.generateNarrowHorizon(24n));
         $(Assert.equal(horizon.size(), 24n));
         $(Assert.equal(horizon.get(0n), { key: "h1", at: new Date("2026-06-29T00:00:00Z"), risk: "late" }));
@@ -67,22 +67,22 @@ describeEast("Plan — the fixtures a task makes", (test) => {
         $(Assert.equal(horizon.filter(($, h) => h.risk.equal("late")).size(), 8n));
     });
 
-    test("the number axis's horizon: two orders a day from day 1, the lines in turn", $ => {
+    test("the number axis's horizon: two orders a day from day 1, the halls in turn", $ => {
         const horizon = $.let(ex.generateNumberHorizon(24n));
         $(Assert.equal(horizon.size(), 24n));
-        $(Assert.equal(horizon.get(0n), { key: "o1", day: 1n, line: "Line 1" }));
-        $(Assert.equal(horizon.get(23n), { key: "o24", day: 12n, line: "Line 2" }));
+        $(Assert.equal(horizon.get(0n), { key: "o1", day: 1n, hall: "Hall 1" }));
+        $(Assert.equal(horizon.get(23n), { key: "o24", day: 12n, hall: "Hall 2" }));
     });
 
-    test("the fill canvas's units: their count, keyed in build order, 25 to each of 8 lines", $ => {
+    test("the fill canvas's units: their count, keyed in build order, 25 to each of 8 halls", $ => {
         const units = $.let(ex.generateFillUnits(200n));
         $(Assert.equal(units.size(), 200n));
         $(Assert.equal(units.toArray((_$, _u, k) => k).slice(0n, 3n), ["UNIT-1000", "UNIT-1001", "UNIT-1002"]));
-        $(Assert.equal(units.filter(($, u) => u.line.equal("LINE 3")).size(), 25n));
+        $(Assert.equal(units.filter(($, u) => u.hall.equal("HALL 3")).size(), 25n));
         // UNIT-1004 is a heat row on a two-line gutter, W31–W34.
         const unit = $.let(units.get("UNIT-1004"));
         $(Assert.equal(unit.series, "heat"));
-        $(Assert.equal(unit.sub, some("cap 44 t")));
+        $(Assert.equal(unit.sub, some("14k sheets/h")));
         $(Assert.equal(unit.start, new Date("2026-07-27T00:00:00Z")));
         $(Assert.equal(unit.end, new Date("2026-08-17T00:00:00Z")));
     });

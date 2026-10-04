@@ -46,13 +46,13 @@ describe("element names (#819)", () => {
 
     test("a run bar says its label, its span, its state — and what its look adds", () => {
         const run = {
-            key: "b214", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "B-214",
-            quantity: some({ value: 96, unit: some("t"), format: none, text: none }), state: variant("actual", null),
+            key: "j4642", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "J-4642",
+            quantity: some({ value: 96, unit: some("k sheets"), format: none, text: none }), state: variant("actual", null),
             status: some(variant("warning", null)), moved: some(2n), icon: none,
         };
-        expect(runName(run as never, scale, w)).toBe("B-214, Jun 29, 2026 – Jul 27, 2026, actual, 96 t, moved 2 times, warning");
+        expect(runName(run as never, scale, w)).toBe("J-4642, Jun 29, 2026 – Jul 27, 2026, actual, 96 k sheets, moved 2 times, warning");
         const plain = { ...run, quantity: none, status: none, moved: none, state: variant("confirmed", null) };
-        expect(runName(plain as never, scale, w)).toBe("B-214, Jun 29, 2026 – Jul 27, 2026, confirmed");
+        expect(runName(plain as never, scale, w)).toBe("J-4642, Jun 29, 2026 – Jul 27, 2026, confirmed");
     });
 
     test("a run's quantity says its caption — its text, else its value through its format, then its unit (#824)", () => {
@@ -61,10 +61,10 @@ describe("element names (#819)", () => {
             quantity: some(quantity), state: variant("confirmed", null), status: none, moved: none, icon: none,
         } as never, scale, w);
         const oneDp = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
-        expect(at({ value: 1234.25, unit: some("t"), format: some(oneDp), text: none })).toMatch(/, 1,234\.3 t$/u);
+        expect(at({ value: 1234.25, unit: some("k sheets"), format: some(oneDp), text: none })).toMatch(/, 1,234\.3 k sheets$/u);
         expect(at({ value: 3, unit: none, format: none, text: none })).toMatch(/, 3$/u);
         // A caption override is what is said — the value still sums elsewhere.
-        expect(at({ value: 24, unit: some("t"), format: none, text: some("−24 t") })).toMatch(/, −24 t$/u);
+        expect(at({ value: 24, unit: some("k sheets"), format: none, text: some("−24 k sheets") })).toMatch(/, −24 k sheets$/u);
     });
 
     test("a decision diamond, a tile, a chip and a mark each name their instant and their meaning", () => {
@@ -76,12 +76,12 @@ describe("element names (#819)", () => {
             color: none, colorPalette: none, stretch: none, content: none, animation: none,
         };
         expect(tileName(ev as never, scale.buckets[1]!, "AM", scale, w)).toBe("Event, Week of Jul 6, 2026, AM, proposed, warning");
-        expect(tileName({ ...ev, label: some("Pour"), tone: none } as never, scale.buckets[1]!, undefined, scale, w))
-            .toBe("Pour, Week of Jul 6, 2026, proposed");
+        expect(tileName({ ...ev, label: some("Proof"), tone: none } as never, scale.buckets[1]!, undefined, scale, w))
+            .toBe("Proof, Week of Jul 6, 2026, proposed");
         expect(chipName({
-            key: "c1", from: t("2026-06-29T00:00:00"), to: t("2026-07-13T00:00:00"), label: "D. OKAFOR",
+            key: "c1", from: t("2026-06-29T00:00:00"), to: t("2026-07-13T00:00:00"), label: "CREW A",
             state: variant("confirmed", null), icon: none,
-        } as never, scale, w)).toBe("D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed");
+        } as never, scale, w)).toBe("CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed");
         const mark = (kind: unknown, label?: string) => ({
             key: "k", at: t("2026-06-29T00:00:00"), kind, icon: none, label: label !== undefined ? some(label) : none,
         }) as never;
@@ -163,13 +163,13 @@ describe("the words a name is said in (#820)", () => {
 
     test("numbers and dates are the locale's, the phrases the table's", () => {
         const run = {
-            key: "b214", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "B-214",
+            key: "j4642", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "J-4642",
             quantity: none, state: variant("actual", null), status: none, moved: some(1200n), icon: none,
         };
-        expect(runName(run as never, deScale, de)).toBe("B-214, 29. Juni 2026 – 27. Juli 2026, actual, moved 1.200 times");
+        expect(runName(run as never, deScale, de)).toBe("J-4642, 29. Juni 2026 – 27. Juli 2026, actual, moved 1.200 times");
         // A quantity's value is the locale's number too (#824).
-        const heavy = { ...run, moved: none, quantity: some({ value: 1234.5, unit: some("t"), format: none, text: none }) };
-        expect(runName(heavy as never, deScale, de)).toBe("B-214, 29. Juni 2026 – 27. Juli 2026, actual, 1.234,5 t");
+        const heavy = { ...run, moved: none, quantity: some({ value: 1234.5, unit: some("k sheets"), format: none, text: none }) };
+        expect(runName(heavy as never, deScale, de)).toBe("J-4642, 29. Juni 2026 – 27. Juli 2026, actual, 1.234,5 k sheets");
         expect(heatValueText(1234.5, undefined, false, de)).toBe("1.234,5");
         expect(cellName(deScale, deScale.buckets[0]!, "72", de)).toBe("Week of 29. Juni 2026: 72");
         expect(landedText({ from: 0, to: 400 }, { from: 2000, to: 2200 }, 5000, de)).toBe("Loaded elements 2.001–2.200 of 5.000");
@@ -181,7 +181,7 @@ describe("the words a name is said in (#820)", () => {
             [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as typeof planMessages;
         const stub = planWords("en-US", marked);
         const run = {
-            key: "b214", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "B-214",
+            key: "j4642", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "J-4642",
             quantity: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
         };
         expect(runName(run as never, scale, stub)).toMatch(/^⟦/u);

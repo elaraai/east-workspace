@@ -30,7 +30,7 @@
  * (`model.axisKindMismatches`) instead of misplacing anything.
  *
  * On an ordinal scale an interval's END names its LAST bucket (inclusive):
- * values are buckets, not edges, so `[PREP, QC]` covers PREP, BUILD and QC
+ * values are buckets, not edges, so `[PLATES, FINISH]` covers PLATES, PRINT and FINISH
  * — `endFracOf` is the far edge of the named bucket. On the other two kinds
  * intervals stay half-open and `endFracOf` is `fracOf`.
  *

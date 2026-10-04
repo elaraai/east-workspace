@@ -440,9 +440,9 @@ export interface PlanNamespace {
     };
     /** A step down from an entry to a child collection of another type — a series' `children` (#822). */
     children: typeof createChildren;
-    /** A row's id by series and path — `Plan.ref("machine-jobs", "L1", "m03")` (#822). */
+    /** A row's id by series and path — `Plan.ref("press-jobs", "H1", "p03")` (#822). */
     ref: typeof createRef;
-    /** A section header's id — `Plan.sectionRef("crew-block", "L1")` (#822). */
+    /** A section header's id — `Plan.sectionRef("crew-block", "H1")` (#822). */
     sectionRef: typeof createSectionRef;
     /** Builds one span run. */
     run: typeof createRun;

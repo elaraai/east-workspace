@@ -59,13 +59,13 @@ const rowItem = (r: PlanRowValue, collapsed = false): PlanBodyItem =>
 const gapItem = (key: string): PlanBodyItem =>
     ({ kind: "gap", gap: { key, first: key, rows: 3, groups: 0, tone: undefined } });
 /** A link names its ends by run ref — a row id (#822) and a run key — and
- *  carries its quantity in tonnes (#824); `null` carries none. (Not
+ *  carries its quantity in sheets (#824); `null` carries none. (Not
  *  `undefined`: passed explicitly, it would take the default.) */
 const link = (from: string, fromRun: string, to: string, toRun: string, quantity: number | null = 10): PlanLinkValue =>
     ({
         key: `${from}.${fromRun}>${to}.${toRun}`,
         from: { row: rowId(from), run: fromRun }, to: { row: rowId(to), run: toRun },
-        quantity: quantity !== null ? some({ value: quantity, unit: some("t"), format: none, text: none }) : none,
+        quantity: quantity !== null ? some({ value: quantity, unit: some("k sheets"), format: none, text: none }) : none,
     }) as PlanLinkValue;
 
 /** Runs by `row|run` (the row's test key): [start, end]. */
@@ -149,7 +149,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
             top: centre(54, 32) - G.bar / 2, bottom: centre(54, 32) + G.bar / 2,
         });
         expect(r.link).toBe(0);
-        expect(r.label).toBe("10 t");
+        expect(r.label).toBe("10 k sheets");
     });
 
     test("a two-line row's bar is centred in its full plot cell", () => {
@@ -334,13 +334,13 @@ describe("ribbon ink and captions (#818)", () => {
         const oneDp = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
         const [told, formatted] = layoutRibbons(input({
             links: [
-                with_({ value: 24, unit: some("t"), format: none, text: some("−24 t") }),
-                with_({ value: 1234.25, unit: some("t"), format: some(oneDp), text: none }),
+                with_({ value: 24, unit: some("k sheets"), format: none, text: some("−24 k sheets") }),
+                with_({ value: 1234.25, unit: some("k sheets"), format: some(oneDp), text: none }),
             ],
             body, runDates,
         })).ribbons;
-        expect(told!.label).toBe("−24 t");
-        expect(formatted!.label).toBe("1,234.3 t");
+        expect(told!.label).toBe("−24 k sheets");
+        expect(formatted!.label).toBe("1,234.3 k sheets");
         // Weighed by value, whatever the caption says.
         expect(told!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN + (24 / 1234.25) * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN));
     });

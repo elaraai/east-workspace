@@ -70,11 +70,11 @@ describe("bucketGroups", () => {
     });
 
     test("without a period, by instant — an ordinal set with no index keeps insertion order", () => {
-        const groups = bucketGroups([{ at: o("QC") }, { at: o("PREP") }, { at: o("QC") }], (c) => c.at, undefined);
-        expect(groups.map((g) => g.at)).toEqual([o("QC"), o("PREP")]);
+        const groups = bucketGroups([{ at: o("FINISH") }, { at: o("PLATES") }, { at: o("FINISH") }], (c) => c.at, undefined);
+        expect(groups.map((g) => g.at)).toEqual([o("FINISH"), o("PLATES")]);
         expect(groups[0]!.members).toHaveLength(2);
-        const indexed = bucketGroups([{ at: o("QC") }, { at: o("PREP") }], (c) => c.at, undefined, new Map([["PREP", 0], ["QC", 1]]));
-        expect(indexed.map((g) => g.at)).toEqual([o("PREP"), o("QC")]);
+        const indexed = bucketGroups([{ at: o("FINISH") }, { at: o("PLATES") }], (c) => c.at, undefined, new Map([["PLATES", 0], ["FINISH", 1]]));
+        expect(indexed.map((g) => g.at)).toEqual([o("PLATES"), o("FINISH")]);
     });
 
     test("a number period floors to the step", () => {

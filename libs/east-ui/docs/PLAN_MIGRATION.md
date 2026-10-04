@@ -122,7 +122,7 @@ same rows whether its data is inline or paged.
 | drag `CellRef.row` | the row key | still a `String` — the row id's canonical `.east` text (`East.print(Plan.ref(…))`), so the shared drag grammar is unchanged in shape |
 
 A path segment is an entry's key: at the top the source key — the String
-itself, or its `.east` text for any other key type (`3`, `(line="L1", bin=3)`)
+itself, or its `.east` text for any other key type (`3`, `(hall="H1", bin=3)`)
 — and below that a `Dict` child's key or an `Array` child's index. A section
 header adds no segment: its id is `section { series, path }` at its parent's
 path.
@@ -131,12 +131,12 @@ path.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `groupBy: [r => r.top, r => r.program]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
+| `groupBy: [r => r.top, r => r.contract]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
 | `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planGroupedRows`, `planNarrow` |
 | `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState`, `planLibraryDnd` |
-| `keySuffix` (`"m03"` → `"m03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
-| numbered keys to force a layout (`"10-line1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
-| `Plan.link({ from: "m03", to: "m04", … })` | `Plan.link({ from: Plan.ref("machines", "m03"), to: Plan.ref("machines", "m04"), … })` | `planSpanRows` |
+| `keySuffix` (`"p03"` → `"p03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
+| numbered keys to force a layout (`"10-hall1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
+| `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planSpanRows` |
 | `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState`, `planExpand` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
 | `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planPick`, `planLibraryDnd` |
@@ -150,8 +150,8 @@ path.
 
 - **Order.** A canvas's order is its series list's. Examples whose old order
   was accidental key order now follow their series (`planChartRows`,
-  `planExpand`); `planGroupedRows` became one strip per line (a
-  `groupToDicts` group per entry); `planNarrow`'s coverage KPI is a hand-built
+  `planExpand`); `planGroupedRows` became one strip per hall (a
+  `groupToDicts` group per entry); `planNarrow`'s on-time KPI is a hand-built
   row placed by `Plan.series.rows`.
 - **Paged canvases.** A paged canvas reads its windows in window order, each
   window its entries' rows with their whole subtrees. (#823 lays several
@@ -160,8 +160,8 @@ path.
   section's member count and strip print `~`-marked — its members are entries
   the windows share out. Every other parent's numbers are exact, so it draws
   exactly as it does inline.
-- **e3-ui.** `dataBindPagedPlan` groups its ops dataset by line
-  (`Dict<String, OpsLine>`); the `Data.bindPaged` TypeDoc example follows it.
+- **e3-ui.** `dataBindPagedPlan` groups its ops dataset by hall
+  (`Dict<String, OpsHall>`); the `Data.bindPaged` TypeDoc example follows it.
 
 ### Renderer (`@elaraai/east-ui-components`)
 
@@ -281,9 +281,9 @@ host.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `Plan.run({ qty: 12, quantity: "12 t" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "t", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planSeriesData`, `planSpanRows` |
-| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 t" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "t" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planSpanRows`, `planTargetState` |
-| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 t · 12 h`) | `planSpanRows` |
+| `Plan.run({ qty: 12, quantity: "12 k sheets" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "k sheets", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planSeriesData`, `planSpanRows` |
+| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 k sheets" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "k sheets" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planSpanRows`, `planTargetState` |
+| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 k sheets · 12 h`) | `planSpanRows` |
 | `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` / `onCellClick` | `onElementClick` over `Plan.Types.ElementRef`: `$.match(ref, { run: …, cell: … })` answers only the arms it names, and a ribbon click is the `link` arm | `planVariants` |
 | `Plan.Types.RunClickEvent` … `CellClickEvent` | the arms of `Plan.Types.ElementRef`; a run's is `Plan.Types.RunRef` | — |
 | a group given both `summary` and `summaryAggregate` | one or the other; both is refused at build | `planGroupedRows` |
@@ -418,7 +418,7 @@ Each removed callback throws at build, naming its replacement.
   any depth drafts the entry the row came from, and the series that made the
   row writes it. The write reaches a nested row through the series'
   `children`, which must read a field of the entry (`r => r.children`,
-  `Plan.children(r => r.lines, …)`) or be the entry itself (`g => g`). A
+  `Plan.children(r => r.halls, …)`) or be the entry itself (`g => g`). A
   computed collection fails the build.
 - **Without `editing` the canvas takes no gesture.** The decision buttons are
   disabled, the foot has no batch, no card lands, and there is no history bar.
@@ -471,9 +471,9 @@ A series whose elements move names, beside `items`, the item's key field and
 the instant fields a gesture writes:
 
 ```ts
-Plan.series.span(Machine, {
-    key: "machines", title: "Machines", label: (m) => m.name,
-    runs: (m) => m.jobs.map(($, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.name, state: j.state })),
+Plan.series.span(Press, {
+    key: "presses", title: "Presses", label: (p) => p.name,
+    runs: (p) => p.jobs.map(($, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.name, state: j.state })),
     edit: { items: "jobs", key: "key", start: "start", end: "end", create },
 })
 ```
@@ -485,7 +485,7 @@ Plan.series.span(Machine, {
   repeats a key the list holds is refused, and so is a move onto a row whose
   list already holds the moved item's key; the drag shows the ⊘ stage there.
   So `key` is the item's identity across every row it can move to: a job's
-  own id, not its place in one machine's list.
+  own id, not its place in one press's list.
 - `start` and `end` (span, cards), or `at` (buckets, events), name the
   instant fields the move writes. A field may be one of:
   - a `DateTime`;
@@ -677,7 +677,7 @@ domain id, never an index.
 
 ```tsx
 Plan.series.buckets(Row, {
-  key: "dock", title: "Dock", label: r => r.name,
+  key: "vans", title: "Vans", label: r => r.name,
   lanes: r => [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }],
   events: r => r.slots.map((_$, s) => Plan.event({ key: s.key, at: s.at, lane: some(s.lane), state: s.state })),
   markers: r => r.markers,

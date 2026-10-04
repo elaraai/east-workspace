@@ -10,7 +10,7 @@
  *
  * A caption is the quantity's `text` when the author wrote one; otherwise its
  * value through its `format` (the canvas's plain number without one), in the
- * canvas's locale, then its unit. Totals sum unit by unit — tonnes never add
+ * canvas's locale, then its unit. Totals sum unit by unit — sheets never add
  * to hours — each unit printing through the format its first member declares.
  *
  * @packageDocumentation
@@ -25,7 +25,7 @@ import type { PlanWords } from "./words.js";
 export type PlanQuantityValue = ValueTypeOf<typeof Plan.Types.Quantity>;
 
 /**
- * A quantity's caption — `96 t`.
+ * A quantity's caption — `96 k sheets`.
  *
  * @param q - The quantity
  * @param w - The canvas's words
@@ -70,7 +70,7 @@ export function totalsByUnit(quantities: readonly PlanQuantityValue[]): PlanQuan
 }
 
 /**
- * Totals as one caption — `208 t · 12 h`.
+ * Totals as one caption — `208 k sheets · 12 h`.
  *
  * @param totals - The totals ({@link totalsByUnit})
  * @param w - The canvas's words

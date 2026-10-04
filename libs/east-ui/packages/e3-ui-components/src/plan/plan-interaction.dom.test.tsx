@@ -240,7 +240,7 @@ describe("Plan element clicks (#569, #824)", () => {
                 marks: [{ key: "k1", at: t(at), kind: variant("milestone", null), icon: none, label: none }],
             })),
             planRow("c", variant("cards", {
-                chips: [{ key: "c1", from: t(W27), to: t(new Date("2026-07-13Z")), label: "D. OKAFOR",
+                chips: [{ key: "c1", from: t(W27), to: t(new Date("2026-07-13Z")), label: "CREW A",
                     state: variant("confirmed", null), icon: none }],
             })),
             planRow("h", variant("heat", {
@@ -338,10 +338,10 @@ describe("The toolbar's grain segment (#632)", () => {
     const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
     /** Two root groups, a row in each. */
     const grouped = () => [
-        planRow("line1", group(), { gutter: gutter("Line 1") }),
-        planRow("m1", spanKind([]), { parent: "line1" }),
-        planRow("line2", group(), { gutter: gutter("Line 2") }),
-        planRow("m2", spanKind([]), { parent: "line2" }),
+        planRow("hall1", group(), { gutter: gutter("Hall 1") }),
+        planRow("m1", spanKind([]), { parent: "hall1" }),
+        planRow("hall2", group(), { gutter: gutter("Hall 2") }),
+        planRow("m2", spanKind([]), { parent: "hall2" }),
     ];
     const segment = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-plan-seg='grain']");
     const radio = (container: HTMLElement, name: string) =>
@@ -382,8 +382,8 @@ describe("The toolbar's grain segment (#632)", () => {
         fireEvent.click(radio(container, "GROUP"));
         expect(container.querySelector(rowSel("m1"))).toBeNull();
         expect(container.querySelector(rowSel("m2"))).toBeNull();
-        expect(container.querySelector(rowSel("line1", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
-        expect(container.querySelector(rowSel("line2", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(rowSel("hall1", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(rowSel("hall2", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
         expect(caption(container)).toBe("GROUP");
         expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
         await waitFor(() => expect(seen).toEqual([variant("group", null)]));
@@ -511,7 +511,7 @@ describe("Plan interaction fixes (#615)", () => {
         const pick = {
             key: "plan.seg.gate",
             state: { read: () => [] as string[], write: () => {}, has: () => true },
-            items: [{ id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false }],
+            items: [{ id: "a", title: "Press jobs", subtitle: none, icon: none, count: none, narrowed: false }],
         };
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             pick,
@@ -530,14 +530,14 @@ describe("Plan element resolvers (popover / hover)", () => {
         const popover = (ref: PlanElementRefValue) => {
             if (ref.type !== "run") return none;
             refs.push(`${ref.type}:${ref.value.row.value.path.join("/")}/${ref.value.run}`);
-            if (ref.value.run === "b214") {
-                return some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
+            if (ref.value.run === "j4642") {
+                return some(variant("Text", { value: "RUN DETAIL · J-4642", style: none }));
             }
             return none;
         };
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([
-                run("b214", W27, new Date("2026-07-27Z"), variant("actual", null)),
+                run("j4642", W27, new Date("2026-07-27Z"), variant("actual", null)),
                 run("other", new Date("2026-07-27Z"), new Date("2026-08-10Z"), variant("confirmed", null)),
             ])),
         ], { popover }));
@@ -546,12 +546,12 @@ describe("Plan element resolvers (popover / hover)", () => {
         // (lazy per-ref presence; no empty surface ever flashes).
         await user.click(container.querySelector('[data-run="other"]')!);
         expect(refs).toContain("run:m1/other");
-        expect(screen.queryByText("RUN DETAIL · B-214")).toBeNull();
+        expect(screen.queryByText("RUN DETAIL · J-4642")).toBeNull();
         // The named run resolves some — the popover opens with the body, and
         // the ref carried the element kind + row + run keys.
-        await user.click(container.querySelector('[data-run="b214"]')!);
-        expect(await screen.findByText("RUN DETAIL · B-214")).toBeTruthy();
-        expect(refs).toContain("run:m1/b214");
+        await user.click(container.querySelector('[data-run="j4642"]')!);
+        expect(await screen.findByText("RUN DETAIL · J-4642")).toBeTruthy();
+        expect(refs).toContain("run:m1/j4642");
     });
 
     test("without declared resolvers no overlay machinery mounts", () => {

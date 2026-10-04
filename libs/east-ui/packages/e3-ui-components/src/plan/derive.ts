@@ -74,7 +74,7 @@ export interface DerivedBand {
     to: PlanInstantValue;
     /** Peak concurrency inside the band. */
     count: number;
-    /** The members' quantities summed unit by unit, as a caption (`"208 t · 12 h"`, in the
+    /** The members' quantities summed unit by unit, as a caption (`"208 k sheets · 12 h"`, in the
      *  canvas's locale — #820, #824) — absent unless every member carries a quantity. */
     quantity: string | undefined;
     /** The least-certain member's lifecycle state. */
@@ -121,8 +121,8 @@ function mergeBands(
         // #810). Never below 1: a band holds at least its own member, even
         // one whose interval covers no instant.
         const count = Math.max(1, peakConcurrency(g.members.map((m) => ({ start: startOf(m), end: endOf(m) }))));
-        // Each member's quantity carries its own unit (#824): tonnes sum with
-        // tonnes and hours with hours, and a band says each total. A member
+        // Each member's quantity carries its own unit (#824): sheets sum with
+        // sheets and hours with hours, and a band says each total. A member
         // without one would make any total a silent undercount — so none.
         const quantities = g.members.flatMap((m): PlanQuantityValue[] => (m.quantity.type === "some" ? [m.quantity.value] : []));
         const quantity = quantities.length === g.members.length ? totalsText(totalsByUnit(quantities), w) : undefined;

@@ -340,7 +340,7 @@ export type PlanFoldLiteral = "sum" | "mean" | "min" | "max" | "last" | "count";
  * where the author wants their own words — the value still sums and weighs.
  *
  * @property value - The amount — what sums, weighs and compares
- * @property unit - The unit it is in (`"t"`); quantities in different units never sum together
+ * @property unit - The unit it is in (`"k sheets"`); quantities in different units never sum together
  * @property format - How `value` prints (`Format.*`); `none` ⇒ the canvas's plain number
  * @property text - The caption to print instead of the formatted value and unit
  */
@@ -392,8 +392,8 @@ export type PlanGutterSwatchType = typeof PlanGutterSwatchType;
  * `sub`, `value`, `meta`, `stacked`, `swatches` ride on every row factory).
  *
  * @property label - The row name (12.5/500; groups and names)
- * @property id - `true` ⇒ the label renders as a mono row id (11.5/600 — `L1-M03`, `COVERAGE`); `false` by default
- * @property sub - The muted mono sub line (`"120 t"`, `"week · 1 lane"`)
+ * @property id - `true` ⇒ the label renders as a mono row id (11.5/600 — `H1-P03`, `ON-TIME`); `false` by default
+ * @property sub - The muted mono sub line (`"12k/h"`, `"week · 1 lane"`)
  * @property value - The right-aligned mono value slot (`"94.2%"`, `"82"`) — the same aggregate slot a table group header uses
  * @property meta - The group meta line (`"8 rs · 82%"`)
  * @property stacked - `true` ⇒ two-line layout (label over sub; row min-height 42px); `false` by default
@@ -419,7 +419,7 @@ export type PlanGutterType = typeof PlanGutterType;
  * quantity through ports, never dependency arrows.
  *
  * @property at - The instant the quantity moves
- * @property label - Optional port caption (e.g. `"−24 t"`)
+ * @property label - Optional port caption (e.g. `"−24 k sheets"`)
  */
 export const PlanPortType = StructType({
     at:    PlanInstantType,
@@ -900,7 +900,7 @@ export type PlanEventMarkKindType = typeof PlanEventMarkKindType;
  * A drag grammar `CellRef.row` carries the id's canonical text
  * (`printFor(PlanRowIdType)`), so the shared drag grammar stays string-based.
  *
- * @property entry - A row made from a source entry (or a hand-built row): `{ series, path }` — `["L1"]`, `["L1", "m03"]`
+ * @property entry - A row made from a source entry (or a hand-built row): `{ series, path }` — `["H1"]`, `["H1", "p03"]`
  * @property section - A section header (`Plan.series.section`), at its parent's path
  */
 export const PlanRowIdType = VariantType({
@@ -1232,12 +1232,12 @@ export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
 
 /**
  * One span run — a continuous `[start, end)` state-run bar
- * (`"RUN · B-214 · 96 t"`). Runs are quantity-bearing states, not tasks: no
+ * (`"RUN · J-4642 · 96 k sheets"`). Runs are quantity-bearing states, not tasks: no
  * dependency arrows, no critical path.
  *
  * @remarks
  * `quantity` is ONE value (#824, {@link PlanQuantityType}): the bar prints its
- * caption after the label (the muted `.q` suffix, `"96 t"`), and a parent's
+ * caption after the label (the muted `.q` suffix, `"96 k sheets"`), and a parent's
  * rollup band sums its runs' values unit by unit. `state` is the shared
  * `EventStateType` lifecycle driving the bar recipe; `status: warning` adds
  * the `.stuck` warn ring; `moved` collapses same-status churn to a `moved ×k`

@@ -397,7 +397,7 @@ test.describe("Visual invariants — the Plan", () => {
 
         test(`planSpanRows (${theme}): a links focus paints in the theme's brand — its bands, their heads and the off-window fade`, async ({ page }) => {
             const entry = await openExample(page, "planSpanRows", PLAN_EXAMPLES, theme);
-            await entry.locator(`${rowSel("detail", "L1-M09")} [data-plan-control="links"]`).click();
+            await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
             await expect(entry.locator('[data-plan-linkfade="right"]')).toHaveCount(1);
             const read = await entry.evaluate((root) => {
                 const probe = document.createElement("div");
