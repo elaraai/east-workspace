@@ -5,6 +5,7 @@
 
 /** Stable destinations shared by insertion buttons, keyboard and previews. @packageDocumentation */
 import { none, some, variant } from "@elaraai/east";
+import type { SheetBodyItem } from "./model.js";
 import type { Placement } from "./transactions.js";
 import type { SheetEditValue, SheetRowValue } from "./values.js";
 
@@ -18,6 +19,22 @@ export interface InsertionAnchor {
     side: "before" | "after";
 }
 export interface InsertRequest { kind: "row" | "group"; anchor: InsertionAnchor }
+
+/**
+ * Where an insertion at a row's seam goes — the one anchor the seam's chips,
+ * the keys and a drop (#1187) insert at: beside a line, in its group; at a
+ * group's end, on its blank line; beside a row or a band; at the sheet's
+ * end, on blank padding.
+ *
+ * @param item - The row-space item at the seam
+ * @param side - Which side of it
+ * @returns The anchor
+ */
+export function anchorAt(item: SheetBodyItem | undefined, side: "before" | "after"): InsertionAnchor {
+    if (item?.kind === "real" && item.group !== undefined) return { entry: item.group.row.id, child: item.group.key, side };
+    if (item?.kind === "blank" && item.group !== undefined) return { entry: item.group.row.id, tail: true, side };
+    return { entry: item?.kind === "real" || item?.kind === "group" ? item.row.id : undefined, side };
+}
 
 /**
  * Whether a row inserted at an anchor is a LOOSE row between the groups

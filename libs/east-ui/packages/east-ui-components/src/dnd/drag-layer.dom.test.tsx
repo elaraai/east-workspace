@@ -27,7 +27,9 @@ import {
     useDragSourceItem,
     useDragEventChip,
     useDragEventEdge,
+    type CellCoord,
     type DragEventValue,
+    type DragPayload,
     type DragTargetConfig,
     type DropVeto,
 } from "./drag-layer.js";
@@ -909,5 +911,88 @@ describe("announcements (#608)", () => {
         fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
         expect(sole(events).type).toBe("add");
         expect(announced()).toBe("patel was dropped on patel · thu.");
+    });
+});
+
+describe("the ghost's caption (#1187)", () => {
+    /** A cell that captions the ghost: where the card would land, or why not. */
+    function CaptionCell({ row, slot, canDrop }: { row: string; slot: string; canDrop?: DropVeto }) {
+        const caption = (coord: CellCoord, payload: DragPayload, allowed: boolean) => {
+            const item = payload.kind === "item" ? payload.from.key : payload.from.event;
+            return allowed ? `${item} · ${coord.row} ${coord.slot}` : `${coord.slot} is full`;
+        };
+        const ref = useDropCell({ surface: "roster", row, slot }, false, canDrop, undefined, { caption });
+        return <div ref={ref} data-testid={`cell-${row}-${slot}`} />;
+    }
+    /** The caption under the ghost: its words, and whether they say why not — or `null` while the ghost goes alone. */
+    const caption = () => {
+        const el = document.querySelector("[data-drag-caption]");
+        return el === null ? null : { text: el.textContent, refused: el.hasAttribute("data-refused") };
+    };
+    /** Rest the drag over an element, the pointer moved. */
+    const restOver = (el: Element | null, x: number) => {
+        pointAt(el);
+        fireEvent.pointerMove(document, { pointerId: 1, clientX: x, clientY: 10 });
+    };
+
+    test("the ghost says what a cell's caption says where the drag rests — red where the cell refuses — and nothing over a cell with none, over nothing, or once the drag ends", () => {
+        const events: DragEventValue[] = [];
+        const refuseFri: DropVeto = (e) => !(e.type === "add" && e.value.into.slot === "fri");
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <CaptionCell row="patel" slot="thu" />
+                <CaptionCell row="patel" slot="fri" canDrop={refuseFri} />
+                <Cell surface="roster" row="patel" slot="sat" />
+            </DragLayerProvider>,
+        );
+        // Picked up, over nothing: the ghost alone.
+        engage(getByTestId("card-patel"), null);
+        expect(document.querySelector("[data-drag-ghost]")).not.toBeNull();
+        expect(caption()).toBeNull();
+        // Over a cell that takes it: where it would land.
+        restOver(getByTestId("cell-patel-thu"), 20);
+        expect(caption()).toEqual({ text: "patel · patel thu", refused: false });
+        // Over a cell that refuses it: why, in red.
+        restOver(getByTestId("cell-patel-fri"), 30);
+        expect(getByTestId("cell-patel-fri").hasAttribute("data-drop-invalid")).toBe(true);
+        expect(caption()).toEqual({ text: "fri is full", refused: true });
+        // Over a cell with no caption, and over nothing: the ghost alone again.
+        restOver(getByTestId("cell-patel-sat"), 40);
+        expect(caption()).toBeNull();
+        restOver(getByTestId("cell-patel-thu"), 50);
+        expect(caption()).toEqual({ text: "patel · patel thu", refused: false });
+        restOver(null, 60);
+        expect(caption()).toBeNull();
+        // Dropped: the caption goes at once.
+        restOver(getByTestId("cell-patel-thu"), 70);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 70, clientY: 10 });
+        expect(sole(events).type).toBe("add");
+        expect(caption()).toBeNull();
+    });
+
+    test("a caption speaks of the coordinate the drag rests on — a continuous cell's, at the pointer — and goes when the drag is cancelled", () => {
+        // One cell whose slot is the pointer's half: left or right.
+        function HalfCell() {
+            const resolve = (x: number) => ({ surface: "roster", row: "cho", slot: x < 100 ? "am" : "pm" });
+            const caption = (coord: CellCoord) => `cho ${coord.slot}`;
+            const ref = useDropCell({ surface: "roster", row: "cho", slot: "am" }, false, undefined, resolve, { caption });
+            return <div ref={ref} data-testid="cell-cho" />;
+        }
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: () => {} }} />
+                <Card library="people" itemKey="patel" />
+                <HalfCell />
+            </DragLayerProvider>,
+        );
+        engage(getByTestId("card-patel"), null);
+        restOver(getByTestId("cell-cho"), 40);
+        expect(caption()).toEqual({ text: "cho am", refused: false });
+        restOver(getByTestId("cell-cho"), 140);
+        expect(caption()).toEqual({ text: "cho pm", refused: false });
+        fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+        expect(caption()).toBeNull();
     });
 });

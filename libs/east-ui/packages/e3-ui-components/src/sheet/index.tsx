@@ -55,6 +55,13 @@
  * that folds or opens moves rows with a short slide, and the rows it brings
  * into view drop in; nothing moves on a scroll, a lens change or a view
  * switch, and nothing at all under reduced motion.
+ *
+ * A host that offers drops (`SheetHost.drop`, a builder's, #1187) makes each
+ * row a drop target on its surface and each row's gutter a grip: its
+ * library's templates insert at a seam, its author's cards set their cells
+ * on a row or a band, and a row, a line or a group moves to another seam —
+ * each drop one transaction, planned by `drop.ts` from the rows as they
+ * stand, and the ghost saying where it lands, or why it can't.
  */
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
@@ -62,7 +69,10 @@ import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { ArrayType, StringType, equalFor, equivalentFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType, SheetViewComponent } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem } from "@elaraai/east-ui-components";
+import {
+    getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget,
+    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem,
+} from "@elaraai/east-ui-components";
 import { parseCssSize, DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, kindOfIssue, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { boundSliceConfig } from "@elaraai/east-ui-components/platform";
 import {
@@ -92,13 +102,17 @@ import {
     type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
 import type { SheetNotice } from "./sheet-types.js";
-import type { EntryVersion, SheetTransactions } from "./transactions.js";
+import type { EntryVersion, Origin, Placement, SheetTransactions } from "./transactions.js";
+import {
+    cardSource, dropCaption, dropName, dropRefusal, dropRowOf, locateDrop, payloadSource, planBelow, planDrop, printDropRow, readDropRow, slotAt,
+    type SheetDropContext, type SheetDropHost, type SheetDropMark, type SheetDropPlan, type SheetDropRow, type SheetDropSource, type SheetRowDrop,
+} from "./drop.js";
 import { normalizeDraft } from "./draft-values.js";
 import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
-import { insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
+import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry } from "./Rows.js";
@@ -107,10 +121,10 @@ import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetFooterProps, type SheetTransport } from "./Footer.js";
-import { useSheetEditing, type DraftEdit, type LocalLayer } from "./use-editing.js";
+import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { SheetToolbarRow, useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetViewValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -396,6 +410,8 @@ export interface SheetParts {
     failure: ReactNode | undefined;
     /** What a builder's inspector reads of the sheet, and the gestures it makes (#1188). */
     inspect: SheetInspect;
+    /** A library card's ⏎ (#1187, SB45): the card, by its library and its key, taken as a drop below the ring's row. Stable. */
+    enter: (library: string, key: string) => void;
 }
 
 /** The editing session as a host reads it ({@link useSheetHistory}). */
@@ -422,6 +438,42 @@ export interface SheetHost {
      * hides none.
      */
     hidden?: ReadonlySet<string> | undefined;
+    /**
+     * What the sheet takes dropped (#1187): the surface its rows register
+     * on, a library's templates and an author's cards — and its rows' grips
+     * move them. Absent, the sheet takes no drop and its rows have no grip.
+     */
+    drop?: SheetDropHost | undefined;
+}
+
+/** Where a gesture's new entry comes from when it is not the sheet's own: a dropped template's seeds, and its origin (#1187). */
+interface SheetInsertFrom {
+    seeds: SheetSeeds;
+    origin: Origin;
+}
+
+/**
+ * The sheet's drops as they stand (#1187): what the rows' shared
+ * {@link SheetRowDrop} and the sheet's drop target call — made afresh each
+ * render, read through a ref, so neither changes for it.
+ */
+interface SheetDropApi {
+    /** Whether the drop a candidate event makes lands. */
+    canDrop: (event: DragEventValue) => boolean;
+    /** What the ghost says where a drag rests. */
+    caption: (coord: CellCoord, payload: DragPayload) => string | undefined;
+    /** Where it rests, as the announcements name it. */
+    name: (coord: CellCoord, payload: DragPayload) => string;
+    /** A drag rests over a row that takes it: the seam, or the row, lights. */
+    hover: (el: HTMLElement, coord: CellCoord, payload: DragPayload) => void;
+    /** A completed drag: run as one transaction — `false` when nothing changed. */
+    drop: (event: DragEventValue) => boolean;
+}
+
+/** A row-space item's drop row, printed — what its drop cell's `CellRef` carries. */
+function dropText(item: SheetBodyItem): string | undefined {
+    const row = dropRowOf(item);
+    return row === undefined ? undefined : printDropRow(row);
 }
 
 /**
@@ -1706,33 +1758,47 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
 
     // Insertion retains identities while an open editor commits, then resolves
     // the destination against the latest local collection.
-    const pendingInsertion = useRef<InsertRequest | undefined>(undefined);
-    const pendingInsertFocus = useRef<{ id: string; child?: string } | undefined>(undefined);
-    const anchorFor = useCallback((r: number, side: "before" | "after"): InsertionAnchor => {
-        const item = rowAt(r);
-        if (item?.kind === "real" && item.group !== undefined) return { entry: item.group.row.id, child: item.group.key, side };
-        if (item?.kind === "blank" && item.group !== undefined) return { entry: item.group.row.id, tail: true, side };
-        return { entry: item?.kind === "real" || item?.kind === "group" ? item.row.id : undefined, side };
-    }, [rowAt]);
-    const executeInsertion = useCallback((request: InsertRequest) => {
-        if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return;
+    const pendingInsertion = useRef<{ request: InsertRequest; from?: SheetInsertFrom | undefined } | undefined>(undefined);
+    /**
+     * The row a gesture made, set or moved, once the body holds it: its
+     * editor opens on an insert of the sheet's own; after a drop (#1187) it
+     * is selected — on the column a card set first, when the grid shows it.
+     */
+    const pendingInsertFocus = useRef<{ id: string; child?: string; edit: boolean; key?: string | undefined } | undefined>(undefined);
+    const anchorFor = useCallback((r: number, side: "before" | "after"): InsertionAnchor => anchorAt(rowAt(r), side), [rowAt]);
+    /**
+     * Inserts a row or a group where a request says, as one transaction —
+     * seeded and labelled as a drop says, when it is one (#1187).
+     *
+     * @returns Whether the session recorded it
+     */
+    const executeInsertion = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
+        if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return false;
         const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
             () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey, loose);
-        if (gesture === undefined) return;
-        recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), "insert");
-        pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }) };
-        dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } } });
+        if (gesture === undefined) return false;
+        const recorded = recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), from?.origin ?? "insert", undefined, from?.seeds);
+        if (!recorded) return false;
+        pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }), edit: from === undefined };
+        // A drop is announced by the drag layer: the footer says nothing more.
+        dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, ...(from !== undefined ? {} : { msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } }) } });
+        return true;
     }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, newRowIdFn, recordGesture]);
+    /** An insertion — once an open editor has committed. */
+    const insertWhenClosed = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
+        if (uiRef.current.edit === null) return executeInsertion(request, from);
+        pendingInsertion.current = { request, from };
+        dispatch({ t: "editor.blur" });
+        return true;
+    }, [dispatch, executeInsertion]);
     const onInsert = useCallback((kind: "row" | "group", r: number, side: "before" | "after") => {
-        const request: InsertRequest = { kind, anchor: anchorFor(r, side) };
-        if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
-        else executeInsertion(request);
-    }, [anchorFor, dispatch, executeInsertion]);
+        insertWhenClosed({ kind, anchor: anchorFor(r, side) });
+    }, [anchorFor, insertWhenClosed]);
     useLayoutEffect(() => {
         if (ui.edit !== null || pendingInsertion.current === undefined) return;
-        const request = pendingInsertion.current;
+        const { request, from } = pendingInsertion.current;
         pendingInsertion.current = undefined;
-        executeInsertion(request);
+        executeInsertion(request, from);
     }, [ui.edit, store.fxSeq, executeInsertion]);
     useLayoutEffect(() => {
         const target = pendingInsertFocus.current;
@@ -1749,6 +1815,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         }
         pendingInsertFocus.current = undefined;
         const item = rowAt(r);
+        if (!target.edit) {
+            // A drop's row, selected: on the column a card set first, else where the ring was.
+            const keyC = target.key === undefined ? -1 : columns.list.findIndex(col => col.key === target.key);
+            dispatch({ t: "select.move", r, c: item?.kind === "group" ? 0 : keyC >= 0 ? keyC : uiRef.current.sel.c });
+            return;
+        }
         if (item?.kind === "group" && item.folded) dispatch({ t: "fold.toggle", r });
         const driverC = columns.list.findIndex(col => col.editable && col.key === driverColumn);
         const c = item?.kind === "group" ? 0 : driverC >= 0 ? driverC : Math.max(0, columns.list.findIndex(col => col.editable));
@@ -2579,8 +2651,36 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [movingSince]);
     const moving = gesture || movingSince !== 0;
 
+    // ── Drag and drop: what the rows hold (#1187) ─────────────────────────
+    // With a host that offers drops, every row is a drop target on its
+    // surface, and a row, a line or a band its grip moves: one object every
+    // row shares, held still while the host does, its functions reading the
+    // plans the sheet makes below (`dropApi`), so no row renders again for a
+    // drag. A sheet that takes no gesture now — read only, or between an
+    // Apply's request and its answer — takes no drop either.
+    const dropHost = host.drop;
+    const dragActive = useDragLayerOptional()?.active === true;
+    const dropOn = dropHost !== undefined && !readOnly && editingState.available;
+    const dropApi = useRef<SheetDropApi | undefined>(undefined);
+    const rowDrop = useMemo<SheetRowDrop | undefined>(() => (dropHost === undefined ? undefined : {
+        surface: dropHost.surface,
+        canDrop: (event) => dropApi.current?.canDrop(event) ?? false,
+        slotAt: (payload, rect, clientY) => slotAt(dropHost, payload, rect, clientY),
+        options: {
+            caption: (coord, payload) => dropApi.current?.caption(coord, payload),
+            name: (coord, payload) => dropApi.current?.name(coord, payload) ?? "",
+        },
+        hover: (el, coord, payload) => dropApi.current?.hover(el, coord, payload),
+    }), [dropHost]);
+    // What a grip moves (SB44): flat and loose rows where they keep no key order, lines, and groups.
+    const moveRowsOn = dropOn && capabilities.moveRows.type !== "none";
+    const movesRows = moveRowsOn && !keyed;
+    const movesLines = moveRowsOn;
+    const movesGroups = dropOn && capabilities.moveGroups;
     const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group"; side: "gutter" | "body" } | undefined>(undefined);
     const canInsert = editingState.available && (canInsertRows || canInsertGroups);
+    // A drag in flight owns the gutter: no seam offers its chips under it.
+    const seamsOn = canInsert && !dragActive;
     /** What the seam above row `r` offers, and what each chip previews. */
     const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
@@ -2635,7 +2735,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, []);
     // A scroll moves the rows from under the chips, and a change of rows moves the seam: either way the chips go until the pointer finds a seam again.
     // The scroll is the frame's (the rows sideways, or both ways when bounded) or the page's under an unbounded sheet (#856).
-    useEffect(() => { setSeam(undefined); setInsertPreview(undefined); }, [body]);
+    // A drag starting takes them too (#1187).
+    useEffect(() => { setSeam(undefined); setInsertPreview(undefined); }, [body, dragActive]);
     useEffect(() => {
         if (viewport === null) return;
         const hide = () => { setSeam(undefined); setInsertPreview(undefined); };
@@ -2745,7 +2846,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     registers={registers}
                     gridTemplate={gridTemplate}
                     bandPx={bandPx}
-                    seam={canInsert ? seamSide(i) : undefined}
+                    seam={seamsOn ? seamSide(i) : undefined}
                     onSeamEnter={onRowSeamEnter}
                     onSeamLeave={onSeamLeave}
                     insertPreview={insertPreview?.r === r ? insertPreview.kind : undefined}
@@ -2772,6 +2873,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     onCellEnter={onCellEnter}
                     onRowPick={onRowPick}
                     onFold={onFold}
+                    drop={dropOn ? rowDrop : undefined}
+                    dropRow={dropOn ? dropText(item) : undefined}
+                    movable={movesGroups}
                 />
                 </SheetRowBoundary>
             );
@@ -2790,7 +2894,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 driverColumn={driverColumn}
                 gridTemplate={gridTemplate}
                 rowPx={rowPx}
-                seam={canInsert ? seamSide(i) : undefined}
+                seam={seamsOn ? seamSide(i) : undefined}
                 onSeamEnter={onRowSeamEnter}
                 onSeamLeave={onSeamLeave}
                 insertPreview={insertPreview?.r === r ? insertPreview.kind : undefined}
@@ -2825,10 +2929,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 onSubRows={onSubRows}
                 noun={noun}
                 entering={lg !== undefined && arriving.has(`group:${lg.row.id}`) ? Math.min(lg.index, 8) : undefined}
+                drop={dropOn ? rowDrop : undefined}
+                dropRow={dropOn ? dropText(item) : undefined}
+                movable={item.kind === "real" && (lg !== undefined ? movesLines : movesRows)}
             />
             </SheetRowBoundary>
         );
-    }, [draftOf, memberships, canInsert, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount]);
+    }, [draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until a builder's inspector asks for a
@@ -3056,10 +3163,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const addLine = useCallback((bandR: number) => {
         const it = rowAt(bandR);
         if (it === undefined || it.kind !== "group") return;
-        const request: InsertRequest = { kind: "row", anchor: { entry: it.row.id, tail: true, side: "before" } };
-        if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
-        else executeInsertion(request);
-    }, [rowAt, dispatch, executeInsertion]);
+        insertWhenClosed({ kind: "row", anchor: { entry: it.row.id, tail: true, side: "before" } });
+    }, [rowAt, insertWhenClosed]);
     const removeGroup = useCallback((bandR: number) => {
         const it = rowAt(bandR);
         if (it === undefined || it.kind !== "group" || readOnly || !editingState.available || !capabilities.removeGroups) return;
@@ -3148,6 +3253,229 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
     }), [selected, targetAt, readOnly, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, draftVersion]);
 
+    // ── Drag and drop: the plans (#1187) ──────────────────────────────────
+    // Every drop is planned (`drop.ts`) from the rows as they stand — the
+    // veto, the ghost's caption, its name and the drop itself read the same
+    // plan — and runs as one transaction: a template's insertion, a card's
+    // cells, a move. A move is the entry's placement, or its groups' lines
+    // rewritten, the wire and the draft side by side.
+    const tailRow = useMemo(() => {
+        const r = rowSpace.bodyIndexOf.findIndex((bi) => { const it = body[bi]; return it !== undefined && it.kind === "blank" && it.group === undefined; });
+        return r < 0 ? undefined : r;
+    }, [rowSpace, body]);
+    const dropCtx = useMemo((): SheetDropContext => ({
+        rows, rowAt, rowOf, blankLineRowOf, tailRow, rowCount,
+        grouped: group !== undefined, loose, keyed,
+        writable: !readOnly && editingState.available,
+        can: { insertRows: canInsertRows, insertGroups: canInsertGroups, moveRows: capabilities.moveRows.type, moveGroups: capabilities.moveGroups },
+        columnAt: (band, key) => (band ? group?.cells.get(key) : allColumns.byKey.get(key)),
+        anchorFor,
+    }), [rows, rowAt, rowOf, blankLineRowOf, tailRow, rowCount, group, loose, keyed, readOnly, editingState.available, canInsertRows, canInsertGroups, capabilities, allColumns, anchorFor]);
+    // A drop row's text, read once: the rows print their own, so the same few come back.
+    const dropRows = useRef(new Map<string, SheetDropRow | undefined>()).current;
+    const readRow = useCallback((text: string): SheetDropRow | undefined => {
+        if (!dropRows.has(text)) {
+            if (dropRows.size > 4096) dropRows.clear();
+            dropRows.set(text, readDropRow(text));
+        }
+        return dropRows.get(text);
+    }, [dropRows]);
+    /** A drop's plan, at a coordinate the rows made. */
+    const planAt = (source: SheetDropSource, at: { row: string; slot: string }): SheetDropPlan => {
+        const row = readRow(at.row);
+        return row === undefined ? { kind: "refused", why: { why: "gone" } } : planDrop(source, row, at.slot, dropCtx);
+    };
+    /** What a completed drag, or a candidate, carries, and where it lands — `undefined` for one the sheet did not make. */
+    const readEvent = (event: DragEventValue): { source: SheetDropSource; at: { row: string; slot: string } } | undefined => {
+        if (dropHost === undefined) return undefined;
+        if (event.type === "add") {
+            const source = cardSource(dropHost, event.value.from.library, event.value.from.key);
+            return source === undefined ? undefined : { source, at: event.value.into };
+        }
+        if (event.type === "move") {
+            const row = readRow(event.value.from.row);
+            return row === undefined ? undefined : { source: { kind: "move", row }, at: event.value.to };
+        }
+        return undefined;
+    };
+    // The row the seam line runs along, and its edge: written, never rendered, as a drag rests (the Plan's landing band's way).
+    const markedSeam = useRef<HTMLElement | null>(null);
+    const markSeam = (mark: SheetDropMark | undefined) => {
+        const el = mark === undefined ? null
+            : cardRef.current?.querySelector<HTMLElement>(`[data-row="${mark.r}"]:not([data-slot=stickyBand]):not([data-slot=stickyLine])`) ?? null;
+        if (markedSeam.current !== null && markedSeam.current !== el) markedSeam.current.removeAttribute("data-drop-seam");
+        markedSeam.current = el;
+        if (el !== null && mark !== undefined) el.setAttribute("data-drop-seam", mark.edge);
+    };
+    // A drag over: no row keeps a mark.
+    useEffect(() => {
+        if (dragActive) return;
+        markedSeam.current?.removeAttribute("data-drop-seam");
+        markedSeam.current = null;
+        for (const el of cardRef.current?.querySelectorAll("[data-drop-at]") ?? []) el.removeAttribute("data-drop-at");
+    }, [dragActive]);
+    /** A group entry's version with its lines rewritten: the wire lines and the draft's children, side by side. */
+    const withLines = useCallback((version: EntryVersion, edit: (lines: SheetLineValue[], kids: unknown[]) => void): EntryVersion => {
+        const wire = version.wire;
+        if (wire === undefined || version.draft === undefined || childField === undefined) return version;
+        const looseDraft = draftType.type === "Variant";
+        const outer = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
+        const lines = [...wire.lines];
+        const kids = [...(outer[childField] as unknown[])];
+        edit(lines, kids);
+        const next = { ...outer, [childField]: kids };
+        return { ...version, wire: { ...wire, lines }, draft: looseDraft ? variant("group", next) : next };
+    }, [childField, draftType]);
+    /** A gesture of draft edits alone — a move — recorded as one transaction. */
+    const recordEdits = useCallback((origin: Origin, edits: ReadonlyMap<string, DraftEdit>): boolean => {
+        try { return recordGesture([], undefined, origin, edits); }
+        catch (error) {
+            console.error("Sheet transaction failure", error);
+            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+            return false;
+        }
+    }, [recordGesture]);
+    /**
+     * Runs a drop's plan as one transaction (SB39, SB40, SB44, SB61), the row
+     * it made, set or moved selected once the body holds it.
+     *
+     * @returns Whether it changed anything
+     */
+    const runDrop = useCallback((plan: SheetDropPlan): boolean => {
+        switch (plan.kind) {
+            case "refused":
+            case "stay":
+                return false;
+            case "insert":
+                return insertWhenClosed(plan.request, { seeds: plan.template.seeds, origin: "drop" });
+            case "set": {
+                const item = rowAt(plan.r);
+                if (item === undefined || (item.kind !== "real" && item.kind !== "group") || plan.card.sets.size === 0) return false;
+                gestureEvents.current = [];
+                let recorded = false;
+                try {
+                    writeCells([...plan.card.sets].map(([key, cell]) => ({ r: plan.r, c: -1, key, cell })), "typed");
+                    recorded = recordGesture(gestureEvents.current, undefined, "drop");
+                } catch (error) {
+                    console.error("Sheet transaction failure", error);
+                    dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
+                } finally {
+                    gestureEvents.current = [];
+                }
+                if (!recorded) return false;
+                const keys = [...plan.card.sets.keys()];
+                // The copilot asks again for a row whose trigger column the card set, as typing in it does.
+                if (copilotOn && keys.some((key) => triggers.size === 0 || triggers.has(key))) {
+                    const id = idAt(plan.r);
+                    if (id !== undefined) requestRun(id, 0);
+                }
+                const lg = item.kind === "real" ? item.group : undefined;
+                pendingInsertFocus.current = { id: lg !== undefined ? lg.row.id : item.row.id, ...(lg !== undefined ? { child: lg.key } : {}), edit: false, key: keys[0] };
+                return true;
+            }
+            case "moveEntry": {
+                const placement: Placement = some(variant("ordered", plan.to === "end" ? variant("end", null) : variant(plan.to.side, plan.to.anchor)));
+                const recorded = recordEdits("move", new Map([[plan.id, (version: EntryVersion): EntryVersion => ({ ...version, place: placement })]]));
+                if (recorded) pendingInsertFocus.current = { id: plan.id, edit: false };
+                return recorded;
+            }
+            case "moveLine": {
+                const { from, to } = plan;
+                const source = versionOf(from.group);
+                const at = source?.wire?.lines.findIndex((line) => line.key === from.key) ?? -1;
+                if (source === undefined || source.wire === undefined || at < 0) return false;
+                const edits = new Map<string, DraftEdit>();
+                let key = from.key;
+                if (to.group === from.group) {
+                    // Within its group: out of its slot, into the one it was dropped at.
+                    edits.set(from.group, (version) => withLines(version, (lines, kids) => {
+                        const i = lines.findIndex((line) => line.key === from.key);
+                        if (i < 0) return;
+                        const [line] = lines.splice(i, 1);
+                        const [kid] = kids.splice(i, 1);
+                        const slot = to.index > i ? to.index - 1 : to.index;
+                        lines.splice(slot, 0, line!);
+                        kids.splice(slot, 0, kid);
+                    }));
+                } else {
+                    // Into another group: out of its own, into the other under a key of the other's — its draft with it.
+                    const target = versionOf(to.group)?.wire;
+                    const outer = (draftType.type === "Variant" ? (source.draft as ValueTypeOf<typeof draftType> | undefined)?.value : source.draft) as Record<string, unknown> | undefined;
+                    const kid = childField === undefined ? undefined : (outer?.[childField] as unknown[] | undefined)?.[at];
+                    if (target === undefined || kid === undefined) return false;
+                    key = mintLineKey(target);
+                    const moved: SheetLineValue = { ...source.wire.lines[at]!, key };
+                    edits.set(from.group, (version) => withLines(version, (lines, kids) => {
+                        const i = lines.findIndex((line) => line.key === from.key);
+                        if (i < 0) return;
+                        lines.splice(i, 1);
+                        kids.splice(i, 1);
+                    }));
+                    edits.set(to.group, (version) => withLines(version, (lines, kids) => {
+                        lines.splice(Math.min(to.index, lines.length), 0, moved);
+                        kids.splice(Math.min(to.index, kids.length), 0, kid);
+                    }));
+                }
+                const recorded = recordEdits("move", edits);
+                if (recorded) pendingInsertFocus.current = { id: to.group, child: key, edit: false };
+                return recorded;
+            }
+        }
+    }, [insertWhenClosed, rowAt, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun, recordEdits, versionOf, withLines, draftType, childField]);
+    dropApi.current = dropHost === undefined ? undefined : {
+        canDrop: (event) => {
+            const read = readEvent(event);
+            return read !== undefined && planAt(read.source, read.at).kind !== "refused";
+        },
+        caption: (coord, payload) => {
+            const source = payloadSource(dropHost, payload);
+            return source === undefined ? undefined : dropCaption(planAt(source, coord), dropCtx, words, noun);
+        },
+        name: (coord, payload) => {
+            const source = payloadSource(dropHost, payload);
+            const row = readRow(coord.row);
+            if (source === undefined || row === undefined) return "";
+            return dropName(planAt(source, coord), locateDrop(row, dropCtx)?.r, dropCtx, words, noun);
+        },
+        hover: (el, coord, payload) => {
+            const source = payloadSource(dropHost, payload);
+            if (source === undefined) return;
+            const plan = planAt(source, coord);
+            el.setAttribute("data-drop-at", plan.kind === "set" ? "row" : "seam");
+            markSeam(plan.kind === "set" || plan.kind === "refused" ? undefined : plan.mark);
+        },
+        drop: (event) => {
+            const read = readEvent(event);
+            return read !== undefined && runDrop(planAt(read.source, read.at));
+        },
+    };
+    // The surface the rows register on, taking the library's templates and every author's tab that drops.
+    const dropTarget = useMemo((): DragTargetConfig | null => (dropHost === undefined || !dropOn ? null : {
+        id: dropHost.surface,
+        sources: [...(dropHost.templates !== undefined ? [dropHost.templates.library] : []), ...dropHost.tabs.keys()],
+        kinds: { add: true, move: true },
+        onDrag: (event) => dropApi.current?.drop(event) ?? false,
+    }), [dropHost, dropOn]);
+    useDragTarget(dropTarget);
+    // A library card's ⏎ (SB45): the drop below the ring's row — or, where it is refused, why, in the footer.
+    const enterCard = (library: string, key: string) => {
+        if (dropHost === undefined) return;
+        const source = cardSource(dropHost, library, key);
+        const item = rowAt(uiRef.current.sel.r);
+        const row = item === undefined ? undefined : dropRowOf(item);
+        if (source === undefined || row === undefined) return;
+        const plan = planBelow(source, row, dropCtx);
+        if (plan.kind !== "refused") {
+            runDrop(plan);
+            return;
+        }
+        const word = dropRefusal(plan, dropCtx, words, noun);
+        if (word !== undefined) dispatchStore({ t: "patch", patch: { msg: { id: "dropRefused", word } } });
+    };
+    const enterRef = useRef(enterCard);
+    enterRef.current = enterCard;
+    const enter = useCallback((library: string, key: string) => enterRef.current(library, key), []);
+
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
     const toolbarItems = useSheetToolbarItemsFor({
         styles,
@@ -3184,14 +3512,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={() => paging.retry()} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, history, failure, inspect };
+        return { styles, root, toolbar, grid: null, footer, history, failure, inspect, enter };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
     // The open line whose sub rows scroll under the band.
     const stuck = stickyLineAt !== undefined ? body[stickyLineAt] : undefined;
     const stuckLine = stickyLineAt !== undefined && stuck !== undefined && stuck.kind === "real" && stuck.group !== undefined
-        ? { at: stickyLineAt, r: rowSpace.rowOf[stickyLineAt] ?? -1, row: stuck.row, lg: stuck.group, hit: stuck.hit }
+        ? { at: stickyLineAt, r: rowSpace.rowOf[stickyLineAt] ?? -1, row: stuck.row, lg: stuck.group, hit: stuck.hit, dropRow: dropText(stuck) }
         : undefined;
     const header = (
         <Box ref={headerRef} position="relative">
@@ -3226,6 +3554,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         onCellEnter={onCellEnter}
                         onRowPick={onRowPick}
                         onFold={onFold}
+                        // A drop over the copy lands on its band: the band itself lies under the header (#1187).
+                        drop={dropOn ? rowDrop : undefined}
+                        dropRow={dropOn ? dropText(stickyItem) : undefined}
                     />
                 </Box>
             )}
@@ -3269,6 +3600,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         onSubRows={(r, all) => { revealLine(stuckLine.at, all); onSubRows(r, all); }}
                         noun={noun}
                         sticky
+                        drop={dropOn ? rowDrop : undefined}
+                        dropRow={dropOn ? stuckLine.dropRow : undefined}
                     />
                 </Box>
             )}
@@ -3320,7 +3653,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     restoreAnchor={restoreAnchor}
                     rootCss={{ overflowX: "auto" }}
                 />
-                {seam !== undefined && canInsert && (
+                {seam !== undefined && seamsOn && (
                     <SheetInsertLayer ref={insertLayerRef} styles={styles} seam={seam} actions={insertActions(seam.r, seam.side)} onLeave={onSeamLeave} />
                 )}
             </Box>
@@ -3333,7 +3666,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
         </>
     );
-    return { styles, root, toolbar, grid, footer, history, failure: undefined, inspect };
+    return { styles, root, toolbar, grid, footer, history, failure: undefined, inspect, enter };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -3553,6 +3886,18 @@ export function useSheetHistory(): SheetHistory {
  */
 export function useSheetInspect(): SheetInspect {
     return useSheetParts().inspect;
+}
+
+/**
+ * Reads what a builder's library calls on a card's ⏎ (#1187, SB45): the card,
+ * by its library and its key, taken as a drop below the ring's row — a
+ * template inserted after it, an author's card's cells set on it — or, where
+ * that is refused, why, in the footer.
+ *
+ * @returns The ⏎ — stable
+ */
+export function useSheetDropEnter(): (library: string, key: string) => void {
+    return useSheetParts().enter;
 }
 
 /**

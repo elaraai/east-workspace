@@ -13,10 +13,12 @@
  * and foot, its layout and columns, the toolbar's Grid · List switch, its
  * dashed card to add one, and the compact card's behaviour kept. With nothing
  * to show (#1186), the shared empty state: the host's words for no items, or
- * `No matches` for a search or a filter that hides every card.
+ * `No matches` for a search or a filter that hides every card. A host that
+ * takes a draggable card's ⏎ (#1187) gets it, while Space still picks the
+ * card up.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, act, fireEvent, screen, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { East, NullType, StringType, none, some, type ValueTypeOf } from "@elaraai/east";
@@ -27,6 +29,7 @@ import { initializeStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { UIStore } from "../../platform/state-store.js";
 import { DragLayerProvider } from "../../dnd/drag-layer.js";
+import { announced, pointAt, press, stubScrollIntoView, tick } from "../../testing/drag-layer.js";
 import { EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "./index.js";
 
 // jsdom lacks the ResizeObserver the menu's positioner reaches for, and the
@@ -444,5 +447,84 @@ describe("Library — nothing to show (#1186)", () => {
         expect(said(container)).toEqual(["☐", "No matches", "No item holds every value the filter checks."]);
         await pick("Bay 1");
         expect(said(container)).toBeNull();
+    });
+});
+
+describe("Library — a host's ⏎ (#1187)", () => {
+    stubScrollIntoView();
+    // No drop target lies anywhere: the layer hit-tests through `elementFromPoint`, which jsdom lacks.
+    beforeEach(() => { pointAt(null); });
+
+    /** A template card: draggable, or pinned where it is. */
+    const card = (key: string, draggable: boolean): LibraryItemValue => ({
+        key, label: key, sublabel: none, icon: none, status: none, trailing: none, draggable, filtered: false, placed: false,
+        media: none, avatar: none, byline: none, action: none, search: some(key), groups: new Map(), facets: new Map(), dims: new Map(),
+    });
+    /** A palette of templates whose clicks are counted. */
+    const palette = (clicked: string[]): LibraryValue => ({
+        id: "templates", hint: none, items: [card("edge", true), card("spray", true), card("pinned", false)],
+        groupOptions: [], groupSummaries: new Map(), dimOptions: [], defaultDimensions: [], filterOptions: [], searchable: false, noun: none,
+        addLabel: none, onAdd: none, onCardClick: some((key: string) => { clicked.push(key); return null; }), slice: none, style: none,
+        variant: none, layout: none, toolbar: false,
+    });
+    /** A card, by its key. */
+    const cardOf = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-library-item="${key}"]`)!;
+
+    test("⏎ on a draggable card is the host's, and picks nothing up; Space still picks it up, and ⏎ then drops it; a card that cannot be dragged still clicks", async () => {
+        const entered: string[] = [];
+        const clicked: string[] = [];
+        const onCardEnter = (key: string) => { entered.push(key); };
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <EastChakraLibrary value={palette(clicked)} storageKey="library-test" onCardEnter={onCardEnter} />
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        const edge = cardOf(container, "edge");
+        expect(edge.getAttribute("aria-keyshortcuts")).toBe("Enter");
+        edge.focus();
+        press("Enter");
+        await tick();
+        expect(entered).toEqual(["edge"]);
+        expect(edge.hasAttribute("data-dragging")).toBe(false);
+        expect(clicked).toEqual([]);
+
+        // Space picks the card up, as on every draggable; ⏎ drops it — no drop target here, so not dropped — and is not the host's.
+        cardOf(container, "spray").focus();
+        press("Space");
+        await tick();
+        expect(cardOf(container, "spray").hasAttribute("data-dragging")).toBe(true);
+        press("Enter");
+        await tick();
+        expect(cardOf(container, "spray").hasAttribute("data-dragging")).toBe(false);
+        expect(announced()).toBe("spray was not dropped.");
+        expect(entered).toEqual(["edge"]);
+
+        // A card that cannot be dragged is a button: ⏎ clicks it.
+        const pinned = cardOf(container, "pinned");
+        expect(pinned.hasAttribute("aria-keyshortcuts")).toBe(false);
+        await act(async () => { fireEvent.keyDown(pinned, { key: "Enter" }); });
+        expect(clicked).toEqual(["pinned"]);
+        expect(entered).toEqual(["edge"]);
+    });
+
+    test("without a host's ⏎, Enter picks a draggable card up, as it always has", async () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <EastChakraLibrary value={palette([])} storageKey="library-test" />
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        const edge = cardOf(container, "edge");
+        expect(edge.hasAttribute("aria-keyshortcuts")).toBe(false);
+        edge.focus();
+        press("Enter");
+        await tick();
+        expect(edge.hasAttribute("data-dragging")).toBe(true);
+        press("Escape");
+        await tick();
+        expect(edge.hasAttribute("data-dragging")).toBe(false);
     });
 });

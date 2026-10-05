@@ -19,7 +19,12 @@
  * card dimmed, and the column out of the grid. The inspector (#1188): a
  * line's Details in the 320px pane, its sections and its fields, a changed
  * field tinted; and on the weeks' builder the author's own Details, its
- * slider's step one transaction. In both themes;
+ * slider's step one transaction. Drag and drop (#1187), on the day's
+ * batches: a template carried over a line — its caption under the ghost, the
+ * 2px brand seam it would land on — and dropped there; a card refused, red;
+ * a batch moved to the top by its grip, every row drawn from the first
+ * (#1213); and at 560px the library sliding off main while a drag is under
+ * way. In both themes;
  * every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -33,6 +38,8 @@ import { frameAt, tapScrim, type Box } from "./builder-frame";
 const HASH = "e3/sheet/sheet-builder/sheetBuilderWorkshop";
 /** The weeks' builder: one entry's rows, and the author's own Details (SB58). */
 const WEEKS = "e3/sheet/sheet-builder/sheetBuilderWeeks";
+/** The day's batches (#1187): a grouped sheet in the planner's order — templates in its Rows tab, every line and batch moved by its grip. */
+const BATCHES = "e3/sheet/sheet-builder/sheetBuilderBatches";
 
 /** The fold ladder: the rail's four steps, the view tabs' strip closing up, the history item to its buttons. */
 const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 history>1";
@@ -425,5 +432,193 @@ test.describe("Sheet builder — the inspector (#1188)", () => {
         await expect(pane.locator('[data-state="pending"]')).toHaveText("Pending");
         await box.getByRole("button", { name: "Undo" }).click();
         await expect(qty).toHaveText("48");
+    });
+});
+
+/** A locator's box — it must be laid out. */
+async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+    const box = await locator.boundingBox();
+    if (box === null) throw new Error("not laid out");
+    return box;
+}
+
+/** A point over a row's top or bottom half, past its gutter, in client px. */
+async function onRow(row: Locator, half: "top" | "bottom"): Promise<{ x: number; y: number }> {
+    const box = await boxOf(row);
+    return { x: box.x + 300, y: box.y + box.height * (half === "top" ? 0.25 : 0.75) };
+}
+
+/** Press a card or a grip and carry it past the drag's threshold: the drag is under way. */
+async function pickUp(page: Page, handle: Locator): Promise<void> {
+    const box = await boxOf(handle);
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x + 12, at.y + 12, { steps: 3 });
+    await expect(handle).toHaveAttribute("data-dragging", "");
+}
+
+/** A grouped sheet's lines in a group, by the text under a column. */
+const lineTexts = (box: Locator, group: string, key: string) =>
+    box.locator(`[data-frame-slot=main] [data-slot="row"][data-group-id="${group}"]:not([data-blank])`)
+        .evaluateAll((rows, k) => rows.map((row) => row.querySelector(`[data-key="${k}"]`)?.textContent ?? ""), key);
+
+test.describe("Sheet builder — drag and drop (#1187)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`a template carried over a line: its caption under the ghost — mono, the muted ink on the paper in a strong rule — and along the seam it would land on a 2px brand line from the gutter's edge; dropped, the line inserted there (${theme})`, async ({ page }) => {
+            const box = await openBuilder(page, theme, 1440, BATCHES);
+            const card = box.locator('[data-frame-slot=start] [role="tabpanel"]:not([hidden]) [data-library-item="sand"]');
+            const target = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-101"]:not([data-blank])').nth(1);
+            await pickUp(page, card);
+            const at = await onRow(target, "top");
+            await page.mouse.move(at.x, at.y, { steps: 6 });
+            await expect.poll(() => page.evaluate(() => {
+                // The theme's tokens, as the page resolves them.
+                const resolve = (property: "color" | "fontFamily" | "fontSize" | "backgroundColor" | "borderTopColor", token: string) => {
+                    const probe = document.createElement("span");
+                    probe.style[property] = `var(${token})`;
+                    document.body.appendChild(probe);
+                    const resolved = getComputedStyle(probe)[property];
+                    probe.remove();
+                    return resolved;
+                };
+                const caption = document.querySelector("[data-drag-caption]");
+                const row = document.querySelector("[data-frame-slot=main] [data-row][data-drop-seam]");
+                if (caption === null || row === null) return null;
+                const c = getComputedStyle(caption);
+                const seam = getComputedStyle(row, "::after");
+                return {
+                    text: caption.textContent, refused: caption.hasAttribute("data-refused"),
+                    caption: [
+                        c.fontFamily === resolve("fontFamily", "--chakra-fonts-mono"), c.fontSize === resolve("fontSize", "--chakra-font-sizes-label-md"),
+                        c.color === resolve("color", "--chakra-colors-fg-muted"), c.backgroundColor === resolve("backgroundColor", "--chakra-colors-bg-surface"),
+                        c.borderTopWidth, c.borderTopStyle, c.borderTopColor === resolve("borderTopColor", "--chakra-colors-border-strong"),
+                    ],
+                    // The line runs along the top of the line it lands before, from the gutter's edge.
+                    seam: [row.getAttribute("data-drop-seam"), seam.content, seam.left, seam.height, seam.top, seam.backgroundColor === resolve("backgroundColor", "--chakra-colors-brand-solid")],
+                    // No row lights as a candidate: the one under the pointer stays on its paper, unhovered.
+                    paper: getComputedStyle(row).backgroundColor === resolve("backgroundColor", "--chakra-colors-bg-surface"),
+                };
+            })).toEqual({
+                text: "before line 2 of Doors, oak", refused: false,
+                caption: [true, true, true, true, "1px", "solid", true],
+                seam: ["top", '""', "128px", "2px", "-1px", true],
+                paper: true,
+            });
+            await page.mouse.up();
+            await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Cut doors", "Sand", "Band doors", "Spray doors"]);
+            // The drag over: no caption, no seam.
+            await expect(page.locator("[data-drag-caption]")).toHaveCount(0);
+            await expect(box.locator("[data-drop-seam]")).toHaveCount(0);
+        });
+
+        test(`a status card over the rows: on a line refused — the caption red, the line its invalid wash right under the pointer — and on its order's band the brand wash; let go there, the order drafted (${theme})`, async ({ page }) => {
+            const box = await openBuilder(page, theme);
+            const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
+            await pane.getByRole("tab", { name: "Statuses 3" }).click();
+            // A status is a group's: on a line it is refused, on a band it lands.
+            const card = pane.locator('[role="tabpanel"]:not([hidden]) [data-library-item="RELEASED"]');
+            const line = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2202"]:not([data-blank])').first();
+            const band = box.locator('[data-frame-slot=main] [data-slot="row"][data-band-row][data-row-id="WO-2202"]');
+            await pickUp(page, card);
+            const over = await onRow(line, "bottom");
+            await page.mouse.move(over.x, over.y, { steps: 6 });
+            await expect.poll(() => page.evaluate(({ x, y }) => {
+                const resolve = (property: "color" | "backgroundColor" | "borderTopColor", value: string) => {
+                    const probe = document.createElement("span");
+                    probe.style[property] = value;
+                    document.body.appendChild(probe);
+                    const resolved = getComputedStyle(probe)[property];
+                    probe.remove();
+                    return resolved;
+                };
+                const caption = document.querySelector("[data-drag-caption]");
+                const row = document.querySelector("[data-frame-slot=main] [data-row][data-drop-invalid]");
+                const cell = document.elementFromPoint(x, y)?.closest("[data-slot=cell]") ?? null;
+                if (caption === null || row === null || cell === null) return null;
+                const c = getComputedStyle(caption);
+                const wash = resolve("backgroundColor", "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))");
+                return {
+                    text: caption.textContent, refused: caption.hasAttribute("data-refused"),
+                    ink: [c.color === resolve("color", "var(--chakra-colors-fg-danger)"), c.borderTopColor === resolve("borderTopColor", "var(--chakra-colors-status-neg)")],
+                    // The row's wash — its gutter's too — and the cell under the pointer clear over it: no hover.
+                    wash: [getComputedStyle(row).backgroundColor === wash, getComputedStyle(row.querySelector("[data-slot=gutter]")!).backgroundColor === wash, getComputedStyle(cell).backgroundColor],
+                };
+            }, over)).toEqual({ text: "Drop onto a band", refused: true, ink: [true, true], wash: [true, true, "rgba(0, 0, 0, 0)"] });
+            const onBand = await onRow(band, "bottom");
+            await page.mouse.move(onBand.x, onBand.y, { steps: 6 });
+            await expect.poll(() => band.evaluate((el) => {
+                const probe = document.createElement("span");
+                probe.style.backgroundColor = "var(--chakra-colors-brand-tint)";
+                document.body.appendChild(probe);
+                const tint = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return { text: document.querySelector("[data-drag-caption]")?.textContent ?? null, tint: getComputedStyle(el).backgroundColor === tint };
+            })).toEqual({ text: "→ order 2", tint: true });
+            await page.mouse.up();
+            await expect(band).toHaveAttribute("data-draft", "");
+            await expect(page.locator("[data-drag-caption]")).toHaveCount(0);
+        });
+    }
+
+    test("a sheet whose rows fit its frame, its first batch moved to the end by its grip: every row is still drawn from the first — the frame cannot scroll to keep the batch where it stood (#1213)", async ({ page }) => {
+        // A box tall enough that the rows fit the frame — it has nowhere to scroll — in a window that shows all of it.
+        await page.setViewportSize({ width: 1280, height: 1300 });
+        const box = await openBuilder(page, "light", 1440, BATCHES);
+        const main = box.locator("[data-frame-slot=main]");
+        const frameOf = () => main.locator('[data-virtual-rows="bounded"]');
+        await box.evaluate((el) => { (el as HTMLElement).style.height = "1000px"; });
+        await settled(page);
+        await box.scrollIntoViewIfNeeded();
+        await settled(page);
+        await expect.poll(() => frameOf().evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+        const band = (id: string) => main.locator(`[data-slot="row"][data-band-row][data-row-id="${id}"]`);
+        // The grip shows on the row's hover. The batch is the top row — the scroll's anchor.
+        await band("B-101").hover();
+        await pickUp(page, band("B-101").locator('[data-slot="rowGrip"]'));
+        const at = await onRow(main.locator('[data-slot="row"][data-group-id="B-103"][data-blank]'), "bottom");
+        await page.mouse.move(at.x, at.y, { steps: 6 });
+        await expect(page.locator("[data-drag-caption]")).toHaveText("after batch 3");
+        await page.mouse.up();
+        await expect.poll(() => frameOf().evaluate((frame) => {
+            const header = frame.firstElementChild!.getBoundingClientRect();
+            const view = frame.getBoundingClientRect();
+            // The rows the frame draws — the sticky copies under the header are not among them.
+            const bands = [...frame.querySelectorAll('[data-virtual-extent] [data-slot="row"][data-band-row]')];
+            const first = bands[0]?.getBoundingClientRect();
+            return {
+                scrollTop: frame.scrollTop,
+                bands: bands.map((b) => b.getAttribute("data-row-id")),
+                firstInView: first !== undefined && first.top >= header.bottom - 1 && first.bottom <= view.bottom + 1,
+            };
+        })).toEqual({ scrollTop: 0, bands: ["B-102", "B-103", "B-101"], firstInView: true });
+    });
+
+    test("at 560px the library floats over main under the scrim; a card picked up slides it off main and lifts the scrim, and lands on the line it is dropped on — the pane back over main once the drag is over", async ({ page }) => {
+        const box = await openBuilder(page, "light", 1440, BATCHES);
+        await sizeTo(page, box, 560);
+        await box.getByRole("button", { name: "Expand Library" }).click();
+        await expect.poll(async () => {
+            const at = await frameAt(box);
+            return { open: !at.start!.collapsed, scrim: at.scrim !== null };
+        }).toEqual({ open: true, scrim: true });
+        await pickUp(page, box.locator('[data-frame-slot=start] [role="tabpanel"]:not([hidden]) [data-library-item="seal"]'));
+        // Off main, toward its own edge, and no scrim over the drop targets.
+        await expect.poll(async () => {
+            const at = await frameAt(box);
+            return { offMain: at.start!.sheet.x + at.start!.sheet.w <= at.main.x + 0.5, scrim: at.scrim };
+        }).toEqual({ offMain: true, scrim: null });
+        const target = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-102"]:not([data-blank])').first();
+        const at = await onRow(target, "bottom");
+        await page.mouse.move(at.x, at.y, { steps: 6 });
+        await expect(page.locator("[data-drag-caption]")).toHaveText("after line 1 of Carcasses, birch");
+        await page.mouse.up();
+        await expect.poll(() => lineTexts(box, "B-102", "task")).toEqual(["Cut carcasses", "Seal", "Drill carcasses"]);
+        await expect.poll(async () => {
+            const at = await frameAt(box);
+            return { open: !at.start!.collapsed, back: at.start!.sheet.x >= at.body.x - 0.5, scrim: at.scrim !== null };
+        }).toEqual({ open: true, back: true, scrim: true });
     });
 });

@@ -129,6 +129,7 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "newRow": return m.noticeNewRow();
         case "newGroup": return m.noticeNewGroup({ noun: noun(notice.noun) });
         case "issue": return m.issueAt({ where: notice.where, message: issueText(notice.message, w) });
+        case "dropRefused": return m.dropRefused(notice.word);
         case "text": return notice.text;
     }
 }

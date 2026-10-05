@@ -60,7 +60,7 @@ import { viewsOf } from "./views.js";
 /**
  * The names a sheet builder keeps its viewer's state under, by its `id`: its
  * frame's panes (their open tab and collapsed state), the columns this
- * viewer hides, and its library's drag-source id.
+ * viewer hides, its library's drag-source id, and the sheet's drop target.
  *
  * @remarks
  * As Studio's `builderKeys` and the query builder's `queryKeys`: two builders
@@ -76,12 +76,15 @@ export function sheetKeys(id: string | undefined): {
     columns: string;
     /** The library's drag-source id: what the sheet takes cards from. */
     library: string;
+    /** The sheet's drop target (#1187): where the library's cards and the rows' grips land. */
+    surface: string;
 } {
     const suffix = id === undefined ? "" : `.${id}`;
     return {
         frame: `sheet.builder${suffix}.frame`,
         columns: `sheet.builder${suffix}.columns`,
         library: `sheet.library${suffix}`,
+        surface: `sheet.builder${suffix}.sheet`,
     };
 }
 

@@ -633,7 +633,7 @@ it. The history item is the shared `historyToolbarItem` (#988).
   the `DockPane` tab's `count`. Each tab is a `Library`: its search band is
   the Library's toolbar row, 44px, the search box 28px on the surface, with
   the grouping control beside it; its cards are the Library's compact card.
-- **A Rows card**: a grip (once the sheet takes drops, #1189), the
+- **A Rows card**: a grip (the sheet takes drops, #1187), the
   template's name 13px 600, and under it what it sets in mono 10px, as the
   columns print it (`Edge banding · 1 × edge bander`), or a group template's
   band cells and lines (`PLANNED · 4 lines`). Cards group under their
@@ -813,26 +813,92 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 
 ### 9.8 Drag and drop (owner: drag and drop)
 
-- **SB38.** A drag starts after 4px. A ghost says what lands where (`Edge
-  banding · after row 3`) or, in red, why it can't.
-- **SB39.** A row template dropped on a seam or the blank tail inserts its
-  row there, selected, as one `drop` transaction; on a grouped sheet, a line
-  in the group under the pointer. Refused when `edits.insertRows` is off.
-- **SB40.** A group template dropped on a seam between groups, or the tail,
-  inserts the group with its lines. Refused when `edits.insertGroups` is off.
+As built (#1187). A builder's sheet takes drops on its surface; a read-only
+sheet registers no drop target and its rows have no grips.
+
+- **SB38.** A drag starts after 4px. The ghost is what was picked up: the
+  card, or for a grip the row's name (`line 3 of Doors, oak`, a group's
+  title). A caption under it says where the drop lands (`after row 3`,
+  `before line 2 of WO-2201 · Kitchen, oak`, `at the start of order 2`,
+  `at the end`, `→ row 3`), or in red why it can't (`No new lines here`). The
+  caption belongs to the drag layer, and any surface can give one for its
+  cells. No row lights as a candidate. Where a template or a moved row would
+  land, the 2px brand insertion line runs along the seam from the gutter's
+  edge. The row a card lands on takes the brand wash, and a row that refuses
+  the drop takes the invalid wash. The row under a drag takes no hover. The
+  drag layer announces each drop; the footer adds nothing.
+- **SB39.** A row template dropped on a row inserts its row at the seam the
+  pointer's half picks, or at the end when dropped on the blank tail. The new
+  row is selected, with its editor closed, and the insert is one `drop`
+  transaction (`Undo Drop`). On a grouped sheet the template becomes a line:
+  - beside a line, in that line's group;
+  - at a group's start when dropped on its band, whatever the half (beside
+    loose rows, a band's top half takes a loose row before the group);
+  - at the group's end when dropped on its blank line.
+  
+  On a keyed record a new entry sits where its key sorts: the caption says
+  `a new row · in key order`, and no seam lights. The row starts as the
+  template: `newRow`'s seed with the template's fields over it. Refused when
+  `edits.insertRows` is off.
+- **SB40.** A group template snaps to the seam between entries nearest where
+  it rests, as the seam's group chip does:
+  - a band's top half is the seam above its group, and so is its bottom half
+    unless the group shows no lines (folded or empty);
+  - on a line, the nearer end of its group;
+  - on a blank line, the seam below its group.
+  
+  It inserts the group with its lines, seeded as `newGroup` with the template
+  over it; on a keyed record the group sits where its key sorts. Refused when
+  `edits.insertGroups` is off, and on a flat sheet.
 - **SB41, SB42, SB43.** Retired (2026-10-05): the Registers tab is dropped;
   SB61 takes their place.
-- **SB44.** A row's gutter grip dragged to another seam moves the row (a
-  line within or between groups, as `edits.moveRows` allows), and a band's
-  grip moves the group (`edits.moveGroups`), each one `move` transaction
-  whose placement the batch carries.
-- **SB45.** A card's ⏎ inserts it below the ring's row, as a drop there
-  would. A drop anywhere else does nothing.
-- **SB61.** A card of an author's tab dropped on a row sets the fields its
-  `drop` patch sets on that row, as one `drop` transaction, as a template's
-  values set a new row's; a patch over the group type lands on a band the
-  same way. The ghost says `Bench crew → row 3`. Refused: anywhere but a
-  row, or a band for a group patch (`Drop a crew onto a row`).
+- **SB44.** A grip leads each row's actions column: a 14px `grip-vertical`
+  in the faintest ink, shown on the row's hover and always where nothing
+  hovers, with a 32px halo on a coarse pointer. Only rows a move can place
+  have one:
+  - a flat or loose row, while its source keeps no key order and
+    `edits.moveRows` isn't `none`;
+  - a line, while `edits.moveRows` isn't `none`;
+  - a band, while `edits.moveGroups` is on (off by default on a keyed
+    record).
+  
+  The row a grip lifts takes a 1px brand ring. Where each kind of row lands:
+  - **A line** lands beside another line by the pointer's half, at a group's
+    start on its band, or at its end on its blank line. Under `between` it
+    can move into another group, where it takes a key of that group's and
+    keeps its draft. Under `within`, another group's seams refuse it (`Lines
+    move only within batch 1`). Nothing outside the groups takes a line
+    (`A line stays in a batch`).
+  - **A group or a loose row** snaps to the seam between entries nearest
+    where it rests, as a group template does.
+  - **A row dropped where it already stands** stays put, and no transaction
+    is made.
+  
+  Each move is one `move` transaction (`Undo Move`). For an entry, the batch
+  carries its placement, `ordered(before | after | end)`; for a line, the
+  groups' lines are rewritten, wire and draft side by side. The moved row is
+  selected. Grips take the pointer only and have no tab stop: from the
+  keyboard a card can be dropped, but a row can't be moved.
+- **SB45.** ⏎ on a library card does what a drop below the ring's row would:
+  a row template inserts after that row, a group template after its group (or
+  after the loose row the ring is on), and an author's card sets its fields
+  on that row. On a card that drags, ⏎ is the host's, and Space still picks
+  the card up. Where the drop would be refused, the footer says why (`Drop
+  onto a band`; on a read-only sheet, `The sheet is read only`). A drop
+  anywhere else does nothing.
+- **SB61.** A card from an author's tab lands on the row itself, not on a
+  seam. Dropped on a row, it sets the fields its `drop` patch sets on that
+  row, as one `drop` transaction, the way a template's values set a new
+  row's. A patch over the group type lands on a band the same way. The row is
+  selected on the first column the card sets, and the copilot is asked again
+  when that column is a trigger. The ghost carries the card, captioned
+  `→ row 3`. Refused:
+  - anywhere but a row: `Drop onto a row`, or on a grouped sheet `Drop onto
+    a line`;
+  - anywhere but a band, for a group patch: `Drop onto a band`;
+  - where a cell the card sets is one the sheet doesn't write: `Machine is
+    read only here`. This is a guard at the host's seam, since a builder's
+    cards only set what the editable columns write.
 
 ### 9.9 The inspector (owner: the inspector)
 
@@ -893,16 +959,27 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 
 | Drag | Onto | Does | Refused when |
 |---|---|---|---|
-| A row template | a seam or the blank tail | Inserts its row there; on a grouped sheet, a line in the group under the pointer (SB39) | `edits.insertRows` is off |
-| A group template | a seam between groups, or the tail | Inserts the group with its lines (SB40) | `edits.insertGroups` is off |
-| An author's card | a row, or a band for a group patch | Sets the fields its `drop` patch sets (SB61) | anywhere but a row (a band) |
-| A row's gutter grip | another seam | Moves the row (or line) there (SB44) | `edits.moveRows` is `none`, or `within` and the seam is in another group |
-| A band's grip | a seam between groups | Moves the group (SB44) | `edits.moveGroups` is off, as it is on a keyed record |
+| A row template | a row's seam by the pointer's half, or the blank tail; on a grouped sheet a line's seam, a band (its group's start) or a blank line (its end) | Inserts its row there, seeded by the template; on a keyed record a new entry sits where its key sorts (SB39) | `edits.insertRows` is off |
+| A group template | the seam between entries nearest where it rests | Inserts the group with its lines (SB40) | `edits.insertGroups` is off; a flat sheet |
+| An author's card | the row itself: a row or a line, or a band for a group patch | Sets the fields its `drop` patch sets (SB61) | anywhere else; a cell the sheet does not write |
+| A row's or a line's grip | a line's seam, a band (its group's start), a blank line (its end); a flat row's seam, or the tail | Moves the row or line there (SB44) | `edits.moveRows` is `none`; `within` and the seam is in another group; a line outside the groups |
+| A band's grip, or a loose row's | the seam between entries nearest where it rests | Moves the group or the loose row (SB44) | `edits.moveGroups` is off, as it is on a keyed record |
+| Anything moved | where it already stands | Nothing, and no transaction | — |
 
 It runs on the shared drag grammar (`LibraryRef`, `CellRef`) that Studio's
-canvas and the Calendar use. A sheet `CellRef`'s `row` is the row's id (with
-a line's key, `printFor` of the pair), and its `slot` the column's key, or the
-seam's index for an insertion.
+canvas and the Calendar use. A sheet `CellRef`'s `row` names the row the drag
+rests on, as `printFor(SheetDropRowType)` (`drop.ts`) prints it:
+- `row`: a flat or loose row's id;
+- `line`: a group's id and the line's key;
+- `band`: a group's id;
+- `groupEnd`: a group's blank line;
+- `end`: the blank tail.
+
+Its `slot` is the seam the pointer's half picks, `before` or `after`, or `""`
+for an author's card, which lands on the row itself. Every drop is planned
+from the rows as they stand (`planDrop`). The veto, the caption, the
+announcement and the drop all read the same plan, and the plan is decided
+before anything is drawn or written.
 
 ## 11. What changes from today's sheet, and what is lost
 
