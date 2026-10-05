@@ -14,6 +14,15 @@
  * `<Sheet.View>` returns the sheet's payload through that carrier, and this
  * module registers against it as it loads.
  *
+ * The renderer is three parts over one shared state (SB4, #1181).
+ * `SheetProvider` builds the store, the editing session, the lens and the
+ * selection, every hook in the order it always ran, and its parts place what
+ * it builds wherever a host puts them: `useSheetToolbarItems()` the toolbar's
+ * items, `SheetGrid` the header, the rows and the strip (inside `SheetRoot`,
+ * the element they are laid in), and `useSheetFooter()` the footer's props.
+ * `Sheet.View` lays them out in one column, as it always has; a builder
+ * places them in its frame's regions, and they drive one grid (SB5).
+ *
  * A source-bound transaction session retains draft gestures and history —
  * the editing session every editable collection shares (`src/editing/`,
  * #879), with its history bar in the toolbar, in the sheet's words.
@@ -45,12 +54,12 @@
  * switch, and nothing at all under reduced motion.
  */
 
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { ArrayType, StringType, compareFor, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetViewComponent } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem } from "@elaraai/east-ui-components";
 import { parseCssSize, DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { boundSliceConfig } from "@elaraai/east-ui-components/platform";
 import {
@@ -90,10 +99,10 @@ import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalR
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
-import { SheetFooter, type SheetTransport } from "./Footer.js";
+import { SheetFooter, type SheetFooterProps, type SheetTransport } from "./Footer.js";
 import { useSheetEditing, type LocalLayer } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
-import { SheetToolbar, type SheetToolbarTabs } from "./Toolbar.js";
+import { SheetToolbarRow, useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
@@ -331,8 +340,51 @@ export interface EastChakraSheetProps {
     storageKey: string;
 }
 
-/** Renders an East Sheet value — the planning spreadsheet. */
-export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
+/** What the element the grid is laid in carries: the attributes the rows' styles and the tests key on, and a bounded frame's height. */
+interface SheetRootFacts {
+    /** A paged source with rows still to load. */
+    partial: boolean;
+    /** The copilot runs. */
+    copilot: boolean;
+    /** A narrowing is active. */
+    lens: boolean;
+    /** The open view tab, if any. */
+    view: string | undefined;
+    /** Rows slide after a gesture that folds or opens. */
+    moving: boolean;
+    /** The declared height and max height, when either is: the frame scrolls its own rows. */
+    frame: { height: string | undefined; maxHeight: string | undefined } | undefined;
+}
+
+/**
+ * What the sheet's parts place (SB4): everything the root builds before it
+ * lays out, from one shared state — the store, the editing session, the
+ * lens and the selection.
+ */
+export interface SheetParts {
+    /** The sheet recipe's slot styles. */
+    styles: Styles;
+    /** What {@link SheetRoot} carries. */
+    root: SheetRootFacts;
+    /** The toolbar: its items, whether the sheet has one at all, and the element a host places the items in. */
+    toolbar: {
+        items: ReadonlyArray<ToolbarItem | false | undefined>;
+        shown: boolean;
+        ref: RefObject<HTMLDivElement | null>;
+    };
+    /** The header, the rows and the strip: what {@link SheetGrid} places. */
+    grid: ReactNode;
+    /** The footer's props: today's footer, fed from the shared state. */
+    footer: SheetFooterProps;
+    /** What shows in place of the whole sheet when its source failed before any row landed (#853). */
+    failure: ReactNode | undefined;
+}
+
+/**
+ * Builds the sheet's shared state and the parts it lays out: the root's
+ * whole body, its hooks in the order they always ran.
+ */
+function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
     // Changes identity on a DATA change only — what owns local state keys on
     // it; callbacks come from `value` (#809).
     const data = useDataStable(value, sheetRootDataEqual);
@@ -1289,7 +1341,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
 
     // ── Effects ───────────────────────────────────────────────────────────
     const cardRef = useRef<HTMLDivElement | null>(null);
-    const rootRef = useRef<HTMLDivElement | null>(null);
+    // Where the toolbar's items are placed — the sheet's own row, or a
+    // builder's toolbar: ⌘F looks in it for a search box.
+    const toolbarRef = useRef<HTMLDivElement | null>(null);
     /**
      * A key's move across an unloaded run (#860), waiting for its window: the
      * source element it is headed for, the window its jump pins, where the
@@ -1518,7 +1572,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     break;
                 }
                 case "focus.search": {
-                    const input = rootRef.current?.querySelector<HTMLInputElement>('[data-slot="toolbar"] input');
+                    const input = toolbarRef.current?.querySelector<HTMLInputElement>("input");
                     input?.focus();
                     input?.select();
                     break;
@@ -2716,14 +2770,42 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         );
     }, [draftOf, memberships, canInsert, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount]);
 
+    // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
+    const toolbarItems = useSheetToolbarItemsFor({
+        styles,
+        slice,
+        affordances,
+        count,
+        partial: transport !== undefined && !exhausted,
+        tabs,
+        context: lensOn ? { value: ui.lens.context, onChange: onContext } : undefined,
+        search: seek.search,
+        onSearchKey,
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue }) : undefined,
+    });
+    // A toolbar when the sheet has a reason for one: a bound slice, a paged source, or edits to keep.
+    const toolbar = { items: toolbarItems, shown: chrome !== undefined || transport !== undefined || !readOnly, ref: toolbarRef };
+    const root: SheetRootFacts = {
+        partial: transport !== undefined && !exhausted,
+        copilot: copilotOn,
+        lens: lensOn,
+        view: ui.tabs.active ?? undefined,
+        moving,
+        frame: frameFills ? { height, maxHeight } : undefined,
+    };
+    const footer: SheetFooterProps = {
+        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), transport, onRetry: paging.retry,
+    };
+
     // A source that failed before anything landed: nothing else to show (#853).
     if (paging.error !== undefined) {
-        return (
+        const failure = (
             <Box css={styles.diagnostic} data-sheet-error role="alert">
                 {words.m.noSource({ reason: paging.error })}
                 <SheetRetry styles={styles} onRetry={() => paging.retry()} />
             </Box>
         );
+        return { styles, root, toolbar, grid: null, footer, failure };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -2813,25 +2895,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             )}
         </Box>
     );
-    const content = (
-        <Box ref={rootRef} css={styles.root} data-sheet data-sheet-partial={transport !== undefined && !exhausted ? "" : undefined} data-copilot={copilotOn ? "" : undefined}
-            data-lens={lensOn ? "" : undefined} data-view={ui.tabs.active ?? undefined} data-moving={moving ? "" : undefined}
-            {...(frameFills ? { style: { height, maxHeight } } : {})}>
-            {/* One bar: the tabs, the search rail and, right of it, the history controls. */}
-            {(chrome !== undefined || transport !== undefined || !readOnly) && (
-                <SheetToolbar
-                    styles={styles}
-                    slice={slice}
-                    affordances={affordances}
-                    count={count}
-                    partial={transport !== undefined && !exhausted}
-                    tabs={tabs}
-                    context={lensOn ? { value: ui.lens.context, onChange: onContext } : undefined}
-                    search={seek.search}
-                    onSearchKey={onSearchKey}
-                    history={!readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue }) : undefined}
-                />
-            )}
+    // The grid with its strip (SB4): the card — the header, the rows and the
+    // insertion layer — the insertion strip, and the strip docked under them.
+    const grid = (
+        <>
             <Box
                 ref={cardRef}
                 id={gridId}
@@ -2885,14 +2952,119 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
-            <SheetFooter styles={styles} items={value.footer} summary={summary} hint={hint} message={ui.msg === null ? "" : noticeText(ui.msg, words)} transport={transport} onRetry={paging.retry} />
-        </Box>
+        </>
     );
+    return { styles, root, toolbar, grid, footer, failure: undefined };
+}
 
+const SheetContext = createContext<SheetParts | undefined>(undefined);
+
+/** The shared state the parts read; a part outside a {@link SheetProvider} is a host's mistake, and throws. */
+function useSheetParts(): SheetParts {
+    const parts = useContext(SheetContext);
+    if (parts === undefined) throw new Error("A Sheet part is placed outside a SheetProvider");
+    return parts;
+}
+
+export interface SheetProviderProps {
+    /** The Sheet root value. */
+    value: SheetRootValue;
+    /** Storage key prefix for persisting component state. */
+    storageKey: string;
+    /** Where the host places the parts. */
+    children: ReactNode;
+}
+
+/**
+ * Provides the sheet's one shared state (SB4): the store, the editing
+ * session, the lens and the selection, for the parts below it, wherever the
+ * host places them (SB5). The declared density reaches every one of them.
+ */
+export function SheetProvider({ value, storageKey, children }: SheetProviderProps) {
+    const parts = useSheet(value, storageKey);
+    const provided = <SheetContext.Provider value={parts}>{children}</SheetContext.Provider>;
     const densityTag = getSomeorUndefined(value.density)?.type;
     return densityTag !== undefined
-        ? <DensityProvider value={densityTag}>{content}</DensityProvider>
-        : content;
+        ? <DensityProvider value={densityTag}>{provided}</DensityProvider>
+        : provided;
+}
+
+/**
+ * Reads the toolbar's items (§7) in the row's order and on its fold ladder:
+ * the view tabs, the context switch, the count, the key search, the slice's
+ * rail, the scope badge and the history item. A host lays them out with the
+ * shared `Toolbar`, and puts {@link useSheetToolbarRef}'s ref on the element
+ * that holds them.
+ *
+ * @returns The items, a falsy entry for each the sheet has no use for.
+ */
+export function useSheetToolbarItems(): ReadonlyArray<ToolbarItem | false | undefined> {
+    return useSheetParts().toolbar.items;
+}
+
+/**
+ * Reads the ref for the element that holds the toolbar's items: ⌘F and ⌘/
+ * in the grid put the focus on the first search box in it.
+ *
+ * @returns The ref, for the element the host lays the items out in.
+ */
+export function useSheetToolbarRef(): RefObject<HTMLDivElement | null> {
+    return useSheetParts().toolbar.ref;
+}
+
+/**
+ * Reads the footer's props: the counts, the key hint, the paged transport
+ * line and the live message, for the footer a host places.
+ *
+ * @returns The props of the sheet's footer.
+ */
+export function useSheetFooter(): SheetFooterProps {
+    return useSheetParts().footer;
+}
+
+/**
+ * Renders the element the grid is laid in: the sheet's root, its recipe's
+ * root styles, and the attributes its rows' styles key on (`data-sheet`,
+ * `data-lens`, `data-view`, `data-moving`, …). It takes a bounded frame's
+ * height when the sheet declares one.
+ */
+export function SheetRoot({ children }: { children: ReactNode }) {
+    const { styles, root } = useSheetParts();
+    return (
+        <Box css={styles.root} data-sheet data-sheet-partial={root.partial ? "" : undefined} data-copilot={root.copilot ? "" : undefined}
+            data-lens={root.lens ? "" : undefined} data-view={root.view} data-moving={root.moving ? "" : undefined}
+            {...(root.frame !== undefined ? { style: root.frame } : {})}>
+            {children}
+        </Box>
+    );
+}
+
+/** Renders the grid with its strip: the header, the rows, the insertion controls, and the strip docked under them. */
+export function SheetGrid() {
+    return useSheetParts().grid;
+}
+
+/** `Sheet.View`'s layout: one column — the toolbar, the grid with its strip, the footer — in the sheet's root. */
+function SheetViewLayout() {
+    const parts = useSheetParts();
+    if (parts.failure !== undefined) return parts.failure;
+    return (
+        <SheetRoot>
+            {/* One bar: the tabs, the search rail and, right of it, the history controls. */}
+            {parts.toolbar.shown && <SheetToolbarRow ref={parts.toolbar.ref} styles={parts.styles} items={parts.toolbar.items} />}
+            <SheetGrid />
+            <SheetFooter {...parts.footer} />
+        </SheetRoot>
+    );
+}
+
+/** Renders an East Sheet value — the planning spreadsheet. */
+export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
+    return (
+        <SheetProvider value={value} storageKey={storageKey}>
+            <SheetViewLayout />
+        </SheetProvider>
+    );
 }, (prev, next) => sheetRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(SheetViewComponent, EastChakraSheet);

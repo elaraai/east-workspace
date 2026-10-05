@@ -27,9 +27,13 @@
  *      with it.
  * Each is a form of an item, measured and chosen before paint: the toolbar's
  * configuration is a function of its width, whatever width it came from.
+ *
+ * The items are a part of their own (SB4): `useSheetToolbarItemsFor` builds
+ * them, `SheetToolbar` lays them out as the sheet's own row, and a builder
+ * places them in its frame's toolbar instead.
  */
 
-import { memo, useCallback, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { memo, useCallback, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Slice } from "@elaraai/east-ui/internal";
@@ -90,8 +94,15 @@ export interface SheetToolbarProps {
     history?: ToolbarItem | undefined;
 }
 
-/** Renders the toolbar. */
-export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, history }: SheetToolbarProps) {
+/**
+ * Builds the toolbar's items in the row's order, each with its forms and its
+ * fold ranks: what {@link SheetToolbar} lays out as the sheet's own row, and
+ * what a builder places in its frame's toolbar (SB4).
+ *
+ * @param props - What the items show and drive.
+ * @returns The items, a falsy entry for each the sheet has no use for.
+ */
+export function useSheetToolbarItemsFor({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, history }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // The toolbar's own words (#861).
     const words = useSheetWords();
     const { m } = words;
@@ -162,7 +173,7 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
         </Box>
     );
 
-    const items: ReadonlyArray<ToolbarItem | false | undefined> = [
+    return [
         tabsItem,
         context !== undefined && {
             key: "context",
@@ -183,10 +194,27 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
         partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
         history,
     ];
+}
 
+export interface SheetToolbarRowProps {
+    styles: Styles;
+    /** The items, as {@link useSheetToolbarItemsFor} builds them. */
+    items: ReadonlyArray<ToolbarItem | false | undefined>;
+    /** The row's element: where ⌘F looks for a search box. */
+    ref?: Ref<HTMLDivElement> | undefined;
+}
+
+/** Renders the sheet's own toolbar row: its items on one folding ladder. */
+export function SheetToolbarRow({ styles, items, ref }: SheetToolbarRowProps) {
     return (
-        <Box css={styles.toolbar} data-slot="toolbar">
+        <Box ref={ref} css={styles.toolbar} data-slot="toolbar">
             <Toolbar items={items} />
         </Box>
     );
+}
+
+/** Renders the toolbar. */
+export const SheetToolbar = memo(function SheetToolbar(props: SheetToolbarProps) {
+    const items = useSheetToolbarItemsFor(props);
+    return <SheetToolbarRow styles={props.styles} items={items} />;
 });
