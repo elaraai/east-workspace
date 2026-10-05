@@ -51,8 +51,8 @@ export type SheetScopeWord = "query" | "range" | "filter" | "none";
 /** How the arity half's named members stand against the implied count (B§4.6). */
 export type SheetArityWord = "short" | "exact" | "over";
 
-/** A tab of a builder's library pane (#1184). */
-export type SheetLibraryTabWord = "rows" | "registers" | "columns";
+/** A tab of a builder's library pane: the templates, the columns, or one of the author's own (#1184, #1186). */
+export type SheetLibraryTabWord = "rows" | "columns" | "tab";
 
 /** A tab of a builder's inspector pane (#1184). */
 export type SheetInspectorTabWord = "details" | "issues";
@@ -478,24 +478,18 @@ export interface SheetMessages extends EditingMessages {
     // ── The builder (#1184) ────────────────────────────────────────────────
     /** The library pane's name. */
     libraryPane: () => string;
-    /** A library tab. */
-    libraryTab: (p: { tab: SheetLibraryTabWord }) => string;
-    /** A library tab's empty state: its title — `No templates` (#1186, SB37). */
-    libraryEmpty: (p: { tab: SheetLibraryTabWord }) => string;
+    /** A library tab — the author names their own tabs. */
+    libraryTab: (p: { tab: "rows" | "columns" }) => string;
+    /** A library tab's empty state: its title — `No templates`, `Nothing in Crews` (#1186, SB37); `name` is an author's tab's. */
+    libraryEmpty: (p: { tab: SheetLibraryTabWord; name: string }) => string;
     /** The line under it. */
-    libraryEmptyHint: (p: { tab: SheetLibraryTabWord }) => string;
+    libraryEmptyHint: (p: { tab: SheetLibraryTabWord; name: string }) => string;
     /** What a library tab's search box counts its cards as — `template`, `templates`. */
     libraryNoun: (p: { tab: SheetLibraryTabWord; n: number }) => string;
     /** What a library tab's cards are grouped by: its grouping control's words. */
     libraryGroupBy: (p: { tab: SheetLibraryTabWord }) => string;
     /** A group template's line count, on its card — `4 lines` (SB33). */
     templateLines: (p: { n: number; count: string }) => string;
-    /** The driver's members' group, first in the Registers tab — `Activity · driver` (SB34). */
-    driverGroup: (p: { header: string }) => string;
-    /** A register's members of one kind, as the Registers tab groups them — `machines · machine`. */
-    registerGroup: (p: { register: string; kind: string }) => string;
-    /** The glyph of a member that carries a tone: the tone, in words. */
-    memberTone: (p: { tone: string }) => string;
     /** A column's kind, as the Columns tab names it (SB36). */
     columnKind: (p: { kind: SheetKind }) => string;
     /** A column's eye: shown, hidden, or the last one shown, which stays. */
@@ -749,18 +743,15 @@ export const sheetMessages: SheetMessages = {
     noticeNewGroup: ({ noun }) => `New ${noun}`,
 
     libraryPane: () => "Library",
-    libraryTab: ({ tab }) => (tab === "rows" ? "Rows" : tab === "registers" ? "Registers" : "Columns"),
-    libraryEmpty: ({ tab }) => (tab === "rows" ? "No templates" : tab === "registers" ? "No registers" : "No columns"),
-    libraryEmptyHint: ({ tab }) => (tab === "rows" ? "This sheet offers no rows or groups to drag in."
-        : tab === "registers" ? "This sheet declares no driver and no registers."
-            : "This sheet declares no columns."),
+    libraryTab: ({ tab }) => (tab === "rows" ? "Rows" : "Columns"),
+    libraryEmpty: ({ tab, name }) => (tab === "rows" ? "No templates" : tab === "columns" ? "No columns" : `Nothing in ${name}`),
+    libraryEmptyHint: ({ tab, name }) => (tab === "rows" ? "This sheet offers no rows or groups to drag in."
+        : tab === "columns" ? "This sheet declares no columns."
+            : `${name} lists nothing yet.`),
     libraryNoun: ({ tab, n }) => (tab === "rows" ? plural(n, "template", "templates")
-        : tab === "registers" ? plural(n, "member", "members") : plural(n, "column", "columns")),
-    libraryGroupBy: ({ tab }) => (tab === "rows" ? "Category" : "Register"),
+        : tab === "columns" ? plural(n, "column", "columns") : plural(n, "card", "cards")),
+    libraryGroupBy: ({ tab }) => (tab === "rows" ? "Category" : "Group"),
     templateLines: ({ n, count }) => `${count} ${plural(n, "line", "lines")}`,
-    driverGroup: ({ header }) => `${header} · driver`,
-    registerGroup: ({ register, kind }) => `${register} · ${kind}`,
-    memberTone: ({ tone }) => `${tone} tone`,
     columnKind: ({ kind }) => kind,
     columnEye: ({ hidden, last }) => (hidden ? "Hidden — click to show" : last ? "Shown — the last column shown stays" : "Shown — click to hide"),
     inspectorPane: () => "Inspector",

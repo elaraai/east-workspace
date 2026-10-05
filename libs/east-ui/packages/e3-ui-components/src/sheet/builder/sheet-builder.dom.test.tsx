@@ -36,7 +36,8 @@ const WORDS = formatters("en-US");
 /** Builds a builder's payload over the jobs record, as `<Sheet.Builder>` does, and mounts it as given. */
 const jobsPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
     const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-    return Sheet.BuilderPayload({ record: jobs, columns: { task: Sheet.column.text(ex.BuilderJob, { header: "Task" }) }, id: "jobs" });
+    return Sheet.BuilderPayload({ record: jobs, columns: { task: Sheet.column.text(ex.BuilderJob, { header: "Task" }) },
+        library: [Sheet.library.rows(), Sheet.library.columns()], id: "jobs" });
 }), getRegisteredPlatformImplementations()) as unknown as () => Payload;
 const missingWeek = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
     const plans = $.let(Record.bind(ex.sheetBuilderPlans, [ex.sheetBuilderPlansPatch]));
@@ -79,12 +80,17 @@ function press(button: Element) {
     fireEvent.click(button);
 }
 
-test("the builder is a BuilderFrame: the toolbar, the library, main holding the grid and its strip, the inspector, the footer (SB18, SB21)", async () => {
+test("the builder is a BuilderFrame: the toolbar, the library its `library` lists, main holding the grid and its strip, the inspector, the footer (SB18, SB21)", async () => {
+    const workshop = mount(ex.sheetBuilderWorkshop);
+    await settle();
+    // The workshop lists its library's tabs; each counts its cards.
+    expect(tabs(slot(workshop.container, "start")!)).toEqual(["Rows 11", "Statuses 3", "Columns 6"]);
+    cleanup();
     const { container } = mount(ex.sheetBuilder);
     await settle();
     expect(container.querySelector("[data-builder-frame]")).not.toBeNull();
-    // Each library tab counts its cards: no templates, no registers, the three columns.
-    expect(tabs(slot(container, "start")!)).toEqual(["Rows 0", "Registers 0", "Columns 3"]);
+    // The smallest lists none: no library pane (SB59).
+    expect(slot(container, "start")).toBeNull();
     expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues"]);
     const main = slot(container, "main")!;
     // The grid fills main, a bounded frame scrolling its own rows, in key order.

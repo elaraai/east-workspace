@@ -5,13 +5,15 @@
 
 /**
  * `<Sheet.Builder>` (#1183, `Sheet Builder Spec.md` §3–§5, SB7–SB12): an e3
- * record edited as a sheet, laid out in `BuilderFrame` with a library of
- * templates, register members and columns beside it, and an inspector.
+ * record edited as a sheet, laid out in `BuilderFrame` with the author's
+ * library beside it (#1186: the templates, the columns and tabs of their own
+ * cards, as `library` lists them) and an inspector.
  *
  * The builder is an interface. Its payload holds today's sheet whole — the
  * very `SheetRootType` `Sheet.View` draws — read from the record's rows
  * (`recordRows`) and committing through its patch mutation, beside the
- * templates' cards and seeds, the record's history and the builder's name.
+ * templates' cards and seeds, the library's tabs, the record's history and
+ * the builder's name.
  * The `SheetBuilder` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
@@ -42,6 +44,7 @@ import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
 import { recordRows, type SheetRecordEntry } from "./record.js";
 import { buildTemplates, SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
+import { buildLibrary, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
 import { viewsOf } from "./views.js";
 
 // ============================================================================
@@ -85,6 +88,7 @@ export function sheetKeys(id: string | undefined): {
  *
  * @property sheet - The sheet whole — its grid, its rows and its session wired to the record — as `Sheet.View` draws it
  * @property templates - The Rows tab's cards and their seeds
+ * @property library - The library's tabs, in the order `library` lists them; none, no library pane
  * @property history - The record's commits, newest first: the last save, and who changed it
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
  * @property id - Names the builder, when a surface holds two
@@ -92,6 +96,7 @@ export function sheetKeys(id: string | undefined): {
 export const SheetBuilderPayloadType = StructType({
     sheet: SheetRootType,
     templates: ArrayType(SheetTemplateWireType),
+    library: ArrayType(SheetLibraryTabType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
     missing: OptionType(StringType),
     id: OptionType(StringType),
@@ -149,6 +154,8 @@ export interface SheetBuilderEntry<K extends EastType, V extends StructType, A e
 export interface SheetBuilderCommon<L extends StructType, G extends StructType = never> {
     /** The Rows tab's cards. */
     templates?: SheetTemplatesInput<L, G>;
+    /** The library's tabs, in order, each a `Sheet.library.*` call — `rows()`, `columns()` and `tab(data, { … })`; left out, or empty, no library pane (SB59). */
+    library?: readonly SheetLibraryTab[];
     /** The saved views — a bind handle of `Array<Sheet.Types.View>`: `State.bind` keeps them per viewer, `Data.bind` shares them. */
     views?: unknown;
     /** Names the builder — needed only when one surface holds two. */
@@ -169,6 +176,7 @@ type SheetBuilderAnyOptions = {
     window?: unknown;
     columns: unknown;
     templates?: { rows?: SheetTemplate<StructType>[]; groups?: SheetTemplate<StructType>[] };
+    library?: readonly SheetLibraryTab[];
     views?: unknown;
     id?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
@@ -180,8 +188,8 @@ type SheetBuilderAnyOptions = {
  * Creates the builder's payload alone — what the `<Sheet.Builder>` tag returns
  * through the `SheetBuilder` carrier — for the tests and the renderer's
  * fixtures, which read it whole: the sheet over a record's rows, its
- * templates, the record's history, the missing entry's key and the
- * builder's name.
+ * templates, its library's tabs, the record's history, the missing entry's
+ * key and the builder's name.
  *
  * @param options - The builder's options, as the tag takes them
  * @returns An East expression of {@link SheetBuilderPayloadType}
@@ -189,7 +197,7 @@ type SheetBuilderAnyOptions = {
  * @internal
  */
 export function createSheetBuilderPayload(options: { record: unknown; columns: unknown } & { [prop: string]: unknown }): ExprType<SheetBuilderPayloadType> {
-    const { record, entry, window, columns, templates, views, id, ...sheet } = options as SheetBuilderAnyOptions;
+    const { record, entry, window, columns, templates, library, views, id, ...sheet } = options as SheetBuilderAnyOptions;
     for (const prop of ["data", "onApply", "onUpdate", "onViewsChange"]) {
         if (prop in sheet) {
             throw new Error(`Sheet.Builder: \`${prop}\` is Sheet.View's — the builder reads its rows from \`record\` and commits through it, and takes its views as a bind handle (\`views\`)`);
@@ -209,6 +217,7 @@ export function createSheetBuilderPayload(options: { record: unknown; columns: u
     return East.value({
         sheet: built.root,
         templates: buildTemplates(templates, built.bridge, { newRow: sheet.newRow, newGroup: sheet.newGroup }),
+        library: buildLibrary(library, built.bridge),
         history: (record as { history: ExprType<FunctionType<[], OptionType<ArrayType<typeof RecordCommitInfoType>>>> }).history,
         missing: rows.missing,
         id: id === undefined ? none : some(id),
@@ -277,9 +286,9 @@ function SheetBuilderTag(props: { record: unknown; columns: unknown }): UIElemen
 
 /**
  * The sheet builder: an e3 record edited as a sheet, laid out in
- * `BuilderFrame` — one toolbar holding every control the sheet has, a library
- * of row templates, register members and columns to drag in, the sheet in
- * main, and an inspector for the selected row.
+ * `BuilderFrame` — one toolbar holding every control the sheet has, the
+ * author's library beside it, the sheet in main, and an inspector for the
+ * selected row.
  *
  * @remarks
  * - **The rows** are `record`'s: its entries, in key order, each row's id its
@@ -293,6 +302,11 @@ function SheetBuilderTag(props: { record: unknown; columns: unknown }): UIElemen
  * - **Templates** (`templates={{ rows, groups }}`) are the Rows tab's cards,
  *   each `{ key, name, group?, values: Sheet.patch(…) }`: a dropped card is
  *   `newRow`'s (or `newGroup`'s) defaults with the template's fields over them.
+ * - **The library** (`library`) lists its tabs, in order: `Sheet.library.rows()`
+ *   (the templates), `Sheet.library.columns()` (hide and show columns, per
+ *   viewer) and `Sheet.library.tab(data, { … })`, the author's own cards,
+ *   whose `drop` is the `Sheet.patch` a dropped card sets. Left out, there is
+ *   no library pane.
  * - **Views** (`views`) are a bind handle: `State.bind` keeps them per viewer,
  *   `Data.bind` shares them.
  * - Every other prop is `<Sheet.View>`'s, unchanged: the columns, registers

@@ -136,12 +136,16 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 // `Plan.series.*`, the value and cell builders, `Plan.Types`), and its props.
 export { Plan, type PlanNamespace, type PlanConfig } from './plan/index.js';
 
-// The Sheet (#1179, #1183): the planning spreadsheet a solution mounts
+// The Sheet (#1179, #1183, #1186): the planning spreadsheet a solution mounts
 // (`<Sheet.View>`), the builder that edits an e3 record as one
 // (`<Sheet.Builder>`), their authoring vocabulary on `Sheet`
 // (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`,
-// `Sheet.group`, `Sheet.patch`, `Sheet.apply`, `Sheet.Types`), and their options.
-export { Sheet, type SheetNamespace, type SheetOptions, type SheetTemplate, type SheetTemplatesInput } from './sheet/index.js';
+// `Sheet.group`, `Sheet.patch`, `Sheet.library.*`, `Sheet.apply`,
+// `Sheet.Types`), and their options.
+export {
+    Sheet, type SheetNamespace, type SheetOptions, type SheetTemplate, type SheetTemplatesInput,
+    type SheetLibraryTab, type SheetLibraryTabConfig,
+} from './sheet/index.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';

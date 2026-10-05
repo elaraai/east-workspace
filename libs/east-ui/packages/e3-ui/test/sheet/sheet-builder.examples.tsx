@@ -20,10 +20,10 @@ import e3 from "@elaraai/e3";
 //
 // Every record is seeded with an authored literal (§2a), so each pane of the
 // builder has something in it from the first: the sheet its rows, the
-// library's Rows tab the templates, its Registers tab the activities, the
-// machines and the statuses, its Columns tab the columns, and the inspector
-// the selected row's fields and the batch's issues. The names are made up;
-// the domain is a joinery workshop (decision 14).
+// workshop's library its tabs — the templates, the statuses an order takes,
+// the columns — and the inspector the selected row's fields and the batch's
+// issues. A builder with no `library` has no library pane (#1186). The names
+// are made up; the domain is a joinery workshop (decision 14).
 //
 // A builder fills its parent, as a ui task's page fills the window: each
 // example gives it a box of its own height. One page shows them all, so every
@@ -50,7 +50,7 @@ export const sheetBuilderJobsPatch = e3.mutation.patch(sheetBuilderJobs);
  * The smallest builder (§3.2) — the jobs an e3 record holds, edited as a
  * sheet: one row per job in key order and a blank tail for the next, every
  * gesture a draft the history item undoes, and Apply one commit through the
- * record's patch door.
+ * record's patch door. It lists no library, so it has no library pane.
  */
 export const sheetBuilder = example({
     keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "Record", "Record.bind", "e3.record", "patch", "commit", "BuilderFrame", "library", "inspector", "key order"],
@@ -208,13 +208,13 @@ export const sheetBuilderOrdersPatch = e3.mutation.patch(sheetBuilderOrders);
  * order a group, its operations its lines. An activity driver, a machines
  * register from a record and a statuses register, a copilot fill, a check on
  * each order, templates for whole orders and single operations, the slice's
- * search and filter, and views kept per viewer. The library's Rows tab holds
- * the templates and its Registers tab the members; the order with no customer
- * is the batch's issue.
+ * search and filter, and views kept per viewer. The library lists the
+ * templates, the statuses — a card dropped on an order's band sets its status —
+ * and the columns; the order with no customer is the batch's issue.
  */
 export const sheetBuilderWorkshop = example({
-    keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "Record", "group", "driver", "register", "link", "templates", "library", "inspector", "views", "slice", "copilot", "fill", "ready", "newGroup", "newRow", "joinery"],
-    description: "The workshop's orders as a sheet builder — orders as groups and their operations as lines, an activity driver, machines and statuses registers, a date fill, an order check, order and operation templates for the library, the slice's search and filter, and views kept per viewer",
+    keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "Record", "group", "driver", "register", "link", "templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "views", "slice", "copilot", "fill", "ready", "newGroup", "newRow", "joinery"],
+    description: "The workshop's orders as a sheet builder — orders as groups and their operations as lines, an activity driver, machines and statuses registers, a date fill, an order check, a library of order and operation templates, the statuses (dropped on an order to set its status) and the columns, the slice's search and filter, and views kept per viewer",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders     = $.let(Record.bind(sheetBuilderOrders, [sheetBuilderOrdersPatch]));
@@ -339,6 +339,13 @@ export const sheetBuilderWorkshop = example({
                                   values: Sheet.patch(BuilderOperation, { activity: "Delivery" }) },
                             ],
                         }}
+                        library={[
+                            Sheet.library.rows(),
+                            // The statuses an order takes: a card dropped on an order's band sets its status.
+                            Sheet.library.tab(statuses, { name: "Statuses", icon: "flag",
+                                key: s => s.word, label: s => s.word, drop: s => Sheet.patch(BuilderOrder, { status: s.word }) }),
+                            Sheet.library.columns(),
+                        ]}
                         newRow={newRow}
                         newGroup={newGroup}
                         ready={{ group: readyOrder }}
