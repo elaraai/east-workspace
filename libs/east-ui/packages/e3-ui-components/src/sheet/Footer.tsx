@@ -6,6 +6,7 @@
 /**
  * The footer (B§9): the host's counts · a state-sensitive key hint · the
  * paged transport line · a right-aligned `aria-live` message for every action.
+ * A builder adds the record's last save after the counts (SB22).
  */
 
 import { memo } from "react";
@@ -40,17 +41,19 @@ export interface SheetFooterProps {
     transport: SheetTransport | undefined;
     /** Ask the source again, when the transport line says it could not be read (#853). */
     onRetry?: (() => void) | undefined;
+    /** The record's last save, from its commits — `saved 14:02` (a builder's, SB22). */
+    saved?: string | undefined;
 }
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry, saved }: SheetFooterProps) {
     // The transport line, in the sheet's words and the app's locale (#850, #861).
     const words = useSheetWords();
     const line = transport === undefined ? ""
         : words.m.transport({ loaded: words.number(transport.loaded), total: transport.total !== undefined ? words.number(transport.total) : undefined });
     return (
         <Box css={styles.footer} data-slot="footer">
-            {(items.length > 0 || summary !== undefined) && (
+            {(items.length > 0 || summary !== undefined || saved !== undefined) && (
                 <Box as="span" css={styles.footerCounts} data-slot="footerCounts">
                     {summary !== undefined && <Box as="span" data-slot="footerSummary">{summary}</Box>}
                     {items.map((it, i) => (
@@ -58,6 +61,9 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
                             {i > 0 || summary !== undefined ? `· ${it.text}` : it.text}
                         </Box>
                     ))}
+                    {saved !== undefined && (
+                        <Box as="span" data-slot="footerSaved">{items.length > 0 || summary !== undefined ? `· ${saved}` : saved}</Box>
+                    )}
                 </Box>
             )}
             {transport !== undefined && (

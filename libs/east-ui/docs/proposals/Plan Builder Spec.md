@@ -785,10 +785,13 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
 5. `Plan.Builder`'s types and factories.
 6. Events into rows.
 7. The frame and the toolbar.
-8. Editing, undo and Apply (after the Calendar's editing, #1151).
-9. The library pane.
-10. Drag and drop (after the Calendar's shared time parts, #1148).
-11. The inspector (after the Calendar's `Fields`, #1147).
+8. The library pane.
+9. The inspector (after `Fields`, #1147, which the Sheet's builder lands first).
+10. Editing, undo and Apply (after the Calendar's editing, #1151).
+11. Drag and drop (after the Calendar's shared time parts, #1148).
 12. Overlaps.
 13. Windowed reads (after the Calendar's, #1156).
 14. The showcase on e3-web, the skill and examples.
+
+The frame, the library and the inspector are pushed together, so the builder
+first appears with both panes full of the examples' seeded records.

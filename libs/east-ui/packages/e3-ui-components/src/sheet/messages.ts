@@ -50,6 +50,12 @@ export type SheetScopeWord = "query" | "range" | "filter" | "none";
 /** How the arity half's named members stand against the implied count (B§4.6). */
 export type SheetArityWord = "short" | "exact" | "over";
 
+/** A tab of a builder's library pane (#1184). */
+export type SheetLibraryTabWord = "rows" | "registers" | "columns";
+
+/** A tab of a builder's inspector pane (#1184). */
+export type SheetInspectorTabWord = "details" | "issues";
+
 /**
  * The Sheet's message table — its own words, and the editing session's
  * ({@link EditingMessages}, #879: the history bar and the draft issues), so a
@@ -467,6 +473,20 @@ export interface SheetMessages extends EditingMessages {
     noticeNewRow: () => string;
     /** A new group. */
     noticeNewGroup: (p: { noun: string }) => string;
+
+    // ── The builder (#1184) ────────────────────────────────────────────────
+    /** The library pane's name. */
+    libraryPane: () => string;
+    /** A library tab. */
+    libraryTab: (p: { tab: SheetLibraryTabWord }) => string;
+    /** The inspector pane's name. */
+    inspectorPane: () => string;
+    /** An inspector tab. */
+    inspectorTab: (p: { tab: SheetInspectorTabWord }) => string;
+    /** The footer's last save, from the record's commits — `saved 14:02` (SB22). */
+    savedAt: (p: { when: string }) => string;
+    /** The banner over an entry the record does not hold (SB15). */
+    entryMissing: (p: { key: string }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -706,6 +726,13 @@ export const sheetMessages: SheetMessages = {
     noticeDiscarded: () => "Discarded new row",
     noticeNewRow: () => "New row",
     noticeNewGroup: ({ noun }) => `New ${noun}`,
+
+    libraryPane: () => "Library",
+    libraryTab: ({ tab }) => (tab === "rows" ? "Rows" : tab === "registers" ? "Registers" : "Columns"),
+    inspectorPane: () => "Inspector",
+    inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
+    savedAt: ({ when }) => `saved ${when}`,
+    entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,
 };
 
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);
