@@ -33,6 +33,7 @@ import * as ex from "./sheet-builder.examples.js";
 describeEast("Sheet.Builder examples", (test) => {
     Assert.examples(test, {
         sheetBuilder: ex.sheetBuilder,
+        sheetBuilderLibrary: ex.sheetBuilderLibrary,
         sheetBuilderWorkshop: ex.sheetBuilderWorkshop,
         sheetBuilderWeeks: ex.sheetBuilderWeeks,
         sheetBuilderPaged: ex.sheetBuilderPaged,
