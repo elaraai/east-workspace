@@ -126,6 +126,10 @@ body, and their variables reused; never a module-scope TypeScript constant,
 and never a TypeScript helper that builds one (`no-host-in-east-block`,
 `no-module-scope-east-macro`).
 
+A builder's example seeds the records its panes read, so none is empty: the
+rows, the members and templates its library lists, an event or a row for the
+inspector to show, and a draft its check flags for the Issues tab.
+
 ## 3. The authoring surface
 
 ### 3.1 The records an app declares

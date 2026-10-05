@@ -715,7 +715,43 @@ export function createSheetPayloadWith(
     options: unknown,
     internal: SheetInternalOptions,
 ): ExprType<SheetRootType> {
-    return sheetPayload(data, columns, options, internal);
+    return buildSheet(data, columns, options, internal).root;
+}
+
+/**
+ * One build of a sheet: its payload, and the bridge it was compiled with —
+ * what `Sheet.Builder` builds its templates' seeds and cards over (#1183),
+ * so a template's draft and the cells its card shows come from the very code
+ * `newRow`'s do.
+ *
+ * @internal
+ */
+export interface SheetBuild {
+    /** The sheet's payload. */
+    root: ExprType<SheetRootType>;
+    /** The typed bridge the payload was compiled with. */
+    bridge: SheetBridge;
+}
+
+/**
+ * Builds a sheet for e3-ui's own factories (#1183): {@link createSheetPayloadWith}'s
+ * payload, with the bridge it was compiled with.
+ *
+ * @param data - The rows, as {@link createSheetPayloadWith} takes them
+ * @param columns - The columns, keyed by the row's fields
+ * @param options - The sheet's options
+ * @param internal - The factory's own options
+ * @returns The payload and its bridge
+ * @throws Error for everything {@link createSheetPayloadWith} refuses
+ * @internal
+ */
+export function createSheetBuild(
+    data: unknown,
+    columns: unknown,
+    options: unknown,
+    internal: SheetInternalOptions,
+): SheetBuild {
+    return buildSheet(data, columns, options, internal);
 }
 
 /** The sheet's payload, built and checked — the one body every factory shares. */
@@ -725,6 +761,16 @@ function sheetPayload(
     options?: unknown,
     internal: SheetInternalOptions = {},
 ): ExprType<SheetRootType> {
+    return buildSheet(data, columns, options, internal).root;
+}
+
+/** The sheet's payload and its bridge, built and checked. */
+function buildSheet(
+    data: unknown,
+    columns: unknown,
+    options?: unknown,
+    internal: SheetInternalOptions = {},
+): SheetBuild {
     const opts = (options ?? {}) as SheetAnyOptions;
     const resolved = resolveRowSource(data, "Sheet");
     // The source's rows: structs — or, with LOOSE rows between the groups
@@ -1017,7 +1063,7 @@ function sheetPayload(
         }), OptionType(SheetStyleType))
         : East.value(none, OptionType(SheetStyleType));
 
-    return East.value({
+    const root = East.value({
         rows:          rowsValue,
         editing,
         columns:       East.value(columnValues, ArrayType(SheetColumnType)),
@@ -1044,4 +1090,5 @@ function sheetPayload(
         footer,
         style,
     }, SheetRootType);
+    return { root, bridge };
 }

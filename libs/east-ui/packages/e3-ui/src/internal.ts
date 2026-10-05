@@ -295,10 +295,22 @@ export * from './sheet/types.js';
 export * from './sheet/transactions.js';
 export * from './sheet/drafts.js';
 export * from './sheet/editing-types.js';
-// The Sheet builder's record forms (#1182): a record's rows and the Apply back
-// to it, and the payload e3-ui's own factories build over them.
+// The Sheet builder (#1182, #1183): a record's rows and the Apply back to it,
+// the payload e3-ui's own factories build over them, and the builder's
+// payload, carrier, templates on the wire and shared keys.
 export { recordRows, type SheetRecordEntry, type SheetRecordRows, type SheetRecordRowsOptions } from './sheet/record.js';
-export { createSheetPayloadWith, type SheetInternalOptions } from './sheet/root.js';
+export { createSheetPayloadWith, createSheetBuild, type SheetBuild, type SheetInternalOptions } from './sheet/root.js';
+export {
+    SheetBuilder,
+    SheetBuilderComponent,
+    SheetBuilderPayloadType,
+    createSheetBuilderPayload,
+    sheetKeys,
+    type SheetRecordHandle,
+    type SheetBuilderEntry,
+    type SheetBuilderCommon,
+} from './sheet/builder.js';
+export { SheetTemplateWireType, buildTemplates, type SheetTemplate, type SheetTemplatesInput } from './sheet/templates.js';
 export {
     Diff,
     DiffComponent,
