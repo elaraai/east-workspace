@@ -64,6 +64,35 @@ export type SheetInspectWord = "row" | "line" | "band";
 export type SheetInspectActionWord = "duplicate" | "delete" | "addLine" | "editInSheet" | "clear";
 
 /**
+ * Where a drop lands (#1187), as the words name it: before or after a row, a
+ * line or a group (`what`, worded as the inspector names it); at a group's
+ * start or its end; at the sheet's end; or, on a keyed source, where its key
+ * sorts — a new row, or a new group (`noun`, the host's word for one).
+ */
+export type SheetDropPlaceWord =
+    | { place: "before" | "after"; what: string }
+    | { place: "start" | "end"; what: string }
+    | { place: "sheetEnd" }
+    | { place: "sorted"; group: boolean; noun: string };
+
+/**
+ * Why a drop is refused where it rests (#1187): the sheet takes no edit; no
+ * row (`line`: a grouped sheet's line) or group may be added; a card lands
+ * only on a row or only on a band; a cell it sets is read only there; the
+ * rows or the groups keep their place, or their key order; a line moves only
+ * within its group (`what`, the group) and never out of the groups. `noun` and
+ * `nouns` are the host's words for a group.
+ */
+export type SheetDropRefusalWord =
+    | { why: "readOnly" | "ontoBand" }
+    | { why: "insertGroup" | "noGroupMove"; nouns: string }
+    | { why: "insert" | "ontoRow" | "noMove"; line: boolean }
+    | { why: "keyOrder"; group: boolean; nouns: string }
+    | { why: "column"; header: string }
+    | { why: "within"; what: string }
+    | { why: "lineOut"; noun: string };
+
+/**
  * The Sheet's message table — its own words, and the editing session's
  * ({@link EditingMessages}, #879: the history bar and the draft issues), so a
  * host translates the sheet's history bar where it translates the sheet.
@@ -536,6 +565,18 @@ export interface SheetMessages extends EditingMessages {
     savedAt: (p: { when: string }) => string;
     /** The banner over an entry the record does not hold (SB15). */
     entryMissing: (p: { key: string }) => string;
+    /** Where a drop lands, under its ghost (#1187, SB38) — `after row 3`. */
+    dropPlace: (p: SheetDropPlaceWord) => string;
+    /** The same place as a screen reader hears the drag layer name it — `the gap after row 3`. */
+    dropPlaceName: (p: SheetDropPlaceWord) => string;
+    /** An author's card dropped on a row or a band, under its ghost (SB61) — `→ row 3`. */
+    dropOnto: (p: { what: string }) => string;
+    /** Why a drop is refused where it rests, red under its ghost (SB38). */
+    dropRefused: (p: SheetDropRefusalWord) => string;
+    /** A row's grip, its accessible name — `Move row 3` (SB44). */
+    dropGrip: (p: { what: string }) => string;
+    /** Its title. */
+    dropGripTitle: () => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -819,6 +860,42 @@ export const sheetMessages: SheetMessages = {
     inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
     savedAt: ({ when }) => `saved ${when}`,
     entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,
+    dropPlace: (p) => {
+        switch (p.place) {
+            case "before": case "after": return `${p.place} ${p.what}`;
+            case "start": return `at the start of ${p.what}`;
+            case "end": return `at the end of ${p.what}`;
+            case "sheetEnd": return "at the end";
+            case "sorted": return `a new ${p.group ? p.noun : "row"} · in key order`;
+        }
+    },
+    dropPlaceName: (p) => {
+        switch (p.place) {
+            case "before": case "after": return `the gap ${p.place} ${p.what}`;
+            case "start": return `the start of ${p.what}`;
+            case "end": return `the end of ${p.what}`;
+            case "sheetEnd": return "the end of the sheet";
+            case "sorted": return `a new ${p.group ? p.noun : "row"}, in key order`;
+        }
+    },
+    dropOnto: ({ what }) => `→ ${what}`,
+    dropRefused: (p) => {
+        switch (p.why) {
+            case "readOnly": return "The sheet is read only";
+            case "ontoBand": return "Drop onto a band";
+            case "insertGroup": return `No new ${p.nouns} here`;
+            case "noGroupMove": return `The ${p.nouns} keep their place here`;
+            case "insert": return `No new ${p.line ? "lines" : "rows"} here`;
+            case "ontoRow": return `Drop onto a ${p.line ? "line" : "row"}`;
+            case "noMove": return `${p.line ? "Lines" : "Rows"} keep their place here`;
+            case "keyOrder": return `Key order places the ${p.group ? p.nouns : "rows"}`;
+            case "column": return `${p.header} is read only here`;
+            case "within": return `Lines move only within ${p.what}`;
+            case "lineOut": return `A line stays in a ${p.noun}`;
+        }
+    },
+    dropGrip: ({ what }) => `Move ${what}`,
+    dropGripTitle: () => "Drag to move it to another seam",
 };
 
 const SheetMessagesContext = createContext<SheetMessages>(sheetMessages);

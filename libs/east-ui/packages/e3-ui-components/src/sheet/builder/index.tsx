@@ -40,6 +40,11 @@
  * toolbar — as the history item does (#1185, SB26): the grid answers its own,
  * and a field being typed into keeps its own undo.
  *
+ * The sheet takes drops (#1187, SB38–SB40, SB44, SB45, SB61) on the builder's
+ * own surface (`sheetKeys(id).surface`): the Rows tab's templates, and the
+ * cards of every author's tab that declares a `drop` — each card's cells the
+ * patch it sets — while its rows' grips move rows, lines and groups.
+ *
  * The builder fills its parent and draws no border.
  *
  * @packageDocumentation
@@ -47,18 +52,19 @@
 
 import { memo, useCallback, useMemo, type KeyboardEvent } from "react";
 import { Box } from "@chakra-ui/react";
-import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetBuilderComponent, SheetBuilderPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
+import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
 import { SheetFooter } from "../Footer.js";
 import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
-import { useSheetLibrary } from "./library.js";
+import { tabLibrary, templatesLibrary, useSheetLibrary } from "./library.js";
 
 /** The renderer's payload, decoded. */
 type SheetBuilderValue = ValueTypeOf<typeof SheetBuilderPayloadType>;
@@ -72,6 +78,32 @@ const stringEqual = equalFor(StringType);
 
 /** No column hidden: what a viewer who has hidden none keeps. */
 const NONE_HIDDEN: readonly string[] = [];
+
+/**
+ * What the builder's sheet takes dropped (#1187): on the builder's surface,
+ * the Rows tab's templates — each seeded as `newRow`'s or `newGroup`'s seed
+ * with its fields over them — and the cards of every author's tab that
+ * declares a `drop`, each card's cells the patch it sets.
+ *
+ * @param value - The payload
+ * @param keys - The builder's keys
+ * @returns The sheet's drop host
+ */
+function dropHostOf(value: SheetBuilderValue, keys: SheetKeys): SheetDropHost {
+    const listsRows = value.library.some((tab) => tab.type === "rows");
+    const templates = new Map(value.templates.map((t): [string, SheetDropTemplate] => [t.key, {
+        name: t.name,
+        kind: t.seed.type,
+        seeds: t.seed.type === "row" ? { newRow: some(t.seed.value) } : { newGroup: some(t.seed.value) },
+    }]));
+    const tabs = new Map(value.library.flatMap((tab) => (tab.type === "tab" && tab.value.drop.type === "some"
+        ? [[tabLibrary(keys, tab.value), {
+            lands: tab.value.drop.value.type,
+            cards: new Map(tab.value.cards.map((card): [string, SheetDropCard] => [card.key, { label: card.label, sets: card.sets }])),
+        }] as const]
+        : [])));
+    return { surface: keys.surface, templates: listsRows ? { library: templatesLibrary(keys), byKey: templates } : undefined, tabs };
+}
 
 /**
  * The columns a viewer hides, as storage holds them: a list of keys, or
@@ -130,8 +162,10 @@ export const EastChakraSheetBuilder = memo(function EastChakraSheetBuilder({ val
             return off.some((k) => stringEqual(k, key)) ? off.filter((k) => !stringEqual(k, key)) : [...off, key];
         });
     }, [store]);
-    // What the builder takes over from the sheet's parts: its grid fills main, its errors are banners (SB21, SB23), and it hides what the viewer hid.
-    const host = useMemo((): SheetHost => ({ fill: true, historyError: false, hidden }), [hidden]);
+    // What the builder's sheet takes dropped: its templates and its author's cards, on its own surface (#1187).
+    const drop = useMemo(() => dropHostOf(value, keys), [value, keys]);
+    // What the builder takes over from the sheet's parts: its grid fills main, its errors are banners (SB21, SB23), it hides what the viewer hid, and it takes drops.
+    const host = useMemo((): SheetHost => ({ fill: true, historyError: false, hidden, drop }), [hidden, drop]);
     return (
         <SheetProvider value={value.sheet} storageKey={`${storageKey}.sheet`} host={host}>
             <SheetBuilderFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} />

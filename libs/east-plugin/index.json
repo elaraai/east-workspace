@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1257,
+    "totalEntries": 1258,
     "totalFiles": 205,
     "packages": {
       "east": 569,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 339,
-      "e3-ui": 106,
+      "e3-ui": 107,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -43470,6 +43470,39 @@
         "tsx"
       ],
       "source": "// A sheet builder over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Apply or Discard — and its own inspector, a row's quantity on a slider written back as one transaction\n// inputs: []\n/** A plan row — what it is, when it starts and how many; `id` identifies it. */\nexport const BuilderPlanRow = StructType({ id: StringType, task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });\n\n/** One week's plan — when it starts, and its rows in the planner's order. */\nexport const BuilderWeek = StructType({ starts: DateTimeType, rows: ArrayType(BuilderPlanRow) });\n\n/** The plans, one per week, keyed 2026-W42, 2026-W43, … */\nexport const sheetBuilderPlans = e3.record(\"sheet_builder_plans\", DictType(StringType, BuilderWeek), new Map([\n    [\"2026-W42\", { starts: new Date(\"2026-10-12T00:00:00Z\"), rows: [\n        { id: \"w42-1\", task: \"Cut the kitchen carcasses\", start: some(new Date(\"2026-10-12T00:00:00Z\")), qty: some(48.0) },\n        { id: \"w42-2\", task: \"Band the carcass edges\", start: some(new Date(\"2026-10-13T00:00:00Z\")), qty: some(120.0) },\n        { id: \"w42-3\", task: \"Route the door panels\", start: none, qty: some(24.0) },\n    ] }],\n    [\"2026-W43\", { starts: new Date(\"2026-10-19T00:00:00Z\"), rows: [\n        { id: \"w43-1\", task: \"Assemble the wardrobes\", start: some(new Date(\"2026-10-19T00:00:00Z\")), qty: some(6.0) },\n        { id: \"w43-2\", task: \"Spray the vanity doors\", start: none, qty: some(4.0) },\n    ] }],\n]));\n\n/** The plans' patch door — every Apply commits through it. */\nexport const sheetBuilderPlansPatch = e3.mutation.patch(sheetBuilderPlans);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const plans = $.let(Record.bind(sheetBuilderPlans, [sheetBuilderPlansPatch]));\n            // The week the viewer picked: a viewer's own state.\n            const week = $.let(State.bind([StringType], \"sheet.builder.weeks.week\", \"2026-W42\"));\n            const weeks = $.let([\"2026-W42\", \"2026-W43\", \"2026-W44\"], ArrayType(StringType));\n            const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));\n            // A row's own Details: its task, and its quantity on a slider — released, the edited row goes back through `update`.\n            const inspect = $.const(East.function([BuilderPlanRow, FunctionType([BuilderPlanRow], NullType)], UIComponentType, ($, row, update) => {\n                const qty = $.let(row.qty.match({ none: () => 0.0, some: (_$, q) => q }));\n                const setQty = $.const(East.function([FloatType], NullType, ($2, next) => {\n                    // East has no struct spread: the row, rebuilt with its new quantity.\n                    const edited = $2.const({ id: row.id, task: row.task, start: row.start, qty: some(next) }, BuilderPlanRow);\n                    $2(update(edited));\n                }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <Text>{row.task}</Text>\n                        <Field.Slider label=\"Quantity\" value={qty} min={0} max={200} step={1}\n                            helperText=\"Released, it is one step the history undoes\" onChangeEnd={setQty} />\n                    </VStack>\n                );\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <SegmentGroup value={week.read()} onChange={pick} size=\"sm\"\n                        items={weeks.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />\n                    <Box height=\"480px\">\n                        <Sheet.Builder\n                            record={plans}\n                            entry={{ key: week.read(), rows: \"rows\", id: \"id\" }}\n                            id=\"weeks\"\n                            inspector={inspect}\n                            columns={{\n                                task:  Sheet.column.text(BuilderPlanRow, { header: \"Task\", width: \"260px\" }),\n                                start: Sheet.column.date(BuilderPlanRow, { header: \"Start\", width: \"96px\" }),\n                                qty:   Sheet.column.quantity(BuilderPlanRow, { header: \"Qty\", width: \"96px\" }),\n                            }}\n                        />\n                    </Box>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-builder.examples.tsx:sheetBuilderBatches",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-builder.examples.tsx",
+      "suite": "",
+      "test": "A sheet builder over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips",
+      "keywords": [
+        "Sheet",
+        "Builder",
+        "Sheet.Builder",
+        "drag",
+        "drop",
+        "move",
+        "grip",
+        "seam",
+        "templates",
+        "group",
+        "entry",
+        "order",
+        "Sheet.library.rows"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Field, Reactive, SegmentGroup, Slice, State, StatusValueType, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A sheet builder over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips\n// inputs: []\n/** A batch's step — what is done to it, and how many. */\nexport const BuilderStep = StructType({ task: StringType, qty: OptionType(FloatType) });\n\n/** A batch — its id, its name, and its steps in order. */\nexport const BuilderBatch = StructType({ id: StringType, name: StringType, steps: ArrayType(BuilderStep) });\n\n/** One day's batches, in the planner's order. */\nexport const BuilderDay = StructType({ batches: ArrayType(BuilderBatch) });\n\n/** The days, keyed by date. */\nexport const sheetBuilderDays = e3.record(\"sheet_builder_days\", DictType(StringType, BuilderDay), new Map([\n    [\"2026-10-12\", { batches: [\n        { id: \"B-101\", name: \"Doors, oak\", steps: [{ task: \"Cut doors\", qty: some(12.0) }, { task: \"Band doors\", qty: some(48.0) }, { task: \"Spray doors\", qty: some(12.0) }] },\n        { id: \"B-102\", name: \"Carcasses, birch\", steps: [{ task: \"Cut carcasses\", qty: some(8.0) }, { task: \"Drill carcasses\", qty: some(8.0) }] },\n        { id: \"B-103\", name: \"Shelves, ash\", steps: [{ task: \"Cut shelves\", qty: some(20.0) }, { task: \"Sand shelves\", qty: some(20.0) }] },\n    ] }],\n]));\n\n/** The days' patch door — every Apply commits through it. */\nexport const sheetBuilderDaysPatch = e3.mutation.patch(sheetBuilderDays);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const days = $.let(Record.bind(sheetBuilderDays, [sheetBuilderDaysPatch]));\n            // The steps a finishing batch starts with: the batch template's lines.\n            const finishing = $.let([\n                { task: \"Sand\", qty: none },\n                { task: \"Seal\", qty: none },\n                { task: \"Spray\", qty: none },\n            ], ArrayType(BuilderStep));\n            return (\n                <Box height=\"560px\">\n                    <Sheet.Builder\n                        record={days}\n                        entry={{ key: \"2026-10-12\", rows: \"batches\", id: \"id\" }}\n                        group={Sheet.group(BuilderBatch, \"steps\", { title: \"name\", noun: { singular: \"batch\", plural: \"batches\" } })}\n                        id=\"batches\"\n                        columns={{\n                            task: Sheet.column.text(BuilderStep, { header: \"Step\", width: \"240px\" }),\n                            qty:  Sheet.column.quantity(BuilderStep, { header: \"Qty\", width: \"96px\" }),\n                        }}\n                        templates={{\n                            groups: [{ key: \"finishing\", name: \"Finishing batch\", group: \"Batches\",\n                                       values: Sheet.patch(BuilderBatch, { name: \"Finishing\", steps: finishing }) }],\n                            rows:   [{ key: \"sand\", name: \"Sand\", group: \"Steps\", values: Sheet.patch(BuilderStep, { task: \"Sand\", qty: none }) },\n                                     { key: \"seal\", name: \"Seal\", group: \"Steps\", values: Sheet.patch(BuilderStep, { task: \"Seal\", qty: none }) }],\n                        }}\n                        library={[Sheet.library.rows(), Sheet.library.columns()]}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:sheet-builder.examples.tsx:sheetBuilderPaged",

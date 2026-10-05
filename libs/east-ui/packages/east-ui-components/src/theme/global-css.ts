@@ -212,6 +212,31 @@ export const globalCss = defineGlobalStyles({
     ".east-drag-ghost": {
         pointerEvents: "none",
     },
+    /* The ghost's caption (#1187): a line under the ghost saying where the
+     * drop would land — mono, on the paper in a `--rule-strong` ring — or,
+     * red, why the cell under it refuses it. As wide as its words: the
+     * overlay is the size of what was picked up, a row's grip as much as a
+     * card. */
+    "[data-drag-caption]": {
+        width: "max-content",
+        marginTop: "{spacing.1}",
+        paddingInline: "{spacing.2}",
+        paddingBlock: "{spacing.1}",
+        fontFamily: "mono",
+        fontSize: "{fontSizes.label.md}",
+        lineHeight: "{lineHeights.tight}",
+        color: "fg.muted",
+        background: "bg.surface",
+        borderWidth: "1px",
+        borderStyle: "solid",
+        borderColor: "border.strong",
+        borderRadius: "{radii.sm}",
+        whiteSpace: "nowrap",
+    },
+    "[data-drag-caption][data-refused]": {
+        color: "fg.danger",
+        borderColor: "status.neg",
+    },
     /* A draggable is a keyboard control (#608): focused, Space / Enter picks
      * it up. The global reset below strips focus outlines, so it wears the
      * brand ring the moment the keyboard reaches it. */

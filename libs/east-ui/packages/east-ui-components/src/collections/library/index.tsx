@@ -18,7 +18,7 @@ import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { useDragSourceItem, useDropSink } from "../../dnd/drag-layer";
+import { useDragSourceItem, useDropSink, type DragHandle } from "../../dnd/drag-layer";
 import { HOST_RANK, useSliceToolbarItems } from "../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { radioGroupKey } from "../../primitives/radio-group.js";
@@ -58,6 +58,13 @@ export interface EastChakraLibraryProps {
      * every card says `No matches` itself.
      */
     empty?: LibraryEmpty | undefined;
+    /**
+     * A draggable card's ⏎, the host's (#1187): it takes the card as a drop
+     * where its own selection is — a sheet builder inserts a template below
+     * the selected row. Space still picks the card up, and a card that cannot
+     * be dragged still clicks on ⏎.
+     */
+    onCardEnter?: ((key: string) => void) | undefined;
 }
 
 /** What an empty Library says: the empty state's title, and the line under it. */
@@ -194,9 +201,38 @@ interface LibraryCardProps {
     filtered: boolean;
     styles: SlotStyles;
     onCardClick: ((key: string) => void) | undefined;
+    /** A draggable card's ⏎, the host's. */
+    onCardEnter: ((key: string) => void) | undefined;
 }
 
-function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick }: LibraryCardProps) {
+/**
+ * A draggable card's handle with its ⏎ taken by the host (#1187) — a plain
+ * Enter, while the card is not itself being carried: during a keyboard drag
+ * ⏎ drops it, as on any draggable. Every other key is the handle's, Space's
+ * pickup among them.
+ *
+ * @param drag - The card's drag handle, `undefined` when it cannot be dragged
+ * @param key - The card's key
+ * @param onCardEnter - The host's ⏎, if it takes one
+ * @returns The handle to spread onto the card, saying that ⏎ is its shortcut when the host takes it
+ */
+function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: ((key: string) => void) | undefined): (DragHandle & { "aria-keyshortcuts"?: string }) | undefined {
+    return useMemo(() => (drag === undefined || onCardEnter === undefined ? drag : {
+        ...drag,
+        "aria-keyshortcuts": "Enter",
+        onKeyDown: (event: React.KeyboardEvent) => {
+            const plain = event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+            if (plain && !(event.currentTarget as HTMLElement).hasAttribute("data-dragging")) {
+                event.preventDefault();
+                onCardEnter(key);
+                return;
+            }
+            drag.onKeyDown?.(event);
+        },
+    }), [drag, key, onCardEnter]);
+}
+
+function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter }: LibraryCardProps) {
     const status = getSomeorUndefined(item.status);
     const glyph = getSomeorUndefined(item.trailing);
     const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
@@ -211,8 +247,9 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
         <Box css={styles.ghost}>{item.label}</Box>
     ), [styles.ghost, item.label]);
     // The card is its own drag handle — by pointer, or focused and picked up
-    // with Space / Enter.
+    // with Space / Enter; the host may take its Enter.
     const drag = useDragSourceItem(from, ghost, !draggable);
+    const handle = useEnterHandle(drag, item.key, onCardEnter);
     // A click reports the card; a drag never clicks (the sensor swallows the
     // click it ends with). A card that cannot be dragged is a button, so the
     // keyboard clicks it too.
@@ -233,7 +270,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
         <Box
             css={styles.card}
             data-library-item={item.key}
-            {...drag}
+            {...handle}
             {...click}
             {...(filtered ? { "data-filtered": "" } : {})}
             {...(item.placed ? { "data-placed": "" } : {})}
@@ -303,7 +340,7 @@ interface LibraryGalleryCardProps extends LibraryCardProps {
  * anywhere on it — the action it names included — is its click. The media is
  * a thumbnail, so nothing in it takes the pointer or the focus.
  */
-function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, storageKey, renderMedia }: LibraryGalleryCardProps) {
+function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, storageKey, renderMedia }: LibraryGalleryCardProps) {
     const status = getSomeorUndefined(item.status);
     const statusStyles = useSlotRecipe({ key: "status" })({
         status: status?.tone.type ?? "neutral",
@@ -325,6 +362,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
         <Box css={styles.ghost}>{item.label}</Box>
     ), [styles.ghost, item.label]);
     const drag = useDragSourceItem(from, ghost, !draggable);
+    const handle = useEnterHandle(drag, item.key, onCardEnter);
     const click = onCardClick === undefined ? {} : {
         onClick: () => onCardClick(item.key),
         ...(drag === undefined ? {
@@ -342,7 +380,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
         <Box
             css={styles.galleryCard}
             data-library-card={item.key}
-            {...drag}
+            {...handle}
             {...click}
             {...(filtered ? { "data-filtered": "" } : {})}
             {...(item.placed ? { "data-placed": "" } : {})}
@@ -626,7 +664,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -982,6 +1020,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty }: LibraryCor
                             filtered={item.filtered}
                             styles={styles}
                             onCardClick={onCardClickFn ? handleCardClick : undefined}
+                            onCardEnter={onCardEnter}
                             storageKey={storageKey}
                             renderMedia={renderMedia}
                         />
@@ -1018,6 +1057,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty }: LibraryCor
                                         filtered={item.filtered}
                                         styles={styles}
                                         onCardClick={onCardClickFn ? handleCardClick : undefined}
+                                        onCardEnter={onCardEnter}
                                     />
                                 ))}
                             </Box>
@@ -1043,6 +1083,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty }: LibraryCor
                             filtered={item.filtered}
                             styles={styles}
                             onCardClick={onCardClickFn ? handleCardClick : undefined}
+                            onCardEnter={onCardEnter}
                         />
                     ))}
                 </Box>
@@ -1148,4 +1189,4 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
         </Box>
     );
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
-    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description);
+    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter);

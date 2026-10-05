@@ -18,6 +18,7 @@
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Slice } from "@elaraai/east-ui/internal";
 import type { SheetKind } from "./model.js";
+import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
@@ -169,6 +170,8 @@ export type SheetNotice =
     | { id: "copied"; rows: number; cols: number }
     | { id: "newGroup"; noun: string | undefined }
     | { id: "issue"; where: string; message: string }
+    /** A card's ⏎ refused below the ring's row (#1187, SB45): why. */
+    | { id: "dropRefused"; word: SheetDropRefusalWord }
     | { id: "text"; text: string };
 
 /** All ephemeral UI state — one object, one reducer. */

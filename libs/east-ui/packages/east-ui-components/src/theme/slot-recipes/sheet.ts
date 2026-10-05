@@ -108,11 +108,23 @@
  *     options, the strip's chips), the editor's type goes to 16 px so a
  *     phone never zooms into it, and the band's controls — hover-revealed on
  *     a desktop — stay open where nothing can hover (`_hoverNone`).
+ *   - Drag and drop, a builder's (#1187): a grip leads the actions column — a
+ *     14 px `grip-vertical` in the faintest ink, shown on the row's hover
+ *     and always where nothing hovers, a 32 px halo on a coarse pointer; the
+ *     row it lifts takes a 1 px brand inset ring, and its ghost is the
+ *     library card's (13/600 on the paper in a brand ring). No row lights as
+ *     a candidate: where a template or a moved row would land, the 2 px
+ *     brand insertion line runs along the seam (`data-drop-seam`); the row
+ *     an author's card lands on takes the brand wash and the layer's 2 px
+ *     frame; a row that refuses the drop, the invalid wash and the layer's
+ *     red frame. The row a drag rests on takes no hover — not its cells,
+ *     its gutter, its checkbox or its grip — so what it says is the drop's.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
@@ -123,7 +135,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
-        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar",
+        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "dragGhost",
         "cell", "cellIssue", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellRes", "cellGhost", "cellDot",
         "ring", "rangeWash", "hatch", "nextTarget", "takeButton",
         "editor", "editorField", "editorMirror", "editorGhost", "editorInput", "editorResolve", "editorBadge", "editorError",
@@ -166,6 +178,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 transition: "transform 240ms cubic-bezier(0.2, 0, 0, 1)",
                 "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             },
+            // A drag over the rows (#1187): none lights as a candidate — the
+            // seam line, or the row a card lands on, says where.
+            "& [data-row][data-drop-valid]:not([data-drop-active]):not([data-drop-invalid])::before": { content: "none" },
+            "& [data-row][data-drop-active][data-drop-at=seam]::before": { content: "none" },
+            // Where a template or a moved row would land: the insertion line along the seam the drop marks, while a row takes the drag.
+            "&:has([data-drop-active]) [data-row][data-drop-seam]::after": {
+                content: '""', position: "absolute", left: "128px", right: "0", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8",
+            },
+            "&:has([data-drop-active]) [data-row][data-drop-seam=top]::after": { top: "-1px" },
+            "&:has([data-drop-active]) [data-row][data-drop-seam=bottom]::after": { bottom: "-1px" },
         },
         // The seam: a 16 px hit strip centred on the row boundary across the
         // gutter. It draws nothing; hovering it shows the chips in the layer.
@@ -536,10 +558,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            _hover: { background: "bg.panel" },
+            // The pointer's hover — but the row a drag rests on says what the drop does instead (#1187).
+            "&:is(:hover, [data-hover]):not([data-drop-active], [data-drop-invalid])": { background: "bg.panel" },
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-picked]": { background: "brandTint" },
+            // The row an author's card lands on (#1187); a row that refuses the drag.
+            "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
+            "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
+            // The row a grip lifts: a 1 px brand inset ring, as the design system's dragged row.
+            "&:has([data-slot=rowGrip][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
             // an open line's copy under the group's band while its sub rows scroll under it: the band copy's `border.strong` edge, where the sticking stops.
             "&[data-slot=stickyLine]": { borderBottomColor: "border.strong" },
             "&[data-proposed]": {
@@ -573,12 +601,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightColor: "border.strong",
             cursor: "pointer",
             userSelect: "none",
-            "[data-row]:hover > &": { background: "bg.panel" },
+            "[data-row]:hover:not([data-drop-active], [data-drop-invalid]) > &": { background: "bg.panel" },
             "[data-band-row] > &": { background: "bg.panel" },
-            "[data-band-row]:hover > &": { background: "bg.muted" },
+            "[data-band-row]:hover:not([data-drop-active], [data-drop-invalid]) > &": { background: "bg.muted" },
             "[data-row][data-draft] > &": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-surface))" },
             "[data-row][data-invalid] > &": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "[data-row][data-picked] > &": { background: "brandTint" },
+            // The row an author's card lands on, and one that refuses the drag (#1187): the gutter is sticky, so it washes too.
+            "[data-row][data-drop-active][data-drop-at=row] > &": { background: "brandTint" },
+            "[data-row][data-drop-invalid] > &": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
         },
         // The rail: the connector runs behind the checkbox, centred in the 28 px column.
         rail: {
@@ -620,10 +651,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontSize: "9px",
             lineHeight: "1",
             cursor: "pointer",
-            "[data-row]:hover &": { borderColor: "fg.muted", background: "bg.panel" },
+            "[data-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { borderColor: "fg.muted", background: "bg.panel" },
             "[data-band-row] &": { background: "bg.panel" },
-            "[data-band-row]:hover &": { background: "bg.muted" },
+            "[data-band-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { background: "bg.muted" },
             "[data-row][data-picked] &": { background: "brandTint" },
+            // On the row a card lands on, and one that refuses the drag, the fill is their wash (#1187).
+            "[data-row][data-drop-active][data-drop-at=row] &": { background: "brandTint" },
+            "[data-row][data-drop-invalid] &": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
             "&[data-mixed], [data-row]:hover &[data-mixed]": { borderColor: "fg.subtle" },
             "&[aria-pressed=true], [data-row]:hover &[aria-pressed=true]": { background: "brand.solid", borderColor: "brand.solid", color: "brand.contrast" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
@@ -681,6 +715,43 @@ export const sheetSlotRecipe = defineSlotRecipe({
             pointerEvents: "none",
             zIndex: "4",
         },
+        // A row's grip (#1187): the faintest ink, shown on the row's hover —
+        // always where nothing hovers — and the drag's touch handle at once,
+        // no hold (`data-drag-grip`), with a 32 px halo on a coarse pointer.
+        // On the copilot's anchor row its fill and discard take the column.
+        rowGrip: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "none",
+            width: "14px",
+            height: "24px",
+            color: "fg.faint",
+            fontSize: "10px",
+            cursor: "grab",
+            touchAction: "none",
+            opacity: "0",
+            ...coarseHitArea({ position: true, size: 32 }),
+            _hover: { color: "fg.muted" },
+            "&[data-dragging], &:focus-visible, [data-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { opacity: "1" },
+            _hoverNone: { opacity: "1" },
+            "[data-row][data-anchor] &": { display: "none" },
+        },
+        // What a grip carries (#1187): the row's name, as the library's card ghost draws a card.
+        dragGhost: {
+            width: "max-content",
+            fontSize: "{fontSizes.body}",
+            fontWeight: "600",
+            color: "fg",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "brand.solid",
+            borderRadius: "{radii.md}",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.1}",
+            whiteSpace: "nowrap",
+        },
         cell: {
             position: "relative",
             minHeight: "36px",
@@ -693,7 +764,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             minWidth: "0",
-            _hover: { background: "bg.panel" },
+            // A cell's hover, but not on the row a drag rests on: the row's wash shows through (#1187).
+            "&:is(:hover, [data-hover]):not([data-drop-active] > *, [data-drop-invalid] > *)": { background: "bg.panel" },
             "&[data-invalid]": { background: "color-mix(in srgb, var(--chakra-colors-status-neg) 17%, var(--chakra-colors-bg-surface))", "& [data-slot=cellText]": { color: "fg.danger" } },
         },
         cellIssue: {
@@ -1254,13 +1326,17 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.panel",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
-            _hover: { background: "bg.muted" },
+            "&:is(:hover, [data-hover]):not([data-drop-active], [data-drop-invalid])": { background: "bg.muted" },
             "&[data-picked]": { background: "brandTint" },
             "&[data-draft]": { background: "color-mix(in oklch, var(--chakra-colors-status-warn) 8%, var(--chakra-colors-bg-panel))" },
             "&[data-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-panel))" },
             "&[data-folded]": { borderBottomColor: "border.strong" },
             // The copy under the header while the group's lines scroll (G1).
             "&[data-slot=stickyBand]": { borderBottomColor: "border.strong" },
+            // The band an author's group card lands on; a band that refuses the drag; the band a grip lifts (#1187).
+            "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
+            "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-panel))" },
+            "&:has([data-slot=rowGrip][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
         },
         groupChevron: {
             display: "inline-flex",

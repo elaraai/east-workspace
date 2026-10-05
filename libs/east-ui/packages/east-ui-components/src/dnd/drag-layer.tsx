@@ -35,7 +35,10 @@
  * Visual stages (grip, ghost, indicators, cancel) follow the
  * `drag-drop-visuals` spec via data attributes that the theme styles:
  * `data-dragging` on the origin, `data-drop-valid` / `data-drop-active` /
- * `data-drop-invalid` on cells and sinks, and the portal ghost.
+ * `data-drop-invalid` on cells and sinks, and the portal ghost. A cell may
+ * caption the ghost (#1187): while the drag rests over it, a line under the
+ * ghost says where the drop would land, or — red, `data-refused` — why the
+ * cell refuses it (`[data-drag-caption]`).
  *
  * @packageDocumentation
  */
@@ -50,6 +53,7 @@ import {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
     type KeyboardEvent as ReactKeyboardEvent,
     type PointerEvent as ReactPointerEvent,
     type ReactNode,
@@ -158,6 +162,14 @@ export interface DropCellOptions {
      * with no cell. Absent ⇒ every payload its surface connects to.
      */
     accepts?: (payload: DragPayload) => boolean;
+    /**
+     * What the ghost says while the drag rests over the cell (#1187) — where
+     * the drop would land (`Edge banding · after row 3`), or, when the cell
+     * refuses it, why (the caption turns red) — at the coordinate the drag
+     * rests on, for what is dragged. `allowed` is the cell's verdict there.
+     * Absent, or `undefined`, the ghost goes alone.
+     */
+    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | undefined;
 }
 
 interface CellRegistration extends DropCellOptions {
@@ -376,6 +388,44 @@ function clearStages(el: HTMLElement): void {
     el.removeAttribute("data-drop-invalid");
 }
 
+/** What the ghost says (#1187): its words, and whether they say why the cell refuses the drop. */
+interface DragCaption {
+    text: string;
+    refused: boolean;
+}
+
+/**
+ * The ghost's caption, held outside React's state: the layer sets it each
+ * time a drag rests, and only the caption's own view renders again — never
+ * the page the drag crosses.
+ */
+class CaptionStore {
+    private value: DragCaption | undefined = undefined;
+    private readonly listeners = new Set<() => void>();
+
+    readonly subscribe = (listener: () => void): (() => void) => {
+        this.listeners.add(listener);
+        return () => { this.listeners.delete(listener); };
+    };
+
+    readonly get = (): DragCaption | undefined => this.value;
+
+    /** Say something else — or nothing — telling the view only when the words or their verdict change. */
+    set(next: DragCaption | undefined): void {
+        const was = this.value;
+        if (was === next || (was !== undefined && next !== undefined && was.text === next.text && was.refused === next.refused)) return;
+        this.value = next;
+        for (const listener of this.listeners) listener();
+    }
+}
+
+/** The caption under the ghost — red while it says why the cell refuses the drop. Words the announcements already say, so hidden from a screen reader. */
+function DragCaptionView({ store }: { store: CaptionStore }) {
+    const caption = useSyncExternalStore(store.subscribe, store.get, store.get);
+    if (caption === undefined) return null;
+    return <div data-drag-caption="" data-refused={caption.refused ? "" : undefined} aria-hidden="true">{caption.text}</div>;
+}
+
 export interface DragLayerProviderProps {
     children: ReactNode;
     /** The layer's words — any subset, over the English table ({@link dragMessages}). */
@@ -421,6 +471,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     /** What the live region last said the drag rests over — `null` when over nothing — so it speaks again only on a change. */
     const spoken = useRef<string | null>(null);
     const scroller = useRef<EdgeScroller | null>(null);
+    /** What the ghost says where the drag rests (#1187). */
+    const caption = useRef(new CaptionStore()).current;
 
     // ── Validity ──────────────────────────────────────────────────────────
 
@@ -547,16 +599,21 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             prev.removeAttribute("data-drop-invalid");
         }
         d.hovered = null;
-        if (el === null) return;
-        const cell = cells.current.get(el)?.current;
-        if (cell !== undefined) {
+        const cell = el !== null ? cells.current.get(el)?.current : undefined;
+        if (el !== null && cell !== undefined) {
             // An unconnected element is not a destination, and a drop must not consider it one.
-            if (!connected(cell, d.payload)) return;
+            if (!connected(cell, d.payload)) {
+                caption.set(undefined);
+                return;
+            }
             d.hovered = el;
             // The verdict is asked HERE, at this point — never read back from
             // `data-drop-valid`, the drag-start sweep's snapshot: a veto that
-            // discriminates on the slot answers per bucket.
-            if (allows(cell, d.payload, point)) {
+            // discriminates on the slot answers per bucket. It is asked of the
+            // event the drop would deliver here, which the caption speaks of.
+            const coord = coordAt(cell, point, d.payload);
+            const allowed = cell.canDrop === undefined || cell.canDrop(dropEvent(d.payload, coord, track.altKey));
+            if (allowed) {
                 el.removeAttribute("data-drop-invalid");
                 el.setAttribute("data-drop-valid", "");
                 el.setAttribute("data-drop-active", "");
@@ -565,14 +622,18 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 el.removeAttribute("data-drop-active");
                 el.setAttribute("data-drop-invalid", "");
             }
+            const text = cell.caption?.(coord, d.payload, allowed);
+            caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
             return;
         }
-        const sink = sinks.current.get(el);
-        if (sink !== undefined && sinkValid(sink, d.payload)) {
+        // Over nothing, or over a sink: the ghost goes alone.
+        caption.set(undefined);
+        const sink = el !== null ? sinks.current.get(el) : undefined;
+        if (el !== null && sink !== undefined && sinkValid(sink, d.payload)) {
             el.setAttribute("data-drop-active", "");
             d.hovered = el;
         }
-    }, [connected, allows, sinkValid]);
+    }, [connected, sinkValid, track, caption]);
 
     /**
      * dnd-kit's collision step: the destination under the pointer, or under a
@@ -707,6 +768,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         spoken.current = null;
         lastHit.current = undefined;
         restPoint.current = undefined;
+        caption.set(undefined);
         // Candidates precede the drop — mark every valid destination now.
         for (const [el, cell] of cells.current) {
             if (connected(cell.current, payload) && allows(cell.current, payload, undefined)) el.setAttribute("data-drop-valid", "");
@@ -715,7 +777,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             if (sinkValid(reg, payload)) el.setAttribute("data-drop-valid", "");
         }
         setDragged(payload);
-    }, [hit, rest, connected, allows, sinkValid]);
+    }, [hit, rest, connected, allows, sinkValid, caption]);
 
     /**
      * The drag moved, or what it rests over changed: mark where it rests now.
@@ -739,6 +801,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         drag.current = null;
         for (const el of cells.current.keys()) clearStages(el);
         for (const el of sinks.current.keys()) clearStages(el);
+        caption.set(undefined);
         setDragged(null);
         if (d === null) return;
         d.origin?.removeAttribute("data-dragging");
@@ -792,7 +855,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             return;
         }
         outcome.current = { kind: "notDropped", item };
-    }, [track, hit, connected, sinkValid, targetName]);
+    }, [track, hit, connected, sinkValid, targetName, caption]);
 
     const onDragEnd = useCallback((_event: DragEndEvent) => finish(true), [finish]);
     const onDragCancel = useCallback(() => finish(false), [finish]);
@@ -907,7 +970,12 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 </DragMessagesContext.Provider>
             </DragLayerContext.Provider>
             <DragOverlay className="east-drag-ghost" zIndex={1700} modifiers={GHOST_MODIFIERS} dropAnimation={null}>
-                {dragged !== null ? <div data-drag-ghost="">{dragged.ghost}</div> : null}
+                {dragged !== null ? (
+                    <>
+                        <div data-drag-ghost="">{dragged.ghost}</div>
+                        <DragCaptionView store={caption} />
+                    </>
+                ) : null}
             </DragOverlay>
         </DndContext>
     );

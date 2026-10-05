@@ -7,8 +7,9 @@
  * React integration for a sheet's editing — the shared editing session's hook
  * (`useEditSession`, #879) with the sheet's own gestures (its wire edits,
  * composed into one transaction, with any writes to the drafts' fields a
- * builder's inspector makes beside them, #1188) and its local layer over the
- * resident rows.
+ * builder's inspector makes beside them, #1188, and the seeds a dropped
+ * template's new entry takes, #1187) and its local layer over the resident
+ * rows.
  *
  * @packageDocumentation
  */
@@ -45,14 +46,30 @@ export const EMPTY_LAYER: LocalLayer = { edits: new Map(), appended: [], removed
  */
 export type DraftEdit = (version: EntryVersion) => EntryVersion;
 
+/**
+ * The seeds a gesture's new entries take in place of `newRow`'s and
+ * `newGroup`'s (#1187): a dropped template's — the constructor's defaults with
+ * the template's fields over them, built by the same code.
+ */
+export interface SheetSeeds {
+    /** A new row's (a new line's) seed. */
+    newRow?: Editing["newRow"] | undefined;
+    /** A new group's seed, with its lines. */
+    newGroup?: Editing["newGroup"] | undefined;
+}
+
 /** What {@link useSheetEditing} hands a sheet: its session, the layer over its rows, and its gesture recorder. */
 export interface SheetEditingResult {
     /** The session. */
     session: SheetTransactions;
     /** The session's edits over the resident rows. */
     layer: LocalLayer;
-    /** Aggregate a gesture's wire edits, and the draft edits beside them (by entry), into one transaction. */
-    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>) => void;
+    /**
+     * Aggregate a gesture's wire edits, the draft edits beside them (by
+     * entry), and the seeds its new entries take, into one transaction.
+     * Answers whether the session recorded it.
+     */
+    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds) => boolean;
     /** An entry's version before any gesture: the session's, else the source's, lifted into its draft. */
     original: (id: string) => EntryVersion;
     /** Each drafted entry's draft, encoded. */
@@ -87,17 +104,19 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
         useEditSession<SheetRowValue>(editing, pinned, rows, positions, storageKey, { idOf: sheetRowId, ready });
 
-    /** Aggregate the renderer's writes — and the draft edits beside them — into one transaction at the effect boundary. */
-    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>) => {
-        if ((!events.length && !draftEdits?.size) || !observed || !session.writable) return;
+    /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
+    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds): boolean => {
+        if ((!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
         session.observeBase(observed.base);
+        // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
+        const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
         const updates = new Map<string, EntryUpdate>();
         const inputs = new Map<string, SheetRowValue>();
         let origin: Origin = "typed";
         const update = (id: string, row: SheetRowValue | undefined, placement?: Placement) => {
             const before = updates.get(id)?.before ?? original(id);
             const current = updates.get(id)?.after ?? before;
-            const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, editing, draftType, mint);
+            const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, seeded, draftType, mint);
             if (row !== undefined) inputs.set(id, row);
             const after: EntryVersion = prepared === undefined ? absent : {
                 draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)))),
@@ -125,7 +144,9 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
             updates.set(id, { id, before, after: edit(current) });
         }
         const gestureOrigin = originOverride ?? origin;
-        session.record([...updates.values()], gestureOrigin, gestureOrigin === "insert" ? "Insert row" : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells");
+        const label = gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
+            : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
+        return session.record([...updates.values()], gestureOrigin, label);
     }, [session, observed, original, codecs, editing, draftType, mint]);
     const layer = useMemo<LocalLayer>(() => {
         const edits = new Map<string, SheetRowValue>();
