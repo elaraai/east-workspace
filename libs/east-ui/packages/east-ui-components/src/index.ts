@@ -328,6 +328,13 @@ export {
     toChakraFileUpload,
     type FileUploadValue,
     type EastChakraFileUploadProps,
+    // FieldForm — a builder inspector's typed form (#1147)
+    FieldForm,
+    fieldFormMessages,
+    type FieldFormProps,
+    type FieldOption,
+    type FieldFormMessages,
+    type FieldFormWords,
     // ClauseBuilder
     ClauseBuilder,
     ClauseChip,

@@ -214,6 +214,21 @@ component, nothing in east-ui.
   host's own recipe keeps what is the host's (the snap grid's canvas column,
   the query builder's status line).
 
+## Field form
+
+A builder's inspector shows the selection as a typed form: east-ui's
+`Fields.specs(R, hints)` resolves a struct's fields into specs, and
+`FieldForm` (`src/forms/field-form/`, #1147) draws each one as the shared
+`Field` around the shared input its East type takes (`isTypeEqual`) —
+`StringInput`, `IntegerInput` / `FloatInput`, `Checkbox`, `DateTimeInput`,
+`Select`, `TagsInput` — each mounted with a payload built from East's
+`defaultValue` of its type, never a control of its own. What is typed is one
+edit when the focus leaves the field or on Enter, and Esc puts it back; a
+choice is an edit at once. A field that differs from `baseline` is tinted
+(`data-dirty`; the `fieldForm` recipe lays the fields out). It is a React part
+for renderers, as `BuilderFrame` is. Inside a `Field`, the shared date input
+takes the field's label and read-only as the Ark inputs do.
+
 ## Platform function registration
 
 East programs declare platform functions (e.g. `Clipboard.copy`,

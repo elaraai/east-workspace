@@ -50,6 +50,10 @@ export {
 // its closed wire and the inline adapter.
 export * from "./contracts/editing.js";
 
+// Fields contract (#1147) — `Fields`, its hints and the closed spec a form
+// renderer reads.
+export * from "./contracts/fields.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {

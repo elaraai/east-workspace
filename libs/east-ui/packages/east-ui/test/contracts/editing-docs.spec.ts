@@ -3,13 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-// The editing contract's TypeDoc examples are tested examples (the Sheet's
-// #862 precedent; the Sheet's docs spec held them until the Sheet moved to
-// e3-ui, #1179). Each `@example` in `src/contracts/editing.ts` is the verbatim
-// `fn` of an `example()` in `test/contracts/editing.examples.ts` that
-// `editing.spec.ts` runs, behind imports from the public packages and any
-// module-scope declaration of that file. An example edited without its docs,
-// or a doc example no test runs, fails here.
+// The editing and fields contracts' TypeDoc examples are tested examples (the
+// Sheet's #862 precedent; the Sheet's docs spec held the editing contract's
+// until the Sheet moved to e3-ui, #1179). Each `@example` in
+// `src/contracts/editing.ts` and `src/contracts/fields.ts` (#1147) is the
+// verbatim `fn` of an `example()` in its `test/contracts/*.examples.ts` that
+// its spec runs, behind imports from the public packages and any module-scope
+// declaration of that file. An example edited without its docs, or a doc
+// example no test runs, fails here.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,9 +20,9 @@ import { readFileSync } from "node:fs";
 const ROOT = new URL("../../../", import.meta.url);
 const read = (path: string): string => readFileSync(new URL(path, ROOT), "utf-8");
 
-const SOURCES = ["src/contracts/editing.ts"];
-const EXAMPLES = ["test/contracts/editing.examples.ts"];
-const SPECS = read("test/contracts/editing.spec.ts");
+const SOURCES = ["src/contracts/editing.ts", "src/contracts/fields.ts"];
+const EXAMPLES = ["test/contracts/editing.examples.ts", "test/contracts/fields.examples.ts"];
+const SPECS = read("test/contracts/editing.spec.ts") + read("test/contracts/fields.spec.ts");
 const PUBLIC_IMPORT = /^import \{ [^}]+ \} from "@elaraai\/east(-ui)?";$/;
 
 /** One example's `fn` as a doc prints it: the head after `fn: `, the body dedented four spaces, the tail closed with `;`. */
@@ -95,13 +96,13 @@ function flaw(doc: DocExample, m: Mirror): string | undefined {
     return undefined;
 }
 
-test("every editing-contract @example is the verbatim fn of a tested example, imported from the public packages", () => {
+test("every editing- and fields-contract @example is the verbatim fn of a tested example, imported from the public packages", () => {
     const mirrors = EXAMPLES.flatMap(mirrorsOf);
     const docs = SOURCES.flatMap(docExamplesOf);
-    assert.ok(docs.length > 0, "the editing contract carries its @examples");
+    for (const source of SOURCES) assert.ok(docs.some((doc) => doc.at.startsWith(`${source}:`)), `${source} carries its @examples`);
     const failures = docs.flatMap((doc) => {
         const m = mirrorOf(doc, mirrors);
-        if (m === undefined) return [`${doc.at}: its code does not end in \`const <name> = <the fn of an example() in test/contracts/editing.examples.ts>\`, verbatim`];
+        if (m === undefined) return [`${doc.at}: its code does not end in \`const <name> = <the fn of an example() in ${EXAMPLES.join(" or ")}>\`, verbatim`];
         const why = flaw(doc, m);
         return why === undefined ? [] : [`${doc.at}: ${m.name} — ${why}`];
     });
