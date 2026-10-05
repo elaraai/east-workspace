@@ -142,8 +142,8 @@ test("an old inline snapshot cannot acknowledge a move; undo after apply submits
     const session = create({ apply: bytes => { requests.push(decodeBeast2For(Batch)(bytes)); return variant("applied", { revision: none }); } });
     session.record([{ id: "a", before: version(a, start), after: version(a, end) }], "move", "Move row");
     await session.apply();
-    expect(session.reconcile(variant("snapshot", [a, b]), () => true)).toBe(false);
-    expect(session.reconcile(variant("snapshot", [b, a]), () => true)).toBe(true);
+    expect(session.reconcile(variant("snapshot", [a, b]), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("snapshot", [b, a]), () => undefined)).toBe(true);
     expect(session.pending).toBe(0);
     session.undo(); expect(session.pending).toBe(1);
     await session.apply();
@@ -160,10 +160,12 @@ test("paged overlays require the acknowledged hash and affected entries; refresh
     session.observeBase(variant("revision", "r1")); editA(session); await session.apply();
     expect(session.status).toBe("reconciling");
     expect(refresh).toHaveBeenCalledWith(some("r2"));
-    expect(session.reconcile(variant("revision", "r3"), () => true)).toBe(false);
-    expect(session.reconcile(variant("revision", "r2"), () => false)).toBe(false);
+    expect(session.reconcile(variant("revision", "r3"), () => some({ ...a, qty: 9n }))).toBe(false);
+    // Not read yet at the committed revision, or read there as its edit began: not acknowledged.
+    expect(session.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(false);
     session.refresh(); await session.apply(); expect(apply).toHaveBeenCalledTimes(1);
-    expect(session.reconcile(variant("revision", "r2"), () => true)).toBe(true);
+    expect(session.reconcile(variant("revision", "r2"), () => some({ ...a, qty: 9n }))).toBe(true);
     expect(session.pending).toBe(0);
 });
 
@@ -210,10 +212,10 @@ test("paged acknowledgement only demands entries changed in this request", async
     editA(session, 1n);
     session.record([{ id: "b", before: version(b, end), after: version({ ...b, qty: 7n }, end) }], "typed", "Edit b");
     await session.apply();
-    const matches = vi.fn((id: string) => id === "b");
-    expect(session.reconcile(variant("revision", "r2"), matches)).toBe(true);
-    expect(matches).toHaveBeenCalledTimes(1);
-    expect(matches).toHaveBeenCalledWith("b", { ...b, qty: 7n });
+    const read = vi.fn((id: string) => (id === "b" ? some({ ...b, qty: 7n }) : undefined));
+    expect(session.reconcile(variant("revision", "r2"), read)).toBe(true);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith("b");
     expect(session.pending).toBe(0);
 });
 

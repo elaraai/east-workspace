@@ -40,7 +40,7 @@ export {
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";
 export { historyToolbarItem, HISTORY_RANK } from "./history-item.js";
 export { SessionBanners, type SessionBannersProps } from "./banners.js";
-export { historyShortcut, type HistoryKeyPress } from "./shortcuts.js";
+export { historyShortcut, typedInto, type HistoryKeyPress } from "./shortcuts.js";
 export {
     editingMessages,
     DRAFT_ISSUE_TEXT,

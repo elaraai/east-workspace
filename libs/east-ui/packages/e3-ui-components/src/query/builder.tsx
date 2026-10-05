@@ -55,7 +55,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, checkJq, equalFor, equivalentFor, none, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { QueryBuilderComponent, QueryBuilderPayloadType, queryKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, EmptyStateView, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, usePersistedState,
+    BannerView, BuilderFrame, EmptyStateView, historyShortcut, historyToolbarItem, implementUIComponent, sessionErrorText, typedInto, usePersistedState,
     useTrackedEvaluation,
     type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
@@ -127,12 +127,6 @@ function refusalOf(session: EditSession<QueryEntry>, words: EditingWords): strin
     if (session.error !== undefined) return sessionErrorText(session.error, words);
     if (session.stale) return words.m.historyStatus({ status: "stale" });
     return words.m.historyStatus({ status: session.status === "idle" ? "applying" : session.status });
-}
-
-/** Whether a key press is typed into a field, whose own undo it is. */
-function inField(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    return target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
 /**
@@ -369,7 +363,8 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
             setPane({ collapsed: false });
             return;
         }
-        if (inField(event.target)) return;
+        // A field typed into keeps its own undo.
+        if (typedInto(event.target)) return;
         const action = historyShortcut(event);
         if (action === undefined) return;
         event.preventDefault();

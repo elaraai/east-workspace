@@ -39,3 +39,21 @@ export function historyShortcut(e: HistoryKeyPress): "undo" | "redo" | undefined
     if (letter === "y") return "redo";
     return undefined;
 }
+
+/** The inputs nothing is typed into: a press on one is the collection's, never the field's. */
+const UNTYPED_INPUTS: ReadonlySet<string> = new Set(["button", "checkbox", "color", "file", "image", "radio", "range", "reset", "submit"]);
+
+/**
+ * Whether a key press lands where a person types — an input that takes text, a
+ * text area, a select or editable content — where the history keys are the
+ * field's own undo, never the collection's (#1185): a builder's frame hears
+ * them from anywhere else in it.
+ *
+ * @param target - The key press's target
+ * @returns Whether it is typed into
+ */
+export function typedInto(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target.isContentEditable || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return true;
+    return target instanceof HTMLInputElement && !UNTYPED_INPUTS.has(target.type);
+}
