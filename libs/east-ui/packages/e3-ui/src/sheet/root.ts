@@ -32,6 +32,7 @@ import {
     StringType,
     StructType,
     isTypeEqual,
+    printType,
     toEastTypeValue,
     variant,
     some,
@@ -334,6 +335,21 @@ type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onP
     newRow?: unknown;
     newGroup?: unknown;
 };
+
+/**
+ * What only e3-ui's own factories pass a sheet's root, never an author's prop
+ * (#1182): `Sheet.Builder`'s record forms.
+ *
+ * @internal
+ */
+export interface SheetInternalOptions {
+    /** The rows are a record's whole Dict, read in key order: a keyed inline source, as a keyed paged one is. */
+    keyOrdered?: boolean;
+    /** The Apply over the session's keyed batches as they come, `ChangeSet(R, K)`: a record's `Record.onApply(record, { keyed: true })`. */
+    applyKeyed?: unknown;
+    /** The session's source identity, when the factory names it: a record, or one entry of it. */
+    sourceId?: SubtypeExprOrValue<StringType>;
+}
 
 /** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
 export interface SheetBindHandle<R extends EastType> {
@@ -679,11 +695,35 @@ export function createSheetPayload(
     return sheetPayload(data, columns, options);
 }
 
-/** The sheet's payload, built and checked — the one body both factories share. */
+/**
+ * Creates a sheet's payload for e3-ui's own factories (#1182): what
+ * {@link createSheetPayload} builds, with the options only they pass — a
+ * record's whole Dict read in key order, the keyed Apply that commits to it,
+ * and the session's source identity.
+ *
+ * @param data - The rows, as {@link createSheetPayload} takes them; with `keyOrdered`, a Dict or a bind handle of one
+ * @param columns - The columns, keyed by the row's fields
+ * @param options - The sheet's options, as {@link createSheetPayload} takes them
+ * @param internal - The factory's own options
+ * @returns An East expression of {@link SheetRootType}
+ * @throws Error for everything {@link createSheetPayload} refuses, and for a key-ordered sheet over anything but a Dict
+ * @internal
+ */
+export function createSheetPayloadWith(
+    data: unknown,
+    columns: unknown,
+    options: unknown,
+    internal: SheetInternalOptions,
+): ExprType<SheetRootType> {
+    return sheetPayload(data, columns, options, internal);
+}
+
+/** The sheet's payload, built and checked — the one body every factory shares. */
 function sheetPayload(
     data: unknown,
     columns: unknown,
     options?: unknown,
+    internal: SheetInternalOptions = {},
 ): ExprType<SheetRootType> {
     const opts = (options ?? {}) as SheetAnyOptions;
     const resolved = resolveRowSource(data, "Sheet");
@@ -718,13 +758,27 @@ function sheetPayload(
         throw new Error(`Sheet: an entry's loose row must be of the line type \`${groupDecl.lines}\` holds — build the entries' type with Sheet.Types.Entry(GroupType, "${groupDecl.lines}")`);
     }
     const collectionTag = (resolved.collectionType as { type: string }).type;
-    if (resolved.kind === "inline" && collectionTag !== "Array") {
+    // A record's whole Dict, read in key order (#1182), comes from e3-ui's own
+    // factories; an author's inline Dict is still refused.
+    const keyOrdered = internal.keyOrdered === true;
+    if (keyOrdered && collectionTag !== "Dict") {
+        throw new Error(`Sheet: a key-ordered sheet reads a Dict — a record's entries, in key order — and this source holds ${printType(resolved.collectionType)}`);
+    }
+    if (resolved.kind === "inline" && collectionTag !== "Array" && !keyOrdered) {
         throw new Error(
             "Sheet: a dictionary's rows sit in key order, not the planner's — pass an Array<R> (or a bind handle of one), " +
             "or page a keyed source (`Data.bindPaged` over the Dict)",
         );
     }
-    const keyed = resolved.kind === "paged" && collectionTag === "Dict";
+    const keyed = collectionTag === "Dict" && (resolved.kind === "paged" || keyOrdered);
+    const keyType = keyed ? resolved.keyType : undefined;
+    // A new row's key is minted as text, which only a String key is (#1182).
+    if (keyType !== undefined && keyType.type !== "String" && opts.newRowId === undefined && opts.edits?.insertRows !== false) {
+        throw new Error(
+            `Sheet: the rows are keyed by ${printType(keyType)}, and a new row's key is minted only for a String key — ` +
+            "pass `newRowId`, an East function returning a new row's key as its `.east` text, or `edits={{ insertRows: false }}`",
+        );
+    }
     const fields = groupType.fields as Record<string, EastType>;
     const idField = opts.id as string | undefined;
     if (!keyed && idField === undefined) {
@@ -819,8 +873,10 @@ function sheetPayload(
     const bridge = buildBridge({
         rowType, idField, metas, registers, driver,
         source: resolved.kind === "inline"
-            ? { kind: "inline", rows: resolved.rows as ExprType<ArrayType<StructType>> }
-            : { kind: "paged", source: resolved.source, keyed },
+            ? keyType !== undefined
+                ? { kind: "keyed", rows: resolved.rows as ExprType<DictType<EastType, EastType>>, keyType }
+                : { kind: "inline", rows: resolved.rows as ExprType<ArrayType<StructType>> }
+            : { kind: "paged", source: resolved.source, keyed, keyType },
         ...(groupDecl !== undefined && cellMetas !== undefined ? { group: { linesField: groupDecl.lines, cellMetas } } : {}),
         ...(opts.subRows !== undefined ? { subRows: opts.subRows } : {}),
     });
@@ -875,8 +931,13 @@ function sheetPayload(
             row: ($2, l) => $2.let({ id, owned, cells: project(l), lines: [], band: none, subRows: subRowsOf(l) }, SheetRowType),
         });
     });
+    // A keyed row's id is its key's text (#1182): a String key itself, any
+    // other key its `.east` printing, which `Record.onApply` reads back.
+    const idOfKey = keyType !== undefined && keyType.type !== "String"
+        ? (k: ExprType<EastType>): ExprType<StringType> => East.print(k)
+        : (k: ExprType<EastType>): ExprType<StringType> => k as ExprType<StringType>;
     const makeKeyed = (collection: ExprType<EastType>) =>
-        (collection as unknown as ExprType<DictType<StringType, EastType>>).toArray((_$, v, k) => rowOf(v, k));
+        (collection as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, v, k) => rowOf(v, idOfKey(k)));
     // A positional row's id is its id field — an entry's, through whichever arm it holds (#846).
     const idAt = (r: ExprType<EastType>): ExprType<StringType> => (loose
         ? (r as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>).match({
@@ -920,7 +981,11 @@ function sheetPayload(
         throw new Error("Sheet: `affordances` needs `slice` — the rail mounts them on the bound slice");
     }
 
-    const editing = buildSheetEditing(resolved, bridge, idField, opts, driver?.column);
+    const editing = buildSheetEditing(resolved, bridge, idField, {
+        ...opts,
+        ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
+        ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
+    }, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
         ? East.value(some({

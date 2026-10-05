@@ -295,6 +295,10 @@ export * from './sheet/types.js';
 export * from './sheet/transactions.js';
 export * from './sheet/drafts.js';
 export * from './sheet/editing-types.js';
+// The Sheet builder's record forms (#1182): a record's rows and the Apply back
+// to it, and the payload e3-ui's own factories build over them.
+export { recordRows, type SheetRecordEntry, type SheetRecordRows, type SheetRecordRowsOptions } from './sheet/record.js';
+export { createSheetPayloadWith, type SheetInternalOptions } from './sheet/root.js';
 export {
     Diff,
     DiffComponent,
