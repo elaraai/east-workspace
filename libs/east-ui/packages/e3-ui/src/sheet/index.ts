@@ -303,9 +303,9 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  * export const InsertionPlan = StructType({ rows: ArrayType(InsertionRow) });
  * export const sheetInsertionPlans = e3.record("sheet_insertion_plans", DictType(StringType, InsertionPlan), new Map([
  *     ["week", { rows: [
- *         { id: "rough", task: "Rough machining", qty: 120n, createdBy: "planner" },
- *         { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
- *         { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
+ *         { id: "nest", task: "Nest panels", qty: 120n, createdBy: "planner" },
+ *         { id: "inspect", task: "Inspect batches", qty: 4n, createdBy: "planner" },
+ *         { id: "finish", task: "Finish doors", qty: 120n, createdBy: "planner" },
  *     ] }],
  * ]));
  * export const sheetInsertionPlansPatch = e3.mutation.patch(sheetInsertionPlans);

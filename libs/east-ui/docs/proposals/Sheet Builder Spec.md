@@ -147,9 +147,9 @@ import { Sheet } from "@elaraai/e3-ui";
 
 // The vocabulary: read only.
 export const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
-export const MachineType  = StructType({ family: StringType, line: StringType });
+export const MachineType  = StructType({ family: StringType, bay: StringType });
 export const activities   = e3.input("activities", ArrayType(ActivityType), variant("value", []));
-export const machines     = e3.record("machines", DictType(StringType, MachineType), new Map());   // keyed by code: S101, E201, R301, B401
+export const machines     = e3.record("machines", DictType(StringType, MachineType), new Map());   // keyed by code: S101, E201, R301, F401
 
 // The rows: orders, each with its operations.
 export const OperationType = StructType({
@@ -281,7 +281,7 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
                 registers={{
                     machines: Sheet.register.concat([
                         Sheet.register.members(machines.read(), { kind: "machine", key: (_m, code) => code, label: (_m, code) => code,
-                            meta: m => some(m.family), parent: m => some(m.line) }),
+                            meta: m => some(m.family), parent: m => some(m.bay) }),
                         Sheet.register.members(machines.read(), { kind: "family", key: m => m.family, label: m => m.family,
                             meta: _m => some("family") }),
                     ]),

@@ -9,7 +9,7 @@
  * arrow (a minus for an in-place driver) on the first 20 px line, chips
  * mono 10.5 on `bg.muted` with the register's meta only when a half holds a
  * single chip — a counted member prints its kind with the count as the meta,
- * worded in the kind it resolves to (`CNC lathe · 4 machines`) — dashed chips for text / placeholder / a proposal, the faint
+ * worded in the kind it resolves to (`CNC router · 4 machines`) — dashed chips for text / placeholder / a proposal, the faint
  * FROM / TO labels on an empty live half, a lock tag on a locked one — warn
  * when it holds content — and a flagged member's warn treatment with its
  * message as the title.

@@ -17,13 +17,13 @@ export const sheetLinkPrint = example({
     description: "Print a link as the planner types it — from > to, members comma-separated, a range as from-to, a count as N x key and the placeholder as TBC",
     fn: East.function([], StringType, ($) => {
         const link = $.const({
-            from: [variant("identified", { key: "M2140" }), variant("range", { from: "M2141", to: "M2145" })],
-            to:   [variant("counted", { n: 4n, key: "CNC lathe" }), variant("placeholder", null)],
+            from: [variant("identified", { key: "R2140" }), variant("range", { from: "R2141", to: "R2145" })],
+            to:   [variant("counted", { n: 4n, key: "CNC router" }), variant("placeholder", null)],
         }, Sheet.Types.Link);
         return Sheet.link.print(link);
     }),
     inputs: [],
-    returns: "M2140, M2141-M2145 > 4 x CNC lathe, TBC",
+    returns: "R2140, R2141-R2145 > 4 x CNC router, TBC",
 });
 
 export const sheetLinkParse = example({
@@ -31,14 +31,14 @@ export const sheetLinkParse = example({
     description: "Parse the planner's text into a typed link against a register — codes and aliases resolve case-insensitively, N x kind counts a family, a short range completes from its lower bound, TBC is the placeholder and anything else is kept as text",
     fn: East.function([], Sheet.Types.Link, ($) => {
         const members = $.const([
-            { key: "M2140", label: "M2140", kind: "machine", aliases: [], meta: some("CNC lathe"), parent: some("Line 2"), tone: none },
-            { key: "CNC lathe", label: "CNC lathe", kind: "family", aliases: ["lathe", "lathes"], meta: some("family"), parent: none, tone: none },
+            { key: "R2140", label: "R2140", kind: "machine", aliases: [], meta: some("CNC router"), parent: some("Bay 2"), tone: none },
+            { key: "CNC router", label: "CNC router", kind: "family", aliases: ["router", "routers"], meta: some("family"), parent: none, tone: none },
         ], Sheet.Types.RegisterMembers);
-        return Sheet.link.parse("m2140 > 4 x lathe, M2141-45, TBC, paint shop", members);
+        return Sheet.link.parse("r2140 > 4 x router, R2141-45, TBC, spray shop", members);
     }),
     inputs: [],
     returns: {
-        from: [variant("identified", { key: "M2140" })],
-        to: [variant("counted", { n: 4n, key: "CNC lathe" }), variant("range", { from: "M2141", to: "M2145" }), variant("placeholder", null), variant("text", "paint shop")],
+        from: [variant("identified", { key: "R2140" })],
+        to: [variant("counted", { n: 4n, key: "CNC router" }), variant("range", { from: "R2141", to: "R2145" }), variant("placeholder", null), variant("text", "spray shop")],
     },
 });

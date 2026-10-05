@@ -112,19 +112,19 @@ export interface SheetSubRowsValue<R extends StructType> {
  *     ["week", { orders: [
  *         { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
  *             { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
- *                 { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Rail stock × 80"], station: some("Saw 2"), by: none },
+ *                 { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Oak stock × 80"], station: some("Saw 2"), by: none },
  *                 { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
  *             ], bookings: [
  *                 variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
- *                 variant("equipment", { resource: "Torque driver" }),
+ *                 variant("equipment", { resource: "Clamp rack" }),
  *             ] },
  *             { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
- *                 variant("space", { area: "Test bay", units: 2n }),
+ *                 variant("space", { area: "Dry-fit area", units: 2n }),
  *             ] },
  *         ] },
- *         { id: "wo-1043", name: "WO-1043 · Housings", jobs: [
- *             { task: "Paint housings", qty: some(250.0), notes: "Primer first", operations: [
- *                 { id: "WO-1043-1", code: "PNT", name: "Prime and paint", materials: ["Primer", "Topcoat"], station: none, by: none },
+ *         { id: "wo-1043", name: "WO-1043 · Doors", jobs: [
+ *             { task: "Spray doors", qty: some(250.0), notes: "Sealer first", operations: [
+ *                 { id: "WO-1043-1", code: "SPR", name: "Seal and spray", materials: ["Sealer", "Lacquer"], station: none, by: none },
  *             ], bookings: [] },
  *         ] },
  *     ] }],
@@ -258,19 +258,19 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  *     ["week", { orders: [
  *         { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
  *             { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
- *                 { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Rail stock × 80"], station: some("Saw 2"), by: none },
+ *                 { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Oak stock × 80"], station: some("Saw 2"), by: none },
  *                 { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
  *             ], bookings: [
  *                 variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
- *                 variant("equipment", { resource: "Torque driver" }),
+ *                 variant("equipment", { resource: "Clamp rack" }),
  *             ] },
  *             { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
- *                 variant("space", { area: "Test bay", units: 2n }),
+ *                 variant("space", { area: "Dry-fit area", units: 2n }),
  *             ] },
  *         ] },
- *         { id: "wo-1043", name: "WO-1043 · Housings", jobs: [
- *             { task: "Paint housings", qty: some(250.0), notes: "Primer first", operations: [
- *                 { id: "WO-1043-1", code: "PNT", name: "Prime and paint", materials: ["Primer", "Topcoat"], station: none, by: none },
+ *         { id: "wo-1043", name: "WO-1043 · Doors", jobs: [
+ *             { task: "Spray doors", qty: some(250.0), notes: "Sealer first", operations: [
+ *                 { id: "WO-1043-1", code: "SPR", name: "Seal and spray", materials: ["Sealer", "Lacquer"], station: none, by: none },
  *             ], bookings: [] },
  *         ] },
  *     ] }],

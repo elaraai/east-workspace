@@ -33,12 +33,12 @@ const later = <T,>(fn: (ctx: SheetContextValue) => Promise<T>) => variant("async
 const col = (key: string, providers: SheetProviderValue[], kind = "text", editable = true): FillColumn => ({ key, kind: kind as FillColumn["kind"], editable, providers });
 const proposal = (activity: string, meta: string) => ({ cells: new Map([["activity", cell("String", activity)]]), meta });
 
-const ANCHOR = row({ activity: cell("String", "Machining"), qty: NULL, notes: NULL });
+const ANCHOR = row({ activity: cell("String", "Routing"), qty: NULL, notes: NULL });
 
 function run(over: Partial<SuggestInput> = {}) {
     return runSuggest({
         anchorId: "r1", row: ANCHOR, skipKey: undefined, columns: [], proposers: [], ahead: 2, nextBusy: false,
-        driverKey: "Machining", driverColumn: "activity", rejected: NO_REJECTIONS, contextOf, memo: new SuggestMemo(), ...over,
+        driverKey: "Routing", driverColumn: "activity", rejected: NO_REJECTIONS, contextOf, memo: new SuggestMemo(), ...over,
     });
 }
 
@@ -53,23 +53,23 @@ describe("fills", () => {
         expect(out.sugg?.fill.get("notes")).toEqual({ cell: cell("String", "phrase"), meta: "phrasing", index: 0 });
         expect(out.async).toEqual([]);
         // Occupied: the notes cell holds text.
-        const busy = run({ columns, row: row({ activity: cell("String", "Machining"), qty: NULL, notes: cell("String", "written") }) });
+        const busy = run({ columns, row: row({ activity: cell("String", "Routing"), qty: NULL, notes: cell("String", "written") }) });
         expect(busy.sugg?.fill.has("notes")).toBe(false);
         // The column being edited is not filled.
         expect(run({ columns, skipKey: "qty" }).sugg?.fill.has("qty")).toBe(false);
         // A dismissed fill is not asked for again on that row.
         expect(run({ columns, rejected: { fills: new Set(["r1|qty"]), follows: new Set() } }).sugg?.fill.has("qty")).toBe(false);
         // An owned row is never touched; a read-only column never filled.
-        expect(run({ columns, row: row({ activity: cell("String", "Machining"), qty: NULL, notes: NULL }, true) }).sugg).toBeNull();
+        expect(run({ columns, row: row({ activity: cell("String", "Routing"), qty: NULL, notes: NULL }, true) }).sugg).toBeNull();
         expect(run({ columns: [col("qty", [sync(() => yields(cell("Float", 1), ""))], "quantity", false)] }).sugg).toBeNull();
     });
 
     test("the edited link column is predicted into: its providers see the row with that cell blank", () => {
         const seen: unknown[] = [];
-        const predicted = cell("Link", { from: [], to: [variant("identified", { key: "M2141" })] });
+        const predicted = cell("Link", { from: [], to: [variant("identified", { key: "R2141" })] });
         const columns = [col("stations", [sync((ctx) => { seen.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("stations")); return yields(predicted, "same stations"); })], "link")];
-        const half = cell("Link", { from: [variant("identified", { key: "M2140" })], to: [] });
-        const out = run({ columns, skipKey: "stations", row: row({ activity: cell("String", "Machining"), stations: half }) });
+        const half = cell("Link", { from: [variant("identified", { key: "R2140" })], to: [] });
+        const out = run({ columns, skipKey: "stations", row: row({ activity: cell("String", "Routing"), stations: half }) });
         expect(out.sugg?.fill.get("stations")?.meta).toBe("same stations");
         expect(seen[0]).toEqual(NULL);
     });
@@ -79,12 +79,12 @@ describe("fills", () => {
         const seenByProposer: unknown[] = [];
         const columns = [
             col("qty", [sync(() => yields(cell("Float", 1200), "like r0"))], "quantity"),
-            col("notes", [sync((ctx) => { seenQty.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("qty")); return yields(cell("String", "Machine 1,200 pcs"), "phrase"); })]),
+            col("notes", [sync((ctx) => { seenQty.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("qty")); return yields(cell("String", "Nest 1,200 pcs"), "phrase"); })]),
         ];
-        const proposers = [sync((ctx) => { seenByProposer.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("notes")); return [proposal("Painting", "follows")]; })];
+        const proposers = [sync((ctx) => { seenByProposer.push((ctx as unknown as { row: Map<string, SheetCellValue> }).row.get("notes")); return [proposal("Spraying", "follows")]; })];
         const out = run({ columns, proposers });
         expect(seenQty[0]).toEqual(cell("Float", 1200));
-        expect(seenByProposer[0]).toEqual(cell("String", "Machine 1,200 pcs"));
+        expect(seenByProposer[0]).toEqual(cell("String", "Nest 1,200 pcs"));
         expect(out.sugg?.fill.size).toBe(2);
         expect(out.sugg?.rows).toHaveLength(1);
     });
@@ -96,9 +96,9 @@ describe("fills", () => {
         run({ columns, memo });
         run({ columns, memo });
         expect(provider).toHaveBeenCalledTimes(1);
-        run({ columns, memo, row: row({ activity: cell("String", "Painting"), qty: NULL, notes: NULL }) });
+        run({ columns, memo, row: row({ activity: cell("String", "Spraying"), qty: NULL, notes: NULL }) });
         expect(provider).toHaveBeenCalledTimes(2);
-        expect(hashRow(ANCHOR)).not.toBe(hashRow(row({ activity: cell("String", "Painting"), qty: NULL, notes: NULL })));
+        expect(hashRow(ANCHOR)).not.toBe(hashRow(row({ activity: cell("String", "Spraying"), qty: NULL, notes: NULL })));
     });
 
     test("a throwing provider yields nothing with a diagnostic, and the next one answers", () => {
@@ -148,18 +148,18 @@ describe("proposals", () => {
     test("the first proposer that returns rows wins, capped at `ahead`; never into an occupied slot; minus the rejected pairings; an async proposer is pending under `rows`", async () => {
         const proposers = [
             sync(() => []),
-            sync(() => [proposal("Painting", "a"), proposal("Inspection", "b"), proposal("Machining", "c")]),
-            sync(() => [proposal("Packaging", "never")]),
+            sync(() => [proposal("Spraying", "a"), proposal("Inspection", "b"), proposal("Routing", "c")]),
+            sync(() => [proposal("Wrapping", "never")]),
         ];
         const out = run({ proposers });
         expect(out.sugg?.rows.map((r) => r.meta)).toEqual(["a", "b"]);
         expect(run({ proposers, nextBusy: true }).sugg).toBeNull();
-        const rejected = run({ proposers, rejected: { fills: new Set(), follows: new Set(["Machining>Painting"]) } });
+        const rejected = run({ proposers, rejected: { fills: new Set(), follows: new Set(["Routing>Spraying"]) } });
         expect(rejected.sugg?.rows.map((r) => r.meta)).toEqual(["b", "c"]);
         // Async: pending under `rows`, landing with the admitted rows.
-        const later1 = run({ proposers: [later(() => Promise.resolve([proposal("Painting", "model")]))] });
+        const later1 = run({ proposers: [later(() => Promise.resolve([proposal("Spraying", "model")]))] });
         expect(later1.sugg?.rows).toEqual([]);
         expect(later1.sugg?.pending).toEqual(["rows"]);
-        expect(await later1.async[0]!.run()).toEqual({ kind: "rows", rows: [proposal("Painting", "model")] });
+        expect(await later1.async[0]!.run()).toEqual({ kind: "rows", rows: [proposal("Spraying", "model")] });
     });
 });

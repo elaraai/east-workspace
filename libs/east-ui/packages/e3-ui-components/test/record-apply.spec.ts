@@ -43,7 +43,7 @@ const encodeJobsPatch = encodeBeast2For(PatchType(JobsType));
 const decodeJobsPatch = decodeBeast2For(PatchType(JobsType));
 
 const CUT: Job = { task: "Cut", qty: 2n };
-const WELD: Job = { task: "Weld", qty: 1n };
+const GLUE: Job = { task: "Glue", qty: 1n };
 
 /** A dataset cache holding what the in-memory record writes into it. */
 function fakeCache(): ReactiveDatasetCacheInterface {
@@ -79,9 +79,9 @@ function inMemory<T extends DictType>(name: string, type: T, initial: ValueTypeO
     return { memory, requests, runtime, handle: runtime.buildHandle(toEastTypeValue(handleType), name) };
 }
 
-/** The jobs record, holding a cut and a weld. */
+/** The jobs record, holding a cut job and a glue job. */
 function jobs(wrap?: (api: RecordApi) => RecordApi) {
-    return inMemory("jobs", JobsType, new SortedMap([["a", CUT], ["b", WELD]], keys), JobsHandle, wrap);
+    return inMemory("jobs", JobsType, new SortedMap([["a", CUT], ["b", GLUE]], keys), JobsHandle, wrap);
 }
 
 /** A Sheet's `onApply` over the jobs record, compiled against the runtime. */
@@ -92,13 +92,13 @@ function sheetApply(runtime: RecordRuntime): Apply {
     }), runtime.buildPrimitives()) as unknown as Apply;
 }
 
-/** A batch that takes the cut from 2 to 3, removes the weld and adds a paint job. */
+/** A batch that takes the cut from 2 to 3, removes the glue job and adds a spray job. */
 const EDIT = {
     requestId: "apply-1", base: variant("revision", "r0"), label: "Edit jobs",
     changes: [
         { id: "a", patch: entryPatch(some(CUT), some({ task: "Cut", qty: 3n })), place: none },
-        { id: "b", patch: entryPatch(some(WELD), none), place: none },
-        { id: "c", patch: entryPatch(none, some({ task: "Paint", qty: 4n })), place: some(variant("keyOrder", null)) },
+        { id: "b", patch: entryPatch(some(GLUE), none), place: none },
+        { id: "c", patch: entryPatch(none, some({ task: "Spray", qty: 4n })), place: some(variant("keyOrder", null)) },
     ],
 };
 
@@ -118,7 +118,7 @@ describe("Record.onApply — over the record's own entries", () => {
         // Applied at the state it wrote, which a pinned source installs.
         assert.deepEqual((result.value as { revision: unknown }).revision, some("jobs-state-1".padEnd(64, "0")));
         const state = (handle as { read: () => SortedMap<string, Job> }).read();
-        assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 3n }], ["c", { task: "Paint", qty: 4n }]]);
+        assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 3n }], ["c", { task: "Spray", qty: 4n }]]);
 
         const { commits } = await memory.history(ws, "jobs", undefined);
         assert.deepEqual(commits.map(c => c.mutation), ["patch", "$init"], "one commit");
@@ -135,7 +135,7 @@ describe("Record.onApply — over the record's own entries", () => {
             const apply = $.const(Record.onApply(record, { keyed: true }));
             return apply(batch);
         }), runtime.buildPrimitives()) as unknown as Apply;
-        const result = await plan(handle, { ...EDIT, base: variant("snapshot", new SortedMap([["a", CUT], ["b", WELD]], keys)) });
+        const result = await plan(handle, { ...EDIT, base: variant("snapshot", new SortedMap([["a", CUT], ["b", GLUE]], keys)) });
         assert.equal(result.type, "applied");
     });
 
@@ -147,18 +147,18 @@ describe("Record.onApply — over the record's own entries", () => {
         assert.equal(result.type, "conflict");
         assert.deepEqual(result.value, [{ entry: "a", row: none, field: none, message: "Changed since this edit began — last changed by memory" }]);
         const state = (handle as { read: () => SortedMap<string, Job> }).read();
-        assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 5n }], ["b", WELD]], "the other write stands, and none of this one landed");
+        assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 5n }], ["b", GLUE]], "the other write stands, and none of this one landed");
     });
 
     test("an entry another write moved is no conflict for a batch that leaves it alone", async () => {
         const { memory, runtime, handle } = jobs();
-        await writeOver(memory, "b", WELD, { task: "Weld", qty: 4n });
+        await writeOver(memory, "b", GLUE, { task: "Glue", qty: 4n });
 
         const onlyA = { ...EDIT, changes: [EDIT.changes[0]!] };
         const result = await sheetApply(runtime)(handle, onlyA);
         assert.equal(result.type, "applied");
         const state = (handle as { read: () => SortedMap<string, Job> }).read();
-        assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 3n }], ["b", { task: "Weld", qty: 4n }]]);
+        assert.deepEqual([...state.entries()], [["a", { task: "Cut", qty: 3n }], ["b", { task: "Glue", qty: 4n }]]);
     });
 
     test("an invalid, failed or timed-out write is rejected with its message", async () => {

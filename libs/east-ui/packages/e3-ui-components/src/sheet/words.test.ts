@@ -35,7 +35,7 @@ const W = sheetWords("en-US", MARKED);
 const member = (key: string, kind: string, meta?: string): SheetRegisterMemberValue => ({
     key, label: key, kind, aliases: [], meta: meta !== undefined ? some(meta) : none, parent: none, tone: none,
 }) as SheetRegisterMemberValue;
-const MEMBERS = [member("M2140", "machine", "CNC lathe"), member("M2141", "machine", "CNC lathe"), member("M2145", "machine", "CNC lathe"), member("CNC lathe", "family", "family")];
+const MEMBERS = [member("R2140", "machine", "CNC router"), member("R2141", "machine", "CNC router"), member("R2145", "machine", "CNC router"), member("CNC router", "family", "family")];
 const STATIONS = indexColumns([{
     key: "stations", header: "Work centres", sub: none, width: none,
     kind: variant("link", {
@@ -69,7 +69,7 @@ describe("the message a gesture leaves (#861)", () => {
         expect(noticeText({ id: "lockedHalf", driver: undefined }, SHEET_WORDS)).toBe("This row has no destination — kept, but flagged");
         expect(noticeText({ id: "rowFilled", n: 1, row: { line: true, number: 2, title: undefined, noun: undefined } }, SHEET_WORDS))
             .toBe("Filled 1 cell on line 2 of the group");
-        expect(rowRefText({ line: true, number: 3, title: "Line 2 week 8", noun: "plan" }, SHEET_WORDS)).toBe("line 3 of Line 2 week 8");
+        expect(rowRefText({ line: true, number: 3, title: "Bay 2 week 8", noun: "plan" }, SHEET_WORDS)).toBe("line 3 of Bay 2 week 8");
         expect(rowRefText({ line: false, number: 12 }, SHEET_WORDS)).toBe("row 12");
     });
 
@@ -120,15 +120,15 @@ describe("every helper speaks the words it is handed (#861)", () => {
     });
 
     test("the link cell's metas, flags, candidates and grammar line", () => {
-        expect(arityMeta({ n: 4, key: "CNC lathe" }, 3, W)).toBe("⟦4 × CNC lathe implied · 3 named so far");
-        expect(memberMeta(m("counted", { n: 2n, key: "CNC lathe" }), VOCAB, W)).toBe("⟦unassigned");
-        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), VOCAB, W)).toBe("⟦3 machines");
-        expect(existsFlag(m("identified", { key: "M9999" }), VOCAB, W.m)).toBe("⟦M9999 is not in the register");
+        expect(arityMeta({ n: 4, key: "CNC router" }, 3, W)).toBe("⟦4 × CNC router implied · 3 named so far");
+        expect(memberMeta(m("counted", { n: 2n, key: "CNC router" }), VOCAB, W)).toBe("⟦unassigned");
+        expect(memberMeta(m("range", { from: "R2140", to: "R2145" }), VOCAB, W)).toBe("⟦3 machines");
+        expect(existsFlag(m("identified", { key: "X9999" }), VOCAB, W.m)).toBe("⟦X9999 is not in the register");
         const none_ = new Set<string>();
-        expect(linkCandidates("M2140-45", VOCAB, none_, W)[0]!.meta).toBe("⟦→ 3 machines: M2140, M2141, M2145");
+        expect(linkCandidates("R2140-45", VOCAB, none_, W)[0]!.meta).toBe("⟦→ 3 machines: R2140, R2141, R2145");
         expect(linkCandidates("cnc", VOCAB, none_, W).map((c) => c.meta)).toEqual(["family", "⟦enumerate · 3 members"]);
         expect(linkCandidates("tb", VOCAB, none_, W)[0]).toMatchObject({ label: "TBC", meta: "⟦to confirm" });
-        expect(linkEntryCandidates(VOCAB, none_, W)[0]).toMatchObject({ label: "M2140-M2141", meta: "⟦2 machines" });
+        expect(linkEntryCandidates(VOCAB, none_, W)[0]).toMatchObject({ label: "R2140-R2141", meta: "⟦2 machines" });
         // The grammar's own token stays as it is typed.
         expect(grammarLine(VOCAB, W)).toBe("⟦machine code · family · ⟦N x kind · ⟦a range · TBC");
     });

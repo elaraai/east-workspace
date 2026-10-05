@@ -35,18 +35,18 @@ export const sheetApplyEntries = example({
         const TaskType = StructType({ id: StringType, task: StringType });
         const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
         const Entry = Sheet.Types.Entry(PackageType, "tasks");
-        const before = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
-            { id: "t1", task: "Machine blanks" }, { id: "t2", task: "Inspect lots" },
+        const before = $.const(variant("group", { id: "p1", name: "C-18 nesting", tasks: [
+            { id: "t1", task: "Cut panels" }, { id: "t2", task: "Inspect batches" },
         ] }), Entry);
-        const after = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
-            { id: "t2", task: "Inspect lots" }, { id: "t1", task: "Machine blanks" },
+        const after = $.const(variant("group", { id: "p1", name: "C-18 nesting", tasks: [
+            { id: "t2", task: "Inspect batches" }, { id: "t1", task: "Cut panels" },
         ] }), Entry);
-        const loose = $.const(variant("row", { id: "t9", task: "Pack for shipping" }), Entry);
+        const loose = $.const(variant("row", { id: "t9", task: "Pack for delivery" }), Entry);
         const entries = $.const([before, loose], ArrayType(Entry));
         const oldEntry = $.const(some(before), OptionType(Entry));
         const newEntry = $.const(some(after), OptionType(Entry));
         const batch = $.const({
-            requestId: "reorder-roughing", base: variant("snapshot", entries), label: "Move a task",
+            requestId: "reorder-nesting", base: variant("snapshot", entries), label: "Move a task",
             changes: [{ id: "p1", patch: East.diff(oldEntry, newEntry), place: none }],
         }, Sheet.Types.ChangeSet(Entry));
         const apply = $.const(Sheet.apply(Entry, "id"));
@@ -57,5 +57,5 @@ export const sheetApplyEntries = example({
         }));
     }),
     inputs: [],
-    returns: ["P-40 roughing: Inspect lots → Machine blanks", "Pack for shipping"],
+    returns: ["C-18 nesting: Inspect batches → Cut panels", "Pack for delivery"],
 });

@@ -509,13 +509,13 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  * export const GroupedWork = StructType({ packages: ArrayType(GroupedPackage) });
  * export const sheetGroupedWork = e3.record("sheet_grouped_work", DictType(StringType, GroupedWork), new Map([
  *     ["q3", { packages: [
- *         { id: "roughing", name: "P-40 · Roughing", owner: "planner", jobs: [
- *             { task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes", createdBy: "planner" },
- *             { task: "Inspect lots", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
+ *         { id: "nesting", name: "C-18 · Nesting", owner: "planner", jobs: [
+ *             { task: "Cut panels", qty: some(1200.0), notes: "Four CNC routers", createdBy: "planner" },
+ *             { task: "Inspect batches", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
  *         ] },
- *         { id: "finishing", name: "P-40 · Finishing", owner: "planner", jobs: [
- *             { task: "Finish housings", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
- *             { task: "Pack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
+ *         { id: "finishing", name: "C-18 · Finishing", owner: "planner", jobs: [
+ *             { task: "Finish doors", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
+ *             { task: "Stack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
  *         ] },
  *     ] }],
  * ]));

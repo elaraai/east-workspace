@@ -41,7 +41,7 @@ export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
  * over an `Array` the key is the index, printed).
  *
  * @typeParam T - The data's element type
- * @property kind - The member kind (`"machine"`, `"line"`, `"family"`)
+ * @property kind - The member kind (`"machine"`, `"bay"`, `"family"`)
  * @property key - What the grammar resolves — accessor
  * @property label - What a chip prints — accessor
  * @property aliases - Alternative spellings — accessor returning the field's array
@@ -85,7 +85,7 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  * @remarks
  * The accessors are reified ONCE into a describe function which the map
  * then CALLS (`shared/reify.ts`, `EAST_UI_PROP_PATTERNS.md`). Duplicate keys
- * fold, first occurrence wins — a countable-by-attribute kind (`"CNC lathe"`
+ * fold, first occurrence wins — a countable-by-attribute kind (`"CNC router"`
  * from every machine of that family) declares one member per distinct value.
  *
  * @typeParam T - The data's element type
@@ -108,8 +108,8 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  * export const RegistersPlan = StructType({ jobs: ArrayType(RegistersJob) });
  * export const sheetRegistersPlans = e3.record("sheet_registers_plans", DictType(StringType, RegistersPlan), new Map([
  *     ["week", { jobs: [
- *         { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
- *           machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
+ *         { id: "j1", activity: "Routing", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
+ *           machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] } },
  *     ] }],
  * ]));
  * export const sheetRegistersPlansPatch = e3.mutation.patch(sheetRegistersPlans);
@@ -117,21 +117,21 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
- *         const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
- *         const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });
+ *         const MachineType = StructType({ code: StringType, family: StringType, bay: StringType });
+ *         const BayType = StructType({ name: StringType, aliases: ArrayType(StringType) });
  *         const activities = $.const([
- *             { name: "Machining", uom: "pcs", days: 4n },
- *             { name: "Inspection", uom: "lots", days: 1n },
+ *             { name: "Routing", uom: "pcs", days: 4n },
+ *             { name: "Inspection", uom: "batches", days: 1n },
  *         ], ArrayType(ActivityType));
  *         const machines = $.const([
- *             { code: "M2140", family: "CNC lathe", line: "L2" },
- *             { code: "M2141", family: "CNC lathe", line: "L2" },
- *             { code: "M3210", family: "5-axis mill", line: "L3" },
+ *             { code: "R2140", family: "CNC router", bay: "B2" },
+ *             { code: "R2141", family: "CNC router", bay: "B2" },
+ *             { code: "P3210", family: "4-side planer", bay: "B3" },
  *         ], ArrayType(MachineType));
- *         const lines = $.const(new Map([
- *             ["L2", { name: "Line 2", aliases: ["l2", "line 2"] }],
- *             ["L3", { name: "Line 3", aliases: ["l3", "line 3"] }],
- *         ]), DictType(StringType, LineType));
+ *         const bays = $.const(new Map([
+ *             ["B2", { name: "Bay 2", aliases: ["b2", "bay 2"] }],
+ *             ["B3", { name: "Bay 3", aliases: ["b3", "bay 3"] }],
+ *         ]), DictType(StringType, BayType));
  *         // The jobs, read from an e3 record bound with its patch door.
  *         const plans = $.let(Record.bind(sheetRegistersPlans, [sheetRegistersPlansPatch]));
  *         const jobs = $.let(plans.read().get("week").jobs);
@@ -164,10 +164,10 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *                 registers={{
  *                     machines: Sheet.register.concat([
  *                         Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
- *                             meta: m => some(m.family), parent: m => some(m.line) }),
+ *                             meta: m => some(m.family), parent: m => some(m.bay) }),
  *                         // A Dict's key rides as the accessors' second argument.
- *                         Sheet.register.members(lines, { kind: "line", key: (_l, code) => code, label: l => l.name, aliases: l => l.aliases }),
- *                         // Both lathes name one family — duplicate keys fold, the first wins.
+ *                         Sheet.register.members(bays, { kind: "bay", key: (_b, code) => code, label: b => b.name, aliases: b => b.aliases }),
+ *                         // Both routers name one family — duplicate keys fold, the first wins.
  *                         Sheet.register.members(machines, { kind: "family", key: m => m.family, label: m => m.family, meta: _m => some("family") }),
  *                     ]),
  *                 }}
@@ -176,8 +176,8 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *                     start:    Sheet.column.date(RegistersJob, { header: "Start", width: "96px" }),
  *                     end:      Sheet.column.date(RegistersJob, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
  *                     qty:      Sheet.column.quantity(RegistersJob, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
- *                     machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
- *                                   members: [{ kind: "machine", identified: true }, { kind: "line", countable: true, resolvesTo: "machine" },
+ *                     machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "R2140 · 2 x router · bay 2", width: "240px",
+ *                                   members: [{ kind: "machine", identified: true }, { kind: "bay", countable: true, resolvesTo: "machine" },
  *                                             { kind: "family", countable: true, resolvesTo: "machine" }] }),
  *                 }}
  *                 newRow={newJob}
@@ -299,8 +299,8 @@ export interface SheetDriverValue {
  * export const RegistersPlan = StructType({ jobs: ArrayType(RegistersJob) });
  * export const sheetRegistersPlans = e3.record("sheet_registers_plans", DictType(StringType, RegistersPlan), new Map([
  *     ["week", { jobs: [
- *         { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
- *           machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
+ *         { id: "j1", activity: "Routing", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
+ *           machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] } },
  *     ] }],
  * ]));
  * export const sheetRegistersPlansPatch = e3.mutation.patch(sheetRegistersPlans);
@@ -308,21 +308,21 @@ export interface SheetDriverValue {
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
- *         const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
- *         const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });
+ *         const MachineType = StructType({ code: StringType, family: StringType, bay: StringType });
+ *         const BayType = StructType({ name: StringType, aliases: ArrayType(StringType) });
  *         const activities = $.const([
- *             { name: "Machining", uom: "pcs", days: 4n },
- *             { name: "Inspection", uom: "lots", days: 1n },
+ *             { name: "Routing", uom: "pcs", days: 4n },
+ *             { name: "Inspection", uom: "batches", days: 1n },
  *         ], ArrayType(ActivityType));
  *         const machines = $.const([
- *             { code: "M2140", family: "CNC lathe", line: "L2" },
- *             { code: "M2141", family: "CNC lathe", line: "L2" },
- *             { code: "M3210", family: "5-axis mill", line: "L3" },
+ *             { code: "R2140", family: "CNC router", bay: "B2" },
+ *             { code: "R2141", family: "CNC router", bay: "B2" },
+ *             { code: "P3210", family: "4-side planer", bay: "B3" },
  *         ], ArrayType(MachineType));
- *         const lines = $.const(new Map([
- *             ["L2", { name: "Line 2", aliases: ["l2", "line 2"] }],
- *             ["L3", { name: "Line 3", aliases: ["l3", "line 3"] }],
- *         ]), DictType(StringType, LineType));
+ *         const bays = $.const(new Map([
+ *             ["B2", { name: "Bay 2", aliases: ["b2", "bay 2"] }],
+ *             ["B3", { name: "Bay 3", aliases: ["b3", "bay 3"] }],
+ *         ]), DictType(StringType, BayType));
  *         // The jobs, read from an e3 record bound with its patch door.
  *         const plans = $.let(Record.bind(sheetRegistersPlans, [sheetRegistersPlansPatch]));
  *         const jobs = $.let(plans.read().get("week").jobs);
@@ -355,10 +355,10 @@ export interface SheetDriverValue {
  *                 registers={{
  *                     machines: Sheet.register.concat([
  *                         Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
- *                             meta: m => some(m.family), parent: m => some(m.line) }),
+ *                             meta: m => some(m.family), parent: m => some(m.bay) }),
  *                         // A Dict's key rides as the accessors' second argument.
- *                         Sheet.register.members(lines, { kind: "line", key: (_l, code) => code, label: l => l.name, aliases: l => l.aliases }),
- *                         // Both lathes name one family — duplicate keys fold, the first wins.
+ *                         Sheet.register.members(bays, { kind: "bay", key: (_b, code) => code, label: b => b.name, aliases: b => b.aliases }),
+ *                         // Both routers name one family — duplicate keys fold, the first wins.
  *                         Sheet.register.members(machines, { kind: "family", key: m => m.family, label: m => m.family, meta: _m => some("family") }),
  *                     ]),
  *                 }}
@@ -367,8 +367,8 @@ export interface SheetDriverValue {
  *                     start:    Sheet.column.date(RegistersJob, { header: "Start", width: "96px" }),
  *                     end:      Sheet.column.date(RegistersJob, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
  *                     qty:      Sheet.column.quantity(RegistersJob, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
- *                     machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
- *                                   members: [{ kind: "machine", identified: true }, { kind: "line", countable: true, resolvesTo: "machine" },
+ *                     machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "R2140 · 2 x router · bay 2", width: "240px",
+ *                                   members: [{ kind: "machine", identified: true }, { kind: "bay", countable: true, resolvesTo: "machine" },
  *                                             { kind: "family", countable: true, resolvesTo: "machine" }] }),
  *                 }}
  *                 newRow={newJob}

@@ -45,17 +45,17 @@ const ROWS = [
     { id: "b", task: "Second", start: none, qty: 2n },
 ];
 const JobType = StructType({ id: StringType, activity: StringType });
-const JOBS = ["Machining", "Painting", "Packaging", "Painting", "Machining", "Packaging"].map((activity, i) => ({ id: `j${i}`, activity }));
+const JOBS = ["Routing", "Spraying", "Wrapping", "Spraying", "Routing", "Wrapping"].map((activity, i) => ({ id: `j${i}`, activity }));
 const NARROWING = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
     breakdown: none, visible: none, selectedIndex: none, resolution: none,
 };
-const VIEWS = [{ id: "paint", name: "PAINT", narrowing: { ...NARROWING, search: some("paint") }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
+const VIEWS = [{ id: "spray", name: "SPRAY", narrowing: { ...NARROWING, search: some("spray") }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
 const LineType = StructType({ task: StringType, qty: IntegerType });
 const PlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(LineType) });
 const PLANS = [
-    { id: "p1", name: "Line 2 week 8", lines: [{ task: "Cut", qty: 1n }, { task: "Weld", qty: 2n }] },
-    { id: "p2", name: "Line 3 week 8", lines: [{ task: "Paint", qty: 3n }] },
+    { id: "p1", name: "Bay 2 week 8", lines: [{ task: "Cut", qty: 1n }, { task: "Glue", qty: 2n }] },
+    { id: "p2", name: "Bay 3 week 8", lines: [{ task: "Spray", qty: 3n }] },
 ];
 
 // A paged source of a thousand jobs, `J10000` … `J10999`, built by hand to the
@@ -86,14 +86,14 @@ const EDITABLE = East.function([], Sheet.Types.Root, ($) => {
     }, { id: "id", onUpdate: data.write, blanks: 1n, edits: { insertRows: true, removeRows: true } });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
-/** A sheet over a bound slice, opening on a saved view that searches `paint`. */
+/** A sheet over a bound slice, opening on a saved view that searches `spray`. */
 const LENS = East.function([], Sheet.Types.Root, ($) => {
     const rows = $.const(JOBS, ArrayType(JobType));
     const views = $.const(VIEWS, ArrayType(Sheet.Types.View));
     const cfg = $.const(Slice.config(JobType, { fields: { activity: { label: "Activity" } }, searchFieldIds: ["activity"] }));
     const slice = $.let(Slice.bind([JobType], "sheet_i18n_dom", cfg, Slice.state(), rows, none));
     return Sheet.Payload(rows, { activity: Sheet.column.text(JobType, { header: "Activity" }) }, {
-        id: "id", slice, affordances: ["search"], views, activeView: some("paint"),
+        id: "id", slice, affordances: ["search"], views, activeView: some("spray"),
     });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
@@ -161,9 +161,9 @@ describe("one message table (#861)", () => {
         const all = q('[data-slot="tab"][data-tab="all"]')!;
         expect(words(all)).toEqual(["⟦All", "6"]);
         expect(all.getAttribute("title")).toBe("⟦Every row — the whole sheet");
-        const paint = q('[data-slot="tab"][data-tab="paint"]')!;
-        expect(paint.getAttribute("title")).toBe('⟦"paint" · live · double-click renames · middle-click closes');
-        expect(paint.querySelector('[data-slot="tabClose"]')!.getAttribute("title")).toBe("⟦Close tab");
+        const spray = q('[data-slot="tab"][data-tab="spray"]')!;
+        expect(spray.getAttribute("title")).toBe('⟦"spray" · live · double-click renames · middle-click closes');
+        expect(spray.querySelector('[data-slot="tabClose"]')!.getAttribute("title")).toBe("⟦Close tab");
         const add = q('[data-slot="tabAdd"]')!;
         allMarked(attrs(add, "aria-label", "title"));
         expect(words(add)).toEqual(["⟦tab"]);
@@ -179,13 +179,13 @@ describe("one message table (#861)", () => {
         allMarked(attrs(gap.querySelector('[data-where="all"]'), "aria-label", "title"));
         expect(gap.querySelector('[data-slot="bandCount"]')!.getAttribute("title")).toBe("⟦Expand — each click reaches further");
         // A rename box's name.
-        fireEvent.doubleClick(paint);
+        fireEvent.doubleClick(spray);
         expect(q('[data-slot="tabRename"]')!.getAttribute("aria-label")).toBe("⟦Rename tab");
         fireEvent.keyDown(q('[data-slot="tabRename"]')!, { key: "Escape" });
         // + TAB: the message it leaves.
         fireEvent.mouseDown(add, { button: 0 });
         await flush();
-        expect(message()).toBe('⟦Saved tab "paint" — a live view: rows that match join it as the sheet changes');
+        expect(message()).toBe('⟦Saved tab "spray" — a live view: rows that match join it as the sheet changes');
     });
 
     test("the header, a group's band, a line's name, the count line, and what folding leaves — a group named in the Sheet's own word", () => {
@@ -199,10 +199,10 @@ describe("one message table (#861)", () => {
         const gutter = band.querySelector('[data-slot="gutter"]')!;
         expect(gutter.getAttribute("aria-label")).toBe("⟦⟦group 1, 2 lines");
         expect(gutter.getAttribute("title")).toBe("⟦Select the ⟦group's lines — delete removes them");
-        expect(gutter.querySelector('[data-slot="checkbox"]')!.getAttribute("aria-label")).toBe("⟦Select ⟦group Line 2 week 8");
+        expect(gutter.querySelector('[data-slot="checkbox"]')!.getAttribute("aria-label")).toBe("⟦Select ⟦group Bay 2 week 8");
         const fold = band.querySelector('[data-slot="fold"]')!;
         expect(attrs(fold, "aria-label", "title")).toEqual(["⟦Fold the ⟦group", "⟦Fold — Space · ⌥ folds all"]);
-        expect(q('[data-slot="row"][data-group-id="p1"][data-line="0"] [data-slot="gutter"]')!.getAttribute("aria-label")).toBe("⟦Line 1 of Line 2 week 8");
+        expect(q('[data-slot="row"][data-group-id="p1"][data-line="0"] [data-slot="gutter"]')!.getAttribute("aria-label")).toBe("⟦Line 1 of Bay 2 week 8");
         expect(q('[data-slot="footerSummary"]')!.textContent).toBe("⟦⟦2 ⟦groups · 3 lines");
         // What folding leaves.
         fireEvent.mouseDown(fold, { button: 0 });

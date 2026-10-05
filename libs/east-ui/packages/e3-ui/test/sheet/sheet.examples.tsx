@@ -21,8 +21,8 @@ import e3 from "@elaraai/e3";
 // `sheetSubRows` / `sheetRules` / `sheetRegisters` / `sheetLoose` · `sheetStress`. The paged
 // sheet is `dataBindPagedSheet` in the data examples, and a sheet over a
 // record's own entries `recordSheetApply` in the record examples. The fixtures
-// are the prototype's synthetic registers and rows: a discrete manufacturing
-// plant (machines on lines, work orders moving parts between them), no
+// are the prototype's synthetic registers and rows: a joinery
+// workshop (machines in bays, orders moving panels between them), no
 // customer, site or product names.
 //
 // Every sheet binds its rows from e3, so each runs on e3-web in the showcase
@@ -84,7 +84,7 @@ export const BasicPlan = StructType({ jobs: ArrayType(BasicJob) });
 /** The plans — the sheet edits the week's jobs; the record's default is its genesis commit. */
 export const sheetBasicPlans = e3.record("sheet_basic_plans", DictType(StringType, BasicPlan), new Map([
     ["week", { jobs: [
-        { id: "j1", start: none, task: "Machining", qty: none },
+        { id: "j1", start: none, task: "Routing", qty: none },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -139,9 +139,9 @@ export const VariantsPlan = StructType({ jobs: ArrayType(VariantsJob) });
 /** The plans — the configurator's sheet edits the week's jobs. */
 export const sheetVariantsPlans = e3.record("sheet_variants_plans", DictType(StringType, VariantsPlan), new Map([
     ["week", { jobs: [
-        { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Machining", qty: some(1200.0), notes: "Rough the P-40 blanks" },
-        { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Painting", qty: some(250.0), notes: "" },
-        { id: "j3", start: none, task: "Packaging", qty: none, notes: "" },
+        { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Routing", qty: some(1200.0), notes: "Nest the C-18 panels" },
+        { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Spraying", qty: some(250.0), notes: "" },
+        { id: "j3", start: none, task: "Wrapping", qty: none, notes: "" },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -287,17 +287,17 @@ export const sheetVariants = example({
 /** The plans — the flagship edits Q3's rows: the prototype's seed, as typed data (a Link is a value, never a string). */
 export const sheetPlanPlans = e3.record("sheet_plan_plans", DictType(StringType, ProductionPlan), new Map([
     ["q3", { rows: [
-        { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Machining - Roughing", qty: some(1200.0), notes: "Rough 1,200 P-40 blanks on 4 lathes for the Q3 build", stations: { from: [], to: [variant("identified", { key: "M2140" }), variant("identified", { key: "M2141" }), variant("identified", { key: "M2145" }), variant("identified", { key: "M2150" })] }, setups: some(4n), fromSite: "", toSite: "South plant", orderCode: "WO-26001", status: "RELEASED" },
-        { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Inspection", qty: some(4.0), notes: "Inspect the 4 roughing lots at the south plant", stations: { from: [], to: [variant("counted", { n: 4n, key: "CNC lathe" })] }, setups: none, fromSite: "", toSite: "", orderCode: "WO-26002", status: "RELEASED" },
-        { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: some(new Date("2026-03-13T00:00:00Z")), activity: "Assembly", qty: some(280.0), notes: "Assemble 280 units on line 7", stations: { from: [variant("identified", { key: "M2151" }), variant("identified", { key: "M2160" })], to: [variant("identified", { key: "M7301" }), variant("identified", { key: "M7302" })] }, setups: none, fromSite: "South plant", toSite: "North plant", orderCode: "WO-26003", status: "RELEASED" },
-        { id: "4", start: some(new Date("2026-04-20T00:00:00Z")), end: some(new Date("2026-04-24T00:00:00Z")), activity: "Rework", qty: some(96.0), notes: "Rework 96 rejected housings", stations: { from: [], to: [variant("placeholder", null)] }, setups: none, fromSite: "", toSite: "", orderCode: "WO-26005", status: "RELEASED" },
+        { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Routing - Nesting", qty: some(1200.0), notes: "Nest 1,200 C-18 panels on 4 routers for the Q3 build", stations: { from: [], to: [variant("identified", { key: "R2140" }), variant("identified", { key: "R2141" }), variant("identified", { key: "R2145" }), variant("identified", { key: "R2150" })] }, setups: some(4n), fromSite: "", toSite: "Bench room", orderCode: "WO-26001", status: "RELEASED" },
+        { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Inspection", qty: some(4.0), notes: "Inspect the 4 nesting batches in the bench room", stations: { from: [], to: [variant("counted", { n: 4n, key: "CNC router" })] }, setups: none, fromSite: "", toSite: "", orderCode: "WO-26002", status: "RELEASED" },
+        { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: some(new Date("2026-03-13T00:00:00Z")), activity: "Assembly", qty: some(280.0), notes: "Assemble 280 units on bay 7", stations: { from: [variant("identified", { key: "R2151" }), variant("identified", { key: "R2160" })], to: [variant("identified", { key: "A7301" }), variant("identified", { key: "A7302" })] }, setups: none, fromSite: "Bench room", toSite: "Machine shop", orderCode: "WO-26003", status: "RELEASED" },
+        { id: "4", start: some(new Date("2026-04-20T00:00:00Z")), end: some(new Date("2026-04-24T00:00:00Z")), activity: "Rework", qty: some(96.0), notes: "Rework 96 rejected doors", stations: { from: [], to: [variant("placeholder", null)] }, setups: none, fromSite: "", toSite: "", orderCode: "WO-26005", status: "RELEASED" },
         { id: "5", start: some(new Date("2026-06-22T00:00:00Z")), end: some(new Date("2026-06-26T00:00:00Z")), activity: "Sub-assembly", qty: some(180.0), notes: "sub-assemble at cell A", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
-        { id: "6", start: some(new Date("2026-06-29T00:00:00Z")), end: some(new Date("2026-07-03T00:00:00Z")), activity: "Sub-assembly", qty: some(180.0), notes: "Sub-assemble the second lot", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
-        { id: "7", start: some(new Date("2026-07-06T00:00:00Z")), end: some(new Date("2026-07-10T00:00:00Z")), activity: "Machining - Roughing", qty: some(1600.0), notes: "1,600 P-40 blanks", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
-        { id: "8", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Machining", qty: some(1600.0), notes: "Finish 1,600 P-40 blanks", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
-        { id: "9", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Painting", qty: some(250.0), notes: "paint 250 P-40 housings", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "CANCELLED" },
-        { id: "10", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Painting", qty: some(180.0), notes: "paint the sub-assemblies next week", stations: { from: [variant("identified", { key: "M1104" })], to: [variant("identified", { key: "Test bay" })] }, setups: none, fromSite: "North plant", toSite: "", orderCode: "WO-26008", status: "RELEASED" },
-        { id: "11", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Painting", qty: some(140.0), notes: "paint 140 housings", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "" },
+        { id: "6", start: some(new Date("2026-06-29T00:00:00Z")), end: some(new Date("2026-07-03T00:00:00Z")), activity: "Sub-assembly", qty: some(180.0), notes: "Sub-assemble the second batch", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+        { id: "7", start: some(new Date("2026-07-06T00:00:00Z")), end: some(new Date("2026-07-10T00:00:00Z")), activity: "Routing - Nesting", qty: some(1600.0), notes: "1,600 C-18 panels", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+        { id: "8", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Routing", qty: some(1600.0), notes: "Profile 1,600 C-18 panels", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "RELEASED" },
+        { id: "9", start: some(new Date("2026-07-13T00:00:00Z")), end: some(new Date("2026-07-17T00:00:00Z")), activity: "Spraying", qty: some(250.0), notes: "spray 250 C-18 doors", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "CANCELLED" },
+        { id: "10", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Spraying", qty: some(180.0), notes: "spray the sub-assemblies next week", stations: { from: [variant("identified", { key: "S1104" })], to: [variant("identified", { key: "Dry-fit area" })] }, setups: none, fromSite: "Machine shop", toSite: "", orderCode: "WO-26008", status: "RELEASED" },
+        { id: "11", start: some(new Date("2026-09-07T00:00:00Z")), end: some(new Date("2026-09-11T00:00:00Z")), activity: "Spraying", qty: some(140.0), notes: "spray 140 doors", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "" },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -314,69 +314,69 @@ export const sheetPlan = example({
     description: "The flagship production plan — every column kind over one raw source, registers and a driver, the copilot's fills and proposers as author functions (one async), the slice lens with saved views, a footer and Apply committing to an e3 record",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const MachineType  = StructType({ code: StringType, family: StringType, line: StringType, site: StringType });
-            const LineType     = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
+            const MachineType  = StructType({ code: StringType, family: StringType, bay: StringType, site: StringType });
+            const BayType      = StructType({ code: StringType, name: StringType, machines: IntegerType, aliases: ArrayType(StringType) });
             const FamilyType   = StructType({ name: StringType, aliases: ArrayType(StringType) });
             const StatusType   = StructType({ word: StringType, tone: Status.Types.Value });
             const Ctx = Sheet.Types.DraftContext(PlanRow, PlanActivity);
             const Proposals = ArrayType(Sheet.Types.Proposal(PlanRow));
 
-            // The synthetic registers — a discrete manufacturing plant: machines on
-            // lines, work orders moving parts between them.
+            // The synthetic registers — a joinery workshop: machines in bays, orders
+            // moving panels between them.
             const activities = $.const([
-                { name: "Machining", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Machining - Roughing", uom: "pcs", rate: 80.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Routing", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Routing - Nesting", uom: "pcs", rate: 80.0, fte: 2n, days: 4n, sides: variant("both", null) },
                 { name: "Assembly", uom: "units", rate: 30.0, fte: 3n, days: 4n, sides: variant("both", null) },
                 { name: "Sub-assembly", uom: "units", rate: 45.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Painting", uom: "pcs", rate: 50.0, fte: 3n, days: 4n, sides: variant("both", null) },
-                { name: "Painting - Primer", uom: "pcs", rate: 70.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Packaging", uom: "cartons", rate: 120.0, fte: 1n, days: 3n, sides: variant("both", null) },
-                { name: "Deburring", uom: "pcs", rate: 90.0, fte: 1n, days: 3n, sides: variant("both", null) },
-                { name: "Heat treatment", uom: "pcs", rate: 40.0, fte: 2n, days: 3n, sides: variant("both", null) },
+                { name: "Spraying", uom: "pcs", rate: 50.0, fte: 3n, days: 4n, sides: variant("both", null) },
+                { name: "Spraying - Sealer", uom: "pcs", rate: 70.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Wrapping", uom: "cartons", rate: 120.0, fte: 1n, days: 3n, sides: variant("both", null) },
+                { name: "Denibbing", uom: "pcs", rate: 90.0, fte: 1n, days: 3n, sides: variant("both", null) },
+                { name: "Kiln drying", uom: "pcs", rate: 40.0, fte: 2n, days: 3n, sides: variant("both", null) },
                 { name: "Rework", uom: "pcs", rate: 20.0, fte: 2n, days: 3n, sides: variant("in", null) },
-                { name: "Inspection", uom: "lots", rate: 4.0, fte: 2n, days: 4n, sides: variant("in", null) },
+                { name: "Inspection", uom: "batches", rate: 4.0, fte: 2n, days: 4n, sides: variant("in", null) },
                 { name: "Calibration", uom: "machines", rate: 2.0, fte: 2n, days: 4n, sides: variant("in", null) },
-                { name: "Changeover", uom: "h", rate: 1.0, fte: 1n, days: 1n, sides: variant("in", null) },
-                { name: "Receiving", uom: "pallets", rate: 20.0, fte: 1n, days: 1n, sides: variant("to", null) },
-                { name: "Shipping", uom: "pallets", rate: 20.0, fte: 1n, days: 1n, sides: variant("from", null) },
+                { name: "Set-up", uom: "h", rate: 1.0, fte: 1n, days: 1n, sides: variant("in", null) },
+                { name: "Intake", uom: "pallets", rate: 20.0, fte: 1n, days: 1n, sides: variant("to", null) },
+                { name: "Delivery", uom: "pallets", rate: 20.0, fte: 1n, days: 1n, sides: variant("from", null) },
                 { name: "Maintenance", uom: "h", rate: 1.0, fte: 1n, days: 1n, sides: variant("in", null) },
             ], ArrayType(PlanActivity));
             const machines = $.const([
-                { code: "M1104", family: "120 t press", line: "Line 1", site: "North plant" }, { code: "M1120", family: "120 t press", line: "Line 1", site: "North plant" },
-                { code: "M2140", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2141", family: "CNC lathe", line: "Line 2", site: "South plant" },
-                { code: "M2142", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2145", family: "CNC lathe", line: "Line 2", site: "South plant" },
-                { code: "M2150", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2151", family: "CNC lathe", line: "Line 2", site: "South plant" },
-                { code: "M2160", family: "CNC lathe", line: "Line 2", site: "South plant" }, { code: "M2162", family: "CNC lathe", line: "Line 2", site: "South plant" },
-                { code: "M3210", family: "5-axis mill", line: "Line 3", site: "North plant" }, { code: "M3215", family: "5-axis mill", line: "Line 3", site: "North plant" },
-                { code: "M5010", family: "gantry mill", line: "Line 5", site: "East plant" }, { code: "M5011", family: "gantry mill", line: "Line 5", site: "East plant" },
-                { code: "M7301", family: "assembly bench", line: "Line 7", site: "North plant" }, { code: "M7302", family: "assembly bench", line: "Line 7", site: "North plant" },
-                { code: "M7305", family: "assembly bench", line: "Line 7", site: "North plant" }, { code: "M7310", family: "assembly bench", line: "Line 7", site: "West plant" },
-                { code: "M7311", family: "assembly bench", line: "Line 7", site: "West plant" }, { code: "M7320", family: "assembly bench", line: "Line 7", site: "West plant" },
-                { code: "M7322", family: "assembly bench", line: "Line 7", site: "West plant" }, { code: "M8001", family: "test rig", line: "Line 8", site: "East plant" },
+                { code: "S1104", family: "3 m beam saw", bay: "Bay 1", site: "Machine shop" }, { code: "S1120", family: "3 m beam saw", bay: "Bay 1", site: "Machine shop" },
+                { code: "R2140", family: "CNC router", bay: "Bay 2", site: "Bench room" }, { code: "R2141", family: "CNC router", bay: "Bay 2", site: "Bench room" },
+                { code: "R2142", family: "CNC router", bay: "Bay 2", site: "Bench room" }, { code: "R2145", family: "CNC router", bay: "Bay 2", site: "Bench room" },
+                { code: "R2150", family: "CNC router", bay: "Bay 2", site: "Bench room" }, { code: "R2151", family: "CNC router", bay: "Bay 2", site: "Bench room" },
+                { code: "R2160", family: "CNC router", bay: "Bay 2", site: "Bench room" }, { code: "R2162", family: "CNC router", bay: "Bay 2", site: "Bench room" },
+                { code: "P3210", family: "4-side planer", bay: "Bay 3", site: "Machine shop" }, { code: "P3215", family: "4-side planer", bay: "Bay 3", site: "Machine shop" },
+                { code: "E5010", family: "edge bander", bay: "Bay 5", site: "Spray shop" }, { code: "E5011", family: "edge bander", bay: "Bay 5", site: "Spray shop" },
+                { code: "A7301", family: "assembly bench", bay: "Bay 7", site: "Machine shop" }, { code: "A7302", family: "assembly bench", bay: "Bay 7", site: "Machine shop" },
+                { code: "A7305", family: "assembly bench", bay: "Bay 7", site: "Machine shop" }, { code: "A7310", family: "assembly bench", bay: "Bay 7", site: "Fitting shop" },
+                { code: "A7311", family: "assembly bench", bay: "Bay 7", site: "Fitting shop" }, { code: "A7320", family: "assembly bench", bay: "Bay 7", site: "Fitting shop" },
+                { code: "A7322", family: "assembly bench", bay: "Bay 7", site: "Fitting shop" }, { code: "F8001", family: "spray booth", bay: "Bay 8", site: "Spray shop" },
             ], ArrayType(MachineType));
-            const lines = $.const([
-                { code: "L2", name: "Line 2", machines: 96n, aliases: ["line 2", "l2", "the 2 line"] },
-                { code: "L1", name: "Line 1", machines: 24n, aliases: ["line 1", "l1"] },
-                { code: "L3", name: "Line 3", machines: 40n, aliases: ["line 3", "l3"] },
-                { code: "L5", name: "Line 5", machines: 18n, aliases: ["line 5", "l5"] },
-                { code: "L7", name: "Line 7", machines: 72n, aliases: ["line 7", "l7"] },
-                { code: "L8", name: "Line 8", machines: 12n, aliases: ["line 8", "l8"] },
+            const bays = $.const([
+                { code: "B2", name: "Bay 2", machines: 96n, aliases: ["bay 2", "b2", "the 2 bay"] },
+                { code: "B1", name: "Bay 1", machines: 24n, aliases: ["bay 1", "b1"] },
+                { code: "B3", name: "Bay 3", machines: 40n, aliases: ["bay 3", "b3"] },
+                { code: "B5", name: "Bay 5", machines: 18n, aliases: ["bay 5", "b5"] },
+                { code: "B7", name: "Bay 7", machines: 72n, aliases: ["bay 7", "b7"] },
+                { code: "B8", name: "Bay 8", machines: 12n, aliases: ["bay 8", "b8"] },
                 { code: "CA", name: "Cell A", machines: 150n, aliases: ["cell a", "a cell", "the a cell"] },
                 { code: "GIN", name: "Goods in", machines: 36n, aliases: ["goods in", "inbound"] },
-                { code: "FH1", name: "Finishing hall", machines: 64n, aliases: ["finishing", "finishing hall"] },
-                { code: "PKL", name: "Pack line", machines: 20n, aliases: ["pack", "packing"] },
-                { code: "TB", name: "Test bay", machines: 9n, aliases: ["test bay", "the test bay", "bay"] },
-            ], ArrayType(LineType));
+                { code: "FR1", name: "Finishing room", machines: 64n, aliases: ["finishing", "finishing room"] },
+                { code: "WRB", name: "Wrap bench", machines: 20n, aliases: ["wrap", "wrapping"] },
+                { code: "DF", name: "Dry-fit area", machines: 9n, aliases: ["dry-fit area", "the dry-fit area", "dry fit"] },
+            ], ArrayType(BayType));
             // A countable-by-attribute kind: the machine family — a count of a kind, resolved to machines later.
             const families = $.const([
-                { name: "CNC lathe", aliases: ["lathe", "lathes", "cnc"] },
-                { name: "5-axis mill", aliases: ["mill", "mills", "5 axis", "5axis"] },
-                { name: "120 t press", aliases: ["press", "presses", "120t", "120 t"] },
+                { name: "CNC router", aliases: ["router", "routers", "cnc"] },
+                { name: "4-side planer", aliases: ["planer", "planers", "4 side", "4side"] },
+                { name: "3 m beam saw", aliases: ["saw", "saws", "3m", "3 m"] },
                 { name: "assembly bench", aliases: ["bench", "benches"] },
-                { name: "gantry mill", aliases: ["gantry"] },
-                { name: "test rig", aliases: ["rig", "rigs"] },
+                { name: "edge bander", aliases: ["bander"] },
+                { name: "spray booth", aliases: ["booth", "booths"] },
             ], ArrayType(FamilyType));
-            const sites = $.const(["North plant", "South plant", "East plant", "West plant", "Central store", "River depot", "Harbour bay", "Hill site"], ArrayType(StringType));
+            const sites = $.const(["Machine shop", "Bench room", "Spray shop", "Fitting shop", "Board store", "Timber yard", "Van store", "Site store"], ArrayType(StringType));
             const statuses = $.const([
                 { word: "PLANNED", tone: variant("neutral", null) }, { word: "RELEASED", tone: variant("info", null) },
                 { word: "IN PROGRESS", tone: variant("warning", null) }, { word: "COMPLETE", tone: variant("success", null) },
@@ -397,7 +397,7 @@ export const sheetPlan = example({
             const rows = $.let(plans.read().get("q3").rows);
 
             // The slice — search runs THROUGH it; the sheet draws the narrowing as a lens (§3.8).
-            // A Link is searched by its display form (`M2140 > 4 x CNC lathe`), never its `.east` text.
+            // A Link is searched by its display form (`R2140 > 4 x CNC router`), never its `.east` text.
             const cfg = $.const(Slice.config(PlanRow, {
                 fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, status: { label: "Status" },
                           stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) } },
@@ -421,11 +421,11 @@ export const sheetPlan = example({
                 const whole = $.let(half.subtract(half.remainder(1.0)).toInteger());
                 return ctx.driver.match({
                     none: (_$) => noCount,
-                    some: (_$, d) => d.uom.equal("lots").ifElse(
-                        (_$2) => East.value(some({ n: whole, key: "CNC lathe" }), OptionType(Sheet.Types.Counted)),      // one lot per machine
+                    some: (_$, d) => d.uom.equal("batches").ifElse(
+                        (_$2) => East.value(some({ n: whole, key: "CNC router" }), OptionType(Sheet.Types.Counted)),      // one batch per machine
                         (_$2) => d.uom.equal("pcs").or(() => d.uom.equal("units")).ifElse(
                             (_$3) => qty.greater(0.0).ifElse(
-                                (_$4) => East.value(some({ n: needed, key: "CNC lathe" }), OptionType(Sheet.Types.Counted)),
+                                (_$4) => East.value(some({ n: needed, key: "CNC router" }), OptionType(Sheet.Types.Counted)),
                                 (_$4) => noCount),
                             (_$3) => noCount)),                                                                       // hours, cartons, pallets name no machines
                 });
@@ -521,10 +521,10 @@ export const sheetPlan = example({
                     .and(() => ctx.row.qty.unwrap("value").hasTag("some")).ifElse(($) => {
                         const activity = $.const(ctx.row.activity.unwrap("value"));
                         const qty = $.const(ctx.row.qty.unwrap("value").unwrap("some"));
-                        return activity.startsWith("Machining").ifElse(
-                            () => some({ value: East.str`Machine ${qty} P-40 blanks`, meta: "phrasing from supplied activity and quantity" }),
-                            () => activity.startsWith("Painting").ifElse(
-                                () => some({ value: East.str`Paint ${qty} P-40 housings`, meta: "phrasing from supplied activity and quantity" }), () => noFill));
+                        return activity.startsWith("Routing").ifElse(
+                            () => some({ value: East.str`Nest ${qty} C-18 panels`, meta: "phrasing from supplied activity and quantity" }),
+                            () => activity.startsWith("Spraying").ifElse(
+                                () => some({ value: East.str`Spray ${qty} C-18 doors`, meta: "phrasing from supplied activity and quantity" }), () => noFill));
                     }, () => noFill);
             }));
             const countedByQuantity = $.const(East.function([Ctx], LinkFill, ($, ctx) => {
@@ -538,16 +538,16 @@ export const sheetPlan = example({
             }));
 
             // The proposers (§3.6) — a domain pattern, a learned follower, and an ASYNC model call.
-            const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
+            const nestingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
                 return ctx.row.activity.hasTag("value")
-                    .and(() => ctx.row.activity.unwrap("value").equal("Machining - Roughing"))
+                    .and(() => ctx.row.activity.unwrap("value").equal("Routing - Nesting"))
                     .and(() => ctx.row.end.hasTag("value"))
                     .and(() => ctx.row.end.unwrap("value").hasTag("some")).ifElse(($) => {
                         const end = $.const(ctx.row.end.unwrap("value").unwrap("some"));
                         return $.const([
-                            { patch: Sheet.patch(PlanRow, { activity: "Inspection", start: some(end), end: some(end), qty: some(4.0), notes: "Inspect 4 lots" }), meta: "inspection at the supplied end" },
-                            { patch: Sheet.patch(PlanRow, { activity: "Machining", start: some(end.addDays(3n)), end: some(end.addDays(7n)), notes: "Finish the roughed blanks" }), meta: "finishing · end +3…+7 d" },
+                            { patch: Sheet.patch(PlanRow, { activity: "Inspection", start: some(end), end: some(end), qty: some(4.0), notes: "Inspect 4 batches" }), meta: "inspection at the supplied end" },
+                            { patch: Sheet.patch(PlanRow, { activity: "Routing", start: some(end.addDays(3n)), end: some(end.addDays(7n)), notes: "Profile the nested panels" }), meta: "profiling · end +3…+7 d" },
                         ], Proposals);
                     }, () => empty);
             }));
@@ -600,9 +600,9 @@ export const sheetPlan = example({
                     registers={{
                         stations: Sheet.register.concat([
                             Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
-                                meta: m => some(m.family), parent: m => some(m.line) }),
-                            Sheet.register.members(lines, { kind: "line", key: l => l.name, label: l => l.name,
-                                aliases: l => l.aliases, meta: l => some(East.str`line · ${l.machines}`) }),
+                                meta: m => some(m.family), parent: m => some(m.bay) }),
+                            Sheet.register.members(bays, { kind: "bay", key: b => b.name, label: b => b.name,
+                                aliases: b => b.aliases, meta: b => some(East.str`bay · ${b.machines}`) }),
                             // The countable-by-attribute kind: a family names a count of machines, resolved to codes later.
                             Sheet.register.members(families, { kind: "family", key: f => f.name, label: f => f.name,
                                 aliases: f => f.aliases, meta: _f => some("family") }),
@@ -619,9 +619,9 @@ export const sheetPlan = example({
                                        format: Format.Number({ maximumFractionDigits: 0n }), fill: [lastQuantity, shiftQuantity] }),
                         notes:     Sheet.column.text(PlanRow, { header: "Notes", sub: "free text", width: "250px", fill: [phrase] }),
                         stations:  Sheet.column.link(PlanRow, PlanActivity, "stations", {
-                                       header: "Work centres", sub: "from → to · 4 x lathe · machine · line", width: "352px",
+                                       header: "Work centres", sub: "from → to · 4 x router · machine · bay", width: "352px",
                                        members: [{ kind: "machine", identified: true }, { kind: "range", identified: true },
-                                                 { kind: "line", countable: true, resolvesTo: "machine" },
+                                                 { kind: "bay", countable: true, resolvesTo: "machine" },
                                                  { kind: "family", countable: true, resolvesTo: "machine" }],
                                        multiple: { forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" },
                                        sides: { value: d => d.sides, locks: { from: { to: "external", in: "in place" }, to: { from: "external" } } },
@@ -635,7 +635,7 @@ export const sheetPlan = example({
                         status:    Sheet.column.enum(PlanRow, "statuses", { header: "Status", sub: "erp", width: "124px" }),
                     }}
                     suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty", "notes", "stations"],
-                               propose: [roughingFollowUps, modelProposals, lastFollower] }}
+                               propose: [nestingFollowUps, modelProposals, lastFollower] }}
                     slice={slice} affordances={["search", "filter"]}
                     views={views.read()} onViewsChange={views.write}
                     newRow={newRow}
@@ -656,9 +656,9 @@ export const sheetPlan = example({
 /** The plans — the copilot's sheet edits the week's rows. */
 export const sheetCopilotPlans = e3.record("sheet_copilot_plans", DictType(StringType, ProductionPlan), new Map([
     ["week", { rows: [
-        { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Machining - Roughing", qty: some(1200.0), notes: "Rough the P-40 blanks", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
-        { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Inspection", qty: some(4.0), notes: "Inspect the 4 lots", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
-        { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: none, activity: "Painting", qty: some(250.0), notes: "", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
+        { id: "1", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Routing - Nesting", qty: some(1200.0), notes: "Nest the C-18 panels", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
+        { id: "2", start: some(new Date("2026-02-16T00:00:00Z")), end: some(new Date("2026-02-20T00:00:00Z")), activity: "Inspection", qty: some(4.0), notes: "Inspect the 4 batches", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
+        { id: "3", start: some(new Date("2026-03-09T00:00:00Z")), end: none, activity: "Spraying", qty: some(250.0), notes: "", stations: { from: [], to: [] }, setups: none, fromSite: "", toSite: "", orderCode: "", status: "PLANNED" },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -681,11 +681,11 @@ export const sheetCopilot = example({
             const Ctx = Sheet.Types.DraftContext(PlanRow, PlanActivity);
             const Proposals = ArrayType(Sheet.Types.Proposal(PlanRow));
             const activities = $.const([
-                { name: "Machining", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Machining - Roughing", uom: "pcs", rate: 80.0, fte: 2n, days: 4n, sides: variant("both", null) },
-                { name: "Painting", uom: "pcs", rate: 50.0, fte: 3n, days: 4n, sides: variant("both", null) },
-                { name: "Inspection", uom: "lots", rate: 4.0, fte: 2n, days: 4n, sides: variant("in", null) },
-                { name: "Packaging", uom: "cartons", rate: 120.0, fte: 1n, days: 3n, sides: variant("both", null) },
+                { name: "Routing", uom: "pcs", rate: 60.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Routing - Nesting", uom: "pcs", rate: 80.0, fte: 2n, days: 4n, sides: variant("both", null) },
+                { name: "Spraying", uom: "pcs", rate: 50.0, fte: 3n, days: 4n, sides: variant("both", null) },
+                { name: "Inspection", uom: "batches", rate: 4.0, fte: 2n, days: 4n, sides: variant("in", null) },
+                { name: "Wrapping", uom: "cartons", rate: 120.0, fte: 1n, days: 3n, sides: variant("both", null) },
             ], ArrayType(PlanActivity));
             // The rows, read from an e3 record bound with its patch door.
             const plans = $.let(Record.bind(sheetCopilotPlans, [sheetCopilotPlansPatch]));
@@ -750,17 +750,17 @@ export const sheetCopilot = example({
                     some: (_$, d) => East.value(some({ value: d.rate.multiply(8.0), meta: East.str`${d.rate}/h × 8 h` }), FloatFill),
                 });
             }));
-            // A domain pattern — a roughing run is followed by an inspection and a finishing run.
-            const roughingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
+            // A domain pattern — a nesting run is followed by an inspection and a profiling run.
+            const nestingFollowUps = $.const(East.function([Ctx], Proposals, ($, ctx) => {
                 const empty = $.const([], Proposals);
                 return ctx.row.activity.hasTag("value")
-                    .and(() => ctx.row.activity.unwrap("value").equal("Machining - Roughing"))
+                    .and(() => ctx.row.activity.unwrap("value").equal("Routing - Nesting"))
                     .and(() => ctx.row.end.hasTag("value"))
                     .and(() => ctx.row.end.unwrap("value").hasTag("some")).ifElse(($) => {
                         const end = $.const(ctx.row.end.unwrap("value").unwrap("some"));
                         return $.const([
-                            { patch: Sheet.patch(PlanRow, { activity: "Inspection", start: some(end), end: some(end), qty: some(4.0), notes: "Inspect 4 lots" }), meta: "inspection at the supplied end" },
-                            { patch: Sheet.patch(PlanRow, { activity: "Machining", start: some(end.addDays(3n)), end: some(end.addDays(7n)), notes: "Finish the roughed blanks" }), meta: "finishing · end +3…+7 d" },
+                            { patch: Sheet.patch(PlanRow, { activity: "Inspection", start: some(end), end: some(end), qty: some(4.0), notes: "Inspect 4 batches" }), meta: "inspection at the supplied end" },
+                            { patch: Sheet.patch(PlanRow, { activity: "Routing", start: some(end.addDays(3n)), end: some(end.addDays(7n)), notes: "Profile the nested panels" }), meta: "profiling · end +3…+7 d" },
                         ], Proposals);
                     }, () => empty);
             }));
@@ -823,7 +823,7 @@ export const sheetCopilot = example({
                             qty:      Sheet.column.quantity(PlanRow, PlanActivity, { header: "Qty", sub: "history · default", width: "112px", uom: d => d.uom, fill: [lastQuantity, shiftQuantity] }),
                             notes:    Sheet.column.text(PlanRow, { header: "Notes", width: "260px" }),
                         }}
-                        suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty"], propose: [roughingFollowUps, modelProposals, lastFollower] }}
+                        suggest={{ ahead: 2n, triggers: ["activity", "start", "end", "qty"], propose: [nestingFollowUps, modelProposals, lastFollower] }}
                         onPatch={onPatch}
                         newRow={newRow}
                         onApply={onApply}
@@ -851,23 +851,23 @@ export const sheetLensJobCount = e3.input("sheet_lens_job_count", IntegerType, v
 
 /**
  * The jobs, generated from their count — three days apart from 2 February,
- * the activities in turn: every fifth a machining run naming a count of
- * lathes, the rest a machine by code, and every seventh urgent.
+ * the activities in turn: every fifth a routing run naming a count of
+ * routers, the rest a machine by code, and every seventh urgent.
  */
 export const generateLensJobs = East.function([IntegerType], ArrayType(LensJob), ($, count) => {
-    const activities = $.const(["Machining", "Painting", "Packaging", "Changeover", "Maintenance"], ArrayType(StringType));
+    const activities = $.const(["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"], ArrayType(StringType));
     const words = $.const(["PLANNED", "RELEASED", "COMPLETE"], ArrayType(StringType));
-    const codes = $.const(["M2140", "M2141", "M2145", "M3210", "M7301"], ArrayType(StringType));
+    const codes = $.const(["R2140", "R2141", "R2145", "P3210", "A7301"], ArrayType(StringType));
     const first = $.const(new Date("2026-02-02T00:00:00Z"), DateTimeType);
     const noMembers = $.const([], ArrayType(Sheet.Types.Member));
     return East.Array.generate(count, LensJob, (_$, i) => ({
         id: East.str`j${i}`,
         start: some(first.addDays(i.multiply(3n))),
         activity: activities.get(i.remainder(5n)),
-        notes: i.remainder(7n).equal(0n).ifElse((_$2) => "urgent — inspect before shipping", (_$2) => East.str`lot ${i.add(100n)}`),
-        // Machining runs name a count of lathes; the rest a machine by code.
+        notes: i.remainder(7n).equal(0n).ifElse((_$2) => "urgent — inspect before delivery", (_$2) => East.str`batch ${i.add(100n)}`),
+        // Routing runs name a count of routers; the rest a machine by code.
         stations: i.remainder(5n).equal(0n).ifElse(
-            (_$2) => East.value({ from: noMembers, to: [variant("counted", { n: i.remainder(3n).add(2n), key: "CNC lathe" })] }, Sheet.Types.Link),
+            (_$2) => East.value({ from: noMembers, to: [variant("counted", { n: i.remainder(3n).add(2n), key: "CNC router" })] }, Sheet.Types.Link),
             (_$2) => East.value({ from: noMembers, to: [variant("identified", { key: codes.get(i.remainder(5n)) })] }, Sheet.Types.Link)),
         status: words.get(i.remainder(3n)),
         qty: some(i.multiply(40n).toFloat().add(180.0)),
@@ -895,13 +895,13 @@ export const sheetLens = example({
             // Sixty jobs an e3 task generates — enough for a narrowing to collapse into bands.
             const jobs = $.let(Data.bind(sheetLensJobs));
             const machines = $.const([
-                { code: "M2140", family: "CNC lathe" }, { code: "M2141", family: "CNC lathe" }, { code: "M2145", family: "CNC lathe" },
-                { code: "M3210", family: "5-axis mill" }, { code: "M7301", family: "assembly bench" },
+                { code: "R2140", family: "CNC router" }, { code: "R2141", family: "CNC router" }, { code: "R2145", family: "CNC router" },
+                { code: "P3210", family: "4-side planer" }, { code: "A7301", family: "assembly bench" },
             ], ArrayType(MachineType));
-            // The Link is searched through its display form — `3 x CNC lathe`, `M7301` — not its `.east` text.
+            // The Link is searched through its display form — `3 x CNC router`, `A7301` — not its `.east` text.
             const cfg = $.const(Slice.config(LensJob, {
                 fields: {
-                    activity: { label: "Activity", hints: ["Machining", "Painting", "Packaging", "Changeover", "Maintenance"] },
+                    activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
                     notes:    { label: "Notes" },
                     stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) },
                     status:   { label: "Status" },
@@ -910,8 +910,8 @@ export const sheetLens = example({
             }));
             const slice = $.let(Slice.bind([LensJob], "sheet_lens_slice", cfg, Slice.state(), jobs.read(), none));
             const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_lens_views", [
-                { id: "painting", name: "PAINTING", narrowing: Slice.state({ search: some("painting") }), context: 1n, reveals: [], folds: new Map() },
-                { id: "lathes", name: "LATHES", narrowing: Slice.state({ search: some("lathe") }), context: 0n, reveals: [], folds: new Map() },
+                { id: "spraying", name: "SPRAYING", narrowing: Slice.state({ search: some("spraying") }), context: 1n, reveals: [], folds: new Map() },
+                { id: "routers", name: "ROUTERS", narrowing: Slice.state({ search: some("router") }), context: 0n, reveals: [], folds: new Map() },
                 { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [], folds: new Map() },
             ]));
             return (
@@ -928,13 +928,13 @@ export const sheetLens = example({
                         start:    Sheet.column.date(LensJob, { header: "Start", width: "96px" }),
                         activity: Sheet.column.text(LensJob, { header: "Activity", width: "160px" }),
                         notes:    Sheet.column.text(LensJob, { header: "Notes", sub: "free text", width: "240px" }),
-                        stations: Sheet.column.set(LensJob, "stations", { header: "Work centres", sub: "3 x lathe · machine", width: "220px",
+                        stations: Sheet.column.set(LensJob, "stations", { header: "Work centres", sub: "3 x router · machine", width: "220px",
                                       members: [{ kind: "machine", identified: true }, { kind: "family", countable: true, resolvesTo: "machine" }] }),
                         status:   Sheet.column.text(LensJob, { header: "Status", width: "120px" }),
                         qty:      Sheet.column.quantity(LensJob, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
                     }}
                     slice={slice} affordances={["search", "filter"]}
-                    views={views.read()} onViewsChange={views.write} activeView={some("painting")}
+                    views={views.read()} onViewsChange={views.write} activeView={some("spraying")}
                     style={{ height: "420px" }}
                 />
             );
@@ -954,8 +954,8 @@ export const WriteBackPlan = StructType({ jobs: ArrayType(WriteBackJob) });
 /** The plans — the sheet edits the week's jobs. */
 export const sheetWriteBackPlans = e3.record("sheet_writeback_plans", DictType(StringType, WriteBackPlan), new Map([
     ["week", { jobs: [
-        { id: "j1", task: "Machining", qty: some(1200.0), createdBy: "planner" },
-        { id: "j2", task: "Painting", qty: none, createdBy: "planner" },
+        { id: "j1", task: "Routing", qty: some(1200.0), createdBy: "planner" },
+        { id: "j2", task: "Spraying", qty: none, createdBy: "planner" },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -1033,13 +1033,13 @@ export const GroupedWork = StructType({ packages: ArrayType(GroupedPackage) });
 /** The work — the sheet edits Q3's packages. */
 export const sheetGroupedWork = e3.record("sheet_grouped_work", DictType(StringType, GroupedWork), new Map([
     ["q3", { packages: [
-        { id: "roughing", name: "P-40 · Roughing", owner: "planner", jobs: [
-            { task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes", createdBy: "planner" },
-            { task: "Inspect lots", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
+        { id: "nesting", name: "C-18 · Nesting", owner: "planner", jobs: [
+            { task: "Cut panels", qty: some(1200.0), notes: "Four CNC routers", createdBy: "planner" },
+            { task: "Inspect batches", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
         ] },
-        { id: "finishing", name: "P-40 · Finishing", owner: "planner", jobs: [
-            { task: "Finish housings", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
-            { task: "Pack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
+        { id: "finishing", name: "C-18 · Finishing", owner: "planner", jobs: [
+            { task: "Finish doors", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
+            { task: "Stack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
         ] },
     ] }],
 ]));
@@ -1120,7 +1120,7 @@ export const sheetStressJobCount = e3.input("sheet_stress_job_count", IntegerTyp
  * tasks in turn, every eleventh quantity blank.
  */
 export const generateStressJobs = East.function([IntegerType], ArrayType(StressJob), ($, count) => {
-    const tasks = $.const(["Machining", "Painting", "Packaging", "Changeover", "Maintenance", "Receiving", "Shipping"], ArrayType(StringType));
+    const tasks = $.const(["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance", "Intake", "Delivery"], ArrayType(StringType));
     const first = $.const(new Date("2026-01-05T00:00:00Z"), DateTimeType);
     const blank = $.const(none, OptionType(FloatType));
     return East.Array.generate(count, StressJob, (_$, i) => ({
@@ -1179,7 +1179,7 @@ export const ReadinessPlan = StructType({ jobs: ArrayType(ReadinessJob) });
 /** The plans — the sheet edits the week's jobs. */
 export const sheetReadinessPlans = e3.record("sheet_readiness_plans", DictType(StringType, ReadinessPlan), new Map([
     ["week", { jobs: [
-        { id: "inspection", task: "Inspect lots", qty: 4n, note: none, createdBy: "planner" },
+        { id: "inspection", task: "Inspect batches", qty: 4n, note: none, createdBy: "planner" },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -1238,9 +1238,9 @@ export const InsertionPlan = StructType({ rows: ArrayType(InsertionRow) });
 /** The plans — the sheet edits the week's rows. */
 export const sheetInsertionPlans = e3.record("sheet_insertion_plans", DictType(StringType, InsertionPlan), new Map([
     ["week", { rows: [
-        { id: "rough", task: "Rough machining", qty: 120n, createdBy: "planner" },
-        { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
-        { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
+        { id: "nest", task: "Nest panels", qty: 120n, createdBy: "planner" },
+        { id: "inspect", task: "Inspect batches", qty: 4n, createdBy: "planner" },
+        { id: "finish", task: "Finish doors", qty: 120n, createdBy: "planner" },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -1307,19 +1307,19 @@ export const sheetSubRowsWeeks = e3.record("sheet_subrows_weeks", DictType(Strin
     ["week", { orders: [
         { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
             { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
-                { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Rail stock × 80"], station: some("Saw 2"), by: none },
+                { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Oak stock × 80"], station: some("Saw 2"), by: none },
                 { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
             ], bookings: [
                 variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
-                variant("equipment", { resource: "Torque driver" }),
+                variant("equipment", { resource: "Clamp rack" }),
             ] },
             { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
-                variant("space", { area: "Test bay", units: 2n }),
+                variant("space", { area: "Dry-fit area", units: 2n }),
             ] },
         ] },
-        { id: "wo-1043", name: "WO-1043 · Housings", jobs: [
-            { task: "Paint housings", qty: some(250.0), notes: "Primer first", operations: [
-                { id: "WO-1043-1", code: "PNT", name: "Prime and paint", materials: ["Primer", "Topcoat"], station: none, by: none },
+        { id: "wo-1043", name: "WO-1043 · Doors", jobs: [
+            { task: "Spray doors", qty: some(250.0), notes: "Sealer first", operations: [
+                { id: "WO-1043-1", code: "SPR", name: "Seal and spray", materials: ["Sealer", "Lacquer"], station: none, by: none },
             ], bookings: [] },
         ] },
     ] }],
@@ -1401,9 +1401,9 @@ export const RulesPlan = StructType({ jobs: ArrayType(RulesJob) });
 /** The plans — the sheet edits the week's jobs. */
 export const sheetRulesPlans = e3.record("sheet_rules_plans", DictType(StringType, RulesPlan), new Map([
     ["week", { jobs: [
-        { id: "j1", task: "Rough blanks", start: some(new Date("2026-02-16T00:00:00Z")), level: variant("week", null), started: none, status: "PLANNED", orderCode: "", machines: { from: [], to: [] } },
-        { id: "j2", task: "Finish blanks", start: some(new Date("2026-02-18T00:00:00Z")), level: variant("day", null), started: some(new Date("2026-02-19T07:30:00Z")), status: "IN PROGRESS", orderCode: "WO-26001", machines: { from: [], to: [variant("range", { from: "M2140", to: "M2143" })] } },
-        { id: "j3", task: "Changeover", start: some(new Date("2026-02-19T14:00:00Z")), level: variant("time", null), started: none, status: "RELEASED", orderCode: "WO-26002", machines: { from: [], to: [] } },
+        { id: "j1", task: "Nest panels", start: some(new Date("2026-02-16T00:00:00Z")), level: variant("week", null), started: none, status: "PLANNED", orderCode: "", machines: { from: [], to: [] } },
+        { id: "j2", task: "Profile panels", start: some(new Date("2026-02-18T00:00:00Z")), level: variant("day", null), started: some(new Date("2026-02-19T07:30:00Z")), status: "IN PROGRESS", orderCode: "WO-26001", machines: { from: [], to: [variant("range", { from: "R2140", to: "R2143" })] } },
+        { id: "j3", task: "Set-up", start: some(new Date("2026-02-19T14:00:00Z")), level: variant("time", null), started: none, status: "RELEASED", orderCode: "WO-26002", machines: { from: [], to: [] } },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -1429,7 +1429,7 @@ export const sheetRules = example({
                 { word: "PLANNED", tone: variant("neutral", null) }, { word: "RELEASED", tone: variant("info", null) },
                 { word: "IN PROGRESS", tone: variant("warning", null) }, { word: "COMPLETE", tone: variant("success", null) },
             ], ArrayType(StatusType));
-            const machines = $.const(["M2140", "M2141", "M2142", "M2143", "M3210", "M3211"], ArrayType(StringType));
+            const machines = $.const(["R2140", "R2141", "R2142", "R2143", "P3210", "P3211"], ArrayType(StringType));
             const noMembers = $.const([], ArrayType(Sheet.Types.Member));
             // The jobs, read from an e3 record bound with its patch door.
             const plans = $.let(Record.bind(sheetRulesPlans, [sheetRulesPlansPatch]));
@@ -1461,7 +1461,7 @@ export const sheetRules = example({
                         task:     Sheet.column.text(RulesJob, { header: "Task", width: "180px" }),
                         start:    Sheet.column.date(RulesJob, { header: "Start", sub: "at the row's level", width: "168px", level: r => r.level, actual: r => r.started }),
                         status:   Sheet.column.enum(RulesJob, "statuses", { header: "Status", width: "132px", options: statusOptions, detail: r => r.orderCode }),
-                        machines: Sheet.column.set(RulesJob, "machines", { header: "Machines", sub: "M2140-43 · a run", width: "220px",
+                        machines: Sheet.column.set(RulesJob, "machines", { header: "Machines", sub: "R2140-43 · a run", width: "220px",
                                       members: [{ kind: "machine", identified: true, ranged: true }] }),
                     }}
                     newRow={newRow}
@@ -1488,8 +1488,8 @@ export const RegistersPlan = StructType({ jobs: ArrayType(RegistersJob) });
 /** The plans — the sheet edits the week's jobs. */
 export const sheetRegistersPlans = e3.record("sheet_registers_plans", DictType(StringType, RegistersPlan), new Map([
     ["week", { jobs: [
-        { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
-          machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
+        { id: "j1", activity: "Routing", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
+          machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] } },
     ] }],
 ]));
 /** The record's patch door — every Apply commits through it. */
@@ -1498,9 +1498,9 @@ export const sheetRegistersPlansPatch = e3.mutation.patch(sheetRegistersPlans);
 /**
  * Registers and the driver (§3.3) — a register is the grammar's vocabulary,
  * projected from the host's rows by accessors: machines from an Array with a
- * meta and a parent, lines from a Dict whose key rides as the accessors'
+ * meta and a parent, bays from a Dict whose key rides as the accessors'
  * second argument, and the machine families read off the same machines (the
- * lathes fold into one member), joined into the one register the Machines
+ * routers fold into one member), joined into the one register the Machines
  * column resolves against. The driver is the `lookup` column whose member
  * decides what the row does: its row gives the quantity its unit and the End
  * fill its duration. The jobs are an e3 record's, and Apply commits to it.
@@ -1511,21 +1511,21 @@ export const sheetRegisters = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
-            const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
-            const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });
+            const MachineType = StructType({ code: StringType, family: StringType, bay: StringType });
+            const BayType = StructType({ name: StringType, aliases: ArrayType(StringType) });
             const activities = $.const([
-                { name: "Machining", uom: "pcs", days: 4n },
-                { name: "Inspection", uom: "lots", days: 1n },
+                { name: "Routing", uom: "pcs", days: 4n },
+                { name: "Inspection", uom: "batches", days: 1n },
             ], ArrayType(ActivityType));
             const machines = $.const([
-                { code: "M2140", family: "CNC lathe", line: "L2" },
-                { code: "M2141", family: "CNC lathe", line: "L2" },
-                { code: "M3210", family: "5-axis mill", line: "L3" },
+                { code: "R2140", family: "CNC router", bay: "B2" },
+                { code: "R2141", family: "CNC router", bay: "B2" },
+                { code: "P3210", family: "4-side planer", bay: "B3" },
             ], ArrayType(MachineType));
-            const lines = $.const(new Map([
-                ["L2", { name: "Line 2", aliases: ["l2", "line 2"] }],
-                ["L3", { name: "Line 3", aliases: ["l3", "line 3"] }],
-            ]), DictType(StringType, LineType));
+            const bays = $.const(new Map([
+                ["B2", { name: "Bay 2", aliases: ["b2", "bay 2"] }],
+                ["B3", { name: "Bay 3", aliases: ["b3", "bay 3"] }],
+            ]), DictType(StringType, BayType));
             // The jobs, read from an e3 record bound with its patch door.
             const plans = $.let(Record.bind(sheetRegistersPlans, [sheetRegistersPlansPatch]));
             const jobs = $.let(plans.read().get("week").jobs);
@@ -1558,10 +1558,10 @@ export const sheetRegisters = example({
                     registers={{
                         machines: Sheet.register.concat([
                             Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
-                                meta: m => some(m.family), parent: m => some(m.line) }),
+                                meta: m => some(m.family), parent: m => some(m.bay) }),
                             // A Dict's key rides as the accessors' second argument.
-                            Sheet.register.members(lines, { kind: "line", key: (_l, code) => code, label: l => l.name, aliases: l => l.aliases }),
-                            // Both lathes name one family — duplicate keys fold, the first wins.
+                            Sheet.register.members(bays, { kind: "bay", key: (_b, code) => code, label: b => b.name, aliases: b => b.aliases }),
+                            // Both routers name one family — duplicate keys fold, the first wins.
                             Sheet.register.members(machines, { kind: "family", key: m => m.family, label: m => m.family, meta: _m => some("family") }),
                         ]),
                     }}
@@ -1570,8 +1570,8 @@ export const sheetRegisters = example({
                         start:    Sheet.column.date(RegistersJob, { header: "Start", width: "96px" }),
                         end:      Sheet.column.date(RegistersJob, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
                         qty:      Sheet.column.quantity(RegistersJob, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
-                        machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
-                                      members: [{ kind: "machine", identified: true }, { kind: "line", countable: true, resolvesTo: "machine" },
+                        machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "R2140 · 2 x router · bay 2", width: "240px",
+                                      members: [{ kind: "machine", identified: true }, { kind: "bay", countable: true, resolvesTo: "machine" },
                                                 { kind: "family", countable: true, resolvesTo: "machine" }] }),
                     }}
                     newRow={newJob}
@@ -1598,14 +1598,14 @@ export const LooseWeek = StructType({ entries: ArrayType(LooseEntry) });
 /** The weeks — the sheet edits the week's entries. */
 export const sheetLooseWeeks = e3.record("sheet_loose_weeks", DictType(StringType, LooseWeek), new Map([
     ["week", { entries: [
-        variant("row", { id: "brief", task: "Review the drawings", qty: none, notes: "Before any machining" }),
-        variant("group", { id: "roughing", name: "P-40 · Roughing", tasks: [
-            { id: "rough-1", task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes" },
-            { id: "rough-2", task: "Inspect lots", qty: some(4.0), notes: "Check before finishing" },
+        variant("row", { id: "brief", task: "Review the drawings", qty: none, notes: "Before any routing" }),
+        variant("group", { id: "nesting", name: "C-18 · Nesting", tasks: [
+            { id: "nest-1", task: "Cut panels", qty: some(1200.0), notes: "Four CNC routers" },
+            { id: "nest-2", task: "Inspect batches", qty: some(4.0), notes: "Check before finishing" },
         ] }),
         variant("row", { id: "handover", task: "Hand over to finishing", qty: none, notes: "" }),
-        variant("group", { id: "finishing", name: "P-40 · Finishing", tasks: [
-            { id: "finish-1", task: "Finish housings", qty: some(1200.0), notes: "After inspection" },
+        variant("group", { id: "finishing", name: "C-18 · Finishing", tasks: [
+            { id: "finish-1", task: "Finish doors", qty: some(1200.0), notes: "After inspection" },
         ] }),
     ] }],
 ]));

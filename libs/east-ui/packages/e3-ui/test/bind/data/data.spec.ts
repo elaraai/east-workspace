@@ -45,9 +45,9 @@ describeEast("Data", (test) => {
         const jobs = $.let(ex.generateJobs(4n));
         $(Assert.equal(jobs.toArray((_$, _j, k) => k), ["J1000", "J1001", "J1002", "J1003"]));
         $(Assert.equal(jobs.get("J1001"), {
-            start: some(new Date("2026-01-06T00:00:00Z")), task: "Painting", qty: some(195.0),
+            start: some(new Date("2026-01-06T00:00:00Z")), task: "Spraying", qty: some(195.0),
         }));
-        $(Assert.equal(jobs.get("J1003").task, "Machining"));
+        $(Assert.equal(jobs.get("J1003").task, "Routing"));
     });
 
     // Panels — every merged example stays mounted as a captioned row (#464).

@@ -33,19 +33,19 @@ test.describe("a Sheet bound to an e3 record (#1180)", () => {
         await settled(page);
         // The SAVED line reads the record's committed rows.
         const saved = entry.getByText(/^SAVED · /u);
-        await expect(saved).toHaveText("SAVED · Rough machining → Inspect lots → Finish housings");
+        await expect(saved).toHaveText("SAVED · Nest panels → Inspect batches → Finish doors");
 
         const task = card.locator("[data-slot='row'] [data-key='task']").first();
         await task.dblclick();
         const input = page.locator("[data-slot='editorInput']");
-        await input.fill("Rough milling");
+        await input.fill("Nest boards");
         await input.press("Enter");
         const apply = entry.getByRole("button", { name: "Apply changes" });
         await expect(apply).toBeEnabled();
         await apply.click();
 
-        await expect(saved).toHaveText("SAVED · Rough milling → Inspect lots → Finish housings");
-        await expect(task).toContainText("Rough milling");
+        await expect(saved).toHaveText("SAVED · Nest boards → Inspect batches → Finish doors");
+        await expect(task).toContainText("Nest boards");
         await expect(apply).toBeDisabled();
     });
 });

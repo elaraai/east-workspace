@@ -69,7 +69,7 @@ export function useSheetWords(): SheetWords {
 }
 
 /**
- * A row, in words — `row 4`, or on a grouped sheet `line 3 of Line 2 week 8`.
+ * A row, in words — `row 4`, or on a grouped sheet `line 3 of Bay 2 week 8`.
  *
  * @param ref - The row
  * @param w - The words

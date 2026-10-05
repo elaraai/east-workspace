@@ -53,11 +53,11 @@ const StatusType = StructType({ word: StringType, tone: StatusValueType });
 /** Fixtures at MODULE scope: East bodies never call host helpers. */
 const FEB16 = new Date("2026-02-16T00:00:00Z");
 const PLANS: ValueTypeOf<typeof PlanType>[] = [
-    { id: "p1", name: "Line 2 week 8", owner: "planner", status: "PLANNED", total: 300.0, lines: [
-        { start: some(FEB16), task: "Machining", qty: some(120.0), status: "RELEASED" },
-        { start: none, task: "Painting", qty: none, status: "" },
+    { id: "p1", name: "Bay 2 week 8", owner: "planner", status: "PLANNED", total: 300.0, lines: [
+        { start: some(FEB16), task: "Routing", qty: some(120.0), status: "RELEASED" },
+        { start: none, task: "Spraying", qty: none, status: "" },
     ] },
-    { id: "p2", name: "Line 3 week 8", owner: "erp", status: "COMPLETE", total: 90.0, lines: [
+    { id: "p2", name: "Bay 3 week 8", owner: "erp", status: "COMPLETE", total: 90.0, lines: [
         { start: none, task: "Inspection", qty: some(90.0), status: "" },
     ] },
 ];
@@ -66,22 +66,22 @@ const STATUSES = [
     { word: "RELEASED", tone: variant("info", null) },
     { word: "COMPLETE", tone: variant("success", null) },
 ];
-const PAINT_NARROWING = {
+const SPRAY_NARROWING = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: some("paint"), visible: none, selectedIndex: none, resolution: none,
+    breakdown: none, search: some("spray"), visible: none, selectedIndex: none, resolution: none,
 };
 const LINES = PLANS.flatMap((p) => p.lines);
-const VIEWS = [{ id: "paint", name: "PAINT", narrowing: PAINT_NARROWING, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
-/** PAINT and a view of every plan — for a host that moves `activeView` between them. */
-const TWO_VIEWS = [...VIEWS, { id: "all", name: "ALL", narrowing: { ...PAINT_NARROWING, search: none }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
+const VIEWS = [{ id: "spray", name: "SPRAY", narrowing: SPRAY_NARROWING, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
+/** SPRAY and a view of every plan — for a host that moves `activeView` between them. */
+const TWO_VIEWS = [...VIEWS, { id: "all", name: "ALL", narrowing: { ...SPRAY_NARROWING, search: none }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
 
-/** `activeView` — the sheet opens on this view, with {@link TWO_VIEWS} (else PAINT, alone). */
-type Options = { lens?: boolean; readOnly?: boolean; activeView?: "paint" | "all" };
+/** `activeView` — the sheet opens on this view, with {@link TWO_VIEWS} (else SPRAY, alone). */
+type Options = { lens?: boolean; readOnly?: boolean; activeView?: "spray" | "all" };
 
 /** A grouped sheet the way an author builds one: plans over their lines, a band with a title, an eyebrow and two band cells, completed plans folded. */
 function buildGrouped(opts: Options = {}): SheetRootValue {
     const viewList = opts.activeView !== undefined ? TWO_VIEWS : VIEWS;
-    const opening = opts.activeView ?? "paint";
+    const opening = opts.activeView ?? "spray";
     const program = East.function([], Sheet.Types.Root, ($) => {
         const plans = $.const(PLANS, ArrayType(PlanType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
@@ -155,7 +155,7 @@ describe("the body (G1–G3, G6, G12)", () => {
         expect(ghost()).toBeNull();
         expect(numbers("p1")).toEqual(["1", "2"]);
         expect(lines("p1").map((r) => r.getAttribute("data-line"))).toEqual(["0", "1"]);
-        expect(band("p1")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Line 2 week 8");
+        expect(band("p1")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Bay 2 week 8");
         expect(band("p1")!.querySelector('[data-slot="groupSub"]')!.textContent).toBe("planner · PLANNED");
         expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("2");
         expect(band("p1")!.getAttribute("aria-expanded")).toBe("true");
@@ -192,7 +192,7 @@ describe("the body (G1–G3, G6, G12)", () => {
         expect(card.getAttribute("aria-rowcount")).toBe("5");
         expect(rows().map((r) => r.getAttribute("aria-rowindex"))).toEqual(["2", "3", "4", "5"]);
         expect(band("p1")!.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("plan 1, 2 lines");
-        expect(lines("p1")[1]!.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("Line 2 of Line 2 week 8");
+        expect(lines("p1")[1]!.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("Line 2 of Bay 2 week 8");
         const title = band("p1")!.querySelector('[data-key="$title"]')!;
         expect(document.getElementById(title.getAttribute("aria-describedby")!)!.textContent).toBe("planner · PLANNED");
         expect([...card.querySelectorAll<HTMLElement>("button, input, [tabindex]")].filter((el) => el.tabIndex >= 0)).toEqual([]);
@@ -234,14 +234,14 @@ describe("edits (G5, G8)", () => {
         const { value, edits, draft } = withSpy(buildGrouped());
         const { lines, key, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(lines("p1")[1]!.querySelector('[data-key="task"]')!, { button: 0 });
-        key("P");
-        type("Packaging");
+        key("W");
+        type("Wrapping");
         editorKey("Enter");
         await flush();
         expect(edits).toHaveLength(1);
         expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
-        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines.map(line => line.task)).toEqual([variant("value", "Machining"), variant("value", "Packaging")]);
-        expect(lines("p1")[1]!.querySelector('[data-key="task"]')!.textContent).toBe("Packaging");
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines.map(line => line.task)).toEqual([variant("value", "Routing"), variant("value", "Wrapping")]);
+        expect(lines("p1")[1]!.querySelector('[data-key="task"]')!.textContent).toBe("Wrapping");
         // ⏎ moved the ring down onto the plan's blank line.
         expect(lines("p1")[2]!.querySelector('[data-key="task"]')!.hasAttribute("data-selected")).toBe(true);
     });
@@ -251,17 +251,17 @@ describe("edits (G5, G8)", () => {
         const { lines, numbers, key, type, editorKey, flush } = mount(value);
         fireEvent.mouseDown(lines("p1")[2]!.querySelector('[data-key="task"]')!, { button: 0 });
         key("D");
-        type("Deburring");
+        type("Denibbing");
         editorKey("Enter");
         await flush();
         expect(edits).toHaveLength(1);
         expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
         const created = draft("p1", Sheet.Types.DraftGroup(PlanType, "lines"));
         expect(created.lines).toHaveLength(3);
-        expect(created.lines[2]!.task).toEqual(variant("value", "Deburring"));
+        expect(created.lines[2]!.task).toEqual(variant("value", "Denibbing"));
         expect(lines("p1")[2]!.getAttribute("data-line")).toMatch(/^\+/);
         expect(numbers("p1")).toEqual(["1", "2", "3", "4"]);
-        expect(lines("p1")[2]!.querySelector('[data-key="task"]')!.textContent).toBe("Deburring");
+        expect(lines("p1")[2]!.querySelector('[data-key="task"]')!.textContent).toBe("Denibbing");
         expect(lines("p1")[3]!.querySelector('[data-key="task"]')!.hasAttribute("data-selected")).toBe(true);
         expect(lines("p1")[3]!.getAttribute("data-line")).toBe("");
     });
@@ -280,12 +280,12 @@ describe("edits (G5, G8)", () => {
         // The title.
         fireEvent.mouseDown(band("p1")!.querySelector('[data-key="$title"]')!, { button: 0 });
         key("Enter");
-        expect(input()!.value).toBe("Line 2 week 8");
-        type("Line 2 week 8b");
+        expect(input()!.value).toBe("Bay 2 week 8");
+        type("Bay 2 week 8b");
         editorKey("Enter");
         await flush();
-        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).name).toEqual(variant("value", "Line 2 week 8b"));
-        expect(band("p1")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Line 2 week 8b");
+        expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).name).toEqual(variant("value", "Bay 2 week 8b"));
+        expect(band("p1")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Bay 2 week 8b");
         // The derived quantity cell is read-only.
         fireEvent.mouseDown(band("p1")!.querySelector('[data-key="qty"]')!, { button: 0 });
         key("5");
@@ -303,17 +303,17 @@ describe("edits (G5, G8)", () => {
         expect(change.place).toEqual(some(variant("ordered", variant("before", "p2"))));
         expect(edits[0]!.origin.type).toBe("insert");
         expect(draft(change.id, Sheet.Types.DraftGroup(PlanType, "lines")).name.type).toBe("missing");
-        type("Line 4 week 9");
+        type("Bay 4 week 9");
         editorKey("Enter");
         await flush();
         expect(edits).toHaveLength(2);
         const created = draft(change.id, Sheet.Types.DraftGroup(PlanType, "lines"));
-        expect(created.name).toEqual(variant("value", "Line 4 week 9"));
+        expect(created.name).toEqual(variant("value", "Bay 4 week 9"));
         expect(created.lines).toEqual([]);
         expect(created.owner.type).toBe("missing");
         expect(edits[1]!.domainChanges.type).toBe("none");
         const bands = [...container.querySelectorAll('[data-slot="row"][data-band-row]')].map(b => b.querySelector('[data-slot="groupTitle"]')!.textContent);
-        expect(bands).toEqual(["Line 2 week 8", "Line 4 week 9", "Line 3 week 8"]);
+        expect(bands).toEqual(["Bay 2 week 8", "Bay 4 week 9", "Bay 3 week 8"]);
         expect(ghost()).toBeNull();
     });
 });
@@ -347,12 +347,12 @@ describe("the clipboard (G9)", () => {
         const { value, edits, draft } = withSpy(buildGrouped());
         const { card, band, lines, numbers, flush, msg } = mount(value);
         fireEvent.mouseDown(lines("p1")[1]!.querySelector('[data-key="task"]')!, { button: 0 });
-        fireEvent.paste(card, { clipboardData: { getData: () => "Grinding\nPolishing\nPacking" } });
+        fireEvent.paste(card, { clipboardData: { getData: () => "Sanding\nPolishing\nBoxing" } });
         await flush();
         expect(edits).toHaveLength(1);
         expect(edits[0]!.origin.type).toBe("pasted");
         expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(4);
-        expect(lines("p1").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Machining", "Grinding", "Polishing", "Packing", ""]);
+        expect(lines("p1").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Routing", "Sanding", "Polishing", "Boxing", ""]);
         expect(numbers("p1")).toEqual(["1", "2", "3", "4", "5"]);
         // p2 is untouched.
         expect(edits[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
@@ -361,7 +361,7 @@ describe("the clipboard (G9)", () => {
         fireEvent.mouseDown(lines("p1")[0]!.querySelector('[data-key="qty"]')!, { button: 0, shiftKey: true });
         const set = new Map<string, string>();
         fireEvent.copy(card, { clipboardData: { setData: (k: string, v: string) => set.set(k, v), getData: () => "" } });
-        expect(set.get("text/plain")).toBe("16/2/2026\tMachining\t120");
+        expect(set.get("text/plain")).toBe("16/2/2026\tRouting\t120");
         expect(msg()).toBe("Copied 1×3 to clipboard");
     });
 });
@@ -372,10 +372,10 @@ describe("the lens on a grouped sheet", () => {
         const { container, band, lines, flush } = mount(value);
         await flush();
         await waitFor(() => expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
-        expect(container.querySelector("[data-sheet]")!.getAttribute("data-view")).toBe("paint");
+        expect(container.querySelector("[data-sheet]")!.getAttribute("data-view")).toBe("spray");
         expect(container.querySelector('[data-slot="tabs"]')).toBeTruthy();
-        // p1 shows through its `Painting` line — line 2, a hit — and its Machining line collapses into a band.
-        expect(lines("p1").map(row => row.querySelector('[data-key="task"]')!.textContent)).toEqual(["Painting"]);
+        // p1 shows through its `Spraying` line — line 2, a hit — and its Routing line collapses into a band.
+        expect(lines("p1").map(row => row.querySelector('[data-key="task"]')!.textContent)).toEqual(["Spraying"]);
         expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
         expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit")).toBe(true);
         // p2 matches nothing: it is hidden in a band of its own, and it stays folded.
@@ -553,7 +553,7 @@ test("child insertion uses the current local slot, preserves siblings and unfold
     fireEvent.click(ui.chip(ui.lines("p1")[1]!, "insertRow")!); await ui.flush();
     expect(edits).toHaveLength(1);
     const p1 = draft("p1", Sheet.Types.DraftGroup(PlanType, "lines"));
-    expect(p1.lines.map(row => row.task)).toEqual([variant("value", "Machining"), variant("missing", null), variant("value", "Painting")]);
+    expect(p1.lines.map(row => row.task)).toEqual([variant("value", "Routing"), variant("missing", null), variant("value", "Spraying")]);
     expect(p1.lines[0]!.status).toEqual(variant("value", "RELEASED"));
     expect(ui.lines("p1")[1]!.querySelector('[data-slot="editor"]')).toBeTruthy();
     // Commit/cancel the first editor before inserting into the folded group.
@@ -921,37 +921,37 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     }, 30_000);
 
     test("folds left on a tab come back when the sheet opens on it again; a sheet no one folded records no tab", async () => {
-        // The sheet opens on its PAINT view, as its host declares — and opening a view folds nothing.
+        // The sheet opens on its SPRAY view, as its host declares — and opening a view folds nothing.
         let ui = mount(buildGrouped({ lens: true }));
         const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
         const stored = () => localStorage.getItem("sheet-grouped-test");
-        await waitFor(() => expect(view()).toBe("paint"));
+        await waitFor(() => expect(view()).toBe("spray"));
         // Storage holds what the persisted-state hook writes on its first read — nothing — and no tab.
         expect(stored()).toBe(JSON.stringify({ view: null, folds: [], anchor: null }));
-        // p1 folds on PAINT, and the sheet goes before the tab is ever left — the view's own folds never hear of it.
+        // p1 folds on SPRAY, and the sheet goes before the tab is ever left — the view's own folds never hear of it.
         fireEvent.mouseDown(ui.band("p1")!.querySelector('[data-slot="fold"]')!, { button: 0 });
         expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
-        expect(stored()).toBe(JSON.stringify({ view: "paint", folds: [["p1", true]], anchor: null }));
+        expect(stored()).toBe(JSON.stringify({ view: "spray", folds: [["p1", true]], anchor: null }));
         ui.unmount();
         ui = mount(buildGrouped({ lens: true }));
-        await waitFor(() => expect(view()).toBe("paint"));
+        await waitFor(() => expect(view()).toBe("spray"));
         expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
     });
 
     test("a host that moves activeView later opens each view's own folds: the last session's are spent on the first open", async () => {
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: "paint", folds: [["p1", true]], anchor: null }));
-        const ui = mount(buildGrouped({ lens: true, activeView: "paint" }));
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: "spray", folds: [["p1", true]], anchor: null }));
+        const ui = mount(buildGrouped({ lens: true, activeView: "spray" }));
         const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
-        const open = (id: "paint" | "all") => ui.rerender(
+        const open = (id: "spray" | "all") => ui.rerender(
             <ChakraProvider value={system}><EastChakraSheet value={buildGrouped({ lens: true, activeView: id })} storageKey="sheet-grouped-test" /></ChakraProvider>,
         );
-        await waitFor(() => expect(view()).toBe("paint"));
+        await waitFor(() => expect(view()).toBe("spray"));
         expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
         open("all");
         await waitFor(() => expect(view()).toBe("all"));
         expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(false);
-        open("paint");
-        await waitFor(() => expect(view()).toBe("paint"));
+        open("spray");
+        await waitFor(() => expect(view()).toBe("spray"));
         expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(false);
     });
 });

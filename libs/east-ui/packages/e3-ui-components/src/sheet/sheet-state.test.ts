@@ -31,8 +31,8 @@ function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         editableAt: (_r, c) => c !== 2,
         kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
         parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
-        candidates: (_r, _c, text) => (text.startsWith("ma") ? ["Machining", "Machining - Roughing"] : []),
-        candidateAt: (_r, _c, text, hi) => (text.startsWith("ma") ? (hi > 0 ? "Machining - Roughing" : "Machining") : undefined),
+        candidates: (_r, _c, text) => (text.startsWith("ro") ? ["Routing", "Routing - Nesting"] : []),
+        candidateAt: (_r, _c, text, hi) => (text.startsWith("ro") ? (hi > 0 ? "Routing - Nesting" : "Routing") : undefined),
         editTextAt: (r, c) => `v${r}${c}`,
         ...over,
     };
@@ -191,12 +191,12 @@ describe("editing", () => {
     });
 
     test("an untouched register cell never takes the ghost its own value shows; a cycled candidate or a taken ghost writes (#852)", () => {
-        // The cell holds `ma`, which the candidates complete to Machining.
-        const ctx = ctxOf({ editTextAt: () => "ma" });
+        // The cell holds `ro`, which the candidates complete to Routing.
+        const ctx = ctxOf({ editTextAt: () => "ro" });
         const opened = run(initialSheetState(), [key("Enter")], ctx).state;
         expect(run(opened, [ekey("Enter")], ctx).effects.some((e) => e.t === "write")).toBe(false);
         const cycled = run(opened, [ekey("]", { alt: true }), ekey("Enter")], ctx);
-        expect(cycled.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "Machining - Roughing"), text: "Machining - Roughing" });
+        expect(cycled.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "Routing - Nesting"), text: "Routing - Nesting" });
         expect(run(opened, [ekey("Tab"), ekey("Enter")], ctx).effects.some((e) => e.t === "write")).toBe(true);
     });
 
@@ -210,15 +210,15 @@ describe("editing", () => {
     });
 
     test("⇥ takes the ghost before it commits; ⌥] cycles the armed candidate", () => {
-        const open = run(initialSheetState(), [key("m"), { t: "editor.change", val: "ma" }]).state;
+        const open = run(initialSheetState(), [key("r"), { t: "editor.change", val: "ro" }]).state;
         // The ghost's suffix joins the typed prefix as typed; the commit's parse resolves the case.
         const took = run(open, [ekey("Tab")]);
-        expect(took.state.edit).toMatchObject({ val: "machining" });
+        expect(took.state.edit).toMatchObject({ val: "routing" });
         const cycled = run(open, [ekey("]", { alt: true })]);
         expect(cycled.state.edit).toMatchObject({ hi: 1 });
         // A commit with the second candidate armed writes it.
         const committed = run(cycled.state, [ekey("Enter")]);
-        expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "Machining - Roughing"), text: "Machining - Roughing" });
+        expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "Routing - Nesting"), text: "Routing - Nesting" });
     });
 
     test("a click elsewhere commits in place and moves; a strip pick replaces the buffer", () => {
@@ -227,8 +227,8 @@ describe("editing", () => {
         expect(clicked.state.edit).toBeNull();
         expect(clicked.state.sel).toEqual({ r: 2, c: 1 });
         expect(clicked.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "x"), text: "x" });
-        const picked = run(open, [{ t: "strip.pick", label: "Machining", i: 0 }]);
-        expect(picked.state.edit).toMatchObject({ val: "Machining", hi: 0 });
+        const picked = run(open, [{ t: "strip.pick", label: "Routing", i: 0 }]);
+        expect(picked.state.edit).toMatchObject({ val: "Routing", hi: 0 });
     });
 
     test("a click never scrolls — the cell is under the pointer; a keyboard move does", () => {
@@ -314,7 +314,7 @@ import type { SheetMemberValue } from "./values.js";
 
 const id = (key: string): SheetMemberValue => variant("identified", { key });
 const txt = (s: string): SheetMemberValue => variant("text", s);
-const KEYS = ["M2140", "M2141", "M2145", "M7301"];
+const KEYS = ["R2140", "R2141", "R2145", "A7301"];
 
 /** A link column at c = 0 over four machine codes, with the driver's sides. */
 function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [[], []]): SheetMachineCtx {
@@ -342,7 +342,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         resolve,
         predicted: () => [],
         cell: (groups) => (groups[0].length + groups[1].length === 0 ? null : cell("Link", { from: groups[0], to: groups[1] })),
-        driverName: "Machining",
+        driverName: "Routing",
     };
     return ctxOf({
         colCount: 2,
@@ -355,12 +355,12 @@ const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "ide
 
 describe("the link editor", () => {
     test("opens with the cell's chips, the caret in the first live empty half; a seed replaces the content", () => {
-        const ctx = linkCtxOf("both", [[id("M2140")], []]);
+        const ctx = linkCtxOf("both", [[id("R2140")], []]);
         const opened = run(initialSheetState(), [key("Enter")], ctx);
         expect(opened.state.edit?.link).toMatchObject({ side: 1, chipSel: null });
-        expect(labels(opened.state.edit!.link!.groups[0])).toEqual(["M2140"]);
+        expect(labels(opened.state.edit!.link!.groups[0])).toEqual(["R2140"]);
         expect(opened.effects).toContainEqual({ t: "focus.editor", selectAll: false });
-        const seeded = run(initialSheetState(), [key("m")], ctx);
+        const seeded = run(initialSheetState(), [key("r")], ctx);
         expect(seeded.state.edit?.link?.groups).toEqual([[], []]);
         expect(seeded.state.edit?.link?.side).toBe(0);
         // A destination-only driver opens in To; an in-place one too.
@@ -370,36 +370,36 @@ describe("the link editor", () => {
 
     test("`,` resolves the buffer; `>` hops From → To; in To an arrow is dropped; hopping into a locked half flags", () => {
         const ctx = linkCtxOf("both");
-        const typed = run(initialSheetState(), [key("m"), { t: "editor.change", val: "m2140, m7301 > m21" }], ctx);
+        const typed = run(initialSheetState(), [key("r"), { t: "editor.change", val: "r2140, a7301 > r21" }], ctx);
         const link = typed.state.edit!.link!;
-        expect(labels(link.groups[0])).toEqual(["M2140", "M7301"]);
+        expect(labels(link.groups[0])).toEqual(["R2140", "A7301"]);
         expect(link.side).toBe(1);
-        expect(typed.state.edit!.val).toBe("m21");
+        expect(typed.state.edit!.val).toBe("r21");
         expect(link.hop).toBe(1);
         expect(typed.effects.filter((e) => e.t === "focus.editor")).toHaveLength(2);   // the seed, then the hop
-        const arrowInTo = run(typed.state, [{ t: "editor.change", val: "m21 > " }], ctx);
+        const arrowInTo = run(typed.state, [{ t: "editor.change", val: "r21 > " }], ctx);
         expect(arrowInTo.state.edit!.link!.side).toBe(1);
-        expect(labels(arrowInTo.state.edit!.link!.groups[1])).toEqual(["M2141"]);   // `m21` resolved to its top FREE candidate — M2140 is already in From
-        const locked = run(initialSheetState(), [key("m"), { t: "editor.change", val: "M2140 >" }], linkCtxOf("from"));
+        expect(labels(arrowInTo.state.edit!.link!.groups[1])).toEqual(["R2141"]);   // `r21` resolved to its top FREE candidate — R2140 is already in From
+        const locked = run(initialSheetState(), [key("r"), { t: "editor.change", val: "R2140 >" }], linkCtxOf("from"));
         expect(locked.state.edit!.link!.side).toBe(1);
         expect(said(locked.state.msg)).toMatch(/has no destination — kept, but flagged/);
     });
 
     test("⇥ ladder: the armed candidate → a hop (a locked half skipped) → commit right", () => {
         const ctx = linkCtxOf("both");
-        const open = run(initialSheetState(), [key("m"), { t: "editor.change", val: "m21" }], ctx).state;
+        const open = run(initialSheetState(), [key("r"), { t: "editor.change", val: "r21" }], ctx).state;
         const took = run(open, [ekey("Tab")], ctx);
-        expect(took.state.edit!.val).toBe("M2140");
+        expect(took.state.edit!.val).toBe("R2140");
         const hopped = run(took.state, [ekey("Tab")], ctx);
         expect(hopped.state.edit!.link!.side).toBe(1);
-        expect(labels(hopped.state.edit!.link!.groups[0])).toEqual(["M2140"]);
+        expect(labels(hopped.state.edit!.link!.groups[0])).toEqual(["R2140"]);
         expect(hopped.state.edit!.val).toBe("");
-        const committed = run(hopped.state, [{ t: "editor.change", val: "M7301" }, ekey("Tab")], ctx);
+        const committed = run(hopped.state, [{ t: "editor.change", val: "A7301" }, ekey("Tab")], ctx);
         expect(committed.state.edit).toBeNull();
         expect(committed.state.sel).toEqual({ r: 0, c: 1 });
-        expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("M2140")], to: [id("M7301")] }), text: "" });
+        expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140")], to: [id("A7301")] }), text: "" });
         // From-only driver: Tab in From commits right instead of hopping into the locked To.
-        const fromOnly = run(initialSheetState(), [key("M"), { t: "editor.change", val: "M2140" }, ekey("Tab")], linkCtxOf("from"));
+        const fromOnly = run(initialSheetState(), [key("R"), { t: "editor.change", val: "R2140" }, ekey("Tab")], linkCtxOf("from"));
         expect(fromOnly.state.edit).toBeNull();
         expect(fromOnly.state.sel.c).toBe(1);
         // ⇧⇥ in To hops back to From.
@@ -409,9 +409,9 @@ describe("the link editor", () => {
 
     test("⏎ with text resolves and stays; ⏎ empty commits down; esc cancels; blur commits", () => {
         const ctx = linkCtxOf("both");
-        const open = run(initialSheetState(), [key("m"), { t: "editor.change", val: "m2140, mystery" }], ctx).state;
+        const open = run(initialSheetState(), [key("r"), { t: "editor.change", val: "r2140, mystery" }], ctx).state;
         const resolved = run(open, [ekey("Enter")], ctx);
-        expect(labels(resolved.state.edit!.link!.groups[0])).toEqual(["M2140", "~mystery"]);
+        expect(labels(resolved.state.edit!.link!.groups[0])).toEqual(["R2140", "~mystery"]);
         expect(resolved.state.edit!.val).toBe("");
         const down = run(resolved.state, [ekey("Enter")], ctx);
         expect(down.state.edit).toBeNull();
@@ -420,15 +420,15 @@ describe("the link editor", () => {
         expect(run(resolved.state, [ekey("Escape")], ctx).state.edit).toBeNull();
         const blurred = run(resolved.state, [{ t: "editor.blur" }], ctx);
         expect(blurred.state.edit).toBeNull();
-        expect(blurred.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("M2140"), txt("mystery")], to: [] }), text: "" });
+        expect(blurred.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("Link", { from: [id("R2140"), txt("mystery")], to: [] }), text: "" });
     });
 
     test("⌫ pops the last chip back into the buffer, then crosses back to From; an empty link commits a blank", () => {
-        const ctx = linkCtxOf("both", [[id("M2140")], [id("M7301")]]);
+        const ctx = linkCtxOf("both", [[id("R2140")], [id("A7301")]]);
         const open = run(initialSheetState(), [key("Enter")], ctx).state;   // opens in To (the first live EMPTY half is none ⇒ destination)
         expect(open.edit!.link!.side).toBe(1);
         const popped = run(open, [ekey("Backspace")], ctx);
-        expect(popped.state.edit!.val).toBe("M7301");
+        expect(popped.state.edit!.val).toBe("A7301");
         expect(popped.state.edit!.link!.groups[1]).toEqual([]);
         const crossed = run(popped.state, [{ t: "editor.change", val: "" }, ekey("Backspace")], ctx);
         expect(crossed.state.edit!.link!.side).toBe(0);
@@ -437,7 +437,7 @@ describe("the link editor", () => {
     });
 
     test("⇧← / ⇧→ select whole chips; ⌫ removes them; esc drops the selection first", () => {
-        const ctx = linkCtxOf("both", [[id("M2140"), id("M2141")], [id("M7301")]]);
+        const ctx = linkCtxOf("both", [[id("R2140"), id("R2141")], [id("A7301")]]);
         const open = run(initialSheetState(), [key("Enter")], ctx).state;
         const one = run(open, [ekey("ArrowLeft", { shift: true })], ctx);
         expect(one.state.edit!.link!.chipSel).toEqual({ anchor: 2, focus: 2 });
@@ -447,7 +447,7 @@ describe("the link editor", () => {
         expect(dropped.state.edit!.link!.chipSel).toBeNull();
         expect(dropped.state.edit).not.toBeNull();
         const removed = run(two.state, [ekey("Backspace")], ctx);
-        expect(labels(removed.state.edit!.link!.groups[0])).toEqual(["M2140"]);
+        expect(labels(removed.state.edit!.link!.groups[0])).toEqual(["R2140"]);
         expect(removed.state.edit!.link!.groups[1]).toEqual([]);
         expect(said(removed.state.msg)).toBe("2 members removed");
         const shrunk = run(one.state, [ekey("ArrowRight", { shift: true })], ctx);
@@ -465,12 +465,12 @@ describe("the link editor", () => {
         const clicked = run(left.state, [{ t: "half.down", side: 1 }], ctx);
         expect(clicked.state.edit!.link!.side).toBe(1);
         expect(clicked.effects).toContainEqual({ t: "focus.editor", selectAll: false });
-        const picked = run(clicked.state, [{ t: "strip.pick", label: "M2145", i: -1, members: [id("M2145")] }], ctx);
-        expect(labels(picked.state.edit!.link!.groups[1])).toEqual(["M2145"]);
+        const picked = run(clicked.state, [{ t: "strip.pick", label: "R2145", i: -1, members: [id("R2145")] }], ctx);
+        expect(labels(picked.state.edit!.link!.groups[1])).toEqual(["R2145"]);
         expect(picked.state.edit!.val).toBe("");
         // → at the end of the buffer takes one ghost word.
-        const ghosted = run(picked.state, [{ t: "editor.change", val: "m7" }, ekey("ArrowRight", { atEnd: true })], ctx);
-        expect(ghosted.state.edit!.val).toBe("m7301");
+        const ghosted = run(picked.state, [{ t: "editor.change", val: "a7" }, ekey("ArrowRight", { atEnd: true })], ctx);
+        expect(ghosted.state.edit!.val).toBe("a7301");
     });
 });
 
@@ -489,7 +489,7 @@ function suggestCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         rowOf: (id) => ids[id],
         idAt: (r) => ["a", "b", "c", " blank:3"][r],
         columnOf: (k) => cols[k],
-        driverKeyAt: (r) => (r === 1 ? "Machining" : undefined),
+        driverKeyAt: (r) => (r === 1 ? "Routing" : undefined),
         driverColumn: "activity",
         numberAt: (r) => r + 1,
         ...over,
@@ -534,15 +534,15 @@ describe("the copilot", () => {
     test("⏎ takes the row fill, then the first proposal; ⌘⏎ fills the row; ⌘⇧⏎ takes everything; the gutter's → fills the row", () => {
         const ctx = suggestCtxOf();
         const at = initialSheetState({ r: 1, c: 0 });
-        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, qty: QTY }, [proposal("Painting"), proposal("Packaging")]) }], ctx).state;
+        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, qty: QTY }, [proposal("Spraying"), proposal("Wrapping")]) }], ctx).state;
         const filled = run(both, [key("Enter")], ctx);
         expect(filled.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }, { c: 2, cell: QTY.cell }], source: "row" });
         expect(said(filled.state.msg)).toBe("Filled 2 cells on row 2");
         expect(filled.state.sugg?.rows).toHaveLength(2);
         expect(filled.state.edit).toBeNull();
         const took = run(filled.state, [key("Enter")], ctx);
-        expect(took.effects).toContainEqual({ t: "insert.rows", anchorR: 1, rows: [proposal("Painting")], rest: [proposal("Packaging")] });
-        expect(said(took.state.msg)).toBe("Took Painting — next one suggested below");
+        expect(took.effects).toContainEqual({ t: "insert.rows", anchorR: 1, rows: [proposal("Spraying")], rest: [proposal("Wrapping")] });
+        expect(said(took.state.msg)).toBe("Took Spraying — next one suggested below");
         expect(took.state.sugg).toBeNull();
         // With nothing pending ⏎ edits.
         expect(run(took.state, [key("Enter")], ctx).state.edit).not.toBeNull();
@@ -554,14 +554,14 @@ describe("the copilot", () => {
         expect(insertion?.rest).toEqual([]);
         expect(run(both, [{ t: "fill.row" }], ctx).effects[0]).toMatchObject({ t: "write.many", source: "row" });
         // Rows only: ⇥ takes the next one.
-        const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Painting")]) }], ctx).state;
-        expect(run(rowsOnly, [key("Tab")], ctx).effects[0]).toMatchObject({ t: "insert.rows", rows: [proposal("Painting")], rest: [] });
+        const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Spraying")]) }], ctx).state;
+        expect(run(rowsOnly, [key("Tab")], ctx).effects[0]).toMatchObject({ t: "insert.rows", rows: [proposal("Spraying")], rest: [] });
     });
 
     test("the esc ladder: a selected proposal → the row fill (rows stay) → every suggestion → the range", () => {
         const ctx = suggestCtxOf();
         const at = { ...initialSheetState({ r: 1, c: 0 }), selEnd: { r: 1, c: 2 } };
-        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START }, [proposal("Painting"), proposal("Packaging")]) }], ctx).state;
+        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START }, [proposal("Spraying"), proposal("Wrapping")]) }], ctx).state;
         const picked = run(both, [{ t: "proposal.pick", i: 1 }], ctx);
         expect(picked.state.gsel).toBe(1);
         expect(picked.effects).toContainEqual({ t: "focus.sheet" });
@@ -583,7 +583,7 @@ describe("the copilot", () => {
     test("⌫ rejects the armed fill and remembers it per row and key; ⌫ rejects the selected proposal and remembers the pairing", () => {
         const ctx = suggestCtxOf();
         const at = initialSheetState({ r: 1, c: 0 });
-        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, qty: QTY }, [proposal("Painting")]) }], ctx).state;
+        const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, qty: QTY }, [proposal("Spraying")]) }], ctx).state;
         const armed = run(both, [key("Tab")], ctx).state;
         const dismissed = run(armed, [key("Backspace")], ctx);
         expect(dismissed.effects.some((e) => e.t === "clear" || e.t === "write.many")).toBe(false);
@@ -595,12 +595,12 @@ describe("the copilot", () => {
         expect(run(both, [key("Backspace")], ctx).effects).toContainEqual({ t: "clear", r0: 1, r1: 1, c0: 0, c1: 0 });
         const picked = run(both, [{ t: "proposal.pick", i: 0 }], ctx).state;
         const rejected = run(picked, [key("Delete")], ctx);
-        expect(rejected.state.rejected.follows.has("Machining>Painting")).toBe(true);
+        expect(rejected.state.rejected.follows.has("Routing>Spraying")).toBe(true);
         expect(rejected.state.sugg?.rows).toEqual([]);
         expect(rejected.state.gsel).toBeNull();
-        expect(said(rejected.state.msg)).toBe("Rejected — Painting will not be suggested after Machining again");
+        expect(said(rejected.state.msg)).toBe("Rejected — Spraying will not be suggested after Routing again");
         // The × button on a proposal row does the same without a selection.
-        expect(run(both, [{ t: "proposal.reject", i: 0 }], ctx).state.rejected.follows.has("Machining>Painting")).toBe(true);
+        expect(run(both, [{ t: "proposal.reject", i: 0 }], ctx).state.rejected.follows.has("Routing>Spraying")).toBe(true);
     });
 
     test("an async settlement merges by anchor and key — an earlier provider outranks, a stale anchor is ignored, a dismissed fill stays dismissed; a rekey follows a blank anchor; a vanished anchor drops everything", () => {
@@ -615,8 +615,8 @@ describe("the copilot", () => {
         expect(laterOne.state.sugg?.fill.get("qty")).toEqual(QTY);
         expect(run(pending, [{ t: "suggest.landed", anchorId: "zzz", key: "qty", fill: earlier }], ctx).state).toBe(pending);
         expect(run(pending, [{ t: "suggest.landed", anchorId: "b", key: "notes", fill: earlier }], ctx).state).toBe(pending);
-        const rows = run(landed.state, [{ t: "suggest.landed", anchorId: "b", key: "rows", rows: [proposal("Painting", "model")] }], ctx);
-        expect(rows.state.sugg?.rows).toEqual([proposal("Painting", "model")]);
+        const rows = run(landed.state, [{ t: "suggest.landed", anchorId: "b", key: "rows", rows: [proposal("Spraying", "model")] }], ctx);
+        expect(rows.state.sugg?.rows).toEqual([proposal("Spraying", "model")]);
         expect(rows.state.sugg?.pending).toEqual([]);
         // A settlement that yields nothing just clears the pending chip; everything gone ⇒ no suggestions.
         const bare = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [], ["qty"]) }, { t: "suggest.landed", anchorId: "b", key: "qty", fill: null }], ctx);
@@ -661,22 +661,22 @@ const narrowingOf = (search: string | undefined): SliceStateValue => ({
     breakdown: none, search: search === undefined ? none : some(search), visible: none, selectedIndex: none, resolution: none,
 } as SliceStateValue);
 const EMPTY = narrowingOf(undefined);
-const PAINT = narrowingOf("paint");
-const LATHE = narrowingOf("lathe");
+const SPRAY = narrowingOf("spray");
+const ROUTER = narrowingOf("router");
 const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals, folds: new Map() });
-const VIEWS = [view("paint", "PAINT", PAINT, 1n, [4n]), view("lathe", "LATHE", LATHE)];
+const VIEWS = [view("spray", "SPRAY", SPRAY, 1n, [4n]), view("router", "ROUTER", ROUTER)];
 
-/** A sheet on the PAINT tab, the slice at `narrowing`, the views as given. */
+/** A sheet on the SPRAY tab, the slice at `narrowing`, the views as given. */
 function lensCtxOf(narrowing: SliceStateValue, views: readonly SheetViewValue[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
 }
-const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]), folds: new Map() } });
+const onSpray = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "spray"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]), folds: new Map() } });
 const viewsOf = (t: { effects: SheetEffect[] }): SheetViewValue[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetViewValue[] } | undefined)?.views;
 const written = (t: { effects: SheetEffect[] }): SliceStateValue | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SliceStateValue } | undefined)?.state;
 
 describe("the lens", () => {
     test("band controls reveal positions as a merged set and escalate; the context switch and a narrowing change reset them", () => {
-        const ctx = lensCtxOf(PAINT);
+        const ctx = lensCtxOf(SPRAY);
         const one = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 10, to: 19, where: "top" }], ctx);
         expect([...one.state.lens.reveals]).toEqual([10]);
         expect(one.state.lens.steps.get("g:top")).toBe(1);
@@ -701,38 +701,38 @@ describe("the lens", () => {
 
 describe("the view tabs", () => {
     test("switching persists the leaving tab's context and reveals (never an unsaved query), writes the target's narrowing and restores its lens; the whole sheet writes the empty narrowing", () => {
-        // On PAINT with an unsaved query (the slice holds LATHE) and a lens of ±1 with two reveals.
-        const ctx = lensCtxOf(LATHE, VIEWS, true);
-        const t = run(onPaint(), [{ t: "tab.switch", id: "lathe" }], ctx);
-        expect(t.state.tabs.active).toBe("lathe");
+        // On SPRAY with an unsaved query (the slice holds ROUTER) and a lens of ±1 with two reveals.
+        const ctx = lensCtxOf(ROUTER, VIEWS, true);
+        const t = run(onSpray(), [{ t: "tab.switch", id: "router" }], ctx);
+        expect(t.state.tabs.active).toBe("router");
         expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map(), folds: new Map() });
         expect(t.state.sel).toEqual({ r: 0, c: 1 });
         const views = viewsOf(t)!;
-        expect(views[0]).toEqual(view("paint", "PAINT", PAINT, 1n, [4n, 5n]));   // context + reveals persisted; the narrowing kept
-        expect(written(t)).toBe(LATHE);
+        expect(views[0]).toEqual(view("spray", "SPRAY", SPRAY, 1n, [4n, 5n]));   // context + reveals persisted; the narrowing kept
+        expect(written(t)).toBe(ROUTER);
         expect(t.effects.map((e) => e.t)).toEqual(["emit.views", "slice.write", "emit.select", "focus.sheet"]);
         // Back to the whole sheet: the empty narrowing, no lens; nothing to persist when nothing moved.
-        const whole = run({ ...t.state, sel: { r: 0, c: 1 } }, [{ t: "tab.switch", id: null }], lensCtxOf(LATHE, views));
+        const whole = run({ ...t.state, sel: { r: 0, c: 1 } }, [{ t: "tab.switch", id: null }], lensCtxOf(ROUTER, views));
         expect(whole.state.tabs.active).toBeNull();
         expect(written(whole)).toBe(EMPTY);
         expect(viewsOf(whole)).toBeUndefined();
         // Opening a view (the initial `activeView`) never persists the tab it leaves.
-        const opened = run(initialSheetState({ r: 0, c: 0 }, "paint"), [{ t: "tab.open", id: "paint" }], lensCtxOf(EMPTY));
+        const opened = run(initialSheetState({ r: 0, c: 0 }, "spray"), [{ t: "tab.open", id: "spray" }], lensCtxOf(EMPTY));
         expect(viewsOf(opened)).toBeUndefined();
         expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
-        expect(written(opened)).toBe(PAINT);
+        expect(written(opened)).toBe(SPRAY);
         // An unknown tab is ignored.
-        expect(run(onPaint(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onPaint());
+        expect(run(onSpray(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onSpray());
     });
 
     test("+ TAB snapshots the narrowing, the context and the reveals, named from the query or `view n`; the new tab is active", () => {
-        const t = run(onPaint(), [{ t: "tab.create" }], lensCtxOf(LATHE));
+        const t = run(onSpray(), [{ t: "tab.create" }], lensCtxOf(ROUTER));
         const views = viewsOf(t)!;
         expect(views).toHaveLength(3);
-        expect(views[2]).toEqual(view("view-1", "lathe", LATHE, 1n, [4n, 5n]));
+        expect(views[2]).toEqual(view("view-1", "router", ROUTER, 1n, [4n, 5n]));
         expect(t.state.tabs.active).toBe("view-1");
         expect(t.state.tabs.seq).toBe(2);
-        expect(said(t.state.msg)).toMatch(/Saved tab "lathe" — a live view/);
+        expect(said(t.state.msg)).toMatch(/Saved tab "router" — a live view/);
         // No query: `view n`; an id already taken moves on.
         const taken = [...VIEWS, view("view-1", "x", EMPTY)];
         const blank = run(initialSheetState(), [{ t: "tab.create" }], lensCtxOf(EMPTY, taken));
@@ -743,58 +743,58 @@ describe("the view tabs", () => {
     });
 
     test("closing the active tab falls back to the sheet with its narrowing cleared; closing another just drops it", () => {
-        const active = run(onPaint(), [{ t: "tab.close", id: "paint" }], lensCtxOf(PAINT));
+        const active = run(onSpray(), [{ t: "tab.close", id: "spray" }], lensCtxOf(SPRAY));
         expect(active.state.tabs.active).toBeNull();
-        expect(viewsOf(active)!.map((v) => v.id)).toEqual(["lathe"]);
+        expect(viewsOf(active)!.map((v) => v.id)).toEqual(["router"]);
         expect(written(active)).toBe(EMPTY);
-        expect(said(active.state.msg)).toBe('Closed "PAINT" — back to the whole sheet');
-        const other = run(onPaint(), [{ t: "tab.close", id: "lathe" }], lensCtxOf(PAINT));
-        expect(other.state.tabs.active).toBe("paint");
-        expect(viewsOf(other)!.map((v) => v.id)).toEqual(["paint"]);
+        expect(said(active.state.msg)).toBe('Closed "SPRAY" — back to the whole sheet');
+        const other = run(onSpray(), [{ t: "tab.close", id: "router" }], lensCtxOf(SPRAY));
+        expect(other.state.tabs.active).toBe("spray");
+        expect(viewsOf(other)!.map((v) => v.id)).toEqual(["spray"]);
         expect(written(other)).toBeUndefined();
     });
 
     test("⏎ in the search updates a dirty tab; esc reverts it; esc on a clean tab returns to the sheet; esc on the sheet clears the search; the sheet's own esc reaches the tabs after the range", () => {
-        const dirty = lensCtxOf(LATHE, VIEWS, true);
-        const updated = run(onPaint(), [{ t: "search.key", key: "Enter" }], dirty);
-        expect(viewsOf(updated)![0]).toEqual(view("paint", "PAINT", LATHE, 1n, [4n, 5n]));
+        const dirty = lensCtxOf(ROUTER, VIEWS, true);
+        const updated = run(onSpray(), [{ t: "search.key", key: "Enter" }], dirty);
+        expect(viewsOf(updated)![0]).toEqual(view("spray", "SPRAY", ROUTER, 1n, [4n, 5n]));
         expect(updated.effects.map((e) => e.t)).toEqual(["emit.views", "focus.sheet"]);
-        expect(said(updated.state.msg)).toBe('Tab "PAINT" now saves this search');
-        const reverted = run(onPaint(), [{ t: "search.key", key: "Escape" }], dirty);
-        expect(written(reverted)).toBe(PAINT);
+        expect(said(updated.state.msg)).toBe('Tab "SPRAY" now saves this search');
+        const reverted = run(onSpray(), [{ t: "search.key", key: "Escape" }], dirty);
+        expect(written(reverted)).toBe(SPRAY);
         expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
         expect(said(reverted.state.msg)).toBe("Reverted to the tab's saved search");
-        const clean = run(onPaint(), [{ t: "search.key", key: "Escape" }], lensCtxOf(PAINT));
+        const clean = run(onSpray(), [{ t: "search.key", key: "Escape" }], lensCtxOf(SPRAY));
         expect(clean.state.tabs.active).toBeNull();
         expect(written(clean)).toBe(EMPTY);
-        const sheet = run(initialSheetState(), [{ t: "search.key", key: "Escape" }], lensCtxOf(LATHE));
-        expect(written(sheet)).toEqual({ ...LATHE, search: none });
+        const sheet = run(initialSheetState(), [{ t: "search.key", key: "Escape" }], lensCtxOf(ROUTER));
+        expect(written(sheet)).toEqual({ ...ROUTER, search: none });
         expect(run(initialSheetState(), [{ t: "search.key", key: "Enter" }], lensCtxOf(EMPTY)).effects).toEqual([{ t: "focus.sheet" }]);
         // The sheet's esc: the range first, then the dirty tab, then the clean tab.
-        const ranged = { ...onPaint(), selEnd: { r: 4, c: 1 } };
+        const ranged = { ...onSpray(), selEnd: { r: 4, c: 1 } };
         const one = run(ranged, [key("Escape")], dirty);
         expect(one.state.selEnd).toBeNull();
         expect(written(one)).toBeUndefined();
         const two = run(one.state, [key("Escape")], dirty);
-        expect(written(two)).toBe(PAINT);
-        const three = run(two.state, [key("Escape")], lensCtxOf(PAINT));
+        expect(written(two)).toBe(SPRAY);
+        const three = run(two.state, [key("Escape")], lensCtxOf(SPRAY));
         expect(three.state.tabs.active).toBeNull();
     });
 
     test("a double click renames — ⏎ commits a non-empty name, esc cancels; a drop reorders", () => {
-        const ctx = lensCtxOf(PAINT);
-        const started = run(onPaint(), [{ t: "tab.rename.start", id: "lathe" }, { t: "tab.rename.change", val: "  turning  " }], ctx);
-        expect(started.state.tabs).toMatchObject({ renaming: "lathe", renameVal: "  turning  " });
+        const ctx = lensCtxOf(SPRAY);
+        const started = run(onSpray(), [{ t: "tab.rename.start", id: "router" }, { t: "tab.rename.change", val: "  moulding  " }], ctx);
+        expect(started.state.tabs).toMatchObject({ renaming: "router", renameVal: "  moulding  " });
         const committed = run(started.state, [{ t: "tab.rename.commit" }], ctx);
-        expect(viewsOf(committed)![1]!.name).toBe("turning");
+        expect(viewsOf(committed)![1]!.name).toBe("moulding");
         expect(committed.state.tabs.renaming).toBeNull();
         const emptied = run(started.state, [{ t: "tab.rename.change", val: " " }, { t: "tab.rename.commit" }], ctx);
         expect(viewsOf(emptied)).toBeUndefined();
         const cancelled = run(started.state, [{ t: "tab.rename.cancel" }], ctx);
         expect(cancelled.state.tabs.renaming).toBeNull();
-        expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "lathe", to: 0 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
-        expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 2 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
-        expect(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 0 }], ctx).effects).toEqual([]);
+        expect(viewsOf(run(onSpray(), [{ t: "tab.reorder", id: "router", to: 0 }], ctx))!.map((v) => v.id)).toEqual(["router", "spray"]);
+        expect(viewsOf(run(onSpray(), [{ t: "tab.reorder", id: "spray", to: 2 }], ctx))!.map((v) => v.id)).toEqual(["router", "spray"]);
+        expect(run(onSpray(), [{ t: "tab.reorder", id: "spray", to: 0 }], ctx).effects).toEqual([]);
     });
 });
 
@@ -841,12 +841,12 @@ describe("grouped rows", () => {
     });
 
     test("a grouped sheet runs the lens and the view tabs too", () => {
-        const ctx = groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY, lensActive: true });
+        const ctx = groupedCtxOf({ views: VIEWS, narrowing: SPRAY, emptyNarrowing: EMPTY, lensActive: true });
         const revealed = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 1_000_001, to: 1_000_002, where: "all" }], ctx);
         expect([...revealed.state.lens.reveals]).toEqual([1_000_001, 1_000_002]);
-        const switched = run(initialSheetState(), [{ t: "tab.switch", id: "lathe" }], ctx);
-        expect(switched.state.tabs.active).toBe("lathe");
-        expect(written(switched)).toBe(LATHE);
+        const switched = run(initialSheetState(), [{ t: "tab.switch", id: "router" }], ctx);
+        expect(switched.state.tabs.active).toBe("router");
+        expect(written(switched)).toBe(ROUTER);
     });
 
     test("fold-all folds every group, the hidden ones too, and keeps the ring on its group; ⇧Space and ⌥ on a chevron go the way that band goes", () => {

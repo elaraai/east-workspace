@@ -35,19 +35,19 @@ export const editingApplyKeyed = example({
     fn: East.function([], DictType(StringType, KeyedJob), ($) => {
         const jobs = $.const(new Map([
             ["a", { task: "Cut", qty: 2n }],
-            ["c", { task: "Weld", qty: 1n }],
+            ["c", { task: "Glue", qty: 1n }],
         ]), DictType(StringType, KeyedJob));
         const cut = $.const(some({ task: "Cut", qty: 2n }), OptionType(KeyedJob));
         const cutMore = $.const(some({ task: "Cut", qty: 3n }), OptionType(KeyedJob));
-        const weld = $.const(some({ task: "Weld", qty: 1n }), OptionType(KeyedJob));
-        const paint = $.const(some({ task: "Paint", qty: 4n }), OptionType(KeyedJob));
+        const glue = $.const(some({ task: "Glue", qty: 1n }), OptionType(KeyedJob));
+        const spray = $.const(some({ task: "Spray", qty: 4n }), OptionType(KeyedJob));
         const absent = $.const(none, OptionType(KeyedJob));
         const batch = $.const({
             requestId: "keyed-request", base: variant("snapshot", jobs), label: "Edit jobs",
             changes: [
                 { id: "a", patch: East.diff(cut, cutMore), place: none },
-                { id: "b", patch: East.diff(absent, paint), place: some(variant("keyOrder", null)) },
-                { id: "c", patch: East.diff(weld, absent), place: none },
+                { id: "b", patch: East.diff(absent, spray), place: some(variant("keyOrder", null)) },
+                { id: "c", patch: East.diff(glue, absent), place: none },
             ],
         }, Editing.Types.ChangeSet(KeyedJob, StringType));
         const apply = $.const(Editing.apply(DictType(StringType, KeyedJob)));
@@ -56,7 +56,7 @@ export const editingApplyKeyed = example({
     inputs: [],
     returns: new Map([
         ["a", { task: "Cut", qty: 3n }],
-        ["b", { task: "Paint", qty: 4n }],
+        ["b", { task: "Spray", qty: 4n }],
     ]),
 });
 
@@ -67,18 +67,18 @@ export const editingApplyEntries = example({
         const TaskType = StructType({ id: StringType, task: StringType });
         const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
         const Entry = Editing.Types.Entry(PackageType, "tasks");
-        const before = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
-            { id: "t1", task: "Machine blanks" }, { id: "t2", task: "Inspect lots" },
+        const before = $.const(variant("group", { id: "p1", name: "C-18 nesting", tasks: [
+            { id: "t1", task: "Cut panels" }, { id: "t2", task: "Inspect batches" },
         ] }), Entry);
-        const after = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
-            { id: "t2", task: "Inspect lots" }, { id: "t1", task: "Machine blanks" },
+        const after = $.const(variant("group", { id: "p1", name: "C-18 nesting", tasks: [
+            { id: "t2", task: "Inspect batches" }, { id: "t1", task: "Cut panels" },
         ] }), Entry);
-        const loose = $.const(variant("row", { id: "t9", task: "Pack for shipping" }), Entry);
+        const loose = $.const(variant("row", { id: "t9", task: "Pack for delivery" }), Entry);
         const entries = $.const([before, loose], ArrayType(Entry));
         const oldEntry = $.const(some(before), OptionType(Entry));
         const newEntry = $.const(some(after), OptionType(Entry));
         const batch = $.const({
-            requestId: "reorder-roughing", base: variant("snapshot", entries), label: "Move a task",
+            requestId: "reorder-nesting", base: variant("snapshot", entries), label: "Move a task",
             changes: [{ id: "p1", patch: East.diff(oldEntry, newEntry), place: none }],
         }, Editing.Types.ChangeSet(Entry));
         const apply = $.const(Editing.apply(Entry, "id"));
@@ -89,5 +89,5 @@ export const editingApplyEntries = example({
         }));
     }),
     inputs: [],
-    returns: ["P-40 roughing: Inspect lots → Machine blanks", "Pack for shipping"],
+    returns: ["C-18 nesting: Inspect batches → Cut panels", "Pack for delivery"],
 });

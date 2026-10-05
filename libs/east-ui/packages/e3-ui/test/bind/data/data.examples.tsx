@@ -638,7 +638,7 @@ export const JobRow = StructType({ start: OptionType(DateTimeType), task: String
  */
 export const generateJobs = East.function([IntegerType], DictType(StringType, JobRow), ($, count) => {
     const day0 = $.const(new Date("2026-01-05T00:00:00Z"), DateTimeType);
-    const tasks = $.const(["Machining", "Painting", "Packaging"], ArrayType(StringType));
+    const tasks = $.const(["Routing", "Spraying", "Wrapping"], ArrayType(StringType));
     return East.Array.range(0n, count).toDict(
         (_$, i) => East.str`J${i.add(1_000n)}`,
         ($2, i) => $2.const({

@@ -107,7 +107,7 @@ function SheetTag(
  * export const BasicPlan = StructType({ jobs: ArrayType(BasicJob) });
  * export const sheetBasicPlans = e3.record("sheet_basic_plans", DictType(StringType, BasicPlan), new Map([
  *     ["week", { jobs: [
- *         { id: "j1", start: none, task: "Machining", qty: none },
+ *         { id: "j1", start: none, task: "Routing", qty: none },
  *     ] }],
  * ]));
  * export const sheetBasicPlansPatch = e3.mutation.patch(sheetBasicPlans);
