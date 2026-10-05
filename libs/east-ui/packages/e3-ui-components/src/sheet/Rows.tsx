@@ -9,14 +9,19 @@
  * And the SUB ROWS under a line (#844): read-only rows that share none of
  * the line's columns — a tree and a `{line}.{n}` index in the gutter, then
  * one grey well spanning the rest.
+ *
+ * Where the sheet takes drops (#1187), each row, line and band is a drop
+ * target and, when it moves, carries a grip in its gutter's actions column.
  */
 
-import { memo, useId, useLayoutEffect, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faAngleDown, faAngleUp, faArrowRight, faCheck, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faAngleDown, faAngleUp, faArrowRight, faCheck, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
-import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import {
+    getSomeorUndefined, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
+} from "@elaraai/east-ui-components";
 import { EastErrorBoundary } from "@elaraai/east-ui-components/internal";
 import {
     TITLE_KEY, cellIsBlank, cellText, driverKeyOf, isLinePosition, lineNumberOf, resolveMember,
@@ -30,6 +35,7 @@ import type { SheetCellValue, SheetNounValue, SheetRowValue, SheetSubRowValue } 
 import type { DraftPresentation } from "./draft-state.js";
 import type { SheetMembership } from "./membership.js";
 import { SheetInsertPoint } from "./Insertion.js";
+import type { SheetRowDrop } from "./drop.js";
 import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -117,6 +123,64 @@ function Rail({ styles, membership, picked, mixed, label, selectable, onPick }: 
 }
 
 /**
+ * A row's part in drag and drop (#1187): its drop cell on the sheet's surface
+ * — the seam the pointer's half picks, or the row itself for an author's
+ * card — and, when it moves, its grip, carrying a ghost that names it. With
+ * no drops, the row registers nothing and has no grip.
+ *
+ * @param self - The row's element
+ * @param drop - The sheet's drops, when it takes them
+ * @param dropRow - The row as its drop names it
+ * @param movable - Whether its grip moves it
+ * @param label - The row's name, as its gutter names it: what its ghost says, and the drag layer's announcements
+ * @param ghostCss - The ghost's style
+ * @returns The ref the row's element takes, and the grip's handle while it moves
+ */
+function useRowDrop(self: RefObject<HTMLDivElement | null>, drop: SheetRowDrop | undefined, dropRow: string | undefined, movable: boolean,
+    label: string, ghostCss: Record<string, unknown> | undefined): { ref: (el: HTMLDivElement | null) => void; grip: DragHandle | undefined } {
+    // Registered at its seam below — the drag-start sweep's question; where a drag rests, the pointer's half answers.
+    const coord = useMemo((): CellCoord | null => (drop !== undefined && dropRow !== undefined ? { surface: drop.surface, row: dropRow, slot: "after" } : null), [drop, dropRow]);
+    const resolveCoord = useCallback((_x: number, y: number, payload: DragPayload): CellCoord => {
+        const box = self.current?.getBoundingClientRect();
+        return { surface: drop?.surface ?? "", row: dropRow ?? "", slot: box === undefined || drop === undefined ? "" : drop.slotAt(payload, box, y) };
+    }, [self, drop, dropRow]);
+    const options = useMemo((): DropCellOptions | undefined => (drop === undefined ? undefined : {
+        ...drop.options,
+        onHover: (x, y, payload) => {
+            const el = self.current;
+            if (el !== null) drop.hover(el, resolveCoord(x, y, payload), payload);
+        },
+    }), [self, drop, resolveCoord]);
+    const cell = useDropCell(coord, false, drop?.canDrop, coord === null ? undefined : resolveCoord, options);
+    // One ref, two jobs: the row's own element, and the layer's registration.
+    const ref = useCallback((el: HTMLDivElement | null) => {
+        self.current = el;
+        cell(el);
+    }, [self, cell]);
+    const from = useMemo((): Required<CellCoord> | null => (coord !== null && movable ? { ...coord, slot: "", event: coord.row } : null), [coord, movable]);
+    const ghost = useMemo(() => <Box css={ghostCss} data-slot="dragGhost">{label}</Box>, [ghostCss, label]);
+    const grip = useDragEventChip(from, ghost, false, label);
+    return { ref, grip };
+}
+
+/**
+ * A row's grip (#1187, SB44): the handle a row, a line or a band is dragged
+ * to another seam by — the pointer's, and a touch's at once. Like every
+ * control in the grid it is out of the tab order (#860), and a press on it
+ * never picks the row.
+ */
+function Grip({ styles, grip, what }: { styles: Styles; grip: DragHandle; what: string }) {
+    const { m } = useSheetWords();
+    return (
+        <Box as="span" css={styles.rowGrip} data-slot="rowGrip" data-drag-grip="" {...grip} tabIndex={-1}
+            aria-label={m.dropGrip({ what })} title={m.dropGripTitle()}
+            onMouseDown={(event: MouseEvent) => { event.preventDefault(); event.stopPropagation(); }}>
+            <FontAwesomeIcon icon={faGripVertical} />
+        </Box>
+    );
+}
+
+/**
  * The per-row facts the row renderer is handed — primitives and references
  * that hold still, so the memo skips every row a gesture does not touch (#858).
  */
@@ -192,6 +256,12 @@ export interface SheetRowProps {
     sticky?: boolean | undefined;
     /** The line's group was just unfolded: it drops in, this far into the cascade. */
     entering?: number | undefined;
+    /** The sheet's drops (#1187): the row is a drop target — a builder's sheet; absent where the sheet takes none. */
+    drop?: SheetRowDrop | undefined;
+    /** The row as its drop names it — `SheetDropRowType`, printed. */
+    dropRow?: string | undefined;
+    /** Its grip moves it (SB44). */
+    movable?: boolean | undefined;
 }
 
 /** Renders one row. */
@@ -211,9 +281,16 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
     const groupName = group === undefined ? undefined : groupTitle?.type === "String" ? groupTitle.value : group.row.id;
     const driverKey = driverKeyOf(row, driverColumn);
     const hasFills = fills !== undefined && fills.size > 0;
+    // The row as its grip's name says it — `row 3`, `line 2 of WO-2201 · Kitchen, oak` — and as its gutter names it, what its ghost and the announcements say.
+    const noun = props.noun?.singular ?? m.groupNoun();
+    const what = group !== undefined
+        ? m.inspectorWhat({ what: "line", number: String(number), title: groupTitle?.type === "String" && groupTitle.value !== "" ? groupTitle.value : undefined, noun })
+        : m.inspectorWhat({ what: "row", number: String(number), title: undefined, noun });
+    const label = groupName !== undefined ? m.lineName({ number: String(number), group: groupName }) : m.rowName({ number: String(number) });
+    const { ref: rowRef, grip } = useRowDrop(self, props.drop, props.dropRow, props.movable === true && !rowBlank, label, styles.dragGhost);
     return (
         <Box
-            ref={self}
+            ref={rowRef}
             css={styles.row}
             style={{ gridTemplateColumns: gridTemplate, minHeight: `${rowPx}px` }}
             data-slot={props.sticky === true ? "stickyLine" : "row"}
@@ -266,6 +343,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                     {number}
                 </Box>
                 <Box css={styles.gutterAction} data-slot="fillSlot">
+                    {grip !== undefined && <Grip styles={styles} grip={grip} what={what} />}
                     {hasFills && (
                         <Box
                             as="span"
@@ -814,6 +892,12 @@ export interface SheetGroupRowProps {
     draft?: DraftPresentation | undefined;
     /** Discard a never-applied group as an undoable gesture — the group's id. */
     onDiscard?: ((id: string) => void) | undefined;
+    /** The sheet's drops (#1187): the band is a drop target — a builder's sheet; absent where the sheet takes none. */
+    drop?: SheetRowDrop | undefined;
+    /** The band as its drop names it — `SheetDropRowType`, printed. */
+    dropRow?: string | undefined;
+    /** Its grip moves the group (SB44). */
+    movable?: boolean | undefined;
 }
 
 /** Renders one full-width summary with a fold control and independent metadata. */
@@ -836,8 +920,13 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     // group and its lines, the title is its first cell — the sub line that
     // cell's description — and each band cell a cell under its column.
     const subId = useId();
+    // The band as a drop target, and its group's grip (#1187): `Move order 2`, its ghost the group's title.
+    const self = useRef<HTMLDivElement | null>(null);
+    const what = m.inspectorWhat({ what: "band", number: String(props.number), title: title !== "" ? title : undefined, noun: word });
+    const { ref: bandRef, grip } = useRowDrop(self, props.drop, props.dropRow, props.movable === true, title !== "" ? title : what, styles.dragGhost);
     return (
         <Box
+            ref={bandRef}
             css={styles.groupRow}
             style={{ gridTemplateColumns: gridTemplate, minHeight: `${bandPx}px` }}
             data-slot={sticky === true ? "stickyBand" : "row"}
@@ -867,6 +956,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     label={m.groupSelect({ noun: word, title })} onPick={(event) => props.onRowPick(r, event)} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{props.number}</Box>
                 <Box css={styles.gutterAction} data-slot="fillSlot">
+                    {grip !== undefined && <Grip styles={styles} grip={grip} what={what} />}
                     {props.draft?.discardable && <chakra.button
                         type="button" css={styles.gutterButton} tabIndex={-1}
                         data-slot="discardDraft" data-kind="discard" aria-label={m.groupDiscard({ noun: word })} title={m.groupDiscard({ noun: word })}

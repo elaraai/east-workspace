@@ -28,7 +28,10 @@
  *   library lists no Rows tab.
  *
  * Template cards drag from the library `${sheetKeys(id).library}:rows` names,
- * an author's tab's from `…:tab:<its name>`.
+ * an author's tab's from `…:tab:<its name>` ({@link templatesLibrary},
+ * {@link tabLibrary}) — the libraries the sheet takes drops from (#1187). A
+ * draggable card's ⏎ is the sheet's: the card, dropped below the ring's row
+ * (SB45).
  *
  * @packageDocumentation
  */
@@ -39,6 +42,7 @@ import { Sheet, type SheetBuilderPayloadType, type sheetKeys } from "@elaraai/e3
 import {
     EastChakraLibrary, getSomeorUndefined, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
 } from "@elaraai/east-ui-components";
+import { useSheetDropEnter } from "../index.js";
 import type { SheetLibraryTabWord } from "../messages.js";
 import { TITLE_KEY, cellIsBlank, cellText, indexColumns, indexGroup, type SheetColumnIndex, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
@@ -137,6 +141,27 @@ function authorTabKey(tab: SheetAuthorTabValue): string {
 }
 
 /**
+ * The library a builder's templates drag from — the Rows tab's (#1187).
+ *
+ * @param keys - The builder's keys
+ * @returns The library's id
+ */
+export function templatesLibrary(keys: SheetKeys): string {
+    return `${keys.library}:rows`;
+}
+
+/**
+ * The library an author's tab's cards drag from (#1187).
+ *
+ * @param keys - The builder's keys
+ * @param tab - The author's tab
+ * @returns The library's id
+ */
+export function tabLibrary(keys: SheetKeys, tab: SheetAuthorTabValue): string {
+    return `${keys.library}:${authorTabKey(tab)}`;
+}
+
+/**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
  * @param props - The payload, the builder's keys, the columns hidden and their toggle, and the words
@@ -156,10 +181,13 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
     const noun = useCallback((tab: SheetLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: SheetLibraryTabWord, name: string) => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
 
+    // A draggable card's ⏎: the card, dropped below the ring's row (SB45).
+    const enter = useSheetDropEnter();
+
     // ── Rows: the templates, by their group (SB33) ──────────────────────
     const templates = value.templates;
     const rows = useMemo((): LibraryValue => ({
-        id: `${keys.library}:rows`,
+        id: templatesLibrary(keys),
         hint: none,
         items: templates.map((template) => {
             const category = getSomeorUndefined(template.group);
@@ -193,7 +221,7 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
         variant: none,
         layout: none,
         toolbar: true,
-    }), [keys.library, templates, columns, group, keyed, words, m, noun]);
+    }), [keys, templates, columns, group, keyed, words, m, noun]);
 
     // ── Columns: each with its kind and an eye (SB36) ───────────────────
     const shown = columns.list.filter((col) => !hidden.has(col.key)).length;
@@ -257,7 +285,7 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
         const chosen = picked.get(tabKey);
         const icon = getSomeorUndefined(tab.icon);
         return [tabKey, {
-            id: `${keys.library}:${tabKey}`,
+            id: tabLibrary(keys, tab),
             hint: none,
             items: tab.cards.map((c) => {
                 const meta = getSomeorUndefined(c.meta);
@@ -292,15 +320,16 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
             layout: none,
             toolbar: true,
         }];
-    })), [authorTabs, picked, keys.library, m, noun, onAuthorCard]);
+    })), [authorTabs, picked, keys, m, noun, onAuthorCard]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (SB59).
         if (value.library.length === 0) return undefined;
         const tabs = value.library.map((tab) => {
             if (tab.type === "rows") {
+                const onEnter = (key: string) => enter(templatesLibrary(keys), key);
                 return { key: "rows", label: m.libraryTab({ tab: "rows" }), count: words.number(rows.items.length),
-                    body: <EastChakraLibrary value={rows} storageKey={`${keys.library}.rows`} empty={empty("rows", "")} /> };
+                    body: <EastChakraLibrary value={rows} storageKey={`${keys.library}.rows`} empty={empty("rows", "")} onCardEnter={onEnter} /> };
             }
             if (tab.type === "columns") {
                 return { key: "columns", label: m.libraryTab({ tab: "columns" }), count: words.number(columnCards.items.length),
@@ -308,8 +337,10 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
             }
             const tabKey = authorTabKey(tab.value);
             const library = authorLibraries.get(tabKey)!;
+            // A tab whose cards drop takes their ⏎ too; another's cards click on it.
+            const onEnter = tab.value.drop.type === "some" ? (key: string) => enter(tabLibrary(keys, tab.value), key) : undefined;
             return { key: tabKey, label: tab.value.name, count: words.number(library.items.length),
-                body: <EastChakraLibrary value={library} storageKey={`${keys.library}.${tabKey}`} empty={empty("tab", tab.value.name)} /> };
+                body: <EastChakraLibrary value={library} storageKey={`${keys.library}.${tabKey}`} empty={empty("tab", tab.value.name)} onCardEnter={onEnter} /> };
         });
         // Collapsed, the rail counts the templates — or, with no Rows tab, the first tab's cards.
         const listsRows = value.library.some((tab) => tab.type === "rows");
@@ -321,5 +352,5 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
             persist: "local",
             tabs,
         };
-    }, [value.library, m, words, templates.length, rows, columnCards, authorLibraries, keys.library, empty]);
+    }, [value.library, m, words, templates.length, rows, columnCards, authorLibraries, keys, empty, enter]);
 }

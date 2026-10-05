@@ -36,6 +36,7 @@ describeEast("Sheet.Builder examples", (test) => {
         sheetBuilderLibrary: ex.sheetBuilderLibrary,
         sheetBuilderWorkshop: ex.sheetBuilderWorkshop,
         sheetBuilderWeeks: ex.sheetBuilderWeeks,
+        sheetBuilderBatches: ex.sheetBuilderBatches,
         sheetBuilderPaged: ex.sheetBuilderPaged,
     });
 }, { platformFns: TestImpl });
@@ -63,9 +64,11 @@ describe("the payload (SB12)", () => {
         });
     });
 
-    test("the keys a builder keeps its viewer's state under follow its name", () => {
-        assert.deepEqual(sheetKeys(undefined), { frame: "sheet.builder.frame", columns: "sheet.builder.columns", library: "sheet.library" });
-        assert.deepEqual(sheetKeys("orders"), { frame: "sheet.builder.orders.frame", columns: "sheet.builder.orders.columns", library: "sheet.library.orders" });
+    test("the keys a builder keeps its viewer's state under, and its sheet's drop target, follow its name", () => {
+        assert.deepEqual(sheetKeys(undefined), { frame: "sheet.builder.frame", columns: "sheet.builder.columns", library: "sheet.library", surface: "sheet.builder.sheet" });
+        assert.deepEqual(sheetKeys("orders"), {
+            frame: "sheet.builder.orders.frame", columns: "sheet.builder.orders.columns", library: "sheet.library.orders", surface: "sheet.builder.orders.sheet",
+        });
     });
 
     test("a column built over another type than the record's entries fails to compile (SB8)", () => {

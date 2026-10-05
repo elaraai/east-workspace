@@ -9,18 +9,19 @@
  * installs, over the builder examples' records held in memory, whose patch
  * door applies each patch with East's own checks. A test file calls
  * {@link builderHarness} once, at its top, and mounts builders as a surface
- * does.
+ * does: under the page's drag layer when it drags (#1187).
  *
  * @packageDocumentation
  */
 
+import type { ReactNode } from "react";
 import { beforeEach, afterEach } from "vitest";
 import { act, cleanup, render, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { PatchType, applyFor, encodeBeast2For, type EastIR, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 import type { SheetBuilderPayloadType } from "@elaraai/e3-ui/internal";
-import { EastChakraComponent, I18nProvider, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { DragLayerProvider, EastChakraComponent, I18nProvider, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
 import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
@@ -112,7 +113,7 @@ export function builderHarness(): BuilderHarness {
         harness.cache.setScheduler((notify) => queueMicrotask(notify));
         initializeReactiveDatasetCache(harness.cache);
         harness.memory = createInMemoryRecordApi(harness.cache, WORKSPACE, [
-            patchable(ex.sheetBuilderJobs), patchable(ex.sheetBuilderPlans), patchable(ex.sheetBuilderOrders),
+            patchable(ex.sheetBuilderJobs), patchable(ex.sheetBuilderPlans), patchable(ex.sheetBuilderOrders), patchable(ex.sheetBuilderDays),
             { name: ex.sheetBuilderMachines.name, stateType: ex.sheetBuilderMachines.type, initial: ex.sheetBuilderMachines.default!, mutations: [] },
         ]);
         initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
@@ -139,38 +140,45 @@ export async function settle() {
     });
 }
 
+/** How a test mounts a builder: under the page's drag layer, as a surface that drags does (#1187). */
+export interface MountOptions {
+    /** Mount the page's drag layer around it. */
+    drag?: boolean | undefined;
+}
+
+/** The page around a builder: the theme, the locale, and the drag layer when it drags. */
+function page(children: ReactNode, options: MountOptions): ReactNode {
+    return (
+        <ChakraProvider value={system}>
+            <I18nProvider locale="en-US">
+                {options.drag === true ? <DragLayerProvider>{children}</DragLayerProvider> : children}
+            </I18nProvider>
+        </ChakraProvider>
+    );
+}
+
 /**
  * Mounts an example of the builder's, as a surface does.
  *
  * @param example - The example
+ * @param options - Whether the page holds a drag layer
  * @returns The render
  */
-export function mount(example: { fn: { toIR(): unknown } }): RenderResult {
+export function mount(example: { fn: { toIR(): unknown } }, options: MountOptions = {}): RenderResult {
     // An example's `fn` erases its output type at the package boundary; the builder's examples are UI components.
     const program = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
-    return render(
-        <ChakraProvider value={system}>
-            <I18nProvider locale="en-US">
-                <EastChakraComponent value={program()} storageKey="sheet-builder" />
-            </I18nProvider>
-        </ChakraProvider>,
-    );
+    return render(page(<EastChakraComponent value={program()} storageKey="sheet-builder" />, options));
 }
 
 /**
  * Mounts a builder's payload as given.
  *
  * @param value - The payload
+ * @param options - Whether the page holds a drag layer
  * @returns The render
  */
-export function mountPayload(value: Payload): RenderResult {
-    return render(
-        <ChakraProvider value={system}>
-            <I18nProvider locale="en-US">
-                <EastChakraSheetBuilder value={value} storageKey="sheet-builder" />
-            </I18nProvider>
-        </ChakraProvider>,
-    );
+export function mountPayload(value: Payload, options: MountOptions = {}): RenderResult {
+    return render(page(<EastChakraSheetBuilder value={value} storageKey="sheet-builder" />, options));
 }
 
 /**

@@ -16,8 +16,9 @@ import e3 from "@elaraai/e3";
 // a sheet, in BuilderFrame with a library and an inspector beside it.
 // `sheetBuilder` is the smallest (§3.2), `sheetBuilderLibrary` a library of
 // the author's own (§4.4), `sheetBuilderWorkshop` the joinery workshop's
-// orders (§3.3), `sheetBuilderWeeks` one entry's rows and `sheetBuilderPaged`
-// a record read a window at a time (§3.4).
+// orders (§3.3), `sheetBuilderWeeks` one entry's rows, `sheetBuilderBatches`
+// one entry's groups in the planner's order, dragged and moved (#1187), and
+// `sheetBuilderPaged` a record read a window at a time (§3.4).
 //
 // Every record is seeded with an authored literal (§2a), so each pane of the
 // builder has something in it from the first: the sheet its rows, the
@@ -491,6 +492,73 @@ export const sheetBuilderWeeks = example({
                         />
                     </Box>
                 </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// sheetBuilderBatches — one entry's groups, in the planner's order (#1187)
+// ============================================================================
+
+/** A batch's step — what is done to it, and how many. */
+export const BuilderStep = StructType({ task: StringType, qty: OptionType(FloatType) });
+/** A batch — its id, its name, and its steps in order. */
+export const BuilderBatch = StructType({ id: StringType, name: StringType, steps: ArrayType(BuilderStep) });
+/** One day's batches, in the planner's order. */
+export const BuilderDay = StructType({ batches: ArrayType(BuilderBatch) });
+/** The days, keyed by date. */
+export const sheetBuilderDays = e3.record("sheet_builder_days", DictType(StringType, BuilderDay), new Map([
+    ["2026-10-12", { batches: [
+        { id: "B-101", name: "Doors, oak", steps: [{ task: "Cut doors", qty: some(12.0) }, { task: "Band doors", qty: some(48.0) }, { task: "Spray doors", qty: some(12.0) }] },
+        { id: "B-102", name: "Carcasses, birch", steps: [{ task: "Cut carcasses", qty: some(8.0) }, { task: "Drill carcasses", qty: some(8.0) }] },
+        { id: "B-103", name: "Shelves, ash", steps: [{ task: "Cut shelves", qty: some(20.0) }, { task: "Sand shelves", qty: some(20.0) }] },
+    ] }],
+]));
+/** The days' patch door — every Apply commits through it. */
+export const sheetBuilderDaysPatch = e3.mutation.patch(sheetBuilderDays);
+
+/**
+ * One day's batches, in the planner's order (#1187, SB39, SB40, SB44) — a
+ * grouped sheet over one entry's groups, each batch a group of its steps. A
+ * template dragged from the library lands on the seam it is dropped on — a
+ * step into the batch under the pointer, a whole batch between two — and a
+ * grip moves a step within its batch or into another, or a whole batch to
+ * another place in the day.
+ */
+export const sheetBuilderBatches = example({
+    keywords: ["Sheet", "Builder", "Sheet.Builder", "drag", "drop", "move", "grip", "seam", "templates", "group", "entry", "order", "Sheet.library.rows"],
+    description: "A sheet builder over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const days = $.let(Record.bind(sheetBuilderDays, [sheetBuilderDaysPatch]));
+            // The steps a finishing batch starts with: the batch template's lines.
+            const finishing = $.let([
+                { task: "Sand", qty: none },
+                { task: "Seal", qty: none },
+                { task: "Spray", qty: none },
+            ], ArrayType(BuilderStep));
+            return (
+                <Box height="560px">
+                    <Sheet.Builder
+                        record={days}
+                        entry={{ key: "2026-10-12", rows: "batches", id: "id" }}
+                        group={Sheet.group(BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } })}
+                        id="batches"
+                        columns={{
+                            task: Sheet.column.text(BuilderStep, { header: "Step", width: "240px" }),
+                            qty:  Sheet.column.quantity(BuilderStep, { header: "Qty", width: "96px" }),
+                        }}
+                        templates={{
+                            groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
+                                       values: Sheet.patch(BuilderBatch, { name: "Finishing", steps: finishing }) }],
+                            rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Sand", qty: none }) },
+                                     { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Seal", qty: none }) }],
+                        }}
+                        library={[Sheet.library.rows(), Sheet.library.columns()]}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),
