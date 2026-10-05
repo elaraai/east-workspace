@@ -353,7 +353,7 @@ export interface SheetMessages extends EditingMessages {
     halfLabel: (p: { half: SheetHalfWord }) => string;
     /** A live half's title. */
     halfTitle: (p: { half: SheetHalfWord }) => string;
-    /** A locked half's title — `Machining has no source · in place`. */
+    /** A locked half's title — `Routing has no source · in place`. */
     halfNone: (p: { driver: string; half: SheetHalfWord; lock: string | undefined }) => string;
     /** The row whose driver says nothing, in a message about it. */
     thisRow: () => string;
@@ -363,7 +363,7 @@ export interface SheetMessages extends EditingMessages {
     unassigned: () => string;
     /** A range's span — `6 machines`. */
     rangeSpan: (p: { n: number; count: string; kind: string | undefined }) => string;
-    /** A range candidate's meta — `→ 6 machines: M2140, …`. */
+    /** A range candidate's meta — `→ 6 machines: R2140, …`. */
     candidateRange: (p: { n: number; count: string; kind: string; names: string }) => string;
     /** The enumerate alternative's meta. */
     candidateEnumerate: (p: { n: number; count: string }) => string;
@@ -377,7 +377,7 @@ export interface SheetMessages extends EditingMessages {
     grammarCounted: () => string;
     /** A range, in the grammar line. */
     grammarRange: () => string;
-    /** The arity line (B§4.6) — `4 × CNC lathe implied · 3 named so far`. */
+    /** The arity line (B§4.6) — `4 × CNC router implied · 3 named so far`. */
     arity: (p: { count: string; key: string; named: string; state: SheetArityWord }) => string;
     /** The `exists` check's flag. */
     notInRegister: (p: { key: string }) => string;
@@ -405,7 +405,7 @@ export interface SheetMessages extends EditingMessages {
     detailTitle: (p: { when: string; text: string; tag: string; words: string }) => string;
 
     // ── What each gesture leaves (the footer's message) ────────────────────
-    /** A row, as a message names it — `row 4`, `line 3 of Line 2 week 8`. */
+    /** A row, as a message names it — `row 4`, `line 3 of Bay 2 week 8`. */
     rowRef: (p: { line: boolean; number: string; title: string | undefined; noun: string }) => string;
     /** A group opened. */
     noticeGroupOpened: (p: { noun: string }) => string;

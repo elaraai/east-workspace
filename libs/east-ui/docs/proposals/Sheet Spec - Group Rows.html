@@ -28,8 +28,8 @@
 
   Sheet — the interactive prototype (the visual AND behavioural ground truth for the east-ui Sheet component).
   Sanitised from the claude.ai/design prototype "Smart Planning Grid.dc.html" (project 6135ef4f, 8 Sep 2026):
-  the client domain was genericised to a discrete manufacturing plant (activities, machines, lines, families,
-  sites, an ERP) and the registers and plan rows were regenerated as synthetic fixtures.
+  its domain is a joinery workshop (activities, machines, bays, families,
+  sites, an ERP), and the registers and plan rows are synthetic fixtures.
   Companions: Sheet Behaviour.html (the rule-by-rule contract, §1–§13), Sheet Link Cell Options.html
   (the link-cell alternatives), Sheet Spec.md (the east-ui code design + DX).
 
@@ -2254,7 +2254,7 @@ a:hover { color: var(--link-hover); text-decoration: underline; text-underline-o
 <div onKeyDown="{{ onHistoryKey }}" data-screen-label="Production planning sheet — flat group rows" style="height:100vh; display:flex; flex-direction:column; font-family:var(--font-body); color:var(--ink); background:var(--paper-2); overflow:hidden;">
   <div style="height:46px; flex:none; display:flex; align-items:center; gap:16px; padding:0 20px; background:var(--paper); border-bottom:1px solid var(--rule-strong);">
     <span style="font-family:var(--font-brand); font-weight:600; font-size:14px; letter-spacing:-0.01em;">Production planning <span style="font-family:var(--font-mono); font-size:9px; font-weight:400; letter-spacing:0.06em; color:var(--ink-4); margin-left:10px;">GUTTER RAIL</span></span>
-    <span style="font-family:var(--font-mono); font-size:11px; letter-spacing:0.06em; color:var(--ink-4);">PLANNING <span style="color:var(--ink-5);">/</span> WORK ORDERS <span style="color:var(--ink-5);">/</span> <span style="color:var(--ink); font-weight:600;">P-40 · Q3</span></span>
+    <span style="font-family:var(--font-mono); font-size:11px; letter-spacing:0.06em; color:var(--ink-4);">PLANNING <span style="color:var(--ink-5);">/</span> WORK ORDERS <span style="color:var(--ink-5);">/</span> <span style="color:var(--ink); font-weight:600;">C-18 · Q3</span></span>
     <span style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.08em; color:var(--ink-4); text-transform:uppercase;"><span style="width:6px; height:6px; border-radius:var(--r-full); background:var(--pos);"></span>ERP sync · 4 m ago</span>
   </div>
   <div style="flex:none; display:flex; align-items:center; gap:12px; padding:8px 20px; background:var(--paper); border-bottom:1px solid var(--rule-strong);">
@@ -2555,7 +2555,7 @@ class Component extends DCLogic {
     { key: 'activity',  label: 'Activity',        sub: 'activity register',                type: 'lookup',    of: 'activities' },
     { key: 'qty',       label: 'Qty',             sub: 'uom per activity',           type: 'quantity',  uomFrom: 'activity' },
     { key: 'notes',     label: 'Notes',           sub: 'free text',                  type: 'text' },
-    { key: 'stations',  label: 'Work centres',    sub: 'from → to · 4 x lathe · machine · line', type: 'link', of: 'stations',
+    { key: 'stations',  label: 'Work centres',    sub: 'from → to · 4 x router · machine · bay', type: 'link', of: 'stations',
       arity: { of: 'destination', from: 'qty', per: 'family' },
       // Which member kinds exist, and which of them may carry a count. An
       // IDENTIFIED member names a machine; a COUNTED one names how many of a kind
@@ -2563,7 +2563,7 @@ class Component extends DCLogic {
       members: [
         { kind: 'machine',  identified: true,  countable: false },
         { kind: 'range',    identified: true,  countable: false },
-        { kind: 'line',     identified: false, countable: true, resolvesTo: 'machine' },
+        { kind: 'bay',      identified: false, countable: true, resolvesTo: 'machine' },
         { kind: 'family',   identified: false, countable: true, resolvesTo: 'machine' },
       ],
       multiple: { forms: ['N x kind', 'kind x N'], ops: ['x', 'X', '*', '×'], appliesTo: 'countable' },
@@ -2586,24 +2586,24 @@ class Component extends DCLogic {
   // from (parts leave the site), to (parts arrive), in (work done in place). It is
   // register data — planners never set it, the cell just locks the half that does not apply.
   static ACTS = [
-    { name: 'Machining', uom: 'pcs', rate: 60, fte: 2, days: 4, sides: 'both' },
-    { name: 'Machining - Roughing', uom: 'pcs', rate: 80, fte: 2, days: 4, sides: 'both' },
+    { name: 'Routing', uom: 'pcs', rate: 60, fte: 2, days: 4, sides: 'both' },
+    { name: 'Routing - Nesting', uom: 'pcs', rate: 80, fte: 2, days: 4, sides: 'both' },
     { name: 'Assembly', uom: 'units', rate: 30, fte: 3, days: 4, sides: 'both' },
     { name: 'Sub-assembly', uom: 'units', rate: 45, fte: 2, days: 4, sides: 'both' },
-    { name: 'Painting', uom: 'pcs', rate: 50, fte: 3, days: 4, sides: 'both' },
-    { name: 'Painting - Primer', uom: 'pcs', rate: 70, fte: 2, days: 4, sides: 'both' },
-    { name: 'Packaging', uom: 'cartons', rate: 120, fte: 1, days: 3, sides: 'both' },
-    { name: 'Deburring', uom: 'pcs', rate: 90, fte: 1, days: 3, sides: 'both' },
-    { name: 'Heat treatment', uom: 'pcs', rate: 40, fte: 2, days: 3, sides: 'both' },
+    { name: 'Spraying', uom: 'pcs', rate: 50, fte: 3, days: 4, sides: 'both' },
+    { name: 'Spraying - Sealer', uom: 'pcs', rate: 70, fte: 2, days: 4, sides: 'both' },
+    { name: 'Wrapping', uom: 'cartons', rate: 120, fte: 1, days: 3, sides: 'both' },
+    { name: 'Denibbing', uom: 'pcs', rate: 90, fte: 1, days: 3, sides: 'both' },
+    { name: 'Kiln drying', uom: 'pcs', rate: 40, fte: 2, days: 3, sides: 'both' },
     { name: 'Rework', uom: 'pcs', rate: 20, fte: 2, days: 3, sides: 'in' },
-    { name: 'Inspection', uom: 'lots', rate: 4, fte: 2, days: 4, sides: 'in' },
+    { name: 'Inspection', uom: 'batches', rate: 4, fte: 2, days: 4, sides: 'in' },
     { name: 'Calibration', uom: 'machines', rate: 2, fte: 2, days: 4, sides: 'in' },
-    { name: 'Changeover', uom: 'h', rate: 1, fte: 1, days: 1, sides: 'in' },
-    { name: 'Receiving', uom: 'pallets', rate: 20, fte: 1, days: 1, sides: 'to' },
-    { name: 'Shipping', uom: 'pallets', rate: 20, fte: 1, days: 1, sides: 'from' },
+    { name: 'Set-up', uom: 'h', rate: 1, fte: 1, days: 1, sides: 'in' },
+    { name: 'Intake', uom: 'pallets', rate: 20, fte: 1, days: 1, sides: 'to' },
+    { name: 'Delivery', uom: 'pallets', rate: 20, fte: 1, days: 1, sides: 'from' },
     { name: 'Maintenance', uom: 'h', rate: 1, fte: 1, days: 1, sides: 'in' },
   ];
-  static SITES = ['NP-North plant', 'SP-South plant', 'EP-East plant', 'WP-West plant', 'CS-Central store', 'RD-River depot', 'HB-Harbour bay', 'HS-Hill site'];
+  static SITES = ['MS-Machine shop', 'BR-Bench room', 'SP-Spray shop', 'FS-Fitting shop', 'BS-Board store', 'TY-Timber yard', 'VS-Van store', 'SS-Site store'];
   static STATUSES = [
     { w: 'PLANNED', c: 'var(--ink-4)' },
     { w: 'RELEASED', c: 'var(--brand-d)' },
@@ -2611,29 +2611,29 @@ class Component extends DCLogic {
     { w: 'COMPLETE', c: 'var(--pos)' },
     { w: 'CANCELLED', c: 'var(--neg)' },
   ];
-  static MACHINES = ['M1104|120 t press|Line 1', 'M1120|120 t press|Line 1', 'M2140|CNC lathe|Line 2', 'M2141|CNC lathe|Line 2', 'M2142|CNC lathe|Line 2', 'M2145|CNC lathe|Line 2', 'M2150|CNC lathe|Line 2', 'M2151|CNC lathe|Line 2', 'M2160|CNC lathe|Line 2', 'M2162|CNC lathe|Line 2', 'M3210|5-axis mill|Line 3', 'M3215|5-axis mill|Line 3', 'M5010|gantry mill|Line 5', 'M5011|gantry mill|Line 5', 'M7301|assembly bench|Line 7', 'M7302|assembly bench|Line 7', 'M7305|assembly bench|Line 7', 'M7310|assembly bench|Line 7', 'M7311|assembly bench|Line 7', 'M7320|assembly bench|Line 7', 'M7322|assembly bench|Line 7', 'M8001|test rig|Line 8'].map(function (s) { const p = s.split('|'); return { code: p[0], family: p[1], line: p[2] }; });
-  static LINES = [
-    { code: 'L2', name: 'Line 2', n: 96, al: ['line 2', 'l2', 'the 2 line'] },
-    { code: 'L1', name: 'Line 1', n: 24, al: ['line 1', 'l1'] },
-    { code: 'L3', name: 'Line 3', n: 40, al: ['line 3', 'l3'] },
-    { code: 'L5', name: 'Line 5', n: 18, al: ['line 5', 'l5'] },
-    { code: 'L7', name: 'Line 7', n: 72, al: ['line 7', 'l7'] },
-    { code: 'L8', name: 'Line 8', n: 12, al: ['line 8', 'l8'] },
+  static MACHINES = ['S1104|3 m beam saw|Bay 1', 'S1120|3 m beam saw|Bay 1', 'R2140|CNC router|Bay 2', 'R2141|CNC router|Bay 2', 'R2142|CNC router|Bay 2', 'R2145|CNC router|Bay 2', 'R2150|CNC router|Bay 2', 'R2151|CNC router|Bay 2', 'R2160|CNC router|Bay 2', 'R2162|CNC router|Bay 2', 'P3210|4-side planer|Bay 3', 'P3215|4-side planer|Bay 3', 'E5010|edge bander|Bay 5', 'E5011|edge bander|Bay 5', 'A7301|assembly bench|Bay 7', 'A7302|assembly bench|Bay 7', 'A7305|assembly bench|Bay 7', 'A7310|assembly bench|Bay 7', 'A7311|assembly bench|Bay 7', 'A7320|assembly bench|Bay 7', 'A7322|assembly bench|Bay 7', 'F8001|spray booth|Bay 8'].map(function (s) { const p = s.split('|'); return { code: p[0], family: p[1], bay: p[2] }; });
+  static BAYS = [
+    { code: 'B2', name: 'Bay 2', n: 96, al: ['bay 2', 'b2', 'the 2 bay'] },
+    { code: 'B1', name: 'Bay 1', n: 24, al: ['bay 1', 'b1'] },
+    { code: 'B3', name: 'Bay 3', n: 40, al: ['bay 3', 'b3'] },
+    { code: 'B5', name: 'Bay 5', n: 18, al: ['bay 5', 'b5'] },
+    { code: 'B7', name: 'Bay 7', n: 72, al: ['bay 7', 'b7'] },
+    { code: 'B8', name: 'Bay 8', n: 12, al: ['bay 8', 'b8'] },
     { code: 'CA', name: 'Cell A', n: 150, al: ['cell a', 'a cell', 'the a cell'] },
     { code: 'GIN', name: 'Goods in', n: 36, al: ['goods in', 'inbound'] },
-    { code: 'FH1', name: 'Finishing hall', n: 64, al: ['finishing', 'finishing hall'] },
-    { code: 'PKL', name: 'Pack line', n: 20, al: ['pack', 'packing'] },
-    { code: 'TB', name: 'Test bay', n: 9, al: ['test bay', 'the test bay', 'bay'] },
+    { code: 'FR1', name: 'Finishing room', n: 64, al: ['finishing', 'finishing room'] },
+    { code: 'WRB', name: 'Wrap bench', n: 20, al: ['wrap', 'wrapping'] },
+    { code: 'DF', name: 'Dry-fit area', n: 9, al: ['dry-fit area', 'the dry-fit area', 'dry fit'] },
   ];
   // A family is a countable-by-attribute kind: one member per distinct machine family,
-  // with the spellings a planner types ("lathe", "120t").
+  // with the spellings a planner types ("router", "3m").
   static FAMILIES = [
-    { name: 'CNC lathe', al: ['lathe', 'lathes', 'cnc'] },
-    { name: '5-axis mill', al: ['mill', 'mills', '5 axis', '5axis'] },
-    { name: '120 t press', al: ['press', 'presses', '120t', '120 t'] },
+    { name: 'CNC router', al: ['router', 'routers', 'cnc'] },
+    { name: '4-side planer', al: ['planer', 'planers', '4 side', '4side'] },
+    { name: '3 m beam saw', al: ['saw', 'saws', '3m', '3 m'] },
     { name: 'assembly bench', al: ['bench', 'benches'] },
-    { name: 'gantry mill', al: ['gantry'] },
-    { name: 'test rig', al: ['rig', 'rigs'] },
+    { name: 'edge bander', al: ['bander'] },
+    { name: 'spray booth', al: ['booth', 'booths'] },
   ];
   static PLANS = [
     { id:'pilot', code:'A', name:'Pilot build' },
@@ -2655,23 +2655,23 @@ class Component extends DCLogic {
          planId: ({1:'pilot',2:'pilot',3:'pilot',4:'pilot',5:'summer',6:'summer',7:'summer',8:'summer',9:'summer',10:'finish',11:'finish'})[id] || null });
     this.state = {
       rows: [
-        R('2026-02-09', '2026-02-09', 'Maintenance', 6, 'Service the line 2 lathes', 'M2140, M2141', '', '', 'PLANNED', 20),
-        { id:90, kind:'plan', planId:'pilot', name:'P-40 · Pilot build', start:'2026-02-16', end:'2026-04-24', owner:'North plant', status:'APPROVED' },
-        R('2026-02-16', '2026-02-20', 'Machining - Roughing', 1200, 'Rough 1,200 P-40 blanks on 4 lathes for the Q3 build', 'M2140, M2141, M2145, M2150', 4, 'WO-26001', 'RELEASED', 1),
-        R('2026-02-16', '2026-02-20', 'Inspection', 4, 'Inspect the 4 roughing lots at the south plant', '4 x lathe', '', 'WO-26002', 'RELEASED', 2),
-        R('2026-03-09', '2026-03-13', 'Assembly', 280, 'Assemble 280 units on line 7', 'M2151, M2160 > M7301, M7302', '', 'WO-26003', 'RELEASED', 3),
-        R('2026-04-20', '2026-04-24', 'Rework', 96, 'Rework 96 rejected housings', 'TBC', '', 'WO-26005', 'RELEASED', 4),
-        R('2026-05-11', '2026-05-15', 'Calibration', 2, 'Annual calibration of the test rigs', 'M8001', '', '', 'PLANNED', 21),
-        { id:91, kind:'plan', planId:'summer', name:'P-40 · Summer build', start:'2026-06-22', end:'2026-07-17', owner:'Central planning', status:'APPROVED' },
+        R('2026-02-09', '2026-02-09', 'Maintenance', 6, 'Service the bay 2 routers', 'R2140, R2141', '', '', 'PLANNED', 20),
+        { id:90, kind:'plan', planId:'pilot', name:'C-18 · Pilot build', start:'2026-02-16', end:'2026-04-24', owner:'Machine shop', status:'APPROVED' },
+        R('2026-02-16', '2026-02-20', 'Routing - Nesting', 1200, 'Nest 1,200 C-18 panels on 4 routers for the Q3 build', 'R2140, R2141, R2145, R2150', 4, 'WO-26001', 'RELEASED', 1),
+        R('2026-02-16', '2026-02-20', 'Inspection', 4, 'Inspect the 4 nesting batches in the bench room', '4 x router', '', 'WO-26002', 'RELEASED', 2),
+        R('2026-03-09', '2026-03-13', 'Assembly', 280, 'Assemble 280 units on bay 7', 'R2151, R2160 > A7301, A7302', '', 'WO-26003', 'RELEASED', 3),
+        R('2026-04-20', '2026-04-24', 'Rework', 96, 'Rework 96 rejected doors', 'TBC', '', 'WO-26005', 'RELEASED', 4),
+        R('2026-05-11', '2026-05-15', 'Calibration', 2, 'Annual calibration of the spray booths', 'F8001', '', '', 'PLANNED', 21),
+        { id:91, kind:'plan', planId:'summer', name:'C-18 · Summer build', start:'2026-06-22', end:'2026-07-17', owner:'Central planning', status:'APPROVED' },
         R('2026-06-22', '2026-06-26', 'Sub-assembly', 180, 'sub-assemble at cell A', '', '', '', 'RELEASED', 5),
-        R('2026-06-29', '2026-07-03', 'Sub-assembly', 180, 'Sub-assemble the second lot', '', '', '', 'RELEASED', 6),
-        R('2026-07-06', '2026-07-10', 'Machining - Roughing', 1600, '1,600 P-40 blanks', '', '', '', 'RELEASED', 7),
-        R('2026-07-13', '2026-07-17', 'Machining', 1600, 'Finish 1,600 P-40 blanks', '', '', '', 'RELEASED', 8),
-        R('2026-07-13', '2026-07-17', 'Painting', 250, 'paint 250 P-40 housings', '', '', '', 'CANCELLED', 9),
-        R('2026-08-17', '2026-08-21', 'Painting', 80, 'Touch up 80 replacement housings', '', '', '', 'PLANNED', 22),
-        { id:92, kind:'plan', planId:'finish', name:'P-40 · September finish', start:'2026-09-07', end:'2026-09-11', owner:'South plant', status:'DRAFT' },
-        R('2026-09-07', '2026-09-11', 'Painting', 180, 'paint the sub-assemblies next week', 'm1104 > test bay', '', 'WO-26008', 'RELEASED', 10),
-        R('2026-09-07', '2026-09-11', 'Painting', 140, 'paint 140 housings', '', '', '', '', 11),
+        R('2026-06-29', '2026-07-03', 'Sub-assembly', 180, 'Sub-assemble the second batch', '', '', '', 'RELEASED', 6),
+        R('2026-07-06', '2026-07-10', 'Routing - Nesting', 1600, '1,600 C-18 panels', '', '', '', 'RELEASED', 7),
+        R('2026-07-13', '2026-07-17', 'Routing', 1600, 'Profile 1,600 C-18 panels', '', '', '', 'RELEASED', 8),
+        R('2026-07-13', '2026-07-17', 'Spraying', 250, 'spray 250 C-18 doors', '', '', '', 'CANCELLED', 9),
+        R('2026-08-17', '2026-08-21', 'Spraying', 80, 'Touch up 80 replacement doors', '', '', '', 'PLANNED', 22),
+        { id:92, kind:'plan', planId:'finish', name:'C-18 · September finish', start:'2026-09-07', end:'2026-09-11', owner:'Bench room', status:'DRAFT' },
+        R('2026-09-07', '2026-09-11', 'Spraying', 180, 'spray the sub-assemblies next week', 's1104 > dry-fit area', '', 'WO-26008', 'RELEASED', 10),
+        R('2026-09-07', '2026-09-11', 'Spraying', 140, 'spray 140 doors', '', '', '', '', 11),
         // Visual fixture supplied as if by the declaration's readiness result.
         // These messages illustrate presentation; they are not required-field rules.
         Object.assign(R('', '', '', '', 'Prepare the next operation', '', '', '', '', 12), {
@@ -2861,15 +2861,15 @@ class Component extends DCLogic {
   actOf(name) { return Component.ACTS.find(a => a.name.toLowerCase() === String(name || '').toLowerCase()); }
 
   // ---------- work-centre vocabulary ----------
-  static COUNTABLE = { line: 1, family: 1 };
-  // "4 x lathe", "3xline 2", "lathe x 4", "Line 2 × 3" — a count either side of the operator.
+  static COUNTABLE = { bay: 1, family: 1 };
+  // "4 x router", "3xbay 2", "router x 4", "Bay 2 × 3" — a count either side of the operator.
   parseMult(raw) {
     const m = String(raw).trim().match(/^(?:(\d{1,3})\s*[x×*]\s*(.+)|(.+?)\s*[x×*]\s*(\d{1,3}))$/i);
     if (!m) return null;
     const n = +(m[1] || m[4]); const rest = (m[2] || m[3] || '').trim();
     return (n > 0 && rest) ? { n, rest } : null;
   }
-  // A family is itself a member kind — "lathe" or "120t" names a kind of machine, not one
+  // A family is itself a member kind — "router" or "3m" names a kind of machine, not one
   // machine. A name or alias resolves; a number + unit is tried with its spacing normalised.
   famKind(raw) {
     const lo = String(raw).trim().toLowerCase().replace(/\s+/g, ' ');
@@ -2879,7 +2879,7 @@ class Component extends DCLogic {
     return f ? { kind: 'family', label: f.name, meta: 'family' } : null;
   }
   // A counted member may carry a trailing qualifier the planner wrote for
-  // themselves — "4 x lathe north hall". Take the longest leading run that is a
+  // themselves — "4 x router north hall". Take the longest leading run that is a
   // countable kind and keep the rest as its own free-text token, rather than
   // failing the whole thing.
   classifyMulti(raw) {
@@ -2904,11 +2904,11 @@ class Component extends DCLogic {
     const s = raw.trim().replace(/-+$/, '').trim(); if (!s) return null;
     if (/^tbc$/i.test(s)) return { kind: 'tbc', label: 'TBC', meta: '' };
     const up = s.toUpperCase().replace(/\s+/g, '');
-    let t = Component.MACHINES.find(x => x.code === up) || (/^\d{3,4}$/.test(up) ? Component.MACHINES.find(x => x.code === 'M' + up) : null);
+    let t = Component.MACHINES.find(x => x.code === up) || (/^\d{3,4}$/.test(up) ? Component.MACHINES.find(x => x.code.slice(1) === up) : null);
     if (t) return { kind: 'machine', label: t.code, meta: t.family };
     const lo = s.toLowerCase().replace(/^the\s+/, '');
-    const f = Component.LINES.find(x => x.name.toLowerCase() === lo || x.al.indexOf(lo) >= 0);
-    if (f) return { kind: 'line', label: f.name, meta: 'line · ' + f.n };
+    const f = Component.BAYS.find(x => x.name.toLowerCase() === lo || x.al.indexOf(lo) >= 0);
+    if (f) return { kind: 'bay', label: f.name, meta: 'bay · ' + f.n };
     const fam = this.famKind(s); if (fam) return fam;
     return { kind: 'text', label: s, meta: '' };
   }
@@ -2993,7 +2993,7 @@ class Component extends DCLogic {
     const n = this.arityFor(Object.assign({}, row, { qty })); if (!n) return null;
     const have = toToks.reduce((a, t) => (t.kind === 'tbc' || t.kind === 'text') ? a : a + (t.n || 1), 0);
     if (!have) return null;
-    return { need: act.uom === 'lots' ? n + ' lots · ' : n + ' × CNC lathe · ', have: String(have), state: have < n ? 'short' : (have > n ? 'over' : 'ok') };
+    return { need: act.uom === 'batches' ? n + ' batches · ' : n + ' × CNC router · ', have: String(have), state: have < n ? 'short' : (have > n ? 'over' : 'ok') };
   }
   // The arity check reads in the strip while the To half is being edited — never in the cell.
   arityMeta(edit, row) {
@@ -3033,18 +3033,18 @@ class Component extends DCLogic {
     const res = [];
     const free = (code) => used.indexOf(code) < 0;   // never offer a machine twice in one edge
     const exact = Component.MACHINES.find(x => x.code.toLowerCase() === t || x.code.slice(1).toLowerCase() === t);
-    if (exact && free(exact.code)) res.push({ label: exact.code, meta: exact.family + ' · ' + exact.line });
-    // A code prefix ghosts a machine inline before a line alias gets a look — "m21" is
-    // someone typing M2140, not asking for a mill.
-    const codeLike = /^m?\d/.test(t);
+    if (exact && free(exact.code)) res.push({ label: exact.code, meta: exact.family + ' · ' + exact.bay });
+    // A code prefix ghosts a machine inline before a bay alias gets a look — "r21" is
+    // someone typing R2140, not asking for a router.
+    const codeLike = /^[a-z]?\d/.test(t);
     const machineHits = Component.MACHINES.filter(x => x !== exact && free(x.code) &&
       (x.code.toLowerCase().startsWith(t) || (/^\d/.test(t) && x.code.slice(1).startsWith(t))));
-    if (codeLike) machineHits.forEach(x => res.push({ label: x.code, meta: x.family + ' · ' + x.line }));
-    Component.LINES.forEach(f => {
+    if (codeLike) machineHits.forEach(x => res.push({ label: x.code, meta: x.family + ' · ' + x.bay }));
+    Component.BAYS.forEach(f => {
       const names = [f.name.toLowerCase()].concat(f.al);
       if (!names.some(n => n.startsWith(t))) return;
-      res.push({ label: f.name, meta: 'line · ' + f.n + ' machines' });
-      const mem = Component.MACHINES.filter(x => x.line === f.name && free(x.code));
+      res.push({ label: f.name, meta: 'bay · ' + f.n + ' machines' });
+      const mem = Component.MACHINES.filter(x => x.bay === f.name && free(x.code));
       if (mem.length) res.push({ label: mem.map(x => x.code).join(', '), meta: 'enumerate · ' + mem.length + ' machines' });
     });
     Component.FAMILIES.forEach(f => {
@@ -3054,7 +3054,7 @@ class Component extends DCLogic {
       const mem = Component.MACHINES.filter(x => x.family === f.name && free(x.code));
       if (mem.length) res.push({ label: mem.map(x => x.code).join(', '), meta: 'enumerate · ' + mem.length + ' machines' });
     });
-    if (!codeLike) machineHits.forEach(x => res.push({ label: x.code, meta: x.family + ' · ' + x.line }));
+    if (!codeLike) machineHits.forEach(x => res.push({ label: x.code, meta: x.family + ' · ' + x.bay }));
     if ('tbc'.startsWith(t)) res.push({ label: 'TBC', meta: 'to confirm' });
     return res;
   }
@@ -3099,9 +3099,9 @@ class Component extends DCLogic {
   }
   suggActs(q) { return this.suggLookup(Component.ACTS.map(a => a.name), q, this.actFreq()); }
   // A hyphen means a RANGE only when it joins two bare numbers with no spaces
-  // (M2140-45). Spaced, or with a name on either side, it is a route arrow.
+  // (R2140-45). Spaced, or with a name on either side, it is a route arrow.
   expandRange(t) {
-    const m = String(t).trim().toLowerCase().match(/^m?(\d{3,4})[-–]m?(\d{1,4})$/);
+    const m = String(t).trim().toLowerCase().match(/^[a-z]?(\d{3,4})[-–][a-z]?(\d{1,4})$/);
     if (!m) return null;
     let a = m[1], b = m[2];
     if (b.length < a.length) b = a.slice(0, a.length - b.length) + b;
@@ -3114,7 +3114,7 @@ class Component extends DCLogic {
   static STEPS = [1, 3, 10];   // a click escalates: one neighbour, then a few, then a slab
   plans() {
     return this.state.rows.filter(row=>row.kind==='plan').map(row=>({
-      id:row.planId, name:row.name.replace(/^P-40 · /,''),
+      id:row.planId, name:row.name.replace(/^C-18 · /,''),
       color:row.color || ({pilot:'var(--plan-a)',summer:'var(--plan-b)',finish:'var(--plan-c)'})[row.planId] || 'var(--brand-d)',
     }));
   }
@@ -3431,7 +3431,7 @@ class Component extends DCLogic {
     if (col.type === 'link' || col.type === 'set') {
       // the abstractions are the useful entry points — nobody guesses a machine code
       const used = this.flatToks(edit).map(x => x.label);
-      return Component.LINES.map(f => f.name)
+      return Component.BAYS.map(f => f.name)
         .concat(Component.FAMILIES.map(f => f.name))
         .filter(x => used.indexOf(x) < 0).slice(0, 8);
     }
@@ -3596,7 +3596,7 @@ class Component extends DCLogic {
   arityFor(row) {
     const act = this.actOf(row.activity); if (!act) return 0;
     const qty = +row.qty; if (!qty || !isFinite(qty)) return 0;
-    if (act.uom === 'lots') return Math.min(24, Math.round(qty));   // one lot per machine
+    if (act.uom === 'batches') return Math.min(24, Math.round(qty));   // one batch per machine
     if (act.uom !== 'pcs' && act.uom !== 'units') return 0;        // hours, cartons, pallets name no machines
     return Math.min(12, Math.ceil(qty / 300));                      // 300 pieces per machine per run
   }
@@ -3615,8 +3615,8 @@ class Component extends DCLogic {
     // A plan says how many of what kind; a schedule says which machines. Proposing
     // specific codes here would over-commit — the enumerated form is offered as
     // an alternative in the strip instead.
-    const counted = n + ' x lathe';
-    return { value: this.sidesOf(row.activity) === 'from' ? counted + ' >' : counted, meta: 'capacity · ' + this.fmtNum(qty) + ' pcs ÷ 300 per lathe' };
+    const counted = n + ' x router';
+    return { value: this.sidesOf(row.activity) === 'from' ? counted + ' >' : counted, meta: 'capacity · ' + this.fmtNum(qty) + ' pcs ÷ 300 per router' };
   }
   // Propose a start when the row has none — the case the old build could not reach,
   // because Start sits two columns *left* of Activity.
@@ -3653,9 +3653,9 @@ class Component extends DCLogic {
     }
     const qty = row.qty || f.qty || 0;
     if (!row.notes) {
-      if (/^Machining/.test(row.activity)) put('notes', 'Machine ' + this.fmtNum(qty) + ' P-40 blanks', 'phrasing from past machining runs');
-      else if (/^Painting/.test(row.activity)) put('notes', 'Paint ' + this.fmtNum(qty) + ' P-40 housings', 'phrasing from past painting runs');
-      else if (/^Inspection/.test(row.activity)) put('notes', 'Inspect ' + qty + ' lots', 'phrasing from past inspections');
+      if (/^Routing/.test(row.activity)) put('notes', 'Nest ' + this.fmtNum(qty) + ' C-18 panels', 'phrasing from past routing runs');
+      else if (/^Spraying/.test(row.activity)) put('notes', 'Spray ' + this.fmtNum(qty) + ' C-18 doors', 'phrasing from past spraying runs');
+      else if (/^Inspection/.test(row.activity)) put('notes', 'Inspect ' + qty + ' batches', 'phrasing from past inspections');
     }
     if (!row.stations && qty) { const t = this.predictStations(rows, idx, row, qty); if (t) put('stations', t.value, t.meta); }
     if (Object.keys(f).length) fill = f;
@@ -3663,19 +3663,19 @@ class Component extends DCLogic {
     let pat = [], patMeta = '';
     const s = start, e = row.end || f.end || (s ? this.addDays(s, act.days) : null);
     if (!s) return fill ? { anchorId: rows[idx].id, fill, meta, rows: [], patMeta: '' } : null;
-    if (row.activity === 'Machining - Roughing') {
+    if (row.activity === 'Routing - Nesting') {
       const n = Math.max(1, Math.round(qty / 300));
       pat = [
-        { activity: 'Inspection', start: s, end: e, qty: n, notes: 'Inspect ' + n + ' roughing lots', stations: '' },
-        { activity: 'Machining', start: this.addDays(e, 3), end: this.addDays(e, 7), qty: qty, notes: 'Finish ' + this.fmtNum(qty) + ' roughed blanks', stations: '' },
+        { activity: 'Inspection', start: s, end: e, qty: n, notes: 'Inspect ' + n + ' nesting batches', stations: '' },
+        { activity: 'Routing', start: this.addDays(e, 3), end: this.addDays(e, 7), qty: qty, notes: 'Profile ' + this.fmtNum(qty) + ' nested panels', stations: '' },
       ];
-    } else if (row.activity === 'Painting' && /rework/i.test(row.notes || '')) {
+    } else if (row.activity === 'Spraying' && /rework/i.test(row.notes || '')) {
       pat = [
         { activity: 'Rework', start: s, end: e, qty: qty, notes: 'rework the rejects', stations: '' },
         { activity: 'Inspection', start: this.addDays(s, 7), end: this.addDays(e, 7), qty: Math.max(1, Math.round(qty / 300)), notes: 'Re-inspect after rework', stations: '' },
       ];
-    } else if (row.activity === 'Painting') {
-      pat = [{ activity: 'Packaging', start: this.addDays(e, 3), end: this.addDays(e, 7), qty: qty, notes: 'Pack ' + this.fmtNum(qty) + ' painted parts', stations: '' }];
+    } else if (row.activity === 'Spraying') {
+      pat = [{ activity: 'Wrapping', start: this.addDays(e, 3), end: this.addDays(e, 7), qty: qty, notes: 'Wrap ' + this.fmtNum(qty) + ' sprayed panels', stations: '' }];
     } else if (row.activity === 'Rework' && /rework/i.test(row.notes || '')) {
       pat = [{ activity: 'Inspection', start: this.addDays(s, 7), end: this.addDays(e, 7), qty: Math.max(1, Math.round(qty / 300)), notes: 'Re-inspect after rework', stations: '' }];
     }
@@ -4444,7 +4444,7 @@ class Component extends DCLogic {
           const counted = rest.find(t => t.n);
           if (counted) {
             const used = this.flatToks(edit).map(x => x.label);
-            const free = Component.MACHINES.filter(x => (x.family === counted.of || x.line === counted.of) && used.indexOf(x.code) < 0).slice(0, counted.n);
+            const free = Component.MACHINES.filter(x => (x.family === counted.of || x.bay === counted.of) && used.indexOf(x.code) < 0).slice(0, counted.n);
             if (free.length === counted.n) alts.push({
               key: 'enum', label: free.map(x => x.code).join(', '),
               on: false, off: true, flat: false,
@@ -4504,7 +4504,7 @@ class Component extends DCLogic {
         const side = this.stationSide(edit).side ? 'to' : 'from';
         return {
           stripOn: true, stripLabel: col.label + ' · ' + side + ' · accepts',
-          alts: flat(edit.val.trim() ? 'no register match — kept as typed' : 'machine code · line · family · 4 x lathe · M2140-45 range · TBC'),
+          alts: flat(edit.val.trim() ? 'no register match — kept as typed' : 'machine code · bay · family · 4 x router · R2140-45 range · TBC'),
           stripMeta: this.arityMeta(edit, row) || '', stripKeys: ', adds · > hops to the To half · ⏎ done',
         };
       }
@@ -4768,8 +4768,8 @@ class Component extends DCLogic {
       })),
       stopMarkerDown: e => e.stopPropagation(),
       stopMarkerKey: e => e.stopPropagation(),
-      railDemoLabel: this.state.q === 'Painting' ? 'Show all rows' : 'Try: Painting only',
-      toggleRailDemo: () => { const on=this.state.q !== 'Painting'; this.setState({ pendingInsert:null, insertMembership:null, insertPinned:[], q:on?'Painting':'', ctx:0, reveal:{}, sel:{r:0,c:2}, selEnd:null, edit:null, sugg:null, activePlanId:null, activeTab:null, tabDirty:false,
+      railDemoLabel: this.state.q === 'Spraying' ? 'Show all rows' : 'Try: Spraying only',
+      toggleRailDemo: () => { const on=this.state.q !== 'Spraying'; this.setState({ pendingInsert:null, insertMembership:null, insertPinned:[], q:on?'Spraying':'', ctx:0, reveal:{}, sel:{r:0,c:2}, selEnd:null, edit:null, sugg:null, activePlanId:null, activeTab:null, tabDirty:false,
         msg:on ? 'Plan rows are hidden · hover a marker to identify its plan' : 'Follow the gutter rail · each row keeps its plan marker' }); },
       onSearch: (e) => { this._steps = {}; this.setState({ pendingInsert:null, insertMembership:null, insertPinned:[], q: e.target.value, reveal: {}, selEnd: null, gsel: null, tabDirty: this.state.activeTab != null, sel: { r: 0, c: this.state.sel.c } }); },
       onSearchKey: (e) => {

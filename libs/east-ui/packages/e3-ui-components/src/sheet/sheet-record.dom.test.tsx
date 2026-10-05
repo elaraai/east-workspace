@@ -91,12 +91,12 @@ test("an edited task, applied, is one commit through the record's patch door, an
     );
     await settle();
     const task = () => utils.container.querySelector('[data-slot="row"] [data-key="task"]')!;
-    expect(task().textContent).toContain("Rough machining");
+    expect(task().textContent).toContain("Nest panels");
 
     fireEvent.doubleClick(task());
     await settle();
     const input = utils.container.querySelector('[data-slot="editorInput"]')!;
-    fireEvent.input(input, { target: { value: "Rough milling" } });
+    fireEvent.input(input, { target: { value: "Nest boards" } });
     await settle();
     fireEvent.keyDown(input, { key: "Enter" });
     await settle();
@@ -110,9 +110,9 @@ test("an edited task, applied, is one commit through the record's patch door, an
 
     // The record holds the edit, and nothing else of it moved — one patch commit.
     const expected = new SortedMap([["week", { rows: [
-        { id: "rough", task: "Rough milling", qty: 120n, createdBy: "planner" },
-        { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
-        { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
+        { id: "nest", task: "Nest boards", qty: 120n, createdBy: "planner" },
+        { id: "inspect", task: "Inspect batches", qty: 4n, createdBy: "planner" },
+        { id: "finish", task: "Finish doors", qty: 120n, createdBy: "planner" },
     ] }]], compareFor(StringType));
     expect(equalFor(PLANS.type)(readRecord(), expected)).toBe(true);
     const { commits } = await memory.history(WORKSPACE, PLANS.name, undefined);
@@ -121,5 +121,5 @@ test("an edited task, applied, is one commit through the record's patch door, an
     // The drafts retired against the rows the record read back: no error, Apply off.
     expect(utils.queryByRole("alert")).toBeNull();
     expect((utils.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(utils.getByText(/^SAVED · /u).textContent).toBe("SAVED · Rough milling → Inspect lots → Finish housings");
+    expect(utils.getByText(/^SAVED · /u).textContent).toBe("SAVED · Nest boards → Inspect batches → Finish doors");
 });

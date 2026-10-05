@@ -47,7 +47,7 @@ describe("narrowing", () => {
         expect(narrowingActive(undefined)).toBe(false);
         expect(narrowingActive(stateOf({}))).toBe(false);
         expect(narrowingActive(stateOf({ search: some("  ") }))).toBe(false);
-        expect(narrowingActive(stateOf({ search: some("paint") }))).toBe(true);
+        expect(narrowingActive(stateOf({ search: some("spray") }))).toBe(true);
         expect(narrowingActive(stateOf({ filters: [variant("string", { fieldId: "a", op: variant("eq", "x") })] as never }))).toBe(true);
         expect(narrowingActive(stateOf({ activeCohorts: new Set(["c"]) }))).toBe(true);
         expect(narrowingActive(stateOf({ range: some(variant("integer", { from: 1n, to: 2n })) as never }))).toBe(true);
@@ -57,13 +57,13 @@ describe("narrowing", () => {
 describe("the match record", () => {
     test("cells decode to their field's value: a bare primitive as is, an Option wrapped, a Link as the link value or its printed text", () => {
         const columns = [column("activity", STRING), column("qty", OPTION_FLOAT), column("stations", LINK), column("text", STRING)];
-        const link = { from: [], to: [variant("counted", { n: 4n, key: "CNC lathe" })] };
-        const r = row("a", { activity: cell("String", "Machining"), qty: cell("Float", 1200), stations: cell("Link", link), text: cell("Link", link) });
+        const link = { from: [], to: [variant("counted", { n: 4n, key: "CNC router" })] };
+        const r = row("a", { activity: cell("String", "Routing"), qty: cell("Float", 1200), stations: cell("Link", link), text: cell("Link", link) });
         const rec = matchRecord(r, columns);
-        expect(rec["activity"]).toBe("Machining");
+        expect(rec["activity"]).toBe("Routing");
         expect(rec["qty"]).toEqual(some(1200));
         expect(rec["stations"]).toBe(link);
-        expect(rec["text"]).toBe("4 × CNC lathe");
+        expect(rec["text"]).toBe("4 × CNC router");
         const blank = matchRecord(row("b", { activity: cell("Null", null), qty: cell("Null", null) }), columns);
         expect(blank["activity"]).toBeUndefined();
         expect(blank["qty"]).toEqual(none);
@@ -80,14 +80,14 @@ describe("the match record", () => {
         };
         const columns = [column("activity", STRING), column("stations", LINK)];
         const rows = [
-            row("a", { activity: cell("String", "Painting"), stations: cell("Link", { from: [], to: [] }) }),
-            row("b", { activity: cell("String", "Machining"), stations: cell("Link", { from: [], to: [variant("identified", { key: "M2140" })] }) }),
-            row("c", { activity: cell("String", "Machining"), stations: cell("Null", null) }),
+            row("a", { activity: cell("String", "Spraying"), stations: cell("Link", { from: [], to: [] }) }),
+            row("b", { activity: cell("String", "Routing"), stations: cell("Link", { from: [], to: [variant("identified", { key: "R2140" })] }) }),
+            row("c", { activity: cell("String", "Routing"), stations: cell("Null", null) }),
         ];
-        expect(lensHits(stateOf({ search: some("paint") }), config, rows, columns)).toEqual([true, false, false]);
-        expect(lensHits(stateOf({ search: some("m2140") }), config, rows, columns)).toEqual([false, true, false]);
+        expect(lensHits(stateOf({ search: some("spray") }), config, rows, columns)).toEqual([true, false, false]);
+        expect(lensHits(stateOf({ search: some("r2140") }), config, rows, columns)).toEqual([false, true, false]);
         // Row c's projection throws on the blank link — fail-open, no hit.
-        expect(lensHits(stateOf({ search: some("machining") }), config, rows, columns)).toEqual([false, true, true]);
+        expect(lensHits(stateOf({ search: some("routing") }), config, rows, columns)).toEqual([false, true, true]);
     });
 });
 
@@ -148,7 +148,7 @@ describe("visibility, gaps and reveals", () => {
         expect(lensCount(many, many, sheetWords("de-DE", sheetMessages))).toBe("1.500 matches");
         // The line is the sheet's words (#861).
         expect(lensCount([true, false], [true, true], sheetWords("en-US", { ...sheetMessages, lensCount: ({ count, context }) => `${count}|${context}` }))).toBe("1|1");
-        expect(viewName("paint", 3)).toBe("paint");
+        expect(viewName("spray", 3)).toBe("spray");
         expect(viewName("   ", 3)).toBe("view 3");
         // An unnamed view takes the sheet's name for it (#861).
         expect(viewName("   ", 3, (seq) => `Ansicht ${seq}`)).toBe("Ansicht 3");

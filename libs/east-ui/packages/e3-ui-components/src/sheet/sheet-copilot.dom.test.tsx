@@ -54,16 +54,16 @@ const modelRow = (activity: string): ProposalsValue => [{
 const FEB16 = new Date("2026-02-16T00:00:00Z");
 const FEB20 = new Date("2026-02-20T00:00:00Z");
 const ACTIVITIES = [
-    { name: "Machining", uom: "pcs", rate: 150.0, days: 4n },
-    { name: "Painting", uom: "pcs", rate: 60.0, days: 4n },
-    { name: "Packaging", uom: "cartons", rate: 120.0, days: 3n },
+    { name: "Routing", uom: "pcs", rate: 150.0, days: 4n },
+    { name: "Spraying", uom: "pcs", rate: 60.0, days: 4n },
+    { name: "Wrapping", uom: "cartons", rate: 120.0, days: 3n },
 ];
 const ROWS = [
-    { id: "j1", start: some(FEB16), end: some(FEB20), activity: "Machining", qty: some(1200.0), notes: "first" },
+    { id: "j1", start: some(FEB16), end: some(FEB20), activity: "Routing", qty: some(1200.0), notes: "first" },
 ];
-const ROWS_WITH_PACKAGING = [
+const ROWS_WITH_WRAPPING = [
     ...ROWS,
-    { id: "j2", start: some(FEB20), end: none, activity: "Packaging", qty: none, notes: "" },
+    { id: "j2", start: some(FEB20), end: none, activity: "Wrapping", qty: none, notes: "" },
 ];
 
 type Options = { proposers?: "sync" | "async"; hours?: number; rows?: ValueTypeOf<typeof PlanRowType>[] };
@@ -122,11 +122,11 @@ function buildCopilotSheet(opts: Options = {}): SheetRootValue {
                     return East.value(some({ value: last.start.unwrap("value").unwrap("some").addDays(7n), meta: East.str`week after ${last.id.unwrap("value")}` }), DateFill);
                 });
         }));
-        // A domain pattern — painting follows machining.
-        const followUps = $.const(East.function([Ctx], Proposals, ($2, ctx) => ctx.row.activity.hasTag("value").and(() => ctx.row.activity.unwrap("value").equal("Machining")).ifElse(
+        // A domain pattern — spraying follows routing.
+        const followUps = $.const(East.function([Ctx], Proposals, ($2, ctx) => ctx.row.activity.hasTag("value").and(() => ctx.row.activity.unwrap("value").equal("Routing")).ifElse(
             ($3) => $3.const([{
-                patch: Sheet.patch(PlanRowType, { activity: "Painting", start: ctx.row.start.match({ value: (_$, value) => value, missing: () => none, invalid: () => none }), qty: ctx.row.qty.match({ value: (_$, value) => value, missing: () => none, invalid: () => none }), notes: "paint the machined parts" }),
-                meta: "painting follows machining",
+                patch: Sheet.patch(PlanRowType, { activity: "Spraying", start: ctx.row.start.match({ value: (_$, value) => value, missing: () => none, invalid: () => none }), qty: ctx.row.qty.match({ value: (_$, value) => value, missing: () => none, invalid: () => none }), notes: "spray the routed panels" }),
+                meta: "spraying follows routing",
             }], Proposals),
             (_$3) => East.value([], Proposals),
         )));
@@ -189,34 +189,34 @@ test.each(["fillRow", "accept"] as const)("footer activity selection then %s per
     try {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, cell, key, type, input, settle, proposals } = mount(value);
-        key("M");
-        type("Mach");
+        key("R");
+        type("Rout");
         await settle(100);
         fireEvent.mouseDown(container.querySelector('[data-slot="stripChip"]')!, { button: 0 });
         await settle(100);
-        expect(input()!.value).toBe("Machining");
+        expect(input()!.value).toBe("Routing");
         expect(proposals()).toHaveLength(1);
         fireEvent.mouseDown(container.querySelector(`[data-slot="${action}"]`)!, { button: 0 });
         await settle();
         expect(input()).toBeNull();
-        expect(cell(1, "activity").textContent).toBe("Machining");
+        expect(cell(1, "activity").textContent).toBe("Routing");
         expect(cell(1, "qty").hasAttribute("data-proposed")).toBe(false);
         expect(edits).toHaveLength(1);
         expect(edits[0]!.draftChanges).toHaveLength(action === "accept" ? 2 : 1);
         const entry = draft(edits[0]!.draftChanges[0]!.id, Sheet.Types.Draft(PlanRowType));
-        expect(entry.activity).toEqual(variant("value", "Machining"));
+        expect(entry.activity).toEqual(variant("value", "Routing"));
         expect(entry.qty).toEqual(variant("value", some(1200)));
-        if (action === "accept") expect(cell(2, "activity").textContent).toBe("Painting");
+        if (action === "accept") expect(cell(2, "activity").textContent).toBe("Spraying");
         fireEvent.mouseDown(cell(0, "notes"), { button: 0 });
         await settle();
-        expect(cell(1, "activity").textContent).toBe("Machining");
+        expect(cell(1, "activity").textContent).toBe("Routing");
         key("z", { ctrlKey: true });
         await settle();
         expect(container.querySelectorAll('[data-row-id]')).toHaveLength(1);
         key("z", { ctrlKey: true, shiftKey: true });
         await settle();
-        expect(cell(1, "activity").textContent).toBe("Machining");
-        if (action === "accept") expect(cell(2, "activity").textContent).toBe("Painting");
+        expect(cell(1, "activity").textContent).toBe("Routing");
+        if (action === "accept") expect(cell(2, "activity").textContent).toBe("Spraying");
         expect(edits.map(event => event.origin.type)).toEqual([action === "accept" ? "pattern" : "row", "undo", "redo"]);
     } finally { vi.unstubAllGlobals(); }
 });
@@ -225,23 +225,23 @@ describe("fills (B§5.1)", () => {
     test("clicking the row-fill button commits its open activity editor and fills one row in one patch", async () => {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, cell, key, type, input, settle } = mount(value);
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         await settle(100);
         fireEvent.mouseDown(container.querySelector('[data-slot="fillRow"]')!, { button: 0 });
         await settle();
         expect(input()).toBeNull();
-        expect(cell(1, "activity").textContent).toBe("Machining");
+        expect(cell(1, "activity").textContent).toBe("Routing");
         expect(cell(1, "start").hasAttribute("data-proposed")).toBe(false);
         expect(cell(1, "qty").hasAttribute("data-proposed")).toBe(false);
         expect(edits).toHaveLength(1);
         expect(edits[0]!.draftChanges).toHaveLength(1);
         const entry = draft(edits[0]!.draftChanges[0]!.id, Sheet.Types.Draft(PlanRowType));
-        expect(entry.activity).toEqual(variant("value", "Machining"));
+        expect(entry.activity).toEqual(variant("value", "Routing"));
         expect(entry.qty).toEqual(variant("value", some(1200)));
         fireEvent.mouseDown(cell(0, "notes"), { button: 0 });
         await settle();
-        expect(cell(1, "activity").textContent).toBe("Machining");
+        expect(cell(1, "activity").textContent).toBe("Routing");
         expect(edits).toHaveLength(1);
     });
 
@@ -249,8 +249,8 @@ describe("fills (B§5.1)", () => {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, cell, key, type, editorKey, settle, stripChips } = mount(value);
         // The ring opens on the blank row's Activity column.
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         // The new real row: Start ← a week after j1, End ← the predicted Start + 4 d (fills chain), Qty ← like j1.
@@ -263,7 +263,7 @@ describe("fills (B§5.1)", () => {
         expect(container.querySelectorAll('[data-slot="nextTarget"]')).toHaveLength(1);
         expect(cell(1, "start").hasAttribute("data-next-target")).toBe(true);
         expect(container.querySelector('[data-slot="stripLabel"]')!.textContent).toBe("suggested");
-        expect(stripChips()).toEqual(["Start", "End", "Qty", "+1 row"]);   // the pattern proposer offers a painting too
+        expect(stripChips()).toEqual(["Start", "End", "Qty", "+1 row"]);   // the pattern proposer offers a spraying row too
         expect(container.querySelector('[data-slot="stripChip"][data-armed]')!.textContent).toBe("Start");
         expect(container.querySelector('[data-slot="stripMeta"]')!.textContent).toBe("week after j1");
         expect(container.querySelector('[data-slot="footerHint"]')!.textContent).toMatch(/⇥ walks the fills/);
@@ -298,8 +298,8 @@ describe("fills (B§5.1)", () => {
     test("⌘⏎ fills the whole row in one step with the `row` provenance; ⌫ on the armed target dismisses just that fill; esc dismisses the rest", async () => {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, cell, key, type, editorKey, settle } = mount(value);
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         // Dismiss Start: ⇥ arms it, ⌫ rejects it and remembers.
@@ -328,8 +328,8 @@ describe("fills (B§5.1)", () => {
     test("the gutter's → button fills the row; a read-only sheet runs no copilot", async () => {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, key, type, editorKey, settle } = mount(value);
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         fireEvent.mouseDown(container.querySelector('[data-slot="fillRow"]')!, { button: 0 });
@@ -353,15 +353,15 @@ describe("proposals (B§5.2)", () => {
     test("a proposed row sits under its anchor with a real number; ✓ inserts it as a `pattern` edit and re-anchors; × rejects it and the pairing is not offered again", async () => {
         const { value, edits, draft } = withSpies(buildCopilotSheet());
         const { container, cell, key, type, editorKey, settle, proposals, stripChips, message } = mount(value);
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         expect(proposals()).toHaveLength(1);
         const p = proposals()[0]!;
         expect(p.querySelector('[data-slot="gutter"]')!.textContent).toBe("3");
-        expect(p.querySelector('[data-key="activity"]')!.textContent).toBe("Painting");
-        expect(p.querySelector('[data-key="notes"]')!.textContent).toBe("paint the machined parts");
+        expect(p.querySelector('[data-key="activity"]')!.textContent).toBe("Spraying");
+        expect(p.querySelector('[data-key="notes"]')!.textContent).toBe("spray the routed panels");
         expect(p.querySelectorAll('[data-slot="hatch"]').length).toBeGreaterThan(0);
         expect(stripChips()).toEqual(["Start", "End", "Qty", "+1 row"]);
         // A click selects it (the bar, the wash); ⏎ takes the row fill first, then the row.
@@ -371,31 +371,31 @@ describe("proposals (B§5.2)", () => {
         fireEvent.mouseDown(proposals()[0]!.querySelector('[data-slot="accept"]')!, { button: 0 });
         await settle();
         expect(proposals()).toHaveLength(0);
-        expect(cell(2, "activity").textContent).toBe("Painting");
-        expect(cell(2, "notes").textContent).toBe("paint the machined parts");
+        expect(cell(2, "activity").textContent).toBe("Spraying");
+        expect(cell(2, "notes").textContent).toBe("spray the routed panels");
         const inserted = edits.filter((e) => e.draftChanges.some(change => change.place.type === "some"));
         expect(inserted).toHaveLength(2);   // the typed row, then the proposal
         expect(source(inserted[1]!)).toBe("pattern");
-        expect(draft(inserted[1]!.draftChanges.find(change => change.place.type === "some")!.id, Sheet.Types.Draft(PlanRowType)).activity).toEqual(variant("value", "Painting"));
-        expect(message()).toBe("Took Painting");
+        expect(draft(inserted[1]!.draftChanges.find(change => change.place.type === "some")!.id, Sheet.Types.Draft(PlanRowType)).activity).toEqual(variant("value", "Spraying"));
+        expect(message()).toBe("Took Spraying");
         // The proposal carried the anchor's predicted Start and Qty; re-anchored on the taken row, its End derives.
         expect(cell(2, "start").textContent).toBe("23 Feb 26");
         expect(cell(2, "qty").textContent).toBe("1,200pcs");
         expect(cell(2, "end").hasAttribute("data-proposed")).toBe(true);
         expect(cell(2, "end").textContent).toBe("27 Feb 26");
-        // Reject on another Machining: the pairing is remembered.
+        // Reject on another Routing: the pairing is remembered.
         fireEvent.mouseDown(cell(3, "activity"), { button: 0 });
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         expect(proposals()).toHaveLength(1);
         fireEvent.mouseDown(proposals()[0]!.querySelector('[data-slot="reject"]')!, { button: 0 });
         expect(proposals()).toHaveLength(0);
-        expect(message()).toBe("Rejected — Painting will not be suggested after Machining again");
+        expect(message()).toBe("Rejected — Spraying will not be suggested after Routing again");
         fireEvent.mouseDown(cell(4, "activity"), { button: 0 });
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         expect(proposals()).toHaveLength(0);
@@ -407,8 +407,8 @@ describe("async providers (§5 row 11)", () => {
         const { value } = withSpies(buildCopilotSheet({ proposers: "async" }));
         const { container, cell, key, type, editorKey, settle, proposals, stripChips } = mount(value);
         calls.length = 0;
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         expect(calls).toHaveLength(1);
@@ -422,13 +422,13 @@ describe("async providers (§5 row 11)", () => {
         await settle();
         expect(calls).toHaveLength(2);
         // The first call settles late — dropped; the second lands.
-        calls[0]!.resolve(modelRow("Packaging"));
+        calls[0]!.resolve(modelRow("Wrapping"));
         await settle();
         expect(proposals()).toHaveLength(0);
-        calls[1]!.resolve(modelRow("Painting"));
+        calls[1]!.resolve(modelRow("Spraying"));
         await settle();
         expect(proposals()).toHaveLength(1);
-        expect(proposals()[0]!.querySelector('[data-key="activity"]')!.textContent).toBe("Painting");
+        expect(proposals()[0]!.querySelector('[data-key="activity"]')!.textContent).toBe("Spraying");
         expect(proposals()[0]!.querySelector('[data-key="notes"]')!.textContent).toBe("from the model");
         expect(stripChips()).not.toContain("rows ⋯");
     });
@@ -438,8 +438,8 @@ describe("async providers (§5 row 11)", () => {
         const { value } = withSpies(buildCopilotSheet({ proposers: "async" }));
         const { container, key, type, editorKey, settle, proposals } = mount(value);
         calls.length = 0;
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         calls[0]!.reject(new Error("model down"));
@@ -456,10 +456,10 @@ describe("a swapped provider (§6.2, #809)", () => {
         // The same data twice; only closures differ (the default fill's
         // captured `hours`, the spy). The memo sees them (`equivalentFor`); the
         // local layer, keyed on the value's DATA, does not reset.
-        const eight = withSpies(buildCopilotSheet({ rows: ROWS_WITH_PACKAGING, hours: 8.0 }));
-        const two = withSpies(buildCopilotSheet({ rows: ROWS_WITH_PACKAGING, hours: 2.0 }));
+        const eight = withSpies(buildCopilotSheet({ rows: ROWS_WITH_WRAPPING, hours: 8.0 }));
+        const two = withSpies(buildCopilotSheet({ rows: ROWS_WITH_WRAPPING, hours: 2.0 }));
         const { cell, key, type, editorKey, settle, rerender } = mount(eight.value);
-        // j2 (Packaging, no history): the default fill is eight hours at 120/h.
+        // j2 (Wrapping, no history): the default fill is eight hours at 120/h.
         fireEvent.mouseDown(cell(1, "notes"), { button: 0 });
         key("x");
         type("x");
@@ -487,18 +487,18 @@ const GroupCtx = Sheet.Types.DraftContext(PlanType, "lines");
 const LineProposals = ArrayType(Sheet.Types.Proposal(LineType));
 const NotesFill = OptionType(Sheet.Types.Fill(StringType));
 const PLANS = [
-    { id: "p1", name: "Line 2 week 8", lines: [{ activity: "Machining", qty: some(120.0), notes: "first" }] },
-    { id: "p2", name: "Line 3 week 8", lines: [] },
+    { id: "p1", name: "Bay 2 week 8", lines: [{ activity: "Routing", qty: some(120.0), notes: "first" }] },
+    { id: "p2", name: "Bay 3 week 8", lines: [] },
 ];
 
-/** A grouped sheet whose fill reads the plan and whose proposer follows machining with painting — both over `Sheet.Types.DraftContext(PlanType, "lines")`. */
+/** A grouped sheet whose fill reads the plan and whose proposer follows routing with spraying — both over `Sheet.Types.DraftContext(PlanType, "lines")`. */
 function buildGroupedCopilot(): SheetRootValue {
     const program = East.function([], Sheet.Types.Root, ($) => {
         const plans = $.const(PLANS, ArrayType(PlanType));
         const inPlan = $.const(East.function([GroupCtx], NotesFill, (_$2, ctx) =>
             East.value(some({ value: East.str`${ctx.group.unwrap("some").name.unwrap("value")} · line ${ctx.rowIndex.add(1n)} of ${ctx.rows.length()} · ${ctx.groups.length()} plans`, meta: "the plan" }), NotesFill)));
-        const followUps = $.const(East.function([GroupCtx], LineProposals, ($2, ctx) => ctx.row.activity.hasTag("value").and(() => ctx.row.activity.unwrap("value").equal("Machining")).ifElse(
-            ($3) => $3.const([{ patch: Sheet.patch(LineType, { activity: "Painting", notes: "paint the machined parts" }), meta: "painting follows machining" }], LineProposals),
+        const followUps = $.const(East.function([GroupCtx], LineProposals, ($2, ctx) => ctx.row.activity.hasTag("value").and(() => ctx.row.activity.unwrap("value").equal("Routing")).ifElse(
+            ($3) => $3.const([{ patch: Sheet.patch(LineType, { activity: "Spraying", notes: "spray the routed panels" }), meta: "spraying follows routing" }], LineProposals),
             (_$3) => East.value([], LineProposals),
         )));
         return Sheet.Payload(plans, {
@@ -520,15 +520,15 @@ describe("the copilot on grouped rows (#740, G11)", () => {
         const { container, key, type, editorKey, settle, proposals, message } = mount(value);
         const lines = (id: string) => [...container.querySelectorAll(`[data-slot="row"][data-group-id="${id}"]`)] as HTMLElement[];
         // The ring opens on the first plan's blank line.
-        key("M");
-        type("Machining");
+        key("R");
+        type("Routing");
         editorKey("Enter");
         await settle();
         expect(edits).toHaveLength(1);
         expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(2);
         const created = lines("p1")[1]!;
         expect(created.querySelector('[data-key="notes"]')!.hasAttribute("data-proposed")).toBe(true);
-        expect(created.querySelector('[data-key="notes"] > span:not([id])')!.textContent).toBe("Line 2 week 8 · line 2 of 2 · 2 plans");
+        expect(created.querySelector('[data-key="notes"] > span:not([id])')!.textContent).toBe("Bay 2 week 8 · line 2 of 2 · 2 plans");
         // The proposed line sits under its anchor with aligned columns and no enclosing group border.
         expect(proposals()).toHaveLength(1);
         expect(proposals()[0]!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("3");
@@ -536,7 +536,7 @@ describe("the copilot on grouped rows (#740, G11)", () => {
         // The gutter's → fills the line.
         fireEvent.mouseDown(created.querySelector('[data-slot="fillRow"]')!, { button: 0 });
         await settle();
-        expect(message()).toBe("Filled 1 cell on line 2 of Line 2 week 8");
+        expect(message()).toBe("Filled 1 cell on line 2 of Bay 2 week 8");
         expect(edits.at(-1)!.draftChanges.map(change => change.id)).toEqual(["p1"]);
         expect(source(edits.at(-1)!)).toBe("row");
         // ✓ takes the proposal: a `pattern` insert into p1, never p2.
@@ -546,7 +546,7 @@ describe("the copilot on grouped rows (#740, G11)", () => {
         expect(inserted).toHaveLength(1);
         expect(inserted[0]!.draftChanges.map(change => change.id)).toEqual(["p1"]);
         expect(draft("p1", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(3);
-        expect(lines("p1").map((r) => r.querySelector('[data-key="activity"]')!.textContent)).toEqual(["Machining", "Machining", "Painting", ""]);
+        expect(lines("p1").map((r) => r.querySelector('[data-key="activity"]')!.textContent)).toEqual(["Routing", "Routing", "Spraying", ""]);
         expect(lines("p2").map((r) => r.querySelector('[data-key="activity"]')!.textContent)).toEqual([""]);
     });
 });

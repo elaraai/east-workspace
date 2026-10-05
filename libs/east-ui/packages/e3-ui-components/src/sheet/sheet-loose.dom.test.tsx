@@ -41,13 +41,13 @@ const Proposals = ArrayType(Sheet.Types.Proposal(TaskType));
 /** Fixtures at MODULE scope: East bodies never call host helpers. */
 const ENTRIES: ValueTypeOf<typeof EntryType>[] = [
     variant("row", { id: "brief", task: "Review drawings", qty: none, note: "brief note" }),
-    variant("group", { id: "p1", name: "Roughing", tasks: [
-        { id: "t1", task: "Machine blanks", qty: some(1200.0), note: "" },
-        { id: "t2", task: "Inspect lots", qty: some(4.0), note: "" },
+    variant("group", { id: "p1", name: "Nesting", tasks: [
+        { id: "t1", task: "Cut panels", qty: some(1200.0), note: "" },
+        { id: "t2", task: "Inspect batches", qty: some(4.0), note: "" },
     ] }),
     variant("row", { id: "handover", task: "Hand over", qty: none, note: "handover note" }),
     variant("row", { id: "signoff", task: "Sign off", qty: none, note: "" }),
-    variant("group", { id: "p2", name: "Finishing", tasks: [{ id: "t3", task: "Finish housings", qty: some(1200.0), note: "" }] }),
+    variant("group", { id: "p2", name: "Finishing", tasks: [{ id: "t3", task: "Finish doors", qty: some(1200.0), note: "" }] }),
 ];
 
 /**
@@ -144,7 +144,7 @@ function groupArm(entry: ValueTypeOf<typeof DraftEntry>) {
 describe("the body", () => {
     test("a loose row is a plain row between the groups — no rail, numbered in the groups' sequence, its own cells; the footer counts loose rows on their own", () => {
         const ui = mount(withSpy(buildLoose()).value);
-        expect(ui.order()).toEqual(["brief", "[p1]", "  Machine blanks", "  Inspect lots", "  ", "handover", "signoff", "[p2]", "  Finish housings", "  "]);
+        expect(ui.order()).toEqual(["brief", "[p1]", "  Cut panels", "  Inspect batches", "  ", "handover", "signoff", "[p2]", "  Finish doors", "  "]);
         // Numbered in the groups' sequence; lines number from 1 within their group.
         expect(ui.numberOf(ui.loose("brief")!)).toBe("1");
         expect(ui.numberOf(ui.band("p1")!)).toBe("2");
@@ -218,7 +218,7 @@ describe("insertion", () => {
         await ui.flush();
         expect(changed(edits[2]!)).toEqual(["p1"]);
         const p1 = groupArm(draft("p1"));
-        expect(p1.tasks.map((t) => t.task)).toEqual([variant("value", "Machine blanks"), variant("missing", null), variant("value", "Inspect lots")]);
+        expect(p1.tasks.map((t) => t.task)).toEqual([variant("value", "Cut panels"), variant("missing", null), variant("value", "Inspect batches")]);
         const minted = p1.tasks[1]!.id;
         if (minted.type !== "value") throw new Error("Expected a minted id");
         expect(minted.value).not.toBe("");
@@ -295,7 +295,7 @@ describe("delete", () => {
         expect(drafts.has("signoff")).toBe(false);
         expect(groupArm(draft("p2")).tasks).toEqual([]);
         expect(ui.msg()).toBe("Deleted 3 rows — ⌫ again removes the package");
-        expect(ui.order()).toEqual(["brief", "[p1]", "  Machine blanks", "  Inspect lots", "  ", "[p2]", "  "]);
+        expect(ui.order()).toEqual(["brief", "[p1]", "  Cut panels", "  Inspect batches", "  ", "[p2]", "  "]);
         // The emptied package's band holds the ring — two rows above it went with it.
         expect(ui.band("p2")!.hasAttribute("data-picked")).toBe(true);
         ui.key("Backspace");
@@ -324,7 +324,7 @@ describe("the clipboard", () => {
         expect(rowArm(draft(added[0]!.id)).task).toEqual(variant("value", "Ship"));
         expect(rowArm(draft(added[1]!.id)).task).toEqual(variant("value", "Invoice"));
         expect(changed(edits[0]!)).not.toContain("p2");
-        expect(ui.order().slice(5)).toEqual(["handover", "signoff", added[0]!.id, added[1]!.id, "[p2]", "  Finish housings", "  "]);
+        expect(ui.order().slice(5)).toEqual(["handover", "signoff", added[0]!.id, added[1]!.id, "[p2]", "  Finish doors", "  "]);
         expect(ui.msg()).toBe("Pasted 4×1 from clipboard");
     });
 });
@@ -373,12 +373,12 @@ describe("Apply", () => {
         };
         fireEvent.click(ui.chip(ui.band("p2")!, "insertRow")!);
         await ui.flush();
-        ui.type("Stage parts");
+        ui.type("Stage panels");
         ui.editorKey("Enter");
         await ui.flush();
         fireEvent.click(ui.chip(ui.lines("p1")[0]!, "insertRow")!);
         await ui.flush();
-        ui.type("Deburr");
+        ui.type("Denib");
         ui.editorKey("Enter");
         await ui.flush();
         expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(false);
@@ -387,8 +387,8 @@ describe("Apply", () => {
         expect(rows.map((r) => [r.id, r.band.type])).toEqual([
             ["brief", "none"], ["p1", "some"], ["handover", "none"], ["signoff", "none"], [rows[4]!.id, "none"], ["p2", "some"],
         ]);
-        expect(rows[4]!.cells.get("task")).toEqual(variant("String", "Stage parts"));
-        expect(rows[1]!.lines.map((l) => l.cells.get("task"))).toEqual([variant("String", "Deburr"), variant("String", "Machine blanks"), variant("String", "Inspect lots")]);
+        expect(rows[4]!.cells.get("task")).toEqual(variant("String", "Stage panels"));
+        expect(rows[1]!.lines.map((l) => l.cells.get("task"))).toEqual([variant("String", "Denib"), variant("String", "Cut panels"), variant("String", "Inspect batches")]);
         // The saved entries themselves: the loose row an entry of its own, the new line with a minted id.
         const saved = (id: string, at: bigint): ValueTypeOf<typeof EntryType> => {
             const read = liveView().editing.readEntry(id, at);
@@ -396,10 +396,10 @@ describe("Apply", () => {
             return decodeBeast2For(EntryType)(read.value);
         };
         const staged = saved(rows[4]!.id, 4n);
-        expect(staged).toEqual(variant("row", { id: rows[4]!.id, task: "Stage parts", qty: none, note: "new" }));
+        expect(staged).toEqual(variant("row", { id: rows[4]!.id, task: "Stage panels", qty: none, note: "new" }));
         const p1 = saved("p1", 1n);
         if (p1.type !== "group") throw new Error("Expected a group");
-        expect(p1.value.tasks.map((t) => t.task)).toEqual(["Deburr", "Machine blanks", "Inspect lots"]);
+        expect(p1.value.tasks.map((t) => t.task)).toEqual(["Denib", "Cut panels", "Inspect batches"]);
         expect(p1.value.tasks[0]!.id).not.toBe("");
         expect(p1.value.tasks[0]!.id).not.toBe(rows[4]!.id);
         expect(p1.value.tasks.slice(1).map((t) => t.id)).toEqual(["t1", "t2"]);

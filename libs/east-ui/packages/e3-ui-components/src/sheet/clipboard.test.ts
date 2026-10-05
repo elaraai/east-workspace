@@ -43,12 +43,12 @@ describe("copy", () => {
         const cells: Record<string, SheetCellValue> = {
             start: cell("DateTime", utcDate(2026, 2, 16)),
             qty: cell("Float", 1200),
-            stations: cell("Link", { from: [variant("identified", { key: "M1104" })], to: [variant("counted", { n: 4n, key: "CNC lathe" }), variant("text", "north")] }),
+            stations: cell("Link", { from: [variant("identified", { key: "S1104" })], to: [variant("counted", { n: 4n, key: "CNC router" }), variant("text", "north")] }),
             code: cell("String", "WO-26001"),
             notes: cell("Null", null),
         };
         const text = exportMatrix((_r, c) => cells[columns.list[c]!.key], columns.list, { r0: 0, r1: 0, c0: 0, c1: 4 }, en);
-        expect(text).toBe("16/2/2026\t1200\tM1104\t4 × CNC lathe, north\tWO-26001\t");
+        expect(text).toBe("16/2/2026\t1200\tS1104\t4 × CNC router, north\tWO-26001\t");
         // Destination-only leaves From empty.
         expect(exportCell(cell("Link", { from: [], to: [variant("placeholder", null)] }), columns.list[2]!, en)).toEqual(["", "TBC"]);
     });
@@ -67,13 +67,13 @@ describe("copy", () => {
 describe("paste", () => {
     test("the matrix, the halves and the layout", () => {
         expect(parseMatrix("a\tb\nc\td\n")).toEqual([["a", "b"], ["c", "d"]]);
-        expect(joinHalves("M1104", "bay")).toBe("M1104 > bay");
+        expect(joinHalves("S1104", "bay")).toBe("S1104 > bay");
         expect(joinHalves("", "bay")).toBe("bay");
-        expect(joinHalves("M1104", "")).toBe("M1104 >");
-        expect(joinHalves("M1104 > bay", undefined)).toBe("M1104 > bay");
-        const laid = layoutPaste([["16/2/2026", "1200", "M1104", "bay", "STAMP", "note"]], columns.list, 0);
+        expect(joinHalves("S1104", "")).toBe("S1104 >");
+        expect(joinHalves("S1104 > bay", undefined)).toBe("S1104 > bay");
+        const laid = layoutPaste([["16/2/2026", "1200", "S1104", "bay", "STAMP", "note"]], columns.list, 0);
         // The link consumed two cells; the stamped column was consumed but not written.
-        expect(laid.cells.map((c) => [c.c, c.text])).toEqual([[0, "16/2/2026"], [1, "1200"], [2, "M1104 > bay"], [4, "note"]]);
+        expect(laid.cells.map((c) => [c.c, c.text])).toEqual([[0, "16/2/2026"], [1, "1200"], [2, "S1104 > bay"], [4, "note"]]);
         expect(laid.width).toBe(5);
     });
 

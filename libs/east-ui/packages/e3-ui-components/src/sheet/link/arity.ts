@@ -5,7 +5,7 @@
 
 /**
  * Arity (B§4.6 — `Sheet Spec.md` §5 row 9): while the arity half is being
- * edited the strip meta reads *4 × CNC lathe implied · 3 named so far* — never
+ * edited the strip meta reads *4 × CNC router implied · 3 named so far* — never
  * inside the cell. Named = each identified member once, a counted member by
  * its count, a range by its span; text and placeholders do not count.
  */

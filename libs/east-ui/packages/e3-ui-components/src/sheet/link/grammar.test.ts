@@ -25,14 +25,14 @@ const member = (key: string, kind: string, extra: Partial<{ aliases: string[]; m
 }) as SheetRegisterMemberValue;
 
 const MEMBERS = [
-    member("M2140", "machine", { meta: "CNC lathe", parent: "Line 2" }),
-    member("M2141", "machine", { meta: "CNC lathe", parent: "Line 2" }),
-    member("M2145", "machine", { meta: "CNC lathe", parent: "Line 2" }),
-    member("M7301", "machine", { meta: "assembly bench", parent: "Line 7" }),
-    member("Line 2", "line", { aliases: ["line 2", "l2", "the 2 line"], meta: "line · 96" }),
-    member("Test bay", "line", { aliases: ["bay", "the test bay"], meta: "line · 9" }),
-    member("CNC lathe", "family", { aliases: ["lathe", "lathes"], meta: "family" }),
-    member("120 t press", "family", { aliases: ["press", "120 t"], meta: "family" }),
+    member("R2140", "machine", { meta: "CNC router", parent: "Bay 2" }),
+    member("R2141", "machine", { meta: "CNC router", parent: "Bay 2" }),
+    member("R2145", "machine", { meta: "CNC router", parent: "Bay 2" }),
+    member("A7301", "machine", { meta: "assembly bench", parent: "Bay 7" }),
+    member("Bay 2", "bay", { aliases: ["bay 2", "b2", "the 2 bay"], meta: "bay · 96" }),
+    member("Dry-fit area", "bay", { aliases: ["dry fit", "the dry-fit area"], meta: "bay · 9" }),
+    member("CNC router", "family", { aliases: ["router", "routers"], meta: "family" }),
+    member("3 m beam saw", "family", { aliases: ["saw", "3 m"], meta: "family" }),
 ];
 
 const column = indexColumns([{
@@ -42,7 +42,7 @@ const column = indexColumns([{
         members: [
             { kind: "machine", identified: true, countable: false, resolvesTo: none, ranged: false },
             { kind: "range", identified: true, countable: false, resolvesTo: none, ranged: false },
-            { kind: "line", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
+            { kind: "bay", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
             { kind: "family", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
         ],
         multiple: some({ forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" }),
@@ -56,22 +56,22 @@ const m = (type: string, value: unknown): SheetMemberValue => variant(type, valu
 
 describe("classify", () => {
     test.each<[string, SheetMemberValue[]]>([
-        ["M2140", [m("identified", { key: "M2140" })]],
-        ["m2140", [m("identified", { key: "M2140" })]],
-        ["2140", [m("identified", { key: "M2140" })]],                       // bare digits try the prefix
-        ["M2140-45", [m("range", { from: "M2140", to: "M2145" })]],           // short upper bound completed
-        ["2140-2145", [m("range", { from: "M2140", to: "M2145" })]],
-        ["Line 2", [m("identified", { key: "Line 2" })]],
-        ["the 2 line", [m("identified", { key: "Line 2" })]],
-        ["bay", [m("identified", { key: "Test bay" })]],
-        ["120t", [m("identified", { key: "120 t press" })]],                 // countable by attribute — the spacing normalised
-        ["120 T", [m("identified", { key: "120 t press" })]],
-        ["120  t", [m("identified", { key: "120 t press" })]],
-        ["4 x lathe", [m("counted", { n: 4n, key: "CNC lathe" })]],
-        ["Line 2 × 3", [m("counted", { n: 3n, key: "Line 2" })]],
-        ["3*bay", [m("counted", { n: 3n, key: "Test bay" })]],
-        ["4 x lathe north hall", [m("counted", { n: 4n, key: "CNC lathe" }), m("text", "north hall")]],   // trailing qualifier
-        ["2 x M2140", [m("text", "2 x M2140")]],                              // a named member cannot be multiplied
+        ["R2140", [m("identified", { key: "R2140" })]],
+        ["r2140", [m("identified", { key: "R2140" })]],
+        ["2140", [m("identified", { key: "R2140" })]],                       // bare digits try the prefix
+        ["R2140-45", [m("range", { from: "R2140", to: "R2145" })]],           // short upper bound completed
+        ["2140-2145", [m("range", { from: "R2140", to: "R2145" })]],
+        ["Bay 2", [m("identified", { key: "Bay 2" })]],
+        ["the 2 bay", [m("identified", { key: "Bay 2" })]],
+        ["dry fit", [m("identified", { key: "Dry-fit area" })]],
+        ["3m", [m("identified", { key: "3 m beam saw" })]],                 // countable by attribute — the spacing normalised
+        ["3 M", [m("identified", { key: "3 m beam saw" })]],
+        ["3  m", [m("identified", { key: "3 m beam saw" })]],
+        ["4 x router", [m("counted", { n: 4n, key: "CNC router" })]],
+        ["Bay 2 × 3", [m("counted", { n: 3n, key: "Bay 2" })]],
+        ["3*dry fit", [m("counted", { n: 3n, key: "Dry-fit area" })]],
+        ["4 x router north hall", [m("counted", { n: 4n, key: "CNC router" }), m("text", "north hall")]],   // trailing qualifier
+        ["2 x R2140", [m("text", "2 x R2140")]],                              // a named member cannot be multiplied
         ["TBC", [m("placeholder", null)]],
         ["tbc", [m("placeholder", null)]],
         ["mystery", [m("text", "mystery")]],
@@ -81,21 +81,21 @@ describe("classify", () => {
     });
 
     test("a range needs members in the span; a spaced hyphen is not a range", () => {
-        expect(parseRange("M9000-9005", vocab)).toBeUndefined();
-        expect(parseRange("M2140 - 45", vocab)).toBeUndefined();
-        expect(parseRange("M2140-45", vocab)?.members.map((x) => x.key)).toEqual(["M2140", "M2141", "M2145"]);
+        expect(parseRange("X9000-9005", vocab)).toBeUndefined();
+        expect(parseRange("R2140 - 45", vocab)).toBeUndefined();
+        expect(parseRange("R2140-45", vocab)?.members.map((x) => x.key)).toEqual(["R2140", "R2141", "R2145"]);
     });
 });
 
 describe("halves", () => {
     test.each<[string, string[], string[]]>([
-        ["M2140, the 2 line > 4 x lathe, TBC", ["M2140", "Line 2"], ["4 × CNC lathe", "TBC"]],
-        ["bay", [], ["Test bay"]],
-        ["M2141 >", ["M2141"], []],
-        ["M2140 -> M7301", ["M2140"], ["M7301"]],
-        ["M2140 → M7301", ["M2140"], ["M7301"]],
-        ["M2140 - M7301", ["M2140"], ["M7301"]],                              // a spaced hyphen is an arrow
-        ["M2140-45 > mystery", ["M2140-M2145"], ["mystery"]],
+        ["R2140, the 2 bay > 4 x router, TBC", ["R2140", "Bay 2"], ["4 × CNC router", "TBC"]],
+        ["dry fit", [], ["Dry-fit area"]],
+        ["R2141 >", ["R2141"], []],
+        ["R2140 -> A7301", ["R2140"], ["A7301"]],
+        ["R2140 → A7301", ["R2140"], ["A7301"]],
+        ["R2140 - A7301", ["R2140"], ["A7301"]],                              // a spaced hyphen is an arrow
+        ["R2140-45 > mystery", ["R2140-R2145"], ["mystery"]],
     ])("%s", (text, from, to) => {
         const link = parseLinkText(text, vocab);
         expect(link.from.map(memberLabel)).toEqual(from);
@@ -103,27 +103,27 @@ describe("halves", () => {
     });
 
     test("print is the planner's text — both halves, destination only, source only — and round-trips", () => {
-        const both = parseLinkText("M2140, Line 2 > 4 x lathe", vocab);
-        expect(printLinkText(both)).toBe("M2140, Line 2 > 4 × CNC lathe");
+        const both = parseLinkText("R2140, Bay 2 > 4 x router", vocab);
+        expect(printLinkText(both)).toBe("R2140, Bay 2 > 4 × CNC router");
         expect(parseLinkText(printLinkText(both), vocab)).toEqual(both);
-        expect(printLinkText(parseLinkText("bay, TBC", vocab))).toBe("Test bay, TBC");
-        expect(printLinkText(parseLinkText("M2141 >", vocab))).toBe("M2141 >");
+        expect(printLinkText(parseLinkText("dry fit, TBC", vocab))).toBe("Dry-fit area, TBC");
+        expect(printLinkText(parseLinkText("R2141 >", vocab))).toBe("R2141 >");
         expect(printLinkText({ from: [], to: [] })).toBe("");
     });
 });
 
 describe("meta and used keys", () => {
     test("chip meta comes from the register; a counted member is unassigned; a range names its span", () => {
-        expect(memberMeta(m("identified", { key: "M2140" }), vocab, SHEET_WORDS)).toBe("CNC lathe");
-        expect(memberMeta(m("counted", { n: 4n, key: "CNC lathe" }), vocab, SHEET_WORDS)).toBe("unassigned");
-        expect(memberMeta(m("counted", { n: 2n, key: "Line 2" }), vocab, SHEET_WORDS)).toBe("unassigned");
+        expect(memberMeta(m("identified", { key: "R2140" }), vocab, SHEET_WORDS)).toBe("CNC router");
+        expect(memberMeta(m("counted", { n: 4n, key: "CNC router" }), vocab, SHEET_WORDS)).toBe("unassigned");
+        expect(memberMeta(m("counted", { n: 2n, key: "Bay 2" }), vocab, SHEET_WORDS)).toBe("unassigned");
         expect(memberMeta(m("counted", { n: 2n, key: "nowhere" }), vocab, SHEET_WORDS)).toBe("");
-        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab, SHEET_WORDS)).toBe("3 machines");
+        expect(memberMeta(m("range", { from: "R2140", to: "R2145" }), vocab, SHEET_WORDS)).toBe("3 machines");
         expect(memberMeta(m("text", "x"), vocab, SHEET_WORDS)).toBe("");
     });
 
     test("a range's expansion counts as used", () => {
-        const used = usedKeys([m("range", { from: "M2140", to: "M2145" }), m("counted", { n: 1n, key: "Line 2" }), m("text", "z")], vocab);
-        expect([...used].sort()).toEqual(["line 2", "m2140", "m2141", "m2145"]);
+        const used = usedKeys([m("range", { from: "R2140", to: "R2145" }), m("counted", { n: 1n, key: "Bay 2" }), m("text", "z")], vocab);
+        expect([...used].sort()).toEqual(["bay 2", "r2140", "r2141", "r2145"]);
     });
 });

@@ -43,7 +43,7 @@ const identified = (key: string): SheetMemberValue => variant("identified", { ke
 
 /**
  * The free identified members under a countable: the ones naming it as their
- * `parent` (a line's machines), else the ones whose `meta` names it (a family's).
+ * `parent` (a bay's machines), else the ones whose `meta` names it (a family's).
  */
 export function membersUnder(parent: SheetRegisterMemberValue, vocab: LinkVocabulary, used: ReadonlySet<string>): SheetRegisterMemberValue[] {
     const key = parent.key.toLowerCase();
@@ -87,8 +87,8 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
     };
     const exact = resolveMember(query, vocab);
     if (exact !== undefined && free(exact) && !isCountable(vocab, exact)) push(exact);
-    // A code prefix ghosts a code before a name gets a look — `m21` is someone
-    // typing M2140, not asking for a mill.
+    // A code prefix ghosts a code before a name gets a look — `r21` is someone
+    // typing R2140, not asking for a router.
     const codeLike = /^[a-z]?\d/.test(t);
     const bare = t.replace(/\s+/g, "");
     const codeHits = vocab.members.filter((m) => isIdentified(vocab, m) && free(m) && (
@@ -113,7 +113,7 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
         }
     }
     if (!codeLike) for (const m of codeHits) push(m);
-    // Other countables by key prefix, spacing ignored (`line2`, `120t`).
+    // Other countables by key prefix, spacing ignored (`bay2`, `3m`).
     for (const m of vocab.members) {
         if (!isCountable(vocab, m) || !free(m) || seen.has(m.key)) continue;
         if (m.key.toLowerCase().replace(/\s+/g, "").startsWith(bare)) push(m);
@@ -194,7 +194,7 @@ export function predictedMembers(
     return out.slice(0, 5);
 }
 
-/** Whether `b` is the code after `a`: the same letters and suffix, the next number (`M2140` → `M2141`). */
+/** Whether `b` is the code after `a`: the same letters and suffix, the next number (`R2140` → `R2141`). */
 function follows(a: SheetRegisterMemberValue, b: SheetRegisterMemberValue): boolean {
     if (a.kind !== b.kind) return false;
     const x = /^([A-Za-z]*)(\d+)([A-Za-z]?)$/.exec(a.key);
@@ -206,7 +206,7 @@ function follows(a: SheetRegisterMemberValue, b: SheetRegisterMemberValue): bool
  * The entry menu of a link half, in the vocabulary's order (the options rule's,
  * when the row is offered a subset): the countable abstractions (nobody guesses
  * a code) and each RUN of a ranged kind's consecutive codes as one range
- * (`M2140-M2145`, #844); the identified codes only when nothing else is
+ * (`R2140-R2145`, #844); the identified codes only when nothing else is
  * offered. Nothing already used.
  *
  * @param vocab - The column's vocabulary

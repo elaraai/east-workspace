@@ -9,11 +9,11 @@
  * kinds it declares.
  *
  * - **identified** — a register key or alias, case-insensitively; bare digits
- *   try the identified keys' letter prefixes (`2140` ⇒ `M2140`); a
- *   `number + unit` attribute the register knows (`120t`, `120 T` ⇒ the
- *   `120 t press` family) resolves with its spacing normalised — countable
+ *   try the identified keys' letter prefixes (`2140` ⇒ `R2140`); a
+ *   `number + unit` attribute the register knows (`3m`, `3 M` ⇒ the
+ *   `3 m beam saw` family) resolves with its spacing normalised — countable
  *   by attribute.
- * - **range** — `M2140-45` expands through the register; a short upper bound
+ * - **range** — `R2140-45` expands through the register; a short upper bound
  *   completes from the lower. A hyphen is a range only between two UNSPACED
  *   bare numbers — spaced, or beside a name, it is an arrow.
  * - **counted** — `N x kind` / `kind x N` with the declared ops, countable
@@ -64,7 +64,7 @@ export interface LinkVocabulary {
     ranges: boolean;
     /** The multiplication tokens (`x`, `X`, `*`, `×`). */
     ops: readonly string[];
-    /** The letter prefixes of the identified keys of the form `LETTERS+DIGITS` (`M` for `M2140`). */
+    /** The letter prefixes of the identified keys of the form `LETTERS+DIGITS` (`R` for `R2140`). */
     prefixes: readonly string[];
 }
 
@@ -143,8 +143,8 @@ export function isIdentified(vocab: LinkVocabulary, m: SheetRegisterMemberValue)
 }
 
 /**
- * The register key a `number + unit` attribute names — `120t` · `120 T` ·
- * `120  t` ⇒ the `120 t press` family — by key or alias, with the spacing
+ * The register key a `number + unit` attribute names — `3m` · `3 M` ·
+ * `3  m` ⇒ the `3 m beam saw` family — by key or alias, with the spacing
  * between the number and the unit normalised both ways.
  */
 export function attributeKey(raw: string, vocab: LinkVocabulary): string | undefined {
@@ -183,7 +183,7 @@ function opsClass(vocab: LinkVocabulary): string {
     return `[${vocab.ops.map((o) => o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("")}]`;
 }
 
-/** The counted form — a count either side of an operator (`4 x lathe`, `Line 2 × 3`). */
+/** The counted form — a count either side of an operator (`4 x router`, `Bay 2 × 3`). */
 export function parseMultiple(raw: string, vocab: LinkVocabulary): { n: number; rest: string } | undefined {
     const ops = opsClass(vocab);
     const m = new RegExp(`^(?:(\\d{1,3})\\s*${ops}\\s*(.+)|(.+?)\\s*${ops}\\s*(\\d{1,3}))$`, "i").exec(raw.trim());
@@ -193,10 +193,10 @@ export function parseMultiple(raw: string, vocab: LinkVocabulary): { n: number; 
     return n > 0 && rest !== "" ? { n, rest } : undefined;
 }
 
-/** A code's letters, number and optional trailing letter (`M2140`, `L0700B` — some registers' codes carry a suffix). */
+/** A code's letters, number and optional trailing letter (`R2140`, `L0700B` — some registers' codes carry a suffix). */
 const CODE = /^([A-Za-z]*)(\d+)([A-Za-z]?)$/;
 
-/** The identified members in a numeric span — `M2140` … `M2145` — with the letters of `from` (and its suffix, when it has one). */
+/** The identified members in a numeric span — `R2140` … `R2145` — with the letters of `from` (and its suffix, when it has one). */
 export function rangeMembers(from: string, to: string, vocab: LinkVocabulary): SheetRegisterMemberValue[] {
     const a = CODE.exec(from);
     const b = CODE.exec(to);
@@ -217,13 +217,13 @@ export function rangeMembers(from: string, to: string, vocab: LinkVocabulary): S
 }
 
 /**
- * A range token — `M2140-45` / `2140-2145` — to its normalised bounds, when
+ * A range token — `R2140-45` / `2140-2145` — to its normalised bounds, when
  * the register has members in the span. A short upper bound completes from
  * the lower; bare digits take an identified prefix that yields members.
  */
 export function parseRange(raw: string, vocab: LinkVocabulary): { from: string; to: string; members: SheetRegisterMemberValue[] } | undefined {
     if (!vocab.ranges) return undefined;
-    // Unspaced only: `M2140 - 45` is an arrow between two members, never a range. A trailing letter rides on either bound (`L0700B-L0823B`, `L0700B-23`).
+    // Unspaced only: `R2140 - 45` is an arrow between two members, never a range. A trailing letter rides on either bound (`L0700B-L0823B`, `L0700B-23`).
     const m = /^([A-Za-z]*)(\d{2,})([A-Za-z]?)[-–]([A-Za-z]*)(\d{1,})([A-Za-z]?)$/.exec(raw.trim());
     if (m === null) return undefined;
     let upper = m[5]!;

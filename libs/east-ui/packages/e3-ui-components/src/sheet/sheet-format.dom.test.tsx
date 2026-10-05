@@ -80,7 +80,7 @@ describe("the Sheet's counts (#850)", () => {
 
     test("the view tabs' counts", () => {
         const { container } = german(
-            <SheetTabs styles={styles} views={[{ id: "v", name: "PAINT", count: 1234, title: "" }]} wholeCount={5000}
+            <SheetTabs styles={styles} views={[{ id: "v", name: "SPRAY", count: 1234, title: "" }]} wholeCount={5000}
                 active={null} dirty={false} hasQuery={false} renaming={null} renameVal=""
                 onSwitch={() => {}} onCreate={() => {}} onClose={() => {}} onRenameStart={() => {}}
                 onRenameChange={() => {}} onRenameCommit={() => {}} onRenameCancel={() => {}} onReorder={() => {}} />,
