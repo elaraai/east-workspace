@@ -36,6 +36,20 @@ const printInteger = printFor(IntegerType);
 const readInteger = parseFor(IntegerType);
 const printFloat = printFor(FloatType);
 const readFloat = parseFor(FloatType);
+const integerEqual = equalFor(IntegerType);
+const floatEqual = equalFor(FloatType);
+
+/**
+ * A number input's props after its value's data changed: the new value's —
+ * but the box's text kept as typed when it already reads the new number, the
+ * host writing back the number just typed (#1211). Rewritten mid-entry
+ * (`3` → `3.00`, `03` → `3`), the box's caret would no longer follow the
+ * text, and the next key would be lost. Any other number replaces the text.
+ */
+function keepTyped<T>(prev: NumberInputRootProps, next: NumberInputRootProps, number: T, read: (text: string) => { success: true; value: T } | { success: false }, equal: (a: T, b: T) => boolean): NumberInputRootProps {
+    const held = read(prev.value ?? "");
+    return held.success && equal(held.value, number) ? { ...next, value: prev.value } : next;
+}
 
 const stringInputEqual = equivalentFor(Input.Types.String);
 const stringInputDataEqual = equalFor(Input.Types.String);
@@ -178,7 +192,7 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useValueSync(value, integerInputDataEqual, () => setProps(toChakraIntegerInput(value)));
+    useValueSync(value, integerInputDataEqual, () => setProps((prev) => keepTyped(prev, toChakraIntegerInput(value), value.value, readInteger, integerEqual)));
 
     // Prevent invalid characters for integers (only digits, minus, and control keys)
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
@@ -253,6 +267,8 @@ export type FloatInputValue = ValueTypeOf<typeof Input.Types.Float>;
 
 /**
  * Converts an East UI FloatInput value to Chakra UI NumberInput.Root props.
+ * A precision is the box's number format too: shown when the box rests, at
+ * that many decimal places (#1211).
  */
 export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps {
     const precision = getSomeorUndefined(value.precision);
@@ -262,6 +278,7 @@ export function toChakraFloatInput(value: FloatInputValue): NumberInputRootProps
 
     return {
         value: displayValue,
+        ...(precision !== undefined ? { formatOptions: { minimumFractionDigits: Number(precision), maximumFractionDigits: Number(precision) } } : {}),
         min: getSomeorUndefined(value.min),
         max: getSomeorUndefined(value.max),
         step: getSomeorUndefined(value.step),
@@ -284,7 +301,7 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useValueSync(value, floatInputDataEqual, () => setProps(toChakraFloatInput(value)));
+    useValueSync(value, floatInputDataEqual, () => setProps((prev) => keepTyped(prev, toChakraFloatInput(value), value.value, readFloat, floatEqual)));
 
     const handleValueChange = useCallback((details: { value: string }) => {
         const raw = details.value;
