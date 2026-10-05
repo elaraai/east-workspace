@@ -187,6 +187,14 @@ export interface SheetMessages extends EditingMessages {
     fillRowTitle: () => string;
     /** A new row's discard button. */
     discardRow: () => string;
+    /**
+     * A folded gutter's row-actions button (#1215), its accessible name —
+     * `Actions — row 3`. Its menu's items are the words of the controls it
+     * holds: the gutter's decisions and the insertion strip's inserts.
+     */
+    rowActions: (p: { what: string }) => string;
+    /** Its title — and, when its row moves, that a drag on it moves the row. */
+    rowActionsTitle: (p: { movable: boolean }) => string;
     /** A fill's take button. */
     take: (p: { header: string }) => string;
     /** Its title — the fill's provenance, when it has one. */
@@ -631,6 +639,8 @@ export const sheetMessages: SheetMessages = {
     fillRow: () => "Fill this row",
     fillRowTitle: () => "Fill this row — ⌘⏎",
     discardRow: () => "Discard new row",
+    rowActions: ({ what }) => `Actions — ${what}`,
+    rowActionsTitle: ({ movable }) => (movable ? "Its actions — drag to move it" : "Its actions"),
     take: ({ header }) => `Take ${header}`,
     takeTitle: ({ meta }) => `Take — ${meta ?? "suggested"}`,
     proposalName: ({ number }) => `Suggested row ${number}`,

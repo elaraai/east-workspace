@@ -679,6 +679,54 @@ describe("touch grip fast-path", () => {
         const e = sole(events);
         expect(e.type).toBe("add");
     });
+
+    /** A grip that also taps (#1215): a folded sheet row's actions button — its tap opens a menu, here counted. */
+    function TapGripChip({ taps }: { taps: { n: number } }) {
+        const drag = useDragEventChip({ surface: "roster", row: "patel", slot: "mon", event: "s1" }, <span>s1</span>);
+        return <span data-testid="tap-grip" data-drag-grip="tap" {...drag} onClick={() => { taps.n += 1; }} />;
+    }
+
+    test("a touch on a grip that also taps waits for travel: a tap is its click, never a drag", () => {
+        vi.useFakeTimers();
+        const events: DragEventValue[] = [];
+        const taps = { n: 0 };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: [], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <TapGripChip taps={taps} />
+                <Cell surface="roster" row="cho" slot="mon" />
+            </DragLayerProvider>,
+        );
+        const grip = getByTestId("tap-grip");
+        fireEvent.pointerDown(grip, { pointerType: "touch", pointerId: 1, clientX: 0, clientY: 0 });
+        expect(grip.hasAttribute("data-dragging")).toBe(false);
+        // Held past the long-press: still no drag — this grip engages by travel alone.
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(grip.hasAttribute("data-dragging")).toBe(false);
+        fireEvent.pointerUp(document, { pointerType: "touch", pointerId: 1, clientX: 0, clientY: 0 });
+        fireEvent.click(grip);
+        expect(taps.n).toBe(1);
+        expect(events).toHaveLength(0);
+    });
+
+    test("a touch that travels 4px on a grip that also taps engages at once — no hold — and the drag's own click never reaches it", () => {
+        const events: DragEventValue[] = [];
+        const taps = { n: 0 };
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: [], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <TapGripChip taps={taps} />
+                <Cell surface="roster" row="cho" slot="mon" />
+            </DragLayerProvider>,
+        );
+        const grip = getByTestId("tap-grip");
+        engage(grip, getByTestId("cell-cho-mon"), { pointerType: "touch" });
+        expect(grip.hasAttribute("data-dragging")).toBe(true);
+        fireEvent.pointerUp(document, { pointerType: "touch", pointerId: 1, clientX: 10, clientY: 10 });
+        fireEvent.click(grip);
+        expect(sole(events).type).toBe("move");
+        expect(taps.n).toBe(0);
+    });
 });
 
 // ── The keyboard ─────────────────────────────────────────────────────────

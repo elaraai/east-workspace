@@ -8,7 +8,7 @@
  * lays nothing out (#856). A sheet that mounts a screenful measures its rows,
  * so a test that renders one — bounded, or unbounded at scale — needs rows as
  * tall as they draw; a test of an unbounded sheet in a page needs the page to
- * scroll.
+ * scroll; a test of a folded gutter (#1215), a touch screen's narrow frame.
  *
  * Test use only: the package build leaves `*.test-utils.ts` out.
  *
@@ -72,6 +72,52 @@ export function emulateWindowScroll(): () => void {
         if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
         delete (html as { scrollHeight?: number }).scrollHeight;
         Element.prototype.getBoundingClientRect = saved.rect;
+    };
+}
+
+/**
+ * A touch screen's sheet (#1215): the primary pointer coarse — `(pointer:
+ * coarse)` matches, nothing else does — and the frame the rows scroll in
+ * `width` px wide, its box and inside it alike, watched as a browser watches
+ * it (a `ResizeObserver` where the page has none). The frame is the rows'
+ * scroll element on a bounded sheet, else their root: the card's first child.
+ *
+ * @param width - The frame's width (px)
+ * @returns The restore
+ */
+export function touchFrame(width: number): () => void {
+    const saved = {
+        resizeObserver: Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver"),
+        matchMedia: Object.getOwnPropertyDescriptor(window, "matchMedia"),
+        offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!,
+        clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
+    };
+    const isFrame = (el: Element) => el.getAttribute("data-virtual-rows") === "bounded" || el.parentElement?.hasAttribute("data-sheet-card") === true;
+    if (saved.resizeObserver === undefined) {
+        Object.defineProperty(globalThis, "ResizeObserver", {
+            configurable: true, writable: true, value: class { observe() {} unobserve() {} disconnect() {} },
+        });
+    }
+    Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: (query: string) => ({
+            matches: query === "(pointer: coarse)", media: query, onchange: null,
+            addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+        }),
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+        configurable: true, get(this: HTMLElement) { return isFrame(this) ? width : saved.offsetWidth.get!.call(this); },
+    });
+    Object.defineProperty(Element.prototype, "clientWidth", {
+        configurable: true, get(this: Element) { return isFrame(this) ? width : saved.clientWidth.get!.call(this); },
+    });
+    return () => {
+        if (saved.resizeObserver === undefined) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        if (saved.matchMedia !== undefined) Object.defineProperty(window, "matchMedia", saved.matchMedia);
+        else delete (window as { matchMedia?: unknown }).matchMedia;
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", saved.offsetWidth);
+        Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
     };
 }
 
