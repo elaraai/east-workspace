@@ -268,6 +268,8 @@ export {
     sheetKeys,
     type SheetRecordHandle,
     type SheetBuilderEntry,
+    type SheetBuilderLooseEntry,
+    type SheetEntriesField,
     type SheetBuilderCommon,
 } from "./builder.js";
 export { SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
