@@ -41,6 +41,7 @@ import {
     isTypeEqual, none, some, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
+import { DateTimePrecisionType } from "../forms/input/types.js";
 
 // ============================================================================
 // The closed spec a renderer reads
@@ -62,7 +63,7 @@ export const FieldOptionType = StructType({ case: StringType, label: StringType 
  * @property text - A text box, showing `placeholder` while empty
  * @property number - A number with its steppers, moved by `step`, clamped to `min` and `max`; its `unit` and bounds in the line under it
  * @property checkbox - A checkbox
- * @property datetime - A date and a time
+ * @property datetime - A date and a time — or, at `precision`, a date or a time alone (a host's choice: the Sheet's inspector picks a date at a date column's level, #1188)
  * @property select - A choice of the variant's cases, each with its words
  * @property tags - Values typed freely, `options` suggested as they are typed
  * @property checklist - Items each with its done box: the item struct's `text` and `done` fields
@@ -73,7 +74,7 @@ export const FieldEditorType = VariantType({
     text: StructType({ placeholder: OptionType(StringType) }),
     number: StructType({ unit: OptionType(StringType), step: OptionType(FloatType), min: OptionType(FloatType), max: OptionType(FloatType) }),
     checkbox: NullType,
-    datetime: NullType,
+    datetime: StructType({ precision: OptionType(DateTimePrecisionType) }),
     select: ArrayType(FieldOptionType),
     tags: StructType({ options: ArrayType(StringType) }),
     checklist: StructType({ text: StringType, done: StringType }),
@@ -504,7 +505,7 @@ function editorOf(type: EastType, hint: AnyHint | undefined, at: string): FieldE
     if (isTypeEqual(type, StringType)) return variant("text", { placeholder: none });
     if (isTypeEqual(type, IntegerType) || isTypeEqual(type, FloatType)) return variant("number", { unit: none, step: none, min: none, max: none });
     if (isTypeEqual(type, BooleanType)) return variant("checkbox", null);
-    if (isTypeEqual(type, DateTimeType)) return variant("datetime", null);
+    if (isTypeEqual(type, DateTimeType)) return variant("datetime", { precision: none });
     if (isStrings(type)) return variant("tags", { options: [] });
     if (isItemList(type)) {
         const found = checklistOf(type.value, undefined, at);

@@ -67,7 +67,7 @@ const number = (o: { unit?: string; step?: number; min?: number; max?: number } 
 const tags = (options: string[] = []): FieldEditorValue => variant("tags", { options });
 const select = (...options: [string, string][]): FieldEditorValue => variant("select", options.map(([c, label]) => ({ case: c, label })));
 const checkbox: FieldEditorValue = variant("checkbox", null);
-const datetime: FieldEditorValue = variant("datetime", null);
+const datetime: FieldEditorValue = variant("datetime", { precision: none });
 const readonly: FieldEditorValue = variant("readonly", null);
 const checklist = (textField: string, done: string): FieldEditorValue => variant("checklist", { text: textField, done });
 

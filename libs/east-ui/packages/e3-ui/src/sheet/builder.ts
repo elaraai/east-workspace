@@ -7,13 +7,14 @@
  * `<Sheet.Builder>` (#1183, `Sheet Builder Spec.md` §3–§5, SB7–SB12): an e3
  * record edited as a sheet, laid out in `BuilderFrame` with the author's
  * library beside it (#1186: the templates, the columns and tabs of their own
- * cards, as `library` lists them) and an inspector.
+ * cards, as `library` lists them) and an inspector (#1188: every field of the
+ * selected row through `Fields`, or the author's own `inspector`).
  *
  * The builder is an interface. Its payload holds today's sheet whole — the
  * very `SheetRootType` `Sheet.View` draws — read from the record's rows
  * (`recordRows`) and committing through its patch mutation, beside the
- * templates' cards and seeds, the library's tabs, the record's history and
- * the builder's name.
+ * templates' cards and seeds, the library's tabs, the inspector's forms and
+ * the author's inspector, the record's history and the builder's name.
  * The `SheetBuilder` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
@@ -21,12 +22,16 @@
 
 import {
     ArrayType,
+    BlobType,
     BooleanType,
     East,
+    Expr,
     FunctionType,
+    NullType,
     OptionType,
     StringType,
     StructType,
+    isTypeEqual,
     none,
     some,
     type DictType,
@@ -35,8 +40,8 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import type { UIElement } from "@elaraai/east-ui";
-import { EastUI, type UIComponentType } from "@elaraai/east-ui/internal";
+import { UIComponentType, type UIElement } from "@elaraai/east-ui";
+import { EastUI, type FieldHints } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetLinesField, type SheetLineOf } from "./types.js";
 import { createSheetBuild, type SheetGroupedOptions, type SheetOptions, type SheetStringField } from "./root.js";
 import type { SheetColumnSpec } from "./columns.js";
@@ -45,6 +50,7 @@ import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
 import { recordRows, type SheetRecordEntry } from "./record.js";
 import { buildTemplates, SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
 import { buildLibrary, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
+import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
 
 // ============================================================================
@@ -84,11 +90,23 @@ export function sheetKeys(id: string | undefined): {
 // ============================================================================
 
 /**
+ * An author's inspector on the wire (SB58): the row as bytes, and the writer
+ * that takes the edited row back as bytes, to what Details shows in place of
+ * the default form. The builder wraps the author's typed function in it.
+ */
+export const SheetInspectorType = FunctionType([BlobType, FunctionType([BlobType], NullType)], UIComponentType);
+
+/** Type representing {@link SheetInspectorType}. */
+export type SheetInspectorType = typeof SheetInspectorType;
+
+/**
  * The `SheetBuilder` renderer's payload: the builder's interface.
  *
  * @property sheet - The sheet whole — its grid, its rows and its session wired to the record — as `Sheet.View` draws it
  * @property templates - The Rows tab's cards and their seeds
  * @property library - The library's tabs, in the order `library` lists them; none, no library pane
+ * @property fields - The inspector's forms: a row's (a grouped sheet's line's) and a group's, each field through its column or by its type, and the cells a patch of each sets (SB10)
+ * @property inspector - The author's inspector, wrapped: what Details shows for a complete row in place of its form (SB58)
  * @property history - The record's commits, newest first: the last save, and who changed it
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
  * @property id - Names the builder, when a surface holds two
@@ -97,6 +115,8 @@ export const SheetBuilderPayloadType = StructType({
     sheet: SheetRootType,
     templates: ArrayType(SheetTemplateWireType),
     library: ArrayType(SheetLibraryTabType),
+    fields: SheetFormsType,
+    inspector: OptionType(SheetInspectorType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
     missing: OptionType(StringType),
     id: OptionType(StringType),
@@ -156,6 +176,19 @@ export interface SheetBuilderCommon<L extends StructType, G extends StructType =
     templates?: SheetTemplatesInput<L, G>;
     /** The library's tabs, in order, each a `Sheet.library.*` call — `rows()`, `columns()` and `tab(data, { … })`; left out, or empty, no library pane (SB59). */
     library?: readonly SheetLibraryTab[];
+    /** Hints for the inspector's form, by the row's field (a grouped sheet's line's) — `Sheet.field.*`: a label, a help line, an editor, read only or hidden; a column's kind is its field's default (SB10). */
+    fields?: FieldHints<L["fields"]>;
+    /** Hints for a group's own fields in the inspector, on a grouped sheet. */
+    groupFields?: [G] extends [never] ? never : FieldHints<G["fields"]>;
+    /**
+     * The author's own Details for one row (SB58): an East function over the
+     * row and a writer of the edited row — `(row, update) => UIComponentType`,
+     * passed through untouched (never called at build), capturing only data
+     * and bind handles. Given, Details for a complete row shows what it returns
+     * in place of the form, and `update(edited)` is one transaction; a row
+     * whose draft is incomplete shows the form until every field has a value.
+     */
+    inspector?: SubtypeExprOrValue<FunctionType<[L, FunctionType<[L], NullType>], UIComponentType>>;
     /** The saved views — a bind handle of `Array<Sheet.Types.View>`: `State.bind` keeps them per viewer, `Data.bind` shares them. */
     views?: unknown;
     /** Names the builder — needed only when one surface holds two. */
@@ -177,6 +210,9 @@ type SheetBuilderAnyOptions = {
     columns: unknown;
     templates?: { rows?: SheetTemplate<StructType>[]; groups?: SheetTemplate<StructType>[] };
     library?: readonly SheetLibraryTab[];
+    fields?: Readonly<Record<string, unknown>>;
+    groupFields?: Readonly<Record<string, unknown>>;
+    inspector?: unknown;
     views?: unknown;
     id?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
@@ -188,8 +224,9 @@ type SheetBuilderAnyOptions = {
  * Creates the builder's payload alone — what the `<Sheet.Builder>` tag returns
  * through the `SheetBuilder` carrier — for the tests and the renderer's
  * fixtures, which read it whole: the sheet over a record's rows, its
- * templates, its library's tabs, the record's history, the missing entry's
- * key and the builder's name.
+ * templates, its library's tabs, the inspector's forms and the author's
+ * inspector, the record's history, the missing entry's key and the builder's
+ * name.
  *
  * @param options - The builder's options, as the tag takes them
  * @returns An East expression of {@link SheetBuilderPayloadType}
@@ -197,7 +234,7 @@ type SheetBuilderAnyOptions = {
  * @internal
  */
 export function createSheetBuilderPayload(options: { record: unknown; columns: unknown } & { [prop: string]: unknown }): ExprType<SheetBuilderPayloadType> {
-    const { record, entry, window, columns, templates, library, views, id, ...sheet } = options as SheetBuilderAnyOptions;
+    const { record, entry, window, columns, templates, library, fields, groupFields, inspector, views, id, ...sheet } = options as SheetBuilderAnyOptions;
     for (const prop of ["data", "onApply", "onUpdate", "onViewsChange"]) {
         if (prop in sheet) {
             throw new Error(`Sheet.Builder: \`${prop}\` is Sheet.View's — the builder reads its rows from \`record\` and commits through it, and takes its views as a bind handle (\`views\`)`);
@@ -218,10 +255,43 @@ export function createSheetBuilderPayload(options: { record: unknown; columns: u
         sheet: built.root,
         templates: buildTemplates(templates, built.bridge, { newRow: sheet.newRow, newGroup: sheet.newGroup }),
         library: buildLibrary(library, built.bridge),
+        fields: buildForms(built.bridge, built.metas, fields, groupFields, rows.options.id, built.registers),
+        inspector: buildInspector(inspector, built.bridge.lineType),
         history: (record as { history: ExprType<FunctionType<[], OptionType<ArrayType<typeof RecordCommitInfoType>>>> }).history,
         missing: rows.missing,
         id: id === undefined ? none : some(id),
     }, SheetBuilderPayloadType);
+}
+
+/**
+ * The author's inspector on the wire (SB58): checked against the row type,
+ * then wrapped so the row and the edited row cross as bytes. The author's
+ * function is captured as it is and called only where the renderer draws
+ * Details, never here.
+ *
+ * @param fn - The author's `inspector`, if any
+ * @param rowType - The row type (a grouped sheet's line type)
+ * @returns The wrapped function, or `none`
+ * @throws Error when the function is not `(Row, (Row) => Null) => UIComponentType`
+ * @internal
+ */
+export function buildInspector(fn: unknown, rowType: StructType): ExprType<OptionType<SheetInspectorType>> {
+    if (fn === undefined) return East.value(none, OptionType(SheetInspectorType));
+    const update = FunctionType([rowType], NullType);
+    const author = East.value(fn as SubtypeExprOrValue<FunctionType>) as ExprType<FunctionType>;
+    const t = Expr.type(author as unknown as Expr) as { type: string; inputs?: EastType[]; output?: EastType };
+    const fits = t.type === "Function" && t.inputs?.length === 2 && isTypeEqual(t.inputs[0]!, rowType) && isTypeEqual(t.inputs[1]!, update)
+        && t.output !== undefined && isTypeEqual(t.output, UIComponentType);
+    if (!fits) {
+        throw new Error("Sheet.Builder: `inspector` must be an East.function over the row and its writer — East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), the row a grouped sheet's line");
+    }
+    const wire = East.function([BlobType, FunctionType([BlobType], NullType)], UIComponentType, ($, bytes, write) => {
+        const draw = $.const(author as unknown as ExprType<FunctionType<[StructType, FunctionType<[StructType], NullType>], UIComponentType>>);
+        const row = $.const(bytes.decodeBeast(rowType, "v2"));
+        const typed = $.const(East.function([rowType], NullType, ($2, edited) => { $2(write(East.Blob.encodeBeast(edited, "v2"))); }));
+        return draw(row, typed);
+    });
+    return East.value(some(wire), OptionType(SheetInspectorType));
 }
 
 /** The builder, through its carrier: {@link createSheetBuilderPayload}'s payload. */
@@ -307,6 +377,11 @@ function SheetBuilderTag(props: { record: unknown; columns: unknown }): UIElemen
  *   viewer) and `Sheet.library.tab(data, { … })`, the author's own cards,
  *   whose `drop` is the `Sheet.patch` a dropped card sets. Left out, there is
  *   no library pane.
+ * - **The inspector** shows the selected row's every field: a field with a
+ *   column through its column's kind, any other by its type, hinted with
+ *   `fields={{ created_by: Sheet.field.readonly() }}` (and `groupFields` for a
+ *   group's own). `inspector` replaces the form for a complete row with the
+ *   author's own UI, `(row, update) => UIComponentType`.
  * - **Views** (`views`) are a bind handle: `State.bind` keeps them per viewer,
  *   `Data.bind` shares them.
  * - Every other prop is `<Sheet.View>`'s, unchanged: the columns, registers

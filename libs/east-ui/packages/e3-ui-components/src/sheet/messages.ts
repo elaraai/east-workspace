@@ -57,6 +57,12 @@ export type SheetLibraryTabWord = "rows" | "columns" | "tab";
 /** A tab of a builder's inspector pane (#1184). */
 export type SheetInspectorTabWord = "details" | "issues";
 
+/** What the inspector shows one of (#1188): a row, a group's line, or a group's band. */
+export type SheetInspectWord = "row" | "line" | "band";
+
+/** A gesture of the inspector's (#1188). */
+export type SheetInspectActionWord = "duplicate" | "delete" | "addLine" | "editInSheet" | "clear";
+
 /**
  * The Sheet's message table — its own words, and the editing session's
  * ({@link EditingMessages}, #879: the history bar and the draft issues), so a
@@ -498,6 +504,34 @@ export interface SheetMessages extends EditingMessages {
     inspectorPane: () => string;
     /** An inspector tab. */
     inspectorTab: (p: { tab: SheetInspectorTabWord }) => string;
+    /** What the inspector shows — `row 3`, `line 2 of WO-2201`, `order 4` — over its fields, and on the collapsed rail (#1188, SB46). */
+    inspectorWhat: (p: { what: SheetInspectWord; number: string; title: string | undefined; noun: string }) => string;
+    /** A draft's chip: changed since the record held it, or never applied (SB47). */
+    inspectorChip: (p: { state: "pending" | "new" }) => string;
+    /** The lock on a row the upstream system owns, and its title. */
+    inspectorOwned: () => string;
+    /** A section's head: the issues, the sub rows, a group's lines — `2 issues`. */
+    inspectorSection: (p: { section: "issues" | "subRows" | "lines"; n: number; count: string }) => string;
+    /** An inspector gesture — `Duplicate`, `Add line`; on a band, `with` its lines (SB49). */
+    inspectorAction: (p: { action: SheetInspectActionWord; header: string | undefined; withLines: boolean }) => string;
+    /** A link or set field's Edit in sheet while its column is hidden (SB48). */
+    inspectorHiddenColumn: (p: { header: string }) => string;
+    /** Several rows selected (SB50) — `3 rows selected`, `5 lines selected`. */
+    inspectorSeveral: (p: { n: number; count: string; lines: boolean }) => string;
+    /** The bulk edit's column choice, and what it sets across the rows. */
+    inspectorBulk: (p: { part: "column" | "pick" | "hint" }) => string;
+    /** Nothing selected (SB51): a count's label — `rows`, `pending`, `issues`. */
+    inspectorCount: (p: { what: "rows" | "pending" | "issues"; n: number }) => string;
+    /** The record's last commit and who made it — `saved 14:02 by planner`; `undefined` before its first. */
+    inspectorLastCommit: (p: { when: string | undefined; by: string | undefined }) => string;
+    /** Nothing selected: three hints, by their place. */
+    inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
+    /** A row whose entry is not read yet. */
+    inspectorReading: () => string;
+    /** The Issues tab with nothing to list: its title, and the line under it (SB53). */
+    inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
+    /** An issue's place and field — `row 4 · Qty`. */
+    inspectorIssueAt: (p: { where: string; field: string | undefined }) => string;
     /** The footer's last save, from the record's commits — `saved 14:02` (SB22). */
     savedAt: (p: { when: string }) => string;
     /** The banner over an entry the record does not hold (SB15). */
@@ -756,6 +790,33 @@ export const sheetMessages: SheetMessages = {
     columnEye: ({ hidden, last }) => (hidden ? "Hidden — click to show" : last ? "Shown — the last column shown stays" : "Shown — click to hide"),
     inspectorPane: () => "Inspector",
     inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
+    inspectorWhat: ({ what, number, title, noun }) => (what === "row" ? `row ${number}`
+        : what === "line" ? `line ${number} of ${title ?? `the ${noun}`}` : `${noun} ${number}`),
+    inspectorChip: ({ state }) => (state === "pending" ? "Pending" : "New"),
+    inspectorOwned: () => "Owned upstream — its stamped cells are read only",
+    inspectorSection: ({ section, n, count }) => (section === "issues" ? `${count} ${plural(n, "issue", "issues")}`
+        : section === "subRows" ? `${count} sub ${plural(n, "row", "rows")}` : `${count} ${plural(n, "line", "lines")}`),
+    inspectorAction: ({ action, header, withLines }) => {
+        switch (action) {
+            case "duplicate": return withLines ? "Duplicate with its lines" : "Duplicate";
+            case "delete": return withLines ? "Delete with its lines" : "Delete";
+            case "addLine": return "Add line";
+            case "editInSheet": return "Edit in sheet";
+            case "clear": return header === undefined ? "Clear" : `Clear ${header}`;
+        }
+    },
+    inspectorHiddenColumn: ({ header }) => `${header} is hidden — show it from the library's Columns tab to edit it in the sheet`,
+    inspectorSeveral: ({ n, count, lines }) => `${count} ${lines ? plural(n, "line", "lines") : plural(n, "row", "rows")} selected`,
+    inspectorBulk: ({ part }) => (part === "column" ? "Set a column across them"
+        : part === "pick" ? "Column" : "An edit sets it on every one, as one step the history undoes"),
+    inspectorCount: ({ what, n }) => (what === "rows" ? plural(n, "row", "rows") : what === "pending" ? "pending" : plural(n, "issue", "issues")),
+    inspectorLastCommit: ({ when, by }) => (when === undefined ? "Not saved yet" : by !== undefined && by !== "" ? `saved ${when} by ${by}` : `saved ${when}`),
+    inspectorHint: ({ n }) => (n === 1 ? "Click a cell to see its row's every field here"
+        : n === 2 ? "Click a row number to select it — shift-click to select several"
+            : "Changes stay drafts until Apply; the history item undoes each one"),
+    inspectorReading: () => "Reading the row…",
+    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every draft is complete — nothing stands in the way of Apply."),
+    inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
     savedAt: ({ when }) => `saved ${when}`,
     entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,
 };

@@ -4,10 +4,10 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    East, ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
     example, none, some, variant,
 } from "@elaraai/east";
-import { Box, Reactive, SegmentGroup, Slice, State, StatusValueType, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Field, Reactive, SegmentGroup, Slice, State, StatusValueType, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -22,8 +22,9 @@ import e3 from "@elaraai/e3";
 // builder has something in it from the first: the sheet its rows, the
 // workshop's library its tabs — the templates, the statuses an order takes,
 // the columns — and the inspector the selected row's fields and the batch's
-// issues. A builder with no `library` has no library pane (#1186). The names
-// are made up; the domain is a joinery workshop (decision 14).
+// issues. A builder with no `library` has no library pane (#1186); the weeks'
+// builder draws its own Details for a row (`inspector`, #1188). The names are
+// made up; the domain is a joinery workshop (decision 14).
 //
 // A builder fills its parent, as a ui task's page fills the window: each
 // example gives it a box of its own height. One page shows them all, so every
@@ -210,11 +211,13 @@ export const sheetBuilderOrdersPatch = e3.mutation.patch(sheetBuilderOrders);
  * each order, templates for whole orders and single operations, the slice's
  * search and filter, and views kept per viewer. The library lists the
  * templates, the statuses — a card dropped on an order's band sets its status —
- * and the columns; the order with no customer is the batch's issue.
+ * and the columns; the inspector shows every field of the selected operation,
+ * `created_by` (no column) read only; the order with no customer is the
+ * batch's issue.
  */
 export const sheetBuilderWorkshop = example({
-    keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "Record", "group", "driver", "register", "link", "templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "views", "slice", "copilot", "fill", "ready", "newGroup", "newRow", "joinery"],
-    description: "The workshop's orders as a sheet builder — orders as groups and their operations as lines, an activity driver, machines and statuses registers, a date fill, an order check, a library of order and operation templates, the statuses (dropped on an order to set its status) and the columns, the slice's search and filter, and views kept per viewer",
+    keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "Record", "group", "driver", "register", "link", "templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "slice", "copilot", "fill", "ready", "newGroup", "newRow", "joinery"],
+    description: "The workshop's orders as a sheet builder — orders as groups and their operations as lines, an activity driver, machines and statuses registers, a date fill, an order check, a library of order and operation templates, the statuses (dropped on an order to set its status) and the columns, an inspector showing every field (created_by read only), the slice's search and filter, and views kept per viewer",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const orders     = $.let(Record.bind(sheetBuilderOrders, [sheetBuilderOrdersPatch]));
@@ -307,6 +310,8 @@ export const sheetBuilderWorkshop = example({
                                           members: [{ kind: "machine", identified: true }, { kind: "family", countable: true, resolvesTo: "machine" }] }),
                             notes:    Sheet.column.text(BuilderOperation, { header: "Notes", width: "240px" }),
                         }}
+                        // The inspector's form: every field of an operation; created_by, which no column shows, read only.
+                        fields={{ created_by: Sheet.field.readonly() }}
                         templates={{
                             groups: [
                                 { key: "kitchen", name: "Kitchen order", group: "Orders",
@@ -386,11 +391,14 @@ export const sheetBuilderPlansPatch = e3.mutation.patch(sheetBuilderPlans);
 /**
  * One entry's rows (§3.4) — the week the viewer picks, its rows in the
  * planner's order; each week keeps its own drafts until Apply or Discard, and
- * a week the record does not hold opens empty and read-only.
+ * a week the record does not hold opens empty and read-only. Its inspector is
+ * the author's own (SB58): a row's quantity on a slider, written back through
+ * `update` as one transaction — while a row is still missing a field, the
+ * builder's own form shows instead.
  */
 export const sheetBuilderWeeks = example({
-    keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry"],
-    description: "A sheet builder over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Apply or Discard",
+    keywords: ["Sheet", "Builder", "Sheet.Builder", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry", "inspector", "update", "Field.Slider"],
+    description: "A sheet builder over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Apply or Discard — and its own inspector, a row's quantity on a slider written back as one transaction",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const plans = $.let(Record.bind(sheetBuilderPlans, [sheetBuilderPlansPatch]));
@@ -398,6 +406,22 @@ export const sheetBuilderWeeks = example({
             const week = $.let(State.bind([StringType], "sheet.builder.weeks.week", "2026-W42"));
             const weeks = $.let(["2026-W42", "2026-W43", "2026-W44"], ArrayType(StringType));
             const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));
+            // A row's own Details: its task, and its quantity on a slider — released, the edited row goes back through `update`.
+            const inspect = $.const(East.function([BuilderPlanRow, FunctionType([BuilderPlanRow], NullType)], UIComponentType, ($, row, update) => {
+                const qty = $.let(row.qty.match({ none: () => 0.0, some: (_$, q) => q }));
+                const setQty = $.const(East.function([FloatType], NullType, ($2, next) => {
+                    // East has no struct spread: the row, rebuilt with its new quantity.
+                    const edited = $2.const({ id: row.id, task: row.task, start: row.start, qty: some(next) }, BuilderPlanRow);
+                    $2(update(edited));
+                }));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Text>{row.task}</Text>
+                        <Field.Slider label="Quantity" value={qty} min={0} max={200} step={1}
+                            helperText="Released, it is one step the history undoes" onChangeEnd={setQty} />
+                    </VStack>
+                );
+            }));
             return (
                 <VStack gap="3" align="stretch">
                     <SegmentGroup value={week.read()} onChange={pick} size="sm"
@@ -407,6 +431,7 @@ export const sheetBuilderWeeks = example({
                             record={plans}
                             entry={{ key: week.read(), rows: "rows", id: "id" }}
                             id="weeks"
+                            inspector={inspect}
                             columns={{
                                 task:  Sheet.column.text(BuilderPlanRow, { header: "Task", width: "260px" }),
                                 start: Sheet.column.date(BuilderPlanRow, { header: "Start", width: "96px" }),
