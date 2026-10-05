@@ -28,9 +28,9 @@ type JobValue = ValueTypeOf<typeof Job>;
 const apply = East.compile(Editing.apply(Jobs), []);
 const diff = diffFor(OptionType(Job));
 const cut: JobValue = { task: "Cut", qty: 2n, tags: ["keep"] };
-const weld: JobValue = { task: "Weld", qty: 1n, tags: [] };
-const paint: JobValue = { task: "Paint", qty: 4n, tags: ["new"] };
-const jobs = (): Map<string, JobValue> => new Map([["a", structuredClone(cut)], ["c", structuredClone(weld)]]);
+const glue: JobValue = { task: "Glue", qty: 1n, tags: [] };
+const spray: JobValue = { task: "Spray", qty: 4n, tags: ["new"] };
+const jobs = (): Map<string, JobValue> => new Map([["a", structuredClone(cut)], ["c", structuredClone(glue)]]);
 const batch = (changes: BatchValue["changes"], base: BatchValue["base"] = variant("snapshot", jobs())): BatchValue => ({
     requestId: "keyed-request", base, label: "Edit jobs", changes,
 });
@@ -47,10 +47,10 @@ test("a keyed batch updates, inserts in key order and removes, as one result —
     const source = jobs();
     const result = apply(source, batch([
         { id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none },
-        { id: "b", patch: diff(none, some(paint)), place: keyOrder },
-        { id: "c", patch: diff(some(weld), none), place: none },
+        { id: "b", patch: diff(none, some(spray)), place: keyOrder },
+        { id: "c", patch: diff(some(glue), none), place: none },
     ]), none);
-    assertApplied(StringType, result, variant("applied", new Map([["a", { ...cut, qty: 3n }], ["b", paint]])));
+    assertApplied(StringType, result, variant("applied", new Map([["a", { ...cut, qty: 3n }], ["b", spray]])));
     if (result.type !== "applied") return;
     result.value.get("a")!.tags.push("output only");
     assert.deepEqual(source.get("a")!.tags, ["keep"]);
@@ -59,7 +59,7 @@ test("a keyed batch updates, inserts in key order and removes, as one result —
 
 test("a stale base conflicts before any patch — a changed snapshot, a missing or another revision", () => {
     const edit = [{ id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none }];
-    const moved = new Map([["a", cut], ["c", { ...weld, qty: 9n }]]);
+    const moved = new Map([["a", cut], ["c", { ...glue, qty: 9n }]]);
     assert.equal(apply(moved, batch(edit), none).type, "conflict");
     const pinned = batch(edit, variant("revision", "r1"));
     assert.equal(apply(jobs(), pinned, none).type, "conflict");
@@ -68,10 +68,10 @@ test("a stale base conflicts before any patch — a changed snapshot, a missing 
 });
 
 test("placement is keyOrder: a new entry without it, or any entry with an ordered position, is refused", () => {
-    const unplaced = apply(jobs(), batch([{ id: "b", patch: diff(none, some(paint)), place: none }]), none);
+    const unplaced = apply(jobs(), batch([{ id: "b", patch: diff(none, some(spray)), place: none }]), none);
     assert.equal(unplaced.type, "conflict");
     assert.match(issueOf(unplaced)!.message, /explicit placement/);
-    const positioned = apply(jobs(), batch([{ id: "b", patch: diff(none, some(paint)), place: ordered }]), none);
+    const positioned = apply(jobs(), batch([{ id: "b", patch: diff(none, some(spray)), place: ordered }]), none);
     assert.match(issueOf(positioned)!.message, /keyOrder/);
     const moved = apply(jobs(), batch([{ id: "a", patch: diff(some(cut), some(cut)), place: ordered }]), none);
     assert.match(issueOf(moved)!.message, /keyOrder/);
@@ -80,7 +80,7 @@ test("placement is keyOrder: a new entry without it, or any entry with an ordere
 });
 
 test("a removal carries no placement, and a batch composes each entry once", () => {
-    const placed = apply(jobs(), batch([{ id: "c", patch: diff(some(weld), none), place: keyOrder }]), none);
+    const placed = apply(jobs(), batch([{ id: "c", patch: diff(some(glue), none), place: keyOrder }]), none);
     assert.match(issueOf(placed)!.message, /removed entry/);
     const change = { id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none };
     assert.match(issueOf(apply(jobs(), batch([change, change]), none))!.message, /Compose each entry/);
@@ -90,7 +90,7 @@ test("a late conflict rolls back every earlier change, and names the entry it ar
     const source = jobs();
     const result = apply(source, batch([
         { id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none },
-        { id: "b", patch: diff(none, some(paint)), place: none },
+        { id: "b", patch: diff(none, some(spray)), place: none },
     ]), none);
     assert.equal(result.type, "conflict");
     assert.equal(issueOf(result)!.entry, "b");
@@ -100,15 +100,15 @@ test("a late conflict rolls back every earlier change, and names the entry it ar
 test("a key of another type is addressed by its .east text, parsed back", () => {
     const ByNumber = DictType(IntegerType, Job);
     const run = East.compile(Editing.apply(ByNumber), []);
-    const source = new Map([[2n, cut], [7n, weld]]);
+    const source = new Map([[2n, cut], [7n, glue]]);
     const request = (changes: BatchValue["changes"]) => ({
         requestId: "numbered", base: variant("snapshot", source), label: "Edit numbered jobs", changes,
     });
     const result = run(source, request([
         { id: "2", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none },
-        { id: "5", patch: diff(none, some(paint)), place: keyOrder },
+        { id: "5", patch: diff(none, some(spray)), place: keyOrder },
     ]), none);
-    assertApplied(IntegerType, result, variant("applied", new Map([[2n, { ...cut, qty: 3n }], [5n, paint], [7n, weld]])));
+    assertApplied(IntegerType, result, variant("applied", new Map([[2n, { ...cut, qty: 3n }], [5n, spray], [7n, glue]])));
     const unreadable = run(source, request([{ id: "two", patch: diff(some(cut), some(cut)), place: none }]), none);
     assert.equal(unreadable.type, "conflict");
     if (unreadable.type === "conflict") assert.equal(unreadable.value[0]!.entry, "two");

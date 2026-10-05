@@ -139,16 +139,16 @@ const PlannedContext = Sheet.Types.DraftContext(Planned, Activity);
 const printPlanned = East.function([PlannedContext], Fill, ($, ctx) => $.const(some({ value: East.print(ctx), meta: "" }), Fill));
 const readyPlanned = East.function([Sheet.Types.Draft(Planned), PlannedContext], Ready, ($, _row, ctx) => $.const(variant("incomplete", [{ field: "", message: East.print(ctx) }]), Ready));
 const planned = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
-    { id: "a", activity: "Weld", qty: 1n, note: "", hidden: "source a" },
-    { id: "b", activity: "Paint", qty: 2n, note: "", hidden: "source b" },
-    { id: "c", activity: "Weld", qty: 3n, note: "", hidden: "source c" },
+    { id: "a", activity: "Glue", qty: 1n, note: "", hidden: "source a" },
+    { id: "b", activity: "Spray", qty: 2n, note: "", hidden: "source b" },
+    { id: "c", activity: "Glue", qty: 3n, note: "", hidden: "source c" },
 ], ArrayType(Planned)), {
     activity: Sheet.column.lookup(Planned),
     qty: Sheet.column.integer(Planned),
     note: Sheet.column.text(Planned, { fill: [printPlanned] }),
 }, {
     id: "id",
-    driver: Sheet.driver("activity", East.value([{ name: "Weld", crew: 2n }, { name: "Paint", crew: 1n }], ArrayType(Activity)), { key: a => a.name, label: a => a.name }),
+    driver: Sheet.driver("activity", East.value([{ name: "Glue", crew: 2n }, { name: "Spray", crew: 1n }], ArrayType(Activity)), { key: a => a.name, label: a => a.name }),
     ready: { row: readyPlanned },
 })).toIR().compile([])();
 if (planned.editing.readyRow.type !== "some") throw new Error("Expected a Sheet with a row check");
@@ -166,17 +166,17 @@ const plannedWire = (id: string, activity: string, qty: bigint): ValueTypeOf<typ
 
 test("a readiness batch calls once for every check, each seeing the context a wire context builds for its row", () => {
     // Rows b and c carry drafts, with edited quantities; row a is read from the source.
-    const rows = [plannedWire("a", "Weld", 1n), plannedWire("b", "Paint", 7n), plannedWire("c", "Weld", 8n)];
-    const drafts = new Map([["b", plannedDraft("b", "Paint", 2n)], ["c", plannedDraft("c", "Weld", 3n)]]);
+    const rows = [plannedWire("a", "Glue", 1n), plannedWire("b", "Spray", 7n), plannedWire("c", "Glue", 8n)];
+    const drafts = new Map([["b", plannedDraft("b", "Spray", 2n)], ["c", plannedDraft("c", "Glue", 3n)]]);
     const results = plannedReady(encodeBatch({
         drafts, rows, rowsOffset: 0n, partial: false, today: now,
-        checks: [{ index: 1n, line: none, driver: some("Paint") }, { index: 2n, line: none, driver: some("Weld") }],
+        checks: [{ index: 1n, line: none, driver: some("Spray") }, { index: 2n, line: none, driver: some("Glue") }],
     }));
     const wireFor = (index: number, driver: string) => plannedFill.value({
         drafts, rowIndex: BigInt(index), rowId: rows[index]!.id, offset: BigInt(index), line: none, row: rows[index]!.cells,
         rows, rowsOffset: 0n, partial: false, driver: some(driver), today: now,
     });
-    const expected = [wireFor(1, "Paint"), wireFor(2, "Weld")].map((fill) => {
+    const expected = [wireFor(1, "Spray"), wireFor(2, "Glue")].map((fill) => {
         if (fill.type !== "some" || fill.value.value.type !== "String") throw new Error("Expected a printed context");
         return variant("incomplete", [{ field: "", message: fill.value.value.value }]);
     });
@@ -337,15 +337,15 @@ const Crew = StructType({ id: StringType, name: StringType, jobs: ArrayType(Job)
 const JobEntry = Sheet.Types.Entry(Crew, "jobs");
 const printCheck = East.function([Sheet.Types.CheckContext(Crew, "jobs")], OptionType(StringType), ($, c) => $.const(some(East.print(c)), OptionType(StringType)));
 const checkedSheet = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
-    variant("row", { id: "a", activity: "Weld", stations: { from: [], to: [] }, hidden: "a source" }),
-    variant("group", { id: "c", name: "Crew", jobs: [{ id: "c1", activity: "Weld", stations: { from: [], to: [] }, hidden: "c1 source" }] }),
+    variant("row", { id: "a", activity: "Glue", stations: { from: [], to: [] }, hidden: "a source" }),
+    variant("group", { id: "c", name: "Crew", jobs: [{ id: "c1", activity: "Glue", stations: { from: [], to: [] }, hidden: "c1 source" }] }),
 ], ArrayType(JobEntry)), {
     activity: Sheet.column.lookup(Job),
     stations: Sheet.column.link(Job, Act, "stations", { check: [printCheck] }),
 }, {
     id: "id",
     group: Sheet.group(Crew, "jobs", { title: "name" }),
-    driver: Sheet.driver("activity", East.value([{ name: "Weld" }], ArrayType(Act)), { key: a => a.name, label: a => a.name }),
+    driver: Sheet.driver("activity", East.value([{ name: "Glue" }], ArrayType(Act)), { key: a => a.name, label: a => a.name }),
     registers: { stations: Sheet.register.members(East.value(["M1"], ArrayType(StringType)), { kind: "machine", key: s => s, label: s => s }) },
 })).toIR().compile([])();
 const stationsKind = checkedSheet.columns[1]!.kind;
@@ -358,17 +358,17 @@ test("a member check on a loose row sees its own draft and no group; on a line, 
     const member = variant("identified", { key: "M1" });
     const loose = memberCheck.value({
         drafts: new Map(), group: none, rowIndex: 0n, rowId: "a", offset: 0n, line: none,
-        row: new Map([["activity", variant("String", "Weld")]]), half, member,
+        row: new Map([["activity", variant("String", "Glue")]]), half, member,
     });
     if (loose.type !== "some") throw new Error("Expected the printed context");
     for (const part of ['id=.value "a"', 'hidden=.value "a source"', 'group=.none']) assert.ok(loose.value.includes(part), `${part} in ${loose.value}`);
     const groupWire: ValueTypeOf<typeof Sheet.Types.Row> = {
         id: "c", owned: false, cells: new Map([["$title", variant("String", "Crew")]]), band: some({ sub: "", folded: false }), subRows: [],
-        lines: [{ key: "0", cells: new Map([["activity", variant("String", "Weld")]]), subRows: [] }],
+        lines: [{ key: "0", cells: new Map([["activity", variant("String", "Glue")]]), subRows: [] }],
     };
     const line = memberCheck.value({
         drafts: new Map(), group: some(groupWire), rowIndex: 0n, rowId: "c", offset: 1n, line: some("0"),
-        row: new Map([["activity", variant("String", "Weld")]]), half, member,
+        row: new Map([["activity", variant("String", "Glue")]]), half, member,
     });
     if (line.type !== "some") throw new Error("Expected the printed context");
     for (const part of ['id=.value "c1"', 'hidden=.value "c1 source"', 'group=.some (id=.value "c", name=.value "Crew"']) assert.ok(line.value.includes(part), `${part} in ${line.value}`);

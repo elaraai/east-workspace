@@ -102,8 +102,8 @@ describe("cells", () => {
         expect(cellIsBlank(cell("Link", { from: [], to: [] }))).toBe(true);
         expect(cellIsBlank(cell("Float", 0))).toBe(false);
         expect(rowIsBlank(row("x", { start: cell("Null", null) }), columns)).toBe(true);
-        expect(printLinkText({ from: [variant("identified", { key: "M1104" })], to: [] })).toBe("M1104 >");
-        expect(printLinkText({ from: [], to: [variant("range", { from: "M2140", to: "M2145" })] })).toBe("M2140-M2145");
+        expect(printLinkText({ from: [variant("identified", { key: "S1104" })], to: [] })).toBe("S1104 >");
+        expect(printLinkText({ from: [], to: [variant("range", { from: "R2140", to: "R2145" })] })).toBe("R2140-R2145");
     });
 
     test("a number prints in the viewer's language; a date keeps the Sheet's own pattern (#852)", () => {
@@ -120,7 +120,7 @@ describe("grouped rows (#740)", () => {
     const line = (key: string, task: string, subRows: SheetSubRowValue[] = []) => ({ key, cells: new Map([["task", cell("String", task)]]), subRows });
     const group = (id: string, lines: { key: string; cells: Map<string, SheetCellValue>; subRows: SheetSubRowValue[] }[], folded = false): SheetRowValue =>
         ({ id, owned: false, cells: new Map([["$title", cell("String", id)]]), lines, band: some({ sub: "", folded }), subRows: [] });
-    const p1 = group("p1", [line("0", "Machining"), line("1", "Painting")]);
+    const p1 = group("p1", [line("0", "Routing"), line("1", "Spraying")]);
     const p2 = group("p2", [line("0", "Inspection")], true);
     const foldedOf = (r: SheetRowValue) => r.band.type === "some" && r.band.value.folded;
 
@@ -180,9 +180,9 @@ describe("grouped rows (#740)", () => {
     });
 
     test("a line write replaces its cells by key, appends a new key; removal drops keys; proposals under a line number on within the group", () => {
-        const edited = withLine(p1, "1", new Map([["task", cell("String", "Packaging")]]));
+        const edited = withLine(p1, "1", new Map([["task", cell("String", "Wrapping")]]));
         expect(edited.lines.map((l) => l.key)).toEqual(["0", "1"]);
-        expect(edited.lines[1]!.cells.get("task")).toEqual(cell("String", "Packaging"));
+        expect(edited.lines[1]!.cells.get("task")).toEqual(cell("String", "Wrapping"));
         expect(withLine(p1, "+a", new Map()).lines.map((l) => l.key)).toEqual(["0", "1", "+a"]);
         expect(withoutLines(p1, new Set(["0"])).lines.map((l) => l.key)).toEqual(["1"]);
         const body = buildBody({ rows: [p1], rowsOffset: 0, blanks: 1, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf } });

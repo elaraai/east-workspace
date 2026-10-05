@@ -77,8 +77,8 @@ afterAll(() => {
 });
 
 const VIEWS = [
-    { id: "paint", name: "PAINTING", count: 12, title: "" },
-    { id: "lathe", name: "LATHES", count: 12, title: "" },
+    { id: "spray", name: "SPRAYING", count: 12, title: "" },
+    { id: "router", name: "ROUTERS", count: 12, title: "" },
     { id: "late", name: "OVERDUE", count: 3, title: "" },
 ];
 const noop = () => {};
@@ -152,41 +152,41 @@ function read(container: HTMLElement) {
 describe("the toolbar's ladder", () => {
     test("a row that fits folds nothing and keeps everything", () => {
         // Every tab (370) + the context switch (150) + the count (100) + 2 gaps = 640.
-        const { container } = mount("12 matches", "lathe", 640);
-        expect(read(container)).toEqual({ tabs: ["all", "paint", "lathe", "late"], folded: null, strip: null, count: "12 matches", context: "labelled" });
+        const { container } = mount("12 matches", "router", 640);
+        expect(read(container)).toEqual({ tabs: ["all", "spray", "router", "late"], folded: null, strip: null, count: "12 matches", context: "labelled" });
     });
 
     test("the tabs fold first, one at a time, the active tab kept", () => {
-        expect(read(mount("12 matches", "lathe", 590).container)).toMatchObject({ tabs: ["all", "paint", "lathe"], folded: "1", count: "12 matches" });
+        expect(read(mount("12 matches", "router", 590).container)).toMatchObject({ tabs: ["all", "spray", "router"], folded: "1", count: "12 matches" });
         cleanup();
-        expect(read(mount("12 matches", "lathe", 510).container)).toMatchObject({ tabs: ["all", "lathe"], folded: "2", count: "12 matches" });
+        expect(read(mount("12 matches", "router", 510).container)).toMatchObject({ tabs: ["all", "router"], folded: "2", count: "12 matches" });
     });
 
     test("past the strip's floor the count goes, then the context label, then the strip closes up rung by rung", () => {
-        expect(read(mount("12 matches", "lathe", 400).container)).toEqual({ tabs: ["all", "lathe"], folded: "2", strip: null, count: null, context: "labelled" });
+        expect(read(mount("12 matches", "router", 400).container)).toEqual({ tabs: ["all", "router"], folded: "2", strip: null, count: null, context: "labelled" });
         cleanup();
-        expect(read(mount("12 matches", "lathe", 350).container)).toMatchObject({ strip: null, count: null, context: "bare" });
+        expect(read(mount("12 matches", "router", 350).container)).toMatchObject({ strip: null, count: null, context: "bare" });
         cleanup();
-        expect(read(mount("12 matches", "lathe", 320).container)).toMatchObject({ strip: "compact", context: "bare" });
+        expect(read(mount("12 matches", "router", 320).container)).toMatchObject({ strip: "compact", context: "bare" });
         cleanup();
-        expect(read(mount("12 matches", "lathe", 260).container)).toMatchObject({ strip: "capped", context: "bare" });
+        expect(read(mount("12 matches", "router", 260).container)).toMatchObject({ strip: "capped", context: "bare" });
     });
 
     test("last, the context switch goes and the strip closes up", () => {
-        const { container } = mount("12 matches", "lathe", 150);
-        expect(read(container)).toEqual({ tabs: ["all", "lathe"], folded: "2", strip: "closed", count: null, context: null });
+        const { container } = mount("12 matches", "router", 150);
+        expect(read(container)).toEqual({ tabs: ["all", "router"], folded: "2", strip: "closed", count: null, context: null });
         expect(container.querySelector('[data-slot="tabMore"]')!.textContent).toBe("+2");
     });
 
     test("the count going gives its room back — the configuration follows the row it is in", () => {
-        const { container, rerender } = mount("12 matches", "lathe", 400);
+        const { container, rerender } = mount("12 matches", "router", 400);
         expect(read(container)).toMatchObject({ folded: "2", count: null, context: "labelled" });
         // Without the count, 400 holds the folded strip and the labelled switch; at 530, everything.
-        rerender(<ChakraProvider value={system}><Harness count="" active="lathe" /></ChakraProvider>);
+        rerender(<ChakraProvider value={system}><Harness count="" active="router" /></ChakraProvider>);
         expect(read(container)).toMatchObject({ folded: "2", count: null, context: "labelled" });
         row.px = 530;
-        rerender(<ChakraProvider value={system}><Harness count="" active="lathe" /></ChakraProvider>);
-        expect(read(container)).toMatchObject({ tabs: ["all", "paint", "lathe", "late"], folded: null, context: "labelled" });
+        rerender(<ChakraProvider value={system}><Harness count="" active="router" /></ChakraProvider>);
+        expect(read(container)).toMatchObject({ tabs: ["all", "spray", "router", "late"], folded: null, context: "labelled" });
     });
 });
 
@@ -195,7 +195,7 @@ function KeyboardHost({ created }: { created: () => void }) {
     const recipe = useSlotRecipe({ key: "sheet" });
     const styles = recipe({}) as unknown as Record<string, Record<string, unknown>>;
     const [views, setViews] = useState<SheetTabView[]>(VIEWS);
-    const [active, setActive] = useState<string | null>("paint");
+    const [active, setActive] = useState<string | null>("spray");
     const [renaming, setRenaming] = useState<string | null>(null);
     const [renameVal, setRenameVal] = useState("");
     const [context, setContext] = useState<LensContext>(0);
@@ -243,10 +243,10 @@ describe("by the keyboard alone (#860)", () => {
         expect(list.contains(container.querySelector('[data-slot="tabAdd"]'))).toBe(false);
         // One tab stop, on the active tab; every tab names the grid it switches.
         expect([...list.children].map((c) => (c as HTMLElement).tabIndex)).toEqual([-1, 0, -1, -1]);
-        expect(tab("paint").getAttribute("aria-controls")).toBe("the-grid");
-        tab("paint").focus();
+        expect(tab("spray").getAttribute("aria-controls")).toBe("the-grid");
+        tab("spray").focus();
         press("ArrowRight");
-        expect(document.activeElement).toBe(tab("lathe"));
+        expect(document.activeElement).toBe(tab("router"));
         press("End");
         expect(document.activeElement).toBe(tab("late"));
         press("ArrowRight");
@@ -256,7 +256,7 @@ describe("by the keyboard alone (#860)", () => {
         press("Home");
         expect(document.activeElement).toBe(tab("all"));
         // Moving the focus switches nothing; Enter does, and Space.
-        expect(tab("paint").getAttribute("aria-selected")).toBe("true");
+        expect(tab("spray").getAttribute("aria-selected")).toBe("true");
         press("End");
         press("Enter");
         expect(tab("late").getAttribute("aria-selected")).toBe("true");
@@ -280,9 +280,9 @@ describe("by the keyboard alone (#860)", () => {
         expect(document.activeElement).toBe(tab("late"));
         // Delete closes the focused tab; the focus goes to its neighbour.
         press("ArrowLeft");
-        expect(document.activeElement).toBe(tab("lathe"));
+        expect(document.activeElement).toBe(tab("router"));
         press("Delete");
-        expect(tab("lathe")).toBeNull();
+        expect(tab("router")).toBeNull();
         expect(document.activeElement).toBe(tab("late"));
     });
 

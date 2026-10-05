@@ -32,18 +32,18 @@ const PlanRowType = StructType({
     machines: StringType, status: StringType, note: StringType,
 });
 const JOBS = [
-    { id: "a", start: some(new Date("2026-02-16T00:00:00Z")), task: "Machining", qty: some(1200.0), count: 2n, owner: "planner" },
+    { id: "a", start: some(new Date("2026-02-16T00:00:00Z")), task: "Routing", qty: some(1200.0), count: 2n, owner: "planner" },
     { id: "b", start: none, task: "", qty: none, count: 0n, owner: "erp" },
 ];
 const ACTIVITIES = [
-    { name: "Machining", uom: "pcs", days: 4n, sides: variant("both", null) },
-    { name: "Inspection", uom: "lots", days: 1n, sides: variant("in", null) },
+    { name: "Routing", uom: "pcs", days: 4n, sides: variant("both", null) },
+    { name: "Inspection", uom: "batches", days: 1n, sides: variant("in", null) },
 ];
 const MEMBERS = [
-    { key: "M2140", label: "M2140", kind: "machine", aliases: [], meta: some("CNC lathe"), parent: some("Line 2"), tone: none },
-    { key: "M2141", label: "M2141", kind: "machine", aliases: [], meta: some("CNC lathe"), parent: some("Line 2"), tone: none },
-    { key: "Line 2", label: "Line 2", kind: "line", aliases: ["the line 2", "l2"], meta: none, parent: none, tone: none },
-    { key: "CNC lathe", label: "CNC lathe", kind: "family", aliases: ["lathe"], meta: some("family"), parent: none, tone: none },
+    { key: "R2140", label: "R2140", kind: "machine", aliases: [], meta: some("CNC router"), parent: some("Bay 2"), tone: none },
+    { key: "R2141", label: "R2141", kind: "machine", aliases: [], meta: some("CNC router"), parent: some("Bay 2"), tone: none },
+    { key: "Bay 2", label: "Bay 2", kind: "bay", aliases: ["the bay 2", "b2"], meta: none, parent: none, tone: none },
+    { key: "CNC router", label: "CNC router", kind: "family", aliases: ["router"], meta: some("family"), parent: none, tone: none },
 ];
 
 // ── Grouped rows (#740): the group is the row, its lines in one field.
@@ -51,29 +51,29 @@ const LineType = StructType({ start: OptionType(DateTimeType), task: StringType,
 const PlanType = StructType({ id: StringType, name: StringType, owner: StringType, status: StringType, total: FloatType, lines: ArrayType(LineType) });
 const KeyedPlanType = StructType({ id: StringType, name: StringType, lines: DictType(StringType, LineType) });
 const PLANS = [
-    { id: "p1", name: "Line 2 week 8", owner: "planner", status: "PLANNED", total: 300.0, lines: [
-        { start: some(new Date("2026-02-16T00:00:00Z")), task: "Machining", qty: some(120.0), note: "first" },
+    { id: "p1", name: "Bay 2 week 8", owner: "planner", status: "PLANNED", total: 300.0, lines: [
+        { start: some(new Date("2026-02-16T00:00:00Z")), task: "Routing", qty: some(120.0), note: "first" },
         { start: none, task: "Inspection", qty: none, note: "second" },
     ] },
-    { id: "p2", name: "Line 3 week 8", owner: "erp", status: "COMPLETE", total: 0.0, lines: [] },
+    { id: "p2", name: "Bay 3 week 8", owner: "erp", status: "COMPLETE", total: 0.0, lines: [] },
 ];
 // Wire rows the edit and context tests send — a group row's band cells, its
 // lines keyed by SOURCE index (a minted key for a line the source lacks).
 // Plain host data, spelt out (no helper builds East values).
-const LINE_0 = { key: "0", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Machining")], ["qty", variant("Float", 120.0)], ["note", variant("String", "first")]]) as never, subRows: [] };
+const LINE_0 = { key: "0", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Routing")], ["qty", variant("Float", 120.0)], ["note", variant("String", "first")]]) as never, subRows: [] };
 const LINE_1 = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Inspection")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never, subRows: [] };
-const LINE_1_PAINTED = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Painting")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never, subRows: [] };
+const LINE_1_SPRAYED = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Spraying")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never, subRows: [] };
 const LINE_NEW = { key: "new", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Between")], ["qty", variant("Null", null)], ["note", variant("String", "")]]) as never, subRows: [] };
-const P1_CELLS = new Map<string, unknown>([["$title", variant("String", "Line 2 week 8")], ["qty", variant("Float", 300.0)], ["note", variant("String", "PLANNED")]]) as never;
+const P1_CELLS = new Map<string, unknown>([["$title", variant("String", "Bay 2 week 8")], ["qty", variant("Float", 300.0)], ["note", variant("String", "PLANNED")]]) as never;
 const BAND = some({ sub: "", folded: false });
 const P1_ROW = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1], band: BAND, subRows: [] };
-const P1_PAINTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1_PAINTED], band: BAND, subRows: [] };
+const P1_SPRAYED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1_SPRAYED], band: BAND, subRows: [] };
 const P1_INSERTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_NEW, LINE_1], band: BAND, subRows: [] };
 const P1_REMOVED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0], band: BAND, subRows: [] };
 const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Renamed")], ["qty", variant("Float", 999.0)], ["note", variant("String", "PLANNED")]]) as never, lines: [LINE_0, LINE_1], band: BAND, subRows: [] };
-const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Line 3 week 8")]]) as never, lines: [], band: BAND, subRows: [] };
+const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Bay 3 week 8")]]) as never, lines: [], band: BAND, subRows: [] };
 const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [] };
-const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Painting")]]) as never;
+const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Spraying")]]) as never;
 
 // ── Loose rows between the groups (#846): entries of a group, or a row of the line type.
 const TaskType = StructType({ id: StringType, task: StringType, note: StringType });
@@ -81,16 +81,16 @@ const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayT
 const EntryType = Sheet.Types.Entry(PackageType, "tasks");
 const ENTRIES = [
     variant("row", { id: "brief", task: "Review", note: "first" }),
-    variant("group", { id: "p1", name: "Roughing", tasks: [{ id: "t1", task: "Machine", note: "" }, { id: "t2", task: "Inspect", note: "hidden" }] }),
+    variant("group", { id: "p1", name: "Nesting", tasks: [{ id: "t1", task: "Cut", note: "" }, { id: "t2", task: "Inspect", note: "hidden" }] }),
     variant("row", { id: "handover", task: "Hand over", note: "" }),
 ];
 // A loose row's wire row: the line columns' cells, no lines, no band.
-const LOOSE_NEW = { id: "new", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Deburr")]]) as never, lines: [], band: none, subRows: [] };
+const LOOSE_NEW = { id: "new", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Denib")]]) as never, lines: [], band: none, subRows: [] };
 const LOOSE_BRIEF = { id: "brief", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Review again")]]) as never, lines: [], band: none, subRows: [] };
 const PACKAGE_P1 = {
-    id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Roughing")]]) as never, band: BAND, subRows: [],
+    id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Nesting")]]) as never, band: BAND, subRows: [],
     lines: [
-        { key: "0", cells: new Map<string, unknown>([["task", variant("String", "Machine")]]) as never, subRows: [] },
+        { key: "0", cells: new Map<string, unknown>([["task", variant("String", "Cut")]]) as never, subRows: [] },
         { key: "1", cells: new Map<string, unknown>([["task", variant("String", "Inspect")]]) as never, subRows: [] },
     ],
 };
@@ -115,8 +115,8 @@ const RuleRowType = StructType({
     status: StringType, code: StringType, activity: StringType, stations: Sheet.Types.Link,
 });
 const RULE_ROWS = [
-    { id: "r1", start: some(new Date("2026-02-16T00:00:00Z")), level: variant("week", null), started: some(new Date("2026-02-17T07:30:00Z")), status: "PLANNED", code: "WO-1", activity: "Machining", stations: { from: [], to: [] } },
-    { id: "r2", start: none, level: variant("time", null), started: none, status: "RELEASED", code: "", activity: "Machining", stations: { from: [], to: [] } },
+    { id: "r1", start: some(new Date("2026-02-16T00:00:00Z")), level: variant("week", null), started: some(new Date("2026-02-17T07:30:00Z")), status: "PLANNED", code: "WO-1", activity: "Routing", stations: { from: [], to: [] } },
+    { id: "r2", start: none, level: variant("time", null), started: none, status: "RELEASED", code: "", activity: "Routing", stations: { from: [], to: [] } },
 ];
 
 // ── Paged sources, built by hand to the row-source contract: paged data is
@@ -167,8 +167,8 @@ const PINNED_JOBS_SOURCE = {
 const KeyedJobType = StructType({ start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), count: IntegerType, owner: StringType });
 const KeyedJobs = DictType(StringType, KeyedJobType);
 const KEYED_JOBS = new Map([
-    ["J10", { start: none, task: "Machining", qty: none, count: 1n, owner: "planner" }],
-    ["J2",  { start: none, task: "Painting", qty: none, count: 1n, owner: "planner" }],
+    ["J10", { start: none, task: "Routing", qty: none, count: 1n, owner: "planner" }],
+    ["J2",  { start: none, task: "Spraying", qty: none, count: 1n, owner: "planner" }],
 ]);
 const KEYED_JOBS_PAGE = East.function([IntegerType, IntegerType], OptionType(KeyedJobs), ($, offset, limit) => {
     const all = $.const(KEYED_JOBS, KeyedJobs);
@@ -243,7 +243,7 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(inline.get(0n).owned, false));
         $(Assert.equal(inline.get(1n).owned, true));
         $(Assert.equal(inline.get(0n).cells.get("start").hasTag("DateTime"), true));
-        $(Assert.equal(inline.get(0n).cells.get("task").unwrap("String"), "Machining"));
+        $(Assert.equal(inline.get(0n).cells.get("task").unwrap("String"), "Routing"));
         $(Assert.equal(inline.get(0n).cells.get("qty").unwrap("Float"), 1200.0));
         $(Assert.equal(inline.get(0n).cells.get("count").unwrap("Integer"), 2n));
         // Blanks: a `none` field and a non-Option Integer both cross as their cells.
@@ -305,13 +305,13 @@ describeEast("Sheet", (test) => {
     test("registers project rows through accessors, fold duplicate keys, concat kinds, and the driver's members ride under its column", $ => {
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
         const machines = $.const([
-            { code: "M2140", family: "CNC lathe", line: "Line 2" },
-            { code: "M2141", family: "CNC lathe", line: "Line 2" },
-            { code: "M3210", family: "5-axis mill", line: "Line 3" },
-        ], ArrayType(StructType({ code: StringType, family: StringType, line: StringType })));
+            { code: "R2140", family: "CNC router", bay: "Bay 2" },
+            { code: "R2141", family: "CNC router", bay: "Bay 2" },
+            { code: "P3210", family: "4-side planer", bay: "Bay 3" },
+        ], ArrayType(StructType({ code: StringType, family: StringType, bay: StringType })));
         const statuses = $.const(new Map([["PLANNED", { tone: variant("neutral", null) }], ["COMPLETE", { tone: variant("success", null) }]]),
             DictType(StringType, StructType({ tone: Sheet.Types.RegisterMember.fields.tone.cases.some })));
-        const rows = $.const([{ id: "1", start: none, activity: "Machining", qty: some(2.0), stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "PLANNED", note: "" }], ArrayType(PlanRowType));
+        const rows = $.const([{ id: "1", start: none, activity: "Routing", qty: some(2.0), stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "PLANNED", note: "" }], ArrayType(PlanRowType));
         const root = $.let(Sheet.Payload(rows, {
             activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
             status:   Sheet.column.enum(PlanRowType, "statuses", { header: "Status" }),
@@ -321,21 +321,21 @@ describeEast("Sheet", (test) => {
             driver: Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name }),
             registers: {
                 stations: Sheet.register.concat([
-                    Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code, meta: m => some(m.family), parent: m => some(m.line) }),
+                    Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code, meta: m => some(m.family), parent: m => some(m.bay) }),
                     Sheet.register.members(machines, { kind: "family", key: m => m.family, label: m => m.family }),
                 ]),
                 statuses: Sheet.register.members(statuses, { kind: "status", key: (_s, k) => k, label: (_s, k) => k, tone: s => some(s.tone) }),
             },
         }));
         const stations = $.let(root.registers.get("stations").members);
-        // Three machines + two distinct families (the lathes fold).
+        // Three machines + two distinct families (the routers fold).
         $(Assert.equal(stations.size(), 5n));
-        $(Assert.equal(stations.get(0n).key, "M2140"));
-        $(Assert.equal(stations.get(0n).meta.unwrap("some"), "CNC lathe"));
-        $(Assert.equal(stations.get(0n).parent.unwrap("some"), "Line 2"));
+        $(Assert.equal(stations.get(0n).key, "R2140"));
+        $(Assert.equal(stations.get(0n).meta.unwrap("some"), "CNC router"));
+        $(Assert.equal(stations.get(0n).parent.unwrap("some"), "Bay 2"));
         $(Assert.equal(stations.get(3n).kind, "family"));
-        $(Assert.equal(stations.get(3n).key, "CNC lathe"));
-        $(Assert.equal(stations.get(4n).key, "5-axis mill"));
+        $(Assert.equal(stations.get(3n).key, "CNC router"));
+        $(Assert.equal(stations.get(4n).key, "4-side planer"));
         // A keyed register reads its key as the accessors' second argument.
         const st = $.let(root.registers.get("statuses").members);
         $(Assert.equal(st.get(0n).key, "COMPLETE"));
@@ -351,7 +351,7 @@ describeEast("Sheet", (test) => {
 
     test("uom and sides accessors are reified against the driver row and land as per-driver-key dictionaries", $ => {
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
-        const rows = $.const([{ id: "1", start: none, activity: "Machining", qty: some(2.0), stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "", note: "" }], ArrayType(PlanRowType));
+        const rows = $.const([{ id: "1", start: none, activity: "Routing", qty: some(2.0), stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "", note: "" }], ArrayType(PlanRowType));
         const root = $.let(Sheet.Payload(rows, {
             activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
             qty:      Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", uom: d => d.uom }),
@@ -365,10 +365,10 @@ describeEast("Sheet", (test) => {
             registers: { stations: Sheet.register.members(East.value([], ArrayType(StringType)), { kind: "machine", key: s => s, label: s => s }) },
         }));
         const uom = $.let(root.columns.get(1n).kind.unwrap("quantity").uom.unwrap("some"));
-        $(Assert.equal(uom.get("Machining"), "pcs"));
-        $(Assert.equal(uom.get("Inspection"), "lots"));
+        $(Assert.equal(uom.get("Routing"), "pcs"));
+        $(Assert.equal(uom.get("Inspection"), "batches"));
         const sides = $.let(root.columns.get(2n).kind.unwrap("link").sides.unwrap("some"));
-        $(Assert.equal(sides.byDriver.get("Machining").hasTag("both"), true));
+        $(Assert.equal(sides.byDriver.get("Routing").hasTag("both"), true));
         $(Assert.equal(sides.byDriver.get("Inspection").hasTag("in"), true));
         $(Assert.equal(sides.locks.size(), 3n));
         $(Assert.equal(sides.locks.get(0n).half.hasTag("from"), true));
@@ -384,10 +384,10 @@ describeEast("Sheet", (test) => {
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
         const members = $.const(MEMBERS, Sheet.Types.RegisterMembers);
         const rows = $.const([{
-            id: "1", start: none, activity: "Machining", qty: none,
-            stations: { from: [variant("identified", { key: "M2140" })], to: [variant("counted", { n: 4n, key: "CNC lathe" })] },
-            fromStations: [variant("identified", { key: "M2141" })], toStations: [variant("placeholder", null)],
-            machines: "m2140, the line 2 > 4 x lathe, M2140-45, TBC, mystery", status: "", note: "",
+            id: "1", start: none, activity: "Routing", qty: none,
+            stations: { from: [variant("identified", { key: "R2140" })], to: [variant("counted", { n: 4n, key: "CNC router" })] },
+            fromStations: [variant("identified", { key: "R2141" })], toStations: [variant("placeholder", null)],
+            machines: "r2140, the bay 2 > 4 x router, R2140-45, TBC, mystery", status: "", note: "",
         }], ArrayType(PlanRowType));
         const sheet = $.let(Sheet.Payload(rows, {
             activity:     Sheet.column.lookup(PlanRowType, { header: "Activity" }),
@@ -401,27 +401,27 @@ describeEast("Sheet", (test) => {
         }));
         const cells = $.let(sheet.rows.unwrap("inline").get(0n).cells);
         const direct = $.let(cells.get("stations").unwrap("Link"));
-        $(Assert.equal(direct.from.get(0n).unwrap("identified").key, "M2140"));
+        $(Assert.equal(direct.from.get(0n).unwrap("identified").key, "R2140"));
         $(Assert.equal(direct.to.get(0n).unwrap("counted").n, 4n));
         const composed = $.let(cells.get("fromStations").unwrap("Link"));
-        $(Assert.equal(composed.from.get(0n).unwrap("identified").key, "M2141"));
+        $(Assert.equal(composed.from.get(0n).unwrap("identified").key, "R2141"));
         $(Assert.equal(composed.to.get(0n).hasTag("placeholder"), true));
         const parsed = $.let(cells.get("machines").unwrap("Link"));
-        // `m2140` resolves case-insensitively; `the line 2` through an alias; `4 x lathe` through the family's.
+        // `r2140` resolves case-insensitively; `the bay 2` through an alias; `4 x router` through the family's.
         $(Assert.equal(parsed.from.size(), 2n));
-        $(Assert.equal(parsed.from.get(0n).unwrap("identified").key, "M2140"));
-        $(Assert.equal(parsed.from.get(1n).unwrap("identified").key, "Line 2"));
+        $(Assert.equal(parsed.from.get(0n).unwrap("identified").key, "R2140"));
+        $(Assert.equal(parsed.from.get(1n).unwrap("identified").key, "Bay 2"));
         $(Assert.equal(parsed.to.size(), 4n));
-        $(Assert.equal(parsed.to.get(0n).unwrap("counted").key, "CNC lathe"));
-        $(Assert.equal(parsed.to.get(1n).unwrap("range").to, "M2145"));
+        $(Assert.equal(parsed.to.get(0n).unwrap("counted").key, "CNC router"));
+        $(Assert.equal(parsed.to.get(1n).unwrap("range").to, "R2145"));
         $(Assert.equal(parsed.to.get(2n).hasTag("placeholder"), true));
         $(Assert.equal(parsed.to.get(3n).unwrap("text"), "mystery"));
     });
 
     test("a String-backed link writes the keys as typed, or the register's labels under store canonical", $ => {
         const labelled = $.const([
-            { key: "M2140", label: "Lathe 2140", kind: "machine", aliases: [], meta: none, parent: none, tone: none },
-            { key: "CNC lathe", label: "CNC lathe", kind: "family", aliases: [], meta: none, parent: none, tone: none },
+            { key: "R2140", label: "Router 2140", kind: "machine", aliases: [], meta: none, parent: none, tone: none },
+            { key: "CNC router", label: "CNC router", kind: "family", aliases: [], meta: none, parent: none, tone: none },
         ], Sheet.Types.RegisterMembers);
         const rows = $.const([{ id: "1", start: none, activity: "", qty: none, stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "", note: "" }], ArrayType(PlanRowType));
         const canonical = $.let(Sheet.Payload(rows, {
@@ -432,14 +432,14 @@ describeEast("Sheet", (test) => {
         }, { id: "id", registers: { stations: labelled } }));
         const row = $.const({
             id: "1", owned: false,
-            cells: new Map([["machines", variant("Link", { from: [variant("identified", { key: "M2140" })], to: [variant("counted", { n: 4n, key: "CNC lathe" })] })]]),
+            cells: new Map([["machines", variant("Link", { from: [variant("identified", { key: "R2140" })], to: [variant("counted", { n: 4n, key: "CNC router" })] })]]),
             lines: [], band: none, subRows: [],
         }, Sheet.Types.Row);
         const bytes = $.const(East.Blob.encodeBeast(row, "v2"));
         const canonicalDraft = $.const(canonical.editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
         const typedDraft = $.const(asTyped.editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
-        $(Assert.equal(canonicalDraft.machines.unwrap("value"), "Lathe 2140 > 4 x CNC lathe"));
-        $(Assert.equal(typedDraft.machines.unwrap("value"), "M2140 > 4 x CNC lathe"));
+        $(Assert.equal(canonicalDraft.machines.unwrap("value"), "Router 2140 > 4 x CNC router"));
+        $(Assert.equal(typedDraft.machines.unwrap("value"), "R2140 > 4 x CNC router"));
         $(Assert.equal(typedDraft.status.hasTag("missing"), true));
     });
 
@@ -452,15 +452,15 @@ describeEast("Sheet", (test) => {
         const members = $.const(MEMBERS, Sheet.Types.RegisterMembers);
         const parse = $.const(Sheet.link.parse);
         const print = $.const(Sheet.link.print);
-        const both = $.let(parse("M2140, Line 2 > 4 x CNC lathe", members));
-        $(Assert.equal(print(both), "M2140, Line 2 > 4 x CNC lathe"));
-        const destination = $.let(parse("CNC lathe x 3, tbc", members));
+        const both = $.let(parse("R2140, Bay 2 > 4 x CNC router", members));
+        $(Assert.equal(print(both), "R2140, Bay 2 > 4 x CNC router"));
+        const destination = $.let(parse("CNC router x 3, tbc", members));
         $(Assert.equal(destination.from.size(), 0n));
         $(Assert.equal(destination.to.get(0n).unwrap("counted").n, 3n));
-        $(Assert.equal(print(destination), "3 x CNC lathe, TBC"));
-        const sourceOnly = $.let(parse("M2141 >", members));
+        $(Assert.equal(print(destination), "3 x CNC router, TBC"));
+        const sourceOnly = $.let(parse("R2141 >", members));
         $(Assert.equal(sourceOnly.to.size(), 0n));
-        $(Assert.equal(print(sourceOnly), "M2141 >"));
+        $(Assert.equal(print(sourceOnly), "R2141 >"));
         $(Assert.equal(print(parse("", members)), ""));
     });
 
@@ -489,7 +489,7 @@ describeEast("Sheet", (test) => {
         // Run the wire provider against a wire context: the bridge decodes the
         // real row `a` (owner "planner", count 2) behind the cells.
         const wire = $.let(fills.get(0n).unwrap("sync"));
-        const cells = $.const((new Map<string, unknown>([["task", variant("String", "Machining")], ["qty", variant("Null", null)]]) as never), DictType(StringType, Sheet.Types.Cell));
+        const cells = $.const((new Map<string, unknown>([["task", variant("String", "Routing")], ["qty", variant("Null", null)]]) as never), DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: cells,
             rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [] }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
@@ -516,7 +516,7 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(suggest.triggers.get(0n), "task"));
         $(Assert.equal(suggest.ghost, true));
         const wire = $.let(suggest.propose.get(0n).unwrap("sync"));
-        const cells = $.const((new Map<string, unknown>([["task", variant("String", "Machining")], ["qty", variant("Float", 1.0)], ["count", variant("Integer", 2n)]]) as never), DictType(StringType, Sheet.Types.Cell));
+        const cells = $.const((new Map<string, unknown>([["task", variant("String", "Routing")], ["qty", variant("Float", 1.0)], ["count", variant("Integer", 2n)]]) as never), DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: cells,
             rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [] }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
@@ -524,7 +524,7 @@ describeEast("Sheet", (test) => {
         const proposals = $.let(wire(ctx));
         $(Assert.equal(proposals.size(), 1n));
         $(Assert.equal(proposals.get(0n).meta, "pattern"));
-        $(Assert.equal(proposals.get(0n).cells.get("task").unwrap("String"), "after Machining"));
+        $(Assert.equal(proposals.get(0n).cells.get("task").unwrap("String"), "after Routing"));
         $(Assert.equal(proposals.get(0n).cells.get("count").unwrap("Integer"), 5n));
         $(Assert.equal(proposals.get(0n).cells.has("qty"), false));
     });
@@ -637,7 +637,7 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(p1.owned, false));
         $(Assert.equal(inline.get(1n).owned, true));
         // The band's cells: the title under `$title`, each declared cell under its line column, nothing under the rest.
-        $(Assert.equal(p1.cells.get("$title").unwrap("String"), "Line 2 week 8"));
+        $(Assert.equal(p1.cells.get("$title").unwrap("String"), "Bay 2 week 8"));
         $(Assert.equal(p1.cells.get("qty").unwrap("Float"), 300.0));
         $(Assert.equal(p1.cells.get("note").unwrap("String"), "PLANNED"));
         $(Assert.equal(p1.cells.get("task").unwrap("String"), "2 lines"));
@@ -646,7 +646,7 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(p1.lines.size(), 2n));
         $(Assert.equal(p1.lines.get(0n).key, "0"));
         $(Assert.equal(p1.lines.get(1n).key, "1"));
-        $(Assert.equal(p1.lines.get(0n).cells.get("task").unwrap("String"), "Machining"));
+        $(Assert.equal(p1.lines.get(0n).cells.get("task").unwrap("String"), "Routing"));
         $(Assert.equal(p1.lines.get(0n).cells.get("qty").unwrap("Float"), 120.0));
         $(Assert.equal(p1.lines.get(0n).cells.get("start").hasTag("DateTime"), true));
         $(Assert.equal(p1.lines.get(1n).cells.get("qty").hasTag("Null"), true));
@@ -695,9 +695,9 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(inserted.lines.get(1n).task.unwrap("value"), "Between"));
         $(Assert.equal(inserted.lines.get(2n).note.unwrap("value"), "second"));
         $(Assert.equal(inserted.owner.unwrap("value"), "planner"));
-        const paintedWire = $.const(P1_PAINTED, Sheet.Types.Row);
-        const painted = $.const(root.editing.decode(East.Blob.encodeBeast(paintedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
-        $(Assert.equal(painted.lines.get(1n).task.unwrap("value"), "Painting"));
+        const sprayedWire = $.const(P1_SPRAYED, Sheet.Types.Row);
+        const sprayed = $.const(root.editing.decode(East.Blob.encodeBeast(sprayedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        $(Assert.equal(sprayed.lines.get(1n).task.unwrap("value"), "Spraying"));
         const renamedWire = $.const(P1_RENAMED, Sheet.Types.Row);
         const renamed = $.const(root.editing.decode(East.Blob.encodeBeast(renamedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
         $(Assert.equal(renamed.name.unwrap("value"), "Renamed"));
@@ -705,7 +705,7 @@ describeEast("Sheet", (test) => {
         const removedWire = $.const(P1_REMOVED, Sheet.Types.Row);
         const removed = $.const(root.editing.decode(East.Blob.encodeBeast(removedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
         $(Assert.equal(removed.lines.size(), 1n));
-        $(Assert.equal(removed.lines.get(0n).task.unwrap("value"), "Machining"));
+        $(Assert.equal(removed.lines.get(0n).task.unwrap("value"), "Routing"));
         const freshWire = $.const(P3_ROW, Sheet.Types.Row);
         const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
         $(Assert.equal(fresh.owner.hasTag("missing"), true));
@@ -727,19 +727,19 @@ describeEast("Sheet", (test) => {
             note: Sheet.column.text(LineType, { header: "Note", fill: [fromGroup] }),
         }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) }));
         const wire = $.let(sheet.columns.get(1n).fill.get(0n).unwrap("sync"));
-        // The editor on p1's line 1 typed "Painting"; `note` (this column) sends no cell, so the source line's note comes through the base.
+        // The editor on p1's line 1 typed "Spraying"; `note` (this column) sends no cell, so the source line's note comes through the base.
         const editing = $.const(EDITING_CELLS, DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 1n, rowId: "p1", offset: 0n, line: some("1"), row: editing,
             rows: [P1_ROW, P2_ROW], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext);
-        $(Assert.equal(wire(ctx).unwrap("some").value.unwrap("String"), "Line 2 week 8 · line 1 Painting · 2 lines · 2 plans · second"));
+        $(Assert.equal(wire(ctx).unwrap("some").value.unwrap("String"), "Bay 2 week 8 · line 1 Spraying · 2 lines · 2 plans · second"));
         // A line the group does not hold yet (the blank line): retained as an incomplete draft, appended to the group's lines.
         const fresh = $.const({
             drafts: new Map(), rowIndex: 2n, rowId: "p1", offset: 0n, line: some("new"), row: editing,
             rows: [P1_ROW, P2_ROW], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext);
-        $(Assert.equal(wire(fresh).unwrap("some").value.unwrap("String"), "Line 2 week 8 · line 2 Painting · 3 lines · 2 plans · missing"));
+        $(Assert.equal(wire(fresh).unwrap("some").value.unwrap("String"), "Bay 2 week 8 · line 2 Spraying · 3 lines · 2 plans · missing"));
     });
 
     // =========================================================================
@@ -751,7 +751,7 @@ describeEast("Sheet", (test) => {
         const root = $.let(Sheet.Payload(entries, { task: Sheet.column.text(TaskType), note: Sheet.column.text(TaskType) }, {
             id: "id",
             group: Sheet.group(PackageType, "tasks", { title: "name" }),
-            owned: e => e.match({ group: (_$, g) => g.name.equal("Roughing"), row: (_$, r) => r.note.equal("first") }),
+            owned: e => e.match({ group: (_$, g) => g.name.equal("Nesting"), row: (_$, r) => r.note.equal("first") }),
         }));
         const rows = $.let(root.rows.unwrap("inline"));
         $(Assert.equal(rows.size(), 3n));
@@ -766,7 +766,7 @@ describeEast("Sheet", (test) => {
         // A group: its band's title, its lines.
         $(Assert.equal(rows.get(1n).id, "p1"));
         $(Assert.equal(rows.get(1n).band.hasTag("some"), true));
-        $(Assert.equal(rows.get(1n).cells.get("$title").unwrap("String"), "Roughing"));
+        $(Assert.equal(rows.get(1n).cells.get("$title").unwrap("String"), "Nesting"));
         $(Assert.equal(rows.get(1n).lines.size(), 2n));
         $(Assert.equal(rows.get(1n).lines.get(1n).cells.get("note").unwrap("String"), "hidden"));
         $(Assert.equal(rows.get(1n).owned, true));
@@ -788,7 +788,7 @@ describeEast("Sheet", (test) => {
         const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
         $(Assert.equal(fresh.hasTag("row"), true));
         $(Assert.equal(fresh.unwrap("row").id.unwrap("value"), "new"));
-        $(Assert.equal(fresh.unwrap("row").task.unwrap("value"), "Deburr"));
+        $(Assert.equal(fresh.unwrap("row").task.unwrap("value"), "Denib"));
         $(Assert.equal(fresh.unwrap("row").note.hasTag("missing"), true));
         // An existing loose row edited over its draft keeps its hidden note.
         const briefDraft = $.const(variant("row", { id: variant("value", "brief"), task: variant("value", "Review"), note: variant("value", "first") }), Draft);
@@ -799,20 +799,20 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(edited.unwrap("row").note.unwrap("value"), "first"));
         // A group's wire row decodes into the group arm, its lines' hidden fields from their drafts.
         const packageWire = $.const(PACKAGE_P1, Sheet.Types.Row);
-        const packageDraft = $.const(variant("group", { id: variant("value", "p1"), name: variant("value", "Roughing"), tasks: [
-            { id: variant("value", "t1"), task: variant("value", "Machine"), note: variant("value", "") },
+        const packageDraft = $.const(variant("group", { id: variant("value", "p1"), name: variant("value", "Nesting"), tasks: [
+            { id: variant("value", "t1"), task: variant("value", "Cut"), note: variant("value", "") },
             { id: variant("value", "t2"), task: variant("value", "Inspect"), note: variant("value", "hidden") },
         ] }), Draft);
         const packageBytes = $.const(some(East.Blob.encodeBeast(packageDraft, "v2")));
         const previousBytes = $.const(some(East.Blob.encodeBeast(packageWire, "v2")));
         const group = $.const(root.editing.decode(East.Blob.encodeBeast(packageWire, "v2"), packageBytes, previousBytes).decodeBeast(Draft, "v2"));
         $(Assert.equal(group.hasTag("group"), true));
-        $(Assert.equal(group.unwrap("group").name.unwrap("value"), "Roughing"));
+        $(Assert.equal(group.unwrap("group").name.unwrap("value"), "Nesting"));
         $(Assert.equal(group.unwrap("group").tasks.get(1n).note.unwrap("value"), "hidden"));
         $(Assert.equal(group.unwrap("group").tasks.get(1n).id.unwrap("value"), "t2"));
         // The source's entries read back whole, through either arm's id.
         $(Assert.equal(root.editing.readEntry("handover", 2n).hasTag("some"), true));
-        $(Assert.equal(root.editing.readEntry("p1", 1n).unwrap("some").decodeBeast(EntryType, "v2").unwrap("group").name, "Roughing"));
+        $(Assert.equal(root.editing.readEntry("p1", 1n).unwrap("some").decodeBeast(EntryType, "v2").unwrap("group").name, "Nesting"));
         $(Assert.equal(root.editing.readEntry("gone", 0n).hasTag("none"), true));
     });
 
@@ -914,7 +914,7 @@ describeEast("Sheet", (test) => {
         const root = $.let(Sheet.Payload(rows, {
             activity: Sheet.column.lookup(RuleRowType, { options: byCode }),
             status:   Sheet.column.enum(RuleRowType, "statuses", { options: byCode }),
-            stations: Sheet.column.link(RuleRowType, ActivityType, "stations", { options: byCode, members: [{ kind: "machine", identified: true, ranged: true }, { kind: "line" }] }),
+            stations: Sheet.column.link(RuleRowType, ActivityType, "stations", { options: byCode, members: [{ kind: "machine", identified: true, ranged: true }, { kind: "bay" }] }),
             code:     Sheet.column.text(RuleRowType),
         }, {
             id: "id",

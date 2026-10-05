@@ -82,8 +82,8 @@ export const printMember = East.function([SheetMemberType], StringType, (_$, m) 
  *
  * const printed = East.function([], StringType, ($) => {
  *     const link = $.const({
- *         from: [variant("identified", { key: "M2140" }), variant("range", { from: "M2141", to: "M2145" })],
- *         to:   [variant("counted", { n: 4n, key: "CNC lathe" }), variant("placeholder", null)],
+ *         from: [variant("identified", { key: "R2140" }), variant("range", { from: "R2141", to: "R2145" })],
+ *         to:   [variant("counted", { n: 4n, key: "CNC router" }), variant("placeholder", null)],
  *     }, Sheet.Types.Link);
  *     return Sheet.link.print(link);
  * });
@@ -167,7 +167,7 @@ const parseCounted = East.function([StringType, SheetRegisterMembersType], Optio
         })));
     return tok.contains(new RegExp("^\\d+\\s*[xX*]\\s*\\S")).ifElse(
         ($2) => {
-            // Leading count: `4 x lathe`.
+            // Leading count: `4 x router`.
             const at = $2.let(tok.indexOf(new RegExp("[xX*]")), IntegerType);
             const digits = $2.let(tok.substring(0n, at).trim(), StringType);
             const n = $2.let(digits.parse(IntegerType), IntegerType);
@@ -176,7 +176,7 @@ const parseCounted = East.function([StringType, SheetRegisterMembersType], Optio
         },
         (_$2) => tok.contains(new RegExp("\\S\\s+[xX*]\\s*\\d+$")).ifElse(
             ($3) => {
-                // Trailing count: `lathe x 4`.
+                // Trailing count: `router x 4`.
                 const at = $3.let(tok.indexOf(new RegExp("\\s+[xX*]\\s*\\d+$")), IntegerType);
                 const rest = $3.let(tok.substring(0n, at).trim(), StringType);
                 const tail = $3.let(tok.substring(at, tok.length()), StringType);
@@ -205,7 +205,7 @@ const parseMember = East.function([StringType, SheetRegisterMembersType], SheetM
                 some: (_$4, c) => East.value(variant("counted", { n: c.n, key: c.key }), SheetMemberType),
                 none: (_$4) => tok.contains(new RegExp("^[A-Za-z]*\\d+-\\d+$")).ifElse(
                     ($5) => {
-                        // A range; a short upper bound completes from the lower (`M2140-45` ⇒ `M2145`).
+                        // A range; a short upper bound completes from the lower (`R2140-45` ⇒ `R2145`).
                         const parts = $5.let(tok.split("-"), ArrayType(StringType));
                         const from = $5.let(parts.get(0n), StringType);
                         const upper = $5.let(parts.get(1n), StringType);
@@ -244,10 +244,10 @@ const parseHalf = East.function([StringType, SheetRegisterMembersType], SheetMem
  *
  * const parsed = East.function([], Sheet.Types.Link, ($) => {
  *     const members = $.const([
- *         { key: "M2140", label: "M2140", kind: "machine", aliases: [], meta: some("CNC lathe"), parent: some("Line 2"), tone: none },
- *         { key: "CNC lathe", label: "CNC lathe", kind: "family", aliases: ["lathe", "lathes"], meta: some("family"), parent: none, tone: none },
+ *         { key: "R2140", label: "R2140", kind: "machine", aliases: [], meta: some("CNC router"), parent: some("Bay 2"), tone: none },
+ *         { key: "CNC router", label: "CNC router", kind: "family", aliases: ["router", "routers"], meta: some("family"), parent: none, tone: none },
  *     ], Sheet.Types.RegisterMembers);
- *     return Sheet.link.parse("m2140 > 4 x lathe, M2141-45, TBC, paint shop", members);
+ *     return Sheet.link.parse("r2140 > 4 x router, R2141-45, TBC, spray shop", members);
  * });
  * ```
  */

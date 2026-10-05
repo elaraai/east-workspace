@@ -74,25 +74,25 @@ describe("Sheet examples read e3", () => {
 });
 
 describeEast("Sheet — the rows a task makes", (test) => {
-    test("the lens's jobs: their count, three days apart from 2 February, the activities in turn, every fifth a count of lathes and every seventh urgent", $ => {
+    test("the lens's jobs: their count, three days apart from 2 February, the activities in turn, every fifth a count of routers and every seventh urgent", $ => {
         const jobs = $.let(ex.generateLensJobs(60n));
         $(Assert.equal(jobs.size(), 60n));
         $(Assert.equal(jobs.get(0n), {
-            id: "j0", start: some(new Date("2026-02-02T00:00:00Z")), activity: "Machining", notes: "urgent — inspect before shipping",
-            stations: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] }, status: "PLANNED", qty: some(180.0),
+            id: "j0", start: some(new Date("2026-02-02T00:00:00Z")), activity: "Routing", notes: "urgent — inspect before delivery",
+            stations: { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] }, status: "PLANNED", qty: some(180.0),
         }));
         $(Assert.equal(jobs.get(1n), {
-            id: "j1", start: some(new Date("2026-02-05T00:00:00Z")), activity: "Painting", notes: "lot 101",
-            stations: { from: [], to: [variant("identified", { key: "M2141" })] }, status: "RELEASED", qty: some(220.0),
+            id: "j1", start: some(new Date("2026-02-05T00:00:00Z")), activity: "Spraying", notes: "batch 101",
+            stations: { from: [], to: [variant("identified", { key: "R2141" })] }, status: "RELEASED", qty: some(220.0),
         }));
         $(Assert.equal(jobs.filter(($, j) => j.notes.startsWith("urgent")).size(), 9n));
-        $(Assert.equal(jobs.filter(($, j) => j.activity.equal("Machining")).size(), 12n));
+        $(Assert.equal(jobs.filter(($, j) => j.activity.equal("Routing")).size(), 12n));
     });
 
     test("the stress sheet's jobs: their count, four a day from 5 January, the tasks in turn, every eleventh quantity blank", $ => {
         const jobs = $.let(ex.generateStressJobs(2000n));
         $(Assert.equal(jobs.size(), 2000n));
-        $(Assert.equal(jobs.get(0n), { id: "S0", start: some(new Date("2026-01-05T00:00:00Z")), task: "Machining", qty: none, notes: "" }));
+        $(Assert.equal(jobs.get(0n), { id: "S0", start: some(new Date("2026-01-05T00:00:00Z")), task: "Routing", qty: none, notes: "" }));
         $(Assert.equal(jobs.get(1999n), { id: "S1999", start: some(new Date("2027-05-19T00:00:00Z")), task: "Maintenance", qty: some(14043.0), notes: "" }));
         $(Assert.equal(jobs.filter(($, j) => j.qty.hasTag("none")).size(), 182n));
     });

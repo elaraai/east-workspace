@@ -63,14 +63,14 @@ import { SliceChromeType, SliceStateType, TickFormatType } from "@elaraai/east-u
  *
  * @remarks
  * A member is never a bare string the host has to re-parse: a code that
- * resolved against the register is `identified`, a `M2140-45` span is a
- * `range` the register expands, a `4 × CNC lathe` count is `counted`, `TBC` is
+ * resolved against the register is `identified`, a `R2140-45` span is a
+ * `range` the register expands, a `4 × CNC router` count is `counted`, `TBC` is
  * the dashed `placeholder`, and anything the grammar did not recognise is
  * kept verbatim as `text` — typed entry is never blocked.
  *
- * @property identified - A register code (`"M2140"`)
- * @property range - A span of codes, `from` to `to` (`"M2140-45"`, the upper bound completed)
- * @property counted - A count of a countable member (`{ n: 4, key: "CNC lathe" }`)
+ * @property identified - A register code (`"R2140"`)
+ * @property range - A span of codes, `from` to `to` (`"R2140-45"`, the upper bound completed)
+ * @property counted - A count of a countable member (`{ n: 4, key: "CNC router" }`)
  * @property placeholder - The `TBC` placeholder
  * @property text - Free text the grammar kept as typed
  */
@@ -292,11 +292,11 @@ export type SheetRowsType = typeof SheetRowsType;
  * key on the column that needs it ({@link SheetColumnKindType}); what a
  * provider needs (`ctx.driver`) is the typed row, looked up by the bridge.
  *
- * @property key - What the grammar resolves (`"M2140"`, `"Line 2"`, `"CNC lathe"`)
+ * @property key - What the grammar resolves (`"R2140"`, `"Bay 2"`, `"CNC router"`)
  * @property label - What a chip prints
- * @property kind - The member kind (`"machine"` · `"line"` · `"family"` · `"activity"` · …)
- * @property aliases - Alternative spellings the grammar also resolves (`"the 2 line"`)
- * @property meta - Chip meta, shown when a half holds one chip (`"CNC lathe"`, `"line · 96"`)
+ * @property kind - The member kind (`"machine"` · `"bay"` · `"family"` · `"activity"` · …)
+ * @property aliases - Alternative spellings the grammar also resolves (`"the 2 bay"`)
+ * @property meta - Chip meta, shown when a half holds one chip (`"CNC router"`, `"bay · 96"`)
  * @property parent - A member's parent key — countable → identified resolution and "enumerate"
  * @property tone - An `enum` member's valence dot
  */
@@ -383,11 +383,11 @@ export type SheetStoreLiteral = "asTyped" | "canonical";
 /**
  * One member kind a link column accepts, and how (B§4.1).
  *
- * @property kind - The register member kind (`"machine"`, `"line"`, `"family"`, `"range"`)
+ * @property kind - The register member kind (`"machine"`, `"bay"`, `"family"`, `"range"`)
  * @property identified - The kind resolves by code (bare digits try the code prefix)
  * @property countable - The kind takes the counted form (`N x kind`)
  * @property resolvesTo - What a counted member of this kind resolves to later (`"machine"`)
- * @property ranged - Runs of consecutive identified codes are offered and printed as one range (`M2140-45`, #844)
+ * @property ranged - Runs of consecutive identified codes are offered and printed as one range (`R2140-45`, #844)
  */
 export const SheetMemberKindType = StructType({
     kind:       StringType,
@@ -450,7 +450,7 @@ export const SheetSidesType = StructType({
 export type SheetSidesType = typeof SheetSidesType;
 
 /**
- * A count of a countable member — the `n × CNC lathe` form (B§4.5) —
+ * A count of a countable member — the `n × CNC router` form (B§4.5) —
  * `Sheet.Types.Counted`, what an arity rule proposes.
  *
  * @property n - The count

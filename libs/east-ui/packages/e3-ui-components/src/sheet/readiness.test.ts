@@ -179,14 +179,14 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
         // Grouped: a draft on the second group checks each of its lines, at the group's place.
         const line = (key: string, activity: string) => ({ key, cells: cells(activity), subRows: [] });
         const groups = [
-            { ...WIRE, id: "g1", lines: [line("0", "Weld")] },
-            { ...WIRE, id: "g2", lines: [line("0", "Paint"), line("1", "Pack")] },
+            { ...WIRE, id: "g1", lines: [line("0", "Glue")] },
+            { ...WIRE, id: "g2", lines: [line("0", "Spray"), line("1", "Wrap")] },
         ] as unknown as SheetRowValue[];
         const groupDrafts = new Map<string, EntryVersion>([["g2", { draft: "d", wire: groups[1]!, place: none }]]);
         expect(authorReadiness(editingOf("lines"), groups, [0, 1], false)!(groupDrafts)).toEqual(READY);
         expect(sent.pop()).toEqual([
-            { index: 1n, line: some(0n), driver: some("Paint") },
-            { index: 1n, line: some(1n), driver: some("Pack") },
+            { index: 1n, line: some(0n), driver: some("Spray") },
+            { index: 1n, line: some(1n), driver: some("Wrap") },
         ]);
     });
 
@@ -216,20 +216,20 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
         const cells = (activity: string) => new Map([["activity", variant("String", activity)]]);
         const rows = [
             { ...WIRE, id: "l1", cells: cells("Brief") },
-            { ...WIRE, id: "g", band: some({ sub: "", folded: false }), lines: [{ key: "0", cells: cells("Weld"), subRows: [] }, { key: "1", cells: cells("Paint"), subRows: [] }] },
+            { ...WIRE, id: "g", band: some({ sub: "", folded: false }), lines: [{ key: "0", cells: cells("Glue"), subRows: [] }, { key: "1", cells: cells("Spray"), subRows: [] }] },
             { ...WIRE, id: "l2", cells: cells("Hand over") },
         ] as unknown as SheetRowValue[];
         const version = (i: number, entry: unknown): EntryVersion => ({ draft: liftDraft(DraftEntry, entry), wire: rows[i]!, place: none });
         const drafts = new Map<string, EntryVersion>([
             ["l2", version(2, variant("row", { id: "l2", activity: "Hand over" }))],
-            ["g", version(1, variant("group", { id: "g", lines: [{ id: "a", activity: "Weld" }, { id: "b", activity: "Paint" }] }))],
+            ["g", version(1, variant("group", { id: "g", lines: [{ id: "a", activity: "Glue" }, { id: "b", activity: "Spray" }] }))],
             ["l1", version(0, variant("row", { id: "l1", activity: "Brief" }))],
         ]);
         expect(authorReadiness(editing, rows, [0, 1, 2], false)!(drafts)).toEqual(READY);
         expect(sent.pop()).toEqual([
             { index: 2n, line: none, driver: some("Hand over") },
-            { index: 1n, line: some(0n), driver: some("Weld") },
-            { index: 1n, line: some(1n), driver: some("Paint") },
+            { index: 1n, line: some(0n), driver: some("Glue") },
+            { index: 1n, line: some(1n), driver: some("Spray") },
             { index: 0n, line: none, driver: some("Brief") },
         ]);
         expect(groupChecked).toEqual(["group"]);

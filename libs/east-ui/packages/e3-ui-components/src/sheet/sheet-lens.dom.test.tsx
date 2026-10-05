@@ -41,30 +41,30 @@ const JobType = StructType({ id: StringType, activity: StringType, notes: String
 const MachineType = StructType({ code: StringType, family: StringType });
 
 /** Fixtures at MODULE scope: East bodies never call host helpers. */
-const ACTIVITIES = ["Machining", "Painting", "Packaging"];
+const ACTIVITIES = ["Routing", "Spraying", "Wrapping"];
 const ROWS = Array.from({ length: 12 }, (_x, i) => ({
     id: `j${i}`,
     activity: ACTIVITIES[i % 3]!,
-    notes: i === 4 ? "urgent — inspect before shipping" : `lot ${100 + i}`,
-    stations: i === 1 ? { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] }
-        : i === 5 ? { from: [], to: [variant("identified", { key: "M2141" })] }
-            : i === 0 ? { from: [], to: [variant("identified", { key: "M2140" })] }
+    notes: i === 4 ? "urgent — inspect before delivery" : `batch ${100 + i}`,
+    stations: i === 1 ? { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] }
+        : i === 5 ? { from: [], to: [variant("identified", { key: "R2141" })] }
+            : i === 0 ? { from: [], to: [variant("identified", { key: "R2140" })] }
                 : { from: [], to: [] },
     qty: some(100 + i * 10),
 }));
-const MACHINES = [{ code: "M2140", family: "CNC lathe" }, { code: "M2141", family: "CNC lathe" }];
+const MACHINES = [{ code: "R2140", family: "CNC router" }, { code: "R2141", family: "CNC router" }];
 const NARROWING = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
     breakdown: none, visible: none, selectedIndex: none, resolution: none,
 };
 const VIEWS = [
-    { id: "paint", name: "PAINT", narrowing: { ...NARROWING, search: some("paint") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
-    { id: "lathe", name: "LATHE", narrowing: { ...NARROWING, search: some("lathe") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
+    { id: "spray", name: "SPRAY", narrowing: { ...NARROWING, search: some("spray") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
+    { id: "router", name: "ROUTER", narrowing: { ...NARROWING, search: some("router") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
 ];
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-/** A sheet over a bound slice, a Link column searched through `Sheet.link.print`, two saved views, opening on `paint`. */
+/** A sheet over a bound slice, a Link column searched through `Sheet.link.print`, two saved views, opening on `spray`. */
 function buildLensSheet(): SheetRootValue {
     const program = East.function([], Sheet.Types.Root, ($) => {
         const rows = $.const(ROWS, ArrayType(JobType));
@@ -90,7 +90,7 @@ function buildLensSheet(): SheetRootValue {
             },
             slice, affordances: ["search"],
             views,
-            activeView: some("paint"),
+            activeView: some("spray"),
             blanks: 2,
         });
     });
@@ -212,18 +212,18 @@ describe("the lens (B§8)", () => {
     test("the active view's search draws hits with brand numbers, the rest collapse into bands; no blank tail; the count and the tabs", async () => {
         const { container, root, numbers, hits, gaps, count, tab, tabs } = mount(buildLensSheet());
         await waitFor(() => expect(root().hasAttribute("data-lens")).toBe(true));
-        // Painting rows are 2 · 5 · 8 · 11 (1-based) — the only rows shown under ±0.
+        // Spraying rows are 2 · 5 · 8 · 11 (1-based) — the only rows shown under ±0.
         expect(numbers()).toEqual(["2", "5", "8", "11"]);
         expect(hits()).toEqual(["2", "5", "8", "11"]);
         expect(gaps()).toEqual(["1 hidden", "2 hidden", "2 hidden", "2 hidden", "1 hidden"]);
         expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(0);
         expect(count()).toBe("4 matches");
-        expect(tabs()).toEqual(["all", "paint", "lathe"]);
-        expect(tab("paint")!.hasAttribute("data-active")).toBe(true);
+        expect(tabs()).toEqual(["all", "spray", "router"]);
+        expect(tab("spray")!.hasAttribute("data-active")).toBe(true);
         expect(tab("all")!.querySelector('[data-slot="tabCount"]')!.textContent).toBe("12");
-        expect(tab("paint")!.querySelector('[data-slot="tabCount"]')!.textContent).toBe("4");
-        expect(tab("lathe")!.querySelector('[data-slot="tabCount"]')!.textContent).toBe("1");
-        expect(tab("paint")!.hasAttribute("data-dirty")).toBe(false);
+        expect(tab("spray")!.querySelector('[data-slot="tabCount"]')!.textContent).toBe("4");
+        expect(tab("router")!.querySelector('[data-slot="tabCount"]')!.textContent).toBe("1");
+        expect(tab("spray")!.hasAttribute("data-dirty")).toBe(false);
         // The context switch widens the window; the count reads matches · context.
         fireEvent.mouseDown(container.querySelector('[data-slot="contextOption"][data-context="1"]')!, { button: 0 });
         expect(numbers()).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
@@ -257,11 +257,11 @@ describe("the lens (B§8)", () => {
     test("a Link column is searched through its text projection; a narrowing change resets the reveals", async () => {
         const { root, numbers, hits, gaps, slice } = mount(buildLensSheet());
         await waitFor(() => expect(root().hasAttribute("data-lens")).toBe(true));
-        act(() => { slice().setSearch(some("lathe")); });
-        await waitFor(() => expect(hits()).toEqual(["2"]));   // `2 x CNC lathe`
+        act(() => { slice().setSearch(some("router")); });
+        await waitFor(() => expect(hits()).toEqual(["2"]));   // `2 x CNC router`
         expect(numbers()).toEqual(["2"]);
         expect(gaps()).toEqual(["1 hidden", "10 hidden"]);
-        act(() => { slice().setSearch(some("m2141")); });
+        act(() => { slice().setSearch(some("r2141")); });
         await waitFor(() => expect(hits()).toEqual(["6"]));
         act(() => { slice().setSearch(some("urgent")); });
         await waitFor(() => expect(hits()).toEqual(["5"]));
@@ -273,18 +273,18 @@ describe("the view tabs (B§8)", () => {
         const { value, changes } = withViewsSpy(buildLensSheet());
         const { container, root, tab, tabs, slice, flush } = mount(value);
         await waitFor(() => expect(root().hasAttribute("data-lens")).toBe(true));
-        act(() => { slice().setSearch(some("lathe")); });
-        await waitFor(() => expect(tab("paint")!.hasAttribute("data-dirty")).toBe(true));
+        act(() => { slice().setSearch(some("router")); });
+        await waitFor(() => expect(tab("spray")!.hasAttribute("data-dirty")).toBe(true));
         expect(container.querySelector('[data-slot="tabDot"]')).toBeTruthy();
         fireEvent.mouseDown(container.querySelector('[data-slot="tabAdd"]')!, { button: 0 });
         await flush();
-        expect(tabs()).toEqual(["all", "paint", "lathe", "view-1"]);
+        expect(tabs()).toEqual(["all", "spray", "router", "view-1"]);
         expect(tab("view-1")!.hasAttribute("data-active")).toBe(true);
-        expect(tab("view-1")!.textContent).toMatch(/^lathe1/);
+        expect(tab("view-1")!.textContent).toMatch(/^router1/);
         expect(changes).toHaveLength(1);
-        expect(changes[0]!.map((v) => v.id)).toEqual(["paint", "lathe", "view-1"]);
-        expect(changes[0]![2]!.name).toBe("lathe");
-        expect(changes[0]![2]!.narrowing.search).toEqual(some("lathe"));
+        expect(changes[0]!.map((v) => v.id)).toEqual(["spray", "router", "view-1"]);
+        expect(changes[0]![2]!.name).toBe("router");
+        expect(changes[0]![2]!.narrowing.search).toEqual(some("router"));
         // The whole sheet: the narrowing clears, the lens goes, the blank tail returns.
         fireEvent.mouseDown(tab("all")!, { button: 0 });
         await waitFor(() => expect(root().hasAttribute("data-lens")).toBe(false));
@@ -294,42 +294,42 @@ describe("the view tabs (B§8)", () => {
         // × closes a tab; a middle click too.
         fireEvent.mouseDown(tab("view-1")!.querySelector('[data-slot="tabClose"]')!, { button: 0 });
         await flush();
-        expect(tabs()).toEqual(["all", "paint", "lathe"]);
-        fireEvent(tab("lathe")!, new MouseEvent("auxclick", { button: 1, bubbles: true }));
+        expect(tabs()).toEqual(["all", "spray", "router"]);
+        fireEvent(tab("router")!, new MouseEvent("auxclick", { button: 1, bubbles: true }));
         await flush();
-        expect(tabs()).toEqual(["all", "paint"]);
-        expect(changes.at(-1)!.map((v) => v.id)).toEqual(["paint"]);
+        expect(tabs()).toEqual(["all", "spray"]);
+        expect(changes.at(-1)!.map((v) => v.id)).toEqual(["spray"]);
     });
 
     test("⏎ in the search updates a dirty tab, esc reverts it, esc on a clean tab returns to the sheet; a double click renames", async () => {
         const { value, changes } = withViewsSpy(buildLensSheet());
         const { container, root, tab, searchInput, slice, flush } = mount(value);
         await waitFor(() => expect(root().hasAttribute("data-lens")).toBe(true));
-        act(() => { slice().setSearch(some("lathe")); });
-        await waitFor(() => expect(tab("paint")!.hasAttribute("data-dirty")).toBe(true));
+        act(() => { slice().setSearch(some("router")); });
+        await waitFor(() => expect(tab("spray")!.hasAttribute("data-dirty")).toBe(true));
         fireEvent.keyDown(searchInput(), { key: "Escape" });
-        await waitFor(() => expect(tab("paint")!.hasAttribute("data-dirty")).toBe(false));
-        expect(slice().read().search).toEqual(some("paint"));
-        act(() => { slice().setSearch(some("packag")); });
-        await waitFor(() => expect(tab("paint")!.hasAttribute("data-dirty")).toBe(true));
+        await waitFor(() => expect(tab("spray")!.hasAttribute("data-dirty")).toBe(false));
+        expect(slice().read().search).toEqual(some("spray"));
+        act(() => { slice().setSearch(some("wrapp")); });
+        await waitFor(() => expect(tab("spray")!.hasAttribute("data-dirty")).toBe(true));
         fireEvent.keyDown(searchInput(), { key: "Enter" });
         await flush();
-        await waitFor(() => expect(tab("paint")!.hasAttribute("data-dirty")).toBe(false));
-        expect(changes.at(-1)![0]!.narrowing.search).toEqual(some("packag"));
-        expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe('Tab "PAINT" now saves this search');
+        await waitFor(() => expect(tab("spray")!.hasAttribute("data-dirty")).toBe(false));
+        expect(changes.at(-1)![0]!.narrowing.search).toEqual(some("wrapp"));
+        expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe('Tab "SPRAY" now saves this search');
         // esc on the clean tab: back to the whole sheet.
         fireEvent.keyDown(searchInput(), { key: "Escape" });
         await waitFor(() => expect(tab("all")!.hasAttribute("data-active")).toBe(true));
         expect(slice().read().search).toEqual(none);
         // Rename.
-        fireEvent.doubleClick(tab("lathe")!);
+        fireEvent.doubleClick(tab("router")!);
         const input = container.querySelector('[data-slot="tabRename"]') as HTMLInputElement;
-        expect(input.value).toBe("LATHE");
-        fireEvent.change(input, { target: { value: "Turning" } });
+        expect(input.value).toBe("ROUTER");
+        fireEvent.change(input, { target: { value: "Moulding" } });
         fireEvent.keyDown(input, { key: "Enter" });
         await flush();
-        expect(tab("lathe")!.textContent).toMatch(/^Turning/);
-        expect(changes.at(-1)![1]!.name).toBe("Turning");
+        expect(tab("router")!.textContent).toMatch(/^Moulding/);
+        expect(changes.at(-1)![1]!.name).toBe("Moulding");
     });
 });
 
