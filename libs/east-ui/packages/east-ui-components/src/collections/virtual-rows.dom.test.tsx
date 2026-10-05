@@ -492,6 +492,30 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(el2.scrollTop).toBe(20 * ROW_H);
     });
 
+    test("an anchored offset past the scroll's end stops there, and the rows are drawn where the view rests (#1213)", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        // A browser's scroll stops at its end, and a view that did not move sends no scroll event.
+        const end = ROWS.length * ROW_H - 200;
+        Object.defineProperty(scrollEl, "scrollTo", {
+            configurable: true,
+            value: (options: ScrollToOptions) => { if (options.top !== undefined) scrollEl.scrollTop = Math.max(0, Math.min(options.top, end)); },
+        });
+        scrollTo(container, end);
+        // The view rests at the end, r94 the first row starting in it: its anchor.
+        expect(inView(container, "r94")).toBe(94 * ROW_H - end);
+        // The last five rows move to the top — the content no taller: r94 moves five rows down, past where the
+        // view can follow it.
+        const moved = [...ROWS.slice(95), ...ROWS.slice(0, 95)];
+        rerender(frame(moved));
+        expect(scrollEl.scrollTop).toBe(end);
+        // Every row the view shows is drawn where it shows: r88 to r94, now at its foot.
+        for (let i = 93; i < moved.length; i++) {
+            expect(container.querySelector(`[data-key="${moved[i]}"]`), `${moved[i]} is drawn`).not.toBeNull();
+            expect(inView(container, moved[i]!)).toBe(i * ROW_H - end);
+        }
+    });
+
     describe("the pinned header is no row moving (#944)", () => {
         // The rows' offset below the header, as the frame measures it, and a
         // ResizeObserver the test fires.
