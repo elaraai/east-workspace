@@ -32,7 +32,7 @@ import { computeHash } from '../objects.js';
 import { packageRead, packageRemove } from '../packages.js';
 import { packageImport } from '../package-files.js';
 import type { GcObjectEntry, StorageBackend } from '../storage/interfaces.js';
-import { uuidv7 } from '../uuid.js';
+import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import type { BackendSetup } from './setup.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -92,6 +92,32 @@ async function scanned(storage: StorageBackend, repo: string): Promise<Map<strin
     cursor = page.cursor;
   } while (cursor !== undefined);
   return objects;
+}
+
+/*
+ * A run leaves unnoted what was written after it began, telling the two apart
+ * by the time the store gives a write against the time the run's id was
+ * minted. Those are two clocks: a file's is the file system's, which can run a
+ * millisecond or more ahead of `Date.now()` on Windows and behind it on Linux.
+ * A case that writes beside a run waits for the clocks to agree on the order
+ * it means, rather than for a time it guesses covers their difference.
+ */
+
+/** Waits until this process's clock has passed the time the store gives its
+ *  latest write: a run begun after it began after every write by both clocks. */
+async function pastWrites(storage: StorageBackend, repo: string): Promise<void> {
+  const last = Math.max(...[...(await scanned(storage, repo)).values()].map((object) => object.lastModified));
+  while (Date.now() <= last) await new Promise((resolve) => setTimeout(resolve, 1));
+}
+
+/** Writes probes until the store gives one a time at `ms` or after: what is
+ *  written next is written after `ms` by the store's clock too. */
+async function storePast(storage: StorageBackend, repo: string, ms: number): Promise<void> {
+  for (let n = 0; ; n++) {
+    const probe = await storage.objects.write(repo, new TextEncoder().encode(`a probe of the store's clock, ${n}`));
+    if ((await scanned(storage, repo)).get(probe)!.lastModified >= ms) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
 }
 
 /** A package object whose dataset refs name `values`: what roots them. */
@@ -859,6 +885,7 @@ export function gcTests(setup: BackendSetup): void {
         const { storage, repo } = await setup(t);
         const start = Date.now();
         const orphan = await storage.objects.write(repo, bytes('an object nothing names'));
+        await pastWrites(storage, repo);
 
         const first = await gcBeside(storage, repo, at(start));
         assert.deepEqual([first.deletedObjects, first.skippedYoung], [0, 1], 'first seen unreachable: noted, not deleted');
@@ -905,6 +932,7 @@ export function gcTests(setup: BackendSetup): void {
         const start = Date.now();
         const raced = await storage.objects.write(repo, bytes('re-referenced as it is deleted'));
         const unraced = await storage.objects.write(repo, bytes('re-referenced by nothing'));
+        await pastWrites(storage, repo);
         await gcBeside(storage, repo, at(start));
         const notes = await scanned(storage, repo);
         assert.equal(notes.get(raced)?.unreachableSince, start);
@@ -948,6 +976,7 @@ export function gcTests(setup: BackendSetup): void {
         const manifestHash = ref?.type === 'value' ? ref.value.hash : '';
         const manifest = decodeCollectionManifest(await storage.objects.read(repo, manifestHash));
         await packageRemove(storage, repo, 'gc-retouch', '1.0.0');
+        await pastWrites(storage, repo);
         await gcBeside(storage, repo, at(start));
 
         // Long after, a caller about to root the collection by its hash
@@ -1013,6 +1042,7 @@ export function gcTests(setup: BackendSetup): void {
         ), zip);
         const imported = await packageImport(storage, repo, zip);
         const orphan = await storage.objects.write(repo, bytes('an object nothing names'));
+        await pastWrites(storage, repo);
 
         // Bounded to no time at all, each mark step visits one object
         const bounded: GcStepOptions = { ...at(start), markMs: 0 };
@@ -1048,13 +1078,14 @@ export function gcTests(setup: BackendSetup): void {
         const start = Date.now();
         // The run begins, pruning the history...
         let step = (await repoGcStep(storage, repo, null, at(start))).step;
-        // Past the tick a file's modification time may lag the clock by
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.ok(step !== null);
+        await storePast(storage, repo, uuidv7Timestamp(step.value.run).getTime() + 1);
         // ...and an object is written, which its mark may never see rooted
         const late = await storage.objects.write(repo, bytes('written as the run marks'));
         while (step !== null) step = (await repoGcStep(storage, repo, step, at(start))).step;
         assert.equal((await scanned(storage, repo)).get(late)?.unreachableSince, null, 'the run left it unnoted');
 
+        await pastWrites(storage, repo);
         await gcBeside(storage, repo, at(start + HOUR));
         assert.equal((await scanned(storage, repo)).get(late)?.unreachableSince, start + HOUR, 'a later run notes it');
       });
@@ -1079,6 +1110,7 @@ export function gcTests(setup: BackendSetup): void {
         const { storage, repo } = await setup(t);
         const start = Date.now();
         const noted = await storage.objects.write(repo, bytes('noted long ago'));
+        await pastWrites(storage, repo);
         await gcBeside(storage, repo, at(start));
         const unnoted = await storage.objects.write(repo, bytes('never noted'));
 
