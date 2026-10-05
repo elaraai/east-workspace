@@ -62,9 +62,14 @@
  * on a row or a band, and a row, a line or a group moves to another seam —
  * each drop one transaction, planned by `drop.ts` from the rows as they
  * stand, and the ghost saying where it lands, or why it can't.
+ *
+ * On a coarse pointer, a frame too narrow for the touch gutter beside the
+ * first column FOLDS the gutter (#1215, `gutter.ts`): each row's actions go
+ * into one 44 px row-actions button — its grip, and a tap's menu of its
+ * decisions and the inserts at it — and the seams offer no chips.
  */
 
-import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { ArrayType, StringType, equalFor, equivalentFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType, SheetViewComponent } from "@elaraai/e3-ui/internal";
@@ -115,7 +120,8 @@ import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertS
 import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry } from "./Rows.js";
+import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
+import { COARSE_GUTTER_PX, FOLDED_GUTTER_PX, GUTTER_PX, gutterFolds } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
@@ -131,12 +137,6 @@ export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js"
 type Styles = Record<string, Record<string, unknown>>;
 type SheetTransactionsIssue = SheetTransactions["issues"][number];
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
-
-/** The gutter's least width: rail 28 · number 36 · actions 64. */
-const GUTTER_PX = 128;
-
-/** Keeps the marker, number and two 44 px actions in separate touch targets. */
-const COARSE_GUTTER_PX = 254;
 
 const sheetRootEqual = equivalentFor(Sheet.Types.Root);
 const sheetRootDataEqual = equalFor(Sheet.Types.Root);
@@ -535,8 +535,20 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const canInsertGroups = !readOnly && capabilities.insertGroups && group !== undefined;
     // The grouped blank-tail path remains until all insertions use explicit destinations.
     const blanks = !capabilities.insertRows ? 0 : group !== undefined ? (readOnly ? 0 : 1) : Number(getSomeorUndefined(value.blanks) ?? BigInt(DEFAULT_BLANKS));
+    // What moves the rows, as the frame reports it (#856): the element they
+    // scroll sideways in, and what scrolls them vertically — live in every
+    // mode, and through a switch between bounded and unbounded.
+    const [viewport, setViewport] = useState<RowsViewport | null>(null);
+    // The frame's width: inside it (`clientWidth`), the view a sub row's well
+    // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
+    // own changes), what decides whether the gutter folds (#1215).
+    const [viewPx, setViewPx] = useState<number | undefined>(undefined);
+    const [framePx, setFramePx] = useState<number | undefined>(undefined);
     // Touch targets fit in separate lanes; row heights include their seam borders.
-    const gutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, GUTTER_PX, coarse ? COARSE_GUTTER_PX : 0);
+    const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, GUTTER_PX, coarse ? COARSE_GUTTER_PX : 0);
+    // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
+    const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
+    const gutterPx = folded ? FOLDED_GUTTER_PX : fullGutterPx;
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
     // width, and a trailing filler track takes the rest: a link or date
     // column keeps its declared width on a wide screen instead of stretching
@@ -2502,24 +2514,21 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // its estimate missed (#878) — the frame anchors the scroll on it. An
     // unloaded band never anchors: rows landing below it move its top.
     const anchorable = useCallback((i: number): boolean => body[i]?.kind !== "band", [body]);
-    // What moves the rows, as the frame reports it (#856): the element they
-    // scroll sideways in, and what scrolls them vertically — live in every
-    // mode, and through a switch between bounded and unbounded.
-    const [viewport, setViewport] = useState<RowsViewport | null>(null);
     viewportRef.current = viewport;
     // The header pins only in a frame that scrolls its own rows — a bounded
     // one. An unbounded sheet's header scrolls with the page, as every
     // unbounded collection's does (#856), so the band and the line that stick
     // under it are a bounded frame's.
     const pinnedFrame = viewport !== null && viewport.scroller === viewport.frame ? viewport.frame : null;
-    // The view's width: a sub row's well keeps its content inside it while the columns scroll sideways.
-    const [viewPx, setViewPx] = useState<number | undefined>(undefined);
+    // The frame's widths (above), measured before the first paint: a sheet
+    // that folds its gutter never paints the gutter it folds.
     const viewFrame = viewport?.frame;
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (viewFrame === undefined || typeof ResizeObserver === "undefined") return;
-        const observer = new ResizeObserver(() => setViewPx(viewFrame.clientWidth));
+        const measure = () => { setViewPx(viewFrame.clientWidth); setFramePx(viewFrame.offsetWidth); };
+        const observer = new ResizeObserver(measure);
         observer.observe(viewFrame);
-        setViewPx(viewFrame.clientWidth);
+        measure();
         return () => observer.disconnect();
     }, [viewFrame]);
     // What sticks under the header is read off the MOUNTED rows
@@ -2679,8 +2688,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const movesGroups = dropOn && capabilities.moveGroups;
     const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group"; side: "gutter" | "body" } | undefined>(undefined);
     const canInsert = editingState.available && (canInsertRows || canInsertGroups);
-    // A drag in flight owns the gutter: no seam offers its chips under it.
-    const seamsOn = canInsert && !dragActive;
+    // A drag in flight owns the gutter: no seam offers its chips under it — nor
+    // does a folded gutter, whose rows' menus hold the inserts (#1215).
+    const seamsOn = canInsert && !dragActive && !folded;
     /** What the seam above row `r` offers, and what each chip previews. */
     const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
@@ -2764,6 +2774,25 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [body, rowSpace, anchorR, ui.sugg, draftOf]);
     /** The seam above body item `i` takes the gutter unless an action sits in the actions column on either side of it. */
     const seamSide = useCallback((i: number): "gutter" | "body" => (hasDecisions(i) || hasDecisions(i - 1) ? "body" : "gutter"), [hasDecisions]);
+    /**
+     * A folded gutter's inserts at a row (#1215): what the insertion strip
+     * offers with the row selected, in its words — above and below it (in
+     * key order, one to add), and a new group where the sheet takes one.
+     */
+    const insertsAt = (r: number): SheetRowAction[] => {
+        if (!editingState.available) return [];
+        const ordered = !keyed || anchorFor(r, "before").child !== undefined;
+        const out: SheetRowAction[] = [];
+        if (canInsertRows && ordered) out.push({ value: "insertAbove", label: words.m.insertAbove(), run: () => onInsert("row", r, "before") });
+        if (canInsertRows && (group === undefined || loose || rows.length > 0)) out.push({ value: "insertBelow", label: words.m.insertBelow({ ordered }), run: () => onInsert("row", r, "after") });
+        if (canInsertGroups) out.push({ value: "insertGroup", label: words.m.insertNewGroup({ noun: noun.singular }), run: () => onInsert("group", r, "after") });
+        return out;
+    };
+    // Read as a row's menu opens, so no row renders again for it (#858).
+    const insertsRef = useRef(insertsAt);
+    insertsRef.current = insertsAt;
+    const rowInserts = useCallback((r: number) => insertsRef.current(r), []);
+    const foldedInserts = folded && canInsert ? rowInserts : undefined;
 
     // A group's band is "mixed" while some, not all, of its lines are picked (the band's checkbox goes indeterminate).
     const bandMixed = useCallback((r: number, picked: boolean): boolean => {
@@ -2831,6 +2860,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     onAccept={onProposalAccept}
                     onReject={onProposalReject}
                     ariaRowIndex={ariaRowIndex}
+                    foldedGutter={folded}
                 />
             );
         }
@@ -2876,6 +2906,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     drop={dropOn ? rowDrop : undefined}
                     dropRow={dropOn ? dropText(item) : undefined}
                     movable={movesGroups}
+                    foldedGutter={folded}
+                    inserts={foldedInserts}
                 />
                 </SheetRowBoundary>
             );
@@ -2932,10 +2964,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 drop={dropOn ? rowDrop : undefined}
                 dropRow={dropOn ? dropText(item) : undefined}
                 movable={item.kind === "real" && (lg !== undefined ? movesLines : movesRows)}
+                foldedGutter={folded}
+                inserts={foldedInserts}
             />
             </SheetRowBoundary>
         );
-    }, [draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until a builder's inspector asks for a
@@ -3557,6 +3591,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         // A drop over the copy lands on its band: the band itself lies under the header (#1187).
                         drop={dropOn ? rowDrop : undefined}
                         dropRow={dropOn ? dropText(stickyItem) : undefined}
+                        foldedGutter={folded}
+                        inserts={foldedInserts}
                     />
                 </Box>
             )}
@@ -3602,6 +3638,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                         sticky
                         drop={dropOn ? rowDrop : undefined}
                         dropRow={dropOn ? stuckLine.dropRow : undefined}
+                        foldedGutter={folded}
+                        inserts={foldedInserts}
                     />
                 </Box>
             )}
@@ -3617,6 +3655,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 css={styles.card}
                 tabIndex={0}
                 data-sheet-card
+                // Where the gutter ends — what the seam lines start from — and whether it folded (#1215).
+                data-gutter={folded ? "folded" : undefined}
+                style={{ "--sheet-gutter": `${gutterPx}px` } as CSSProperties}
                 role="grid"
                 aria-rowcount={ariaRowCount}
                 aria-colcount={colCount + 1}

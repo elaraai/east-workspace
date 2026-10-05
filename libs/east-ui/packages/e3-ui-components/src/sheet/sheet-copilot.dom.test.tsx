@@ -8,9 +8,11 @@
  * with one next target, the ⇥ walk, the row fill, proposal rows with ✓ / ×
  * and the rejection memory, an async proposer's pending chip and settlement
  * with fake timers, supersession (latest wins), a swapped provider function
- * value re-running the copilot, and a proposed row's cells under a column the
- * host hides (#1186) — every provider a compiled East function over the typed
- * context, the async one behind a test platform function.
+ * value re-running the copilot, a proposed row's cells under a column the
+ * host hides (#1186), and a folded gutter's row-actions menu taking the fill
+ * and the suggestions as the gutter's buttons do (#1215) — every provider a
+ * compiled East function over the typed context, the async one behind a test
+ * platform function.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -19,13 +21,14 @@ import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType,
-    none, some, variant, type ValueTypeOf,
+    equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot } from "./index.js";
 import { sheetJournal, type PatchEvent } from "./journal.test-utils.js";
+import { touchFrame } from "./frame.test-utils.js";
 import type { SheetRootValue } from "./values.js";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -501,6 +504,101 @@ describe("a swapped provider (§6.2, #809)", () => {
         editorKey("Enter");
         await settle();
         expect(cell(1, "qty").textContent).toBe("240cartons");
+    });
+});
+
+// ── A folded gutter (#1215) ───────────────────────────────────────────────
+
+describe("a folded gutter (#1215)", () => {
+    // A phone's sheet: a coarse pointer, and a frame too narrow for the touch gutter beside the first column.
+    let restoreFrame: () => void = () => {};
+    beforeEach(() => { restoreFrame = touchFrame(300); });
+    afterEach(() => { restoreFrame(); });
+
+    const draftEqual = equalFor(Sheet.Types.Draft(PlanRowType));
+    /** A row's row-actions button. */
+    const actionsOf = (row: HTMLElement) => row.querySelector<HTMLElement>('[data-slot="rowActions"]')!;
+    /** Taps a row's row-actions button: its menu opens, and a frame passes — the menu takes the focus in it, as it does before any pick. */
+    const openActions = async (row: HTMLElement) => {
+        await act(async () => { fireEvent.click(actionsOf(row)); });
+        await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+    };
+    /** The open menu's items, as they read. */
+    const menuItems = () => [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent);
+    /** Picks an item of the open menu as a pointer does: pressed on it, then its click. */
+    const pick = async (name: string) => {
+        const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === name);
+        if (item === undefined) throw new Error(`no menu item ${name}`);
+        await act(async () => { fireEvent.pointerDown(item); });
+        await act(async () => { fireEvent.click(item); });
+    };
+
+    test("the anchor's menu fills the row, as its → does — one `row` patch, the grid keeping the focus — and Undo takes it back", async () => {
+        const { value, edits, draft } = withSpies(buildCopilotSheet());
+        const { container, card, key, type, editorKey, settle } = mount(value);
+        expect(card.getAttribute("data-gutter")).toBe("folded");
+        expect(card.style.getPropertyValue("--sheet-gutter")).toBe("108px");
+        key("R");
+        type("Routing");
+        editorKey("Enter");
+        await settle();
+        // No → in a folded gutter: the anchor's fill heads its menu, its discard and the inserts after it.
+        expect(container.querySelector('[data-slot="fillRow"]')).toBeNull();
+        const anchor = container.querySelector<HTMLElement>('[data-slot="row"][data-anchor]')!;
+        await openActions(anchor);
+        expect(menuItems()).toEqual(["Fill this row", "Discard new row", "Insert above", "Insert below"]);
+        const id = anchor.getAttribute("data-row-id")!;
+        const typed = draft(id, Sheet.Types.Draft(PlanRowType));
+        await pick("Fill this row");
+        await settle();
+        expect(edits.filter((e) => source(e) === "row")).toHaveLength(1);
+        expect(draft(id, Sheet.Types.Draft(PlanRowType)).qty).toEqual(variant("value", some(1200)));
+        expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Filled 3 cells on row 2");
+        expect(document.activeElement).toBe(card);
+        key("z", { ctrlKey: true });
+        await settle();
+        expect(source(edits.at(-1)!)).toBe("undo");
+        expect(draftEqual(draft(id, Sheet.Types.Draft(PlanRowType)), typed)).toBe(true);
+    });
+
+    test("a suggestion's menu is its ✓ and ×: adding it is a `pattern` insert Undo takes back; rejecting it remembers the pairing", async () => {
+        const { value, edits } = withSpies(buildCopilotSheet());
+        const { container, cell, key, type, editorKey, settle, proposals, message } = mount(value);
+        key("R");
+        type("Routing");
+        editorKey("Enter");
+        await settle();
+        expect(proposals()).toHaveLength(1);
+        expect(proposals()[0]!.querySelector('[data-slot="accept"]')).toBeNull();
+        await openActions(proposals()[0]!);
+        expect(menuItems()).toEqual(["Add this suggested row", "Reject this suggestion"]);
+        await pick("Add this suggested row");
+        await settle();
+        expect(proposals()).toHaveLength(0);
+        expect(cell(2, "activity").textContent).toBe("Spraying");
+        expect(edits.filter((e) => source(e) === "pattern")).toHaveLength(1);
+        expect(message()).toBe("Took Spraying");
+        key("z", { ctrlKey: true });
+        await settle();
+        expect(source(edits.at(-1)!)).toBe("undo");
+        expect(container.querySelectorAll('[data-slot="row"][data-row-id]:not([data-proposed])')).toHaveLength(2);
+        // Another Routing: its suggestion rejected from the menu, and not offered again.
+        fireEvent.mouseDown(cell(2, "activity"), { button: 0 });
+        key("R");
+        type("Routing");
+        editorKey("Enter");
+        await settle();
+        expect(proposals()).toHaveLength(1);
+        await openActions(proposals()[0]!);
+        await pick("Reject this suggestion");
+        expect(proposals()).toHaveLength(0);
+        expect(message()).toBe("Rejected — Spraying will not be suggested after Routing again");
+        fireEvent.mouseDown(cell(3, "activity"), { button: 0 });
+        key("R");
+        type("Routing");
+        editorKey("Enter");
+        await settle();
+        expect(proposals()).toHaveLength(0);
     });
 });
 

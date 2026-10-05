@@ -15,7 +15,8 @@
  * the owning target's `onDrag`, which may say it did not take it.
  *
  * A drag is picked up by the pointer — a mouse or pen after 4px of travel, a
- * touch after a 300ms hold, a touch on a grip at once ({@link DragPointerSensor})
+ * touch after a 300ms hold, a touch on a grip at once, and on a grip that also
+ * taps after 4px of travel ({@link DragPointerSensor})
  * — or by the keyboard ({@link DragKeyboardSensor}): Space or Enter on a
  * focused draggable, the arrow keys to move between the cells that take it
  * (and along a continuous cell's stops), Space or Enter to drop, and Escape or

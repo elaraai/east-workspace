@@ -27,8 +27,10 @@
  * way. Apply in each record form (SB54): the workshop's orders, the record's
  * entries, and one week's plan, one entry's rows — each an edit committed to
  * the page's e3, and read back by the builder mounted again over the record.
- * In both themes; every measurement is polled until it holds, on a page at
- * rest.
+ * On a phone (#1215) the sheet's gutter folds: the first column's cell shows
+ * beside it, each row's actions one 44 × 44 button whose tap opens its menu
+ * and whose drag moves the row. In both themes; every measurement is polled
+ * until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test sheet-builder --project desktop`.
@@ -465,6 +467,53 @@ async function pickUp(page: Page, handle: Locator): Promise<void> {
 const lineTexts = (box: Locator, group: string, key: string) =>
     box.locator(`[data-frame-slot=main] [data-slot="row"][data-group-id="${group}"]:not([data-blank])`)
         .evaluateAll((rows, k) => rows.map((row) => row.querySelector(`[data-key="${k}"]`)?.textContent ?? ""), key);
+
+test.describe("Sheet builder — the folded gutter on a phone (#1215)", () => {
+    test.skip(({ isMobile }) => !isMobile, "measured on the phone");
+
+    test("the workshop's sheet folds its gutter to 108px: the first column's cell shows beside it, 128px and more, each row's actions one 44 × 44 button in it; a tap opens the row's menu, every item 44px tall", async ({ page }) => {
+        const box = await openBuilder(page, "light", null);
+        const line = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2201"]:not([data-blank])').first();
+        await expect.poll(() => line.evaluate((row) => {
+            const main = row.closest("[data-frame-slot=main]")!.getBoundingClientRect();
+            const gutter = row.querySelector("[data-slot=gutter]")!.getBoundingClientRect();
+            const cell = row.querySelector("[data-slot=cell]")!.getBoundingClientRect();
+            const button = row.querySelector("[data-slot=rowActions]")?.getBoundingClientRect();
+            return {
+                folded: row.closest("[data-sheet-card]")!.getAttribute("data-gutter"),
+                gutter: Math.round(gutter.width),
+                // What shows of the first column's cell, from the gutter's edge to main's.
+                shows: Math.round(Math.min(cell.right, main.right) - Math.max(cell.left, gutter.right)) >= 128,
+                button: button === undefined ? null : [Math.round(button.width), Math.round(button.height), button.left >= gutter.left - 0.5 && button.right <= gutter.right + 0.5],
+            };
+        })).toEqual({ folded: "folded", gutter: 108, shows: true, button: [44, 44, true] });
+        await line.locator("[data-slot=rowActions]").tap();
+        const items = page.locator('[role="menu"] [role="menuitem"]');
+        await expect.poll(() => items.evaluateAll((els) => els.map((el) => [el.textContent, el.getBoundingClientRect().height >= 44])))
+            .toEqual([["Insert above", true], ["Insert below", true], ["New order", true]]);
+    });
+
+    test("a drag on a batch's line's row-actions button moves the line, as its grip does", async ({ page }) => {
+        const box = await openBuilder(page, "light", null, BATCHES);
+        const lines = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-101"]:not([data-blank])');
+        await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Cut doors", "Band doors", "Spray doors"]);
+        // The batch in the window's middle: no row the drag rests on lies near an edge, where a drag scrolls the page.
+        await lines.first().evaluate((row) => row.scrollIntoView({ block: "center" }));
+        await settled(page);
+        await pickUp(page, lines.nth(2).locator("[data-slot=rowActions]"));
+        // Over the first line's top half, in its first cell, beside the gutter.
+        const at = await lines.first().evaluate((row) => {
+            const gutter = row.querySelector("[data-slot=gutter]")!.getBoundingClientRect();
+            const box = row.getBoundingClientRect();
+            return { x: gutter.right + 24, y: box.top + box.height * 0.25 };
+        });
+        await page.mouse.move(at.x, at.y, { steps: 6 });
+        await expect(page.locator("[data-drag-caption]")).toHaveText("before line 1 of Doors, oak");
+        await page.mouse.up();
+        await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Spray doors", "Cut doors", "Band doors"]);
+        await expect(page.locator('[role="menu"]')).toHaveCount(0);
+    });
+});
 
 test.describe("Sheet builder — drag and drop (#1187)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");

@@ -5,10 +5,11 @@
 
 /**
  * The Sheet's ring stays on screen as the keyboard moves it (#860), in a real
- * layout. End on a sheet wider than its frame — at the desktop width the
- * workshop's, in its builder's main; on a phone the stress sheet's, wider than
- * the window — scrolls the columns sideways until the ring's cell shows right
- * of the sticky gutter, and Home brings the first column back. On an unbounded
+ * layout. End on a sheet wider than its frame — the workshop's, in its
+ * builder's main, at both viewports (on a phone, beside its folded gutter,
+ * #1215); on a phone the stress sheet's too, wider than the window — scrolls
+ * the columns sideways until the ring's cell shows right of the sticky
+ * gutter, and Home brings the first column back. On an unbounded
  * sheet small enough to render its rows in flow — the smallest sheet, in a
  * window shorter than it — ↓ walked past the bottom of the view scrolls to the
  * ring's row, at both viewports.
@@ -39,8 +40,8 @@ async function openExample(page: Page, route: string): Promise<Locator> {
  * The ring's cell — the grid's active cell — and whether it shows: sideways,
  * right of its row's gutter inside the frame the columns scroll in; down,
  * inside the nearest element that scrolls it, or the page. Sideways, a column
- * wider than what shows right of the gutter — on a phone, any: the coarse
- * gutter leaves a few dozen px — shows from its start; and the frame's right
+ * wider than what shows right of the gutter — on a phone, most: a builder's
+ * main shows 128px beside its folded gutter — shows from its start; and the frame's right
  * edge is its box's: at a bounded frame's far end Chrome stops the scroll with
  * the grid's last 12 px under the reserved scrollbar gutter
  * (`virtualScrollbarCss`) — a frame's, whatever it holds.
@@ -48,7 +49,7 @@ async function openExample(page: Page, route: string): Promise<Locator> {
 /**
  * Press a cell where it shows: the first point along its middle, from its
  * start, where the page hits the cell itself — on a phone a sheet's frame
- * shows a few dozen px of a cell right of its gutter, and the gutter's seam
+ * shows little of a cell right of its gutter, and an unfolded gutter's seam
  * reaches over its edge.
  */
 async function pressCell(page: Page, cell: Locator): Promise<void> {
@@ -95,8 +96,7 @@ function ring(entry: Locator): Promise<{ key: string | null; sideways: boolean; 
 }
 
 test.describe("the Sheet's ring stays on screen (#860)", () => {
-    test("End brings the last column into view sideways, and Home the first — in a builder's main", async ({ page, isMobile }) => {
-        test.skip(isMobile, "on a phone the builder's main shows no cell beside the sheet's gutter until #1215 folds it — the next test walks a View there");
+    test("End brings the last column into view sideways, and Home the first — in a builder's main", async ({ page }) => {
         const entry = await openExample(page, "sheet-builder/sheetBuilderWorkshop");
         // A press puts the ring on the first order's first operation — a line, never its band; a press never scrolls (the cell is under the pointer).
         await pressCell(page, entry.locator("[data-sheet-card] [data-slot='row'][data-group-id]:not([data-blank]) [data-slot='cell']").first());
