@@ -13,10 +13,11 @@
  *
  * @packageDocumentation
  */
-import { compareFor, fromEastTypeValue, decodeBeast2For, encodeBeast2For, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { fromEastTypeValue, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType, SheetReadyBatchType, SheetReadyCheckType } from "@elaraai/e3-ui/internal";
 import { liftDraft, type BatchReadiness } from "./draft-values.js";
 import { raiseIssue } from "@elaraai/east-ui-components/internal";
+import { keyOrderOf } from "./key-order.js";
 import { placeInOrder } from "./placement.js";
 import { ISSUE_TEXT } from "./words.js";
 import type { EntryVersion } from "./transactions.js";
@@ -27,7 +28,6 @@ type Readiness = ValueTypeOf<typeof Sheet.Types.Readiness>;
 type Issue = ValueTypeOf<typeof Sheet.Types.Issue>;
 type ReadyCheck = ValueTypeOf<typeof SheetReadyCheckType>;
 const encodeBatch = encodeBeast2For(SheetReadyBatchType);
-const compareId = compareFor(StringType);
 
 /**
  * Build one checker whose inputs are captured at the current source generation.
@@ -51,6 +51,8 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
     const looseSheet = draftType.type === "Variant";
     const rowOnly = (wire: SheetRowValue): boolean => childField === undefined || (looseSheet && wire.band.type === "none");
     const driverColumn = editing.driverColumn.type === "some" ? editing.driverColumn.value : undefined;
+    // A keyed source's rows sit in key order, at the key's own type (#1182).
+    const keyOrder = editing.keyType.type === "some" ? keyOrderOf(editing.keyType.value) : undefined;
     // The source rows' drafts, read at their source offsets — once for this
     // generation of the source, however many evaluations follow (#859). No
     // callback can accidentally decode a neighbour's payload.
@@ -98,7 +100,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
             byId.set(id, entry.wire);
         }
         let rows = [...byId.values()];
-        if (editing.keyType.type === "some") rows.sort((a, b) => compareId(a.id, b.id));
+        if (keyOrder !== undefined) rows.sort((a, b) => keyOrder(a.id, b.id));
         else rows = placeInOrder(rows, row => row.id, Array.from(entries, ([id, entry]) => [id, entry.place] as const));
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);

@@ -463,10 +463,34 @@ function projectCell(
 // The bridge
 // ============================================================================
 
-/** The resolved source the bridge reads real rows from. */
+/**
+ * The resolved source the bridge reads real rows from: an inline Array, a
+ * record's whole Dict read in key order (#1182), or a paged source, its
+ * windows read by key when they are keyed. `keyType` is a keyed source's key.
+ */
 export type SheetBridgeSource =
     | { kind: "inline"; rows: ExprType<ArrayType<StructType>> }
-    | { kind: "paged"; source: ExprType<StructType>; keyed: boolean };
+    | { kind: "keyed"; rows: ExprType<DictType<EastType, EastType>>; keyType: EastType }
+    | { kind: "paged"; source: ExprType<StructType>; keyed: boolean; keyType?: EastType | undefined };
+
+/**
+ * A row's id → its key in a keyed source: a String key is its own text, any
+ * other key its `.east` printing (as `Record.onApply` reads it), and text that
+ * names no key of the type names none.
+ *
+ * @param keyType - The source's key type
+ * @returns `id` → `some(key)`, or `none`
+ */
+function keyOfId(keyType: EastType): ExprType<FunctionType<[StringType], OptionType<EastType>>> {
+    if (keyType.type === "String") {
+        return East.function([StringType], OptionType(StringType), (_$, id) => some(id)) as unknown as ExprType<FunctionType<[StringType], OptionType<EastType>>>;
+    }
+    return East.function([StringType], OptionType(keyType), ($, id) => {
+        const key = $.let(none, OptionType(keyType));
+        $.try(($2) => { $2.assign(key, some(id.parse(keyType))); }).catch((_$2) => {});
+        return key;
+    }) as unknown as ExprType<FunctionType<[StringType], OptionType<EastType>>>;
+}
 
 /**
  * The group half of a bridge (#740) — the group's summary cells and child rows on
@@ -634,8 +658,20 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     // edit shifted is found in the steps it moved: a read is never a scan of
     // the collection, which made every context and every readiness check
     // quadratic in the rows (#859). The search starts inside the rows, so a
-    // stale offset still finds the row.
-    const rowById = source.kind === "inline"
+    // stale offset still finds the row. A keyed source — a record read whole
+    // (#1182), or a keyed window — reads the row by its key.
+    const pagedKeyOf = source.kind === "paged" && source.keyed && source.keyType !== undefined && source.keyType.type !== "String"
+        ? keyOfId(source.keyType) : undefined;
+    const rowById = source.kind === "keyed"
+        ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, _offset) => {
+            const rows = $.const(source.rows, DictType(source.keyType, rowType));
+            const keyOf = $.const(keyOfId(source.keyType));
+            return keyOf(id).match({
+                none: (_$2) => East.value(none, OptionType(rowType)),
+                some: (_$2, key) => rows.tryGet(key),
+            });
+        })
+        : source.kind === "inline"
         ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, offset) => {
             const rows = $.const(source.rows as ExprType<ArrayType<EastType>>, ArrayType(rowType));
             const size = $.let(rows.size());
@@ -659,14 +695,20 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         : East.function([StringType, IntegerType], OptionType(rowType), ($, id, offset) => {
             const src = $.const(source.source as unknown as ExprType<StructType<{ page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>> }>>);
             const noRow = $.const(none, OptionType(rowType));
+            const keyOf = pagedKeyOf !== undefined ? $.const(pagedKeyOf) : undefined;
             return src.page(offset, 1n).match({
                 none: (_$) => noRow,
-                some: (_$, win) => source.keyed
-                    ? (win as unknown as ExprType<DictType<StringType, EastType>>).tryGet(id)
-                    : (win as unknown as ExprType<ArrayType<EastType>>).firstMap((_$2, r) => idOf(r, idField).equal(id).ifElse(
+                some: (_$, win) => !source.keyed
+                    ? (win as unknown as ExprType<ArrayType<EastType>>).firstMap((_$2, r) => idOf(r, idField).equal(id).ifElse(
                         (_$3) => East.value(some(r), OptionType(rowType)),
                         (_$3) => East.value(none, OptionType(rowType)),
-                    )),
+                    ))
+                    : keyOf === undefined
+                        ? (win as unknown as ExprType<DictType<StringType, EastType>>).tryGet(id)
+                        : keyOf(id).match({
+                            none: (_$2) => noRow,
+                            some: (_$2, key) => (win as unknown as ExprType<DictType<EastType, EastType>>).tryGet(key),
+                        }),
             });
         });
 

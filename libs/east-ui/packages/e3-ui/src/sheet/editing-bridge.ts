@@ -6,7 +6,7 @@
 /** Typed author callbacks behind a closed renderer transport. @packageDocumentation */
 import {
     ArrayType, AsyncFunctionType, BlobType, East, Expr, FunctionType, IntegerType,
-    NullType, OptionType, StringType, StructType, none, some, toEastTypeValue, variant,
+    NullType, OptionType, StringType, StructType, isTypeEqual, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import { buildInlineApply, type ResolvedRowSource } from "@elaraai/east-ui/internal";
@@ -28,6 +28,10 @@ export interface SheetEditingInput {
     onApply?: unknown;
     onUpdate?: unknown;
     applyMode?: "batch" | "auto";
+    /** The Apply over the session's keyed batches as they come — e3-ui's record forms only (#1182). */
+    applyKeyed?: unknown;
+    /** The session's source identity, when e3-ui's record forms name it (#1182). */
+    sourceId?: unknown;
 }
 
 /** Validate a behavior prop against its exact East signature. */
@@ -52,7 +56,10 @@ function callback(value: unknown, input: EastType, output: EastType, name: strin
  * @returns The closed transaction transport stored in the root IR
  */
 export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput, driverColumn?: string): ExprType<typeof SheetEditingType> {
-    const edits = resolveSheetEdits(input.edits, bridge.group !== undefined, source.kind === "paged" && source.collectionType.type === "Dict");
+    // A Dict source is keyed: a keyed paged source, or a record's whole Dict
+    // read in key order (#1182) — the only inline Dict the root admits.
+    const keyed = source.collectionType.type === "Dict";
+    const edits = resolveSheetEdits(input.edits, bridge.group !== undefined, keyed);
     // The entry: a row, a group — or, with loose rows between the groups
     // (#846), `Sheet.Types.Entry(P, "lines")`. The algorithm treats it
     // opaquely; its runtime East type is exact.
@@ -63,12 +70,12 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     const draftType = SheetDraftEntryTypeFor(rowType, field);
     const eventType = SheetPatchEventTypeFor(rowType, field);
     const batchType = SheetChangeSetTypeFor(rowType as StructType<Record<never, never>>);
-    // A keyed paged source's key type (#880). The shared session speaks keyed
+    // A keyed source's key type (#880, #1182). The shared session speaks keyed
     // batches over it — `ChangeSet(R, K)` — while the author's `onApply` takes
     // the Sheet's own `ChangeSet(R)`; a paged batch is checked by revision,
-    // which both spell alike, so the wrapper below restates the one as the other.
-    const keyType = source.kind === "paged" && source.collectionType.type === "Dict"
-        ? (source.collectionType as DictType<EastType, EastType>).key : undefined;
+    // which both spell alike, so the wrapper below restates the one as the
+    // other. A record's keyed Apply (`applyKeyed`) takes the keyed batch as it is.
+    const keyType = keyed ? (source.collectionType as DictType<EastType, EastType>).key : undefined;
     const wireBatchType = keyType !== undefined ? SheetChangeSetTypeFor(rowType as StructType<Record<never, never>>, keyType) : batchType;
     const toAuthorBatch = keyType === undefined ? undefined : East.function([wireBatchType], batchType, ($, wire) => {
         const base = $.let(variant("revision", ""), batchType.fields.base);
@@ -79,11 +86,15 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         return $.let({ requestId: wire.requestId, base, label: wire.label, changes: wire.changes }, batchType);
     });
     if (input.onApply !== undefined && input.onUpdate !== undefined) throw new Error("Sheet: choose onApply or the inline onUpdate adapter, not both");
+    if (input.applyKeyed !== undefined && (input.onApply !== undefined || input.onUpdate !== undefined)) {
+        throw new Error("Sheet: a sheet over a record commits through the record — it takes no onApply or onUpdate of its own");
+    }
+    if (input.applyKeyed !== undefined && keyType === undefined) throw new Error("Sheet: a keyed Apply needs a keyed source — a record's entries, read whole or paged");
     if (input.onUpdate !== undefined && (source.kind !== "inline" || source.live === undefined)) {
         throw new Error("Sheet: onUpdate requires data={liveHandle} so each batch reads the latest collection — pass the handle itself or provide onApply");
     }
-    if (input.applyMode === "auto" && input.onApply === undefined && input.onUpdate === undefined) throw new Error("Sheet: applyMode auto requires onApply or a live onUpdate binding");
-    if (source.kind !== "inline" && !source.pinned && input.onApply !== undefined) {
+    if (input.applyMode === "auto" && input.onApply === undefined && input.onUpdate === undefined && input.applyKeyed === undefined) throw new Error("Sheet: applyMode auto requires onApply or a live onUpdate binding");
+    if (source.kind !== "inline" && !source.pinned && (input.onApply !== undefined || input.applyKeyed !== undefined)) {
         throw new Error("Sheet: editing paged rows needs a pinned source — one that names its snapshot with revision and refresh " +
             "(Data.bindPaged's handle): a batch is checked against the snapshot it was drafted on, and the drafts " +
             "retire once the rows read back at the snapshot it wrote");
@@ -91,7 +102,8 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     const live = source.kind === "inline" ? source.live : undefined;
     const reader = live !== undefined ? live.read as ExprType<FunctionType<[], typeof rowsType>> : undefined;
     const authorApply = input.onApply !== undefined ? callback(input.onApply, batchType, SheetApplyResultType, "onApply", true) : undefined;
-    const sourceId = source.kind === "paged" ? source.source.id as ExprType<StringType>
+    const sourceId = input.sourceId !== undefined ? East.value(input.sourceId as SubtypeExprOrValue<StringType>, StringType)
+        : source.kind === "paged" ? source.source.id as ExprType<StringType>
         : reader !== undefined ? East.print(East.Blob.encodeBeast(reader, "v2"))
         : authorApply !== undefined ? East.print(East.Blob.encodeBeast(authorApply, "v2"))
         : East.value("readonly-inline", StringType);
@@ -113,6 +125,30 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     if (reader !== undefined && input.onUpdate !== undefined) {
         const writer = callback(input.onUpdate, rowsType, NullType, "onUpdate", false);
         onApply = East.value(variant("sync", buildInlineApply(rowType, idField!, sourceId, reader, writer as ExprType<FunctionType>)), SheetWireApplyType);
+    } else if (input.applyKeyed !== undefined) {
+        // A record's Apply (#1182): the session's keyed batch, decoded at its
+        // own type and handed over as it is — `Record.onApply(record, { keyed: true })`.
+        const keyedApply = East.value(input.applyKeyed as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+        const type = Expr.type(keyedApply as Expr<EastType>) as EastType;
+        if ((type.type !== "Function" && type.type !== "AsyncFunction") || type.inputs.length !== 1
+            || !isTypeEqual(type.inputs[0]!, wireBatchType) || !isTypeEqual(type.output, SheetApplyResultType)) {
+            throw new Error("Sheet: a keyed Apply must be an East function over this sheet's keyed batch, ChangeSet(R, K), returning ApplyResult");
+        }
+        if (type.type === "AsyncFunction") {
+            const fn = keyedApply as ExprType<AsyncFunctionType<[typeof wireBatchType], typeof SheetApplyResultType>>;
+            const wrap = East.asyncFunction([BlobType], SheetApplyResultType, ($, blob) => {
+                const apply = $.const(fn);
+                return apply(blob.decodeBeast(wireBatchType, "v2"));
+            });
+            onApply = East.value(variant("async", wrap), SheetWireApplyType);
+        } else {
+            const fn = keyedApply as ExprType<FunctionType<[typeof wireBatchType], typeof SheetApplyResultType>>;
+            const wrap = East.function([BlobType], SheetApplyResultType, ($, blob) => {
+                const apply = $.const(fn);
+                return apply(blob.decodeBeast(wireBatchType, "v2"));
+            });
+            onApply = East.value(variant("sync", wrap), SheetWireApplyType);
+        }
     } else if (authorApply !== undefined) {
         const async = (Expr.type(authorApply as Expr<EastType>) as EastType).type === "AsyncFunction";
         if (async) {
