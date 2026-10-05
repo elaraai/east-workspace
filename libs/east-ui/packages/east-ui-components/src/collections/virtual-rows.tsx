@@ -71,8 +71,11 @@
  * position follows before paint. A scroll not yet reported — a programmatic
  * one — wins. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
- * moving, and moves nothing (#944). Rows in flow (the unbounded frame below
- * scale) are the browser's to anchor.
+ * moving, and moves nothing (#944). An offset past where the view can go —
+ * rows moved from below the view to above it leave the content no taller —
+ * stops at the scroll's end, and the rows are drawn again there before paint
+ * (#1213). Rows in flow (the unbounded frame below scale) are the browser's
+ * to anchor.
  *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
@@ -96,7 +99,7 @@
  */
 
 import {
-    Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState,
+    Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
     type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
 } from "react";
 import { Box } from "@chakra-ui/react";
@@ -783,6 +786,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // that re-measure (`sizes`, `sizeVersion`): the anchor is taken where this
     // render drew the rows, so the re-measured render that follows finds it
     // moved.
+    //
+    // A scroll stops at its end (#1213). Rows moved from below the view to
+    // above it leave the content no taller, so the anchored offset can lie
+    // past where the view can go: the view rests short of it — where it was,
+    // when the content fits — and a view that did not move sends no scroll
+    // event. The virtualizer, which drew the rows for the offset asked for, is
+    // told where the view is, and they are drawn again there before paint.
+    const [, redraw] = useReducer((n: number) => n + 1, 0);
     useLayoutEffect(() => {
         if (!anchoring) {
             anchorRef.current = null;
@@ -794,6 +805,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             anchorTarget.current = null;
             if (onWindow) windowRows.options.scrollToFn(target, {}, windowRows);
             else elementRows.options.scrollToFn(target, {}, elementRows);
+            const live = liveOffset();
+            if (live !== undefined && Math.abs(live - target) >= 1) {
+                virtualizer.scrollOffset = live;
+                redraw();
+            }
         }
         const offset = virtualizer.scrollOffset ?? 0;
         anchorRef.current = anchorable === undefined ? null
