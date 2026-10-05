@@ -15,7 +15,7 @@
 import { test, expect, beforeEach, afterEach } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, variant, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, variant, type EastIR, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
@@ -30,7 +30,7 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
 const WORKSPACE = "sheet-record-test";
-const PLANS = ex.sheetInsertionPlans;
+const PLANS = ex.sheetBasicPlans;
 type Plans = ValueTypeOf<typeof PLANS.type>;
 
 let memory: RecordApi;
@@ -83,25 +83,27 @@ function readRecord(): Plans {
 test("an edited task, applied, is one commit through the record's patch door, and the drafts retire", async () => {
     // An example's `fn` erases its output type at the package boundary; the
     // Sheet's examples are UI components (as the showcase's `exampleIr` narrows).
-    const program = (ex.sheetInsertion.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+    const program = (ex.sheetBasic.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
     const utils = render(
         <ChakraProvider value={system}>
             <EastChakraComponent value={program()} storageKey="sheet-record" />
         </ChakraProvider>,
     );
     await settle();
-    const task = () => utils.container.querySelector('[data-slot="row"] [data-key="task"]')!;
-    expect(task().textContent).toContain("Nest panels");
+    const row = () => utils.container.querySelector('[data-slot="row"]')!;
+    const task = () => row().querySelector('[data-key="task"]')!;
+    expect(task().textContent).toContain("Routing");
 
     fireEvent.doubleClick(task());
     await settle();
     const input = utils.container.querySelector('[data-slot="editorInput"]')!;
-    fireEvent.input(input, { target: { value: "Nest boards" } });
+    fireEvent.input(input, { target: { value: "Spraying" } });
     await settle();
     fireEvent.keyDown(input, { key: "Enter" });
     await settle();
     const apply = utils.getByRole("button", { name: "Apply changes" });
     expect((apply as HTMLButtonElement).disabled).toBe(false);
+    expect(row().hasAttribute("data-draft")).toBe(true);
     await act(async () => {
         fireEvent.mouseDown(apply, { button: 0 });
         fireEvent.click(apply);
@@ -109,17 +111,17 @@ test("an edited task, applied, is one commit through the record's patch door, an
     await settle();
 
     // The record holds the edit, and nothing else of it moved — one patch commit.
-    const expected = new SortedMap([["week", { rows: [
-        { id: "nest", task: "Nest boards", qty: 120n, createdBy: "planner" },
-        { id: "inspect", task: "Inspect batches", qty: 4n, createdBy: "planner" },
-        { id: "finish", task: "Finish doors", qty: 120n, createdBy: "planner" },
+    const expected = new SortedMap([["week", { jobs: [
+        { id: "j1", start: none, task: "Spraying", qty: none },
     ] }]], compareFor(StringType));
     expect(equalFor(PLANS.type)(readRecord(), expected)).toBe(true);
     const { commits } = await memory.history(WORKSPACE, PLANS.name, undefined);
     expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
 
-    // The drafts retired against the rows the record read back: no error, Apply off.
+    // The drafts retired against the rows the record read back: no error, Apply
+    // off, and the cell shows the record's task, no longer a draft over it.
     expect(utils.queryByRole("alert")).toBeNull();
     expect((utils.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(utils.getByText(/^SAVED · /u).textContent).toBe("SAVED · Nest boards → Inspect batches → Finish doors");
+    expect(task().textContent).toContain("Spraying");
+    expect(row().hasAttribute("data-draft")).toBe(false);
 });

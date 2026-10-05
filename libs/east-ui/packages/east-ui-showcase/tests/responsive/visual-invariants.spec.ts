@@ -684,7 +684,7 @@ test.describe("Visual invariants — the Table, on touch", () => {
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
-    { name: "Sheet", route: "e3/sheet/sheet/sheetLens", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
+    { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Slice.Rail", route: "slice/slice/sliceRail", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
