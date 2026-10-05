@@ -13,9 +13,10 @@
  * the history item last, and stays one row at every width from 1440px to
  * 360px. The panes are pinned beside main while main keeps 480px, overlaid on
  * their rails past that, and under a scrim at 560px and narrower, which a
- * click — on a phone, a tap — closes. The library (#1186): its tabs, each
- * with its count, and its cards' anatomy in the 272px pane; a hidden
- * column's card dimmed, and the column out of the grid. In both themes;
+ * click — on a phone, a tap — closes. The library (#1186): its tabs, their
+ * counts out of the 272px pane's row and kept in each tab's name (#1210), and
+ * its cards' anatomy; a hidden column's card dimmed, and the column out of
+ * the grid. In both themes;
  * every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -226,7 +227,7 @@ test.describe("Sheet builder — the library pane (#1186)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`the library: three tabs, each its name and count; cards that fit the 272px pane — the name 13px 600, the line under it mono 10px — under mono caps group heads; collapsed, a 44px rail with the templates' count (${theme})`, async ({ page }) => {
+        test(`the library: three tabs, their counts out of the 272px pane's row and in each tab's name; cards that fit the pane — the name 13px 600, the line under it mono 10px — under mono caps group heads; collapsed, a 44px rail with the templates' count (${theme})`, async ({ page }) => {
             const box = await openBuilder(page, theme);
             const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
             await expect.poll(() => pane.evaluate((el) => {
@@ -244,15 +245,14 @@ test.describe("Sheet builder — the library pane (#1186)", () => {
                 const paneBox = el.getBoundingClientRect();
                 const tabs = [...el.querySelectorAll('[role="tab"]')].map((tab) => {
                     const count = tab.querySelector("[data-tab-count]")!;
-                    const name = document.createRange();
-                    name.selectNodeContents(tab.firstChild!);
                     const t = getComputedStyle(tab);
                     const c = getComputedStyle(count);
                     return {
                         text: tab.textContent,
                         name: [t.fontFamily === mono, t.fontSize, t.fontWeight, t.textTransform],
                         count: [c.fontWeight, c.letterSpacing, c.color === quiet],
-                        gap: Math.round(count.getBoundingClientRect().left - name.getBoundingClientRect().right),
+                        // The row folds its counts out (#1210): each takes no room on it.
+                        countOnRow: count.getBoundingClientRect().width > 1,
                     };
                 });
                 const panel = el.querySelector('[role="tabpanel"]:not([hidden])')!;
@@ -264,6 +264,7 @@ test.describe("Sheet builder — the library pane (#1186)", () => {
                 const cards = [...panel.querySelectorAll("[data-library-item]")].map((c) => c.getBoundingClientRect());
                 return {
                     width: Math.round(paneBox.width),
+                    fold: el.querySelector('[role="tablist"]')!.getAttribute("data-fold"),
                     tabs,
                     label: [label.fontSize, label.fontWeight],
                     line: [line.fontFamily === mono, line.fontSize, line.color === quiet],
@@ -273,10 +274,11 @@ test.describe("Sheet builder — the library pane (#1186)", () => {
                 };
             })).toEqual({
                 width: 272,
+                fold: "compact",
                 tabs: [
-                    { text: "Rows 11", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], gap: 7 },
-                    { text: "Registers 29", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], gap: 7 },
-                    { text: "Columns 6", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], gap: 7 },
+                    { text: "Rows 11", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], countOnRow: false },
+                    { text: "Registers 29", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], countOnRow: false },
+                    { text: "Columns 6", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], countOnRow: false },
                 ],
                 label: ["13px", "600"],
                 line: [true, "10px", true],
