@@ -39,6 +39,7 @@ export {
 } from "./use-edit-session.js";
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";
 export { historyToolbarItem, HISTORY_RANK } from "./history-item.js";
+export { SessionBanners, type SessionBannersProps } from "./banners.js";
 export { historyShortcut, type HistoryKeyPress } from "./shortcuts.js";
 export {
     editingMessages,

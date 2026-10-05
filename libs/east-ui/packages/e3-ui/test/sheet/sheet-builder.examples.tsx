@@ -7,7 +7,7 @@ import {
     East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
     example, none, some, variant,
 } from "@elaraai/east";
-import { Reactive, SegmentGroup, Slice, State, StatusValueType, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Reactive, SegmentGroup, Slice, State, StatusValueType, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -24,6 +24,10 @@ import e3 from "@elaraai/e3";
 // machines and the statuses, its Columns tab the columns, and the inspector
 // the selected row's fields and the batch's issues. The names are made up;
 // the domain is a joinery workshop (decision 14).
+//
+// A builder fills its parent, as a ui task's page fills the window: each
+// example gives it a box of its own height. One page shows them all, so every
+// builder but the first is named (`id`), and keeps its viewer's state apart.
 // ============================================================================
 
 // ============================================================================
@@ -55,14 +59,16 @@ export const sheetBuilder = example({
         <Reactive>{$ => {
             const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
             return (
-                <Sheet.Builder
-                    record={jobs}
-                    columns={{
-                        task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
-                        start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
-                        qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
-                    }}
-                />
+                <Box height="560px">
+                    <Sheet.Builder
+                        record={jobs}
+                        columns={{
+                            task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
+                            start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
+                            qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+                        }}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),
@@ -271,73 +277,76 @@ export const sheetBuilderWorkshop = example({
                 return East.value(variant("ready", null), Sheet.Types.Readiness);
             }));
             return (
-                <Sheet.Builder
-                    record={orders}
-                    group={Sheet.group(BuilderOrder, "ops", {
-                        title: "name", sub: o => o.customer, noun: { singular: "order", plural: "orders" },
-                        cells: { activity: Sheet.group.cell.enum(BuilderOrder, "statuses", "status"),
-                                 end:      Sheet.group.cell.date(BuilderOrder, "due") },
-                    })}
-                    driver={Sheet.driver("activity", activities.read(), { key: a => a.name, label: a => a.name, meta: a => some(a.uom) })}
-                    registers={{
-                        machines: Sheet.register.concat([
-                            Sheet.register.members(machines.read(), { kind: "machine", key: (_m, code) => code, label: (_m, code) => code,
-                                meta: m => some(m.family), parent: m => some(m.bay) }),
-                            Sheet.register.members(machines.read(), { kind: "family", key: m => m.family, label: m => m.family,
-                                meta: _m => some("family") }),
-                        ]),
-                        statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
-                    }}
-                    columns={{
-                        activity: Sheet.column.lookup(BuilderOperation, { header: "Activity", width: "160px" }),
-                        start:    Sheet.column.date(BuilderOperation, { header: "Start", width: "96px" }),
-                        end:      Sheet.column.date(BuilderOperation, { header: "End", sub: "start + days", width: "96px",
-                                      base: "start", fill: [endFromStart] }),
-                        qty:      Sheet.column.quantity(BuilderOperation, BuilderActivity, { header: "Qty", sub: "unit per activity",
-                                      width: "104px", uom: a => a.uom }),
-                        machines: Sheet.column.link(BuilderOperation, BuilderActivity, "machines", {
-                                      header: "Work centres", sub: "from → to · 2 x edge bander", width: "300px",
-                                      members: [{ kind: "machine", identified: true }, { kind: "family", countable: true, resolvesTo: "machine" }] }),
-                        notes:    Sheet.column.text(BuilderOperation, { header: "Notes", width: "240px" }),
-                    }}
-                    templates={{
-                        groups: [
-                            { key: "kitchen", name: "Kitchen order", group: "Orders",
-                              values: Sheet.patch(BuilderOrder, { status: "PLANNED", due: none, ops: kitchen }) },
-                            { key: "wardrobe", name: "Wardrobe order", group: "Orders",
-                              values: Sheet.patch(BuilderOrder, { status: "PLANNED", due: none, ops: wardrobe }) },
-                            { key: "vanity", name: "Vanity unit", group: "Orders",
-                              values: Sheet.patch(BuilderOrder, { status: "PLANNED", due: none, ops: vanity }) },
-                        ],
-                        rows: [
-                            { key: "cut", name: "Panel cutting", group: "Operations",
-                              values: Sheet.patch(BuilderOperation, { activity: "Panel cutting",
-                                  machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }) },
-                            { key: "edge", name: "Edge banding", group: "Operations",
-                              values: Sheet.patch(BuilderOperation, { activity: "Edge banding",
-                                  machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }) },
-                            { key: "route", name: "CNC routing", group: "Operations",
-                              values: Sheet.patch(BuilderOperation, { activity: "CNC routing",
-                                  machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }) },
-                            { key: "sand", name: "Sanding", group: "Operations",
-                              values: Sheet.patch(BuilderOperation, { activity: "Sanding" }) },
-                            { key: "spray", name: "Spray finish", group: "Operations",
-                              values: Sheet.patch(BuilderOperation, { activity: "Spray finish",
-                                  machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }) },
-                            { key: "assemble", name: "Assembly", group: "Operations",
-                              values: Sheet.patch(BuilderOperation, { activity: "Assembly" }) },
-                            { key: "wrap", name: "Wrapping", group: "Dispatch",
-                              values: Sheet.patch(BuilderOperation, { activity: "Wrapping" }) },
-                            { key: "deliver", name: "Delivery", group: "Dispatch",
-                              values: Sheet.patch(BuilderOperation, { activity: "Delivery" }) },
-                        ],
-                    }}
-                    newRow={newRow}
-                    newGroup={newGroup}
-                    ready={{ group: readyOrder }}
-                    slice={slice} affordances={["search", "filter"]}
-                    views={views}
-                />
+                <Box height="760px">
+                    <Sheet.Builder
+                        record={orders}
+                        group={Sheet.group(BuilderOrder, "ops", {
+                            title: "name", sub: o => o.customer, noun: { singular: "order", plural: "orders" },
+                            cells: { activity: Sheet.group.cell.enum(BuilderOrder, "statuses", "status"),
+                                     end:      Sheet.group.cell.date(BuilderOrder, "due") },
+                        })}
+                        driver={Sheet.driver("activity", activities.read(), { key: a => a.name, label: a => a.name, meta: a => some(a.uom) })}
+                        registers={{
+                            machines: Sheet.register.concat([
+                                Sheet.register.members(machines.read(), { kind: "machine", key: (_m, code) => code, label: (_m, code) => code,
+                                    meta: m => some(m.family), parent: m => some(m.bay) }),
+                                Sheet.register.members(machines.read(), { kind: "family", key: m => m.family, label: m => m.family,
+                                    meta: _m => some("family") }),
+                            ]),
+                            statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
+                        }}
+                        columns={{
+                            activity: Sheet.column.lookup(BuilderOperation, { header: "Activity", width: "160px" }),
+                            start:    Sheet.column.date(BuilderOperation, { header: "Start", width: "96px" }),
+                            end:      Sheet.column.date(BuilderOperation, { header: "End", sub: "start + days", width: "96px",
+                                          base: "start", fill: [endFromStart] }),
+                            qty:      Sheet.column.quantity(BuilderOperation, BuilderActivity, { header: "Qty", sub: "unit per activity",
+                                          width: "104px", uom: a => a.uom }),
+                            machines: Sheet.column.link(BuilderOperation, BuilderActivity, "machines", {
+                                          header: "Work centres", sub: "from → to · 2 x edge bander", width: "300px",
+                                          members: [{ kind: "machine", identified: true }, { kind: "family", countable: true, resolvesTo: "machine" }] }),
+                            notes:    Sheet.column.text(BuilderOperation, { header: "Notes", width: "240px" }),
+                        }}
+                        templates={{
+                            groups: [
+                                { key: "kitchen", name: "Kitchen order", group: "Orders",
+                                  values: Sheet.patch(BuilderOrder, { status: "PLANNED", due: none, ops: kitchen }) },
+                                { key: "wardrobe", name: "Wardrobe order", group: "Orders",
+                                  values: Sheet.patch(BuilderOrder, { status: "PLANNED", due: none, ops: wardrobe }) },
+                                { key: "vanity", name: "Vanity unit", group: "Orders",
+                                  values: Sheet.patch(BuilderOrder, { status: "PLANNED", due: none, ops: vanity }) },
+                            ],
+                            rows: [
+                                { key: "cut", name: "Panel cutting", group: "Operations",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Panel cutting",
+                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }) },
+                                { key: "edge", name: "Edge banding", group: "Operations",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Edge banding",
+                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }) },
+                                { key: "route", name: "CNC routing", group: "Operations",
+                                  values: Sheet.patch(BuilderOperation, { activity: "CNC routing",
+                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }) },
+                                { key: "sand", name: "Sanding", group: "Operations",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Sanding" }) },
+                                { key: "spray", name: "Spray finish", group: "Operations",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Spray finish",
+                                      machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }) },
+                                { key: "assemble", name: "Assembly", group: "Operations",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Assembly" }) },
+                                { key: "wrap", name: "Wrapping", group: "Dispatch",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Wrapping" }) },
+                                { key: "deliver", name: "Delivery", group: "Dispatch",
+                                  values: Sheet.patch(BuilderOperation, { activity: "Delivery" }) },
+                            ],
+                        }}
+                        newRow={newRow}
+                        newGroup={newGroup}
+                        ready={{ group: readyOrder }}
+                        slice={slice} affordances={["search", "filter"]}
+                        views={views}
+                        id="workshop"
+                    />
+                </Box>
             );
         }}</Reactive>
     )),
@@ -386,15 +395,18 @@ export const sheetBuilderWeeks = example({
                 <VStack gap="3" align="stretch">
                     <SegmentGroup value={week.read()} onChange={pick} size="sm"
                         items={weeks.map((_$, w) => SegmentGroup.Item(w, <Text>{w}</Text>))} />
-                    <Sheet.Builder
-                        record={plans}
-                        entry={{ key: week.read(), rows: "rows", id: "id" }}
-                        columns={{
-                            task:  Sheet.column.text(BuilderPlanRow, { header: "Task", width: "260px" }),
-                            start: Sheet.column.date(BuilderPlanRow, { header: "Start", width: "96px" }),
-                            qty:   Sheet.column.quantity(BuilderPlanRow, { header: "Qty", width: "96px" }),
-                        }}
-                    />
+                    <Box height="480px">
+                        <Sheet.Builder
+                            record={plans}
+                            entry={{ key: week.read(), rows: "rows", id: "id" }}
+                            id="weeks"
+                            columns={{
+                                task:  Sheet.column.text(BuilderPlanRow, { header: "Task", width: "260px" }),
+                                start: Sheet.column.date(BuilderPlanRow, { header: "Start", width: "96px" }),
+                                qty:   Sheet.column.quantity(BuilderPlanRow, { header: "Qty", width: "96px" }),
+                            }}
+                        />
+                    </Box>
                 </VStack>
             );
         }}</Reactive>
@@ -418,15 +430,18 @@ export const sheetBuilderPaged = example({
             const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
             const page = $.let(Data.bindPaged(sheetBuilderJobs));
             return (
-                <Sheet.Builder
-                    record={jobs}
-                    window={page}
-                    columns={{
-                        task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
-                        start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
-                        qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
-                    }}
-                />
+                <Box height="560px">
+                    <Sheet.Builder
+                        record={jobs}
+                        window={page}
+                        id="paged"
+                        columns={{
+                            task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
+                            start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
+                            qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+                        }}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),

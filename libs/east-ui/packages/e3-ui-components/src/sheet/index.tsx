@@ -21,7 +21,10 @@
  * items, `SheetGrid` the header, the rows and the strip (inside `SheetRoot`,
  * the element they are laid in), and `useSheetFooter()` the footer's props.
  * `Sheet.View` lays them out in one column, as it always has; a builder
- * places them in its frame's regions, and they drive one grid (SB5).
+ * places them in its frame's regions, and they drive one grid (SB5). A host
+ * that places them itself says what it takes over ({@link SheetHost}): the
+ * grid fills its region, and the history item leaves its error to the host's
+ * banners, which read the session through `useSheetHistory()` (#1184).
  *
  * A source-bound transaction session retains draft gestures and history —
  * the editing session every editable collection shares (`src/editing/`,
@@ -89,6 +92,7 @@ import {
     type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
 import type { SheetNotice } from "./sheet-types.js";
+import type { SheetTransactions } from "./transactions.js";
 import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
@@ -109,7 +113,7 @@ import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue,
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SheetTransactionsIssue = import("./transactions.js").SheetTransactions["issues"][number];
+type SheetTransactionsIssue = SheetTransactions["issues"][number];
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 /** The gutter's least width: rail 28 · number 36 · actions 64. */
@@ -352,7 +356,7 @@ interface SheetRootFacts {
     view: string | undefined;
     /** Rows slide after a gesture that folds or opens. */
     moving: boolean;
-    /** The declared height and max height, when either is: the frame scrolls its own rows. */
+    /** The declared height and max height, when either is, or the whole of a host's region: the frame scrolls its own rows. */
     frame: { height: string | undefined; maxHeight: string | undefined } | undefined;
 }
 
@@ -376,15 +380,36 @@ export interface SheetParts {
     grid: ReactNode;
     /** The footer's props: today's footer, fed from the shared state. */
     footer: SheetFooterProps;
+    /** The editing session and its history actions: what a host's banners report, and what their Retry and Discard run. */
+    history: SheetHistory;
     /** What shows in place of the whole sheet when its source failed before any row landed (#853). */
     failure: ReactNode | undefined;
+}
+
+/** The editing session as a host reads it ({@link useSheetHistory}). */
+export interface SheetHistory {
+    /** The session: its status, its issues, its error and whether the source moved under its drafts. */
+    session: SheetTransactions;
+    /** Runs a history action as the history item does — an open editor commits first. */
+    onAction: (action: HistoryAction) => void;
+}
+
+/**
+ * What a host that places the parts itself takes over from them — a
+ * builder's frame (#1184).
+ */
+export interface SheetHost {
+    /** The grid fills the element the host lays it in and scrolls its own rows there, whatever height the sheet declares. */
+    fill?: boolean | undefined;
+    /** The history item shows the session's error under its buttons — `true` by default; a host showing it in its banners passes `false`. */
+    historyError?: boolean | undefined;
 }
 
 /**
  * Builds the sheet's shared state and the parts it lays out: the root's
  * whole body, its hooks in the order they always ran.
  */
-function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
+function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): SheetParts {
     // Changes identity on a DATA change only — what owns local state keys on
     // it; callbacks come from `value` (#809).
     const data = useDataStable(value, sheetRootDataEqual);
@@ -1810,8 +1835,9 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
     // ── Recipe + layout ───────────────────────────────────────────────────
     const recipe = useSlotRecipe({ key: "sheet" });
     const styles = useMemo(() => recipe({ size } as Record<string, unknown>) as unknown as Styles, [recipe, size]);
-    const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
-    const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
+    // A host's region, filled (#1184); else the height the sheet declares, if any.
+    const height = host.fill === true ? "100%" : parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
+    const maxHeight = host.fill === true ? undefined : parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
     const frameFills = height !== undefined || maxHeight !== undefined;
 
     // ── The editor and the strip ──────────────────────────────────────────
@@ -2783,7 +2809,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
         context: lensOn ? { value: ui.lens.context, onChange: onContext } : undefined,
         search: seek.search,
         onSearchKey,
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue }) : undefined,
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue, showError: host.historyError }) : undefined,
     });
     // A toolbar when the sheet has a reason for one: a bound slice, a paged source, or edits to keep.
     const toolbar = { items: toolbarItems, shown: chrome !== undefined || transport !== undefined || !readOnly, ref: toolbarRef };
@@ -2798,6 +2824,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
     const footer: SheetFooterProps = {
         styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), transport, onRetry: paging.retry,
     };
+    const history: SheetHistory = { session, onAction: onHistoryAction };
 
     // A source that failed before anything landed: nothing else to show (#853).
     if (paging.error !== undefined) {
@@ -2807,7 +2834,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
                 <SheetRetry styles={styles} onRetry={() => paging.retry()} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, failure };
+        return { styles, root, toolbar, grid: null, footer, history, failure };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -2956,7 +2983,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
         </>
     );
-    return { styles, root, toolbar, grid, footer, failure: undefined };
+    return { styles, root, toolbar, grid, footer, history, failure: undefined };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -2973,17 +3000,21 @@ export interface SheetProviderProps {
     value: SheetRootValue;
     /** Storage key prefix for persisting component state. */
     storageKey: string;
+    /** What the host takes over from the parts; nothing by default. */
+    host?: SheetHost | undefined;
     /** Where the host places the parts. */
     children: ReactNode;
 }
+
+const NO_HOST: SheetHost = {};
 
 /**
  * Provides the sheet's one shared state (SB4): the store, the editing
  * session, the lens and the selection, for the parts below it, wherever the
  * host places them (SB5). The declared density reaches every one of them.
  */
-export function SheetProvider({ value, storageKey, children }: SheetProviderProps) {
-    const parts = useSheet(value, storageKey);
+export function SheetProvider({ value, storageKey, host = NO_HOST, children }: SheetProviderProps) {
+    const parts = useSheet(value, storageKey, host);
     const provided = <SheetContext.Provider value={parts}>{children}</SheetContext.Provider>;
     const densityTag = getSomeorUndefined(value.density)?.type;
     return densityTag !== undefined
@@ -3025,10 +3056,22 @@ export function useSheetFooter(): SheetFooterProps {
 }
 
 /**
+ * Reads the editing session and its history actions, for a host that shows
+ * the session's state itself — a builder's banners (`SessionBanners`), whose
+ * Retry and Discard run as the history item's do.
+ *
+ * @returns The session, and the actions' runner
+ */
+export function useSheetHistory(): SheetHistory {
+    return useSheetParts().history;
+}
+
+/**
  * Renders the element the grid is laid in: the sheet's root, its recipe's
  * root styles, and the attributes its rows' styles key on (`data-sheet`,
  * `data-lens`, `data-view`, `data-moving`, …). It takes a bounded frame's
- * height when the sheet declares one.
+ * height when the sheet declares one, and fills a host's region when the host
+ * asks it to ({@link SheetHost}).
  */
 export function SheetRoot({ children }: { children: ReactNode }) {
     const { styles, root } = useSheetParts();
@@ -3041,9 +3084,14 @@ export function SheetRoot({ children }: { children: ReactNode }) {
     );
 }
 
-/** Renders the grid with its strip: the header, the rows, the insertion controls, and the strip docked under them. */
+/**
+ * Renders the grid with its strip: the header, the rows, the insertion
+ * controls, and the strip docked under them — or, when the source failed
+ * before any row landed, why, with its Retry (#853).
+ */
 export function SheetGrid() {
-    return useSheetParts().grid;
+    const parts = useSheetParts();
+    return parts.failure ?? parts.grid;
 }
 
 /** `Sheet.View`'s layout: one column — the toolbar, the grid with its strip, the footer — in the sheet's root. */
