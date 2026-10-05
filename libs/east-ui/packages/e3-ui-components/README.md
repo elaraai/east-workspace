@@ -85,8 +85,10 @@ if (failure !== null) return <StatusDisplay variant="error" title="Error" messag
 ### TaskPreview
 
 Previews a task by its role: a `ui()` task renders its UI; a data task shows its
-output (Output) and its logs (Logs) under a band holding the Output/Logs switch,
-and, above the output, its key search, size and Download.
+output (Output) and its logs (Logs) under a band holding the Output/Logs switch.
+Above the output are its key search, size and Download, and above its tree
+Collapse all and Expand all; above the log, its stdout/stderr tabs, its search
+and Copy.
 
 ```tsx
 import { TaskPreview } from '@elaraai/e3-ui-components';
@@ -99,52 +101,107 @@ import { TaskPreview } from '@elaraai/e3-ui-components';
 | `apiUrl`, `repo`, `workspace`, `task` | **required** — the task to preview |
 | `requestOptions` | the token, and the `fetch` every request goes through |
 | `bare` | no task-name header, and a `ui()` task's output edge to edge — for a kiosk |
-| `toolbar` | `false` draws no band in a data task's preview; the host draws the controls. Default `true` |
+| `toolbar` | `false` draws no band anywhere in a data task's preview — no switch, nothing above the output or its tree, nothing above the log, which fills the view edge to edge; the host draws the controls. Default `true` |
 | `view`, `onViewChange` | a data task's tab, `'output'` or `'logs'`, controlled |
 | `search`, `onSearchChange` | the output's key search, controlled: a given `search` is found and scrolled to (`''` clears), and the preview draws no search box of its own; otherwise `onSearchChange` hears the preview's own box |
+| `logStream`, `onLogStreamChange` | the log's stream, `'stdout'` or `'stderr'`, controlled |
+| `logSearch`, `onLogSearchChange` | the log's search, controlled: a given `logSearch` marks its matches, in any case, and scrolls to the first (`''` clears), and the log draws no search box, count or chevrons of its own; otherwise `onLogSearchChange` hears the log's own box |
+| `onLogMatchesChange` | told `{ current, count }` — the log's match shown, from 0, and how many there are — whenever either changes |
+| `controls` | the handle the host's own buttons act through, made with `usePreviewControls()` |
 
 A host whose frame holds its controls in its header draws them itself and hides
-the band:
+the bands:
 
 ```tsx
-import { TaskPreview, downloadDataset, formatSize, useDatasetStatus, useTaskDetails } from '@elaraai/e3-ui-components';
+import {
+    TaskPreview, downloadDataset, formatSize, usePreviewControls, useDatasetStatus, useTaskDetails, type LogMatches,
+} from '@elaraai/e3-ui-components';
 
 const [view, setView] = useState<'output' | 'logs'>('output');
 const [search, setSearch] = useState('');
+const [stream, setStream] = useState<'stdout' | 'stderr'>('stdout');
+const [logSearch, setLogSearch] = useState('');
+const [matches, setMatches] = useState<LogMatches>({ current: 0, count: 0 });
+const controls = usePreviewControls();
 const details = useTaskDetails(url, 'default', ws, taskName);
 const output = details.data?.output.path.map((step) => step.value).join('.') ?? null;
 const status = useDatasetStatus(url, 'default', ws, output);
 
-// In the header: the tab, the search, the size and Download, at the header's size.
+// In the header, at the header's size: the tab; on Output, the search, the size,
+// Download, and Collapse all and Expand all; on Logs, the stream, the search,
+// `${matches.current + 1}/${matches.count}`, the chevrons and Copy.
 // In the body:
 <TaskPreview apiUrl={url} repo="default" workspace={ws} task={taskName} bare
-    toolbar={false} view={view} onViewChange={setView} search={search} />
+    toolbar={false} view={view} onViewChange={setView} search={search}
+    logStream={stream} onLogStreamChange={setStream} logSearch={logSearch}
+    onLogMatchesChange={setMatches} controls={controls} />
 // Download: downloadDataset(url, 'default', ws, output); the size: formatSize(status.data.sizeBytes)
+// Collapse all: controls.collapseAll(); Expand all: controls.expandAll()
+// The chevrons: controls.previousMatch(), controls.nextMatch(); Copy: controls.copyLog()
 ```
 
 `search` is read as the preview's own search box reads its text: a key's
 prefix, a struct key's leading fields (`press, 2`), a `from..to` range, or a
 whole key in `.east` syntax.
 
+`usePreviewControls()` makes the handle. `collapseAll()` and `expandAll()` act
+on the output's tree; `nextMatch()` and `previousMatch()` step through the
+log's matches, from the last round to the first and back; and `copyLog()`
+copies the log shown, resolving `true` once it is on the clipboard and `false`
+when the clipboard refuses it. Each does nothing while its view is not shown —
+the Output tab shows no log, and a value too large to show has no tree. A
+handle serves one preview at a time, and holds no query, so a header outside
+`<E3Provider>` can make it.
+
+### DatasetPreview
+
+Shows a dataset's value: a tree, inline while it is small, a page at a time
+for a read-only collection, and a Download for a value too large to show.
+`editable` writes a mutable input's edits back. `toolbar`, `search`,
+`onSearchChange` and `controls` are `TaskPreview`'s, for the value alone.
+
+```tsx
+import { DatasetPreview } from '@elaraai/e3-ui-components';
+
+<DatasetPreview apiUrl={url} repo="default" workspace={ws} path="inputs.threshold" editable />
+```
+
 ### InputPreview
 
-Displays dataset input values with type-aware rendering.
+Shows an input's value, editable, under a band naming the input.
 
 ```tsx
 import { InputPreview } from '@elaraai/e3-ui-components';
 
-<InputPreview apiUrl={url} workspace={ws} path={datasetPath} inputInfo={info} />
+<InputPreview apiUrl={url} repo="default" workspace={ws} path=".inputs.threshold" />
 ```
+
+`bare` draws no band naming the input, for a host whose frame names it, and
+`toolbar`, `search`, `onSearchChange` and `controls` reach the value's
+`DatasetPreview`.
 
 ### VirtualizedLogViewer
 
-Performant log viewer with search, copy, and auto-scroll.
+A log, its lines virtualized, under a band holding the stdout/stderr tabs, a
+search that marks its matches and steps through them, and Copy. It follows the
+log's end while it is there, and says when new lines arrive while it is not.
 
 ```tsx
+import { useTabs } from '@chakra-ui/react';
 import { VirtualizedLogViewer } from '@elaraai/e3-ui-components';
 
-<VirtualizedLogViewer lines={logLines} isLive={isRunning} />
+const tabs = useTabs({ defaultValue: 'stdout' });
+
+<VirtualizedLogViewer content={tabs.value === 'stderr' ? stderr : stdout} tabs={tabs} />
 ```
+
+| Prop | Meaning |
+|------|---------|
+| `content`, `tabs` | **required** — the log's text, and the tabs `useTabs` makes |
+| `toolbar` | `false` draws no band, and the log fills the view edge to edge, with no inset, corners or border. Default `true` |
+| `search`, `onSearchChange` | the search, controlled, as `TaskPreview`'s `logSearch` |
+| `onMatchesChange` | told `{ current, count }` whenever either changes |
+| `controlsRef` | given a `LogViewerControls` — `nextMatch()`, `previousMatch()` and `copy()` — while the view is mounted |
 
 ### StatusDisplay
 

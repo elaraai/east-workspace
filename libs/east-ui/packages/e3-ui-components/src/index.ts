@@ -123,4 +123,7 @@ export {
 } from '@elaraai/east-ui-components';
 export { StatusDisplay, type StatusDisplayProps } from './components/StatusDisplay.js';
 export { EastValueViewer, type EastValueViewerProps } from './components/EastValueViewer.js';
-export { VirtualizedLogViewer, type VirtualizedLogViewerProps } from './components/VirtualizedLogViewer.js';
+export { VirtualizedLogViewer, type VirtualizedLogViewerProps, type LogMatches } from './components/VirtualizedLogViewer.js';
+// A preview's controls, drawn in its host's header (#1209): the handle the
+// host gives a preview as `controls`, and what a log view does for it.
+export { usePreviewControls, type PreviewControls, type LogViewerControls } from './components/preview-controls.js';

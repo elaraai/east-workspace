@@ -12,11 +12,16 @@
 import { describe, test, expect } from "vitest";
 import * as root from "./index.js";
 import { RECOVERY_FIRST_MS, RECOVERY_MAX_MS, recoveryDelay, useQueryRecovery } from "./platform/recovery.js";
+import { usePreviewControls } from "./components/preview-controls.js";
 
 describe("the package's root", () => {
     test("gives a host the recovery the previews' stages use, so its own reads recover as theirs do (#1062)", () => {
         expect(root.useQueryRecovery).toBe(useQueryRecovery);
         expect(root.recoveryDelay).toBe(recoveryDelay);
         expect([root.RECOVERY_FIRST_MS, root.RECOVERY_MAX_MS]).toEqual([RECOVERY_FIRST_MS, RECOVERY_MAX_MS]);
+    });
+
+    test("gives a host the handle its own header's controls act on a preview through (#1209)", () => {
+        expect(root.usePreviewControls).toBe(usePreviewControls);
     });
 });

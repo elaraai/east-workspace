@@ -14,6 +14,11 @@
  * A host that draws the preview's controls in its own header (#1120) controls
  * the tab with `view` and `onViewChange`, passes `toolbar={false}` so the
  * preview draws no band, and controls the output's key search with `search`.
+ * The bands `toolbar={false}` hides are all of the preview's — the value
+ * tree's Collapse all and Expand all, and the log's tabs, search and Copy
+ * too — so the host also controls the log's stream and search, hears its
+ * matches, and does the rest through the `controls` it makes with
+ * `usePreviewControls` (#1209).
  *
  * @packageDocumentation
  */
@@ -28,6 +33,8 @@ import { useTaskDetails } from '../hooks/useTaskDetails.js';
 import { DatasetPreview, type DatasetPreviewProps } from './DatasetPreview.js';
 import { TaskLogs } from './TaskLogs.js';
 import { StatusDisplay } from './StatusDisplay.js';
+import { logControlsOf, type PreviewControls } from './preview-controls.js';
+import type { LogMatches } from './VirtualizedLogViewer.js';
 
 type ViewMode = 'output' | 'logs';
 
@@ -46,13 +53,33 @@ export interface DataTaskPreviewProps {
     onViewChange?: (view: ViewMode) => void;
     /** Max output bytes to render inline (above → download button). Default 200KB. */
     sizeLimit?: number;
-    /** `false` draws no band — no Output/Logs switch, and no key search, size
-     *  or Download above the output (#1120). Default `true`. */
+    /** `false` draws no band — no Output/Logs switch; no key search, size or
+     *  Download above the output (#1120), nor its tree's Collapse all and
+     *  Expand all; and no tabs, search or Copy above the log, which fills the
+     *  view (#1209). Default `true`. */
     toolbar?: boolean;
     /** The output's key search, controlled: see {@link DatasetPreviewProps.search}. */
     search?: string;
     /** Told the text of the output's own search box: see {@link DatasetPreviewProps.onSearchChange}. */
     onSearchChange?: (search: string) => void;
+    /** The log's stream, controlled (#1209): the log's tabs show it, and tell
+     *  `onLogStreamChange` of a click rather than switching. */
+    logStream?: 'stdout' | 'stderr';
+    /** Told the stream the log's tabs pick. */
+    onLogStreamChange?: (stream: 'stdout' | 'stderr') => void;
+    /** The log's search, controlled (#1209): the log draws no search box,
+     *  count or chevrons of its own, marks the text's matches in any case and
+     *  scrolls to the first; `''` clears. */
+    logSearch?: string;
+    /** Told the text of the log's own search box as it is edited, unless
+     *  `logSearch` is given. */
+    onLogSearchChange?: (search: string) => void;
+    /** Told the log's match shown (from 0) and how many there are whenever
+     *  either changes, for the host's "3/17" (#1209). */
+    onLogMatchesChange?: (matches: LogMatches) => void;
+    /** The handle a host's own controls act through, made with
+     *  `usePreviewControls` (#1209). */
+    controls?: PreviewControls;
 }
 
 function treePathToString(path: TreePath): string {
@@ -72,6 +99,12 @@ export const DataTaskPreview = memo(function DataTaskPreview({
     toolbar = true,
     search,
     onSearchChange,
+    logStream,
+    onLogStreamChange,
+    logSearch,
+    onLogSearchChange,
+    onLogMatchesChange,
+    controls,
 }: DataTaskPreviewProps) {
     // The tab: the host's when it controls it, else the preview's own.
     const [ownView, setOwnView] = useState<ViewMode>(initialView);
@@ -84,10 +117,11 @@ export const DataTaskPreview = memo(function DataTaskPreview({
         ...(requestOptions != null && { requestOptions }),
     });
     const outputPath = detailsQuery.data ? treePathToString(detailsQuery.data.output.path) : null;
-    const outputControls: Pick<DatasetPreviewProps, 'toolbar' | 'search' | 'onSearchChange'> = {
+    const outputControls: Pick<DatasetPreviewProps, 'toolbar' | 'search' | 'onSearchChange' | 'controls'> = {
         toolbar,
         ...(search !== undefined && { search }),
         ...(onSearchChange !== undefined && { onSearchChange }),
+        ...(controls !== undefined && { controls }),
     };
 
     return (
@@ -141,6 +175,13 @@ export const DataTaskPreview = memo(function DataTaskPreview({
                         workspace={workspace}
                         task={task}
                         {...(requestOptions != null && { requestOptions })}
+                        toolbar={toolbar}
+                        stream={logStream}
+                        onStreamChange={onLogStreamChange}
+                        search={logSearch}
+                        onSearchChange={onLogSearchChange}
+                        onMatchesChange={onLogMatchesChange}
+                        controlsRef={logControlsOf(controls)}
                     />
                 )}
             </Box>

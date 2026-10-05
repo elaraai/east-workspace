@@ -28,10 +28,12 @@
  * payload's `onEdit` / `onInsert` / `onRemove` / `onTag` callbacks —
  * the host owns the data and re-materializes. Without callbacks the
  * tree is a read-only inspector. Arrow keys walk the rows (Right/Left
- * expand/collapse, Enter/Space toggle) with roving tab index.
+ * expand/collapse, Enter/Space toggle) with roving tab index. A host that
+ * draws the tree's controls itself collapses and expands it through
+ * `controlsRef` (#1209).
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { Box, Skeleton, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight, faMinus, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -84,6 +86,17 @@ export type ValueTreeStepValue = ValueTypeOf<typeof ValueTree.Types.Step>;
 /** East ValueTree leaf value type. */
 export type ValueTreeLeafValue = ValueTypeOf<typeof ValueTree.Types.Leaf>;
 
+/**
+ * What a host's own controls do to a value tree (#1209): its toolbar's
+ * Collapse all and Expand all, for a host that draws them in its own header.
+ */
+export interface ValueTreeControls {
+    /** Collapses every row, as the toolbar's Collapse all does. */
+    collapseAll(): void;
+    /** Expands every row, as the toolbar's Expand all does. */
+    expandAll(): void;
+}
+
 export interface EastChakraValueTreeProps {
     value: ValueTreeValue;
     storageKey: string;
@@ -95,6 +108,10 @@ export interface EastChakraValueTreeProps {
      *  clears back to `undefined`. Paged trees take the jump through
      *  {@link ValueTreePaging.scrollToRow} instead (#520). */
     scrollToRow?: number | undefined;
+    /** Given the tree's Collapse all and Expand all while it is mounted, and
+     *  `null` once it unmounts, for a host's own controls; the toolbar's
+     *  buttons, which `style.toolbar` draws, do the same (#1209). */
+    controlsRef?: Ref<ValueTreeControls> | undefined;
 }
 
 type SlotStyles = Record<string, SystemStyleObject>;
@@ -374,10 +391,11 @@ function Row({ row, styles, cbs, tabbable, matched, onToggle, onKeyNav, onFocusR
  * @param props - component props
  * @param props.value - the decoded `ValueTree.Types.Root` payload
  * @param props.storageKey - persistence scope for the expand-set + scroll
+ * @param props.controlsRef - given the tree's Collapse all and Expand all
  * @returns the ValueTree element
  */
 export const EastChakraValueTree = memo(function EastChakraValueTree(
-    { value, storageKey, paging, scrollToRow }: EastChakraValueTreeProps,
+    { value, storageKey, paging, scrollToRow, controlsRef }: EastChakraValueTreeProps,
 ): ReactNode {
     const recipe = useSlotRecipe({ key: "valueTree" });
     const styles = recipe() as SlotStyles;
@@ -446,6 +464,8 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     const expandAll = useCallback(() => {
         setPersisted(prev => ({ ...prev, open: {}, baseDepth: Number.MAX_SAFE_INTEGER }));
     }, [setPersisted]);
+    // A host's own controls do what the toolbar's buttons do (#1209).
+    useImperativeHandle(controlsRef, () => ({ collapseAll, expandAll }), [collapseAll, expandAll]);
 
     // Roving tab index + arrow-key traversal (transient, not persisted).
     const rootElRef = useRef<HTMLDivElement | null>(null);
@@ -659,4 +679,5 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
             />
         </Box>
     );
-}, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.paging === next.paging && prev.scrollToRow === next.scrollToRow);
+}, (prev, next) => valueTreeEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.paging === next.paging && prev.scrollToRow === next.scrollToRow
+    && prev.controlsRef === next.controlsRef);

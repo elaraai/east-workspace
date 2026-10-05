@@ -37,6 +37,7 @@ import { StatusDisplay } from './StatusDisplay.js';
 import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { DownloadButton, formatSize } from './DatasetPreview.js';
 import { SEARCH_DEBOUNCE_MS, useControlledKeySearch } from './controlled-search.js';
+import { treeControlsOf, type PreviewControls } from './preview-controls.js';
 import { pagingDebug } from '../debug.js';
 
 /** Elements REQUESTED per page — one remote window per scroll-ahead page.
@@ -100,7 +101,8 @@ export interface PagedDatasetPreviewProps {
      *  values keep rendering instead of dead-ending here. */
     onNotIndexed?: () => void;
     /** `false` draws no band above the rows — no totals, key search or
-     *  Download (#1120). Default `true`. */
+     *  Download (#1120), nor the tree's Collapse all and Expand all (#1209).
+     *  Default `true`. */
     toolbar?: boolean;
     /** The key search, controlled: found on the server as the search box
      *  finds a query, scrolled to its first match; the preview draws no
@@ -109,6 +111,9 @@ export interface PagedDatasetPreviewProps {
     /** Told the text of the preview's own search box as it is edited, unless
      *  `search` is given. */
     onSearchChange?: (search: string) => void;
+    /** The handle a host's own Collapse all and Expand all act on the tree
+     *  through (#1209). */
+    controls?: PreviewControls;
 }
 
 /** Materializes one decoded page into the renderer's paged-row contract. */
@@ -156,6 +161,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     toolbar = true,
     search,
     onSearchChange,
+    controls,
 }: PagedDatasetPreviewProps) {
     // The totals line, in the app's locale (#850).
     const words = useFormatters();
@@ -315,8 +321,9 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         onInsert: none,
         onRemove: none,
         onTag: none,
-        style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(true) }),
-    }) as unknown as ValueTreeValue, [type]);
+        // The tree's Collapse all and Expand all are a band too (#1209).
+        style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(toolbar) }),
+    }) as unknown as ValueTreeValue, [type, toolbar]);
 
     const paging = useMemo<ValueTreePaging | null>(() => (
         totals === null ? null : {
@@ -367,7 +374,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
                 </Flex>
             )}
             <Box flex={1} minHeight={0} overflow="hidden">
-                <EastChakraValueTree value={treeValue} storageKey={`${path}:page`} paging={paging} />
+                <EastChakraValueTree value={treeValue} storageKey={`${path}:page`} paging={paging} controlsRef={treeControlsOf(controls)} />
             </Box>
         </Flex>
     );
@@ -377,6 +384,6 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     // keep the old one.
     && prev.requestOptions?.token === next.requestOptions?.token
     && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch)
-    // The host's controls (#1120).
+    // The host's controls (#1120, #1209).
     && prev.toolbar === next.toolbar && prev.search === next.search
-    && Object.is(prev.onSearchChange, next.onSearchChange));
+    && Object.is(prev.onSearchChange, next.onSearchChange) && Object.is(prev.controls, next.controls));

@@ -3,40 +3,82 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useRef, useMemo, useEffect, useState, useCallback } from 'react';
+/**
+ * `<VirtualizedLogViewer>` — a log, its lines virtualized, under a band
+ * holding the stdout/stderr tabs, a search that marks its matches and steps
+ * through them, and Copy. The view follows the log's end while it is there,
+ * and says when new lines arrive while it is not.
+ *
+ * A host that draws the view's controls in its own header (#1209) passes
+ * `toolbar={false}`, so the view draws no band and the log fills it edge to
+ * edge; controls the search with `search`; hears the matches with
+ * `onMatchesChange`; and steps through them and copies the log through
+ * `controlsRef`.
+ *
+ * @packageDocumentation
+ */
+
+import { useRef, useMemo, useEffect, useState, useCallback, useImperativeHandle, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Box, Flex, Text, IconButton, Tabs, type UseTabsReturn, Input, Badge } from '@chakra-ui/react';
+import { Box, Text, IconButton, Tabs, type UseTabsReturn, Input, Badge, chakra, useSlotRecipe, type SystemStyleObject } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCopy, faCheck, faChevronUp, faChevronDown, faArrowDown } from '@fortawesome/free-solid-svg-icons';
+import type { LogViewerControls } from './preview-controls.js';
 
 interface Match {
+    /** Its place among the log's matches. */
+    index: number;
     lineIndex: number;
     start: number;
     end: number;
 }
 
-export interface VirtualizedLogViewerProps {
-    content: string;
-    tabs: UseTabsReturn;
+/** The search's matches, as a host's "3/17" shows them (#1209). */
+export interface LogMatches {
+    /** The match shown, from 0; 0 while there are none. */
+    current: number;
+    /** How many matches the log has. */
+    count: number;
 }
 
-// Highlight search matches within a line
-function HighlightedLine({
-    text,
-    lineMatches,
-    currentMatchIndex,
-    globalMatches,
-}: {
+export interface VirtualizedLogViewerProps {
+    /** The log's text. */
+    content: string;
+    /** The stdout/stderr tabs the band shows. */
+    tabs: UseTabsReturn;
+    /** `false` draws no band — no tabs, search, match count or chevrons, or
+     *  Copy — and the log fills the view edge to edge, with no inset, corners
+     *  or border, for the host's frame to hold (#1209). Default `true`. */
+    toolbar?: boolean | undefined;
+    /** The search, controlled: the view draws no search box, count or
+     *  chevrons of its own, marks the text's matches in any case, and scrolls
+     *  to the first; `''` clears (#1209). */
+    search?: string | undefined;
+    /** Told the text of the view's own search box as it is edited, unless
+     *  `search` is given. */
+    onSearchChange?: ((search: string) => void) | undefined;
+    /** Told the match shown and how many there are whenever either changes
+     *  (#1209). */
+    onMatchesChange?: ((matches: LogMatches) => void) | undefined;
+    /** Given the view's next and previous match and its Copy while it is
+     *  mounted, for a host's own controls (#1209). */
+    controlsRef?: Ref<LogViewerControls> | undefined;
+}
+
+type SlotStyles = Record<string, SystemStyleObject>;
+
+/** A line, its matches marked, the current one strongest. */
+function HighlightedLine({ text, lineMatches, current, styles }: {
     text: string;
     lineMatches: Match[];
-    currentMatchIndex: number;
-    globalMatches: Match[];
-}) {
+    current: number;
+    styles: SlotStyles;
+}): ReactNode {
     if (lineMatches.length === 0) {
         return <>{text || ' '}</>;
     }
 
-    const parts: React.ReactNode[] = [];
+    const parts: ReactNode[] = [];
     let lastEnd = 0;
 
     lineMatches.forEach((match, idx) => {
@@ -44,28 +86,11 @@ function HighlightedLine({
         if (match.start > lastEnd) {
             parts.push(<span key={`t${idx}`}>{text.slice(lastEnd, match.start)}</span>);
         }
-
-        // Check if this is the current match
-        const globalIdx = globalMatches.findIndex(
-            m => m.lineIndex === match.lineIndex && m.start === match.start
-        );
-        const isCurrent = globalIdx === currentMatchIndex;
-
-        // Add highlighted match
         parts.push(
-            <span
-                key={`m${idx}`}
-                style={{
-                    backgroundColor: isCurrent ? 'var(--chakra-colors-status-warn)' : 'var(--chakra-colors-status-warn-subtle)',
-                    color: 'var(--chakra-colors-fg-default)',
-                    borderRadius: '2px',
-                    outline: isCurrent ? '2px solid var(--chakra-colors-status-warn)' : undefined,
-                }}
-            >
+            <chakra.span key={`m${idx}`} css={styles['match']} {...(match.index === current && { 'data-current': '' })}>
                 {text.slice(match.start, match.end)}
-            </span>
+            </chakra.span>,
         );
-
         lastEnd = match.end;
     });
 
@@ -77,10 +102,21 @@ function HighlightedLine({
     return <>{parts}</>;
 }
 
-export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProps) {
+export function VirtualizedLogViewer({
+    content,
+    tabs,
+    toolbar = true,
+    search,
+    onSearchChange,
+    onMatchesChange,
+    controlsRef,
+}: VirtualizedLogViewerProps) {
+    const styles = useSlotRecipe({ key: 'logViewer' })() as SlotStyles;
     const parentRef = useRef<HTMLDivElement>(null);
     const [copied, setCopied] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    // The search: the host's when it controls it, else the view's own box's.
+    const [ownSearch, setOwnSearch] = useState('');
+    const searchQuery = search ?? ownSearch;
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
     const [isAtBottom, setIsAtBottom] = useState(true);
     const [hasNewLogs, setHasNewLogs] = useState(false);
@@ -91,7 +127,8 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
         return content.split('\n');
     }, [content]);
 
-    // Find all matches and build a map by line index for O(1) lookup
+    // Every match of the search, in any case and none overlapping another,
+    // and each line's, for O(1) lookup
     const { matches, matchesByLine } = useMemo(() => {
         const matches: Match[] = [];
         const matchesByLine = new Map<number, Match[]>();
@@ -105,22 +142,11 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
         lines.forEach((line, lineIndex) => {
             const lineLower = line.toLowerCase();
             const lineMatches: Match[] = [];
-            let start = 0;
-
-            while (true) {
-                const found = lineLower.indexOf(query, start);
-                if (found === -1) break;
-
-                const match: Match = {
-                    lineIndex,
-                    start: found,
-                    end: found + searchQuery.length,
-                };
+            for (let found = lineLower.indexOf(query); found !== -1; found = lineLower.indexOf(query, found + query.length)) {
+                const match: Match = { index: matches.length, lineIndex, start: found, end: found + query.length };
                 matches.push(match);
                 lineMatches.push(match);
-                start = found + 1;
             }
-
             if (lineMatches.length > 0) {
                 matchesByLine.set(lineIndex, lineMatches);
             }
@@ -134,6 +160,10 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
         setCurrentMatchIndex(0);
     }, [searchQuery]);
 
+    // The match shown stays within the log's matches: another stream's log,
+    // or a new run's, with fewer never shows one past its count (#1209).
+    const current = matches.length === 0 ? 0 : Math.min(currentMatchIndex, matches.length - 1);
+
     const virtualizer = useVirtualizer({
         count: lines.length,
         getScrollElement: () => parentRef.current,
@@ -143,7 +173,6 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
 
     // Scroll to current match
     const scrollToMatch = useCallback((index: number) => {
-        if (matches.length === 0) return;
         const match = matches[index];
         if (match) {
             virtualizer.scrollToIndex(match.lineIndex, { align: 'center' });
@@ -158,25 +187,33 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
     }, [matches, scrollToMatch]);
 
     const handlePrevMatch = useCallback(() => {
-        if (matches.length === 0) return;
+        const count = matches.length;
+        if (count === 0) return;
         setCurrentMatchIndex(prev => {
-            const newIndex = prev === 0 ? matches.length - 1 : prev - 1;
+            const newIndex = (Math.min(prev, count - 1) + count - 1) % count;
             scrollToMatch(newIndex);
             return newIndex;
         });
     }, [matches.length, scrollToMatch]);
 
     const handleNextMatch = useCallback(() => {
-        if (matches.length === 0) return;
+        const count = matches.length;
+        if (count === 0) return;
         setCurrentMatchIndex(prev => {
-            const newIndex = prev === matches.length - 1 ? 0 : prev + 1;
+            const newIndex = (Math.min(prev, count - 1) + 1) % count;
             scrollToMatch(newIndex);
             return newIndex;
         });
     }, [matches.length, scrollToMatch]);
 
+    // The view's own search box, which tells the host of each edit
+    const editSearch = useCallback((text: string) => {
+        setOwnSearch(text);
+        onSearchChange?.(text);
+    }, [onSearchChange]);
+
     // Handle keyboard shortcuts
-    const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const handleSearchKeyDown = useCallback((e: KeyboardEvent) => {
         if (e.key === 'Enter') {
             if (e.shiftKey) {
                 handlePrevMatch();
@@ -185,9 +222,9 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
             }
             e.preventDefault();
         } else if (e.key === 'Escape') {
-            setSearchQuery('');
+            editSearch('');
         }
-    }, [handlePrevMatch, handleNextMatch]);
+    }, [handlePrevMatch, handleNextMatch, editSearch]);
 
     // Check if scrolled to bottom (within threshold)
     const checkIsAtBottom = useCallback(() => {
@@ -226,111 +263,115 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
         prevLinesLength.current = lines.length;
     }, [lines.length, virtualizer, searchQuery, isAtBottom]);
 
-    const handleCopy = useCallback(async () => {
+    // Copies the log, answering whether the clipboard took it
+    const copy = useCallback(async (): Promise<boolean> => {
         try {
             await navigator.clipboard.writeText(content);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            return true;
         } catch {
-            // Failed to copy
+            return false;
         }
     }, [content]);
 
-    return (
-        <Box
-            height="100%"
-            display="flex"
-            flexDirection="column"
-            p="4"
-        >
-            {/* Header */}
-            <Flex
-                px={3}
-                py={2}
-                bg="bg.inverse"
-                borderTopRadius="md"
-                align="center"
-                justify="space-between"
-                flexShrink={0}
-                gap={2}
-            >
-                <Tabs.RootProvider value={tabs} size="sm" variant="line">
-                    <Tabs.List borderBottom="none">
-                        <Tabs.Trigger value="stdout" color="fg.subtle" _selected={{ color: 'fg.inverse' }}>
-                            stdout
-                        </Tabs.Trigger>
-                        <Tabs.Trigger value="stderr" color="fg.subtle" _selected={{ color: 'fg.inverse' }}>
-                            stderr
-                        </Tabs.Trigger>
-                    </Tabs.List>
-                </Tabs.RootProvider>
+    const handleCopy = useCallback(async () => {
+        if (!await copy()) return;
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }, [copy]);
 
-                {/* Search controls */}
-                <Flex align="center" gap={1}>
-                    <Input
-                        size="xs"
-                        placeholder="Search..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={handleSearchKeyDown}
-                        bg="bg.inverse"
-                        border="none"
-                        color="fg.inverse"
-                        _placeholder={{ color: 'fg.subtle' }}
-                        width="min(150px, 40vw)"
-                    />
-                    {searchQuery && (
-                        <Text fontSize="body.sm" color="fg.subtle" minWidth="50px" textAlign="center">
-                            {matches.length > 0 ? `${currentMatchIndex + 1}/${matches.length}` : '0/0'}
-                        </Text>
-                    )}
-                    <IconButton
-                        variant="ghost"
-                        size="xs"
-                        onClick={handlePrevMatch}
-                        color="fg.subtle"
-                        _hover={{ color: 'fg.inverse' }}
-                        aria-label="Previous match"
-                        disabled={matches.length === 0}
-                    >
-                        <FontAwesomeIcon icon={faChevronUp} />
-                    </IconButton>
-                    <IconButton
-                        variant="ghost"
-                        size="xs"
-                        onClick={handleNextMatch}
-                        color="fg.subtle"
-                        _hover={{ color: 'fg.inverse' }}
-                        aria-label="Next match"
-                        disabled={matches.length === 0}
-                    >
-                        <FontAwesomeIcon icon={faChevronDown} />
-                    </IconButton>
-                    <IconButton
-                        variant="ghost"
-                        size="xs"
-                        onClick={handleCopy}
-                        color="fg.subtle"
-                        _hover={{ color: 'fg.inverse' }}
-                        aria-label="Copy logs"
-                    >
-                        <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
-                    </IconButton>
-                </Flex>
-            </Flex>
+    // A host's own controls do what the band's do (#1209).
+    useImperativeHandle(controlsRef, () => ({
+        nextMatch: handleNextMatch,
+        previousMatch: handlePrevMatch,
+        copy,
+    }), [handleNextMatch, handlePrevMatch, copy]);
+
+    // The host hears the matches as they change, and only then, whatever
+    // function it passes on each render.
+    const hearMatches = useRef(onMatchesChange);
+    useEffect(() => {
+        hearMatches.current = onMatchesChange;
+    }, [onMatchesChange]);
+    useEffect(() => {
+        hearMatches.current?.({ current, count: matches.length });
+    }, [current, matches.length]);
+
+    // A view whose host draws its controls draws no band, and its log fills it.
+    const bare = !toolbar;
+
+    return (
+        <Box css={styles['root']} {...(bare && { 'data-bare': '' })}>
+            {toolbar && (
+                <Box css={styles['band']}>
+                    <Tabs.RootProvider value={tabs} size="sm" variant="line">
+                        <Tabs.List css={styles['tabList']}>
+                            <Tabs.Trigger value="stdout" css={styles['trigger']}>
+                                stdout
+                            </Tabs.Trigger>
+                            <Tabs.Trigger value="stderr" css={styles['trigger']}>
+                                stderr
+                            </Tabs.Trigger>
+                        </Tabs.List>
+                    </Tabs.RootProvider>
+
+                    {/* Search controls, unless the host controls the search */}
+                    <Box css={styles['search']}>
+                        {search === undefined && (
+                            <>
+                                <Input
+                                    size="xs"
+                                    placeholder="Search..."
+                                    value={ownSearch}
+                                    onChange={(e) => editSearch(e.target.value)}
+                                    onKeyDown={handleSearchKeyDown}
+                                    css={styles['searchInput']}
+                                />
+                                {ownSearch && (
+                                    <Text css={styles['count']}>
+                                        {matches.length > 0 ? `${current + 1}/${matches.length}` : '0/0'}
+                                    </Text>
+                                )}
+                                <IconButton
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={handlePrevMatch}
+                                    css={styles['bandButton']}
+                                    aria-label="Previous match"
+                                    disabled={matches.length === 0}
+                                >
+                                    <FontAwesomeIcon icon={faChevronUp} />
+                                </IconButton>
+                                <IconButton
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={handleNextMatch}
+                                    css={styles['bandButton']}
+                                    aria-label="Next match"
+                                    disabled={matches.length === 0}
+                                >
+                                    <FontAwesomeIcon icon={faChevronDown} />
+                                </IconButton>
+                            </>
+                        )}
+                        <IconButton
+                            variant="ghost"
+                            size="xs"
+                            onClick={handleCopy}
+                            css={styles['bandButton']}
+                            aria-label="Copy logs"
+                        >
+                            <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
+                        </IconButton>
+                    </Box>
+                </Box>
+            )}
 
             {/* Virtualized content */}
-            <Box position="relative" flex="1" minHeight={0}>
+            <Box css={styles['body']}>
                 <Box
                     ref={parentRef}
-                    layerStyle="surface.log.dark"
-                    height="100%"
-                    overflow="auto"
-                    borderBottomRadius="md"
-                    borderTopWidth="0"
-                    fontFamily="mono"
-                    fontSize="body.lg"
-                    color="fg.inverse"
+                    css={styles['surface']}
+                    {...(bare && { 'data-bare': '' })}
                     onScroll={handleScroll}
                 >
                 <div
@@ -357,32 +398,19 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
                                     transform: `translateY(${virtualItem.start}px)`,
                                 }}
                             >
-                                <Flex px={3} py={0.5} _hover={{ bg: 'bg.inverse' }}>
-                                    <Text
-                                        as="span"
-                                        color="fg.muted"
-                                        minWidth="50px"
-                                        textAlign="right"
-                                        mr={3}
-                                        userSelect="none"
-                                        flexShrink={0}
-                                    >
+                                <Box css={styles['line']}>
+                                    <chakra.span css={styles['gutter']}>
                                         {lineIndex + 1}
-                                    </Text>
-                                    <Text
-                                        as="span"
-                                        whiteSpace="pre"
-                                        wordBreak="break-all"
-                                        flex={1}
-                                    >
+                                    </chakra.span>
+                                    <chakra.span css={styles['text']}>
                                         <HighlightedLine
                                             text={lineText}
                                             lineMatches={lineMatches}
-                                            currentMatchIndex={currentMatchIndex}
-                                            globalMatches={matches}
+                                            current={current}
+                                            styles={styles}
                                         />
-                                    </Text>
-                                </Flex>
+                                    </chakra.span>
+                                </Box>
                             </div>
                         );
                     })}
@@ -391,23 +419,8 @@ export function VirtualizedLogViewer({ content, tabs }: VirtualizedLogViewerProp
 
                 {/* New logs notification */}
                 {hasNewLogs && (
-                    <Box
-                        position="absolute"
-                        bottom={3}
-                        right={3}
-                        cursor="pointer"
-                        onClick={scrollToBottom}
-                    >
-                        <Badge
-                            variant="brand"
-                            px={3}
-                            py={1}
-                            borderRadius="full"
-                            display="flex"
-                            alignItems="center"
-                            gap={2}
-                            boxShadow="md"
-                        >
+                    <Box css={styles['newLogs']} onClick={scrollToBottom}>
+                        <Badge variant="brand" css={styles['newLogsBadge']}>
                             <FontAwesomeIcon icon={faArrowDown} />
                             New logs
                         </Badge>
