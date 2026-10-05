@@ -4,12 +4,12 @@
  */
 
 /**
- * A decoded function runs as the function it was built as (#1207). Whether an IR node
- * awaits is the analysis's, which the IR's wire does not carry: a decoded body
- * compiled unanalysed ran every statement synchronously, so a statement after
- * an awaited call read its promise. A decode analyses the IR as a build does,
- * except that a platform function it was not given is left for a call to
- * miss. Through both containers.
+ * A decoded function runs as the function it was built as (#1207). Whether an
+ * IR node awaits is the analysis's, which the IR's wire does not carry: a
+ * decoded body compiled without it ran every statement synchronously, so a
+ * statement after an awaited call read its promise. A decode marks the nodes
+ * that await (`markAsync`) before it compiles them, and a platform function it
+ * was not given is left for a call to miss. Through both containers.
  */
 
 import { describe, test } from "node:test";
@@ -72,11 +72,5 @@ describe("a decoded function runs as it was built", () => {
     const decoded = decodeBeast2For(Greet)(encodeBeast2For(Greet)(greet));
     assert.equal(await decoded(false, "ada"), "not asked");
     await assert.rejects(decoded(true, "ada"), { message: /^Platform function 'decoded_function_check' is not available/ });
-  });
-
-  test("a platform function given at decode with another signature is refused there, naming it", () => {
-    const other = East.asyncPlatform("decoded_function_check", [IntegerType], Outcome);
-    const decode = decodeBeast2For(Greet, { platform: [other.implement(async () => variant("refused", null))] });
-    assert.throws(() => decode(encodeBeast2For(Greet)(greet)), /Platform function 'decoded_function_check' argument 1 requires exact type match/);
   });
 });
