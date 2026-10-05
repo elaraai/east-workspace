@@ -10,14 +10,15 @@
  * (mono 11px `fg.muted`), the issues button (hidden, keeping its place, while
  * there are none), the history buttons (the `iconButton` recipe, grown to the
  * touch floor on a coarse pointer), and under them the latest error in
- * `fg.danger`.
+ * `fg.danger`. A host that shows the error in its banners instead
+ * (`SessionBanners`) lists an Apply's issues there, one to a line.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
-    slots: ["root", "actions", "status", "button", "issues", "error"],
+    slots: ["root", "actions", "status", "button", "issues", "error", "bannerIssues", "bannerIssue"],
     base: {
         root: {
             flexShrink: "0",
@@ -51,6 +52,19 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             marginTop: "{spacing.2}",
             fontSize: "body.sm",
             color: "fg.danger",
+        },
+        /* An Apply's issues in a banner's body: one to a line, unmarked. */
+        bannerIssues: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "{spacing.1}",
+            margin: "0",
+            padding: "0",
+            listStyle: "none",
+        },
+        bannerIssue: {
+            minWidth: "0",
+            overflowWrap: "anywhere",
         },
     },
 });

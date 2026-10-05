@@ -298,13 +298,15 @@ function SheetBuilderTag(props: { record: unknown; columns: unknown }): UIElemen
  * - Every other prop is `<Sheet.View>`'s, unchanged: the columns, registers
  *   and the driver, groups, sub rows, the copilot, readiness, the slice.
  *
- * The builder fills its parent and draws no border of its own.
+ * The builder fills its parent and draws no border of its own: a ui task's
+ * page fills the window, and a builder among other components is given a box
+ * of its own height.
  *
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, none, some } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
@@ -321,14 +323,16 @@ function SheetBuilderTag(props: { record: unknown; columns: unknown }): UIElemen
  *     <Reactive>{$ => {
  *         const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
  *         return (
- *             <Sheet.Builder
- *                 record={jobs}
- *                 columns={{
- *                     task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
- *                     start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
- *                     qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
- *                 }}
- *             />
+ *             <Box height="560px">
+ *                 <Sheet.Builder
+ *                     record={jobs}
+ *                     columns={{
+ *                         task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
+ *                         start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
+ *                         qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                 />
+ *             </Box>
  *         );
  *     }}</Reactive>
  * ));

@@ -283,6 +283,22 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect(paneOf("end")).toEqual(["pinned", true]);
     });
 
+    test("a persisted pane keeps only what the viewer chose: closed for lack of room, it is open on a wide frame after a remount (#1184)", async () => {
+        const narrow = mount({ start: library({ persist: "local" }), end: properties({ persist: "local" }) });
+        frameAt(700);
+        expect([paneOf("start"), paneOf("end")]).toEqual([["overlay", true], ["overlay", true]]);
+        // The frame closed them: nothing is written.
+        expect([localStorage.getItem("frame-test.start.dock.collapsed"), localStorage.getItem("frame-test.end.dock.collapsed")]).toEqual([null, null]);
+        narrow.unmount();
+
+        mount({ start: library({ persist: "local" }), end: properties({ persist: "local" }) });
+        frameAt(1440);
+        expect([paneOf("start"), paneOf("end")]).toEqual([["pinned", false], ["pinned", false]]);
+        // The viewer's own collapse is kept.
+        await press("Collapse Properties");
+        expect(localStorage.getItem("frame-test.end.dock.collapsed")).toBe("true");
+    });
+
     test("a pane's width that is not a plain px length is measured as the browser lays it out", () => {
         mount({ start: library({ size: "min(480px, 52%)" }) });
         // Beside the sheet, an unseen box at the pane's width; a px width needs none.

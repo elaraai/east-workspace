@@ -167,8 +167,10 @@ component, nothing in east-ui.
   only when given. `storageKey` is where each pane keeps its open tab, and
   its collapsed state when it persists; `minMain` (480px by default) is the
   narrowest main may get beside pinned panes; `label` is the frame's
-  accessible name; `ref` is its root (the bounds of a popover inside it);
-  `onKeyDown` hears keys from anywhere in the frame, the panes included.
+  accessible name; `ref` is its root (the bounds of a popover inside it), and
+  `toolbarRef` its toolbar's element (where a host finds its items' controls:
+  the search box a key focuses); `onKeyDown` hears keys from anywhere in the
+  frame, the panes included.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs`, `tab` /
   `onTabChange`, `icon`, `badge`, `detail`, `active`, `size` — 320px by
@@ -190,7 +192,9 @@ component, nothing in east-ui.
   width, not the window's (`placePanes`, a pure function). An `auto` pane
   that starts to overlay closes, and opens again once it is pinned again,
   unless it was opened or closed meanwhile. A pane that never collapses is
-  always pinned.
+  always pinned. A pane that persists (`persist`) keeps only the viewer's own
+  collapse or opening: what the frame does for lack of room is never
+  written, so a reload restores the viewer's choice at any width.
 - **The scrim** covers main while an overlay pane is open for lack of room —
   an `auto` pane overlaying, or any overlay pane at 560px and narrower — in
   the theme's `overlay.backdrop`; main takes no pointer, and a tap on the

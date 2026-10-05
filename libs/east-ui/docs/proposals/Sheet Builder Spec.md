@@ -806,8 +806,12 @@ seam's index for an insertion.
 5. Rows from a record.
 6. `Sheet.Builder`'s types and factories.
 7. The frame and the toolbar.
-8. Editing, undo and Apply.
-9. The library pane.
-10. Drag and drop.
-11. The inspector (after the Calendar's `Fields`, #1147).
-12. The showcase on e3-web, the skill and examples.
+8. The library pane.
+9. `Fields` (#1147, the Calendar's), built here first.
+10. The inspector.
+11. Editing, undo and Apply.
+12. Drag and drop.
+13. The showcase on e3-web, the skill and examples.
+
+The frame, the library, `Fields` and the inspector are pushed together, so the
+builder first appears with both panes full of the examples' seeded records.

@@ -585,13 +585,15 @@ export { LibraryLayoutSwitch } from "./collections/library";
 // The editing session (#879) — for sibling renderer packages whose components
 // edit through it themselves, as the query builder does (#935): the session and
 // its React hook, a draft lifted from an entry, the history item for their one
-// toolbar, and the session's words — its error, too, in the surface's (#936).
+// toolbar, the banners a builder shows its error in instead (#1184), and the
+// session's words — its error, too, in the surface's (#936).
 export {
     EditSession,
     useEditSession,
     liftDraft,
     historyToolbarItem,
     historyShortcut,
+    SessionBanners,
     editingMessages,
     sessionErrorText,
     type BatchReadiness,
@@ -606,4 +608,5 @@ export {
     type HistoryAction,
     type Origin,
     type Placement,
+    type SessionBannersProps,
 } from "./editing/index.js";
