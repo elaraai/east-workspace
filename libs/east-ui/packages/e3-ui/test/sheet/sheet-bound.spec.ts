@@ -30,22 +30,11 @@ const PROVIDED = new Set(Object.values(ex).flatMap((value) =>
         : value.kind === "task" ? [pathToString(value.output.path)]
         : []));
 
-/** The record each sheet commits its Apply to — none for the two that only read. */
+/** The record each sheet commits its Apply to — none for the one that only reads. */
 const WRITES: Record<string, string[]> = {
     sheetBasic: ["sheet_basic_plans"],
     sheetVariants: ["sheet_variants_plans"],
-    sheetPlan: ["sheet_plan_plans"],
-    sheetCopilot: ["sheet_copilot_plans"],
-    sheetLens: [],
-    sheetWriteBack: ["sheet_writeback_plans"],
-    sheetGrouped: ["sheet_grouped_work"],
     sheetStress: [],
-    sheetReadiness: ["sheet_readiness_plans"],
-    sheetInsertion: ["sheet_insertion_plans"],
-    sheetSubRows: ["sheet_subrows_weeks"],
-    sheetRules: ["sheet_rules_plans"],
-    sheetRegisters: ["sheet_registers_plans"],
-    sheetLoose: ["sheet_loose_weeks"],
 };
 
 describe("Sheet examples read e3", () => {
@@ -74,26 +63,23 @@ describe("Sheet examples read e3", () => {
 });
 
 describeEast("Sheet — the rows a task makes", (test) => {
-    test("the lens's jobs: their count, three days apart from 2 February, the activities in turn, every fifth a count of routers and every seventh urgent", $ => {
-        const jobs = $.let(ex.generateLensJobs(60n));
-        $(Assert.equal(jobs.size(), 60n));
-        $(Assert.equal(jobs.get(0n), {
-            id: "j0", start: some(new Date("2026-02-02T00:00:00Z")), activity: "Routing", notes: "urgent — inspect before delivery",
-            stations: { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] }, status: "PLANNED", qty: some(180.0),
-        }));
-        $(Assert.equal(jobs.get(1n), {
-            id: "j1", start: some(new Date("2026-02-05T00:00:00Z")), activity: "Spraying", notes: "batch 101",
-            stations: { from: [], to: [variant("identified", { key: "R2141" })] }, status: "RELEASED", qty: some(220.0),
-        }));
-        $(Assert.equal(jobs.filter(($, j) => j.notes.startsWith("urgent")).size(), 9n));
-        $(Assert.equal(jobs.filter(($, j) => j.activity.equal("Routing")).size(), 12n));
-    });
-
-    test("the stress sheet's jobs: their count, four a day from 5 January, the tasks in turn, every eleventh quantity blank", $ => {
+    test("the stress sheet's jobs: their count, four a day from 5 January, the activities in turn, every fifth a count of routers, every seventh urgent, every eleventh quantity blank", $ => {
         const jobs = $.let(ex.generateStressJobs(2000n));
         $(Assert.equal(jobs.size(), 2000n));
-        $(Assert.equal(jobs.get(0n), { id: "S0", start: some(new Date("2026-01-05T00:00:00Z")), task: "Routing", qty: none, notes: "" }));
-        $(Assert.equal(jobs.get(1999n), { id: "S1999", start: some(new Date("2027-05-19T00:00:00Z")), task: "Maintenance", qty: some(14043.0), notes: "" }));
+        $(Assert.equal(jobs.get(0n), {
+            id: "S0", start: some(new Date("2026-01-05T00:00:00Z")), activity: "Routing", notes: "urgent — inspect before delivery",
+            stations: { from: [], to: [variant("counted", { n: 2n, key: "CNC router" })] }, status: "PLANNED", qty: none,
+        }));
+        $(Assert.equal(jobs.get(1n), {
+            id: "S1", start: some(new Date("2026-01-05T00:00:00Z")), activity: "Spraying", notes: "batch 101",
+            stations: { from: [], to: [variant("identified", { key: "R2141" })] }, status: "RELEASED", qty: some(57.0),
+        }));
+        $(Assert.equal(jobs.get(1999n), {
+            id: "S1999", start: some(new Date("2027-05-19T00:00:00Z")), activity: "Maintenance", notes: "batch 2099",
+            stations: { from: [], to: [variant("identified", { key: "A7301" })] }, status: "RELEASED", qty: some(14043.0),
+        }));
+        $(Assert.equal(jobs.filter(($, j) => j.notes.startsWith("urgent")).size(), 286n));
+        $(Assert.equal(jobs.filter(($, j) => j.activity.equal("Routing")).size(), 400n));
         $(Assert.equal(jobs.filter(($, j) => j.qty.hasTag("none")).size(), 182n));
     });
 }, { platformFns: TestImpl });

@@ -4,12 +4,12 @@
  */
 
 /**
- * A Sheet bound to an e3 record commits to it (#1180). The Sheet examples read
- * their rows from one entry of a record in the page's e3, and Apply commits
- * the drafts through the record's patch door — `Record.onApply` over the
- * entry's rows. An edited task, applied, is what the record holds next: the
- * example's SAVED line reads the record, and the sheet shows the task with no
- * draft left to apply. At the desktop width.
+ * A Sheet bound to an e3 record commits to it (#1180, #1189). The paged
+ * builder reads the jobs a window at a time (`Data.bindPaged`), and Apply
+ * commits its drafts through the record's patch door. An edited task, applied,
+ * is what the record holds next: the smallest builder, which reads the same
+ * record whole, shows the task, and the paged builder has no draft left to
+ * apply. At the desktop width.
  *
  * Every read is polled until it holds, on a page at rest.
  *
@@ -17,35 +17,43 @@
  * `pnpm exec playwright test sheet-bound --project desktop`.
  */
 
-import { test, expect } from "playwright/test";
+import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
+
+/** One builder example's entry on the builders' page, its sheet drawn and at rest. */
+async function entryOf(page: Page, name: string): Promise<Locator> {
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#e3/sheet/sheet-builder/${name}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-builder-frame] [data-sheet-card]")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
 
 test.describe("a Sheet bound to an e3 record (#1180)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    test("an edited task, applied, is what the record holds — one commit through its patch door", async ({ page }) => {
-        await page.goto("/#e3/sheet/sheet/sheetInsertion");
+    test("an edited task, applied through a window of the record, is what the record holds — another builder over it reads it back", async ({ page }) => {
+        await page.goto("/#e3/sheet/sheet-builder/sheetBuilderPaged");
         await page.waitForSelector("header", { timeout: 20_000 });
-        const entry = page.locator("[data-index]", { has: page.locator('a[href="#e3/sheet/sheet/sheetInsertion"]') });
-        await entry.scrollIntoViewIfNeeded();
-        const card = entry.locator("[data-sheet-card]").first();
-        await expect(card).toBeVisible({ timeout: 20_000 });
-        await settled(page);
-        // The SAVED line reads the record's committed rows.
-        const saved = entry.getByText(/^SAVED · /u);
-        await expect(saved).toHaveText("SAVED · Nest panels → Inspect batches → Finish doors");
-
-        const task = card.locator("[data-slot='row'] [data-key='task']").first();
+        const paged = await entryOf(page, "sheetBuilderPaged");
+        const task = paged.locator("[data-frame-slot=main] [data-slot='row'][data-row-id='J-0001'] [data-key='task']");
+        await expect(task).toHaveText("Panel cutting");
         await task.dblclick();
         const input = page.locator("[data-slot='editorInput']");
-        await input.fill("Nest boards");
+        await input.fill("Panel cutting, oak");
         await input.press("Enter");
-        const apply = entry.getByRole("button", { name: "Apply changes" });
+        const apply = paged.getByRole("button", { name: "Apply changes" });
         await expect(apply).toBeEnabled();
         await apply.click();
-
-        await expect(saved).toHaveText("SAVED · Nest boards → Inspect batches → Finish doors");
-        await expect(task).toContainText("Nest boards");
+        // Confirmed by the rows the record reads back: no draft left to apply.
         await expect(apply).toBeDisabled();
+        await expect(paged.locator("[data-frame-slot=main] [data-slot='row'][data-draft]")).toHaveCount(0);
+        await expect(task).toHaveText("Panel cutting, oak");
+
+        // The smallest builder reads the same record whole: opened by its link — the page's e3 kept — the task as the record holds it.
+        await page.evaluate(() => { location.hash = "#e3/sheet/sheet-builder/sheetBuilder"; });
+        const whole = await entryOf(page, "sheetBuilder");
+        await expect(whole.locator("[data-frame-slot=main] [data-slot='row'][data-row-id='J-0001'] [data-key='task']")).toHaveText("Panel cutting, oak");
+        await expect(whole.locator("[data-frame-slot=main] [data-slot='row'][data-draft]")).toHaveCount(0);
     });
 });

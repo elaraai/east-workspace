@@ -43,7 +43,10 @@ const weekPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) 
 /** The day's batches, where the sheet's `edits` add no line and no batch. */
 const batchesAddingNothing = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
     const days = $.let(Record.bind(ex.sheetBuilderDays, [ex.sheetBuilderDaysPatch]));
-    const finishing = $.let([{ task: "Sand", qty: none }, { task: "Seal", qty: none }], ArrayType(ex.BuilderStep));
+    const finishing = $.let([
+        { task: "Sand", qty: none, parts: [], bookings: [] },
+        { task: "Seal", qty: none, parts: [], bookings: [] },
+    ], ArrayType(ex.BuilderStep));
     return Sheet.BuilderPayload({
         record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, id: "adding-nothing",
         group: Sheet.group(ex.BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),

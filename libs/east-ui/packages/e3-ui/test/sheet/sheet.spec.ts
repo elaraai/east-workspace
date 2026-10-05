@@ -201,28 +201,18 @@ const KEYED_PLANS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
 const KEYED_PLANS_SOURCE = { id: "plans", page: KEYED_PLANS_PAGE, total: KEYED_PLANS_TOTAL, seek: none };
 
 describeEast("Sheet", (test) => {
+    // The Sheet.View examples (#1189): everything else a sheet does is shown in its frame, on Sheet.Builder (`sheet-builder.spec`).
     Assert.examples(test, {
         sheetBasic: ex.sheetBasic,
         sheetVariants: ex.sheetVariants,
-        sheetPlan: ex.sheetPlan,
-        sheetCopilot: ex.sheetCopilot,
-        sheetLens: ex.sheetLens,
-        sheetWriteBack: ex.sheetWriteBack,
-        sheetGrouped: ex.sheetGrouped,
-        sheetReadiness: ex.sheetReadiness,
-        sheetInsertion: ex.sheetInsertion,
-        sheetSubRows: ex.sheetSubRows,
-        sheetRules: ex.sheetRules,
-        sheetRegisters: ex.sheetRegisters,
-        sheetLoose: ex.sheetLoose,
         sheetStress: ex.sheetStress,
     });
 
     test("the examples evaluate to a Sheet under a Reactive root", $ => {
         const basic = $.const(ex.sheetBasic.fn() as ExprType<UIComponentType>);
         $(Assert.equal(basic.unwrap().hasTag("ReactiveComponent"), true));
-        const plan = $.const(ex.sheetPlan.fn() as ExprType<UIComponentType>);
-        $(Assert.equal(plan.unwrap().hasTag("ReactiveComponent"), true));
+        const stress = $.const(ex.sheetStress.fn() as ExprType<UIComponentType>);
+        $(Assert.equal(stress.unwrap().hasTag("ReactiveComponent"), true));
     });
 
     // =========================================================================

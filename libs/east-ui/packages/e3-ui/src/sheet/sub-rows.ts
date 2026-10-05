@@ -88,91 +88,97 @@ export interface SheetSubRowsValue<R extends StructType> {
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const SubRowsOperation = StructType({
- *     id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType),
- *     station: OptionType(StringType), by: OptionType(StringType),
- * });
- * export const SubRowsBooking = VariantType({
- *     space:     StructType({ area: StringType, units: IntegerType }),
+ * export const BuilderPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
+ * export const BuilderBooking = VariantType({
  *     labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),
  *     equipment: StructType({ resource: StringType }),
  * });
- * export const SubRowsJob = StructType({
- *     task: StringType, qty: OptionType(FloatType), notes: StringType,
- *     operations: ArrayType(SubRowsOperation),   // no column — shown as sub rows
- *     bookings: ArrayType(SubRowsBooking),       // no column — shown as sub rows
- * });
- * export const SubRowsOrder = StructType({ id: StringType, name: StringType, jobs: ArrayType(SubRowsJob) });
- * export const SubRowsWeek = StructType({ orders: ArrayType(SubRowsOrder) });
- * export const sheetSubRowsWeeks = e3.record("sheet_subrows_weeks", DictType(StringType, SubRowsWeek), new Map([
- *     ["week", { orders: [
- *         { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
- *             { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
- *                 { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Oak stock × 80"], station: some("Saw 2"), by: none },
- *                 { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
- *             ], bookings: [
- *                 variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
- *                 variant("equipment", { resource: "Clamp rack" }),
- *             ] },
- *             { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
- *                 variant("space", { area: "Dry-fit area", units: 2n }),
- *             ] },
- *         ] },
- *         { id: "wo-1043", name: "WO-1043 · Doors", jobs: [
- *             { task: "Spray doors", qty: some(250.0), notes: "Sealer first", operations: [
- *                 { id: "WO-1043-1", code: "SPR", name: "Seal and spray", materials: ["Sealer", "Lacquer"], station: none, by: none },
+ * export const BuilderStep = StructType({ task: StringType, qty: OptionType(FloatType), parts: ArrayType(BuilderPart), bookings: ArrayType(BuilderBooking) });
+ * export const BuilderBatch = StructType({ id: StringType, name: StringType, steps: ArrayType(BuilderStep) });
+ * export const BuilderDay = StructType({ batches: ArrayType(BuilderBatch) });
+ * export const sheetBuilderDays = e3.record("sheet_builder_days", DictType(StringType, BuilderDay), new Map([
+ *     ["2026-10-12", { batches: [
+ *         { id: "B-101", name: "Doors, oak", steps: [
+ *             { task: "Cut doors", qty: some(12.0), parts: [
+ *                 { id: "B-101-1", code: "CUT", name: "Cut the door blanks", materials: ["Oak veneered board × 6"], station: some("S101") },
+ *             ], bookings: [variant("labour", { team: "Cutting", people: 1n, hours: 3.0 })] },
+ *             { task: "Band doors", qty: some(48.0), parts: [], bookings: [variant("equipment", { resource: "Edge bander E201" })] },
+ *             { task: "Spray doors", qty: some(12.0), parts: [
+ *                 { id: "B-101-3", code: "SPR", name: "Seal and lacquer", materials: ["Sealer", "Matt lacquer"], station: none },
  *             ], bookings: [] },
+ *         ] },
+ *         { id: "B-102", name: "Carcasses, birch", steps: [
+ *             { task: "Cut carcasses", qty: some(8.0), parts: [], bookings: [] },
+ *             { task: "Drill carcasses", qty: some(8.0), parts: [], bookings: [variant("labour", { team: "Machining", people: 2n, hours: 2.5 })] },
+ *         ] },
+ *         { id: "B-103", name: "Shelves, ash", steps: [
+ *             { task: "Cut shelves", qty: some(20.0), parts: [], bookings: [] },
+ *             { task: "Sand shelves", qty: some(20.0), parts: [], bookings: [] },
  *         ] },
  *     ] }],
  * ]));
- * export const sheetSubRowsWeeksPatch = e3.mutation.patch(sheetSubRowsWeeks);
+ * export const sheetBuilderDaysPatch = e3.mutation.patch(sheetBuilderDays);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         // The orders, read from an e3 record bound with its patch door.
- *         const weeks = $.let(Record.bind(sheetSubRowsWeeks, [sheetSubRowsWeeksPatch]));
- *         const orders = $.let(weeks.read().get("week").orders);
- *         const onApply = $.const(Record.onApply(weeks, {
- *             entry: "week",
- *             get: East.function([SubRowsWeek], ArrayType(SubRowsOrder), (_$, held) => held.orders),
- *             set: East.function([SubRowsWeek, ArrayType(SubRowsOrder)], SubRowsWeek, (_$, _held, next) => ({ orders: next })),
- *             idField: "id",
+ *         const days = $.let(Record.bind(sheetBuilderDays, [sheetBuilderDaysPatch]));
+ *         // The steps a finishing batch starts with: the batch template's lines.
+ *         const finishing = $.let([
+ *             { task: "Sand", qty: none, parts: [], bookings: [] },
+ *             { task: "Seal", qty: none, parts: [], bookings: [] },
+ *             { task: "Spray", qty: none, parts: [], bookings: [] },
+ *         ], ArrayType(BuilderStep));
+ *         // A batch needs a name before Apply.
+ *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(BuilderBatch, "steps")], Sheet.Types.Readiness, ($, batch) => {
+ *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
+ *                 $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));
+ *             });
+ *             return East.value(variant("ready", null), Sheet.Types.Readiness);
  *         }));
- *         const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(SubRowsJob), () => Sheet.patch(SubRowsJob, { notes: "", operations: [], bookings: [] })));
- *         const newGroup = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(SubRowsOrder), () => Sheet.patch(SubRowsOrder, { jobs: [] })));
+ *         const newStep = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(BuilderStep), () => Sheet.patch(BuilderStep, { qty: none, parts: [], bookings: [] })));
+ *         const newBatch = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(BuilderBatch), () => Sheet.patch(BuilderBatch, { steps: [] })));
  *         return (
- *             <Sheet.View
- *                 data={orders}
- *                 id="id"
- *                 group={Sheet.group(SubRowsOrder, "jobs", { title: "name", noun: { singular: "order", plural: "orders" } })}
- *                 columns={{
- *                     task:  Sheet.column.text(SubRowsJob, { header: "Task", width: "220px" }),
- *                     qty:   Sheet.column.quantity(SubRowsJob, { header: "Qty", width: "96px" }),
- *                     notes: Sheet.column.text(SubRowsJob, { header: "Notes", width: "240px" }),
- *                 }}
- *                 subRows={Sheet.subRows(SubRowsJob, {
- *                     operations: (op) => Sheet.subRow({
- *                         code:   op.code,
- *                         name:   op.name,
- *                         chips:  op.materials,
- *                         facets: { station: op.station, by: op.by },   // a none drops out
- *                         id:     op.id,
- *                     }),
- *                     bookings: (b) => b.match({
- *                         space:     (_$2, s) => Sheet.subRow({ code: "CLAIM", name: East.str`${s.area} · ${s.units} units` }),
- *                         labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} person-hours` }),
- *                         equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
- *                     }),
- *                 })}
- *                 newRow={newRow}
- *                 newGroup={newGroup}
- *                 onApply={onApply}
- *                 style={{ height: "420px" }}
- *             />
+ *             <Box height="560px">
+ *                 <Sheet.Builder
+ *                     record={days}
+ *                     entry={{ key: "2026-10-12", rows: "batches", id: "id" }}
+ *                     group={Sheet.group(BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } })}
+ *                     id="batches"
+ *                     columns={{
+ *                         task: Sheet.column.text(BuilderStep, { header: "Step", width: "240px" }),
+ *                         qty:  Sheet.column.quantity(BuilderStep, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                     subRows={Sheet.subRows(BuilderStep, {
+ *                         parts: (p) => Sheet.subRow({
+ *                             code:   p.code,
+ *                             name:   p.name,
+ *                             chips:  p.materials,
+ *                             facets: { station: p.station },   // a none drops out
+ *                             id:     p.id,
+ *                         }),
+ *                         bookings: (b) => b.match({
+ *                             labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} hours` }),
+ *                             equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
+ *                         }),
+ *                     })}
+ *                     // The sub rows show a step's parts and bookings; its form leaves them out.
+ *                     fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
+ *                     templates={{
+ *                         groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
+ *                                    values: Sheet.patch(BuilderBatch, { name: "Finishing", steps: finishing }) }],
+ *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Sand", qty: none }) },
+ *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Seal", qty: none }) }],
+ *                     }}
+ *                     library={[Sheet.library.rows(), Sheet.library.columns()]}
+ *                     ready={{ group: readyBatch }}
+ *                     newRow={newStep}
+ *                     newGroup={newBatch}
+ *                 />
+ *             </Box>
  *         );
  *     }}</Reactive>
  * ));
@@ -234,91 +240,97 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const SubRowsOperation = StructType({
- *     id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType),
- *     station: OptionType(StringType), by: OptionType(StringType),
- * });
- * export const SubRowsBooking = VariantType({
- *     space:     StructType({ area: StringType, units: IntegerType }),
+ * export const BuilderPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
+ * export const BuilderBooking = VariantType({
  *     labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),
  *     equipment: StructType({ resource: StringType }),
  * });
- * export const SubRowsJob = StructType({
- *     task: StringType, qty: OptionType(FloatType), notes: StringType,
- *     operations: ArrayType(SubRowsOperation),   // no column — shown as sub rows
- *     bookings: ArrayType(SubRowsBooking),       // no column — shown as sub rows
- * });
- * export const SubRowsOrder = StructType({ id: StringType, name: StringType, jobs: ArrayType(SubRowsJob) });
- * export const SubRowsWeek = StructType({ orders: ArrayType(SubRowsOrder) });
- * export const sheetSubRowsWeeks = e3.record("sheet_subrows_weeks", DictType(StringType, SubRowsWeek), new Map([
- *     ["week", { orders: [
- *         { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
- *             { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
- *                 { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Oak stock × 80"], station: some("Saw 2"), by: none },
- *                 { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
- *             ], bookings: [
- *                 variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
- *                 variant("equipment", { resource: "Clamp rack" }),
- *             ] },
- *             { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
- *                 variant("space", { area: "Dry-fit area", units: 2n }),
- *             ] },
- *         ] },
- *         { id: "wo-1043", name: "WO-1043 · Doors", jobs: [
- *             { task: "Spray doors", qty: some(250.0), notes: "Sealer first", operations: [
- *                 { id: "WO-1043-1", code: "SPR", name: "Seal and spray", materials: ["Sealer", "Lacquer"], station: none, by: none },
+ * export const BuilderStep = StructType({ task: StringType, qty: OptionType(FloatType), parts: ArrayType(BuilderPart), bookings: ArrayType(BuilderBooking) });
+ * export const BuilderBatch = StructType({ id: StringType, name: StringType, steps: ArrayType(BuilderStep) });
+ * export const BuilderDay = StructType({ batches: ArrayType(BuilderBatch) });
+ * export const sheetBuilderDays = e3.record("sheet_builder_days", DictType(StringType, BuilderDay), new Map([
+ *     ["2026-10-12", { batches: [
+ *         { id: "B-101", name: "Doors, oak", steps: [
+ *             { task: "Cut doors", qty: some(12.0), parts: [
+ *                 { id: "B-101-1", code: "CUT", name: "Cut the door blanks", materials: ["Oak veneered board × 6"], station: some("S101") },
+ *             ], bookings: [variant("labour", { team: "Cutting", people: 1n, hours: 3.0 })] },
+ *             { task: "Band doors", qty: some(48.0), parts: [], bookings: [variant("equipment", { resource: "Edge bander E201" })] },
+ *             { task: "Spray doors", qty: some(12.0), parts: [
+ *                 { id: "B-101-3", code: "SPR", name: "Seal and lacquer", materials: ["Sealer", "Matt lacquer"], station: none },
  *             ], bookings: [] },
+ *         ] },
+ *         { id: "B-102", name: "Carcasses, birch", steps: [
+ *             { task: "Cut carcasses", qty: some(8.0), parts: [], bookings: [] },
+ *             { task: "Drill carcasses", qty: some(8.0), parts: [], bookings: [variant("labour", { team: "Machining", people: 2n, hours: 2.5 })] },
+ *         ] },
+ *         { id: "B-103", name: "Shelves, ash", steps: [
+ *             { task: "Cut shelves", qty: some(20.0), parts: [], bookings: [] },
+ *             { task: "Sand shelves", qty: some(20.0), parts: [], bookings: [] },
  *         ] },
  *     ] }],
  * ]));
- * export const sheetSubRowsWeeksPatch = e3.mutation.patch(sheetSubRowsWeeks);
+ * export const sheetBuilderDaysPatch = e3.mutation.patch(sheetBuilderDays);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         // The orders, read from an e3 record bound with its patch door.
- *         const weeks = $.let(Record.bind(sheetSubRowsWeeks, [sheetSubRowsWeeksPatch]));
- *         const orders = $.let(weeks.read().get("week").orders);
- *         const onApply = $.const(Record.onApply(weeks, {
- *             entry: "week",
- *             get: East.function([SubRowsWeek], ArrayType(SubRowsOrder), (_$, held) => held.orders),
- *             set: East.function([SubRowsWeek, ArrayType(SubRowsOrder)], SubRowsWeek, (_$, _held, next) => ({ orders: next })),
- *             idField: "id",
+ *         const days = $.let(Record.bind(sheetBuilderDays, [sheetBuilderDaysPatch]));
+ *         // The steps a finishing batch starts with: the batch template's lines.
+ *         const finishing = $.let([
+ *             { task: "Sand", qty: none, parts: [], bookings: [] },
+ *             { task: "Seal", qty: none, parts: [], bookings: [] },
+ *             { task: "Spray", qty: none, parts: [], bookings: [] },
+ *         ], ArrayType(BuilderStep));
+ *         // A batch needs a name before Apply.
+ *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(BuilderBatch, "steps")], Sheet.Types.Readiness, ($, batch) => {
+ *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
+ *                 $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));
+ *             });
+ *             return East.value(variant("ready", null), Sheet.Types.Readiness);
  *         }));
- *         const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(SubRowsJob), () => Sheet.patch(SubRowsJob, { notes: "", operations: [], bookings: [] })));
- *         const newGroup = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(SubRowsOrder), () => Sheet.patch(SubRowsOrder, { jobs: [] })));
+ *         const newStep = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(BuilderStep), () => Sheet.patch(BuilderStep, { qty: none, parts: [], bookings: [] })));
+ *         const newBatch = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(BuilderBatch), () => Sheet.patch(BuilderBatch, { steps: [] })));
  *         return (
- *             <Sheet.View
- *                 data={orders}
- *                 id="id"
- *                 group={Sheet.group(SubRowsOrder, "jobs", { title: "name", noun: { singular: "order", plural: "orders" } })}
- *                 columns={{
- *                     task:  Sheet.column.text(SubRowsJob, { header: "Task", width: "220px" }),
- *                     qty:   Sheet.column.quantity(SubRowsJob, { header: "Qty", width: "96px" }),
- *                     notes: Sheet.column.text(SubRowsJob, { header: "Notes", width: "240px" }),
- *                 }}
- *                 subRows={Sheet.subRows(SubRowsJob, {
- *                     operations: (op) => Sheet.subRow({
- *                         code:   op.code,
- *                         name:   op.name,
- *                         chips:  op.materials,
- *                         facets: { station: op.station, by: op.by },   // a none drops out
- *                         id:     op.id,
- *                     }),
- *                     bookings: (b) => b.match({
- *                         space:     (_$2, s) => Sheet.subRow({ code: "CLAIM", name: East.str`${s.area} · ${s.units} units` }),
- *                         labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} person-hours` }),
- *                         equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
- *                     }),
- *                 })}
- *                 newRow={newRow}
- *                 newGroup={newGroup}
- *                 onApply={onApply}
- *                 style={{ height: "420px" }}
- *             />
+ *             <Box height="560px">
+ *                 <Sheet.Builder
+ *                     record={days}
+ *                     entry={{ key: "2026-10-12", rows: "batches", id: "id" }}
+ *                     group={Sheet.group(BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } })}
+ *                     id="batches"
+ *                     columns={{
+ *                         task: Sheet.column.text(BuilderStep, { header: "Step", width: "240px" }),
+ *                         qty:  Sheet.column.quantity(BuilderStep, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                     subRows={Sheet.subRows(BuilderStep, {
+ *                         parts: (p) => Sheet.subRow({
+ *                             code:   p.code,
+ *                             name:   p.name,
+ *                             chips:  p.materials,
+ *                             facets: { station: p.station },   // a none drops out
+ *                             id:     p.id,
+ *                         }),
+ *                         bookings: (b) => b.match({
+ *                             labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} hours` }),
+ *                             equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
+ *                         }),
+ *                     })}
+ *                     // The sub rows show a step's parts and bookings; its form leaves them out.
+ *                     fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
+ *                     templates={{
+ *                         groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
+ *                                    values: Sheet.patch(BuilderBatch, { name: "Finishing", steps: finishing }) }],
+ *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Sand", qty: none }) },
+ *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Seal", qty: none }) }],
+ *                     }}
+ *                     library={[Sheet.library.rows(), Sheet.library.columns()]}
+ *                     ready={{ group: readyBatch }}
+ *                     newRow={newStep}
+ *                     newGroup={newBatch}
+ *                 />
+ *             </Box>
  *         );
  *     }}</Reactive>
  * ));

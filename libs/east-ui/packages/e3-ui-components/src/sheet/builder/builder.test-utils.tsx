@@ -114,6 +114,7 @@ export function builderHarness(): BuilderHarness {
         initializeReactiveDatasetCache(harness.cache);
         harness.memory = createInMemoryRecordApi(harness.cache, WORKSPACE, [
             patchable(ex.sheetBuilderJobs), patchable(ex.sheetBuilderPlans), patchable(ex.sheetBuilderOrders), patchable(ex.sheetBuilderDays),
+            patchable(ex.sheetBuilderWork),
             { name: ex.sheetBuilderMachines.name, stateType: ex.sheetBuilderMachines.type, initial: ex.sheetBuilderMachines.default!, mutations: [] },
         ]);
         initializeRecordApi(harness.memory, harness.cache, WORKSPACE);

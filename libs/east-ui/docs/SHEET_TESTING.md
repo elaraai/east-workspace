@@ -39,7 +39,7 @@ parsing, presentation, and issue locations; they do not replace the row schema.
 The default authoring path needs no readiness callback:
 
 ```tsx
-<Sheet
+<Sheet.View
     data={jobs}
     id="id"
     columns={{
@@ -101,7 +101,8 @@ Reads from captured reactive state are tracked, so changing a limit also updates
 Apply availability. Callbacks must be synchronous and free of side effects.
 A callback failure blocks Apply and reports an issue.
 
-Review `sheetReadiness` in the showcase. Its paired compiled example verifies the
-public declaration; `readiness.dom.test.tsx` exercises real East callbacks and the
-editing session, including Apply results, Undo/Redo, reordered children, and
-reactive rule changes without screenshots.
+Review `sheetBuilderWeeks` (a row rule: a quantity must be positive) and
+`sheetBuilderBatches` (a group rule: a batch must be named) in the showcase. Their
+paired compiled examples verify the public declarations; `readiness.dom.test.tsx`
+exercises real East callbacks and the editing session, including Apply results,
+Undo/Redo, reordered children, and reactive rule changes without screenshots.
