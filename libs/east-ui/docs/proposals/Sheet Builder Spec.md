@@ -759,8 +759,9 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   an inspector edit) is one undoable transaction, reported to `onPatch`.
 - **SB26.** The history item shows the session's status (applying,
   confirming, conflict, refused, unknown, out of date), the issue count, Undo,
-  Redo, Discard and Apply. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes, never while
-  typing in an input outside the grid's editor.
+  Redo, Discard and Apply. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in
+  the frame — the grid, a pane, the toolbar — never while typing in an input
+  outside the grid's editor: a field being typed into keeps its own undo.
 - **SB27.** Apply is on when the batch is structurally complete, `ready`
   passes and there is a change. It sends one request through the record's
   patch mutation (SB16).
@@ -769,9 +770,14 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   which resends the same request, its id unchanged, and never a new one.
 - **SB29.** After a commit the drafts retire once the rows read back as the
   commit left them (on a paged record, at the committed revision); until then
-  the status is confirming. The record changing under pending drafts makes
-  the session out of date: Apply is off, a banner offers Discard, and nothing
-  is rebased.
+  the status is confirming. The rows are the commit's own: another write to
+  the record's other rows meanwhile changes nothing. A row reads back as the
+  commit left it once the record holds it otherwise than the edit began, with
+  what the commit set in it — a field another write set beside those is the
+  record's, and the session's version of that row goes, with the history over
+  it, so the next edit begins from the record's. The record changing under
+  pending drafts makes the session out of date: Apply is off, a banner offers
+  Discard, and nothing is rebased.
 - **SB30.** Sessions live in the UI store by source, so a remount finds the
   drafts; with `entry` each entry keeps its own until Apply or Discard.
 - **SB31.** `applyMode: "auto"` sends each ready gesture as it lands, through
