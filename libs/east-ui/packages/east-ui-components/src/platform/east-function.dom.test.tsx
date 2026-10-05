@@ -60,6 +60,13 @@ describe("EastFunction remounts at its settled size", () => {
         expect(again[0]).toContain("HELLO");
     });
 
+    test("marks the skeleton it compiles behind data-east-compiling, for a host to wait on, and drops it once rendered", async () => {
+        const { container } = mount(hello.toIR(), []);
+        expect(container.querySelectorAll("[data-east-compiling]").length).toBe(1);
+        await screen.findByText("HELLO");
+        expect(container.querySelectorAll("[data-east-compiling]").length).toBe(0);
+    });
+
     test("the kept compile belongs to the IR object — a new IR compiles again", async () => {
         mount(hello.toIR(), []);
         await screen.findByText("HELLO");

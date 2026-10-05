@@ -235,7 +235,8 @@ export interface EastFunctionProps {
  * This component takes an IR (intermediate representation) from an East function,
  * compiles it with the registered platform implementations, and renders the
  * result. The first mount of an IR compiles after the first paint, behind a
- * skeleton. The compiled function is kept for that IR object, so a remount
+ * skeleton marked `data-east-compiling`, which a host can wait on to read the
+ * rendered component. The compiled function is kept for that IR object, so a remount
  * (a virtualized row scrolled back into range, a panel reopened) renders its
  * content in its first paint, at the size it had. It is compiled again only
  * when the platform registrations change.
@@ -306,8 +307,9 @@ export function EastFunction({ ir, storageKey }: EastFunctionProps) {
         /* `h="full"` resolves to 0 inside auto-height containers (e.g. a
          * content-hugging frame), which would hide the skeleton exactly when
          * it's needed — `minH` keeps it visible there while `full` still
-         * fills fixed-height hosts. */
-        return <Skeleton h="full" w="full" minH="56px" />;
+         * fills fixed-height hosts. Marked, so a host can tell it from a
+         * skeleton the component itself draws. */
+        return <Skeleton h="full" w="full" minH="56px" data-east-compiling="" />;
     }
     if (state.kind === "error") {
         const info = toEastErrorInfo(state.error);
