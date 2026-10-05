@@ -119,6 +119,13 @@
  *     frame; a row that refuses the drop, the invalid wash and the layer's
  *     red frame. The row a drag rests on takes no hover — not its cells,
  *     its gutter, its checkbox or its grip — so what it says is the drop's.
+ *   - A folded gutter (#1215): on a coarse pointer, a frame too narrow for
+ *     the touch gutter beside a cell folds it to rail 28 · number 36 · one
+ *     44 px row-actions button (`data-gutter="folded"` on the card) — a
+ *     `ellipsis-vertical` ghost, brand on the copilot's anchor and while its
+ *     menu is open, and the row's grip at once: it takes no scroll gesture.
+ *     The seam lines start at the gutter's edge wherever it is
+ *     (`--sheet-gutter`, the renderer's geometry).
  *
  * @packageDocumentation
  */
@@ -135,7 +142,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
-        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "dragGhost",
+        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
         "cell", "cellIssue", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellRes", "cellGhost", "cellDot",
         "ring", "rangeWash", "hatch", "nextTarget", "takeButton",
         "editor", "editorField", "editorMirror", "editorGhost", "editorInput", "editorResolve", "editorBadge", "editorError",
@@ -163,8 +170,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontFeatureSettings: '"tnum" 1',
             // Every z-index inside the sheet stays inside it, wherever it is mounted.
             isolation: "isolate",
-            // the insertion line: 2 px brand on the row boundary, always from the gutter edge (128) to the right edge — it never enters the gutter, whichever side the chips take.
-            "& [data-row][data-insert-preview]::after": { content: '""', position: "absolute", left: "128px", right: "0", top: "-1px", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8" },
+            // the insertion line: 2 px brand on the row boundary, always from the gutter edge (`--sheet-gutter`, 128 by default) to the right edge — it never enters the gutter, whichever side the chips take.
+            "& [data-row][data-insert-preview]::after": { content: '""', position: "absolute", left: "var(--sheet-gutter, 128px)", right: "0", top: "-1px", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8" },
             // A picked row is one `brandTint` surface — the cells' own range wash would double it.
             "& [data-row][data-picked] [data-slot=rangeWash]": { display: "none" },
             "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
@@ -184,7 +191,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& [data-row][data-drop-active][data-drop-at=seam]::before": { content: "none" },
             // Where a template or a moved row would land: the insertion line along the seam the drop marks, while a row takes the drag.
             "&:has([data-drop-active]) [data-row][data-drop-seam]::after": {
-                content: '""', position: "absolute", left: "128px", right: "0", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8",
+                content: '""', position: "absolute", left: "var(--sheet-gutter, 128px)", right: "0", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8",
             },
             "&:has([data-drop-active]) [data-row][data-drop-seam=top]::after": { top: "-1px" },
             "&:has([data-drop-active]) [data-row][data-drop-seam=bottom]::after": { bottom: "-1px" },
@@ -566,8 +573,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // The row an author's card lands on (#1187); a row that refuses the drag.
             "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
             "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))" },
-            // The row a grip lifts: a 1 px brand inset ring, as the design system's dragged row.
-            "&:has([data-slot=rowGrip][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
+            // The row a grip lifts — or a folded gutter's row-actions button (#1215): a 1 px brand inset ring, as the design system's dragged row.
+            "&:has([data-slot=rowGrip][data-dragging], [data-slot=rowActions][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
             // an open line's copy under the group's band while its sub rows scroll under it: the band copy's `border.strong` edge, where the sticking stops.
             "&[data-slot=stickyLine]": { borderBottomColor: "border.strong" },
             "&[data-proposed]": {
@@ -736,6 +743,30 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-dragging], &:focus-visible, [data-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { opacity: "1" },
             _hoverNone: { opacity: "1" },
             "[data-row][data-anchor] &": { display: "none" },
+        },
+        // A folded gutter's one control (#1215): the row's actions in a 44 px
+        // ghost — its menu on a tap, its grip on a drag (`data-drag-grip="tap"`
+        // waits for travel), so it takes no scroll gesture. Brand while its
+        // menu is open, and on the copilot's anchor, whose fill waits in it.
+        rowActions: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "none",
+            width: "44px",
+            height: "44px",
+            padding: "0",
+            borderRadius: "{radii.sm}",
+            color: "fg.subtle",
+            background: "transparent",
+            fontSize: "14px",
+            cursor: "pointer",
+            touchAction: "none",
+            userSelect: "none",
+            _hover: { color: "fg", background: "bg.muted" },
+            "[data-row][data-anchor] &": { color: "brand.solid" },
+            "&[data-state=open]": { color: "brand.solid", background: "brandTint" },
+            "&[data-dragging]": { cursor: "grabbing" },
         },
         // What a grip carries (#1187): the row's name, as the library's card ghost draws a card.
         dragGhost: {
@@ -1336,7 +1367,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // The band an author's group card lands on; a band that refuses the drag; the band a grip lifts (#1187).
             "&[data-drop-active][data-drop-at=row]": { background: "brandTint" },
             "&[data-drop-invalid]": { background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-panel))" },
-            "&:has([data-slot=rowGrip][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
+            "&:has([data-slot=rowGrip][data-dragging], [data-slot=rowActions][data-dragging])": { boxShadow: "inset 0 0 0 1px var(--chakra-colors-brand-solid)" },
         },
         groupChevron: {
             display: "inline-flex",

@@ -1625,10 +1625,21 @@ list: the grid scrolls sideways under a gutter that stays put (`position:
 sticky`), the toolbar keeps its row through the ladder above, and on a coarse
 pointer (`_coarse`, the adaptive contract of #346) the small controls grow —
 gutter buttons and ✓ take 26 px, × close 24 px, the tabs 40 px, `+ TAB` 32 px,
-the band's controls and the strip's chips padded — the gutter widens to 96 px
-so two buttons fit, the editor's type goes to 16 px so the phone never zooms
-into it, and the lens band's hover-revealed controls stay open where nothing
-can hover (`_hoverNone`).
+the band's controls and the strip's chips padded — the gutter widens to 254 px
+so the marker, the number and two 44 px actions take separate touch targets,
+the editor's type goes to 16 px so the phone never zooms into it, and the lens
+band's hover-revealed controls stay open where nothing can hover
+(`_hoverNone`). A frame too narrow for that gutter beside the first column —
+the frame's width decides, never the window's — FOLDS it (#1215, `gutter.ts`):
+rail 28 · number 36 · one 44 px row-actions button, 108 px. A tap on the
+button opens an anchored menu of what the gutter offers there, in the words of
+the controls it stands for: the row's decisions (Fill this row, Discard, a
+suggestion's add and reject), then the insertion strip's inserts at the row
+(Insert above, Insert below, a new group); the seams offer no chips. A drag
+on it moves the row, as the grip does: it is a grip that also taps
+(`data-drag-grip="tap"`), engaging a touch once it has travelled 4 px, so a
+tap stays a tap. The seam lines start at the gutter's edge wherever it is
+(`--sheet-gutter`).
 
 **Pointer and scroll (P4 follow-up).** A click never scrolls — the cell is under
 the pointer already, and centring it moved the sheet under a held button so the
@@ -1926,7 +1937,7 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
 | Column resize / reorder | Not in v1 (widths are config). The Table's header drag can be lifted later. |
 | `store: "canonical"` | Resolved 2026-09-09 (P3): the bridge prints the register's labels into a `String` field (identified members by label, the rest as the grammar prints them); `asTyped` writes the keys as typed. The renderer never sees the storage form. |
 | `check` validators | Author East functions (§3.4), evaluated at commit and on paste; the flag is the lock-warn treatment plus a strip line. Never a block. |
-| Narrow / mobile | Out of scope for the sheet; a phone review of a plan is a `<Plan>` or a `<Deck>`. |
+| Narrow / mobile | Resolved (#1215): the grid scrolls sideways under its sticky gutter, which folds its actions into one 44 px row-actions button where the frame cannot show the touch gutter beside a cell (§6.3, A phone). |
 | Fields of `R` with no column | Resolved 2026-09-09: `ctx.row` is rebuilt over the real row (`rowById`, §4.8), so unmapped fields keep their values. Still open: when `data` is a plain array VALUE rather than a bind, the shared `rowById` captures the whole collection — fine for example-sized sheets; a large plain array should be bound (`State.bind`) so the capture is a handle. |
 | Searching a Link column | Resolved 2026-09-09: the slice searches a non-String field through its `printFor` text by default, and a field spec's `text` accessor (`Sheet.link.print`) overrides it with the display form — the Slice's `text` field kind, landed in P5 (§3.8). |
 | A `types` registry override (B§1 `types`) | Covered by `Sheet.column.custom` per column; a reusable custom kind is an ordinary TS function returning the config. |

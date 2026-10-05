@@ -12,12 +12,17 @@
  *
  * Where the sheet takes drops (#1187), each row, line and band is a drop
  * target and, when it moves, carries a grip in its gutter's actions column.
+ *
+ * A FOLDED gutter (#1215) — a coarse pointer's, in a frame too narrow for its
+ * actions beside a cell — holds one row-actions button in place of the
+ * actions column: the row's grip, and a tap's menu of its decisions and its
+ * inserts.
  */
 
-import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Box, chakra } from "@chakra-ui/react";
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { Box, chakra, Menu as ChakraMenu, Portal } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faAngleDown, faAngleUp, faArrowRight, faCheck, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faAngleDown, faAngleUp, faArrowRight, faCheck, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
@@ -180,6 +185,80 @@ function Grip({ styles, grip, what }: { styles: Styles; grip: DragHandle; what: 
     );
 }
 
+/** One item of a folded gutter's menu (#1215): what it says, and what it does. */
+export interface SheetRowAction {
+    /** The item's key in the menu. */
+    value: string;
+    /** Its words — the words of the control it stands for. */
+    label: string;
+    /** What it does. */
+    run: () => void;
+}
+
+const NO_ACTIONS: readonly SheetRowAction[] = [];
+
+/**
+ * A folded gutter's one control (#1215): the row's actions in a 44 px button.
+ * A tap opens an anchored menu of what the unfolded gutter offers there — the
+ * row's decisions, then the inserts at it, read as the menu opens; a drag on
+ * it moves the row, as its grip does, and only a drag (`data-drag-grip="tap"`
+ * waits for travel). Like every control in the grid it takes no focus (#860):
+ * it has no tab stop, so a closing menu leaves the focus where its action put
+ * it — a new row's editor — or hands it to the grid.
+ */
+function RowActions({ styles, r, grip, what, decisions, inserts }: {
+    styles: Styles;
+    /** The row-space index: where its inserts land. */
+    r: number;
+    /** The row's grip, when it moves. */
+    grip: DragHandle | undefined;
+    /** The row, as its grip names it. */
+    what: string;
+    /** The row's decisions, as its gutter offers them. */
+    decisions: readonly SheetRowAction[];
+    /** The inserts at a row, read when the menu opens — absent where nothing inserts. */
+    inserts: ((r: number) => readonly SheetRowAction[]) | undefined;
+}) {
+    const { m } = useSheetWords();
+    const self = useRef<HTMLElement | null>(null);
+    const gripRef = grip?.ref;
+    const ref = useCallback((el: HTMLElement | null) => {
+        self.current = el;
+        gripRef?.(el);
+    }, [gripRef]);
+    const [open, setOpen] = useState(false);
+    if (grip === undefined && decisions.length === 0 && inserts === undefined) return null;
+    const items = open ? [...decisions, ...(inserts?.(r) ?? NO_ACTIONS)] : NO_ACTIONS;
+    const select = (value: string) => {
+        items.find((item) => item.value === value)?.run();
+        // What the action did not focus, the grid takes back from the closing menu.
+        queueMicrotask(() => {
+            const card = self.current?.closest<HTMLElement>("[data-sheet-card]");
+            if (card != null && !card.contains(document.activeElement)) card.focus({ preventScroll: true });
+        });
+    };
+    return (
+        <ChakraMenu.Root open={open} onOpenChange={(details) => setOpen(details.open)} onSelect={(details) => select(details.value)}
+            lazyMount unmountOnExit positioning={{ placement: "bottom-start" }}>
+            <ChakraMenu.Trigger asChild>
+                <Box as="span" css={styles.rowActions} data-slot="rowActions" data-drag-grip={grip !== undefined ? "tap" : undefined}
+                    {...grip} ref={ref} role="button" tabIndex={undefined} aria-roledescription={undefined}
+                    aria-label={m.rowActions({ what })} title={m.rowActionsTitle({ movable: grip !== undefined })}
+                    onMouseDown={(event: MouseEvent) => { event.preventDefault(); event.stopPropagation(); }}>
+                    <FontAwesomeIcon icon={faEllipsisVertical} />
+                </Box>
+            </ChakraMenu.Trigger>
+            <Portal>
+                <ChakraMenu.Positioner>
+                    <ChakraMenu.Content>
+                        {items.map((item) => <ChakraMenu.Item key={item.value} value={item.value}>{item.label}</ChakraMenu.Item>)}
+                    </ChakraMenu.Content>
+                </ChakraMenu.Positioner>
+            </Portal>
+        </ChakraMenu.Root>
+    );
+}
+
 /**
  * The per-row facts the row renderer is handed — primitives and references
  * that hold still, so the memo skips every row a gesture does not touch (#858).
@@ -262,6 +341,10 @@ export interface SheetRowProps {
     dropRow?: string | undefined;
     /** Its grip moves it (SB44). */
     movable?: boolean | undefined;
+    /** The gutter is folded (#1215): one row-actions button holds the row's grip, its decisions and its inserts. */
+    foldedGutter?: boolean | undefined;
+    /** A folded gutter's inserts at a row, read when its menu opens — absent where nothing inserts. Stable. */
+    inserts?: ((r: number) => readonly SheetRowAction[]) | undefined;
 }
 
 /** Renders one row. */
@@ -288,6 +371,11 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
         : m.inspectorWhat({ what: "row", number: String(number), title: undefined, noun });
     const label = groupName !== undefined ? m.lineName({ number: String(number), group: groupName }) : m.rowName({ number: String(number) });
     const { ref: rowRef, grip } = useRowDrop(self, props.drop, props.dropRow, props.movable === true && !rowBlank, label, styles.dragGhost);
+    // The row's discard — its gutter's ×, or its folded menu's item.
+    const discard = () => {
+        if (group !== undefined) props.onDiscard?.(group.row.id, group.key);
+        else if (row !== undefined) props.onDiscard?.(row.id);
+    };
     return (
         <Box
             ref={rowRef}
@@ -342,33 +430,37 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                     {subRowsOpen && <Box as="span" css={styles.subRowStem} data-slot="subRowStem" aria-hidden="true" />}
                     {number}
                 </Box>
-                <Box css={styles.gutterAction} data-slot="fillSlot">
-                    {grip !== undefined && <Grip styles={styles} grip={grip} what={what} />}
-                    {hasFills && (
-                        <Box
-                            as="span"
-                            css={styles.gutterButton}
-                            data-slot="fillRow"
-                            data-kind="apply"
-                            role="button"
-                            aria-label={m.fillRow()}
-                            title={m.fillRowTitle()}
-                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onFillRow(); }}
-                        >
-                            <FontAwesomeIcon icon={faArrowRight} />
-                        </Box>
-                    )}
-                    {props.draft?.discardable && <chakra.button
-                        type="button" css={styles.gutterButton} tabIndex={-1}
-                        data-slot="discardDraft" data-kind="discard" aria-label={m.discardRow()} title={m.discardRow()}
-                        onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            if (group !== undefined) props.onDiscard?.(group.row.id, group.key);
-                            else if (row !== undefined) props.onDiscard?.(row.id);
-                        }}
-                    ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
-                </Box>
+                {props.foldedGutter === true ? (
+                    <RowActions styles={styles} r={r} grip={grip} what={what} inserts={rowBlank ? undefined : props.inserts}
+                        decisions={[
+                            ...(hasFills ? [{ value: "fill", label: m.fillRow(), run: props.onFillRow }] : []),
+                            ...(props.draft?.discardable ? [{ value: "discard", label: m.discardRow(), run: discard }] : []),
+                        ]} />
+                ) : (
+                    <Box css={styles.gutterAction} data-slot="fillSlot">
+                        {grip !== undefined && <Grip styles={styles} grip={grip} what={what} />}
+                        {hasFills && (
+                            <Box
+                                as="span"
+                                css={styles.gutterButton}
+                                data-slot="fillRow"
+                                data-kind="apply"
+                                role="button"
+                                aria-label={m.fillRow()}
+                                title={m.fillRowTitle()}
+                                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onFillRow(); }}
+                            >
+                                <FontAwesomeIcon icon={faArrowRight} />
+                            </Box>
+                        )}
+                        {props.draft?.discardable && <chakra.button
+                            type="button" css={styles.gutterButton} tabIndex={-1}
+                            data-slot="discardDraft" data-kind="discard" aria-label={m.discardRow()} title={m.discardRow()}
+                            onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                            onClick={(event) => { event.stopPropagation(); discard(); }}
+                        ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
+                    </Box>
+                )}
             </Box>
             {columns.list.map((meta, c) => {
                 const cell: SheetCellValue | undefined = row?.cells.get(meta.key);
@@ -558,6 +650,8 @@ export interface SheetProposalRowProps {
     onReject: (i: number) => void;
     /** The row's place among the grid's rows on a grouped sheet (#860); a flat sheet's proposal has no source position, so none. */
     ariaRowIndex?: number | undefined;
+    /** The gutter is folded (#1215): ✓ and × are its row-actions button's menu. */
+    foldedGutter?: boolean | undefined;
 }
 
 /** A proposed row (B§5.2): dashed-topped, hatched, real numbers; ✓ adds it, × rejects it. */
@@ -584,32 +678,40 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
                 <Rail styles={styles} membership={props.grouped ? { id: "", color: 0, above: true, below: true } : undefined} picked={picked} mixed={false} selectable
                     label={m.proposalSelect()} onPick={pick} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{number}</Box>
-                <Box css={styles.gutterAction} data-slot="proposalActions">
-                    <Box
-                        as="span"
-                        css={styles.gutterButton}
-                        data-slot="accept"
-                        data-kind="accept"
-                        role="button"
-                        aria-label={m.proposalAccept()}
-                        title={m.proposalAcceptTitle()}
-                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onAccept(index); }}
-                    >
-                        <FontAwesomeIcon icon={faCheck} />
+                {props.foldedGutter === true ? (
+                    <RowActions styles={styles} r={-1} grip={undefined} what={m.proposalName({ number: String(number) })} inserts={undefined}
+                        decisions={[
+                            { value: "accept", label: m.proposalAccept(), run: () => props.onAccept(index) },
+                            { value: "reject", label: m.proposalReject(), run: () => props.onReject(index) },
+                        ]} />
+                ) : (
+                    <Box css={styles.gutterAction} data-slot="proposalActions">
+                        <Box
+                            as="span"
+                            css={styles.gutterButton}
+                            data-slot="accept"
+                            data-kind="accept"
+                            role="button"
+                            aria-label={m.proposalAccept()}
+                            title={m.proposalAcceptTitle()}
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onAccept(index); }}
+                        >
+                            <FontAwesomeIcon icon={faCheck} />
+                        </Box>
+                        <Box
+                            as="span"
+                            css={styles.gutterButton}
+                            data-slot="reject"
+                            data-kind="reject"
+                            role="button"
+                            aria-label={m.proposalReject()}
+                            title={m.proposalRejectTitle()}
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onReject(index); }}
+                        >
+                            <FontAwesomeIcon icon={faXmark} />
+                        </Box>
                     </Box>
-                    <Box
-                        as="span"
-                        css={styles.gutterButton}
-                        data-slot="reject"
-                        data-kind="reject"
-                        role="button"
-                        aria-label={m.proposalReject()}
-                        title={m.proposalRejectTitle()}
-                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onReject(index); }}
-                    >
-                        <FontAwesomeIcon icon={faXmark} />
-                    </Box>
-                </Box>
+                )}
             </Box>
             {columns.list.map((colMeta, c) => {
                 const cell = cells.get(colMeta.key);
@@ -898,6 +1000,10 @@ export interface SheetGroupRowProps {
     dropRow?: string | undefined;
     /** Its grip moves the group (SB44). */
     movable?: boolean | undefined;
+    /** The gutter is folded (#1215): one row-actions button holds the band's grip, its discard and its inserts. */
+    foldedGutter?: boolean | undefined;
+    /** A folded gutter's inserts at a row, read when its menu opens — absent where nothing inserts. Stable. */
+    inserts?: ((r: number) => readonly SheetRowAction[]) | undefined;
 }
 
 /** Renders one full-width summary with a fold control and independent metadata. */
@@ -955,15 +1061,20 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                 <Rail styles={styles} membership={props.membership} picked={picked} mixed={props.mixed === true} selectable
                     label={m.groupSelect({ noun: word, title })} onPick={(event) => props.onRowPick(r, event)} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{props.number}</Box>
-                <Box css={styles.gutterAction} data-slot="fillSlot">
-                    {grip !== undefined && <Grip styles={styles} grip={grip} what={what} />}
-                    {props.draft?.discardable && <chakra.button
-                        type="button" css={styles.gutterButton} tabIndex={-1}
-                        data-slot="discardDraft" data-kind="discard" aria-label={m.groupDiscard({ noun: word })} title={m.groupDiscard({ noun: word })}
-                        onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                        onClick={(event) => { event.stopPropagation(); props.onDiscard?.(row.id); }}
-                    ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
-                </Box>
+                {props.foldedGutter === true ? (
+                    <RowActions styles={styles} r={r} grip={grip} what={what} inserts={props.inserts}
+                        decisions={props.draft?.discardable ? [{ value: "discard", label: m.groupDiscard({ noun: word }), run: () => props.onDiscard?.(row.id) }] : NO_ACTIONS} />
+                ) : (
+                    <Box css={styles.gutterAction} data-slot="fillSlot">
+                        {grip !== undefined && <Grip styles={styles} grip={grip} what={what} />}
+                        {props.draft?.discardable && <chakra.button
+                            type="button" css={styles.gutterButton} tabIndex={-1}
+                            data-slot="discardDraft" data-kind="discard" aria-label={m.groupDiscard({ noun: word })} title={m.groupDiscard({ noun: word })}
+                            onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                            onClick={(event) => { event.stopPropagation(); props.onDiscard?.(row.id); }}
+                        ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
+                    </Box>
+                )}
             </Box>
             <Box css={styles.groupSummary} data-slot="groupSummary" role="none"
                 style={{ gridColumn: `span ${Math.max(1, columns.list.length)}` }}>
