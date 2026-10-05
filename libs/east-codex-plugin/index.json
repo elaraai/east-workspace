@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1254,
-    "totalFiles": 204,
+    "totalEntries": 1256,
+    "totalFiles": 205,
     "packages": {
       "east": 569,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 337,
+      "east-ui": 339,
       "e3-ui": 105,
       "e3": 17,
       "e3-ui-cli": 8,
@@ -33368,6 +33368,62 @@
         "typescript"
       ],
       "source": "// Apply a batch to work packages and loose tasks in one collection — Editing.Types.Entry names the group-or-row union by its child field, and one entry patch reorders a package's tasks\n// inputs: []  returns: [\"C-18 nesting: Inspect batches → Cut panels\", \"Pack for delivery\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const TaskType = StructType({ id: StringType, task: StringType });\n        const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });\n        const Entry = Editing.Types.Entry(PackageType, \"tasks\");\n        const before = $.const(variant(\"group\", { id: \"p1\", name: \"C-18 nesting\", tasks: [\n            { id: \"t1\", task: \"Cut panels\" }, { id: \"t2\", task: \"Inspect batches\" },\n        ] }), Entry);\n        const after = $.const(variant(\"group\", { id: \"p1\", name: \"C-18 nesting\", tasks: [\n            { id: \"t2\", task: \"Inspect batches\" }, { id: \"t1\", task: \"Cut panels\" },\n        ] }), Entry);\n        const loose = $.const(variant(\"row\", { id: \"t9\", task: \"Pack for delivery\" }), Entry);\n        const entries = $.const([before, loose], ArrayType(Entry));\n        const oldEntry = $.const(some(before), OptionType(Entry));\n        const newEntry = $.const(some(after), OptionType(Entry));\n        const batch = $.const({\n            requestId: \"reorder-nesting\", base: variant(\"snapshot\", entries), label: \"Move a task\",\n            changes: [{ id: \"p1\", patch: East.diff(oldEntry, newEntry), place: none }],\n        }, Editing.Types.ChangeSet(Entry));\n        const apply = $.const(Editing.apply(Entry, \"id\"));\n        const applied = $.const(apply(entries, batch, none).unwrap(\"applied\"));\n        return applied.map((_$, entry) => entry.match({\n            group: (_$2, p) => East.str`${p.name}: ${p.tasks.map((_$3, t) => t.task).stringJoin(\" → \")}`,\n            row:   (_$2, t) => t.task,\n        }));\n    })"
+    },
+    {
+      "id": "east-ui:fields.examples.ts:fieldsSpecs",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/fields.examples.ts",
+      "suite": "",
+      "test": "A typed form's fields, resolved — each field's editor from its East type, a hint adding a unit and bounds, a case's words or the keyed set a String names; the hinted fields first, a hidden one left out",
+      "keywords": [
+        "Fields",
+        "specs",
+        "form",
+        "inspector",
+        "editor",
+        "hint",
+        "number",
+        "select",
+        "reference",
+        "hidden",
+        "checklist",
+        "Fields.Types.Spec"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
+        "import { Fields } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A typed form's fields, resolved — each field's editor from its East type, a hint adding a unit and bounds, a case's words or the keyed set a String names; the hinted fields first, a hidden one left out\n// inputs: []  returns: [\"Crew: number\", \"Status: select\", \"Work bay: reference\", \"Task: text\", \"Rush: checkbox\", \"Checks: checklist\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const Status = VariantType({ planned: NullType, in_progress: NullType, on_hold: NullType });\n        const Check = StructType({ text: StringType, done: BooleanType });\n        const Job = StructType({\n            task: StringType, crew: IntegerType, status: Status, rush: BooleanType,\n            bay: OptionType(StringType), checks: ArrayType(Check), notes: StringType,\n        });\n        const specs = $.const(Fields.specs(Job, {\n            crew: Fields.number({ unit: \"people\", min: 1n, max: 20n }),\n            status: Fields.select({ labels: { on_hold: \"Paused\" } }),\n            bay: Fields.reference({ of: \"bays\", label: \"Work bay\" }),\n            notes: Fields.hidden(),\n        }), ArrayType(Fields.Types.Spec));\n        return specs.map((_$, spec) => East.str`${spec.label}: ${spec.editor.getTag()}`);\n    })"
+    },
+    {
+      "id": "east-ui:fields.examples.ts:fieldsSelect",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/fields.examples.ts",
+      "suite": "",
+      "test": "A variant field's select — the cases the hint gives words to first, in its order, then the rest, each name spelled out",
+      "keywords": [
+        "Fields",
+        "select",
+        "variant",
+        "cases",
+        "labels",
+        "order",
+        "status",
+        "spelled out"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, East, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example } from \"@elaraai/east\";",
+        "import { Fields } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A variant field's select — the cases the hint gives words to first, in its order, then the rest, each name spelled out\n// inputs: []  returns: [\"Planned\", \"Underway\", \"Paused\", \"Done\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const Status = VariantType({ planned: NullType, in_progress: NullType, on_hold: NullType, done: NullType });\n        const Job = StructType({ task: StringType, status: Status });\n        const specs = $.const(Fields.specs(Job, {\n            status: Fields.select({ labels: { planned: \"Planned\", in_progress: \"Underway\", on_hold: \"Paused\" } }),\n        }), ArrayType(Fields.Types.Spec));\n        return specs.get(0n).editor.unwrap(\"select\").map((_$, option) => option.label);\n    })"
     },
     {
       "id": "east-ui:pick.examples.tsx:pickState",
