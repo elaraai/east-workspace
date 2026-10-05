@@ -294,26 +294,41 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, East, IntegerType, StringType, StructType } from "@elaraai/east";
- * import { Reactive, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
- * import { Sheet } from "@elaraai/e3-ui";
+ * import { ArrayType, DictType, East, IntegerType, StringType, StructType, none } from "@elaraai/east";
+ * import { Reactive, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+ * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const InsertionRow = StructType({ id: StringType, task: StringType, qty: IntegerType, createdBy: StringType });
+ * export const InsertionPlan = StructType({ rows: ArrayType(InsertionRow) });
+ * export const sheetInsertionPlans = e3.record("sheet_insertion_plans", DictType(StringType, InsertionPlan), new Map([
+ *     ["week", { rows: [
+ *         { id: "rough", task: "Rough machining", qty: 120n, createdBy: "planner" },
+ *         { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
+ *         { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
+ *     ] }],
+ * ]));
+ * export const sheetInsertionPlansPatch = e3.mutation.patch(sheetInsertionPlans);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const RowType = StructType({ id: StringType, task: StringType, qty: IntegerType, createdBy: StringType });
- *         const jobs = $.const(State.bind([ArrayType(RowType)], "sheet_insertion_jobs", [
- *             { id: "rough", task: "Rough machining", qty: 120n, createdBy: "planner" },
- *             { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
- *             { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
- *         ]));
- *         const saved = $.const(jobs.read());
+ *         // The rows, read from an e3 record bound with its patch door.
+ *         const plans = $.let(Record.bind(sheetInsertionPlans, [sheetInsertionPlansPatch]));
+ *         const rows = $.let(plans.read().get("week").rows);
+ *         const onApply = $.const(Record.onApply(plans, {
+ *             entry: "week",
+ *             get: East.function([InsertionPlan], ArrayType(InsertionRow), (_$, held) => held.rows),
+ *             set: East.function([InsertionPlan, ArrayType(InsertionRow)], InsertionPlan, (_$, _held, next) => ({ rows: next })),
+ *             idField: "id",
+ *         }));
+ *         const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(InsertionRow), () => Sheet.patch(InsertionRow, { qty: 1n, createdBy: "planner" })));
  *         return <VStack gap="3" align="stretch">
  *             <Text textStyle="caption" color="fg.muted">Hover or focus a gutter to insert before a row. Select a row marker for Insert above/below, or use Alt+Insert and Alt+Shift+Insert. Name the draft and Apply to save it.</Text>
- *             <Sheet.View data={jobs} id="id" columns={{ task: Sheet.column.text(RowType), qty: Sheet.column.integer(RowType) }}
+ *             <Sheet.View data={rows} id="id" columns={{ task: Sheet.column.text(InsertionRow), qty: Sheet.column.integer(InsertionRow) }}
  *                 edits={{ insertRows: true, removeRows: false, moveRows: "none" }}
- *                 newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(RowType), () => Sheet.patch(RowType, { qty: 1n, createdBy: "planner" }))}
- *                 onUpdate={jobs.write} blanks={2n} />
- *             <Text.MonoLabel>{East.str`SAVED · ${saved.map((_$, row) => row.task).stringJoin(" → ")}`}</Text.MonoLabel>
+ *                 newRow={newRow}
+ *                 onApply={onApply} blanks={2n} />
+ *             <Text.MonoLabel>{East.str`SAVED · ${rows.map((_$, row) => row.task).stringJoin(" → ")}`}</Text.MonoLabel>
  *         </VStack>;
  *     }}</Reactive>
  * ));

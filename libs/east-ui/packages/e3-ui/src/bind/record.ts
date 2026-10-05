@@ -459,9 +459,11 @@ export interface RecordApplyOptions {
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type
- * @typeParam C - The collection's row type
+ * @typeParam C - The collection's row type: a row struct, or the entries of
+ *   groups and loose rows a Sheet edits (`Editing.Types.Entry(G, "lines")`),
+ *   every arm carrying `idField`
  */
-export interface RecordApplyInsideOptions<K extends EastType, V extends EastType, C extends StructType> {
+export interface RecordApplyInsideOptions<K extends EastType, V extends EastType, C extends EastType> {
     /** The key of the entry the collection lives in. */
     entry: SubtypeExprOrValue<K>;
     /** The collection, read out of the entry. */
@@ -526,9 +528,10 @@ const settleWrite = East.function(
  *   Each change is its entry's insert, update or delete: the batch's own
  *   entry patches, restated by key.
  * - **Over a collection inside one entry** (`{ entry, get, set, idField }`):
- *   the rows of one entry's Array field. The batch is applied to the rows it
- *   began from, and the patch is the diff of that entry before and after —
- *   it reaches the rows and nothing else.
+ *   the rows of one entry's Array field — row structs, or a Sheet's entries of
+ *   groups and loose rows, as `Editing.apply` takes them. The batch is applied
+ *   to the rows it began from, and the patch is the diff of that entry before
+ *   and after — it reaches the rows and nothing else.
  *
  * Every patch carries what the entries were when the edit began, and the
  * record checks it: an entry another write moved is a `conflict` naming it
@@ -603,18 +606,18 @@ function applyToRecord<K extends EastType, V extends EastType>(
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type
- * @typeParam C - The collection's row type
+ * @typeParam C - The collection's row type: a row struct, or entries of groups and loose rows
  * @param handle - The record, bound with its patch mutation
  * @param options - The entry, how its rows are read and replaced, and their identity field
  * @returns An async East function over `Editing.Types.ChangeSet(C)`
  */
-function applyToRecord<K extends EastType, V extends EastType, C extends StructType>(
+function applyToRecord<K extends EastType, V extends EastType, C extends EastType>(
     handle: KeyedRecordHandle<K, V>,
     options: RecordApplyInsideOptions<K, V, C>,
 ): RecordApplyFunction<ReturnType<typeof Editing.Types.ChangeSet<C>>>;
 function applyToRecord(
     handle: KeyedRecordHandle<EastType, EastType>,
-    options: RecordApplyOptions | RecordApplyInsideOptions<EastType, EastType, StructType> = {},
+    options: RecordApplyOptions | RecordApplyInsideOptions<EastType, EastType, EastType> = {},
 ): ExprType<AsyncFunctionType> {
     const fields = (Expr.type(handle as unknown as Expr) as StructType).fields;
     const recordType = (fields["read"] as FunctionType).output as EastType;
@@ -653,11 +656,15 @@ function applyToRecord(
         const entryType = recordType.value;
         const get = East.value(options.get as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const read = Expr.type(get as unknown as Expr) as EastType;
-        if (read.type !== "Function" || read.inputs.length !== 1 || !isTypeEqual(read.inputs[0]!, entryType)
-            || read.output.type !== "Array" || read.output.value.type !== "Struct") {
-            throw new Error("Record.onApply: `get` must be an East function from the record's entry to an Array of row structs");
+        // The rows are structs, or entries whose every arm is one — a Sheet's
+        // groups and loose rows — as `Editing.apply` addresses them.
+        const element = read.type === "Function" && read.output.type === "Array" ? read.output.value as EastType : undefined;
+        if (read.type !== "Function" || read.inputs.length !== 1 || !isTypeEqual(read.inputs[0]!, entryType) || element === undefined
+            || !(element.type === "Struct" || (element.type === "Variant"
+                && Object.values(element.cases as Record<string, EastType>).every((arm) => arm.type === "Struct")))) {
+            throw new Error("Record.onApply: `get` must be an East function from the record's entry to an Array of rows — row structs, or entries of groups and loose rows");
         }
-        const rowType = read.output.value as StructType<Record<never, never>>;
+        const rowType = element;
         const rowsType = ArrayType(rowType);
         const set = East.value(options.set as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const replace = Expr.type(set as unknown as Expr) as EastType;

@@ -283,3 +283,75 @@ describe("Record.onApply — over a collection inside one entry", () => {
         assert.equal(result.type, "rejected");
     });
 });
+
+describe("Record.onApply — over a Sheet's groups and loose rows inside one entry", () => {
+    const LineType = StructType({ id: StringType, task: StringType });
+    const GroupType = StructType({ id: StringType, name: StringType, lines: ArrayType(LineType) });
+    const EntryType = Editing.Types.Entry(GroupType, "lines");
+    const WeekType = StructType({ title: StringType, entries: ArrayType(EntryType) });
+    const WeeksType = DictType(StringType, WeekType);
+    const WeeksHandle = RecordBindHandleType(WeeksType, { patch: [PatchType(WeeksType)] });
+    type Week = ValueTypeOf<typeof WeekType>;
+    type Entry = ValueTypeOf<typeof EntryType>;
+
+    const BRIEF: Entry = variant("row", { id: "brief", task: "Read the drawings" });
+    const KITCHEN: Entry = variant("group", { id: "kitchen", name: "Kitchen", lines: [{ id: "cut", task: "Cut panels" }] });
+    const W42: Week = { title: "Week 42", entries: [BRIEF, KITCHEN] };
+
+    /** The weeks record, holding week 42: a loose task, then a group of one line. */
+    function weeks() {
+        return inMemory("weeks", WeeksType, new SortedMap([["w42", W42]], keys), WeeksHandle);
+    }
+
+    /** A Sheet's `onApply` over week 42's entries, compiled against the runtime. */
+    function entriesApply(runtime: RecordRuntime): Apply {
+        return East.compileAsync(East.asyncFunction([WeeksHandle, Editing.Types.ChangeSet(EntryType)], Editing.Types.ApplyResult, ($, record, batch) => {
+            const apply = $.const(Record.onApply(record, {
+                entry: "w42",
+                get: East.function([WeekType], ArrayType(EntryType), (_$, week) => week.entries),
+                set: East.function([WeekType, ArrayType(EntryType)], WeekType, (_$, week, entries) => ({ title: week.title, entries })),
+                idField: "id",
+            }));
+            return apply(batch);
+        }), runtime.buildPrimitives()) as unknown as Apply;
+    }
+
+    const entryChange = diffFor(OptionType(EntryType));
+    const KITCHEN_OAK: Entry = variant("group", { id: "kitchen", name: "Kitchen, oak", lines: [{ id: "cut", task: "Cut panels" }] });
+    const HANDOVER: Entry = variant("row", { id: "handover", task: "Hand over to finishing" });
+
+    test("a group renamed and a loose row placed after it land as one commit, the week's other fields untouched", async () => {
+        const { requests, runtime, handle } = weeks();
+        const result = await entriesApply(runtime)(handle, {
+            requestId: "week-1", base: variant("snapshot", W42.entries), label: "Edit the week",
+            changes: [
+                { id: "kitchen", patch: entryChange(some(KITCHEN), some(KITCHEN_OAK)), place: none },
+                { id: "handover", patch: entryChange(none, some(HANDOVER)), place: some(variant("ordered", variant("after", "kitchen"))) },
+            ],
+        });
+        assert.equal(result.type, "applied");
+        const week = (handle as { read: () => SortedMap<string, Week> }).read().get("w42")!;
+        assert.deepEqual(week, { title: "Week 42", entries: [BRIEF, KITCHEN_OAK, HANDOVER] });
+
+        assert.equal(requests.length, 1, "one commit");
+        const sent = decodeBeast2For(PatchType(WeeksType))(requests[0]!.args[0]!);
+        if (sent.type !== "patch") assert.fail(`expected a patch by key, got ${sent.type}`);
+        const op = sent.value.get("w42")!;
+        if (op.type !== "update" || op.value.type !== "patch") assert.fail("expected week 42 updated field by field");
+        assert.equal(op.value.value.title.type, "unchanged", "the title is not in the write");
+    });
+
+    test("an entry another write moved is a conflict, and nothing is overwritten", async () => {
+        const { memory, runtime, handle } = weeks();
+        const moved: Week = { ...W42, entries: [KITCHEN, BRIEF] };
+        await memory.mutate(ws, "weeks", "patch", {
+            args: [encodeBeast2For(PatchType(WeeksType))(variant("patch", new SortedMap([["w42", variant("update", diffFor(WeekType)(W42, moved))]], keys)) as never)],
+        });
+        const result = await entriesApply(runtime)(handle, {
+            requestId: "week-2", base: variant("snapshot", W42.entries), label: "Rename",
+            changes: [{ id: "kitchen", patch: entryChange(some(KITCHEN), some(KITCHEN_OAK)), place: none }],
+        });
+        assert.equal(result.type, "conflict");
+        assert.deepEqual((handle as { read: () => SortedMap<string, Week> }).read().get("w42"), moved);
+    });
+});

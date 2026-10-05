@@ -93,31 +93,47 @@ function SheetTag(
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, East, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
- * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
- * import { Sheet } from "@elaraai/e3-ui";
+ * import { ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
+ * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const BasicJob = StructType({
+ *     id:    StringType,
+ *     start: OptionType(DateTimeType),   // none = blank cell
+ *     task:  StringType,                 // "" = blank cell
+ *     qty:   OptionType(FloatType),
+ * });
+ * export const BasicPlan = StructType({ jobs: ArrayType(BasicJob) });
+ * export const sheetBasicPlans = e3.record("sheet_basic_plans", DictType(StringType, BasicPlan), new Map([
+ *     ["week", { jobs: [
+ *         { id: "j1", start: none, task: "Machining", qty: none },
+ *     ] }],
+ * ]));
+ * export const sheetBasicPlansPatch = e3.mutation.patch(sheetBasicPlans);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const JobType = StructType({
- *             id:    StringType,
- *             start: OptionType(DateTimeType),   // none = blank cell
- *             task:  StringType,                 // "" = blank cell
- *             qty:   OptionType(FloatType),
- *         });
- *         const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_basic_jobs", [
- *             { id: "j1", start: none, task: "Machining", qty: none },
- *         ]));
+ *         // The plans, bound with their patch door: the sheet reads the
+ *         // week's jobs, and Apply commits the drafts to them.
+ *         const plans = $.let(Record.bind(sheetBasicPlans, [sheetBasicPlansPatch]));
+ *         const jobs = $.let(plans.read().get("week").jobs);
+ *         const onApply = $.const(Record.onApply(plans, {
+ *             entry: "week",
+ *             get: East.function([BasicPlan], ArrayType(BasicJob), (_$, held) => held.jobs),
+ *             set: East.function([BasicPlan, ArrayType(BasicJob)], BasicPlan, (_$, _held, next) => ({ jobs: next })),
+ *             idField: "id",
+ *         }));
  *         return (
  *             <Sheet.View
  *                 data={jobs}
  *                 id="id"
  *                 columns={{
- *                     start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
- *                     task:  Sheet.column.text(JobType, { header: "Task" }),
- *                     qty:   Sheet.column.quantity(JobType, { header: "Qty" }),   // no driver on this sheet — the two-argument form
+ *                     start: Sheet.column.date(BasicJob, { header: "Start", sub: "dd / mm / yyyy" }),
+ *                     task:  Sheet.column.text(BasicJob, { header: "Task" }),
+ *                     qty:   Sheet.column.quantity(BasicJob, { header: "Qty" }),   // no driver on this sheet — the two-argument form
  *                 }}
- *                 onUpdate={jobs.write}
+ *                 onApply={onApply}
  *             />
  *         );
  *     }}</Reactive>
