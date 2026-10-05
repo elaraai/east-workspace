@@ -13,52 +13,16 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
-
-/** Where the UI packages sit, side by side. */
-const PACKAGES = fileURLToPath(new URL('../../', import.meta.url));
-
-/** Every file under `dir` whose name `keep` accepts. */
-function files(dir: string, keep: (name: string) => boolean): string[] {
-    return readdirSync(dir).flatMap((name) => {
-        const path = join(dir, name);
-        if (statSync(path).isDirectory()) return files(path, keep);
-        return keep(name) ? [path] : [];
-    });
-}
-
-/** A source's code — its comments blanked, so a name in prose is not a name. */
-function code(src: string): string {
-    return src
-        .replace(/\/\*[\s\S]*?\*\//gu, ' ')
-        .replace(/\/\/[^\n]*/gu, '');
-}
-
-/** The names a module exports — its exported declarations, and its export lists (an alias by its alias). */
-function exported(src: string): Set<string> {
-    const names = new Set<string>();
-    const declaration = /\bexport\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:const|let|var|function\*?|class|interface|type|namespace|enum)\s+([A-Za-z_$][\w$]*)/gu;
-    for (const m of src.matchAll(declaration)) names.add(m[1]!);
-    for (const m of src.matchAll(/\bexport\s+(?:type\s+)?\{([^}]*)\}/gu)) {
-        for (const part of m[1]!.split(',')) {
-            const name = part.replace(/\btype\s+/u, '').split(/\s+as\s+/u).pop()!.trim();
-            if (name !== '') names.add(name);
-        }
-    }
-    return names;
-}
+import { PACKAGES, code, declarations, exported, files } from './moved.js';
 
 /** Every name the Plan's own modules export that names the Plan — e3-ui's IR, and this package's renderer. */
 const PLAN_NAMES = new Set([
     ...files(join(PACKAGES, 'e3-ui/src/plan'), (name) => name.endsWith('.ts')),
     ...files(join(PACKAGES, 'e3-ui-components/src/plan'), (name) => /\.tsx?$/u.test(name) && !/\.(test|spec)\.|test-utils/u.test(name)),
 ].flatMap((path) => [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /plan/iu.test(name))));
-
-/** Every declaration file a package builds. */
-const declarations = (pkg: string): string[] => files(join(PACKAGES, pkg, 'dist'), (name) => name.endsWith('.d.ts'));
 
 test('what the Plan exports is read whole — its IR\'s names and its renderer\'s', () => {
     for (const name of ['Plan', 'PlanRootType', 'PlanViewComponent', 'PlanView', 'EastChakraPlan', 'PlanRootValue', 'PlanMessagesProvider', 'planMessages']) {

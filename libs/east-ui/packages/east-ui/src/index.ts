@@ -61,8 +61,8 @@ export {
 
 // Editing contract (#879) — the one transaction session every editable
 // collection speaks: drafts, a patch event per gesture, and Apply as one
-// checked, idempotent batch (`Editing.apply`). The Sheet keeps its names for
-// it (`Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`).
+// checked, idempotent batch (`Editing.apply`). e3-ui's Sheet keeps its names
+// for it (`Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`).
 export { Editing, type EditingNamespace } from "./contracts/editing.js";
 
 // Event lifecycle contract — the estimated → proposed → confirmed →
@@ -161,7 +161,7 @@ export type { IconPayload } from "./buttons/button/types.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

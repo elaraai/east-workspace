@@ -23,10 +23,10 @@ import { settled } from "./settle";
 /** Open one Sheet example's page and return its entry (the virtualized doc
  *  row holding its anchor and its live sheet). */
 async function openExample(page: Page, name: string): Promise<Locator> {
-    await page.goto(`/#collections/sheet/${name}`);
+    await page.goto(`/#e3/sheet/sheet/${name}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#collections/sheet/${name}"]`) });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#e3/sheet/sheet/${name}"]`) });
     await entry.scrollIntoViewIfNeeded();
     await expect(entry.locator("[data-sheet-card]").first()).toBeVisible({ timeout: 20_000 });
     await settled(page);

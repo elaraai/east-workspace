@@ -41,7 +41,7 @@ import {
     none,
     some,
 } from "@elaraai/east";
-import { Paged, Sheet, Table, resolveRowSource } from "@elaraai/east-ui/internal";
+import { Paged, Table, resolveRowSource } from "@elaraai/east-ui/internal";
 
 const RowType = StructType({ title: StringType, due: IntegerType });
 /** The window a read through a record's index answers with: `ik` first, so the
@@ -220,16 +220,12 @@ describe("resolveRowSource", () => {
     });
 });
 
-// e3-ui's Plan is held to the same refusal in its own specs (`test/plan/`).
+// e3-ui's Plan and Sheet are held to the same refusal in their own specs
+// (`test/plan/`, `test/sheet/`).
 describe("a lookalike paged source is refused by every collection", () => {
     const lookalike = LOOKALIKES["no id and no seek"];
 
     test("Table", () => {
         assert.throws(() => Table.Root(lookalike as never, ["title", "due"] as never), NAMES_THE_CONTRACT("Table"));
-    });
-
-    test("Sheet", () => {
-        assert.throws(() => Sheet.Root(lookalike as never, { title: Sheet.column.text(RowType) } as never, { id: "title" } as never),
-            NAMES_THE_CONTRACT("Sheet"));
     });
 });

@@ -4,9 +4,9 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Diff` / `Ontology` **factories**
- * (`Plan.Root(…)`, `Diff.Root(…)`, `Diff.Component`) plus `Data`, the
- * manifest type and derivation, and types.
+ * Internal exports — the `Plan` / `Sheet` / `Diff` / `Ontology` **factories**
+ * (`Plan.Root(…)`, `Sheet.Root(…)`, `Diff.Root(…)`, `Diff.Component`) plus
+ * `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -242,6 +242,59 @@ export {
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
 } from './plan/index.js';
+
+// The Sheet (#1179): the sheet's factory and the `SheetView` carrier, the
+// payload the renderer takes, its editing wire, and the types a sheet is
+// written with. `Sheet` here is the internal namespace — the public one,
+// `Sheet.Root`, `Sheet.Payload` and `Sheet.Component`.
+export {
+    SheetInternal as Sheet,
+    SheetView,
+    type SheetNamespace,
+    type SheetInternalNamespace,
+    type SheetOptions,
+    type SheetGroupedOptions,
+    type SheetEntriesOptions,
+    type SheetReadyInput,
+    type SheetSuggestInput,
+    type SheetProposerInput,
+    type SheetStringField,
+    type SheetBindHandle,
+    type SheetColumn,
+    type SheetColumnSpec,
+    type SheetFieldKey,
+    type SheetMemberArrayField,
+    type SheetFillInput,
+    type SheetOptionsInput,
+    type SheetColumnBaseConfig,
+    type SheetValueConfig,
+    type SheetTextConfig,
+    type SheetDateConfig,
+    type SheetQuantityConfig,
+    type SheetIntegerConfig,
+    type SheetLookupConfig,
+    type SheetReferenceConfig,
+    type SheetEnumConfig,
+    type SheetMemberKindInput,
+    type SheetMultipleInput,
+    type SheetSetConfig,
+    type SheetSidesInput,
+    type SheetLinkConfig,
+    type SheetStampedConfig,
+    type SheetCustomConfig,
+    type SheetRegisterValue,
+    type SheetMembersConfig,
+    type SheetDriverConfig,
+    type SheetDriverValue,
+    type SheetArityInput,
+    type SheetCheckInput,
+    type SheetExistsCheck,
+    type SheetLocksInput,
+} from './sheet/index.js';
+export * from './sheet/types.js';
+export * from './sheet/transactions.js';
+export * from './sheet/drafts.js';
+export * from './sheet/editing-types.js';
 export {
     Diff,
     DiffComponent,

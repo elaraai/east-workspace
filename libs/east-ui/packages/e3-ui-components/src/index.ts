@@ -23,6 +23,7 @@ import './studio/page.js';                // → implementUIComponent(StudioPage
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
 import './plan/index.js';                 // → implementUIComponent(PlanViewComponent, EastChakraPlan)
+import './sheet/index.js';                // → implementUIComponent(SheetViewComponent, EastChakraSheet)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -126,6 +127,24 @@ export {
     type PlanPart,
     type PlanStateWord,
 } from './plan/messages.js';
+
+// The Sheet (#1179) — its renderer registers itself against the SheetView
+// extension on import — and its words (#861): the message table, and the
+// provider that overrides it for a subtree (its locale is react-aria's
+// `I18nProvider`).
+export { EastChakraSheet, type EastChakraSheetProps, type SheetRootValue, type SheetRowValue, type SheetCellValue } from './sheet/index.js';
+export {
+    SheetMessagesProvider,
+    sheetMessages,
+    type SheetMessages,
+    type SheetMessagesProviderProps,
+    type SheetArityWord,
+    type SheetHalfWord,
+    type SheetHistoryWord,
+    type SheetLevelWord,
+    type SheetScopeWord,
+    type SheetToneWord,
+} from './sheet/messages.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';
