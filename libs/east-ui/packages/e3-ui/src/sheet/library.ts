@@ -168,19 +168,53 @@ export function libraryColumns(): SheetLibraryTab {
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * <Sheet.Builder
- *     record={orders}
- *     group={Sheet.group(OrderType, "ops", { title: "name" })}
- *     columns={{ activity: Sheet.column.text(OperationType, { header: "Activity" }) }}
- *     library={[
- *         Sheet.library.rows(),
- *         // The statuses: a card dropped on an order's band sets its status.
- *         Sheet.library.tab(statuses, { name: "Statuses", icon: "flag",
- *             key: s => s.word, label: s => s.word,
- *             drop: s => Sheet.patch(OrderType, { status: s.word }) }),
- *         Sheet.library.columns(),
- *     ]}
- * />
+ * import { ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, none, some } from "@elaraai/east";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const BuilderJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
+ * export const sheetBuilderJobs = e3.record("sheet_builder_jobs", DictType(StringType, BuilderJob), new Map([
+ *     ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+ *     ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+ *     ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+ *     ["J-0004", { task: "Spray finish", start: none, qty: none }],
+ * ]));
+ * export const sheetBuilderJobsPatch = e3.mutation.patch(sheetBuilderJobs);
+ * export const BuilderTask = StructType({ name: StringType, stage: StringType });
+ *
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
+ *         const tasks = $.let([
+ *             { name: "Panel cutting", stage: "Cutting" },
+ *             { name: "Edge banding",  stage: "Cutting" },
+ *             { name: "CNC routing",   stage: "Machining" },
+ *             { name: "Sanding",       stage: "Finishing" },
+ *             { name: "Spray finish",  stage: "Finishing" },
+ *         ], ArrayType(BuilderTask));
+ *         return (
+ *             <Box height="560px">
+ *                 <Sheet.Builder
+ *                     record={jobs}
+ *                     id="library"
+ *                     columns={{
+ *                         task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
+ *                         start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
+ *                         qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                     library={[
+ *                         // The tasks a job takes, by their stage: a card dropped on a job sets its task.
+ *                         Sheet.library.tab(tasks, { name: "Tasks", icon: "hammer",
+ *                             key: t => t.name, label: t => t.name, group: t => t.stage,
+ *                             drop: t => Sheet.patch(BuilderJob, { task: t.name }) }),
+ *                         Sheet.library.columns(),
+ *                     ]}
+ *                 />
+ *             </Box>
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function libraryTab<T extends EastType, P extends EastType = EastType>(

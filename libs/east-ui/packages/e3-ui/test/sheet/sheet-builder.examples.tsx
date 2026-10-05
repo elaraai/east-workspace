@@ -14,9 +14,10 @@ import e3 from "@elaraai/e3";
 // ============================================================================
 // The Sheet builder (Sheet Builder Spec.md §3, #1183): an e3 record edited as
 // a sheet, in BuilderFrame with a library and an inspector beside it.
-// `sheetBuilder` is the smallest (§3.2), `sheetBuilderWorkshop` the joinery
-// workshop's orders (§3.3), `sheetBuilderWeeks` one entry's rows and
-// `sheetBuilderPaged` a record read a window at a time (§3.4).
+// `sheetBuilder` is the smallest (§3.2), `sheetBuilderLibrary` a library of
+// the author's own (§4.4), `sheetBuilderWorkshop` the joinery workshop's
+// orders (§3.3), `sheetBuilderWeeks` one entry's rows and `sheetBuilderPaged`
+// a record read a window at a time (§3.4).
 //
 // Every record is seeded with an authored literal (§2a), so each pane of the
 // builder has something in it from the first: the sheet its rows, the
@@ -68,6 +69,56 @@ export const sheetBuilder = example({
                             start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
                             qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
                         }}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// sheetBuilderLibrary — a library of the author's own (§4.4)
+// ============================================================================
+
+/** A task a job takes, and the stage of the work it belongs to. */
+export const BuilderTask = StructType({ name: StringType, stage: StringType });
+
+/**
+ * The jobs with a library of the author's own (§4.4, SB60): the tasks a job
+ * takes, grouped by their stage — a card dropped on a job sets its task —
+ * beside the columns a viewer shows and hides.
+ */
+export const sheetBuilderLibrary = example({
+    keywords: ["Sheet", "Builder", "Sheet.Builder", "library", "Sheet.library", "Sheet.library.tab", "Sheet.library.columns", "tab", "cards", "drop", "Sheet.patch", "group"],
+    description: "A sheet builder whose library lists a tab of the author's own — the tasks a job takes, grouped by stage, a card dropped on a job setting its task — beside the columns",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
+            const tasks = $.let([
+                { name: "Panel cutting", stage: "Cutting" },
+                { name: "Edge banding",  stage: "Cutting" },
+                { name: "CNC routing",   stage: "Machining" },
+                { name: "Sanding",       stage: "Finishing" },
+                { name: "Spray finish",  stage: "Finishing" },
+            ], ArrayType(BuilderTask));
+            return (
+                <Box height="560px">
+                    <Sheet.Builder
+                        record={jobs}
+                        id="library"
+                        columns={{
+                            task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
+                            start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
+                            qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+                        }}
+                        library={[
+                            // The tasks a job takes, by their stage: a card dropped on a job sets its task.
+                            Sheet.library.tab(tasks, { name: "Tasks", icon: "hammer",
+                                key: t => t.name, label: t => t.name, group: t => t.stage,
+                                drop: t => Sheet.patch(BuilderJob, { task: t.name }) }),
+                            Sheet.library.columns(),
+                        ]}
                     />
                 </Box>
             );

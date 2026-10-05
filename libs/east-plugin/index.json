@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1256,
+    "totalEntries": 1257,
     "totalFiles": 205,
     "packages": {
       "east": 569,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 339,
-      "e3-ui": 105,
+      "e3-ui": 106,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -43357,6 +43357,38 @@
         "tsx"
       ],
       "source": "// The smallest sheet builder — an e3 record's entries as the rows, in key order, edited as drafts and applied as one commit through the record's patch door\n// inputs: []\n/** A job — what it is, when it starts and how many. */\nexport const BuilderJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });\n\n/** The jobs, keyed J-0001, J-0002, …: the record's entries are the sheet's rows. */\nexport const sheetBuilderJobs = e3.record(\"sheet_builder_jobs\", DictType(StringType, BuilderJob), new Map([\n    [\"J-0001\", { task: \"Panel cutting\", start: some(new Date(\"2026-10-12T00:00:00Z\")), qty: some(48.0) }],\n    [\"J-0002\", { task: \"Edge banding\", start: some(new Date(\"2026-10-13T00:00:00Z\")), qty: some(120.0) }],\n    [\"J-0003\", { task: \"CNC routing\", start: none, qty: some(48.0) }],\n    [\"J-0004\", { task: \"Spray finish\", start: none, qty: none }],\n]));\n\n/** The jobs' patch door — every Apply commits through it. */\nexport const sheetBuilderJobsPatch = e3.mutation.patch(sheetBuilderJobs);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));\n            return (\n                <Box height=\"560px\">\n                    <Sheet.Builder\n                        record={jobs}\n                        columns={{\n                            task:  Sheet.column.text(BuilderJob, { header: \"Task\", width: \"240px\" }),\n                            start: Sheet.column.date(BuilderJob, { header: \"Start\", width: \"96px\" }),\n                            qty:   Sheet.column.quantity(BuilderJob, { header: \"Qty\", width: \"96px\" }),\n                        }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet-builder.examples.tsx:sheetBuilderLibrary",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet-builder.examples.tsx",
+      "suite": "",
+      "test": "A sheet builder whose library lists a tab of the author's own — the tasks a job takes, grouped by stage, a card dropped on a job setting its task — beside the columns",
+      "keywords": [
+        "Sheet",
+        "Builder",
+        "Sheet.Builder",
+        "library",
+        "Sheet.library",
+        "Sheet.library.tab",
+        "Sheet.library.columns",
+        "tab",
+        "cards",
+        "drop",
+        "Sheet.patch",
+        "group"
+      ],
+      "imports": [
+        "import {",
+        "import { Box, Field, Reactive, SegmentGroup, Slice, State, StatusValueType, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A sheet builder whose library lists a tab of the author's own — the tasks a job takes, grouped by stage, a card dropped on a job setting its task — beside the columns\n// inputs: []\n/** A job — what it is, when it starts and how many. */\nexport const BuilderJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });\n\n/** The jobs, keyed J-0001, J-0002, …: the record's entries are the sheet's rows. */\nexport const sheetBuilderJobs = e3.record(\"sheet_builder_jobs\", DictType(StringType, BuilderJob), new Map([\n    [\"J-0001\", { task: \"Panel cutting\", start: some(new Date(\"2026-10-12T00:00:00Z\")), qty: some(48.0) }],\n    [\"J-0002\", { task: \"Edge banding\", start: some(new Date(\"2026-10-13T00:00:00Z\")), qty: some(120.0) }],\n    [\"J-0003\", { task: \"CNC routing\", start: none, qty: some(48.0) }],\n    [\"J-0004\", { task: \"Spray finish\", start: none, qty: none }],\n]));\n\n/** The jobs' patch door — every Apply commits through it. */\nexport const sheetBuilderJobsPatch = e3.mutation.patch(sheetBuilderJobs);\n\n/** A task a job takes, and the stage of the work it belongs to. */\nexport const BuilderTask = StructType({ name: StringType, stage: StringType });\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));\n            const tasks = $.let([\n                { name: \"Panel cutting\", stage: \"Cutting\" },\n                { name: \"Edge banding\",  stage: \"Cutting\" },\n                { name: \"CNC routing\",   stage: \"Machining\" },\n                { name: \"Sanding\",       stage: \"Finishing\" },\n                { name: \"Spray finish\",  stage: \"Finishing\" },\n            ], ArrayType(BuilderTask));\n            return (\n                <Box height=\"560px\">\n                    <Sheet.Builder\n                        record={jobs}\n                        id=\"library\"\n                        columns={{\n                            task:  Sheet.column.text(BuilderJob, { header: \"Task\", width: \"240px\" }),\n                            start: Sheet.column.date(BuilderJob, { header: \"Start\", width: \"96px\" }),\n                            qty:   Sheet.column.quantity(BuilderJob, { header: \"Qty\", width: \"96px\" }),\n                        }}\n                        library={[\n                            // The tasks a job takes, by their stage: a card dropped on a job sets its task.\n                            Sheet.library.tab(tasks, { name: \"Tasks\", icon: \"hammer\",\n                                key: t => t.name, label: t => t.name, group: t => t.stage,\n                                drop: t => Sheet.patch(BuilderJob, { task: t.name }) }),\n                            Sheet.library.columns(),\n                        ]}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:sheet-builder.examples.tsx:sheetBuilderWorkshop",
