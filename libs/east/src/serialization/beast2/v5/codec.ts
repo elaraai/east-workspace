@@ -694,10 +694,10 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
           ctx.sourceMap.intern_stack(readStack(reader));
         }
 
-        // The IR itself must never decode frozen — finishDecodedFunction
-        // stamps it in place before compiling — and captured values stay
-        // mutable (a closure owns its own state). Containers a capture merely
-        // aliases from the frozen graph resolve by REF and keep their brand.
+        // The IR itself must never decode frozen — decoded functions compile
+        // their IR — and captured values stay mutable (a closure owns its own
+        // state). Containers a capture merely aliases from the frozen graph
+        // resolve by REF and keep their brand.
         const wasFrozen = ctx.frozen;
         ctx.frozen = false;
         try {
