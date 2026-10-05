@@ -12,7 +12,8 @@
  *   vocabulary on `Plan` (`Plan.axis`, `Plan.series.*`, the value builders).
  * - `<Sheet.View>` — the planning spreadsheet, with its authoring vocabulary
  *   on `Sheet` (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`,
- *   `Sheet.Types`).
+ *   `Sheet.Types`); `<Sheet.Builder>` edits an e3 record as one, with a
+ *   library and an inspector.
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
@@ -135,11 +136,12 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 // `Plan.series.*`, the value and cell builders, `Plan.Types`), and its props.
 export { Plan, type PlanNamespace, type PlanConfig } from './plan/index.js';
 
-// The Sheet (#1179): the planning spreadsheet a solution mounts
-// (`<Sheet.View>`), its authoring vocabulary on `Sheet` (`Sheet.column.*`,
-// `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`, `Sheet.group`,
-// `Sheet.patch`, `Sheet.apply`, `Sheet.Types`), and its options.
-export { Sheet, type SheetNamespace, type SheetOptions } from './sheet/index.js';
+// The Sheet (#1179, #1183): the planning spreadsheet a solution mounts
+// (`<Sheet.View>`), the builder that edits an e3 record as one
+// (`<Sheet.Builder>`), their authoring vocabulary on `Sheet`
+// (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`,
+// `Sheet.group`, `Sheet.patch`, `Sheet.apply`, `Sheet.Types`), and their options.
+export { Sheet, type SheetNamespace, type SheetOptions, type SheetTemplate, type SheetTemplatesInput } from './sheet/index.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';

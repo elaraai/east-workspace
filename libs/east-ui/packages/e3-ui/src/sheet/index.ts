@@ -26,7 +26,10 @@
  * editing session's callbacks and their closed transport, the inline
  * `onUpdate` adapter among them) · `root.ts` (`Sheet.Root`, which returns the
  * sheet through the `SheetView` carrier, and `Sheet.Payload`) · `view.ts`
- * (`<Sheet.View>`, the tag).
+ * (`<Sheet.View>`, the tag) · `builder.ts` (`<Sheet.Builder>`, an e3 record
+ * edited as a sheet, and its `SheetBuilder` carrier, #1183) with `record.ts`
+ * (a record's rows, #1182), `templates.ts` (the Rows tab's cards) and
+ * `views.ts` (the views' bind handle).
  *
  * One namespace object per category, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
@@ -102,6 +105,7 @@ import { createMembers, concatMembers, createDriver } from "./registers.js";
 import { createArity, check, parseLink, printLink, SheetMembersType, SheetRegisterMembersType } from "./link.js";
 import { createSheet, createSheetPayload } from "./root.js";
 import { SheetView } from "./view.js";
+import { SheetBuilder, SheetBuilderComponent, createSheetBuilderPayload } from "./builder.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
     createGroup,
@@ -252,6 +256,17 @@ export {
 } from "./root.js";
 export { SheetView } from "./view.js";
 export {
+    SheetBuilder,
+    SheetBuilderComponent,
+    SheetBuilderPayloadType,
+    createSheetBuilderPayload,
+    sheetKeys,
+    type SheetRecordHandle,
+    type SheetBuilderEntry,
+    type SheetBuilderCommon,
+} from "./builder.js";
+export { SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
+export {
     type SheetGroupCell,
     type SheetGroupConfig,
     type SheetGroupValue,
@@ -356,6 +371,8 @@ export function createPatch<R extends StructType>(rowType: R, record: SheetPatch
 export interface SheetNamespace {
     /** `<Sheet.View>` — the planning spreadsheet ({@link SheetView}). */
     View: typeof SheetView;
+    /** `<Sheet.Builder>` — an e3 record edited as a sheet, with a library and an inspector, in `BuilderFrame` ({@link SheetBuilder}). */
+    Builder: typeof SheetBuilder;
     /** The column builders — each takes the row type first (§3.2). */
     column: {
         /** Free text. */
@@ -606,6 +623,7 @@ export interface SheetNamespace {
  */
 export const Sheet: SheetNamespace = {
     View: SheetView,
+    Builder: SheetBuilder,
     column: { text, date, quantity, integer, lookup, reference, enum: enumColumn, set, link, stamped, custom },
     register: { members: createMembers, concat: concatMembers },
     driver: createDriver,
@@ -704,6 +722,10 @@ export interface SheetInternalNamespace extends SheetNamespace {
     Payload: typeof createSheetPayload;
     /** The `SheetView` carrier ({@link SheetViewComponent}). */
     Component: typeof SheetViewComponent;
+    /** The `SheetBuilder` carrier ({@link SheetBuilderComponent}). */
+    BuilderComponent: typeof SheetBuilderComponent;
+    /** Creates the builder's payload alone — what `<Sheet.Builder>` returns through the carrier ({@link createSheetBuilderPayload}). */
+    BuilderPayload: typeof createSheetBuilderPayload;
 }
 
 /**
@@ -718,4 +740,6 @@ export const SheetInternal: SheetInternalNamespace = {
     Root: createSheet,
     Payload: createSheetPayload,
     Component: SheetViewComponent,
+    BuilderComponent: SheetBuilderComponent,
+    BuilderPayload: createSheetBuilderPayload,
 };
