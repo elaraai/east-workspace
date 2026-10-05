@@ -50,8 +50,8 @@ test.describe("a bounded frame opens at its first row (#944)", () => {
     for (const [file, name] of [
         [PLAN_EXAMPLES, "planRowDrop"],
         [PLAN_EXAMPLES, "planFill"],
-        ["collections/sheet", "sheetGrouped"],
-        ["collections/sheet", "sheetStress"],
+        ["e3/sheet/sheet", "sheetGrouped"],
+        ["e3/sheet/sheet", "sheetStress"],
     ] as const) {
         test(`${name}: the first row just under the header`, async ({ page }) => {
             const frame = await openFrame(page, file, name);

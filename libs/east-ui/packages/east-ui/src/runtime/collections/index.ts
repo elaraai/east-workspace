@@ -20,4 +20,3 @@ export { Schematic } from "./schematic.js";
 export { Flowchart } from "./flowchart.js";
 export { Map } from "./map.js";
 export { Blend } from "./blend.js";
-export { Sheet } from "./sheet.js";

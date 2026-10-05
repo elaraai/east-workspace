@@ -21,12 +21,12 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraSheet, getRegisteredPlatformImplementations, system, type SheetRootValue } from "@elaraai/east-ui-components";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { Plan, Sheet } from "@elaraai/e3-ui/internal";
 import { DatasetHashMismatchError, type DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { EastChakraPlan, type PlanRootValue } from "../plan/index.js";
+import { EastChakraSheet, type SheetRootValue } from "../sheet/index.js";
 import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi, type PagedSelector } from "./paged-runtime.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -219,13 +219,12 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
 /** A Sheet as an author writes it — a text column over the bound machines,
  *  the handle its input — so the rows reach the renderer through the Sheet's
  *  own derived source, pinned as `Data.bindPaged`'s handle is. */
-const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], UIComponentType, (_$, machines) =>
-    Sheet.Root(machines, { label: Sheet.column.text(Machine, { header: "Label" }) }, { blanks: 0 }));
+const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], Sheet.Types.Root, (_$, machines) =>
+    Sheet.Payload(machines, { label: Sheet.column.text(Machine, { header: "Label" }) }, { blanks: 0 }));
 
 /** The Sheet root over the bound handle. */
 function sheetOver(handle: Record<string, unknown>): SheetRootValue {
-    const ui = East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never) as unknown as { value: SheetRootValue };
-    return ui.value;
+    return East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never);
 }
 
 describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {

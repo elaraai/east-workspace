@@ -553,8 +553,8 @@ const settleWrite = East.function(
  * @example
  * ```tsx
  * import { DictType, East, IntegerType, StringType, StructType } from "@elaraai/east";
- * import { Reactive, Sheet, UIComponentType } from "@elaraai/east-ui";
- * import { Data, Record } from "@elaraai/e3-ui";
+ * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
  * const JobType = StructType({ task: StringType, qty: IntegerType });
@@ -567,7 +567,7 @@ const settleWrite = East.function(
  *         const rows = $.let(Data.bindPaged(jobs));
  *         const record = $.let(Record.bind(jobs, [jobsPatch]));
  *         return (
- *             <Sheet
+ *             <Sheet.View
  *                 data={rows}
  *                 columns={{
  *                     task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),

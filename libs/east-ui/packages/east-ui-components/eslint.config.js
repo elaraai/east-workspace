@@ -43,8 +43,8 @@ const ONE_FORMATTER = [
 ];
 
 // The paged canvases' shared parts — the window ledger and the residency
-// policy, the Plan's (now e3-ui-components', #1177) and the Sheet's — derive
-// over production row counts. A spread into a call — `Math.max(...xs)`,
+// policy, the Plan's and the Sheet's (both e3-ui-components' now, #1177,
+// #1179) — derive over production row counts. A spread into a call — `Math.max(...xs)`,
 // `out.push(...xs)`, `new Set(...xs)` — passes every element as a separate
 // ARGUMENT, and past the engine's argument limit (~125,000 on Node 22) it
 // throws RangeError: a big band crashed the Plan's canvas (#810). Array and
@@ -74,18 +74,6 @@ const NO_MODALS = {
     message: "No modals: a form that makes or names something is the edit popover (SliceEditPopover) hanging from its trigger. The one modal is east-ui's <Dialog>, a confirmation step before a destructive or irreversible act — render it through that component, never Chakra's Dialog directly."
   }]
 };
-
-// The Sheet derives over production row counts too (#859): the same guard.
-const SHEET_NO_SPREAD = [
-  {
-    selector: 'CallExpression > SpreadElement',
-    message: 'No spread into a call under collections/sheet/ — it throws RangeError past ~125,000 elements (#859). Push in a loop.'
-  },
-  {
-    selector: 'NewExpression > SpreadElement',
-    message: 'No spread into a constructor call under collections/sheet/ — it throws RangeError past ~125,000 elements (#859). Build the arguments with a loop.'
-  }
-];
 
 export default [
   {
@@ -147,14 +135,6 @@ export default [
     files: ['src/collections/window-ledger.ts', 'src/collections/window-residency.ts'],
     rules: {
       'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...PAGING_NO_SPREAD]
-    }
-  },
-  {
-    // The Sheet's own block, carrying the formatter guard as well as its own (#859).
-    files: ['src/collections/sheet/**/*.ts', 'src/collections/sheet/**/*.tsx'],
-    ignores: TESTS,
-    rules: {
-      'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...SHEET_NO_SPREAD]
     }
   },
   {

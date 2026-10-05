@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
-import { Button, EventStateType, Format, Input, Reactive, Separator, Sheet, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data, Plan } from "@elaraai/e3-ui";
+import { Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Data, Plan, Sheet } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
 export const thresholdInput      = e3.input('threshold',       FloatType, variant('value', 50.0));
@@ -664,7 +664,7 @@ export const dataBindPagedSheet = example({
             const jobs = $.let(Data.bindPaged(jobsTask));
             return (
                 <VStack gap="3" align="stretch">
-                    <Sheet
+                    <Sheet.View
                         data={jobs}
                         columns={{
                             start: Sheet.column.date(JobRow, { header: "Start", width: "96px" }),

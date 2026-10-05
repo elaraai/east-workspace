@@ -59,3 +59,35 @@ export const editingApplyKeyed = example({
         ["b", { task: "Paint", qty: 4n }],
     ]),
 });
+
+export const editingApplyEntries = example({
+    keywords: ["Editing", "Types", "Entry", "group", "row", "child", "variant", "apply", "ChangeSet", "batch", "atomic"],
+    description: "Apply a batch to work packages and loose tasks in one collection — Editing.Types.Entry names the group-or-row union by its child field, and one entry patch reorders a package's tasks",
+    fn: East.function([], ArrayType(StringType), ($) => {
+        const TaskType = StructType({ id: StringType, task: StringType });
+        const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
+        const Entry = Editing.Types.Entry(PackageType, "tasks");
+        const before = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
+            { id: "t1", task: "Machine blanks" }, { id: "t2", task: "Inspect lots" },
+        ] }), Entry);
+        const after = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
+            { id: "t2", task: "Inspect lots" }, { id: "t1", task: "Machine blanks" },
+        ] }), Entry);
+        const loose = $.const(variant("row", { id: "t9", task: "Pack for shipping" }), Entry);
+        const entries = $.const([before, loose], ArrayType(Entry));
+        const oldEntry = $.const(some(before), OptionType(Entry));
+        const newEntry = $.const(some(after), OptionType(Entry));
+        const batch = $.const({
+            requestId: "reorder-roughing", base: variant("snapshot", entries), label: "Move a task",
+            changes: [{ id: "p1", patch: East.diff(oldEntry, newEntry), place: none }],
+        }, Editing.Types.ChangeSet(Entry));
+        const apply = $.const(Editing.apply(Entry, "id"));
+        const applied = $.const(apply(entries, batch, none).unwrap("applied"));
+        return applied.map((_$, entry) => entry.match({
+            group: (_$2, p) => East.str`${p.name}: ${p.tasks.map((_$3, t) => t.task).stringJoin(" → ")}`,
+            row:   (_$2, t) => t.task,
+        }));
+    }),
+    inputs: [],
+    returns: ["P-40 roughing: Inspect lots → Machine blanks", "Pack for shipping"],
+});

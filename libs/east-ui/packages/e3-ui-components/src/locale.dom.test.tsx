@@ -6,25 +6,26 @@
  *
  * One locale for every renderer: a host's one `I18nProvider` — the one
  * east-ui-components re-exports, or react-aria's own — reaches this package's
- * renderers and east-ui-components' alike. Bundled into a package's build,
- * react-aria's locale context was that package's alone: the Plan read one,
- * east-ui-components' components another, and a host's provider reached only
- * one of them.
+ * renderers (the Plan, the Sheet) and east-ui-components' alike. Bundled into
+ * a package's build, react-aria's locale context was that package's alone:
+ * the Plan read one, east-ui-components' components another, and a host's
+ * provider reached only one of them.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider as ReactAriaI18nProvider } from "@react-aria/i18n";
-import { ArrayType, DateTimeType, DictType, East, StringType, StructType } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, some } from "@elaraai/east";
 import { Format, Numeric, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, I18nProvider as ComponentsI18nProvider, UIStore, getRegisteredPlatformImplementations, system,
 } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { Plan } from "@elaraai/e3-ui/internal";
-// The Plan is an extension: its renderer registers as it loads.
+import { Plan, Sheet } from "@elaraai/e3-ui/internal";
+// The Plan and the Sheet are extensions: each renderer registers as it loads.
 import "./plan/index.js";
+import "./sheet/index.js";
 
 afterEach(() => {
     cleanup();
@@ -54,6 +55,14 @@ const PLAN = East.function([], UIComponentType, ($) => {
     return Plan.View({ axis, data: units, series });
 });
 
+/** A Sheet with a quantity: its cell prints in the locale. */
+const QtyRow = StructType({ id: StringType, qty: OptionType(FloatType) });
+const QTY_ROWS = [{ id: "a", qty: some(1234.5) }];
+const SHEET = East.function([], UIComponentType, ($) => {
+    const rows = $.const(QTY_ROWS, ArrayType(QtyRow));
+    return Sheet.View({ data: rows, columns: { qty: Sheet.column.quantity(QtyRow, { header: "Qty" }) }, id: "id" });
+});
+
 /** One of east-ui-components' own: a currency. */
 const NUMERIC = East.function([], UIComponentType, (_$) => Numeric.Root(1234.5, { format: Format.Currency({ currency: "EUR" }) }));
 
@@ -63,13 +72,14 @@ const PROVIDERS = [
 ] as const;
 
 describe.each(PROVIDERS)("the host's provider is %s", (_name, Provider) => {
-    test("the Plan and east-ui-components' components speak its locale alike", () => {
+    test("the Plan, the Sheet and east-ui-components' components speak its locale alike", () => {
         initializeStore(new UIStore());
         const platform = getRegisteredPlatformImplementations();
         const { container } = render(
             <ChakraProvider value={system}>
                 <Provider locale="de-DE">
                     <div data-locale-part="plan"><EastChakraComponent value={East.compile(PLAN, platform)()} storageKey="locale-plan" /></div>
+                    <div data-locale-part="sheet"><EastChakraComponent value={East.compile(SHEET, platform)()} storageKey="locale-sheet" /></div>
                     <div data-locale-part="numeric"><EastChakraComponent value={East.compile(NUMERIC, platform)()} storageKey="locale-numeric" /></div>
                 </Provider>
             </ChakraProvider>,
@@ -77,6 +87,7 @@ describe.each(PROVIDERS)("the host's provider is %s", (_name, Provider) => {
         const part = (name: string) => container.querySelector(`[data-locale-part="${name}"]`)!;
         expect([...part("plan").querySelectorAll("[data-slot='rulerTick']")].map((t) => t.textContent))
             .toEqual(["MO", "DI", "MI", "DO", "FR", "SA", "SO"]);
-        expect(part("numeric").textContent).toBe("1.234,50 €");
+        expect(part("sheet").querySelector('[data-row-id="a"] [data-key="qty"]')!.textContent).toBe("1.234,5");
+        expect(part("numeric").textContent).toBe("1.234,50\u00a0€");
     });
 });

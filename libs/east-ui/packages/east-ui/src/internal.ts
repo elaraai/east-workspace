@@ -90,7 +90,7 @@ export type {
 } from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Sheet, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
 // The chart layer builders' TS faces and the spec vocabulary a composite
 // consumes Chart layers through — e3-ui's Plan reads them as data (#1177).
 export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
@@ -168,10 +168,8 @@ export * from "./collections/data-list/types.js";
 export * from "./collections/value-tree/flatten.js";
 export * from "./collections/value-tree/key-search.js";
 export * from "./collections/table/types.js";
-export * from "./collections/sheet/types.js";
-export * from "./collections/sheet/transactions.js";
-export * from "./collections/sheet/drafts.js";
-export * from "./collections/sheet/editing-types.js";
+// The row type a collection's `data` holds — e3-ui's Sheet types its tag with it (#1179).
+export type { DataRowType } from "./collections/table/index.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";

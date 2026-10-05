@@ -7,11 +7,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, diffFor, equalFor, isTypeEqual, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
-import { Editing, EditingPatchEventTypeWith, EditingSessionFields, Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
+import { Editing, EditingPatchEventTypeWith } from "@elaraai/east-ui/internal";
 import * as ex from "./editing.examples.js";
 
 describeEast("Editing contract examples", test => {
-    Assert.examples(test, { editingApplyBatch: ex.editingApplyBatch, editingApplyKeyed: ex.editingApplyKeyed });
+    Assert.examples(test, {
+        editingApplyBatch: ex.editingApplyBatch,
+        editingApplyKeyed: ex.editingApplyKeyed,
+        editingApplyEntries: ex.editingApplyEntries,
+    });
 }, { platformFns: TestImpl });
 
 // ── A keyed Dict source (#879) — entries addressed by key ────────────────────
@@ -117,25 +121,8 @@ test("the keyed types hold a Dict; an Array source needs its identity field", ()
     assert.throws(() => (Editing.apply as (t: unknown) => unknown)(Job), /identity field/);
 });
 
-// ── The Sheet speaks the shared contract ─────────────────────────────────────
-
-test("the Sheet's transaction names are the shared contract's own values", () => {
-    assert.equal(Sheet.apply, Editing.apply);
-    const shared: Record<string, keyof typeof Editing.Types> = {
-        Entry: "Entry", DraftGroup: "DraftGroup", DraftEntry: "DraftEntry", DraftChange: "DraftChange",
-        PatchEvent: "PatchEvent", Position: "Position", EntryPlacement: "Placement", FieldIssue: "FieldIssue",
-        Readiness: "Readiness", Issue: "Issue", BatchReadiness: "BatchReadiness", Origin: "Origin",
-        ApplyResult: "ApplyResult", Draft: "Draft", Base: "Base", Change: "Change", ChangeSet: "ChangeSet",
-        Applied: "Applied",
-    };
-    for (const [sheetName, editingName] of Object.entries(shared)) {
-        assert.equal((Sheet.Types as Record<string, unknown>)[sheetName], Editing.Types[editingName], `Sheet.Types.${sheetName}`);
-    }
-    // The Sheet's editing wire carries every field of the shared session's, at the same type.
-    for (const [field, type] of Object.entries(EditingSessionFields)) {
-        assert.equal(SheetEditingType.fields[field as keyof typeof SheetEditingType.fields], type, `SheetEditingType.${field}`);
-    }
-});
+// e3-ui's Sheet speaks this contract under its own names, held to it in its
+// own specs (`test/sheet/sheet-source.spec.ts`).
 
 test("a patch event is one shape over any draft — field by field for the Sheet, whole entries for the Plan (#880)", () => {
     // PatchEvent(E) is PatchEventWith over E's field-by-field draft…
