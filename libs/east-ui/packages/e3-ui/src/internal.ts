@@ -295,9 +295,9 @@ export * from './sheet/types.js';
 export * from './sheet/transactions.js';
 export * from './sheet/drafts.js';
 export * from './sheet/editing-types.js';
-// The Sheet builder (#1182, #1183): a record's rows and the Apply back to it,
-// the payload e3-ui's own factories build over them, and the builder's
-// payload, carrier, templates on the wire and shared keys.
+// The Sheet builder (#1182, #1183, #1186): a record's rows and the Apply back
+// to it, the payload e3-ui's own factories build over them, and the builder's
+// payload, carrier, templates and library on the wire and shared keys.
 export { recordRows, type SheetRecordEntry, type SheetRecordRows, type SheetRecordRowsOptions } from './sheet/record.js';
 export { createSheetPayloadWith, createSheetBuild, type SheetBuild, type SheetInternalOptions } from './sheet/root.js';
 export {
@@ -311,6 +311,14 @@ export {
     type SheetBuilderCommon,
 } from './sheet/builder.js';
 export { SheetTemplateWireType, buildTemplates, type SheetTemplate, type SheetTemplatesInput } from './sheet/templates.js';
+export {
+    SheetLibraryCardType,
+    SheetLibraryDropType,
+    SheetLibraryTabType,
+    buildLibrary,
+    type SheetLibraryTab,
+    type SheetLibraryTabConfig,
+} from './sheet/library.js';
 export {
     Diff,
     DiffComponent,

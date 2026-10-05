@@ -4,9 +4,9 @@ The e3-ui `Sheet`: the planning spreadsheet moves from east-ui to e3-ui.
 `<Sheet.View>` is today's `<Sheet>`, unchanged but for where it is imported
 from. `<Sheet.Builder>` edits an e3 record as a sheet, laid out in
 `BuilderFrame` as Studio's builder, the query builder, the Calendar and the
-Roster are: one toolbar holding every control the sheet has, a library of
-row templates, register members and columns to drag in, the sheet in main,
-and an inspector for the selected row.
+Roster are: one toolbar holding every control the sheet has, the author's
+library (row templates, cards of their own to drag in, the columns), the
+sheet in main, and an inspector for the selected row.
 
 This document is the design the Plan and Sheet builders' epic builds for the
 Sheet; `Plan Builder Spec.md` beside it is the Plan's. Each sub-issue copies
@@ -45,13 +45,14 @@ screenshot.
   entry's Array field holds them, in their own order. A large record is read
   a window at a time (`window`).
 - **Draws.** `BuilderFrame`: one toolbar (the view tabs, the lens's context,
-  the slice's rail, the history item with Apply); the library (Rows ·
-  Registers · Columns) in the start pane; the sheet and its strip in main;
-  the inspector (Details · Issues) in the end pane; the sheet's footer.
+  the slice's rail, the history item with Apply); the library, the tabs
+  `library` lists (Rows, Columns and the author's own), in the start pane,
+  and none when it lists none; the sheet and its strip in main; the inspector
+  (Details · Issues) in the end pane; the sheet's footer.
 - **Built in.** Undo, redo and discard; Apply as one checked commit through
-  the record's patch mutation; drag and drop (templates and register members
-  into the sheet, rows and groups to new places); the inspector's form for
-  every field, with or without a column. The app wires none of it.
+  the record's patch mutation; drag and drop (templates and the author's
+  cards into the sheet, rows and groups to new places); the inspector's form
+  for every field, with or without a column. The app wires none of it.
 - **Keeps.** Everything today's sheet does: the column kinds, registers, the
   driver, the link cell, copilot fills and proposed rows, readiness, groups,
   loose rows, sub rows, the lens, views, paging, key search, the clipboard,
@@ -85,9 +86,14 @@ These are settled; the proposal was approved on 2026-10-04.
    checked commit through `Record.onApply`. Conflicts, refusals and the
    out-of-date state are banners, and drafts last until applied or
    discarded, per entry.
-6. **The library is three tabs**: Rows (templates, and on a grouped sheet
-   groups with their lines), Registers (members, dragged onto cells or into
-   the tail) and Columns (show and hide).
+6. **The library is the author's** (amended 2026-10-05, on the live
+   showcase): `library` lists its tabs, in order, each a `Sheet.library.*`
+   call — `rows()` (templates, and on a grouped sheet groups with their
+   lines), `columns()` (show and hide) and `tab(data, { … })`, cards of the
+   author's own, read as a register's members are, whose `drop` is the
+   `Sheet.patch` a dropped card sets. Left out, there is no library pane.
+   The first design's Registers tab is dropped: registers stay what the
+   cells pick from.
 7. **Templates are data**, declared on the builder as `Sheet.patch` values.
    A dropped one is `newRow`'s defaults with the template's fields over them.
 8. **The inspector's form is `Fields`** (#1147), as the Calendar's is. A
@@ -132,7 +138,7 @@ and never a TypeScript helper that builds one (`no-host-in-east-block`,
 `no-module-scope-east-macro`).
 
 A builder's example seeds the records its panes read, so none is empty: the
-rows, the members and templates its library lists, an event or a row for the
+rows, the templates and cards its library lists, an event or a row for the
 inspector to show, and a draft its check flags for the Issues tab.
 
 ## 3. The authoring surface
@@ -216,16 +222,16 @@ export const jobSheet = ui("job_sheet", [], East.function([], UIComponentType, _
 That is a working editor. There is one row per job in key order, with a blank
 tail for the next one. Every gesture is a draft the history item can undo,
 and Apply commits the drafts as one patch through `jobsPatch`. A new row's
-key is minted unless `newRowId` names one. The Rows tab is empty with no
-templates, the Registers tab with no registers, and the Columns tab lists the
-three columns. The inspector shows every field of the selected job.
+key is minted unless `newRowId` names one. It lists no `library`, so it has
+no library pane. The inspector shows every field of the selected job.
 
 ### 3.3 The workshop's orders
 
 A grouped sheet: each order is a group, and its operations are its lines. It
 has an activity driver, a machines register and a statuses register, a
 copilot fill, a check on each order, templates for an order and for single
-operations, the slice's search and filter, and saved views.
+operations, a library of the templates, the statuses and the columns, the
+slice's search and filter, and saved views.
 
 ```tsx
 // workshop.tsx
@@ -304,6 +310,13 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
                     notes:    Sheet.column.text(d.OperationType, { header: "Notes", width: "240px" }),
                 }}
                 fields={{ created_by: Sheet.field.readonly() }}
+                library={[
+                    Sheet.library.rows(),
+                    // The statuses an order takes: a card dropped on an order's band sets its status.
+                    Sheet.library.tab(statuses, { name: "Statuses", icon: "flag",
+                        key: s => s.word, label: s => s.word, drop: s => Sheet.patch(d.OrderType, { status: s.word }) }),
+                    Sheet.library.columns(),
+                ]}
                 templates={{
                     groups: [{ key: "kitchen", name: "Kitchen order", group: "Orders",
                                values: Sheet.patch(d.OrderType, { status: "PLANNED", due: none, ops: kitchen }) }],
@@ -329,8 +342,8 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
 )));
 ```
 
-Apart from `record`, `templates`, `fields` and `views`, every prop is today's
-`<Sheet>` declaration, unchanged. The orders sit in key order, by order
+Apart from `record`, `templates`, `library`, `fields` and `views`, every prop
+is today's `<Sheet>` declaration, unchanged. The orders sit in key order, by order
 number, and an order's operations keep the order the planner gives them.
 
 ### 3.4 One entry's rows, and a paged record
@@ -374,6 +387,7 @@ order a keyed paged sheet already has.
 | `columns`, `group`, `subRows`, `driver`, `registers`, `owned`, `suggest`, `ready`, `newRow`, `newGroup`, `newRowId`, `edits`, `applyMode`, `onPatch`, `slice`, `affordances`, `activeView`, `blanks`, `readOnly`, `density`, `footer` | as `<Sheet>`'s | Unchanged (`Sheet Spec.md` §3). The row type the columns are built over is the entries' (or, with `entry`, the rows field's element type); a grouped sheet's columns are over its line type, as today. |
 | `views` | a bind handle of `Array<Sheet.Types.View>` | The saved views, read and written by the builder: a `State.bind` to keep them per viewer, or a `Data.bind` dataset to share them. |
 | `templates` | `{ rows?, groups? }` | The Rows tab's cards (§4.2). |
+| `library` | `Sheet.library.*` calls | The library's tabs, in order (§4.4); left out, or `[]`, no library pane. |
 | `fields`, `groupFields` | `{ [field]: Sheet.field.* }` | Hints for the inspector's form: for a field with no column, or to override what a column's kind gives (§5.3). `Sheet.field` is `Fields` (#1147), as `Calendar.field` is. |
 | `id` | string | Names the builder when a surface holds two: its viewer state's storage key and its library's drag-source id. |
 
@@ -404,10 +418,35 @@ Each names the prop and the remedy:
 - `window` pages another record, or is given with `entry`;
 - a template is built over another row type, a template key repeats, or a
   group template is given on a flat sheet;
+- the library lists a tab twice (an author's tab by its name), an author's
+  tab's data is neither an Array nor a `Dict<String, T>`, or its `drop`
+  returns a patch over neither the row type nor the group type;
 - `fields` or `groupFields` names a field the type doesn't have.
 
 Every refusal today's sheet makes still applies (`Sheet Spec.md` §3.12),
 among them moving rows in a flat key-ordered sheet.
+
+### 4.4 The library
+
+```ts
+library={[
+    Sheet.library.rows(),                              // the templates, by their group
+    Sheet.library.tab(crews.read(), {                  // the author's own cards
+        name: "Crews", icon: "user-group",
+        key: (_c, code) => code, label: c => c.name, meta: c => some(c.skill), group: c => c.team,
+        drop: (_c, code) => Sheet.patch(OperationType, { crew: code }),   // what a dropped card sets
+    }),
+    Sheet.library.columns(),                           // each column with an eye, per viewer
+]}
+```
+
+An author's tab reads its rows as `Sheet.register.members` reads a
+register's: an `Array<T>` or a `Dict<String, T>`, with accessors
+`(row, key) => …`, a key that repeats keeping its first card. Its `drop`
+returns what a dropped card sets, as a template's `values` do: a
+`Sheet.patch` over the row type (a grouped sheet's line type) lands on a
+row, over the group type on a band. A drop sets fields; it cannot add to a
+set or a link half, since the patch sees only the card.
 
 ## 5. The East types
 
@@ -428,6 +467,7 @@ or one entry's field), and its editing session commits through
 SheetBuilderPayloadType = StructType({
     sheet:     SheetRootType,                    // the grid, its rows and its session wired to the record
     templates: ArrayType(SheetTemplateWireType), // the Rows tab's cards
+    library:   ArrayType(SheetLibraryTabType),   // the library's tabs, in order; none, no pane
     fields:    StructType({ row: ArrayType(FieldSpecType), group: ArrayType(FieldSpecType) }),   // the inspector's forms (Fields, #1147)
     history:   FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),                     // the record's commits: the last save, and who changed it
     missing:   OptionType(StringType),           // with `entry`, its key while the record does not hold it: the frame's banner (SB15, SB23)
@@ -443,12 +483,26 @@ SheetTemplateWireType = StructType({
     }),
 });
 
+SheetLibraryTabType = VariantType({
+    rows:    NullType,
+    columns: NullType,
+    tab:     StructType({
+        name: StringType, icon: OptionType(StringType),
+        drop: OptionType(VariantType({ row: NullType, group: NullType })),   // where its cards land: what the patch is over
+        cards: ArrayType(StructType({
+            key: StringType, label: StringType, meta: OptionType(StringType), group: OptionType(StringType),
+            sets: DictType(StringType, Sheet.Types.Cell),   // the drop's patch, through the editable columns (or band cells)
+        })),
+    }),
+});
+
 SheetBuilderComponent = EastUI.component("SheetBuilder", SheetBuilderPayloadType);
 SheetViewComponent    = EastUI.component("SheetView", SheetRootType);
 ```
 
-Registers, the driver and the columns need nothing new: the Registers and
-Columns tabs read them from `sheet`. The templates' seeds are built by the
+The columns need nothing new: the Columns tab reads them from `sheet`. An
+author's card crosses the closed payload as the cells its drop sets, as a
+proposed row's patch does. The templates' seeds are built by the
 code that builds `newRow`'s today (`seed-bridge.ts`), so a template's draft
 and the cells it shows come from one call.
 
@@ -494,7 +548,7 @@ which lands first; the helper is generic.
 ├──────────────┬──────────────────────────────────────────────────────────┬────────────────┤
 │ LIBRARY      │ ACTIVITY      START   END     QTY   WORK CENTRES   NOTES │ INSPECTOR      │
 │ Rows         │ ▾ WO-2207 · Kitchen, oak   PLANNED   due 23 Oct          │ Details·Issues │
-│ Registers    │  1 Panel cutting  12 Oct  13 Oct  48 panels  S101 > E201 │  one row: every│
+│ Statuses     │  1 Panel cutting  12 Oct  13 Oct  48 panels  S101 > E201 │  one row: every│
 │ Columns      │  2 Edge banding   14 Oct  …                              │  field (Fields)│
 │ search       │ ▾ WO-2208 · Wardrobes, ash                               │ a group        │
 │ cards (drag) │ strip: candidates · fills · what a cell accepts          │ several · none │
@@ -507,7 +561,7 @@ which lands first; the helper is generic.
 |---|---|
 | Toolbar | Every control the sheet has, as items of the shared `Toolbar` (§7.1). |
 | Banners | An Apply's conflicts and refusals, naming the rows; the record changing under pending drafts; a write whose outcome is unknown; an `entry` the record doesn't hold. |
-| Start pane "Library" | Tabs Rows · Registers · Columns (§9.7). |
+| Start pane "Library" | The tabs `library` lists (§9.7); none, no pane. |
 | Main | The grid: its two-line header, rows, bands, seams, lens bands and proposed rows. The strip is docked under it, where candidates, fills and what a cell accepts show while a cell is edited (`Sheet Spec.md` B§9). Nothing floats over the grid but the editor overlay, as today. |
 | End pane "Inspector" | Tabs Details · Issues (§9.9). |
 | Footer | The sheet's footer: its count line, the app's `footer` items, the paged transport line, the key hint and the live message, and the last save from the record's commits. |
@@ -554,17 +608,16 @@ it. The history item is the shared `historyToolbarItem` (#988).
   columns print it (`Edge banding · 1 × edge bander`), or a group template's
   band cells and lines (`PLANNED · 4 lines`). Cards group under their
   `group`'s head, mono caps 10px with its count.
-- **A Registers card**: the member's label 13px 600, its meta and kind under
-  it in mono 10px (a kind its meta already says, once); a driver member
-  carries its kind as its tag (`ACTIVITY`), and a member with a tone its
-  tone's dot.
+- **An author's card**: the tab's icon in its tile, the card's label 13px
+  600, and its meta under it in mono 10px; cards group under their `group`'s
+  head, as the Rows tab's do.
 - **A Columns card**: the column's header, its kind in mono 10px, an eye
   (an eye-slash while hidden); a hidden column's card is dimmed.
 - **An empty tab** is the shared empty state: a ☐, its title (`No
-  templates`, `No registers`, `No matches`) and a line under it.
+  templates`, `Nothing in Crews`, `No matches`) and a line under it.
 - **What the shared parts change from the Calendar mock**: the card's name is
-  13px, not 12.5px, and its line mono 10px, not 10.5px; a member's label is
-  the card's name, not mono 11px; the search box is the Library's 28px box in
+  13px, not 12.5px, and its line mono 10px, not 10.5px; an author's card's
+  label is the card's name, not a member's mono 11px; the search box is the Library's 28px box in
   its toolbar row, not a 32px input on a paper-2 band, and folds narrower in
   a narrow pane; the empty state's glyph is 36px, not 26px. Nothing a card
   says is lost.
@@ -644,8 +697,8 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 ### 9.5 Frame and toolbar (owner: `Sheet.Builder`'s frame and toolbar)
 
 - **SB18.** The builder is a `BuilderFrame` (toolbar, banners, the library as
-  its start pane, main, the inspector as its end pane, the footer). It fills
-  its parent and draws no border.
+  its start pane when `library` lists tabs, main, the inspector as its end
+  pane, the footer). It fills its parent and draws no border.
 - **SB19.** The toolbar is one row of the shared `Toolbar`, its items in
   §7.1's order. The grid draws no toolbar of its own.
 - **SB20.** Under width pressure the rail folds first (its ranks, through
@@ -691,26 +744,31 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 
 ### 9.7 The library pane (owner: the library pane)
 
-- **SB32.** The library has three tabs, Rows, Registers and Columns, each
+- **SB32.** The library holds the tabs `library` lists, in its order, each
   with its count and a search. Collapsed, it is a rail with the templates'
-  count.
+  count, or with the first tab's when Rows isn't listed.
 - **SB33.** Rows lists the templates by `group`: a card shows its name and
   what it sets, the cells as the columns print them, or a group template's
   line count.
-- **SB34.** Registers lists the driver's members first, then each register's
-  by register and kind: label, meta and kind. The search reads keys, labels
-  and aliases.
-- **SB35.** With a slice, a click on a member narrows the sheet to the rows
-  that name it, through the slice's search, and a click on the member it
-  narrows to lets go. Without one, a click selects the card, and a click on
-  the selected card lets it go.
+- **SB34, SB35.** Retired (2026-10-05): the Registers tab is dropped.
 - **SB36.** Columns lists the columns in declared order with their kind and
   an eye. Hiding a column hides it and the band cells under it from the grid,
   never from the inspector or what the lens matches; a row the copilot
   proposes keeps its cells under a hidden column. The last column shown
   stays. What is hidden persists per viewer under the builder's `id`.
 - **SB37.** An empty tab says so, in the shared empty state: `No templates`,
-  `No registers`, or `No matches` over `Nothing matches "q".`
+  `Nothing in Crews` for an author's tab with no rows, or `No matches` over
+  `Nothing matches "q".`
+- **SB59.** `library` is optional: left out, or `[]`, the builder draws no
+  start pane. A tab listed twice is refused at build, naming it.
+- **SB60.** `Sheet.library.tab(rows, { name, icon, key, label, meta?,
+  group?, drop? })` lists one card per row: its label and meta, the tab's
+  icon, grouped by `group`, searched by key, label and meta, and, when the
+  tab declares a `drop`, each a drag source (#1187); a key that repeats keeps
+  its first card, as a register's members do. A click selects the card, and a click on the selected card lets
+  it go. `drop`'s patch is checked at build: over the row type it lands on
+  rows, over the group type on bands, and over any other type the build
+  fails, naming the tab.
 
 ### 9.8 Drag and drop (owner: drag and drop)
 
@@ -721,21 +779,19 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   in the group under the pointer. Refused when `edits.insertRows` is off.
 - **SB40.** A group template dropped on a seam between groups, or the tail,
   inserts the group with its lines. Refused when `edits.insertGroups` is off.
-- **SB41.** A register member dropped on a `lookup`, `reference` or `enum`
-  cell over its register writes its key. Refused on another register's
-  column, a read-only or stamped column, or a band cell of another kind.
-- **SB42.** A member dropped on a `set` or `link` cell's half adds it to that
-  half, unless the half names it already. Refused when its kind isn't one the
-  column takes, or the half is locked by the row's driver.
-- **SB43.** A driver member dropped on a seam or the tail starts a row with
-  the driver set, and the copilot runs for it as for a typed row. Refused when
-  `edits.insertRows` is off.
+- **SB41, SB42, SB43.** Retired (2026-10-05): the Registers tab is dropped;
+  SB61 takes their place.
 - **SB44.** A row's gutter grip dragged to another seam moves the row (a
   line within or between groups, as `edits.moveRows` allows), and a band's
   grip moves the group (`edits.moveGroups`), each one `move` transaction
   whose placement the batch carries.
 - **SB45.** A card's ⏎ inserts it below the ring's row, as a drop there
   would. A drop anywhere else does nothing.
+- **SB61.** A card of an author's tab dropped on a row sets the fields its
+  `drop` patch sets on that row, as one `drop` transaction, as a template's
+  values set a new row's; a patch over the group type lands on a band the
+  same way. The ghost says `Bench crew → row 3`. Refused: anywhere but a
+  row, or a band for a group patch (`Drop a crew onto a row`).
 
 ### 9.9 The inspector (owner: the inspector)
 
@@ -782,9 +838,7 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 |---|---|---|---|
 | A row template | a seam or the blank tail | Inserts its row there; on a grouped sheet, a line in the group under the pointer (SB39) | `edits.insertRows` is off |
 | A group template | a seam between groups, or the tail | Inserts the group with its lines (SB40) | `edits.insertGroups` is off |
-| A register member | a `lookup`, `reference` or `enum` cell over its register | Writes the member's key (SB41) | it is another register's member; the column is read only or stamped |
-| A register member | a `set` or `link` cell's From or To half | Adds the member to that half (SB42) | its kind is not one the column takes; the half is locked by the row's driver |
-| A driver member | a seam or the blank tail | Starts a row with it, which the copilot then fills (SB43) | `edits.insertRows` is off |
+| An author's card | a row, or a band for a group patch | Sets the fields its `drop` patch sets (SB61) | anywhere but a row (a band) |
 | A row's gutter grip | another seam | Moves the row (or line) there (SB44) | `edits.moveRows` is `none`, or `within` and the seam is in another group |
 | A band's grip | a seam between groups | Moves the group (SB44) | `edits.moveGroups` is off, as it is on a keyed record |
 
@@ -803,7 +857,8 @@ seam's index for an insertion.
 | Rows in the planner's order over an inline array | Entries in key order, or one entry's rows | A record is keyed; `entry` keeps the planner's order. |
 | `views` and `onViewsChange` | A bind handle | One prop. `Sheet.View` keeps the pair. |
 | Moves declared but no gesture | Drag to move | New. |
-| No library, no inspector | Rows · Registers · Columns; Details · Issues | New. |
+| No library, no inspector | The author's library (Rows, Columns and their own tabs); Details · Issues | New. |
+| The first design's Registers tab: every register's members, a click narrowing the sheet | Dropped (2026-10-05) | Registers stay what the cells pick from. The slice's search narrows the sheet by a member, as it always could, and an author lists a register they want to drag from as a tab of their own. |
 
 ## 12. Wires
 

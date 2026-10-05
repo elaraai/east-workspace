@@ -5,19 +5,19 @@
  * @vitest-environment jsdom
  *
  * `<Sheet.Builder>`'s library pane (#1186, `Sheet Builder Spec.md` §8,
- * SB32–SB37), over the builder's examples and their seeded records
- * (`builder.test-utils.tsx`): the three tabs with their counts and the rail;
- * each tab's cards — the templates by group with what they set, the
- * register members by where they come from, the columns with their kind and
- * eye; the searches; a member's click narrowing the sheet through the slice,
- * or selecting the card without one; a column hidden and shown, kept per
- * viewer across a remount, and still matched by the lens; and the empty
- * states.
+ * SB32, SB33, SB36, SB37, SB59, SB60), over the builder's examples and their
+ * seeded records (`builder.test-utils.tsx`): the tabs the author's `library`
+ * lists, in its order, each with its count, and no pane when it lists none;
+ * the rail's count; the Rows tab's templates by group with what they set; an
+ * author's tab's cards — label, meta, icon and group — its search, and a
+ * click selecting a card; the columns with their kind and eye, a column
+ * hidden and shown, kept per viewer across a remount and still matched by the
+ * lens; and the empty states.
  */
 
 import { test, expect } from "vitest";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ArrayType, East, StringType, StructType } from "@elaraai/east";
+import { ArrayType, East, StringType, StructType, some } from "@elaraai/east";
 import { Record, Sheet, SheetBuilderPayloadType } from "@elaraai/e3-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
@@ -25,22 +25,41 @@ import { builderHarness, mount, mountPayload, settle, slot, tabs, type Payload }
 
 builderHarness();
 
-/** A crew, for a register whose members have aliases. */
-const Crew = StructType({ code: StringType, name: StringType, aliases: ArrayType(StringType) });
+/** A crew, for an author's tab. */
+const Crew = StructType({ code: StringType, name: StringType, skill: StringType, team: StringType });
 
-/** The jobs builder with one column and a crews register: no driver, no slice, no templates. */
+/** The crews, for an author's tab. */
+const CREWS = [
+    { code: "C1", name: "Bench crew", skill: "assembly", team: "Shop floor" },
+    { code: "C2", name: "Finishing crew", skill: "spraying", team: "Finishing room" },
+    { code: "C3", name: "Fitting crew", skill: "installing", team: "Shop floor" },
+];
+/** The jobs builder's one column. */
+const TASK = { task: Sheet.column.text(ex.BuilderJob, { header: "Task" }) };
+
+/** The jobs builder with a library of the templates, the crews — an author's tab whose card dropped on a job names its task — and the columns. */
 const crewsPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
     const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-    const crews = $.let([
-        { code: "C1", name: "Bench crew", aliases: ["benches"] },
-        { code: "C2", name: "Finishing crew", aliases: ["paint shop"] },
-    ], ArrayType(Crew));
-    return Sheet.BuilderPayload({
-        record: jobs,
-        columns: { task: Sheet.column.text(ex.BuilderJob, { header: "Task" }) },
-        registers: { crews: Sheet.register.members(crews, { kind: "crew", key: (c) => c.code, label: (c) => c.name, aliases: (c) => c.aliases }) },
-        id: "crews",
-    });
+    const crews = $.let(CREWS, ArrayType(Crew));
+    return Sheet.BuilderPayload({ record: jobs, columns: TASK, id: "crews", library: [
+        Sheet.library.rows(),
+        Sheet.library.tab(crews, { name: "Crews", icon: "users", key: c => c.code, label: c => c.name, meta: c => some(c.skill), group: c => c.team,
+            drop: c => Sheet.patch(ex.BuilderJob, { task: c.name }) }),
+        Sheet.library.columns(),
+    ] });
+}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+/** The jobs builder with a library of the columns alone. */
+const columnsPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
+    return Sheet.BuilderPayload({ record: jobs, columns: TASK, id: "crews", library: [Sheet.library.columns()] });
+}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+/** The jobs builder with an author's tab with no rows, listed first, then no templates and the columns. */
+const emptyPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
+    const crews = $.let([], ArrayType(Crew));
+    return Sheet.BuilderPayload({ record: jobs, columns: TASK, id: "crews", library: [
+        Sheet.library.tab(crews, { name: "Crews", key: c => c.code, label: c => c.name }), Sheet.library.rows(), Sheet.library.columns(),
+    ] });
 }), getRegisteredPlatformImplementations()) as unknown as () => Payload;
 
 /** The library pane. */
@@ -61,18 +80,21 @@ const panel = (container: HTMLElement) => pane(container).querySelector<HTMLElem
 const heads = (container: HTMLElement) => [...panel(container).querySelectorAll("[data-library-head]")]
     .map((head) => [head.children[0]!.textContent, head.children[1]!.textContent]);
 
+/** A card's body: its name and the line under it — the card's block that is not its icon tile. */
+const bodyOf = (card: HTMLElement) => [...card.children].find((el) => el.tagName === "DIV" && el.querySelector(":scope > svg") === null)!;
+
 /** A panel's cards, in order: each card's name, the line under it, and what trails it — its tag, or its glyph's words. */
 const cards = (container: HTMLElement) => [...panel(container).querySelectorAll<HTMLElement>("[data-library-item]")].map((card) => {
-    const body = card.querySelector(":scope > div")!;
+    const body = bodyOf(card);
     const trailing = card.querySelector(":scope > div:last-child:not(:first-of-type)");
-    const trail = trailing === null ? null : [...trailing.children].map((el) => el.getAttribute("aria-label") ?? el.textContent).join(" ");
+    const trail = trailing === null || trailing === body ? null : [...trailing.children].map((el) => el.getAttribute("aria-label") ?? el.textContent).join(" ");
     return [body.children[0]!.textContent, body.children[1]?.textContent ?? null, trail];
 });
 
 /** A card of the open tab, by its name. */
 const cardNamed = (container: HTMLElement, name: string) => {
     const card = [...panel(container).querySelectorAll<HTMLElement>("[data-library-item]")]
-        .find((c) => c.querySelector(":scope > div")!.children[0]!.textContent === name);
+        .find((c) => bodyOf(c).children[0]!.textContent === name);
     if (card === undefined) throw new Error(`no card ${name}`);
     return card;
 };
@@ -93,15 +115,34 @@ const emptyState = (container: HTMLElement) => {
 /** The columns the grid draws, by their header cells' keys. */
 const headerKeys = (container: HTMLElement) => [...slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="headerCell"]')].map((cell) => cell.dataset["key"]);
 
-test("the library has three tabs, Rows, Registers and Columns, each with its count; collapsed, it is a rail with the templates' count (SB32)", async () => {
+test("the library holds the tabs `library` lists, in its order, each with its count; collapsed, it is a rail with the templates' count (SB32)", async () => {
     const { container } = mount(ex.sheetBuilderWorkshop);
     await settle();
-    // Eleven templates; nine activities, twelve machines, five families, three statuses; six columns.
-    expect(tabs(pane(container))).toEqual(["Rows 11", "Registers 29", "Columns 6"]);
+    // Eleven templates; three statuses; six columns.
+    expect(tabs(pane(container))).toEqual(["Rows 11", "Statuses 3", "Columns 6"]);
     fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
     await settle();
     expect(pane(container).hasAttribute("data-collapsed")).toBe(true);
     expect(within(pane(container)).getByText("11")).toBeTruthy();
+});
+
+test("a builder whose library lists no tab has no library pane (SB59)", async () => {
+    const { container } = mount(ex.sheetBuilder);
+    await settle();
+    expect(container.querySelector("[data-builder-frame]")).not.toBeNull();
+    expect(slot(container, "start")).toBeNull();
+    // Main and the inspector are where they were.
+    expect(slot(container, "main")!.querySelector('[data-sheet] [role="grid"]')).not.toBeNull();
+    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues"]);
+});
+
+test("without a Rows tab, the rail counts the first tab's cards", async () => {
+    const { container } = mountPayload(columnsPayload());
+    await settle();
+    expect(tabs(pane(container))).toEqual(["Columns 1"]);
+    fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
+    await settle();
+    expect(within(pane(container)).getByText("1")).toBeTruthy();
 });
 
 test("Rows lists the templates by group: each its name, and what it sets as the columns print it, or a group template's band cells and lines (SB33)", async () => {
@@ -129,64 +170,50 @@ test("Rows lists the templates by group: each its name, and what it sets as the 
     expect(cards(container).map(([name]) => name)).toEqual(["Wrapping", "Delivery"]);
 });
 
-test("Registers lists the driver's members first, then each register's by register and kind — label, meta and kind (SB34)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop);
-    await settle();
-    await openTab(container, "Registers");
-    expect(heads(container)).toEqual([["Activity · driver", "9"], ["machines · machine", "12"], ["machines · family", "5"], ["statuses · status", "3"]]);
-    const all = cards(container);
-    // A driver member: its label, its meta, and its kind as its tag.
-    expect(all[0]).toEqual(["Panel cutting", "panels", "activity"]);
-    // A register's members, in its order (the machines record's, by code): label, then meta and kind; a family's
-    // meta says its kind already; a status carries its tone.
-    expect(all.slice(9, 11)).toEqual([["A701", "assembly bench · machine", null], ["A702", "assembly bench · machine", null]]);
-    expect(all.slice(21, 23)).toEqual([["assembly bench", "family", null], ["edge bander", "family", null]]);
-    expect(all.slice(26)).toEqual([["PLANNED", "status", "neutral tone"], ["RELEASED", "status", "info tone"], ["ON HOLD", "status", "warning tone"]]);
-    expect(cardNamed(container, "ON HOLD").querySelector('[role="img"]')!.getAttribute("data-tone")).toBe("warning");
-});
-
-test("the Registers search reads keys, labels and aliases (SB34)", async () => {
+test("an author's tab lists one card per row — its label, its meta, the tab's icon — grouped by its group (SB60)", async () => {
     const { container } = mountPayload(crewsPayload());
     await settle();
-    await openTab(container, "Registers");
-    expect(cards(container).map(([name]) => name)).toEqual(["Bench crew", "Finishing crew"]);
-    await search(container, "paint");
+    expect(tabs(pane(container))).toEqual(["Rows 0", "Crews 3", "Columns 1"]);
+    await openTab(container, "Crews");
+    expect(heads(container)).toEqual([["Shop floor", "2"], ["Finishing room", "1"]]);
+    expect(cards(container)).toEqual([
+        ["Bench crew", "assembly", null],
+        ["Fitting crew", "installing", null],
+        ["Finishing crew", "spraying", null],
+    ]);
+    // Each card wears the tab's icon.
+    expect(cardNamed(container, "Bench crew").querySelector('svg[data-icon="users"]')).not.toBeNull();
+    // The workshop's statuses: a card per status, nothing under its name.
+    cleanup();
+    const workshop = mount(ex.sheetBuilderWorkshop);
+    await settle();
+    await openTab(workshop.container, "Statuses");
+    expect(cards(workshop.container)).toEqual([["PLANNED", null, null], ["RELEASED", null, null], ["ON HOLD", null, null]]);
+});
+
+test("an author's tab's search reads each card's key, label and meta", async () => {
+    const { container } = mountPayload(crewsPayload());
+    await settle();
+    await openTab(container, "Crews");
+    await search(container, "spray");
     expect(cards(container).map(([name]) => name)).toEqual(["Finishing crew"]);
-    await search(container, "c1");
+    await search(container, "c3");
+    expect(cards(container).map(([name]) => name)).toEqual(["Fitting crew"]);
+    await search(container, "bench");
     expect(cards(container).map(([name]) => name)).toEqual(["Bench crew"]);
-    await search(container, "finishing");
-    expect(cards(container).map(([name]) => name)).toEqual(["Finishing crew"]);
 });
 
-test("with a slice, a member's click narrows the sheet to the rows that name it through the slice's search; a click on it again lets go (SB35)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop);
-    await settle();
-    await openTab(container, "Registers");
-    const toolbar = slot(container, "toolbar")!;
-    expect(toolbar.querySelector('[data-slot="toolbarCount"]')).toBeNull();
-    fireEvent.click(cardNamed(container, "Edge banding"));
-    await settle();
-    // Four orders band their edges: four matches, each a hit line.
-    expect(toolbar.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("4 matches");
-    expect(slot(container, "main")!.querySelectorAll('[data-slot="gutterNumber"][data-hit]')).toHaveLength(4);
-    expect(cardNamed(container, "Edge banding").hasAttribute("data-placed")).toBe(true);
-    fireEvent.click(cardNamed(container, "Edge banding"));
-    await settle();
-    expect(toolbar.querySelector('[data-slot="toolbarCount"]')).toBeNull();
-    expect(cardNamed(container, "Edge banding").hasAttribute("data-placed")).toBe(false);
-});
-
-test("without a slice, a member's click selects its card, and a click on it again lets it go (SB35)", async () => {
+test("a click on an author's card selects it, a click on another moves the selection, and a click on the selected card lets it go (SB60)", async () => {
     const { container } = mountPayload(crewsPayload());
     await settle();
-    await openTab(container, "Registers");
+    await openTab(container, "Crews");
+    const placed = () => ["Bench crew", "Fitting crew", "Finishing crew"].map((name) => cardNamed(container, name).hasAttribute("data-placed"));
     fireEvent.click(cardNamed(container, "Bench crew"));
     await settle();
-    expect(cardNamed(container, "Bench crew").hasAttribute("data-placed")).toBe(true);
-    expect(cardNamed(container, "Finishing crew").hasAttribute("data-placed")).toBe(false);
+    expect(placed()).toEqual([true, false, false]);
     fireEvent.click(cardNamed(container, "Finishing crew"));
     await settle();
-    expect([cardNamed(container, "Bench crew"), cardNamed(container, "Finishing crew")].map((card) => card.hasAttribute("data-placed"))).toEqual([false, true]);
+    expect(placed()).toEqual([false, false, true]);
     fireEvent.click(cardNamed(container, "Finishing crew"));
     await settle();
     expect(panel(container).querySelector("[data-placed]")).toBeNull();
@@ -229,15 +256,22 @@ test("Columns lists the columns in order with their kind and an eye; a hidden co
     expect(localStorage.getItem("sheet.builder.workshop.columns")).toBe(JSON.stringify([]));
 });
 
-test("a hidden column is still what the lens matches: hiding Activity, a member's click still narrows to its rows (SB36)", async () => {
+test("a hidden column is still what the lens matches: hiding Activity, the slice's search still narrows to its rows (SB36)", async () => {
     const { container } = mount(ex.sheetBuilderWorkshop);
     await settle();
     await openTab(container, "Columns");
     fireEvent.click(cardNamed(container, "Activity"));
     await settle();
     expect(headerKeys(container)).not.toContain("activity");
-    await openTab(container, "Registers");
-    fireEvent.click(cardNamed(container, "Edge banding"));
+    // The slice's search, in the frame's toolbar — ⌘F in the grid opens it — narrows to the four orders that band their edges.
+    const grid = slot(container, "main")!.querySelector<HTMLElement>('[role="grid"]')!;
+    grid.focus();
+    fireEvent.keyDown(grid, { key: "f", metaKey: true });
+    await settle();
+    const searchBox = document.activeElement as HTMLInputElement;
+    expect(slot(container, "toolbar")!.contains(searchBox)).toBe(true);
+    await act(async () => { fireEvent.change(searchBox, { target: { value: "Edge banding" } }); });
+    fireEvent.keyDown(searchBox, { key: "Enter" });
     await settle();
     expect(slot(container, "toolbar")!.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("4 matches");
     expect(slot(container, "main")!.querySelectorAll('[data-slot="gutterNumber"][data-hit]')).toHaveLength(4);
@@ -267,13 +301,15 @@ test("a store holding something other than a list of keys hides nothing", async 
     expect(headerKeys(listed.container)).toEqual(["activity", "start", "qty", "machines"]);
 });
 
-test("an empty tab says so: No templates, No registers, or No matches naming the search (SB37)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+test("an empty tab says so: No templates, Nothing in an author's tab, or No matches naming the search (SB37)", async () => {
+    const { container } = mountPayload(emptyPayload());
     await settle();
+    // In the order `library` lists them: the author's tab first.
+    expect(tabs(pane(container))).toEqual(["Crews 0", "Rows 0", "Columns 1"]);
     await openTab(container, "Rows");
     expect(emptyState(container)).toEqual(["No templates", "This sheet offers no rows or groups to drag in."]);
-    await openTab(container, "Registers");
-    expect(emptyState(container)).toEqual(["No registers", "This sheet declares no driver and no registers."]);
+    await openTab(container, "Crews");
+    expect(emptyState(container)).toEqual(["Nothing in Crews", "Crews lists nothing yet."]);
     await openTab(container, "Columns");
     expect(emptyState(container)).toBeNull();
     await search(container, "zz");

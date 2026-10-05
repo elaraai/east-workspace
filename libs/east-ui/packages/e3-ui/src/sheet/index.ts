@@ -28,8 +28,9 @@
  * sheet through the `SheetView` carrier, and `Sheet.Payload`) · `view.ts`
  * (`<Sheet.View>`, the tag) · `builder.ts` (`<Sheet.Builder>`, an e3 record
  * edited as a sheet, and its `SheetBuilder` carrier, #1183) with `record.ts`
- * (a record's rows, #1182), `templates.ts` (the Rows tab's cards) and
- * `views.ts` (the views' bind handle).
+ * (a record's rows, #1182), `templates.ts` (the Rows tab's cards),
+ * `library.ts` (`Sheet.library.*`, the library's tabs, #1186) and `views.ts`
+ * (the views' bind handle).
  *
  * One namespace object per category, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
@@ -106,6 +107,7 @@ import { createArity, check, parseLink, printLink, SheetMembersType, SheetRegist
 import { createSheet, createSheetPayload } from "./root.js";
 import { SheetView } from "./view.js";
 import { SheetBuilder, SheetBuilderComponent, createSheetBuilderPayload } from "./builder.js";
+import { libraryColumns, libraryRows, libraryTab } from "./library.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
     createGroup,
@@ -267,6 +269,13 @@ export {
 } from "./builder.js";
 export { SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
 export {
+    SheetLibraryCardType,
+    SheetLibraryDropType,
+    SheetLibraryTabType,
+    type SheetLibraryTab,
+    type SheetLibraryTabConfig,
+} from "./library.js";
+export {
     type SheetGroupCell,
     type SheetGroupConfig,
     type SheetGroupValue,
@@ -420,6 +429,15 @@ export interface SheetNamespace {
     };
     /** A row patch — the fields a proposal or a new row's defaults set (§3.6). */
     patch: typeof createPatch;
+    /** The builder's library tabs, listed in order by `<Sheet.Builder library={[…]}>` (#1186). */
+    library: {
+        /** The Rows tab: the templates, by their group. */
+        rows: typeof libraryRows;
+        /** The Columns tab: the columns, each with an eye. */
+        columns: typeof libraryColumns;
+        /** A tab of the author's own cards, read as a register's members are, each dropping the `Sheet.patch` its `drop` returns. */
+        tab: typeof libraryTab;
+    };
     /** Sub rows (#844) — `Sheet.subRows(R, { field: (item, row) => Sheet.subRow({ … }) })`, keyed by `R`'s array fields. */
     subRows: typeof createSubRows;
     /** One sub row — `Sheet.subRow({ code?, name, chips?, facets?, id? })`. */
@@ -613,7 +631,8 @@ export interface SheetNamespace {
  * `<Sheet.View>`, declare columns with `Sheet.column.*`
  * (row type first), registers with `Sheet.register.members` / `.concat` and
  * the driver with `Sheet.driver`, link rules with `Sheet.link.*`, proposed
- * rows and new-row defaults with `Sheet.patch`, grouped rows with
+ * rows and new-row defaults with `Sheet.patch`, a builder's library tabs with
+ * `Sheet.library.*`, grouped rows with
  * `Sheet.group` (#740), sub rows with `Sheet.subRows` / `Sheet.subRow`
  * (#844), apply a checked batch to a collection with `Sheet.apply`, and
  * reach every East type — the closed wire types and the typed constructors
@@ -629,6 +648,7 @@ export const Sheet: SheetNamespace = {
     driver: createDriver,
     link: { arity: createArity, check, parse: parseLink, print: printLink },
     patch: createPatch,
+    library: { rows: libraryRows, columns: libraryColumns, tab: libraryTab },
     subRows: createSubRows,
     subRow: createSubRow,
     apply: applySheet,
