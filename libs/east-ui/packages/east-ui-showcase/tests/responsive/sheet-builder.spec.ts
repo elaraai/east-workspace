@@ -13,8 +13,10 @@
  * the history item last, and stays one row at every width from 1440px to
  * 360px. The panes are pinned beside main while main keeps 480px, overlaid on
  * their rails past that, and under a scrim at 560px and narrower, which a
- * click — on a phone, a tap — closes. In both themes; every measurement is
- * polled until it holds, on a page at rest.
+ * click — on a phone, a tap — closes. The library (#1186): its tabs, each
+ * with its count, and its cards' anatomy in the 272px pane; a hidden
+ * column's card dimmed, and the column out of the grid. In both themes;
+ * every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test sheet-builder --project desktop`.
@@ -115,7 +117,8 @@ test.describe("Sheet builder (#1184)", () => {
                     // The grid fills main.
                     sheetIsMain: JSON.stringify(at("[data-frame-slot=main] > [data-sheet]")) === JSON.stringify(at("[data-frame-slot=main]")),
                     footerAtFoot: [Math.round(footer.bottom - r.bottom), Math.round(footer.width)],
-                    grids: frame.querySelectorAll("[data-slot=toolbar]").length,
+                    // Main holds no toolbar row (each library tab keeps its search band, in the pane).
+                    grids: frame.querySelectorAll("[data-frame-slot=main] [data-slot=toolbar], [data-frame-slot=main] [data-toolbar]").length,
                 };
             })).toEqual({
                 border: ["0px", "0px", "0px", "0px"],
@@ -216,6 +219,98 @@ test.describe("Sheet builder (#1184)", () => {
             const at = await frameAt(box);
             return { collapsed: at.start!.collapsed, scrim: at.scrim };
         }).toEqual({ collapsed: true, scrim: null });
+    });
+});
+
+test.describe("Sheet builder — the library pane (#1186)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`the library: three tabs, each its name and count; cards that fit the 272px pane — the name 13px 600, the line under it mono 10px — under mono caps group heads; collapsed, a 44px rail with the templates' count (${theme})`, async ({ page }) => {
+            const box = await openBuilder(page, theme);
+            const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
+            await expect.poll(() => pane.evaluate((el) => {
+                // The theme's tokens, as the page resolves them.
+                const resolve = (property: "color" | "fontFamily", token: string) => {
+                    const probe = document.createElement("span");
+                    probe.style[property] = `var(${token})`;
+                    document.body.appendChild(probe);
+                    const resolved = getComputedStyle(probe)[property];
+                    probe.remove();
+                    return resolved;
+                };
+                const quiet = resolve("color", "--chakra-colors-fg-subtle");
+                const mono = resolve("fontFamily", "--chakra-fonts-mono");
+                const paneBox = el.getBoundingClientRect();
+                const tabs = [...el.querySelectorAll('[role="tab"]')].map((tab) => {
+                    const count = tab.querySelector("[data-tab-count]")!;
+                    const name = document.createRange();
+                    name.selectNodeContents(tab.firstChild!);
+                    const t = getComputedStyle(tab);
+                    const c = getComputedStyle(count);
+                    return {
+                        text: tab.textContent,
+                        name: [t.fontFamily === mono, t.fontSize, t.fontWeight, t.textTransform],
+                        count: [c.fontWeight, c.letterSpacing, c.color === quiet],
+                        gap: Math.round(count.getBoundingClientRect().left - name.getBoundingClientRect().right),
+                    };
+                });
+                const panel = el.querySelector('[role="tabpanel"]:not([hidden])')!;
+                const card = panel.querySelector("[data-library-item]")!;
+                const body = card.querySelector(":scope > div")!;
+                const label = getComputedStyle(body.children[0]!);
+                const line = getComputedStyle(body.children[1]!);
+                const head = getComputedStyle(panel.querySelector("[data-library-head] > span")!);
+                const cards = [...panel.querySelectorAll("[data-library-item]")].map((c) => c.getBoundingClientRect());
+                return {
+                    width: Math.round(paneBox.width),
+                    tabs,
+                    label: [label.fontSize, label.fontWeight],
+                    line: [line.fontFamily === mono, line.fontSize, line.color === quiet],
+                    head: [head.fontFamily === mono, head.fontSize, head.fontWeight, head.textTransform],
+                    // Every card inside the pane, none wider than it.
+                    fit: cards.every((c) => c.left >= paneBox.left && c.right <= paneBox.right),
+                };
+            })).toEqual({
+                width: 272,
+                tabs: [
+                    { text: "Rows 11", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], gap: 7 },
+                    { text: "Registers 29", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], gap: 7 },
+                    { text: "Columns 6", name: [true, "10.5px", "600", "uppercase"], count: ["500", "0.42px", true], gap: 7 },
+                ],
+                label: ["13px", "600"],
+                line: [true, "10px", true],
+                head: [true, "10px", "600", "uppercase"],
+                fit: true,
+            });
+            await box.getByRole("button", { name: "Collapse Library" }).click();
+            await expect.poll(async () => {
+                const at = await frameAt(box);
+                const badge = await pane.locator("[data-collapsed]").first().evaluate((el) => el.textContent);
+                return { collapsed: at.start!.collapsed, w: at.start!.slot.w, badge };
+            }).toEqual({ collapsed: true, w: 44, badge: expect.stringContaining("11") });
+        });
+    }
+
+    test("a hidden column's card is dimmed under an eye-slash, and the grid leaves the column out; shown again, it returns", async ({ page }) => {
+        const box = await openBuilder(page);
+        const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
+        await pane.getByRole("tab", { name: "Columns 6" }).click();
+        const notes = pane.locator('[role="tabpanel"]:not([hidden]) [data-library-item="notes"]');
+        const headers = () => box.locator("[data-frame-slot=main] [data-slot=headerCell]").evaluateAll((cells) => cells.map((c) => c.getAttribute("data-key")));
+        await expect.poll(headers).toContain("notes");
+        await notes.click();
+        await expect.poll(async () => ({
+            opacity: await notes.evaluate((el) => getComputedStyle(el).opacity),
+            eye: await notes.locator("svg[data-icon]").getAttribute("data-icon"),
+            headers: await headers(),
+        })).toEqual({ opacity: "0.45", eye: "eye-slash", headers: ["activity", "start", "end", "qty", "machines"] });
+        await notes.click();
+        await expect.poll(async () => ({
+            opacity: await notes.evaluate((el) => getComputedStyle(el).opacity),
+            eye: await notes.locator("svg[data-icon]").getAttribute("data-icon"),
+            headers: await headers(),
+        })).toEqual({ opacity: "1", eye: "eye", headers: ["activity", "start", "end", "qty", "machines", "notes"] });
     });
 });
 

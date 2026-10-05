@@ -8,7 +8,8 @@
  * narrowing drawn as hits with brand numbers and collapsed bands, the band
  * controls, the context switch, the view tabs (snapshot, dirty, update,
  * revert, close, rename), a Link column searched through its `text`
- * projection, and the paged arm's key search over `seek` — every value built
+ * projection — hidden from the grid by its host, too (#1186) — and the paged
+ * arm's key search over `seek` — every value built
  * by the east-ui factory and COMPILED, the slice bound through the real
  * `Slice.bind`.
  */
@@ -24,9 +25,9 @@ import {
 import { Paged } from "@elaraai/east-ui";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
-import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { system, Toolbar, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot, useSheetToolbarItems } from "./index.js";
 import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
 import type { SheetRootValue, SheetViewValue } from "./values.js";
 
@@ -265,6 +266,30 @@ describe("the lens (B§8)", () => {
         await waitFor(() => expect(hits()).toEqual(["6"]));
         act(() => { slice().setSearch(some("urgent")); });
         await waitFor(() => expect(hits()).toEqual(["5"]));
+    });
+
+    test("a column its host hides is still what the lens matches: the grid leaves the Link column out, and a search through it still hits, and counts in its view (#1186)", async () => {
+        const value = buildLensSheet();
+        function PlacedToolbar() {
+            return <Toolbar items={useSheetToolbarItems()} />;
+        }
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <SheetProvider value={value} storageKey="sheet-lens-hidden" host={{ hidden: new Set(["stations"]) }}>
+                    <PlacedToolbar />
+                    <SheetRoot><SheetGrid /></SheetRoot>
+                </SheetProvider>
+            </ChakraProvider>,
+        );
+        const hits = () => [...container.querySelectorAll('[data-slot="gutterNumber"][data-hit]')].map((n) => n.textContent);
+        await waitFor(() => expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
+        expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((c) => c.getAttribute("data-key"))).toEqual(["activity", "notes", "qty"]);
+        // ROUTER matches row 2 through its work centres alone: `2 x CNC router`.
+        expect(container.querySelector('[data-slot="tab"][data-tab="router"] [data-slot="tabCount"]')!.textContent).toBe("1");
+        // R2141 is named only in row 6's work centres.
+        act(() => { getSliceHandle(value).setSearch(some("r2141")); });
+        await waitFor(() => expect(hits()).toEqual(["6"]));
+        expect(container.querySelector('[data-slot="cell"][data-key="stations"]')).toBeNull();
     });
 });
 

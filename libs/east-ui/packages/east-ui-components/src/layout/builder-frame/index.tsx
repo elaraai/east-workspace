@@ -120,8 +120,8 @@ export interface BuilderFrameDock {
     label: string;
     /** What it holds, when it has no tabs: one body. */
     body?: ReactNode;
-    /** What it holds: tabs, each with its own body. */
-    tabs?: ReadonlyArray<{ key: string; label: string; body: ReactNode }> | undefined;
+    /** What it holds: tabs, each with its own body and, after its label, any count of what it holds. */
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | undefined; body: ReactNode }> | undefined;
     /** The open tab: the host's; omitted, the pane's own, kept under the frame's storage key. */
     tab?: string | undefined;
     /** Told each time a tab is opened from the pane, with its key. */

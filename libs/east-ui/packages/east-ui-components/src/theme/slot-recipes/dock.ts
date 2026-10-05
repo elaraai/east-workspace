@@ -6,11 +6,12 @@
 /**
  * Dock slot recipe — the design system's docked pane, as the Studio spec
  * draws its palette and inspector. Expanded, the pane has one row: its tab
- * row, the mono caps labels with the open tab underlined in ink, and the
- * collapse control at the row's end. Collapsed, the rail: a bar holding the
- * expand control, then the icon tile, the count, the label and the detail,
- * read down the rail — the tile and the count in the brand while the pane is
- * active, as the inspector's are while a tile is selected. The recipe carries
+ * row, the mono caps labels — each with any count after it, in the quiet ink
+ * — with the open tab underlined in ink, and the collapse control at the
+ * row's end. Collapsed, the rail: a bar holding the expand control, then the
+ * icon tile, the count, the label and the detail, read down the rail — the
+ * tile and the count in the brand while the pane is active, as the
+ * inspector's are while a tile is selected. The recipe carries
  * the static chrome; the size along the collapse axis and the animated
  * transition are data-driven and set inline by the renderer.
  *
@@ -32,7 +33,7 @@ const CAPS = {
 
 export const dockSlotRecipe = defineSlotRecipe({
     className: "elara-dock",
-    slots: ["root", "header", "tabList", "tab", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
+    slots: ["root", "header", "tabList", "tab", "tabCount", "toggle", "body", "railBar", "rail", "iconTile", "badge", "railLabel", "railDetail"],
     base: {
         root: {
             display: "flex",
@@ -75,6 +76,7 @@ export const dockSlotRecipe = defineSlotRecipe({
             ...CAPS,
             display: "flex",
             alignItems: "center",
+            gap: "7px",
             height: "43px",
             padding: "0",
             background: "transparent",
@@ -90,6 +92,14 @@ export const dockSlotRecipe = defineSlotRecipe({
             "&[data-selected]": { color: "fg", borderBottomColor: "fg" },
             /* The label as the pane's only tab is a name, not a control. */
             "span&": { cursor: "default" },
+        },
+        /* What a tab holds, counted after its label: lighter, near-untracked
+         * tabular figures in the quiet ink, open or not. */
+        tabCount: {
+            fontWeight: "500",
+            letterSpacing: "0.04em",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.subtle",
         },
         toggle: {
             flexShrink: 0,

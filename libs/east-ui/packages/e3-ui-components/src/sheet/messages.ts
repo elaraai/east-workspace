@@ -31,6 +31,7 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
 import { pluralKind } from "./link/grammar.js";
+import type { SheetKind } from "./model.js";
 
 /** A date column's level, as the words name it (#844). */
 export type SheetLevelWord = "week" | "day" | "range" | "time";
@@ -479,6 +480,26 @@ export interface SheetMessages extends EditingMessages {
     libraryPane: () => string;
     /** A library tab. */
     libraryTab: (p: { tab: SheetLibraryTabWord }) => string;
+    /** A library tab's empty state: its title — `No templates` (#1186, SB37). */
+    libraryEmpty: (p: { tab: SheetLibraryTabWord }) => string;
+    /** The line under it. */
+    libraryEmptyHint: (p: { tab: SheetLibraryTabWord }) => string;
+    /** What a library tab's search box counts its cards as — `template`, `templates`. */
+    libraryNoun: (p: { tab: SheetLibraryTabWord; n: number }) => string;
+    /** What a library tab's cards are grouped by: its grouping control's words. */
+    libraryGroupBy: (p: { tab: SheetLibraryTabWord }) => string;
+    /** A group template's line count, on its card — `4 lines` (SB33). */
+    templateLines: (p: { n: number; count: string }) => string;
+    /** The driver's members' group, first in the Registers tab — `Activity · driver` (SB34). */
+    driverGroup: (p: { header: string }) => string;
+    /** A register's members of one kind, as the Registers tab groups them — `machines · machine`. */
+    registerGroup: (p: { register: string; kind: string }) => string;
+    /** The glyph of a member that carries a tone: the tone, in words. */
+    memberTone: (p: { tone: string }) => string;
+    /** A column's kind, as the Columns tab names it (SB36). */
+    columnKind: (p: { kind: SheetKind }) => string;
+    /** A column's eye: shown, hidden, or the last one shown, which stays. */
+    columnEye: (p: { hidden: boolean; last: boolean }) => string;
     /** The inspector pane's name. */
     inspectorPane: () => string;
     /** An inspector tab. */
@@ -729,6 +750,19 @@ export const sheetMessages: SheetMessages = {
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "rows" ? "Rows" : tab === "registers" ? "Registers" : "Columns"),
+    libraryEmpty: ({ tab }) => (tab === "rows" ? "No templates" : tab === "registers" ? "No registers" : "No columns"),
+    libraryEmptyHint: ({ tab }) => (tab === "rows" ? "This sheet offers no rows or groups to drag in."
+        : tab === "registers" ? "This sheet declares no driver and no registers."
+            : "This sheet declares no columns."),
+    libraryNoun: ({ tab, n }) => (tab === "rows" ? plural(n, "template", "templates")
+        : tab === "registers" ? plural(n, "member", "members") : plural(n, "column", "columns")),
+    libraryGroupBy: ({ tab }) => (tab === "rows" ? "Category" : "Register"),
+    templateLines: ({ n, count }) => `${count} ${plural(n, "line", "lines")}`,
+    driverGroup: ({ header }) => `${header} · driver`,
+    registerGroup: ({ register, kind }) => `${register} · ${kind}`,
+    memberTone: ({ tone }) => `${tone} tone`,
+    columnKind: ({ kind }) => kind,
+    columnEye: ({ hidden, last }) => (hidden ? "Hidden — click to show" : last ? "Shown — the last column shown stays" : "Shown — click to hide"),
     inspectorPane: () => "Inspector",
     inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
     savedAt: ({ when }) => `saved ${when}`,

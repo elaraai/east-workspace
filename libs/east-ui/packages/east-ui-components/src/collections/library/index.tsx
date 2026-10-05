@@ -28,6 +28,7 @@ import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { useFormatters } from "../../format/index.js";
 import { EastChakraComponent } from "../../component";
+import { EmptyStateView } from "../../feedback/empty-state/index.js";
 
 const libraryEqual = equivalentFor(Library.Types.Library);
 
@@ -51,7 +52,24 @@ export interface EastChakraLibraryProps {
      * in place of the item's East `media`; every card of the gallery shows it.
      */
     renderMedia?: ((item: LibraryItemValue) => ReactNode) | undefined;
+    /**
+     * What the Library says while it holds no item — a host's words, `No
+     * templates`, as the shared empty state. A search or a filter that hides
+     * every card says `No matches` itself.
+     */
+    empty?: LibraryEmpty | undefined;
 }
+
+/** What an empty Library says: the empty state's title, and the line under it. */
+export interface LibraryEmpty {
+    /** Its title — `No templates`. */
+    title: string;
+    /** The line under it. */
+    description?: string | undefined;
+}
+
+/** The empty state's glyph: an empty box, the design system's. */
+const EMPTY_GLYPH = "☐";
 
 type SlotStyles = Record<string, SystemStyleObject>;
 
@@ -214,6 +232,7 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, 
     return (
         <Box
             css={styles.card}
+            data-library-item={item.key}
             {...drag}
             {...click}
             {...(filtered ? { "data-filtered": "" } : {})}
@@ -387,7 +406,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
 function LibraryGroupHead({ label, count, summary, styles }: { label: string; count: number; summary: string | undefined; styles: SlotStyles }) {
     const words = useFormatters();
     return (
-        <Box css={styles.groupHead}>
+        <Box css={styles.groupHead} data-library-head="">
             <Box as="span" css={styles.groupLabel}>{label}</Box>
             <Box as="span" css={styles.groupSummary}>{summary ?? words.number(count)}</Box>
         </Box>
@@ -607,7 +626,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
@@ -709,6 +728,10 @@ function LibraryCore({ value, storageKey, rail, renderMedia }: LibraryCoreProps)
         () => value.items.filter(hides).length,
         [value.items, hides],
     );
+    // Nothing to show: no item at all, in the host's words; or a search or a filter that hides every card.
+    const nothing: LibraryEmpty | undefined = value.items.length === 0 ? empty
+        : hiddenCount < value.items.length ? undefined
+            : { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
     const noun = getSomeorUndefined(value.noun);
 
     const hint = getSomeorUndefined(value.hint);
@@ -1051,6 +1074,11 @@ function LibraryCore({ value, storageKey, rail, renderMedia }: LibraryCoreProps)
                 {...(virtualEnabled ? { "data-virtual": "" } : {})}
                 onScroll={handleScrollPersist}
             >
+                {nothing !== undefined && (
+                    <Box data-library-empty="">
+                        <EmptyStateView glyph={EMPTY_GLYPH} title={nothing.title} description={nothing.description} />
+                    </Box>
+                )}
                 {bodyContent}
             </Box>
             {(hiddenCount > 0 || (!gallery && addLabel !== undefined)) && (
@@ -1119,4 +1147,5 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
             </Box>
         </Box>
     );
-}, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia);
+}, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
+    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description);

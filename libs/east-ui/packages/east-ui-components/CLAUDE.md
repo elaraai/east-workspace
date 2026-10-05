@@ -172,11 +172,16 @@ component, nothing in east-ui.
   the search box a key focuses); `onKeyDown` hears keys from anywhere in the
   frame, the panes included.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
-  a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs`, `tab` /
-  `onTabChange`, `icon`, `badge`, `detail`, `active`, `size` — 320px by
-  default — `mode`, `collapsed` / `defaultCollapsed` / `onCollapsedChange`,
-  `persist`, `collapsible`), or `{ element }`, placed as it is and pinned at
-  its side (a SnapGrid's East `Dock` pane, which draws itself).
+  a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
+  `count`, when given, follows its name, the Calendar's and the Sheet
+  builder's `ROWS 11` — `tab` / `onTabChange`, `icon`, `badge`, `detail`,
+  `active`, `size` — 320px by default — `mode`, `collapsed` /
+  `defaultCollapsed` / `onCollapsedChange`, `persist`, `collapsible`), or
+  `{ element }`, placed as it is and pinned at its side (a SnapGrid's East
+  `Dock` pane, which draws itself). A pane tab that lists cards is a
+  `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
+  `empty` words say what an empty tab shows; a search or a filter that
+  hides every card says `No matches` itself, in the shared empty state.
 - **Modes.** `pinned`: in the flow; opening it pushes main aside over the
   design system's `--dur-base` on `--ease-in-out`. `overlay`: its 44px rail
   stays in the flow, so main never moves; open, the pane floats over main
