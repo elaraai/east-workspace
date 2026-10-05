@@ -178,6 +178,7 @@ export {
     EastChakraLibrary,
     type LibraryValue,
     type LibraryItemValue,
+    type LibraryEmpty,
     type EastChakraLibraryProps,
     EastChakraRoster,
     type RosterValue,
