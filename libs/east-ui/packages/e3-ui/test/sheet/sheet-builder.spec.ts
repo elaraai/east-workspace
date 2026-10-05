@@ -280,6 +280,82 @@ describe("the library (SB59, SB60)", () => {
     });
 });
 
+// A grouped sheet whose lines carry a link: what a member check and an arity
+// rule over the line are written against (#1214).
+const MachineOp = StructType({ activity: StringType, qty: OptionType(FloatType), machines: Sheet.Types.Link });
+const MachineOrder = StructType({ name: StringType, ops: ArrayType(MachineOp) });
+const MachineActivity = StructType({ name: StringType, family: StringType });
+const MACHINE_ORDERS = new SortedMap([["WO-1", { name: "WO-1 · Kitchen", ops: [
+    { activity: "Panel cutting", qty: some(48.0), machines: { from: [], to: [] } },
+] }]], compareFor(StringType));
+const MACHINE_ACTIVITIES = [{ name: "Panel cutting", family: "beam saw" }];
+type Column = ValueTypeOf<typeof Sheet.Types.Column>;
+
+// One entry's groups with loose rows between them, as a record holds them (#1214).
+const LooseTask = StructType({ id: StringType, task: StringType });
+const LoosePackage = StructType({ id: StringType, name: StringType, tasks: ArrayType(LooseTask) });
+const LooseWeek = StructType({ entries: ArrayType(Sheet.Types.Entry(LoosePackage, "tasks")) });
+const looseWork = e3.record("sheet_builder_spec_loose", DictType(StringType, LooseWeek), new Map([
+    ["w", { entries: [
+        variant("row", { id: "brief", task: "Check the drawings" }),
+        variant("group", { id: "doors", name: "Kitchen doors", tasks: [{ id: "doors-1", task: "Cut door blanks" }] }),
+    ] }],
+]));
+const looseWorkPatch = e3.mutation.patch(looseWork);
+
+describe("grouped checks and loose rows (#1214)", () => {
+    test("a grouped sheet's member check reads its line's fields, typed, on a link column beside an arity rule over the line", () => {
+        const columns = East.compile(East.function([], ArrayType(Sheet.Types.Column), ($) => {
+            const orders = $.const(MACHINE_ORDERS, DictType(StringType, MachineOrder));
+            const activities = $.const(MACHINE_ACTIVITIES, ArrayType(MachineActivity));
+            // The line's own activity, read typed: `CheckContext(P, "lines")` types its row as the line's draft.
+            const named = $.const(East.function([Sheet.Types.CheckContext(MachineOrder, "ops")], OptionType(StringType), (_$2, c) =>
+                c.row.activity.match({
+                    value: (_$3, activity) => East.value(some(East.str`${activity} names no machine`), OptionType(StringType)),
+                }, (_$3) => East.value(none, OptionType(StringType)))));
+            const one = $.const(East.function([Sheet.Types.Context(MachineOrder, "ops", MachineActivity)], OptionType(Sheet.Types.Counted), (_$2, ctx) =>
+                ctx.driver.match({
+                    some: (_$3, a) => East.value(some({ n: 1n, key: a.family }), OptionType(Sheet.Types.Counted)),
+                    none: (_$3) => East.value(none, OptionType(Sheet.Types.Counted)),
+                })));
+            const build = createSheetBuild(orders, {
+                activity: Sheet.column.lookup(MachineOp, { header: "Activity" }),
+                // The check beside the arity: the column's row type stays the line, so both are taken.
+                machines: Sheet.column.link(MachineOp, MachineActivity, "machines", {
+                    header: "Machines", arity: Sheet.link.arity("from", one), check: [Sheet.link.check.exists(), named],
+                }),
+            }, {
+                group: Sheet.group(MachineOrder, "ops", { title: "name" }),
+                driver: Sheet.driver("activity", activities, { key: (a) => a.name, label: (a) => a.name }),
+                registers: { machines: Sheet.register.members(activities, { kind: "family", key: (a) => a.family, label: (a) => a.family }) },
+            }, { keyOrdered: true });
+            return build.root.columns;
+        }), []);
+        const [, machines] = columns() as Column[];
+        if (machines!.kind.type !== "link") assert.fail(`expected a link column, got ${machines!.kind.type}`);
+        assert.deepEqual(machines!.kind.value.check.map((c) => c.type), ["exists", "custom"]);
+        assert.equal(machines!.kind.value.arity.type, "some");
+    });
+
+    test("a builder takes one entry's groups with loose rows between them, Sheet.Types.Entry(P, \"lines\"): the tag types the form, and its payload builds", () => {
+        inBlock(($) => {
+            const work = $.let(Record.bind(looseWork, [looseWorkPatch]));
+            // Through the tag, typed: the entry's rows hold groups and loose rows, its id a field of both.
+            Sheet.Builder({
+                record: work, entry: { key: "w", rows: "entries", id: "id" },
+                group: Sheet.group(LoosePackage, "tasks", { title: "name" }),
+                columns: { task: Sheet.column.text(LooseTask, { header: "Task" }) },
+            });
+            const payload = Sheet.BuilderPayload({
+                record: work, entry: { key: "w", rows: "entries", id: "id" },
+                group: Sheet.group(LoosePackage, "tasks", { title: "name" }),
+                columns: { task: Sheet.column.text(LooseTask, { header: "Task" }) },
+            });
+            assert.ok(isTypeEqual(typeOf(payload), SheetBuilderPayloadType));
+        });
+    });
+});
+
 describe("refusals (SB7), each naming the prop and the remedy", () => {
     const counter = e3.record("sheet_builder_spec_counter", IntegerType, 0n);
     const bump = e3.mutation.reduce("bump", counter, East.function([IntegerType], IntegerType, (_$, n) => n.add(1n)));

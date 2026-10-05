@@ -1282,7 +1282,7 @@ export function SheetGroupContextTypeFor<P extends StructType, F extends SheetLi
  * @param lines - The lines field
  * @returns The concrete check-context `StructType`
  */
-export function SheetGroupCheckContextTypeFor<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F) {
+export function SheetGroupCheckContextTypeFor<P extends StructType, F extends SheetLinesField<P>>(groupType: P, lines: F): SheetGroupCheckContextOf<P, F> {
     const { lineType } = sheetLinesOf(groupType, lines);
     return StructType({
         rowIndex: IntegerType,
@@ -1290,7 +1290,7 @@ export function SheetGroupCheckContextTypeFor<P extends StructType, F extends Sh
         group:    OptionType(SheetDraftGroupTypeFor(groupType, lines)),
         half:     SheetHalfType,
         member:   SheetMemberType,
-    });
+    }) as unknown as SheetGroupCheckContextOf<P, F>;
 }
 
 // ============================================================================
@@ -1318,8 +1318,14 @@ export type SheetGroupContextOf<P extends StructType, L extends StructType, D ex
     driver:   OptionType<D>;
     today:    DateTimeType;
 }>;
-/** The TS type of `Sheet.Types.CheckContext(P, "lines")`. */
-export type SheetGroupCheckContextOf<P extends StructType, F extends SheetLinesField<P>> = ReturnType<typeof SheetGroupCheckContextTypeFor<P, F>>;
+/** The TS type of `Sheet.Types.CheckContext(P, "lines")` — the LINE's draft as the row, so a check reads the line's fields. */
+export type SheetGroupCheckContextOf<P extends StructType, F extends SheetLinesField<P>> = StructType<{
+    rowIndex: IntegerType;
+    row:      SheetDraftOf<SheetLineOf<P, F>>;
+    group:    OptionType<SheetDraftGroupOf<P, F>>;
+    half:     SheetHalfType;
+    member:   SheetMemberType;
+}>;
 /** Either context an author function may take — a flat sheet's over `R`, or a grouped sheet's over the line `R`. */
 export type SheetAnyContextOf<R extends StructType, D extends EastType = any> = SheetContextOf<R, D> | StructType<{
     rowIndex: IntegerType;
