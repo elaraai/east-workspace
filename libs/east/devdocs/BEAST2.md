@@ -268,7 +268,7 @@ After the IR, the encoder writes `varint(capture_count)` followed by each captur
 
 The decoder reads each capture, builds a `RuntimeContext` with the captures (boxed if mutable, value if immutable), and compiles the IR into a callable function with the captures injected.
 
-In TypeScript the IR is analysed before it is compiled, as a build's is (#1207): which nodes await is the analysis's output, which the IR's wire does not carry. The analysis checks the IR against the platform the decode was given. A platform function given with another signature is refused, naming it. One not given is stubbed, as the compiler stubs it: the value still decodes, and only a call fails, naming the platform function.
+In TypeScript the decoder first marks which of the IR's nodes await (`markAsync`, #1207). The compiler reads that mark, which the analysis sets on a built function and the IR's wire does not carry. The mark follows the analysis's rules, and `test/analyze_async.spec.ts` holds the two to the same answer at every node. The IR is not checked again: a build checked it, and over a UI payload's types the analysis would make a decode ten to forty times slower. A platform function the decode was not given is stubbed by the compiler: the value still decodes, and only a call fails, naming the platform function.
 
 ### 5.4 Two-Pass Encoding
 

@@ -95,19 +95,6 @@ export interface VariableMetadata {
  */
 export type VariableContext = Record<string, VariableMetadata>;
 
-/** Options accepted by {@link analyzeIR}. */
-export interface AnalyzeOptions {
-  /**
-   * Allows every platform function the platform does not define, as the IR
-   * allows one it marks `optional`: its arguments are analysed without its
-   * signature, and the compiler gives it a stub that throws when it is
-   * called. A decoded function value is analysed so — it decodes wherever it
-   * is read, and only a call needs the platform. Defaults to `false`: a
-   * build refuses a platform function it is not given.
-   */
-  allowMissingPlatform?: boolean;
-}
-
 /**
  * Analyze IR tree and produce enriched IR for JavaScript backend.
  *
@@ -119,7 +106,6 @@ export interface AnalyzeOptions {
  * @param ir - The IR tree to analyze
  * @param platformDef - Platform function definitions with async metadata
  * @param ctx - Variable context mapping variable names to their metadata
- * @param options - What the analysis allows beyond a build's rules
  * @returns Enriched IR with metadata fields populated
  * @throws {Error} If IR is invalid (type errors, undefined variables, etc.)
  *
@@ -139,7 +125,6 @@ export function analyzeIR<T extends IR>(
   ir: T,
   platformDef: PlatformDefinition[],
   ctx: VariableContext = {},
-  options: AnalyzeOptions = {},
 ): AnalyzedIR<T> {
   // Working data for tracking during analysis
   const analysis = new Map<IR, { captured?: boolean }>();
@@ -440,17 +425,16 @@ export function analyzeIR<T extends IR>(
       // Look up platform function
       const platformFn = platformMap.get(node.value.name);
       if (!platformFn) {
-        // Allow a missing platform function only if the IR marks this one as
-        // optional, or the caller allows any to be missing
-        if (!node.value.optional && !options.allowMissingPlatform) {
+        // Allow missing platforms only if this specific platform function is marked as optional in the IR
+        if (!node.value.optional) {
           throw new Error(
             `Platform function '${node.value.name}' not found ` +
             `at loc_id ${node.value.loc_id}`
           );
         }
 
-        // Analyze the arguments without type validation, and let compile
-        // inject a runtime error stub
+        // allowMissingPlatform is true - analyze arguments without type validation
+        // and let compile inject a runtime error stub
         const analyzedArgs: AnalyzedIR[] = [];
         for (const arg of node.value.arguments) {
           const argAnalyzed = visit(arg, ctx, expectedReturnType);
