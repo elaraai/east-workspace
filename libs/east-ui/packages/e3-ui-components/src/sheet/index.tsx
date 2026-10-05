@@ -56,7 +56,7 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, StringType, compareFor, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetViewComponent } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem } from "@elaraai/east-ui-components";
@@ -70,6 +70,7 @@ import {
 } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
 import { placeInOrder } from "./placement.js";
+import { keyOrderOf } from "./key-order.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek } from "./use-seek.js";
 import { lensCount, lensGaps, lensHits, lensLineHits, lensSubRowHits, lensTitleHit, lensVisible, narrowingActive, nextReach, type LensGap } from "./lens.js";
@@ -120,7 +121,6 @@ const COARSE_GUTTER_PX = 254;
 const sheetRootEqual = equivalentFor(Sheet.Types.Root);
 const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 const stringEqual = equalFor(StringType);
-const stringCompare = compareFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const sliceStateEqual = equalFor(Slice.Types.State) as (a: SliceStateValue, b: SliceStateValue) => boolean;
 const viewsEqual = equalFor(ArrayType(Sheet.Types.View)) as (a: readonly SheetViewValue[], b: readonly SheetViewValue[]) => boolean;
@@ -139,8 +139,8 @@ function viewTitle(view: SheetViewValue, words: SheetWords): string {
     return words.m.viewTitle({ scope, query: q, context: ctx > 0 ? words.number(ctx) : undefined });
 }
 
-/** The decoded rows with the local layer applied — its placements in one linear pass (#859). */
-function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, keyed = false): SheetRowValue[] {
+/** The decoded rows with the local layer applied — its placements in one linear pass (#859), and a keyed source's rows in key order (#1182). */
+function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, keyOrder?: (a: string, b: string) => number): SheetRowValue[] {
     if (layer.edits.size === 0 && layer.appended.length === 0 && layer.removed.size === 0 && layer.placements.size === 0) return source as SheetRowValue[];
     const out: SheetRowValue[] = [];
     for (const r of source) {
@@ -149,7 +149,7 @@ function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, keyed =
     }
     for (const r of layer.appended) if (!layer.removed.has(r.id)) out.push(layer.edits.get(r.id) ?? r);
     const placed = placeInOrder(out, (row) => row.id, layer.placements);
-    if (keyed) placed.sort((a, b) => stringCompare(a.id, b.id));
+    if (keyOrder !== undefined) placed.sort((a, b) => keyOrder(a.id, b.id));
     return placed;
 }
 
@@ -422,8 +422,10 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
     const noun = useMemo<SheetNounValue>(() => declaredNoun ?? { singular: words.m.groupNoun(), plural: words.m.groupNouns() }, [declaredNoun, words.m]);
     const readOnly = (getSomeorUndefined(value.readOnly) ?? false) || value.editing.onApply.type === "none";
     const capabilities = value.editing.edits;
-    // A keyed paged source (#880): its rows sort by key, so nothing is placed by position.
+    // A keyed source — paged (#880), or a record read whole (#1182): its rows
+    // sort by key, at the key's own type, so nothing is placed by position.
     const keyed = value.editing.keyType.type === "some";
+    const keyOrder = useMemo(() => (value.editing.keyType.type === "some" ? keyOrderOf(value.editing.keyType.value) : undefined), [value.editing.keyType]);
     const canInsertRows = !readOnly && capabilities.insertRows;
     const canInsertGroups = !readOnly && capabilities.insertGroups && group !== undefined;
     // The grouped blank-tail path remains until all insertions use explicit destinations.
@@ -583,7 +585,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
     const layerRef = useRef(layer);
     layerRef.current = layer;
     const setLayer = useCallback((fn: (prev: LocalLayer) => LocalLayer) => { layerRef.current = fn(layerRef.current); }, []);
-    const rows = useMemo(() => applyLayer(sourceRows, layer, keyed), [sourceRows, layer, keyed]);
+    const rows = useMemo(() => applyLayer(sourceRows, layer, keyOrder), [sourceRows, layer, keyOrder]);
     // Each row's position on screen, where each failed window sits among the
     // rows, and the contiguous runs between them (#853).
     const runLayout = useMemo(() => {
@@ -996,7 +998,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
             byRow.set(k, entry);
         }
         const base = layerRef.current;
-        const rowsNow = applyLayer(sourceRows, base, keyed);
+        const rowsNow = applyLayer(sourceRows, base, keyOrder);
         const edits = new Map(base.edits);
         const appended = [...base.appended];
         const events: SheetEditValue[] = [];
@@ -1141,7 +1143,7 @@ function useSheet(value: SheetRootValue, storageKey: string): SheetParts {
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, setLayer, emitEdit, readOnly, canInsertRows, keyed, editingState.available]);
+    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, setLayer, emitEdit, readOnly, canInsertRows, keyOrder, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
