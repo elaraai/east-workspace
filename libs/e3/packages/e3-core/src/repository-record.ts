@@ -149,7 +149,7 @@ export async function repositoryOpen(storage: StorageBackend, repo: string, opti
   if (options.apply === false) {
     throw new RepositoryUpgradePendingError(repo, owed(record, known).map((upgrade) => upgrade.name), null, true);
   }
-  return applyHeld(storage, repo, known, options.waitMs ?? UPGRADE_WAIT_MS, Infinity);
+  return applyHeld(storage, repo, known, options.waitMs ?? UPGRADE_WAIT_MS, Infinity, UPGRADE_PART_MS);
 }
 
 /** How {@link repositoryUpgradeStep} applies a part of the upgrades a
@@ -188,9 +188,12 @@ export interface RepositoryUpgradeStepResult {
  * stopped, by this process or another (`RefStore.repositoryUpgradeRead`),
  * applies it until `options.budgetMs` has passed, and records where it
  * stopped; a step it finishes is recorded in the repository's record, and the
- * part goes on to the next while its time lasts. It runs with the repository
- * held still, as an open's steps do, waiting for work running in it for as
- * long as `options.waitMs` says.
+ * part goes on to the next while its time lasts. The step's `apply` is given
+ * the whole of the budget, where an open gives it 10 s at a time, so a call
+ * records where it stopped once, and a call that crashes redoes at most its
+ * budget's work, which a step's idempotence makes safe. It runs with the
+ * repository held still, as an open's steps do, waiting for work running in it
+ * for as long as `options.waitMs` says.
  *
  * The job calls it until nothing is owed, and meanwhile an open that leaves the
  * steps to a job refuses (`repositoryOpen`'s `apply: false`), naming them. An
@@ -222,7 +225,7 @@ export async function repositoryUpgradeStep(
   const known = knownUpgrades(storage.upgrades);
   const record = await readRecord(storage, repo, known);
   if (owed(record, known).length === 0) return { owed: [] };
-  const after = await applyHeld(storage, repo, known, options.waitMs ?? UPGRADE_WAIT_MS, Date.now() + options.budgetMs);
+  const after = await applyHeld(storage, repo, known, options.waitMs ?? UPGRADE_WAIT_MS, Date.now() + options.budgetMs, Infinity);
   return { owed: owed(after, known).map((upgrade) => upgrade.name) };
 }
 
@@ -232,8 +235,8 @@ export async function repositoryUpgradeStep(
  *
  * @remarks
  * One open in this process applies the steps, and the others wait for it and
- * find them applied. A part runs until 10 s have passed or `until` does,
- * whichever is first.
+ * find them applied. A part runs until `partMs` have passed or `until` does,
+ * whichever is first: 10 s for an open, and the whole of a job's call.
  *
  * @returns The record as the parts left it
  * @throws {RepositoryUpgradePendingError} When work running in the repository
@@ -245,6 +248,7 @@ async function applyHeld(
   known: readonly RepositoryUpgrade[],
   waitMs: number,
   until: number,
+  partMs: number,
 ): Promise<RepositoryRecord> {
   return withKeyedLock(`repository-open\u0000${repo}`, async () => {
     const before = await readRecord(storage, repo, known);
@@ -256,7 +260,7 @@ async function applyHeld(
         for (const upgrade of owed(current, known)) {
           let at = await takenUpAt(storage, repo, upgrade);
           for (;;) {
-            at = await upgrade.apply(storage, repo, at, Math.min(until, Date.now() + UPGRADE_PART_MS));
+            at = await upgrade.apply(storage, repo, at, Math.min(until, Date.now() + partMs));
             if (at === null) break;
             await storage.refs.repositoryUpgradeWrite(repo, { step: upgrade.name, release: E3_RELEASE, cursor: at });
             if (Date.now() >= until) return current;

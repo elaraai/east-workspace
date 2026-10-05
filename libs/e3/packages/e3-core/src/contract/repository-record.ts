@@ -374,6 +374,18 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       }
     });
 
+    it('gives each part of a job\'s call the whole of what is left of its budget, where an open\'s are given 10 s', async (t) => {
+      const { storage, repo } = await setup(t);
+      const ran: string[] = [];
+      const allowed: number[] = [];
+      register(t, 'contract-parts', ran, { units: 3, part: 2, allowed });
+
+      assert.deepEqual(await repositoryUpgradeStep(storage, repo, { budgetMs: 60_000 }), { owed: [] });
+      assert.deepEqual(ran, ['contract-parts/0', 'contract-parts/1', 'contract-parts/2']);
+      assert.ok(allowed.length === 2 && allowed.every((ms) => ms > 50_000 && ms <= 60_000),
+        `each part is given what is left of the call's budget: ${allowed.join(', ')} ms`);
+    });
+
     it('keeps where a step stopped until the record lists it done, so a failed write of the record loses none of the step\'s work', async (t) => {
       const { storage, repo } = await setup(t);
       const ran: string[] = [];
