@@ -29,8 +29,9 @@
  * (`<Sheet.View>`, the tag) · `builder.ts` (`<Sheet.Builder>`, an e3 record
  * edited as a sheet, and its `SheetBuilder` carrier, #1183) with `record.ts`
  * (a record's rows, #1182), `templates.ts` (the Rows tab's cards),
- * `library.ts` (`Sheet.library.*`, the library's tabs, #1186) and `views.ts`
- * (the views' bind handle).
+ * `library.ts` (`Sheet.library.*`, the library's tabs, #1186), `fields.ts`
+ * (`Sheet.field`, the inspector's forms, #1188) and `views.ts` (the views'
+ * bind handle).
  *
  * One namespace object per category, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
@@ -108,6 +109,7 @@ import { createSheet, createSheetPayload } from "./root.js";
 import { SheetView } from "./view.js";
 import { SheetBuilder, SheetBuilderComponent, createSheetBuilderPayload } from "./builder.js";
 import { libraryColumns, libraryRows, libraryTab } from "./library.js";
+import { SheetField } from "./fields.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
     createGroup,
@@ -261,6 +263,7 @@ export {
     SheetBuilder,
     SheetBuilderComponent,
     SheetBuilderPayloadType,
+    SheetInspectorType,
     createSheetBuilderPayload,
     sheetKeys,
     type SheetRecordHandle,
@@ -275,6 +278,7 @@ export {
     type SheetLibraryTab,
     type SheetLibraryTabConfig,
 } from "./library.js";
+export { SheetFieldType, SheetFormType, SheetFormsType } from "./fields.js";
 export {
     type SheetGroupCell,
     type SheetGroupConfig,
@@ -438,6 +442,8 @@ export interface SheetNamespace {
         /** A tab of the author's own cards, read as a register's members are, each dropping the `Sheet.patch` its `drop` returns. */
         tab: typeof libraryTab;
     };
+    /** The inspector's hints — `Fields`' own (#1147, #1188): `<Sheet.Builder fields={{ created_by: Sheet.field.readonly() }}>`. */
+    field: typeof SheetField;
     /** Sub rows (#844) — `Sheet.subRows(R, { field: (item, row) => Sheet.subRow({ … }) })`, keyed by `R`'s array fields. */
     subRows: typeof createSubRows;
     /** One sub row — `Sheet.subRow({ code?, name, chips?, facets?, id? })`. */
@@ -632,7 +638,7 @@ export interface SheetNamespace {
  * (row type first), registers with `Sheet.register.members` / `.concat` and
  * the driver with `Sheet.driver`, link rules with `Sheet.link.*`, proposed
  * rows and new-row defaults with `Sheet.patch`, a builder's library tabs with
- * `Sheet.library.*`, grouped rows with
+ * `Sheet.library.*` and its inspector's hints with `Sheet.field.*`, grouped rows with
  * `Sheet.group` (#740), sub rows with `Sheet.subRows` / `Sheet.subRow`
  * (#844), apply a checked batch to a collection with `Sheet.apply`, and
  * reach every East type — the closed wire types and the typed constructors
@@ -649,6 +655,7 @@ export const Sheet: SheetNamespace = {
     link: { arity: createArity, check, parse: parseLink, print: printLink },
     patch: createPatch,
     library: { rows: libraryRows, columns: libraryColumns, tab: libraryTab },
+    field: SheetField,
     subRows: createSubRows,
     subRow: createSubRow,
     apply: applySheet,

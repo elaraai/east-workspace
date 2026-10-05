@@ -388,7 +388,8 @@ order a keyed paged sheet already has.
 | `views` | a bind handle of `Array<Sheet.Types.View>` | The saved views, read and written by the builder: a `State.bind` to keep them per viewer, or a `Data.bind` dataset to share them. |
 | `templates` | `{ rows?, groups? }` | The Rows tab's cards (§4.2). |
 | `library` | `Sheet.library.*` calls | The library's tabs, in order (§4.4); left out, or `[]`, no library pane. |
-| `fields`, `groupFields` | `{ [field]: Sheet.field.* }` | Hints for the inspector's form: for a field with no column, or to override what a column's kind gives (§5.3). `Sheet.field` is `Fields` (#1147), as `Calendar.field` is. |
+| `fields`, `groupFields` | `{ [field]: Sheet.field.* }` | Hints for the inspector's form: for a field with no column, or to override what a column's kind gives (§5.3). `Sheet.field` is `Fields` (#1147), as `Calendar.field` is; a `reference` hint names one of the sheet's registers (the driver's among them, under its column). |
+| `inspector` | `(row, update) => UIComponentType` | The author's own Details for a row (SB58): an East function over the row — its own struct, a grouped sheet's line — and a writer of the edited row, passed through untouched. |
 | `id` | string | Names the builder when a surface holds two: its viewer state's storage key and its library's drag-source id. |
 
 ### 4.2 Templates
@@ -421,7 +422,15 @@ Each names the prop and the remedy:
 - the library lists a tab twice (an author's tab by its name), an author's
   tab's data is neither an Array nor a `Dict<String, T>`, or its `drop`
   returns a patch over neither the row type nor the group type;
-- `fields` or `groupFields` names a field the type doesn't have.
+- `fields` or `groupFields` names a field the type doesn't have, or one the
+  inspector shows with another (a row's identity, a group's lines, a link's
+  other half); gives a field an editor that doesn't fit its type, or a read-only
+  column's field (stamped, a `value` projection, a set, link or custom column,
+  `editable: false`) any editor at all; hints a column's field per nested
+  field; names in a `reference` a register the sheet doesn't declare; or
+  `groupFields` is given on a flat sheet;
+- `inspector` is not an East function `(Row, (Row) => Null) => UIComponentType`
+  over the row type (a grouped sheet's line type).
 
 Every refusal today's sheet makes still applies (`Sheet Spec.md` §3.12),
 among them moving rows in a flat key-ordered sheet.
@@ -468,7 +477,8 @@ SheetBuilderPayloadType = StructType({
     sheet:     SheetRootType,                    // the grid, its rows and its session wired to the record
     templates: ArrayType(SheetTemplateWireType), // the Rows tab's cards
     library:   ArrayType(SheetLibraryTabType),   // the library's tabs, in order; none, no pane
-    fields:    StructType({ row: ArrayType(FieldSpecType), group: ArrayType(FieldSpecType) }),   // the inspector's forms (Fields, #1147)
+    fields:    SheetFormsType,                   // the inspector's forms (Fields, #1147): a row's, and a group's
+    inspector: OptionType(SheetInspectorType),   // the author's own Details for a complete row (SB58)
     history:   FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),                     // the record's commits: the last save, and who changed it
     missing:   OptionType(StringType),           // with `entry`, its key while the record does not hold it: the frame's banner (SB15, SB23)
     id:        OptionType(StringType),
@@ -496,6 +506,16 @@ SheetLibraryTabType = VariantType({
     }),
 });
 
+SheetFormsType = StructType({ row: SheetFormType, group: OptionType(SheetFormType) });   // a group's on a grouped sheet
+SheetFormType = StructType({
+    type:     EastTypeType,                     // the struct the form edits: the row (a grouped sheet's line), or the group
+    fields:   ArrayType(StructType({ spec: FieldSpecType, column: OptionType(StringType) })),   // each field, and the column (or band cell) it is read and written through
+    columns:  ArrayType(StringType),            // the fields the editable columns write — a link's other half among them
+    readonly: ArrayType(StringType),            // the fields under read-only columns, which a whole-row write leaves as they are
+    encode:   FunctionType([BlobType], DictType(StringType, Sheet.Types.Cell)),   // a Sheet.Types.Patch of the struct, as bytes → the cells it sets
+});
+SheetInspectorType = FunctionType([BlobType, FunctionType([BlobType], NullType)], UIComponentType);   // the row as bytes, and the writer of the edited row as bytes
+
 SheetBuilderComponent = EastUI.component("SheetBuilder", SheetBuilderPayloadType);
 SheetViewComponent    = EastUI.component("SheetView", SheetRootType);
 ```
@@ -504,19 +524,29 @@ The columns need nothing new: the Columns tab reads them from `sheet`. An
 author's card crosses the closed payload as the cells its drop sets, as a
 proposed row's patch does. The templates' seeds are built by the
 code that builds `newRow`'s today (`seed-bridge.ts`), so a template's draft
-and the cells it shows come from one call.
+and the cells it shows come from one call. A form's `encode` is the same
+projection the copilot's proposals go through, so an inspector's write lands
+on the cells as the grid would write them; the author's `inspector` is
+checked against the row type and wrapped, so the row and the edited row cross
+the closed payload as bytes.
 
 ### 5.3 The inspector's editors
 
 | The field's column | Its editor in the inspector (`Fields` hint) |
 |---|---|
 | `text`, `custom` | Text; a custom column's text is read by its `parse` and shown by its `print` |
-| `date` | The date field, at the row's date level (week, day, range or time) |
-| `quantity`, `integer` | The number field, a quantity in the driver's unit |
-| `lookup`, `reference`, `enum` | A select over the register's members (label, meta, an enum member's tone), narrowed by the column's `options` rule |
-| `set`, `link` | The members as chips, from → to, each resolved: a code's label and meta, a counted member's kind, a range expanded. Edited in the grid: "Edit in sheet" puts the ring on the cell. |
-| `stamped`, a `value` projection | Read only, with the owner of a stamped code |
+| `date` | The date field at the row's date level: a date alone at a week, a day or a range (and on a column with no `level` rule, read at a day, as the grid reads it); a date and its time at the time level |
+| `quantity`, `integer` | The number field, a quantity in the driver's unit, in its help line |
+| `lookup`, `reference`, `enum` | A select over the register's members as the column's `options` rule offers them at that row, each its label and meta (`Panel cutting · panels`) |
+| `set`, `link` | The cell as the grid draws it — the members as chips, from → to, each resolved with its meta (`S101 beam saw`), a counted member its kind — and "Edit in sheet", which puts the ring on the cell; off, with its reason, while the column is hidden. Edited in the grid. |
+| `stamped`, a `value` projection, `editable: false` | Read only, printed as the grid prints it, with the owner of a stamped code as its help line |
 | No column | By its type (`Calendar Spec.md` §4.3), or the `fields` hint (`Sheet.field.readonly()`, `hidden()`, …) |
+
+Each field is `FieldForm`'s (#1147): the shared `Field` — its label, its key,
+its help line — around the shared input its East type takes. A column's
+header and its second line are its label and help, unless a hint names its
+own. As built, an enum member's tone is not shown in its select: the shared
+`Select` draws no tone, and the member's label and meta are.
 
 ## 6. What moves, and how the builder relates to `Sheet.View`
 
@@ -621,9 +651,14 @@ it. The history item is the shared `historyToolbarItem` (#988).
   its toolbar row, not a 32px input on a paper-2 band, and folds narrower in
   a narrow pane; the empty state's glyph is 36px, not 26px. Nothing a card
   says is lost.
-- **The inspector**: sections padded 16px with a rule between; a field row is
-  the Calendar's (a 92px label column, label 12.5px over its key in mono 10px,
-  a 32px input); a changed field is tinted brand.
+- **The inspector**: 320px open; sections padded 16px with a rule between —
+  the head (what is selected in mono caps, its id, a Pending or New chip, the
+  lock of an owned row), its issues, its fields, its sub rows, and its
+  gestures. A field is `FieldForm`'s: the shared `Field`, its label and key
+  over the input its type takes, its help line under it, a changed field
+  tinted brand. **What the shared parts change from the Calendar mock**: the
+  mock's 92px label column is the shared field's label over its input, so the
+  inspector's form is every other builder's; nothing a field says is lost.
 
 ## 9. Behaviour
 
@@ -801,12 +836,17 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 - **SB47.** Details for one row or line: its number and id, a Pending or New
   chip, a lock when the row is owned, its issues, every field of its type
   through `Fields` (§5.3), its sub rows read only, then Duplicate and Delete.
+  A line's id is its own where it has one (beside loose rows), else its
+  group's.
 - **SB48.** A link or set field shows its members resolved, and "Edit in
   sheet" puts the ring on that cell.
 - **SB49.** For a group's band: the group's own fields, its line count and
   its issues, then Add line, Duplicate (with its lines) and Delete.
 - **SB50.** For several rows: their count and a bulk edit (set a column
-  across them, clear it, duplicate, delete), each one transaction.
+  across them, clear it, duplicate, delete), each one transaction. The
+  column is one the form edits — never a stamped, a set or a link column,
+  which the grid edits — and a select offers its register's every member, as
+  no one row narrows them.
 - **SB51.** With nothing selected: the counts (rows, pending, issues), the
   last commit and who made it, and three hints.
 - **SB52.** An edit in the inspector is one transaction, as typing in the
@@ -815,6 +855,17 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 - **SB53.** Issues lists every issue of the batch by row (incomplete and
   invalid fields, `ready`'s, an Apply's conflicts and refusals), and a click
   selects its cell, seeking it on a paged sheet.
+- **SB58.** `inspector={(row, update) => …}` (ruled 2026-10-05): an East
+  function over the row — its own struct, a grouped sheet's line — and a
+  writer of the edited row, passed through untouched. Details for a row whose
+  draft is complete shows what it returns in place of the form; a row still
+  missing a field, or holding one unreadable, shows the form until it is
+  complete. `update(edited)` is one transaction: the fields the editable
+  columns write go through their cells, as the grid writes them; a read-only
+  column's field is left as it is; a field with no column is set on the draft.
+- **SB62.** Nothing the inspector shows is read from the source until Details
+  asks: a sheet with no inspector reads what it read before, and a row's
+  entry is read once while the resident rows stand.
 
 ### 9.10 Showcase and docs (owner: the Sheet builder's showcase and docs)
 

@@ -29,10 +29,15 @@
  * leaves the field, or on Enter, as typing in a cell is; Esc puts it back. A
  * choice is an edit at once. An Option's text is emptied to none, and its
  * select or reference set to none by choosing Not set or Unassigned; any other
- * Option has a Clear beside it, and a Set while it holds none. A field that
- * differs from `baseline` — what the drafts began from — is tinted. A nested
- * struct's fields sit under its name. Read-only, every field is printed, and
- * tags and a checklist keep their shape without their controls.
+ * Option has a Clear beside it, and a Set while it holds none. A field with
+ * no value yet — a draft's field not given, whatever its type — shows Not
+ * set: a text empty, a select or a reference with nothing chosen, any other
+ * with a Set beside it (#1188). A date's input takes its editor's precision.
+ * A field that differs from `baseline` — what the drafts began from — is
+ * tinted. A nested struct's fields sit under its name. Read-only, every field
+ * is printed, and tags and a checklist keep their shape without their
+ * controls. A host may draw a field's control itself (`renderControl`), what
+ * no input shows — the field keeps its label, key and help line.
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
@@ -43,7 +48,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -84,7 +89,7 @@ export interface FieldOption {
 export interface FieldFormProps {
     /** The fields, as `Fields.specs` resolved them. */
     specs: readonly FieldSpecValue[];
-    /** The struct the form edits — a decoded value of the struct the specs were resolved over. */
+    /** The struct the form edits — a decoded value of the struct the specs were resolved over; a field it holds no value for (`undefined`) shows Not set. */
     value: unknown;
     /** What the drafts began from: a field that differs from it is tinted. */
     baseline?: unknown;
@@ -96,6 +101,13 @@ export interface FieldFormProps {
     readOnly?: boolean | undefined;
     /** The form's words: the host's, else English in the app's locale. */
     words?: FieldFormWords | undefined;
+    /**
+     * Draws a field's control itself, in place of the input its editor takes —
+     * what no input shows (a sheet's link chips, #1188); the field keeps its
+     * label, key and help line. `undefined` for a field the form draws. Keep it
+     * stable (`useCallback`): each field's memo compares it.
+     */
+    renderControl?: ((spec: FieldSpecValue) => ReactNode | undefined) | undefined;
 }
 
 // Each shared input's payload with nothing set: East's default for its type.
@@ -261,7 +273,7 @@ function printOf(
  * />
  * ```
  */
-export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words }: FieldFormProps) {
+export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl }: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
@@ -269,7 +281,7 @@ export const FieldForm = memo(function FieldForm({ specs, value, baseline, optio
     const row = (spec: FieldSpecValue) => (
         <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
             base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} />
+            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} />
     );
     return (
         <Box css={styles.root} data-field-form="">
@@ -294,21 +306,28 @@ interface FieldRowProps {
     readOnly: boolean;
     words: FieldFormWords;
     styles: Styles;
+    renderControl: FieldFormProps["renderControl"];
 }
 
 /** One field: the shared `Field` around its input, a checklist's items, and an Option's Set or Clear. */
-const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles }: FieldRowProps) {
+const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const iconButton = useRecipe({ key: "iconButton" });
     const type = useMemo(() => fromEastTypeValue(spec.type) as EastType, [spec.type]);
-    const same = useMemo(() => equalFor(type), [type]);
+    // Two values of the field, either of them none yet (a draft's field not given).
+    const same = useMemo(() => {
+        const equal = equalFor(type);
+        return (a: unknown, b: unknown) => (a === undefined || b === undefined ? a === b : equal(a, b));
+    }, [type]);
     // An Option's input edits its value's type; `none` is no value.
     const inner = useMemo(() => (spec.optional && type.type === "Variant" ? (type.cases as Record<string, EastType>)["some"]! : type), [spec.optional, type]);
     const held = spec.optional ? getSomeorUndefined(current as option<unknown>) : current;
     const dirty = hasBaseline && !same(current, base);
     const key = spec.path.join(".");
     const editor = spec.editor;
+    // A control the host draws itself, in the field.
+    const own = renderControl?.(spec);
     // Read-only, a value is printed; tags and a checklist keep their shape.
     const printed = editor.type === "readonly" || (readOnly && editor.type !== "tags" && editor.type !== "checklist");
 
@@ -333,7 +352,7 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     }, [emit]);
 
     // A checklist: its items, and the item typed into its box.
-    const checklist = editor.type === "checklist" ? editor.value : undefined;
+    const checklist = own === undefined && editor.type === "checklist" ? editor.value : undefined;
     const items = (checklist === undefined || held === undefined ? [] : held) as readonly Record<string, unknown>[];
     const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
@@ -372,14 +391,14 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
 
     const control = ((): Control => {
         const printedValue = (text: string): Control => variant("StringInput", { ...STRING_INPUT, value: text, style: INPUT_STYLE });
-        if (printed) return printedValue(printOf(inner, held, editor, options, words));
-        // An empty Option whose input cannot show none: Set gives it a value.
-        if (spec.optional && held === undefined && editor.type !== "text" && editor.type !== "select" && editor.type !== "reference") {
+        if (printed || own !== undefined) return printedValue(printOf(inner, held, editor, options, words));
+        // No value — an empty Option, or a draft's field not given — in an input that cannot show none: Set gives it one.
+        if (held === undefined && editor.type !== "text" && editor.type !== "select" && editor.type !== "reference") {
             return variant("StringInput", { ...STRING_INPUT, placeholder: some(m.notSet()), disabled: some(true), style: INPUT_STYLE });
         }
         switch (editor.type) {
             case "text": {
-                const placeholder = getSomeorUndefined(editor.value.placeholder) ?? (spec.optional ? m.notSet() : undefined);
+                const placeholder = getSomeorUndefined(editor.value.placeholder) ?? (spec.optional || held === undefined ? m.notSet() : undefined);
                 return variant("StringInput", {
                     ...STRING_INPUT,
                     value: (held ?? "") as string,
@@ -420,11 +439,14 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
             case "checkbox":
                 return variant("Checkbox", { ...CHECKBOX, checked: held as boolean, onChange: some((next: boolean) => { emit(next); return null; }) });
             case "datetime":
-                return variant("DateTimeInput", { ...DATETIME_INPUT, value: held as Date, onChange: some((next: Date) => { hold(next); return null; }), style: INPUT_STYLE });
+                return variant("DateTimeInput", {
+                    ...DATETIME_INPUT, value: held as Date, precision: editor.value.precision,
+                    onChange: some((next: Date) => { hold(next); return null; }), style: INPUT_STYLE,
+                });
             case "select":
                 return variant("Select", {
                     ...SELECT,
-                    value: some(held === undefined ? NONE_CHOICE : (held as variant).type as string),
+                    value: held !== undefined ? some((held as variant).type as string) : spec.optional ? some(NONE_CHOICE) : none,
                     items: [
                         ...(spec.optional ? [{ value: NONE_CHOICE, label: m.notSet(), disabled: none }] : []),
                         ...editor.value.map((o) => ({ value: o.case, label: o.label, disabled: none })),
@@ -486,14 +508,16 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         readOnly: printed || readOnly ? some(true) : none,
         style: some({ ...FIELD_STYLE, schemaKey: some(key) }),
     };
-    const clearable = spec.optional && !printed && !readOnly && editor.type !== "text" && editor.type !== "select" && editor.type !== "reference";
+    // Beside an input that cannot show none: Set while it holds no value, and an Option's Clear while it does.
+    const side = own !== undefined || printed || readOnly || editor.type === "text" || editor.type === "select" || editor.type === "reference" ? undefined
+        : held === undefined ? "set" : spec.optional ? "clear" : undefined;
 
     return (
-        <Box css={styles.field} data-field={key} data-editor={printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
+        <Box css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
             onBlur={onBlur} onKeyDown={onKeyDown}>
             <Box css={styles.main}>
                 <Box ref={fieldRef}>
-                    <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} />
+                    <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={own} />
                 </Box>
                 {checklist !== undefined && items.length > 0 && (
                     <Box css={styles.items} data-checklist-items="">
@@ -523,9 +547,9 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                     </Box>
                 )}
             </Box>
-            {clearable && (
+            {side !== undefined && (
                 <Box css={styles.side}>
-                    {held === undefined ? (
+                    {side === "set" ? (
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-field-set=""
                             onClick={() => emit(startOf(inner, editor))}>
                             {m.set()}

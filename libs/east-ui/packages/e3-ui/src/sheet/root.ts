@@ -731,6 +731,10 @@ export interface SheetBuild {
     root: ExprType<SheetRootType>;
     /** The typed bridge the payload was compiled with. */
     bridge: SheetBridge;
+    /** The declared columns, each described against the type they are declared over — the row, or a grouped sheet's line: what the builder's inspector reads its fields through (#1188). */
+    metas: readonly SheetColumnMeta[];
+    /** The registers' names — the declared ones, and the driver's under its column: what a `reference` hint in the builder's inspector may name (#1188). */
+    registers: readonly string[];
 }
 
 /**
@@ -1090,5 +1094,5 @@ function buildSheet(
         footer,
         style,
     }, SheetRootType);
-    return { root, bridge };
+    return { root, bridge, metas, registers: Object.keys(registers) };
 }

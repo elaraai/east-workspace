@@ -91,7 +91,8 @@ test("the builder is a BuilderFrame: the toolbar, the library its `library` list
     expect(container.querySelector("[data-builder-frame]")).not.toBeNull();
     // The smallest lists none: no library pane (SB59).
     expect(slot(container, "start")).toBeNull();
-    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues"]);
+    // The inspector: Details, and Issues with its count (#1188, SB46).
+    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues 0"]);
     const main = slot(container, "main")!;
     // The grid fills main, a bounded frame scrolling its own rows, in key order.
     expect(main.querySelector('[data-sheet] [role="grid"] [data-virtual-rows="bounded"]')).not.toBeNull();

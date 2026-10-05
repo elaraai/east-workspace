@@ -6,7 +6,9 @@
 /**
  * React integration for a sheet's editing — the shared editing session's hook
  * (`useEditSession`, #879) with the sheet's own gestures (its wire edits,
- * composed into one transaction) and its local layer over the resident rows.
+ * composed into one transaction, with any writes to the drafts' fields a
+ * builder's inspector makes beside them, #1188) and its local layer over the
+ * resident rows.
  *
  * @packageDocumentation
  */
@@ -35,14 +37,24 @@ export interface LocalLayer {
 }
 export const EMPTY_LAYER: LocalLayer = { edits: new Map(), appended: [], removed: new Set(), placements: new Map() };
 
+/**
+ * One entry, rewritten in the gesture that writes its cells (#1188) — given
+ * the entry's version as the gesture's wire events left it, its new version:
+ * a field no column shows, set on its draft; a duplicate's whole draft
+ * copied, beside the wire row it was copied with.
+ */
+export type DraftEdit = (version: EntryVersion) => EntryVersion;
+
 /** What {@link useSheetEditing} hands a sheet: its session, the layer over its rows, and its gesture recorder. */
 export interface SheetEditingResult {
     /** The session. */
     session: SheetTransactions;
     /** The session's edits over the resident rows. */
     layer: LocalLayer;
-    /** Aggregate a gesture's wire edits into one transaction. */
-    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin) => void;
+    /** Aggregate a gesture's wire edits, and the draft edits beside them (by entry), into one transaction. */
+    record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>) => void;
+    /** An entry's version before any gesture: the session's, else the source's, lifted into its draft. */
+    original: (id: string) => EntryVersion;
     /** Each drafted entry's draft, encoded. */
     drafts: Map<string, Uint8Array>;
     /** Editing is available now. */
@@ -75,9 +87,9 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
         useEditSession<SheetRowValue>(editing, pinned, rows, positions, storageKey, { idOf: sheetRowId, ready });
 
-    /** Aggregate the renderer's writes into one transaction at the effect boundary. */
-    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin) => {
-        if (!events.length || !observed || !session.writable) return;
+    /** Aggregate the renderer's writes — and the draft edits beside them — into one transaction at the effect boundary. */
+    const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>) => {
+        if ((!events.length && !draftEdits?.size) || !observed || !session.writable) return;
         session.observeBase(observed.base);
         const updates = new Map<string, EntryUpdate>();
         const inputs = new Map<string, SheetRowValue>();
@@ -105,8 +117,15 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
                 default: origin = event.value.source.type; update(event.value.rowId, event.value.row);
             }
         }
+        // The draft edits, over each entry as the wire events left it: a field no column shows, a duplicate's copy.
+        for (const [id, edit] of draftEdits ?? []) {
+            const before = updates.get(id)?.before ?? original(id);
+            const current = updates.get(id)?.after ?? before;
+            if (current.draft === undefined) continue;
+            updates.set(id, { id, before, after: edit(current) });
+        }
         const gestureOrigin = originOverride ?? origin;
-        session.record([...updates.values()], gestureOrigin, gestureOrigin === "insert" ? "Insert row" : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : "Edit cells");
+        session.record([...updates.values()], gestureOrigin, gestureOrigin === "insert" ? "Insert row" : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells");
     }, [session, observed, original, codecs, editing, draftType, mint]);
     const layer = useMemo<LocalLayer>(() => {
         const edits = new Map<string, SheetRowValue>();
@@ -136,5 +155,5 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, codecs, version, rows, rowIndex]);
-    return { session, layer, record, drafts, available, version };
+    return { session, layer, record, original, drafts, available, version };
 }

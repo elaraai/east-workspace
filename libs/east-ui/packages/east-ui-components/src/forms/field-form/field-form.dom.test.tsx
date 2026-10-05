@@ -11,11 +11,13 @@
  * leaving the field or on Enter, Esc putting it back, a new value from the
  * host dropping it; a choice an edit at once; an Option's Set and Clear; a
  * checklist's items; the tint of a changed field; read-only, every value
- * printed. Every value handed back is asserted with East's `equalFor`.
+ * printed. And (#1188) a field with no value yet, a date's precision, and a
+ * control the host draws itself. Every value handed back is asserted with
+ * East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -25,6 +27,7 @@ import {
     StringType, StructType, VariantType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Fields } from "@elaraai/east-ui";
+import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { formatters } from "../../format/index.js";
 import { FieldForm } from "./index.js";
@@ -115,6 +118,20 @@ async function settle() {
     await act(async () => {
         for (let i = 0; i < 4; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
     });
+}
+
+/**
+ * Types into a number input a key at a time, each key where the caret rests:
+ * the shared number input writes what it reads back into the box as a key
+ * lands, and user-event's caret, typing several keys in one call, does not
+ * follow that write under jsdom (a box cleared to "" and typed "3.5" in one
+ * call reads ".53"; Chromium keeps the caret, and reads "3.5").
+ */
+async function typeKeys(user: ReturnType<typeof userEvent.setup>, el: HTMLElement, text: string) {
+    for (const key of text) {
+        await user.type(el, key);
+        await settle();
+    }
 }
 
 /** The focus leaves the field. */
@@ -220,7 +237,7 @@ describe("FieldForm — each field the shared Field around the shared input its 
         edits.length = 0;
         const length = within(field("length")).getByRole("spinbutton");
         await user.clear(length);
-        await user.type(length, "3.5");
+        await typeKeys(user, length, "3.5");
         await user.keyboard("{Enter}");
         await settle();
         expectEdit(edits, "length", equalFor(FloatType), 3.5);
@@ -373,3 +390,87 @@ describe("FieldForm — each field the shared Field around the shared input its 
         expect(container.querySelector("[data-scope=number-input], [data-scope=select]")).toBeNull();
     });
 });
+
+describe("FieldForm — a draft's missing field, a date's precision, and a host's own control (#1188)", () => {
+    /** A draft of the job: the fields it has given, every other one missing. */
+    function mountDraft(given: Partial<JobValue>, extra: { renderControl?: (spec: FieldSpecValue) => ReactNode | undefined; specs?: readonly FieldSpecValue[] } = {}) {
+        const edits: Edit[] = [];
+        function Host() {
+            const [value, setValue] = useState<Record<string, unknown>>(given as Record<string, unknown>);
+            return (
+                <FieldForm specs={extra.specs ?? SPECS} value={value} options={BENCHES} renderControl={extra.renderControl}
+                    onChange={(path, next) => {
+                        edits.push({ path: path.join("."), value: next });
+                        setValue((v) => setAt(v, path, next));
+                    }} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return { ...utils, edits, field };
+    }
+
+    test("a field with no value yet shows Not set: a number, a date or a checkbox with Set, a text empty, a select with nothing chosen", async () => {
+        const { field, edits } = mountDraft({ task: "Hang doors", bench: none, note: none, batch: none });
+        // A number, a date and a checkbox: Not set, and Set beside it — never Clear, the field is required.
+        for (const key of ["crew", "due", "rush"]) {
+            expect((within(field(key)).getByRole("textbox") as HTMLInputElement).placeholder).toBe("Not set");
+            expect(within(field(key)).getByRole("button", { name: "Set" })).toBeTruthy();
+            expect(within(field(key)).queryByRole("button", { name: /^Clear/ })).toBeNull();
+        }
+        // A required select chooses nothing — its placeholder shows — and offers no Not set.
+        expect(chosenOf(field, "status")).toBe("Select...");
+        expect(await open(field("status"))).toEqual(["Planned", "Underway", "Done"]);
+        await choose("Done");
+        expectEdit(edits, "status", equalFor(Status), variant("done", null));
+
+        // Set gives a required number its type's start, held to its bounds: the crew's least is 1.
+        edits.length = 0;
+        await act(async () => { fireEvent.click(within(field("crew")).getByRole("button", { name: "Set" })); });
+        await settle();
+        expectEdit(edits, "crew", equalFor(IntegerType), 1n);
+        expect(field("crew").querySelector("[data-scope=number-input]")).not.toBeNull();
+        expect(within(field("crew")).queryByRole("button", { name: /^(Set|Clear)/ })).toBeNull();
+    });
+
+    test("a required text with no value starts empty under Not set, and what is typed is its value", async () => {
+        const { field, edits } = mountDraft({ crew: 2n, bench: none, note: none, batch: none });
+        const user = userEvent.setup();
+        const task = within(field("task")).getByRole("textbox") as HTMLInputElement;
+        expect(task.value).toBe("");
+        expect(task.placeholder).toBe("Not set");
+        await user.type(task, "Fit frames");
+        await leave(task);
+        expectEdit(edits, "task", equalFor(StringType), "Fit frames");
+    });
+
+    test("a date's input takes its editor's precision: at a date, its day, month and year alone — no time to set", () => {
+        const Visit = StructType({ on: DateTimeType, at: DateTimeType });
+        const [on, at] = Fields.specs(Visit);
+        const dated: FieldSpecValue = { ...on!, editor: variant("datetime", { precision: some(variant("date", null)) }) };
+        const value = { on: new Date(Date.UTC(2026, 9, 12)), at: new Date(Date.UTC(2026, 9, 12, 14, 30)) };
+        const { field } = mountDraft(value as unknown as Partial<JobValue>, { specs: [dated, at!] });
+        const segments = (key: string) => within(field(key)).getAllByRole("spinbutton").length;
+        // en-US: month, day, year — and a time's hour, minute and AM/PM besides.
+        expect(segments("on")).toBe(3);
+        expect(segments("at")).toBeGreaterThan(3);
+    });
+
+    test("a host draws a field's control itself: the field keeps its label and key, and no input or Set is drawn", () => {
+        const { field } = mountDraft({ ...JOB }, {
+            renderControl: (spec) => (spec.path[0] === "steps" ? <span data-testid="own">2 steps · Edit in sheet</span> : undefined),
+        });
+        const steps = field("steps");
+        expect(steps.getAttribute("data-editor")).toBe("custom");
+        expect(within(steps).getByTestId("own").textContent).toBe("2 steps · Edit in sheet");
+        expect(steps.querySelector("label")!.textContent).toBe("Stepssteps");
+        expect(steps.querySelector("input, [data-checklist-items], [data-field-set], [data-field-clear]")).toBeNull();
+        // Every other field is the form's own.
+        expect(field("task").getAttribute("data-editor")).toBe("text");
+    });
+});
+
+/** A select's chosen words — its placeholder while it holds no value. */
+function chosenOf(field: (key: string) => HTMLElement, key: string): string {
+    return field(key).querySelector("[data-scope=select][data-part=trigger]")!.textContent ?? "";
+}
