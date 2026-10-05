@@ -133,7 +133,7 @@ test("a builder whose library lists no tab has no library pane (SB59)", async ()
     expect(slot(container, "start")).toBeNull();
     // Main and the inspector are where they were.
     expect(slot(container, "main")!.querySelector('[data-sheet] [role="grid"]')).not.toBeNull();
-    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues"]);
+    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues 0"]);
 });
 
 test("without a Rows tab, the rail counts the first tab's cards", async () => {

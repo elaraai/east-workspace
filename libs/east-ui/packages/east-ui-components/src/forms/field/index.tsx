@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { Box, Field as ChakraField, type FieldRootProps } from "@chakra-ui/react";
 import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Field } from "@elaraai/east-ui/internal";
@@ -32,12 +32,14 @@ export function toChakraField(value: FieldValue): FieldRootProps {
 export interface EastChakraFieldProps {
     value: FieldValue;
     storageKey: string;
+    /** A control a renderer draws itself, in place of the payload's — a field form's host-drawn control (#1188). */
+    controlNode?: ReactNode | undefined;
 }
 
 /**
  * Renders an East UI Field value using Chakra UI Field component.
  */
-export const EastChakraField = memo(function EastChakraField({ value, storageKey }: EastChakraFieldProps) {
+export const EastChakraField = memo(function EastChakraField({ value, storageKey, controlNode }: EastChakraFieldProps) {
     const props = useMemo(() => toChakraField(value), [value]);
     const helperText = useMemo(() => getSomeorUndefined(value.helperText), [value.helperText]);
     const errorText = useMemo(() => getSomeorUndefined(value.errorText), [value.errorText]);
@@ -63,9 +65,9 @@ export const EastChakraField = memo(function EastChakraField({ value, storageKey
                     </Box>
                 )}
             </ChakraField.Label>
-            <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />
+            {controlNode ?? <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />}
             {helperText && <ChakraField.HelperText>{helperText}</ChakraField.HelperText>}
             {errorText && <ChakraField.ErrorText>{errorText}</ChakraField.ErrorText>}
         </ChakraField.Root>
     );
-}, (prev, next) => fieldEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => fieldEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.controlNode === next.controlNode);

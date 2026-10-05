@@ -25,14 +25,16 @@
  *   record does not hold;
  * - **the library**, the start pane — its tabs the ones the author's
  *   `library` lists, and no pane when it lists none (#1186, SB59) — and
- *   **the inspector**, the end pane: `BuilderFrame`'s panes, whose open tab
- *   and collapsed state persist under the builder's `id`. The library's
- *   Columns tab hides columns from the grid, per viewer, under the builder's
- *   `id` too (SB36);
+ *   **the inspector**, the end pane — Details for what is selected, its every
+ *   field through the payload's form or the author's own `inspector`, and the
+ *   batch's Issues (#1188): `BuilderFrame`'s panes, whose open tab and
+ *   collapsed state persist under the builder's `id`. The library's Columns
+ *   tab hides columns from the grid, per viewer, under the builder's `id` too
+ *   (SB36);
  * - **main** — the grid, filling the room the panes leave and scrolling its
  *   own rows, the strip docked under it;
  * - **the footer** — the sheet's, with the record's last save from its
- *   commits.
+ *   commits, which the inspector also says with who made it.
  *
  * The builder fills its parent and draws no border.
  *
@@ -50,7 +52,7 @@ import { SheetFooter } from "../Footer.js";
 import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
-import { useSheetInspector } from "./inspector.js";
+import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
 import { useSheetLibrary } from "./library.js";
 
 /** The renderer's payload, decoded. */
@@ -86,21 +88,22 @@ export interface EastChakraSheetBuilderProps {
 }
 
 /**
- * The record's last save, in the footer's words (SB22): its newest commit's
- * time, as the day's time when it was today and in full otherwise.
+ * The record's last commit (SB22, SB51): its newest commit's time, as the
+ * day's time when it was today and in full otherwise, and who made it.
  *
  * @param history - The payload's `history`: the record's commits, newest first
  * @param words - The sheet's words
- * @returns `saved 14:02`, or `undefined` while the commits are unread
+ * @returns The last commit, or `undefined` while the commits are unread or there are none
  */
-function useLastSave(history: SheetBuilderValue["history"], words: SheetWords): string | undefined {
+function useLastCommit(history: SheetBuilderValue["history"], words: SheetWords): SheetLastCommit | undefined {
     // Read where the builder renders, and again when the record moves.
     const read = useCallback(() => history(), [history]);
     const { result } = useTrackedEvaluation(read);
     const last = result.ok && result.value.type === "some" ? result.value.value[0] : undefined;
-    if (last === undefined) return undefined;
-    const today = stringEqual(words.date(last.at), words.date(todayUtc()));
-    return words.m.savedAt({ when: today ? words.time(last.at) : words.dateTime(last.at) });
+    const when = last === undefined ? undefined : stringEqual(words.date(last.at), words.date(todayUtc())) ? words.time(last.at) : words.dateTime(last.at);
+    const by = last?.actor;
+    // Held by its words: a render that reads the same commit hands the inspector the same one.
+    return useMemo(() => (when === undefined || by === undefined ? undefined : { when, by }), [when, by]);
 }
 
 /**
@@ -151,9 +154,10 @@ function SheetBuilderFrame({ value, keys, hidden, onToggleColumn }: SheetBuilder
     const toolbarRef = useSheetToolbarRef();
     const footer = useSheetFooter();
     const { session, onAction } = useSheetHistory();
-    const saved = useLastSave(value.history, words);
+    const lastCommit = useLastCommit(value.history, words);
+    const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
     const library = useSheetLibrary({ value, keys, hidden, onToggleColumn, words });
-    const inspector = useSheetInspector(words);
+    const inspector = useSheetInspector({ value, keys, words, hidden, lastCommit });
     // An issue's place: its row's key, or on a grouped sheet its line in its group.
     const where = useCallback((issue: EditIssue) => (issue.entry === "" || issue.row.type === "none" ? issue.entry
         : m.rowRef({ line: true, number: words.number(Number(issue.row.value) + 1), title: issue.entry, noun: m.groupNoun() })), [m, words]);

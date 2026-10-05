@@ -16,6 +16,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
+import { useMemo } from "react";
 import { render, cleanup, fireEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -28,7 +29,7 @@ import { Paged, StatusValueType } from "@elaraai/east-ui";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { getStore, initializeStore, trackKey } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot, useSheetInspect } from "./index.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { sheetJournal } from "./journal.test-utils.js";
 import { emulateWindowScroll, holdFrames, measureRowsAsDrawn, offsetOf } from "./frame.test-utils.js";
@@ -573,6 +574,103 @@ describe("the paged arm (§3.13)", () => {
             restore();
         }
     }, 30_000);
+});
+
+describe("a sheet reads only what it shows (#1188)", () => {
+    test("moving the ring over a pinned source's rows reads no entry: what a builder's inspector shows of a row is read only when it asks", async () => {
+        const held = heldSheet(20);
+        const { container, cell, key, flush } = mount(held.value);
+        await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2));
+        await flush();
+        const read = held.state.asked.length;
+        fireEvent.mouseDown(cell(3, "task"), { button: 0 });
+        for (let i = 0; i < 5; i++) key("ArrowDown");
+        fireEvent.mouseDown(cell(12, "qty"), { button: 0 });
+        fireEvent.mouseDown(cell(15, "task"), { button: 0, shiftKey: true });
+        await flush();
+        expect(held.state.asked.slice(read)).toEqual([]);
+    });
+
+    test("a builder's inspector reads a row's entry once while the rows stand, however often it draws: back on a row it read, it reads nothing", async () => {
+        const held = heldSheet(20);
+        /** What the builder's Details does: the ring's row's target, read as it draws. */
+        function Inspector() {
+            const inspect = useSheetInspect();
+            const r = inspect.selected.kind === "one" ? inspect.selected.place.r : undefined;
+            const target = useMemo(() => (r === undefined ? undefined : inspect.targetAt(r)), [inspect.targetAt, r]);
+            return <output data-inspected={target?.entry ?? ""}>{target?.value === undefined ? "" : target.value["task"] as string}</output>;
+        }
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <SheetProvider value={held.value} storageKey="sheet-test">
+                    <SheetRoot><SheetGrid /></SheetRoot>
+                    <Inspector />
+                </SheetProvider>
+            </ChakraProvider>,
+        );
+        const card = container.querySelector("[data-sheet-card]") as HTMLElement;
+        const cell = (id: string, key: string) => container.querySelector(`[data-row-id="${id}"] [data-key="${key}"]`) as HTMLElement;
+        const inspected = () => container.querySelector("[data-inspected]")!;
+        const flush = () => act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((r) => { setTimeout(r, 0); }); });
+        await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2));
+        await flush();
+        const read = held.state.asked.length;
+        fireEvent.mouseDown(cell("r003", "task"), { button: 0 });
+        await flush();
+        expect([inspected().getAttribute("data-inspected"), inspected().textContent]).toEqual(["r003", "Task 3"]);
+        // One read: the row's entry, at its place in window 0.
+        expect(held.state.asked.slice(read)).toEqual([0]);
+        // A hover and a key that moves nothing: drawn again, nothing read.
+        fireEvent.mouseEnter(cell("r005", "qty"));
+        fireEvent.keyDown(card, { key: "Escape" });
+        await flush();
+        expect(held.state.asked.slice(read)).toEqual([0]);
+        // The next row: its entry is read. Back on the first: it is not read again.
+        fireEvent.keyDown(card, { key: "ArrowDown" });
+        await flush();
+        expect([inspected().getAttribute("data-inspected"), inspected().textContent]).toEqual(["r004", "Task 4"]);
+        fireEvent.keyDown(card, { key: "ArrowUp" });
+        await flush();
+        expect(inspected().getAttribute("data-inspected")).toBe("r003");
+        expect(held.state.asked.slice(read)).toEqual([0, 0]);
+    });
+
+    test("an issue's row that is not in is sought by its key: the window lands, and the ring is on the issue's cell (SB53)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(8_000);
+            /** What the inspector's Issues tab does with the batch's first issue. */
+            function GoToIssue() {
+                const inspect = useSheetInspect();
+                const issue = inspect.issues[0];
+                return <button type="button" data-go-to-issue={issue?.entry ?? ""} onClick={() => { if (issue !== undefined) inspect.goToIssue(issue); }} />;
+            }
+            const { container } = render(
+                <ChakraProvider value={system}>
+                    <SheetProvider value={held.value} storageKey="sheet-test">
+                        <SheetRoot><SheetGrid /></SheetRoot>
+                        <GoToIssue />
+                    </SheetProvider>
+                </ChakraProvider>,
+            );
+            const card = container.querySelector("[data-sheet-card]") as HTMLElement;
+            const at = (id: string, key: string) => container.querySelector(`[data-row-id="${id}"] [data-key="${key}"]`) as HTMLElement | null;
+            const go = () => container.querySelector("[data-go-to-issue]") as HTMLElement;
+            await waitFor(() => expect(at("r000", "task")).toBeTruthy(), { timeout: 15_000 });
+            // r000's task cleared: the batch's issue.
+            fireEvent.mouseDown(at("r000", "task")!, { button: 0 });
+            fireEvent.keyDown(card, { key: "Delete" });
+            await waitFor(() => expect(go().getAttribute("data-go-to-issue")).toBe("r000"));
+            // ⌘End: the run moves to the source's end, and r000 is no longer in.
+            fireEvent.keyDown(card, { key: "End", ctrlKey: true });
+            await waitFor(() => expect(at("r7999", "status")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            await waitFor(() => expect(at("r000", "task")).toBeNull(), { timeout: 10_000 });
+            fireEvent.click(go());
+            await waitFor(() => expect(at("r000", "task")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
 });
 
 describe("an unbounded sheet mounts a screenful (#856)", () => {

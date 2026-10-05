@@ -59,11 +59,11 @@
 
 import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Sheet, SheetBatchReadinessType, SheetViewComponent } from "@elaraai/e3-ui/internal";
+import { ArrayType, StringType, equalFor, equivalentFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { Sheet, SheetBatchReadinessType, SheetDraftFieldType, SheetViewComponent } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem } from "@elaraai/east-ui-components";
-import { parseCssSize, DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem } from "@elaraai/east-ui-components";
+import { parseCssSize, DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, kindOfIssue, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { boundSliceConfig } from "@elaraai/east-ui-components/platform";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
@@ -92,7 +92,8 @@ import {
     type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
 import type { SheetNotice } from "./sheet-types.js";
-import type { SheetTransactions } from "./transactions.js";
+import type { EntryVersion, SheetTransactions } from "./transactions.js";
+import { normalizeDraft } from "./draft-values.js";
 import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
@@ -101,14 +102,15 @@ import { insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest,
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry } from "./Rows.js";
+import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetFooterProps, type SheetTransport } from "./Footer.js";
-import { useSheetEditing, type LocalLayer } from "./use-editing.js";
+import { useSheetEditing, type DraftEdit, type LocalLayer } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { SheetToolbarRow, useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
-import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
+import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
 
@@ -129,6 +131,7 @@ const cellEqual = equalFor(Sheet.Types.Cell);
 const sliceStateEqual = equalFor(Slice.Types.State) as (a: SliceStateValue, b: SliceStateValue) => boolean;
 const viewsEqual = equalFor(ArrayType(Sheet.Types.View)) as (a: readonly SheetViewValue[], b: readonly SheetViewValue[]) => boolean;
 const readinessEqual = equalFor(SheetBatchReadinessType);
+const printString = printFor(StringType);
 
 /** The narrowing with nothing active — what the whole-sheet tab writes; the presentation fields (cohort registry, breakdown, visibility, resolution) stay. */
 function clearNarrowing(state: SliceStateValue): SliceStateValue {
@@ -391,6 +394,8 @@ export interface SheetParts {
     history: SheetHistory;
     /** What shows in place of the whole sheet when its source failed before any row landed (#853). */
     failure: ReactNode | undefined;
+    /** What a builder's inspector reads of the sheet, and the gestures it makes (#1188). */
+    inspect: SheetInspect;
 }
 
 /** The editing session as a host reads it ({@link useSheetHistory}). */
@@ -2825,6 +2830,324 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         );
     }, [draftOf, memberships, canInsert, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount]);
 
+    // ── The inspector's reads and gestures (#1188) ────────────────────────
+    // Nothing here reads the source until a builder's inspector asks for a
+    // target: a sheet with no inspector reads exactly what it read before.
+    const originalOf = editingState.original;
+    // What the source holds for an entry no gesture has touched, lifted into
+    // its draft — read once while the resident rows stand, so a paged source's
+    // page is read again only when its windows move or its revision does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the resident rows are the cache's key: rows that move empty it.
+    const lifted = useMemo(() => new Map<string, EntryVersion | undefined>(), [sourceRows]);
+    // An entry's version as it stands: the session's, else the source's — or none while its page is not in.
+    const versionOf = useCallback((id: string): EntryVersion | undefined => {
+        const held = session.entries.get(id);
+        if (held !== undefined) return held;
+        if (lifted.has(id)) return lifted.get(id);
+        let read: EntryVersion | undefined;
+        try { read = originalOf(id); } catch { read = undefined; }
+        lifted.set(id, read);
+        return read;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
+    }, [session, originalOf, lifted, draftVersion]);
+    // The draft struct a target is: a row's (an entry's arm, beside loose rows), a band's group's, a line's child by its key.
+    const structOf = useCallback((version: EntryVersion | undefined, child: string | undefined): { draft: Record<string, unknown>; type: EastType } | undefined => {
+        if (version?.draft === undefined) return undefined;
+        const looseDraft = draftType.type === "Variant";
+        const draft = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
+        const armType: EastType = looseDraft ? (draftType.cases as Record<string, EastType>)[(version.draft as ValueTypeOf<typeof draftType>).type as string]! : draftType;
+        if (child === undefined) return { draft, type: armType };
+        if (childField === undefined || armType.type !== "Struct") return undefined;
+        const index = version.wire?.lines.findIndex((line) => stringEqual(line.key, child)) ?? -1;
+        const children = draft[childField] as unknown[] | undefined;
+        const childType = (armType.fields as Record<string, EastType>)[childField];
+        if (index < 0 || children === undefined || childType?.type !== "Array") return undefined;
+        return { draft: children[index] as Record<string, unknown>, type: childType.value as EastType };
+    }, [draftType, childField]);
+    // Where a row, a line or a band stands, read off the body: no read of the source.
+    const placeAt = useCallback((r: number): SheetInspectPlace | undefined => {
+        const it = rowAt(r);
+        if (it === undefined || (it.kind !== "real" && it.kind !== "group")) return undefined;
+        const lg = it.kind === "real" ? it.group : undefined;
+        const groupRow = lg !== undefined ? lg.row : it.kind === "group" ? it.row : undefined;
+        const title = groupRow?.cells.get(TITLE_KEY);
+        return {
+            r,
+            kind: it.kind === "group" ? "band" : lg !== undefined ? "line" : "row",
+            entry: lg !== undefined ? lg.row.id : it.row.id,
+            child: lg?.key,
+            index: lg?.index,
+            row: it.row,
+            number: lg !== undefined ? lg.number : it.position + 1,
+            group: groupRow !== undefined ? { title: title !== undefined && title.type === "String" && title.value !== "" ? title.value : undefined, lines: groupRow.lines.length } : undefined,
+            owned: (groupRow ?? it.row).owned,
+            subRows: lg !== undefined ? lg.row.lines[lg.index]?.subRows ?? [] : it.row.subRows,
+        };
+    }, [rowAt]);
+    const targetAt = useCallback((r: number): SheetInspectTarget | undefined => {
+        const place = placeAt(r);
+        if (place === undefined) return undefined;
+        const { entry, child, kind } = place;
+        const current = structOf(versionOf(entry), child);
+        // What the record holds: the version the first gesture began from — or, never touched, the draft itself.
+        const began = session.originals.get(entry);
+        const base = began === undefined ? current : structOf(began, child);
+        const children = kind === "line" ? undefined : childField;
+        return {
+            ...place,
+            value: current === undefined ? undefined : draftValues(current.draft, children),
+            baseline: base === undefined ? undefined : draftValues(base.draft, children),
+            complete: current === undefined || kind === "band" ? undefined : normalizeDraft(current.type, current.draft, entry).domain,
+            presentation: draftOf(entry, child),
+        };
+    }, [placeAt, structOf, versionOf, session, childField, draftOf]);
+    // What the ring and the range hold: a hover, a key, an editor elsewhere leave it as it is.
+    const selSel = ui.sel;
+    const selEnd = ui.selEnd;
+    const selected = useMemo((): SheetSelected => {
+        const rect = selectionRect({ sel: selSel, selEnd });
+        if (rect.r0 === rect.r1) {
+            const place = placeAt(rect.r0);
+            return place === undefined ? { kind: "none" } : { kind: "one", place };
+        }
+        // Several rows: the rows and lines in the range — a band stands for its lines.
+        const rs: number[] = [];
+        for (let r = rect.r0; r <= rect.r1; r++) {
+            const it = rowAt(r);
+            if (it !== undefined && it.kind === "real") rs.push(r);
+        }
+        if (rs.length === 0) return { kind: "none" };
+        if (rs.length === 1) {
+            const place = placeAt(rs[0]!);
+            return place === undefined ? { kind: "none" } : { kind: "one", place };
+        }
+        return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
+    }, [selSel, selEnd, rowAt, placeAt]);
+    const inspectWrite = useCallback((writes: readonly SheetInspectWrite[]) => {
+        if (readOnly || !editingState.available) return;
+        gestureEvents.current = [];
+        const cellWrites: CellWrite[] = [];
+        const draftEdits = new Map<string, DraftEdit>();
+        const touched: { r: number; keys: string[] }[] = [];
+        for (const w of writes) {
+            const it = rowAt(w.r);
+            if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
+            const keys: string[] = [];
+            for (const [key, cell] of w.cells ?? []) { cellWrites.push({ r: w.r, c: -1, key, cell }); keys.push(key); }
+            for (const [key, text] of w.texts ?? []) {
+                // As typing in the cell reads it: blank is the blank cell, unreadable text kept as typed.
+                const meta = it.kind === "group" ? group?.cells.get(key) : allColumns.byKey.get(key);
+                if (meta === undefined) continue;
+                const outcome = parseCell(meta, text, parseCtxFor(w.r, meta));
+                cellWrites.push({ r: w.r, c: -1, key, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : NULL_CELL });
+                keys.push(key);
+            }
+            touched.push({ r: w.r, keys });
+            const fields = w.fields;
+            if (fields === undefined || fields.size === 0) continue;
+            const lg = it.kind === "real" ? it.group : undefined;
+            const entry = lg !== undefined ? lg.row.id : it.row.id;
+            const child = lg?.key;
+            const prior = draftEdits.get(entry);
+            draftEdits.set(entry, (version) => {
+                const before = prior === undefined ? version : prior(version);
+                const at = structOf(before, child);
+                if (at === undefined) return before;
+                const set = withFields(at.draft, fields);
+                const looseDraft = draftType.type === "Variant";
+                const arm = looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
+                if (child === undefined) return { ...before, draft: looseDraft ? variant(arm!, set) : set };
+                const outer = (looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).value : before.draft) as Record<string, unknown>;
+                const index = before.wire?.lines.findIndex((line) => stringEqual(line.key, child)) ?? -1;
+                const kids = [...(outer[childField!] as unknown[])];
+                kids[index] = set;
+                const next = { ...outer, [childField!]: kids };
+                return { ...before, draft: looseDraft ? variant(arm!, next) : next };
+            });
+        }
+        if (cellWrites.length > 0) writeCells(cellWrites, "typed");
+        try { recordGesture(gestureEvents.current, undefined, "typed", draftEdits); }
+        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+        finally { gestureEvents.current = []; }
+        // The copilot asks again for a row whose trigger column changed, as typing in it does.
+        if (copilotOn) {
+            for (const { r, keys } of touched) {
+                if (!keys.some((key) => triggers.size === 0 || triggers.has(key))) continue;
+                const id = idAt(r);
+                if (id !== undefined) requestRun(id, 0);
+            }
+        }
+    }, [readOnly, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun]);
+    const editInSheet = useCallback((r: number, key: string): boolean => {
+        const c = columns.list.findIndex((col) => stringEqual(col.key, key));
+        if (c < 0 || rowAt(r) === undefined) return false;
+        dispatch({ t: "select.set", r, c });
+        cardRef.current?.focus({ preventScroll: true });
+        return true;
+    }, [columns, rowAt, dispatch]);
+    const removeRows = useCallback((r0: number, r1: number) => { runEffects([{ t: "delete.rows", r0, r1 }]); }, [runEffects]);
+    const duplicate = useCallback((rs: readonly number[]) => {
+        if (readOnly || !editingState.available) return;
+        const idField = getSomeorUndefined(value.editing.idField);
+        const events: SheetEditValue[] = [];
+        const draftEdits = new Map<string, DraftEdit>();
+        const typed = variant("typed", null);
+        const taken = new Set(rows.map((row) => row.id));
+        const mintEntry = () => { const id = newRowIdFn?.() ?? mintId((x) => taken.has(x)); taken.add(id); return id; };
+        // A copy's draft: the source's, with its own identity where the struct carries one.
+        const withIdentity = (draft: Record<string, unknown>, id: string): Record<string, unknown> =>
+            (idField !== undefined && idField in draft ? { ...draft, [idField]: variant("value", id) } : draft);
+        // A group as the layer has it now: lines inserted earlier in this gesture included.
+        const groupsNow = new Map<string, SheetRowValue>();
+        const groupOf = (g: SheetRowValue) => groupsNow.get(g.id) ?? layerRef.current.edits.get(g.id) ?? layerRef.current.appended.find((x) => x.id === g.id) ?? g;
+        for (const r of rs) {
+            const it = rowAt(r);
+            if (it === undefined || (it.kind !== "real" && it.kind !== "group")) continue;
+            const lg = it.kind === "real" ? it.group : undefined;
+            if (lg !== undefined) {
+                // A line: its copy just after it in its group.
+                if (!canInsertRows) continue;
+                const g0 = groupOf(lg.row);
+                const index = g0.lines.findIndex((line) => stringEqual(line.key, lg.key));
+                const source = structOf(versionOf(lg.row.id), lg.key);
+                if (index < 0 || source === undefined) continue;
+                const key = mintLineKey(g0);
+                const line = g0.lines[index]!;
+                const g: SheetRowValue = { ...g0, lines: [...g0.lines.slice(0, index + 1), { ...line, key }, ...g0.lines.slice(index + 1)] };
+                groupsNow.set(g.id, g);
+                events.push(variant("lineInsert", { rowId: g.id, offset: BigInt(it.position), after: some(lineAddress(index)), line: lineAddress(index + 1), row: g, source: typed }));
+                const prior = draftEdits.get(g.id);
+                const copy = loose ? withIdentity(source.draft, mintLineId()) : source.draft;
+                draftEdits.set(g.id, (version) => {
+                    const before = prior === undefined ? version : prior(version);
+                    const looseDraft = draftType.type === "Variant";
+                    const outer = (looseDraft ? (before.draft as ValueTypeOf<typeof draftType>).value : before.draft) as Record<string, unknown>;
+                    const at = before.wire?.lines.findIndex((l) => stringEqual(l.key, key)) ?? -1;
+                    if (at < 0) return before;
+                    const kids = [...(outer[childField!] as unknown[])];
+                    kids[at] = copy;
+                    const next = { ...outer, [childField!]: kids };
+                    return { ...before, draft: looseDraft ? variant("group", next) : next };
+                });
+                continue;
+            }
+            // A row, or a band's group with its lines: a new entry just after it, its draft the source's.
+            if (it.kind === "group" ? !canInsertGroups : !canInsertRows) continue;
+            const version = versionOf(it.row.id);
+            if (version?.draft === undefined) continue;
+            const id = mintEntry();
+            let copy: SheetRowValue = { ...it.row, id, owned: false, lines: [] };
+            for (const line of it.row.lines) copy = { ...copy, lines: [...copy.lines, { ...line, key: mintLineKey(copy) }] };
+            events.push(variant("insert", { afterRowId: some(it.row.id), row: copy, source: typed }));
+            const looseDraft = draftType.type === "Variant";
+            const arm = looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).type as string : undefined;
+            const inner = (looseDraft ? (version.draft as ValueTypeOf<typeof draftType>).value : version.draft) as Record<string, unknown>;
+            let draft = withIdentity(inner, id);
+            if (childField !== undefined && it.kind === "group" && loose) {
+                draft = { ...draft, [childField]: (draft[childField] as Record<string, unknown>[]).map((c) => withIdentity(c, mintLineId())) };
+            }
+            const final = looseDraft ? variant(arm!, draft) : draft;
+            draftEdits.set(id, (v) => ({ ...v, draft: final, wire: copy }));
+        }
+        if (events.length === 0) return;
+        try { recordGesture(events, undefined, "insert", draftEdits); }
+        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+    }, [readOnly, editingState.available, value.editing.idField, rows, newRowIdFn, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
+    const addLine = useCallback((bandR: number) => {
+        const it = rowAt(bandR);
+        if (it === undefined || it.kind !== "group") return;
+        const request: InsertRequest = { kind: "row", anchor: { entry: it.row.id, tail: true, side: "before" } };
+        if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
+        else executeInsertion(request);
+    }, [rowAt, dispatch, executeInsertion]);
+    const removeGroup = useCallback((bandR: number) => {
+        const it = rowAt(bandR);
+        if (it === undefined || it.kind !== "group" || readOnly || !editingState.available || !capabilities.removeGroups) return;
+        gestureEvents.current = [];
+        const base = layerRef.current;
+        const next: LocalLayer = { ...base, removed: new Set([...base.removed, it.row.id]) };
+        layerRef.current = next;
+        setLayer(() => next);
+        emitEdit(variant("remove", { rowIds: [it.row.id] }));
+        try { recordGesture(gestureEvents.current); }
+        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
+        finally { gestureEvents.current = []; }
+        dispatchStore({ t: "patch", patch: { selEnd: null, msg: { id: "deleted", n: 1, what: "groups", noun: declaredNoun?.singular, nouns: declaredNoun?.plural, again: false } } });
+    }, [rowAt, readOnly, editingState.available, capabilities, setLayer, emitEdit, recordGesture, declaredNoun]);
+    // A column, or a band's cell, by its key at a row.
+    const columnAt = useCallback((r: number, key: string): SheetColumnMeta | undefined => {
+        const it = rowAt(r);
+        return it?.kind === "group" ? group?.cells.get(key) : allColumns.byKey.get(key);
+    }, [rowAt, group, allColumns]);
+    const inspectCellAt = useCallback((r: number, key: string): SheetCellValue | undefined => {
+        const it = rowAt(r);
+        return it !== undefined && (it.kind === "real" || it.kind === "group") ? it.row.cells.get(key) : undefined;
+    }, [rowAt]);
+    const unitAt = useCallback((r: number, key: string): string | undefined => {
+        const meta = columnAt(r, key);
+        const it = rowAt(r);
+        const driverKey = driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn);
+        return meta?.kind === "quantity" && driverKey !== undefined ? meta.uom?.get(driverKey) : undefined;
+    }, [columnAt, rowAt, driverColumn]);
+    const inspectLevelAt = useCallback((r: number, key: string) => {
+        const meta = columnAt(r, key);
+        return meta === undefined ? undefined : levelAt(r, meta);
+    }, [columnAt, levelAt]);
+    const allowedAt = useCallback((r: number, key: string): ReadonlySet<string> | undefined => {
+        const meta = columnAt(r, key);
+        return meta === undefined ? undefined : allowedFor(r, meta);
+    }, [columnAt, allowedFor]);
+    const drawCell = useCallback((r: number, key: string): ReactNode => {
+        const it = rowAt(r);
+        const meta = columnAt(r, key);
+        if (it === undefined || meta === undefined || (it.kind !== "real" && it.kind !== "group")) return null;
+        const cell = it.row.cells.get(meta.key);
+        const member = meta.kind === "enum" && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
+        return (
+            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={unitAt(r, key)} member={member} ghost={undefined}
+                link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} />
+        );
+    }, [rowAt, columnAt, registers, styles, unitAt, linkCellCtx]);
+    const seekSearch = seek.search;
+    const sourceKeyType = value.editing.keyType;
+    const goToIssue = useCallback((issue: EditIssue) => {
+        onIssue(issue);
+        // On a paged sheet the issue's row may not be in yet: its key is sought, and the row lands where the key search's would.
+        const resident = body.some((it) => (it.kind === "group" ? stringEqual(it.row.id, issue.entry)
+            : it.kind === "real" ? stringEqual(it.group?.row.id ?? it.row.id, issue.entry) : false));
+        if (resident || seekSearch === undefined) return;
+        // A seek takes the key's `.east` text: a String key's is quoted, any other key's is its id.
+        const literal = sourceKeyType.type === "some" && fromEastTypeValue(sourceKeyType.value).type !== "String" ? issue.entry : printString(issue.entry);
+        void seekSearch.find({ key: literal }).then((range) => { if (range.found) seekSearch.jump(range.row); }).catch(() => { /* superseded or cleared */ });
+    }, [onIssue, body, seekSearch, sourceKeyType]);
+    const issueList = useMemo((): readonly EditIssue[] => {
+        const ready = session.readiness;
+        return [...(ready.type === "ready" ? [] : ready.value), ...session.issues];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
+    }, [session, readiness, draftVersion]);
+    const kindOf = useCallback((issue: EditIssue): "incomplete" | "invalid" => {
+        const ready = session.readiness;
+        // The very issue the readiness raised (identity, not equality): an Apply's look alike and are not its.
+        return ready.type !== "ready" && ready.value.some((raised) => Object.is(raised, issue)) ? kindOfIssue(issue, ready) : "invalid";
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
+    }, [session, readiness, draftVersion]);
+    const inspect = useMemo((): SheetInspect => ({
+        selected, targetAt,
+        writable: !readOnly && editingState.available,
+        can: {
+            insertRows: canInsertRows && editingState.available,
+            insertGroups: canInsertGroups && editingState.available,
+            removeRows: !readOnly && capabilities.removeRows && editingState.available,
+            removeGroups: !readOnly && capabilities.removeGroups && editingState.available,
+        },
+        counts: { rows: wholeCount, pending: session.pending, issues: issueList.length },
+        issues: issueList,
+        kindOf,
+        write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue,
+        columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
+    }), [selected, targetAt, readOnly, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, draftVersion]);
+
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
     const toolbarItems = useSheetToolbarItemsFor({
         styles,
@@ -2861,7 +3184,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={() => paging.retry()} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, history, failure };
+        return { styles, root, toolbar, grid: null, footer, history, failure, inspect };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -3010,10 +3333,137 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
         </>
     );
-    return { styles, root, toolbar, grid, footer, history, failure: undefined };
+    return { styles, root, toolbar, grid, footer, history, failure: undefined, inspect };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
+
+/**
+ * Where a row, a line or a band a builder's inspector shows stands (#1188):
+ * its place, its number, its group and its sub rows — all read off the
+ * body, never from the source.
+ */
+export interface SheetInspectPlace {
+    /** Its row-space index. */
+    r: number;
+    /** A flat or loose row, a group's line, or a group's band. */
+    kind: "row" | "line" | "band";
+    /** The entry it is — a line's, its group's. */
+    entry: string;
+    /** A line's key in its group. */
+    child: string | undefined;
+    /** A line's place among its group's lines — what an issue addresses it by. */
+    index: number | undefined;
+    /** Its wire row: a row's or a band's group row, or a line's cells as a row. */
+    row: SheetRowValue;
+    /** Its number: a row's in the sheet, a line's in its group, a band's group's. */
+    number: number;
+    /** A line's group, or a band's own: its title and its line count. */
+    group: { title: string | undefined; lines: number } | undefined;
+    /** Owned upstream: its stamped cells are read only. */
+    owned: boolean;
+    /** The read-only rows under it (#844). */
+    subRows: readonly SheetSubRowValue[];
+}
+
+/**
+ * A row, a line or a band a builder's inspector shows (#1188): its place,
+ * its draft as its struct's values, what the record holds, and how its draft
+ * presents — the source's entry read once while the resident rows stand.
+ */
+export interface SheetInspectTarget extends SheetInspectPlace {
+    /** Its draft as its struct's values, by field: a field's value, `undefined` while it is missing or unreadable; `undefined` while its entry is not read yet. */
+    value: Readonly<Record<string, unknown>> | undefined;
+    /** What the record holds for it, as `value` holds the draft — `undefined` for a row never applied. */
+    baseline: Readonly<Record<string, unknown>> | undefined;
+    /** Its complete value — every field given and read — or `undefined` until it is: what an author's inspector is given (SB58). */
+    complete: unknown;
+    /** How its draft presents: pending, never applied, and its issues by field. */
+    presentation: DraftPresentation;
+}
+
+/** What the ring and the range select, as the inspector shows it (SB47–SB51): one place — its target read by {@link SheetInspect.targetAt} — or several rows, or nothing. */
+export type SheetSelected =
+    | { kind: "none" }
+    | { kind: "one"; place: SheetInspectPlace }
+    | { kind: "several"; rs: readonly number[]; r0: number; r1: number };
+
+/** One row's write from the inspector — beside the others, one transaction (SB52). */
+export interface SheetInspectWrite {
+    /** The row-space row it lands on: a row, a line, or a band. */
+    r: number;
+    /** Cells by column key (a band's: by band cell key), as the grid writes them. */
+    cells?: ReadonlyMap<string, SheetCellValue> | undefined;
+    /** Text by column key, read as typing in the cell reads it — a custom column's. */
+    texts?: ReadonlyMap<string, string> | undefined;
+    /** Fields no column shows, by name: their new values, set on the draft. */
+    fields?: ReadonlyMap<string, unknown> | undefined;
+}
+
+/** What a builder's inspector reads of the sheet, and the gestures it makes (#1188). */
+export interface SheetInspect {
+    /** What the ring and the range select. */
+    selected: SheetSelected;
+    /** The target at a row-space index, if one stands there: its draft, what the record holds, and how it presents — the one call that reads the source. */
+    targetAt: (r: number) => SheetInspectTarget | undefined;
+    /** A gesture may be made now: the sheet is writable and its session takes one. */
+    writable: boolean;
+    /** Whether rows (a grouped sheet's lines), groups may be inserted, and rows removed. */
+    can: { insertRows: boolean; insertGroups: boolean; removeRows: boolean; removeGroups: boolean };
+    /** The sheet's rows (not blank padding), the entries its drafts change, and the batch's issues. */
+    counts: { rows: number; pending: number; issues: number };
+    /** Every issue of the batch: the drafts' and the author's checks', then an Apply's conflicts and refusals. */
+    issues: readonly EditIssue[];
+    /** What an issue refuses its entry for: a field still missing, or one refused — an Apply's conflicts and refusals among them. */
+    kindOf: (issue: EditIssue) => "incomplete" | "invalid";
+    /** Write rows: every cell, text and field as one transaction, the copilot asked again for a row whose trigger column changed. */
+    write: (writes: readonly SheetInspectWrite[]) => void;
+    /** Put the ring on a row's cell under a column the grid shows, and focus the grid; `false` when the grid does not show it. */
+    editInSheet: (r: number, key: string) => boolean;
+    /** Delete the rows (or lines) from `r0` to `r1`, as ⌫ on them does. */
+    remove: (r0: number, r1: number) => void;
+    /** Duplicate rows, lines or bands — a band with its lines — each just after its source, as one transaction. */
+    duplicate: (rs: readonly number[]) => void;
+    /** Add a line at the end of the band's group. */
+    addLine: (bandR: number) => void;
+    /** Delete a band's group with its lines, as one transaction. */
+    removeGroup: (bandR: number) => void;
+    /** The column — on a band, the band cell — a key names at a row. */
+    columnAt: (r: number, key: string) => SheetColumnMeta | undefined;
+    /** The cell under a column at a row. */
+    cellAt: (r: number, key: string) => SheetCellValue | undefined;
+    /** A quantity's unit at a row: its driver member's. */
+    unitAt: (r: number, key: string) => string | undefined;
+    /** A date column's level at a row (#844). */
+    levelAt: (r: number, key: string) => "week" | "day" | "range" | "time" | undefined;
+    /** The register members a column's options rule offers a row; `undefined` offers every one. */
+    allowedAt: (r: number, key: string) => ReadonlySet<string> | undefined;
+    /** A cell drawn as the grid draws it — a link's halves and their chips. */
+    drawCell: (r: number, key: string) => ReactNode;
+    /** Go to an issue's cell — seeking its row on a paged sheet. */
+    goToIssue: (issue: EditIssue) => void;
+}
+
+/** One field of a draft, decoded: missing, a value, or the text that could not be read. */
+type DraftFieldValue = ValueTypeOf<ReturnType<typeof SheetDraftFieldType<EastType>>>;
+
+/** A draft struct's fields as their values: a field's value, `undefined` while it is missing or unreadable. */
+function draftValues(draft: Record<string, unknown>, children: string | undefined): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [field, state] of Object.entries(draft)) {
+        if (field === children) continue;
+        const s = state as DraftFieldValue;
+        out[field] = s.type === "value" ? s.value : undefined;
+    }
+    return out;
+}
+
+/** A draft struct with fields set: a value, or missing for `undefined`. */
+function withFields(draft: Record<string, unknown>, fields: ReadonlyMap<string, unknown>): Record<string, unknown> {
+    const next = { ...draft };
+    for (const [field, value] of fields) next[field] = value === undefined ? variant("missing", null) : variant("value", value);
+    return next;
+}
 
 /** The shared state the parts read; a part outside a {@link SheetProvider} is a host's mistake, and throws. */
 function useSheetParts(): SheetParts {
@@ -3091,6 +3541,18 @@ export function useSheetFooter(): SheetFooterProps {
  */
 export function useSheetHistory(): SheetHistory {
     return useSheetParts().history;
+}
+
+/**
+ * Reads what a builder's inspector shows of the sheet and the gestures it
+ * makes (#1188): what is selected — one row, line or band, several rows, or
+ * nothing — each target's draft against what the record holds, the batch's
+ * issues, and the writes, each one transaction as typing in the grid is.
+ *
+ * @returns The sheet's inspector facts and gestures
+ */
+export function useSheetInspect(): SheetInspect {
+    return useSheetParts().inspect;
 }
 
 /**

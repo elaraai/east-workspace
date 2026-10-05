@@ -16,7 +16,10 @@
  * click — on a phone, a tap — closes. The library (#1186): the tabs the
  * workshop's `library` lists, their counts out of the 272px pane's row and
  * kept in each tab's name (#1210), and its cards' anatomy; a hidden column's
- * card dimmed, and the column out of the grid. In both themes;
+ * card dimmed, and the column out of the grid. The inspector (#1188): a
+ * line's Details in the 320px pane, its sections and its fields, a changed
+ * field tinted; and on the weeks' builder the author's own Details, its
+ * slider's step one transaction. In both themes;
  * every measurement is polled until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -28,6 +31,8 @@ import { settled } from "./settle";
 import { frameAt, tapScrim, type Box } from "./builder-frame";
 
 const HASH = "e3/sheet/sheet-builder/sheetBuilderWorkshop";
+/** The weeks' builder: one entry's rows, and the author's own Details (SB58). */
+const WEEKS = "e3/sheet/sheet-builder/sheetBuilderWeeks";
 
 /** The fold ladder: the rail's four steps, the view tabs' strip closing up, the history item to its buttons. */
 const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 history>1";
@@ -36,10 +41,10 @@ const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 history>1";
  * Open the workshop's builder and return the box its example gives it, at
  * rest: as wide as given, or, with `null`, as the page lays it out.
  */
-async function openBuilder(page: Page, theme: "light" | "dark" = "light", width: number | null = 1440): Promise<Locator> {
-    await page.goto(`/?theme=${theme}#${HASH}`);
+async function openBuilder(page: Page, theme: "light" | "dark" = "light", width: number | null = 1440, hash = HASH): Promise<Locator> {
+    await page.goto(`/?theme=${theme}#${hash}`);
     await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${HASH}"]`) });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
     await entry.scrollIntoViewIfNeeded();
     await expect(entry.locator("[data-builder-frame] [data-sheet-card]")).toBeVisible({ timeout: 20_000 });
     const box = entry.locator("[data-builder-frame]").first().locator("xpath=..");
@@ -340,5 +345,85 @@ test.describe("Sheet builder — its frame on a phone (#1184)", () => {
             const at = await frameAt(box);
             return { collapsed: at.end!.collapsed, scrim: at.scrim };
         }).toEqual({ collapsed: true, scrim: null });
+    });
+});
+
+test.describe("Sheet builder — the inspector (#1188)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`a line's Details in the 320px pane: sections padded 16px with a rule between, the eyebrow mono caps in the quiet ink, every field the shared field inside the pane, a changed field tinted brand (${theme})`, async ({ page }) => {
+            const box = await openBuilder(page, theme);
+            const pane = box.locator("[data-builder-frame] [data-frame-slot=end]");
+            // The first operation of the first order: a line, never a band.
+            await box.locator("[data-frame-slot=main] [data-slot=row]:not(:has([data-slot=groupSummary])) [data-slot=cell][data-key=notes]").first().click();
+            await expect(pane.locator("[data-sheet-inspector=line]")).toBeVisible();
+            await expect.poll(() => pane.evaluate((el) => {
+                // The theme's tokens, as the page resolves them.
+                const resolve = (property: "color" | "fontFamily", token: string) => {
+                    const probe = document.createElement("span");
+                    probe.style[property] = `var(${token})`;
+                    document.body.appendChild(probe);
+                    const resolved = getComputedStyle(probe)[property];
+                    probe.remove();
+                    return resolved;
+                };
+                const rule = resolve("color", "--chakra-colors-border-subtle");
+                const quiet = resolve("color", "--chakra-colors-fg-subtle");
+                const mono = resolve("fontFamily", "--chakra-fonts-mono");
+                const details = el.querySelector("[data-sheet-inspector]")!;
+                const paneBox = el.getBoundingClientRect();
+                const section = (sel: string) => {
+                    const st = getComputedStyle(details.querySelector(sel)!);
+                    return [st.paddingTop, st.paddingRight, st.paddingBottom, st.paddingLeft, st.borderBottomWidth, st.borderBottomStyle, st.borderBottomColor === rule];
+                };
+                const eyebrow = getComputedStyle(details.querySelector("[data-inspector-what]")!);
+                const fields = [...details.querySelectorAll("[data-field]")].map((f) => f.getBoundingClientRect());
+                const actions = getComputedStyle(details.querySelector("[data-inspector-actions]")!);
+                return {
+                    width: Math.round(paneBox.width),
+                    head: section(":scope > div:first-child"),
+                    fields: section("[data-inspector-fields]"),
+                    actions: [actions.paddingTop, actions.borderBottomWidth],
+                    eyebrow: [eyebrow.fontFamily === mono, eyebrow.textTransform, eyebrow.color === quiet],
+                    // Every field inside the pane: nothing wider than it, nothing scrolled sideways.
+                    fit: fields.length > 0 && fields.every((b) => b.left >= paneBox.left && b.right <= paneBox.right),
+                };
+            })).toEqual({
+                width: 320,
+                head: ["16px", "16px", "16px", "16px", "1px", "solid", true],
+                fields: ["16px", "16px", "16px", "16px", "1px", "solid", true],
+                actions: ["16px", "0px"],
+                eyebrow: [true, "uppercase", true],
+                fit: true,
+            });
+            // An edit in the inspector: the field the drafts changed is tinted brand.
+            const notes = pane.locator('[data-field="notes"]');
+            await notes.getByRole("textbox").fill("Oak veneered board, checked");
+            await notes.getByRole("textbox").press("Enter");
+            await expect.poll(() => notes.evaluate((el) => {
+                const probe = document.createElement("span");
+                probe.style.background = "var(--chakra-colors-brand-tint)";
+                document.body.appendChild(probe);
+                const tint = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return [el.hasAttribute("data-dirty"), getComputedStyle(el).backgroundColor === tint];
+            })).toEqual([true, true]);
+        });
+    }
+
+    test("the author's own Details on the weeks' builder: a row's quantity on a slider, its key step one transaction through the cell, Undo taking it back (SB58)", async ({ page }) => {
+        const box = await openBuilder(page, "light", 1440, WEEKS);
+        const pane = box.locator("[data-builder-frame] [data-frame-slot=end]");
+        const qty = box.locator("[data-frame-slot=main] [data-slot=row] [data-slot=cell][data-key=qty]").first();
+        await box.locator("[data-frame-slot=main] [data-slot=row] [data-slot=cell][data-key=task]").first().click();
+        await expect(pane.locator('[data-inspector-fields="custom"]')).toContainText("Cut the kitchen carcasses");
+        await expect(qty).toHaveText("48");
+        await pane.getByRole("slider").focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(qty).toHaveText("49");
+        await expect(pane.locator('[data-state="pending"]')).toHaveText("Pending");
+        await box.getByRole("button", { name: "Undo" }).click();
+        await expect(qty).toHaveText("48");
     });
 });
