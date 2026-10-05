@@ -7,12 +7,14 @@
  * A host draws a data task's controls in its own header (#1120): it controls
  * the Output/Logs tab with `view` and `onViewChange`, hides the preview's band
  * with `toolbar={false}`, and controls the output's key search with `search`
- * and `onSearchChange`, which reach the output's preview. TaskPreview passes
+ * and `onSearchChange`, which reach the output's preview. The log is given the
+ * band's `toolbar` too, and the host's stream, search and matches, and the
+ * host's handle reaches both the output and the log (#1209). TaskPreview passes
  * each to the data task's preview.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, renderHook, cleanup, screen, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { variant, type ValueTypeOf } from "@elaraai/east";
@@ -20,21 +22,26 @@ import { taskGet } from "@elaraai/e3-api-client";
 import type { TaskDetailsType } from "@elaraai/e3-types";
 import { system } from "@elaraai/east-ui-components";
 import { DataTaskPreview } from "./DataTaskPreview.js";
-import { TaskPreview } from "./TaskPreview.js";
+import { TaskPreview, type TaskPreviewProps } from "./TaskPreview.js";
 import type { DatasetPreviewProps } from "./DatasetPreview.js";
+import type { TaskLogsProps } from "./TaskLogs.js";
+import { logControlsOf, usePreviewControls, type PreviewControls } from "./preview-controls.js";
 
 vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
     ...await importOriginal<typeof import("@elaraai/e3-api-client")>(),
     taskGet: vi.fn(),
 }));
 
-/** What the output's preview was last given. */
-const seen = vi.hoisted(() => ({ output: undefined as DatasetPreviewProps | undefined }));
+/** What the output's preview and the log were last given. */
+const seen = vi.hoisted(() => ({
+    output: undefined as DatasetPreviewProps | undefined,
+    logs: undefined as TaskLogsProps | undefined,
+}));
 vi.mock("./DatasetPreview.js", async (importOriginal) => ({
     ...await importOriginal<typeof import("./DatasetPreview.js")>(),
     DatasetPreview: (props: DatasetPreviewProps) => { seen.output = props; return <div>the output</div>; },
 }));
-vi.mock("./TaskLogs.js", () => ({ TaskLogs: () => <div>the logs</div> }));
+vi.mock("./TaskLogs.js", () => ({ TaskLogs: (props: TaskLogsProps) => { seen.logs = props; return <div>the logs</div>; } }));
 
 // jsdom has no `CSS.escape`, and the switch's radio group finds its items
 // through it — every browser has one. A stand-in escaping whatever an id may
@@ -58,7 +65,13 @@ afterEach(() => {
     vi.unstubAllGlobals();
     vi.mocked(taskGet).mockReset();
     seen.output = undefined;
+    seen.logs = undefined;
 });
+
+/** A handle, as a host makes one. */
+function makeControls(): PreviewControls {
+    return renderHook(() => usePreviewControls()).result.current;
+}
 
 const API = "http://e3.test";
 
@@ -134,6 +147,37 @@ describe("DataTaskPreview's band (#1120)", () => {
     });
 });
 
+describe("DataTaskPreview's log (#1209)", () => {
+    test("draws its band unless the host draws its controls", async () => {
+        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" view="logs" />);
+        expect(await screen.findByText("the logs")).not.toBe(null);
+        expect(seen.logs?.toolbar).toBe(true);
+    });
+
+    test("is given toolbar={false}, the host's stream, search and matches, and the log's half of its handle", async () => {
+        const controls = makeControls();
+        const onLogStreamChange = vi.fn();
+        const onLogSearchChange = vi.fn();
+        const onLogMatchesChange = vi.fn();
+        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" view="logs" toolbar={false}
+            logStream="stderr" onLogStreamChange={onLogStreamChange} logSearch="err" onLogSearchChange={onLogSearchChange}
+            onLogMatchesChange={onLogMatchesChange} controls={controls} />);
+        expect(await screen.findByText("the logs")).not.toBe(null);
+        expect([seen.logs?.toolbar, seen.logs?.stream, seen.logs?.search]).toEqual([false, "stderr", "err"]);
+        expect(seen.logs?.onStreamChange).toBe(onLogStreamChange);
+        expect(seen.logs?.onSearchChange).toBe(onLogSearchChange);
+        expect(seen.logs?.onMatchesChange).toBe(onLogMatchesChange);
+        expect(seen.logs?.controlsRef).toBe(logControlsOf(controls));
+    });
+
+    test("the output's preview is given the host's handle too", async () => {
+        const controls = makeControls();
+        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" controls={controls} />);
+        expect(await screen.findByText("the output")).not.toBe(null);
+        expect(seen.output?.controls).toBe(controls);
+    });
+});
+
 describe("TaskPreview (#1120)", () => {
     test("passes a data task's controls to its preview, each change alone reaching it", async () => {
         const onViewChange = vi.fn();
@@ -166,5 +210,41 @@ describe("TaskPreview (#1120)", () => {
         expect(await screen.findByText("the logs")).not.toBe(null);
         fireEvent.click(screen.getByTitle("Output"));
         await vi.waitFor(() => expect(onViewChange).toHaveBeenCalledWith("output"));
+    });
+});
+
+describe("TaskPreview (#1209)", () => {
+    test("passes a data task's log controls and the host's handle to its preview, each change alone reaching it", async () => {
+        type Log = Required<Pick<TaskPreviewProps, "logStream" | "onLogStreamChange" | "logSearch" | "onLogSearchChange" | "onLogMatchesChange" | "controls">>;
+        const preview = (log: Log) => (
+            <TaskPreview apiUrl={API} repo="default" workspace="w" task="report" bare view="logs" toolbar={false} {...log} />
+        );
+        const log: Log = {
+            logStream: "stdout", onLogStreamChange: vi.fn(), logSearch: "a", onLogSearchChange: vi.fn(),
+            onLogMatchesChange: vi.fn(), controls: makeControls(),
+        };
+        const { rerenderIn } = renderIn(preview(log));
+        expect(await screen.findByText("the logs")).not.toBe(null);
+        expect([seen.logs?.stream, seen.logs?.search, seen.logs?.toolbar]).toEqual(["stdout", "a", false]);
+
+        const next = { ...log };
+        next.logStream = "stderr";
+        rerenderIn(preview({ ...next }));
+        await vi.waitFor(() => expect(seen.logs?.stream).toBe("stderr"));
+        next.logSearch = "b";
+        rerenderIn(preview({ ...next }));
+        await vi.waitFor(() => expect(seen.logs?.search).toBe("b"));
+        next.onLogStreamChange = vi.fn();
+        rerenderIn(preview({ ...next }));
+        await vi.waitFor(() => expect(seen.logs?.onStreamChange).toBe(next.onLogStreamChange));
+        next.onLogSearchChange = vi.fn();
+        rerenderIn(preview({ ...next }));
+        await vi.waitFor(() => expect(seen.logs?.onSearchChange).toBe(next.onLogSearchChange));
+        next.onLogMatchesChange = vi.fn();
+        rerenderIn(preview({ ...next }));
+        await vi.waitFor(() => expect(seen.logs?.onMatchesChange).toBe(next.onLogMatchesChange));
+        next.controls = makeControls();
+        rerenderIn(preview({ ...next }));
+        await vi.waitFor(() => expect(seen.logs?.controlsRef).toBe(logControlsOf(next.controls)));
     });
 });

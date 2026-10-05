@@ -17,9 +17,9 @@
  * entry VALUES only (no entry insert/remove).
  */
 
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { describe, test, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     variant, some, none, isValueOf, printFor, type ValueTypeOf,
@@ -27,7 +27,7 @@ import {
 } from "@elaraai/east";
 import { ValueTree } from "@elaraai/east-ui";
 import { system } from "../../theme/index.js";
-import { EastChakraValueTree, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow } from "./index.js";
+import { EastChakraValueTree, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow, type ValueTreeControls } from "./index.js";
 
 afterEach(cleanup);
 
@@ -180,6 +180,46 @@ describe("EastChakraValueTree", () => {
         fireEvent.click(screen.getByText("Collapse all"));
         expect(screen.queryByText("Inner")).toBeNull();
         expect(screen.getByText("Outer")).toBeTruthy();
+    });
+
+    test("a host's own controls collapse and expand everything, the toolbar not drawn, until the tree unmounts (#1209)", () => {
+        const controls = createRef<ValueTreeControls>();
+        keyCounter += 1;
+        const { unmount } = render(
+            <ChakraProvider value={system}>
+                <EastChakraValueTree value={rootValue(structN([
+                    ["outer", structN([["inner", structN([["deep", int(7n)]])]])],
+                ]), {}, { toolbar: false })} storageKey={`vt-test-${keyCounter}`} controlsRef={controls} />
+            </ChakraProvider>,
+        );
+        expect(screen.queryByText("Expand all")).toBeNull();
+        expect(screen.getByText("Inner")).toBeTruthy();
+        act(() => controls.current!.expandAll());
+        expect(screen.getByText("Deep")).toBeTruthy();
+        act(() => controls.current!.collapseAll());
+        expect(screen.queryByText("Inner")).toBeNull();
+        expect(screen.getByText("Outer")).toBeTruthy();
+
+        unmount();
+        expect(controls.current, "a tree that has gone holds no controls").toBeNull();
+    });
+
+    test("a host's new controlsRef is given the controls, and the one before let go, nothing else changing (#1209)", () => {
+        const first = createRef<ValueTreeControls>();
+        const second = createRef<ValueTreeControls>();
+        const value = rootValue(structN([["outer", structN([["inner", int(1n)]])]]));
+        keyCounter += 1;
+        const tree = (controlsRef: typeof first) => (
+            <ChakraProvider value={system}>
+                <EastChakraValueTree value={value} storageKey={`vt-test-${keyCounter}`} controlsRef={controlsRef} />
+            </ChakraProvider>
+        );
+        const { rerender } = render(tree(first));
+        expect(first.current).not.toBeNull();
+        rerender(tree(second));
+        expect([first.current, second.current !== null]).toEqual([null, true]);
+        act(() => second.current!.collapseAll());
+        expect(screen.queryByText("Inner")).toBeNull();
     });
 
     test("Alt-click collapses the entire subtree, not just the row", () => {

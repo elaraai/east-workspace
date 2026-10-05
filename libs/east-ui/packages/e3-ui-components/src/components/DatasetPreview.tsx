@@ -14,6 +14,11 @@
  * Used for inputs and other "show me this dataset's value" cases. NOT used
  * for UI tasks (those go through `<UITaskPreview>`).
  *
+ * A host that draws the preview's controls in its own header passes
+ * `toolbar={false}`, so the preview draws no band above the value (#1120) and
+ * its tree no Collapse all and Expand all, which the host does through the
+ * `controls` it makes with `usePreviewControls` (#1209).
+ *
  * @packageDocumentation
  */
 
@@ -42,6 +47,7 @@ import { StatusDisplay } from './StatusDisplay.js';
 import { DatasetKeySearch, keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery } from '@elaraai/east-ui-components';
 import { PagedDatasetPreview } from './PagedDatasetPreview.js';
 import { useControlledKeySearch } from './controlled-search.js';
+import { treeControlsOf, type PreviewControls } from './preview-controls.js';
 import { formatApiError, formatError } from '../errors.js';
 
 const DEFAULT_SIZE_LIMIT = 200 * 1024; // 200KB
@@ -60,9 +66,9 @@ export interface DatasetPreviewProps {
      *  this dataset path (for mutable inputs). Task outputs stay read-only. */
     editable?: boolean;
     /** `false` draws no band above the value — no key search, size or
-     *  Download — for a host that draws them in its own header (#1120). A
-     *  value too large to show keeps its Download, which is the body. Default
-     *  `true`. */
+     *  Download — for a host that draws them in its own header (#1120), and
+     *  no Collapse all and Expand all above the tree (#1209). A value too
+     *  large to show keeps its Download, which is the body. Default `true`. */
     toolbar?: boolean;
     /** The key search, controlled: the host draws its input, and the preview
      *  draws no search box of its own. The text is read in the key search's
@@ -71,6 +77,9 @@ export interface DatasetPreviewProps {
     /** Told the text of the preview's own search box as it is edited, unless
      *  `search` is given. */
     onSearchChange?: (search: string) => void;
+    /** The handle a host's own Collapse all and Expand all act on the tree
+     *  through, made with `usePreviewControls` (#1209). */
+    controls?: PreviewControls;
 }
 
 /** A size in KB, to one decimal. */
@@ -119,6 +128,7 @@ export const DatasetPreview = memo(function DatasetPreview({
     toolbar = true,
     search,
     onSearchChange,
+    controls,
 }: DatasetPreviewProps) {
     // Counts and sizes, in the app's locale (#850).
     const words = useFormatters();
@@ -165,8 +175,11 @@ export const DatasetPreview = memo(function DatasetPreview({
     // Editable path: persist a ValueTree edit back to the dataset. `applyEdit`
     // reconciles the decoded value at the reported path, then the existing
     // `useDatasetSet` writer encodes + PUTs it; invalidating the status/value
-    // queries refetches the new value, which re-materializes the tree.
-    const setMutation = useDatasetSet(apiUrl, repo, workspace, requestOptions);
+    // queries refetches the new value, which re-materializes the tree. The
+    // mutation's own write stays one function across renders, where the result
+    // TanStack hands back is a new object on each: a write made on the result
+    // would make the tree anew on every render.
+    const { mutateAsync: setDataset } = useDatasetSet(apiUrl, repo, workspace, requestOptions);
     const queryClient = useQueryClient();
     const decoded = valueQuery.data?.decoded;
 
@@ -187,7 +200,7 @@ export const DatasetPreview = memo(function DatasetPreview({
         // One write at a time, in the order they were made, so the last edit's
         // value is the one the dataset keeps.
         const run = writes.current.then(async () => {
-            await setMutation.mutateAsync({ path: treePath, data });
+            await setDataset({ path: treePath, data });
             // Refetch the status only — the new content hash it returns re-keys
             // the value query, which loads the new value (kept smooth by
             // placeholderData above). Invalidating the value query too would
@@ -203,7 +216,7 @@ export const DatasetPreview = memo(function DatasetPreview({
                 throw err;
             })
             .finally(() => { writing.current--; });
-    }, [apiUrl, repo, workspace, path, type, setMutation, queryClient]);
+    }, [apiUrl, repo, workspace, path, type, setDataset, queryClient]);
 
     // Inline key search (#520): the same control as the paged preview, with
     // a client-side jump over the already-decoded keys (decoded Set/Dict
@@ -265,8 +278,9 @@ export const DatasetPreview = memo(function DatasetPreview({
                 onTag: some((p: ValueTreeStepValue[], tag: string) => write(ValueTree.applyEdit(type, base(), p, { kind: 'tag', tag }))),
             }
             : { onEdit: none, onInsert: none, onRemove: none, onTag: none };
-        return { root, ...wire, style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(true) }) } as unknown as ValueTreeValue;
-    }, [type, decoded, editable, write]);
+        // The tree's Collapse all and Expand all are a band too (#1209).
+        return { root, ...wire, style: some({ height: some('100%'), maxHeight: none, openDepth: none, toolbar: some(toolbar) }) } as unknown as ValueTreeValue;
+    }, [type, decoded, editable, write, toolbar]);
 
     if (statusQuery.isLoading) return <StatusDisplay variant="loading" title="Loading..." />;
     if (statusQuery.error) {
@@ -293,6 +307,7 @@ export const DatasetPreview = memo(function DatasetPreview({
                 toolbar={toolbar}
                 {...(search !== undefined && { search })}
                 {...(onSearchChange !== undefined && { onSearchChange })}
+                {...(controls !== undefined && { controls })}
             />
         );
     }
@@ -342,7 +357,8 @@ export const DatasetPreview = memo(function DatasetPreview({
                 </Flex>
             )}
             <Box flex={1} minHeight={0} overflow="hidden">
-                {treeValue !== null && <EastChakraValueTree value={treeValue} storageKey={path ?? 'value'} scrollToRow={jumpRow} />}
+                {treeValue !== null && <EastChakraValueTree value={treeValue} storageKey={path ?? 'value'} scrollToRow={jumpRow}
+                    controlsRef={treeControlsOf(controls)} />}
             </Box>
         </Flex>
     );

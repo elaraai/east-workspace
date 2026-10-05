@@ -34,12 +34,16 @@ vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
     datasetFindKey: vi.fn(),
 }));
 
-/** The tree the preview renders, as it last rendered it: the row it jumps to, inline or paged. */
-const shown = vi.hoisted(() => ({ rendered: false, scrollToRow: undefined as number | undefined, paging: undefined as ValueTreePaging | undefined }));
+/** The tree the preview renders, as it last rendered it: the value it was
+ *  given, and the row it jumps to, inline or paged. */
+const shown = vi.hoisted(() => ({
+    rendered: false, value: undefined as unknown, scrollToRow: undefined as number | undefined, paging: undefined as ValueTreePaging | undefined,
+}));
 vi.mock("@elaraai/east-ui-components", async (importOriginal) => ({
     ...await importOriginal<typeof import("@elaraai/east-ui-components")>(),
-    EastChakraValueTree: ({ scrollToRow, paging }: { scrollToRow?: number; paging?: ValueTreePaging }) => {
+    EastChakraValueTree: ({ value, scrollToRow, paging }: { value: unknown; scrollToRow?: number; paging?: ValueTreePaging }) => {
         shown.rendered = true;
+        shown.value = value;
         shown.scrollToRow = scrollToRow;
         shown.paging = paging;
         return null;
@@ -72,6 +76,7 @@ afterEach(() => {
     vi.mocked(datasetGetPage).mockReset();
     vi.mocked(datasetFindKey).mockReset();
     shown.rendered = false;
+    shown.value = undefined;
     shown.scrollToRow = undefined;
     shown.paging = undefined;
 });
@@ -144,6 +149,15 @@ describe("a value shown inline (#1120)", () => {
         await userEvent.type(await screen.findByPlaceholderText("Search keys"), "b");
         await vi.waitFor(() => expect(onSearchChange).toHaveBeenLastCalledWith("b"));
         await vi.waitFor(() => expect(shown.scrollToRow).toBe(undefined));
+    });
+
+    test("keeps the tree it made while the value stays, as the host's search moves (#1209)", async () => {
+        const { rerenderWith } = renderPreview({ editable: true, search: "a" });
+        await vi.waitFor(() => expect(shown.scrollToRow).toBe(0));
+        const made = shown.value;
+        rerenderWith({ editable: true, search: "b" });
+        await vi.waitFor(() => expect(shown.scrollToRow).toBe(1));
+        expect(shown.value, "the value is not materialized again").toBe(made);
     });
 });
 

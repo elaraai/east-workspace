@@ -151,6 +151,7 @@ import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
+import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
 
 const config = defineConfig({
     globalCss,
@@ -283,6 +284,7 @@ const config = defineConfig({
             toolbar:         toolbarSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
             queryAutocomplete: queryAutocompleteSlotRecipe,
+            logViewer:       logViewerSlotRecipe,
         },
     },
 });

@@ -12,8 +12,13 @@
  *
  * A host that draws a data task's controls in its own header (#1120) passes
  * `toolbar={false}` and controls the tab (`view`, `onViewChange`) and the
- * output's key search (`search`, `onSearchChange`); they reach the data
- * task's preview, and a ui task's preview, which draws no band, ignores them.
+ * output's key search (`search`, `onSearchChange`); the log's stream
+ * (`logStream`, `onLogStreamChange`) and search (`logSearch`,
+ * `onLogSearchChange`), and hears its matches (`onLogMatchesChange`); and
+ * collapses and expands the value's tree, steps through the log's matches and
+ * copies the log through the `controls` it makes with `usePreviewControls`
+ * (#1209). They reach the data task's preview; a ui task's preview, which
+ * draws no band, ignores them.
  *
  * @packageDocumentation
  */
@@ -42,12 +47,25 @@ export interface TaskPreviewProps {
     view?: DataTaskPreviewProps['view'];
     /** Told the tab a data task's switch picks. */
     onViewChange?: DataTaskPreviewProps['onViewChange'];
-    /** `false` draws no band in a data task's preview (#1120). Default `true`. */
+    /** `false` draws no band anywhere in a data task's preview (#1120,
+     *  #1209): see {@link DataTaskPreviewProps.toolbar}. Default `true`. */
     toolbar?: boolean;
     /** A data task's output's key search, controlled: see {@link DataTaskPreviewProps.search}. */
     search?: string;
     /** Told the text of the output's own search box: see {@link DataTaskPreviewProps.onSearchChange}. */
     onSearchChange?: (search: string) => void;
+    /** A data task's log's stream, controlled: see {@link DataTaskPreviewProps.logStream}. */
+    logStream?: DataTaskPreviewProps['logStream'];
+    /** Told the stream the log's tabs pick. */
+    onLogStreamChange?: DataTaskPreviewProps['onLogStreamChange'];
+    /** A data task's log's search, controlled: see {@link DataTaskPreviewProps.logSearch}. */
+    logSearch?: string;
+    /** Told the text of the log's own search box: see {@link DataTaskPreviewProps.onLogSearchChange}. */
+    onLogSearchChange?: (search: string) => void;
+    /** Told the log's matches: see {@link DataTaskPreviewProps.onLogMatchesChange}. */
+    onLogMatchesChange?: DataTaskPreviewProps['onLogMatchesChange'];
+    /** The handle a host's own controls act through: see {@link DataTaskPreviewProps.controls}. */
+    controls?: DataTaskPreviewProps['controls'];
 }
 
 export const TaskPreview = memo(function TaskPreview({
@@ -62,6 +80,12 @@ export const TaskPreview = memo(function TaskPreview({
     toolbar,
     search,
     onSearchChange,
+    logStream,
+    onLogStreamChange,
+    logSearch,
+    onLogSearchChange,
+    onLogMatchesChange,
+    controls,
 }: TaskPreviewProps) {
     const detailsQuery = useTaskDetails(apiUrl, repo, workspace, task, {
         ...(requestOptions != null && { requestOptions }),
@@ -102,6 +126,12 @@ export const TaskPreview = memo(function TaskPreview({
                                 {...(toolbar !== undefined && { toolbar })}
                                 {...(search !== undefined && { search })}
                                 {...(onSearchChange !== undefined && { onSearchChange })}
+                                {...(logStream !== undefined && { logStream })}
+                                {...(onLogStreamChange !== undefined && { onLogStreamChange })}
+                                {...(logSearch !== undefined && { logSearch })}
+                                {...(onLogSearchChange !== undefined && { onLogSearchChange })}
+                                {...(onLogMatchesChange !== undefined && { onLogMatchesChange })}
+                                {...(controls !== undefined && { controls })}
                             />
                 }
             </Box>
@@ -113,6 +143,9 @@ export const TaskPreview = memo(function TaskPreview({
     // keep the old one.
     && prev.requestOptions?.token === next.requestOptions?.token
     && Object.is(prev.requestOptions?.fetch, next.requestOptions?.fetch)
-    // The host's controls (#1120).
+    // The host's controls (#1120, #1209).
     && prev.view === next.view && prev.toolbar === next.toolbar && prev.search === next.search
-    && Object.is(prev.onViewChange, next.onViewChange) && Object.is(prev.onSearchChange, next.onSearchChange));
+    && Object.is(prev.onViewChange, next.onViewChange) && Object.is(prev.onSearchChange, next.onSearchChange)
+    && prev.logStream === next.logStream && prev.logSearch === next.logSearch
+    && Object.is(prev.onLogStreamChange, next.onLogStreamChange) && Object.is(prev.onLogSearchChange, next.onLogSearchChange)
+    && Object.is(prev.onLogMatchesChange, next.onLogMatchesChange) && Object.is(prev.controls, next.controls));
