@@ -162,8 +162,9 @@ and `D` never cross the IR except inside function captures.
 ## 3 · Authoring surface — the DX, by example
 
 `@jsxImportSource @elaraai/east-ui`. Every example below is complete enough to
-compile once the factories exist; the flagship (§3.11) is the first example in the
-corpus (`sheetPlan`). Fixtures are elided with `…` only where they repeat. The
+compile once the factories exist; the flagship (§3.11) was the corpus's
+`sheetPlan`, and since #1189 is the Sheet builder's, `sheetBuilderWorkshop` (§8's
+note on the corpus). Fixtures are elided with `…` only where they repeat. The
 listings hoist types, fixtures and the typed constructors (`Ctx`, `Proposals`) to
 module scope and repeat them per section for reading; in the corpus every example
 function is self-contained — types, fixtures and constructors declared once inside
@@ -475,7 +476,8 @@ for one sheet is refused on another — its payload at compile time, its context
 `Option<Null>`, always `none`. Every rule the prototype hard-codes
 — derive, history, sequence, default, phrase, capacity — is a few lines of East
 over `ctx.row.start`, `ctx.driver`, `ctx.rows`. Nothing is built in; these are
-the corpus examples (`sheetCopilot`):
+the corpus examples (once `sheetCopilot`; since #1189 the fills and proposers of
+`sheetBuilderWorkshop`):
 
 ```tsx
 const Ctx = Sheet.Types.Context(PlanRowType, ActivityType);
@@ -841,6 +843,10 @@ const cancelled = $.let(rows.filter((_$, r) => r.status.equal("CANCELLED")).leng
 ```
 
 ### 3.11 The flagship — everything together (`sheetPlan`)
+
+The listing is the flagship as designed. Since #1189 the corpus shows these
+features on `<Sheet.Builder>`: the flagship is `sheetBuilderWorkshop`, and the
+column kinds and rules the workshop does not draw are `sheetBuilderWeeks`'s.
 
 ```tsx
 /** @jsxImportSource @elaraai/east-ui */
@@ -1825,6 +1831,17 @@ fixtures and constructors inside the body, bulk data derived with
 `East.Array.range` / `generate`, only `East.asyncPlatform` at module scope — and
 merged examples keep the union of keywords and a feature-enumerating description.
 Fixtures are the prototype's synthetic registers and rows.
+
+**The corpus since #1189** is fewer, fuller examples, most in the builder's frame
+(the audit is in #1189):
+- `<Sheet.View>` keeps `sheetBasic`, `sheetVariants` and `sheetStress`, which
+  absorbed `sheetLens`;
+- the builder's are `sheetBuilder`, `sheetBuilderLibrary` and the flagship
+  `sheetBuilderWorkshop` (absorbing `sheetPlan`, `sheetCopilot` and
+  `sheetRegisters`);
+- then `sheetBuilderWeeks` (`sheetRules`, `sheetReadiness`, `sheetWriteBack`),
+  `sheetBuilderBatches` (`sheetGrouped`, `sheetSubRows`), `sheetBuilderLoose`
+  (`sheetLoose`) and `sheetBuilderPaged` (`sheetInsertion`).
 
 **P2 — renderer core** `model.ts`, `paging.ts` over the Plan stack, `parse/*`,
 `candidates.ts`, `sheet-state.ts` (+ tests), the controlled `selection` with

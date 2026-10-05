@@ -476,7 +476,11 @@ test("the author's inspector: a complete row shows it in place of the form; a ro
     await settle();
     expect(cell(container, 0, "task").hasAttribute("data-blank")).toBe(true);
     expect(fields().getAttribute("data-inspector-fields")).toBe("form");
-    expect(editors(container)).toEqual(["task:text", "start:datetime", "qty:number"]);
+    // Every field by its column's kind — the stamped code read only — and the two no column shows by their types.
+    expect(editors(container)).toEqual([
+        "task:text", "start:datetime", "qty:number", "setups:number", "site:reference", "status:reference",
+        "code:readonly", "level:select", "started:datetime", "machines:custom",
+    ]);
     // Complete again, the author's own returns.
     await retype(container, "task", "Cut the kitchen carcasses");
     expect(fields().getAttribute("data-inspector-fields")).toBe("custom");

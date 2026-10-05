@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan.View>, the composite canvas: heterogeneous rows on ONE shared { time | number | ordinal } axis, laid out by the series list and nested from the data's own structure, over local data or a Data.bindPaged source, with a series library, key search, and an editing session — review verdicts, dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Apply — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, the value builders), (13) The Sheet — <Sheet.View>, the planning spreadsheet: typed columns over the host's raw rows (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, groups with loose rows between them and read-only sub rows, Excel round-trip, over local data or a Data.bindPaged source with a key search, and an editing session — drafts checked as they are made, Undo / Redo and one checked Apply — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.apply)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Apply one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan.View>, the composite canvas: heterogeneous rows on ONE shared { time | number | ordinal } axis, laid out by the series list and nested from the data's own structure, over local data or a Data.bindPaged source, with a series library, key search, and an editing session — review verdicts, dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Apply — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, the value builders), (13) The Sheet — <Sheet.View>, the planning spreadsheet: typed columns over the host's raw rows (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, groups with loose rows between them and read-only sub rows, Excel round-trip, over local data or a Data.bindPaged source with a key search, and an editing session — drafts checked as they are made, Undo / Redo and one checked Apply; and <Sheet.Builder>, an e3 record edited as a sheet in a builder frame — the record's entries, one entry's rows or groups (with loose rows between them), or a large record a window at a time — with a library (templates, columns, the author's cards), drag and drop, an inspector of the selected row's every field or the author's own, and Apply one patch commit through the record's patch door — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply)."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -13,7 +13,7 @@ and commit / discard, a view becomes a place a user commits a decision with its
 evidence — not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
-(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan.View>` and `<Sheet.View>`, the `Data` and `Func`
+(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan.View>`, `<Sheet.View>` and `<Sheet.Builder>`, the `Data` and `Func`
 binding helpers, `Studio` and `Query` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
 `<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
@@ -135,6 +135,10 @@ Task → What do you need?
     │
     ├─ Let planners type rows in place — the Sheet (see The Sheet below)
     │   ├─ The spreadsheet: typed columns over the host's rows → <Sheet.View data={…} id="id" columns={{…}} />
+    │   ├─ An e3 record edited as a sheet, in a builder frame  → <Sheet.Builder record={…} columns={{…}} /> (record = Record.bind(r, [patch]))
+    │   │   ├─ One entry's rows, groups or loose rows          → entry={{ key, rows: "field", id: "id" }} (+ group)
+    │   │   ├─ A large record, a window at a time             → window={Data.bindPaged(r)}
+    │   │   └─ Its library and its inspector                  → library={[Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(…)]} · fields · inspector
     │   ├─ Its columns, registers and the driver               → Sheet.column.* / Sheet.register.* / Sheet.driver
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                        → data={paged}, a Data.bindPaged handle
@@ -1096,7 +1100,7 @@ Removed with #880: review `onApprove` / `onReject` / `onApproveAll` /
 `onRejectAll` (a series' `review.verdict`) and the root's `onDrag` (a series'
 `edit`). Each throws at build, naming its replacement.
 
-### The Sheet — `<Sheet.View>`
+### The Sheet — `<Sheet.View>` and `<Sheet.Builder>`
 
 `<Sheet.View>` is the planning spreadsheet: typed columns over the host's raw
 rows — a date, a quantity with its unit, an integer, text, a register lookup,
@@ -1110,7 +1114,9 @@ a `Data.bindPaged` handle is its `data` as readily as rows in hand. Every
 change is a draft of an editing session, checked as it is made and applied as
 one checked batch. Where east-ui's `<Table>` displays rows, the Sheet is where
 a planner types them: reach for it when the rows are authored in place and
-written back (`onUpdate` / `onApply`).
+written back (`onUpdate` / `onApply`). `<Sheet.Builder>` is the same sheet over
+an e3 record, in a builder frame with a library and an inspector beside it —
+see The builder below.
 
 The tag and its authoring vocabulary — `Sheet.column.*`, `Sheet.register.*`,
 `Sheet.driver`, `Sheet.link.*`, `Sheet.patch`, `Sheet.group`, `Sheet.subRows`,
@@ -1223,24 +1229,24 @@ placed `keyOrder`. The east-ui skill documents the contract.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `Sheet.Types.Draft(R)` | Each field is missing / value(T) / invalid(String). | `sheetReadiness` |
-| `Sheet.Types.DraftContext(R, D)` | Current draft row, neighbours and optional driver; grouped overload `(G, "rows", D)`. | `sheetCopilot` |
-| `newRow: fn(NewRow) => Patch(R)` | Explicit defaults for newly inserted drafts, including required hidden fields. | `sheetInsertion` |
-| `ready.row: fn(Draft(R), DraftContext(R)) => Readiness` | Synchronous business checks alongside mandatory schema checks. | `sheetReadiness` |
-| `onPatch: fn(PatchEvent(E)) => Null` | Draft contents, placement, origin and readiness once per gesture. | `sheetWriteBack` |
-| `onApply: fn(ChangeSet(E)) => ApplyResult` | Complete checked batch; supports async callbacks and safe retries. `Record.onApply` commits it to an e3 record. | `sheetBasic`, `sheetLoose`, `recordSheetApply` |
+| `Sheet.Types.Draft(R)` | Each field is missing / value(T) / invalid(String). | `sheetBuilderWeeks` |
+| `Sheet.Types.DraftContext(R, D)` | Current draft row, neighbours and optional driver; grouped overload `(G, "rows", D)`. | `sheetBuilderWorkshop` |
+| `newRow: fn(NewRow) => Patch(R)` | Explicit defaults for newly inserted drafts, including required hidden fields. | `sheetBuilderBatches` |
+| `ready.row: fn(Draft(R), DraftContext(R)) => Readiness` | Synchronous business checks alongside mandatory schema checks. | `sheetBuilderWeeks` |
+| `onPatch: fn(PatchEvent(E)) => Null` | Draft contents, placement, origin and readiness once per gesture. | `sheetBuilderWeeks` |
+| `onApply: fn(ChangeSet(E)) => ApplyResult` | Complete checked batch; supports async callbacks and safe retries. `Record.onApply` commits it to an e3 record. | `sheetBasic`, `sheetVariants`, `recordSheetApply` |
 | `Sheet.apply(E, "id")` | Applies a checked batch to a collection: the whole batch, or a conflict saying why. | `sheetApplyBatch` |
 | `Editing.apply(E, "id")` / `Editing.apply(DictType(K, E))` | The shared applier (#879) — an Array by its identity field, or a keyed Dict by key (`Editing.Types.ChangeSet(E, K)`). | `editingApplyBatch`, `editingApplyKeyed` (east-ui) |
 | `Sheet.Types.Entry(G, "rows")` | Groups with their rows beside ungrouped rows, as one union; `Sheet.apply`, `DraftEntry` and `PatchEvent` take it. | `sheetApplyEntries` |
-| `data: Array<Sheet.Types.Entry(G, "rows")>` + `group={Sheet.group(G, "rows", …)}` | Loose rows between the groups: a row entry is a plain row of the line type; `id` names a `String` field of both types. | `sheetLoose` |
-| `edits: { insertRows?, removeRows?, insertGroups?, removeGroups?, moveRows?, moveGroups? }` | Structure permissions; group flags require grouping; keyed top-level movement is refused. Movement gestures remain under development. | `sheetInsertion` |
+| `data: Array<Sheet.Types.Entry(G, "rows")>` + `group={Sheet.group(G, "rows", …)}` | Loose rows between the groups: a row entry is a plain row of the line type; `id` names a `String` field of both types. | `sheetBuilderLoose` |
+| `edits: { insertRows?, removeRows?, insertGroups?, removeGroups?, moveRows?, moveGroups? }` | Structure permissions; group flags require grouping; keyed top-level movement is refused. A builder's grips move rows, lines and groups as these allow. | `sheetBuilderPaged`, `sheetBuilderBatches` |
 
 Providers receive drafts: test `field.hasTag("value")` before reading
 `field.unwrap("value")`. They can fill a row before its remaining fields are
 complete. Constructors can supply hidden fields; copilot patches target editable
 columns. Typing, paste, fill and accepted suggestions share the transaction path
-and Undo/Redo. `sheetWriteBack`, `sheetReadiness`, `sheetInsertion`,
-`sheetGrouped` and `sheetLoose` are executable showcase examples.
+and Undo/Redo. `sheetBuilderWeeks`, `sheetBuilderBatches`, `sheetBuilderLoose`
+and `sheetBuilderPaged` are executable showcase examples.
 
 #### Sub rows and column rules
 
@@ -1251,12 +1257,98 @@ the row projection, so they follow the host's rows, not an open edit.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `subRows={Sheet.subRows(L, { field: (item, row) => Sheet.subRow({…}) })}` | Read-only sub rows per array field, in key order; a variant source matches arm by arm. | `sheetSubRows` |
-| `Sheet.group(P, "lines", { title, noun: { singular, plural } })` | The host's word for a group; omitted, the sheet says its own in the viewer's language. | `sheetSubRows` |
-| `options: fn(DraftContext(R, D)) => Option<Array<String>>` | enum / lookup / link: the members a row is offered; `none` = all. | `sheetRules` |
-| `date(R, { level: r => DateLevel, actual: r => Option<DateTime> })` | Read the date at the row's level; print the actual once it happened. | `sheetRules` |
-| `detail: r => String \| Option<String>` | Text the hover and the strip show beyond the cell's value. | `sheetRules` |
-| `members: [{ kind, identified: true, ranged: true }]` | Offer and print runs of consecutive codes as one range. | `sheetRules` |
+| `subRows={Sheet.subRows(L, { field: (item, row) => Sheet.subRow({…}) })}` | Read-only sub rows per array field, in key order; a variant source matches arm by arm. | `sheetBuilderBatches` |
+| `Sheet.group(P, "lines", { title, noun: { singular, plural } })` | The host's word for a group; omitted, the sheet says its own in the viewer's language. | `sheetBuilderBatches` |
+| `options: fn(DraftContext(R, D)) => Option<Array<String>>` | enum / lookup / link: the members a row is offered; `none` = all. | `sheetBuilderWeeks` |
+| `date(R, { level: r => DateLevel, actual: r => Option<DateTime> })` | Read the date at the row's level; print the actual once it happened. | `sheetBuilderWeeks` |
+| `detail: r => String \| Option<String>` | Text the hover and the strip show beyond the cell's value. | `sheetBuilderWeeks` |
+| `members: [{ kind, identified: true, ranged: true }]` | Offer and print runs of consecutive codes as one range. | `sheetBuilderWeeks` |
+
+#### The builder — `<Sheet.Builder>`
+
+`<Sheet.Builder>` is an e3 record edited as a sheet, in a builder frame: one
+toolbar holding every control the sheet has, the library before the sheet and
+the inspector after it. It reads its rows from the record and commits through
+the record's patch door, so it takes the record bound with its patch instead of
+`data` and `onApply`:
+
+```tsx
+<Reactive>{$ => {
+    const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
+    return (
+        <Box height="560px">
+            <Sheet.Builder record={jobs} columns={{
+                task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
+                start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
+                qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+            }} />
+        </Box>
+    );
+}}</Reactive>
+```
+
+- **The rows** come in one of three record forms:
+  - The record's entries are the rows, in key order, each row's id its key's
+    text. `window={Data.bindPaged(record)}` reads a large record a window at a
+    time.
+  - `entry={{ key, rows, id }}` is one entry's Array field, in its own order,
+    each row identified by `id`. Each entry keeps its own drafts, and a key
+    the record does not hold opens empty and read-only.
+  - With `group`, that field holds groups, or `Sheet.Types.Entry(P, "lines")`
+    entries with loose rows between the groups (`id` then names a field of
+    both types). A record of groups by entry is grouped the same way.
+- **Every gesture is a draft.** The toolbar's history item undoes, redoes,
+  discards and applies, and ⌘Z / ⇧⌘Z work anywhere in the frame. Apply is one
+  patch commit, checked against what each row was when its edit began, and
+  it confirms by the rows the record reads back.
+- **Templates** (`templates={{ rows, groups }}`, each `{ key, name, group?,
+  values: Sheet.patch(…) }`) are the Rows tab's cards. A dropped card is
+  `newRow`'s (`newGroup`'s) defaults with the template's fields over them.
+- **The library** lists its tabs in order, each a `Sheet.library.*` call:
+  - `rows()` holds the templates;
+  - `columns()` hides and shows columns, per viewer;
+  - `tab(data, { name, icon?, key, label, meta?, group?, drop? })` holds the
+    author's own cards, from an Array or a Dict whose key is the accessors'
+    second argument. `drop: (row, key) => Sheet.patch(R | G, …)` sets a row's
+    fields where a card lands, or a band's when the patch is over the group
+    type.
+
+  Left out, the builder has no library pane.
+- **Drag and drop.** A template lands on the seam it is dropped on: a row
+  beside a row, a line in the group under the pointer, a group between
+  groups, or, on a keyed record, where its key sorts. An author's card sets
+  its patch's fields on the row or band it lands on. A row's, a line's or a
+  band's grip moves it, as `edits` allows. The ghost's caption says where,
+  and turns red where a drop is refused. ⏎ on a card does what a drop below
+  the ring would. Each drop is one transaction.
+- **The inspector** shows the selected row's every field, with the batch's
+  issues by row. A field with a column is edited through its column's kind;
+  any other by its type. `fields` hints the row's form and `groupFields` a
+  group's own, with `Sheet.field.*`, which is east-ui's `Fields`.
+  `inspector={(row, update) => …}` replaces the form for a complete row with
+  the author's own UI, and `update(edited)` is one transaction.
+- **Views** are a bind handle: `State.bind` keeps them per viewer, `Data.bind`
+  shares them.
+- Every other prop is `<Sheet.View>`'s, unchanged. The builder fills its
+  parent and draws no border. A builder among other components gets a box of
+  its own height, and `id` names it when a surface holds two.
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| **The rows** | | |
+| `record: Record.bind(r, [e3.mutation.patch(r)])` **❗** | A `Dict` record bound with its patch door; its entries are the rows, in key order. | `sheetBuilder` |
+| `window: Data.bindPaged(r)` **❗** | The same record's entries, a window at a time; never with `entry`. | `sheetBuilderPaged` |
+| `entry: { key, rows: F, id: I }` **❗** | One entry's Array field `F`, in its own order; `I` a `String` field of its rows. | `sheetBuilderWeeks` |
+| `entry` + `group: Sheet.group(P, "lines", …)` | `F` holds groups, or `Sheet.Types.Entry(P, "lines")` entries, loose rows between the groups. | `sheetBuilderBatches`, `sheetBuilderLoose` |
+| `group` over the record's entries | Each entry a group, its lines its Array field. | `sheetBuilderWorkshop` |
+| **The panes** | | |
+| `templates: { rows?: [{ key, name, group?, values: Sheet.patch(R, …) }], groups?: […Sheet.patch(P, …)] }` **❗** | The Rows tab's cards; a key repeated, or a group template on a flat sheet, is refused. | `sheetBuilderWorkshop`, `sheetBuilderBatches` |
+| `library: [Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(data, { name, key, label, drop?, … })]` **❗** | The library's tabs, in order; none, no pane. A tab's `drop` patch over the row type lands on rows, over the group type on bands. | `sheetBuilderLibrary`, `sheetBuilderWorkshop` |
+| `fields: { f: Sheet.field.readonly() \| Sheet.field.hidden() \| … }` / `groupFields` | The inspector form's hints, by field. | `sheetBuilderWorkshop`, `sheetBuilderBatches` |
+| `inspector: fn(R, fn(R) => Null) => UIComponentType` **❗** | The author's own Details for a complete row; a row still missing a field shows the form. | `sheetBuilderWeeks` |
+| `views: State.bind([ArrayType(Sheet.Types.View)], key, [])` **❗** | The saved views, as a bind handle. | `sheetBuilderWorkshop` |
+| `id: String` | Names the builder when a surface holds two; its panes' state and drop target follow it. | — |
+| `data`, `onApply`, `onUpdate`, `onViewsChange` **❗** | `Sheet.View`'s: the builder takes its rows and Apply from `record`, and refuses them. | — |
 
 ## Rendering surfaces in an app — `<E3Provider>`
 
@@ -1378,12 +1470,21 @@ Tested examples live in `test/*.examples.tsx`:
   data, the time, number and ordinal axes, folds, links, the series library,
   review, the editing session (drops, moves and resizes) and the narrow
   layout; the bound paged Plans are `data.examples.tsx`'s.
-- `sheet/sheet.examples.tsx` — `<Sheet.View>`: typed columns, registers and
-  the driver, the copilot, the lens, groups, loose rows, sub rows and column
-  rules, readiness checks and insertion — each sheet's rows bound from e3: a
-  record entry its Apply commits to, or a task's output; a sheet paged from a
-  dataset is `data.examples.tsx`'s, and one over a record's own entries
-  `record.examples.tsx`'s `recordSheetApply`.
+- `sheet/sheet.examples.tsx` — `<Sheet.View>` for what a builder does not
+  do, a sheet with no chrome around it: the smallest sheet, the configurator,
+  and two thousand rows a task generates with the lens and saved views over
+  them — each sheet's rows bound from e3: a record entry its Apply commits to,
+  or a task's output; a sheet paged from a dataset is `data.examples.tsx`'s,
+  and one over a record's own entries `record.examples.tsx`'s
+  `recordSheetApply`.
+- `sheet/sheet-builder.examples.tsx` — `<Sheet.Builder>`: the smallest
+  builder; a library of the author's own cards; the workshop's orders, the
+  flagship (groups, the driver and registers, the link grammar, the copilot's
+  fills and proposers, readiness, templates, the library, the inspector, the
+  lens and views); one week's rows with every column kind and its rules, a
+  journal and the author's own inspector; one day's batches dragged and
+  moved, with sub rows; loose rows between work packages; and a record read
+  a window at a time.
 - `sheet/sheet-link.examples.ts` — the link grammar: `Sheet.link.parse` and
   `Sheet.link.print`.
 - `sheet/sheet-transactions.examples.ts` — `Sheet.apply` over rows, and over

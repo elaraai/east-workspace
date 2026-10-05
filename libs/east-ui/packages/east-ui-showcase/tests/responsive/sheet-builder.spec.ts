@@ -24,8 +24,11 @@
  * 2px brand seam it would land on — and dropped there; a card refused, red;
  * a batch moved to the top by its grip, every row drawn from the first
  * (#1213); and at 560px the library sliding off main while a drag is under
- * way. In both themes;
- * every measurement is polled until it holds, on a page at rest.
+ * way. Apply in each record form (SB54): the workshop's orders, the record's
+ * entries, and one week's plan, one entry's rows — each an edit committed to
+ * the page's e3, and read back by the builder mounted again over the record.
+ * In both themes; every measurement is polled until it holds, on a page at
+ * rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test sheet-builder --project desktop`.
@@ -515,6 +518,8 @@ test.describe("Sheet builder — drag and drop (#1187)", () => {
         });
 
         test(`a status card over the rows: on a line refused — the caption red, the line its invalid wash right under the pointer — and on its order's band the brand wash; let go there, the order drafted (${theme})`, async ({ page }) => {
+            // A window that holds the whole builder: no row it measures near the edges where a drag scrolls the page.
+            await page.setViewportSize({ width: page.viewportSize()!.width, height: 1300 });
             const box = await openBuilder(page, theme);
             const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
             await pane.getByRole("tab", { name: "Statuses 3" }).click();
@@ -620,5 +625,66 @@ test.describe("Sheet builder — drag and drop (#1187)", () => {
             const at = await frameAt(box);
             return { open: !at.start!.collapsed, back: at.start!.sheet.x >= at.body.x - 0.5, scrim: at.scrim !== null };
         }).toEqual({ open: true, back: true, scrim: true });
+    });
+});
+
+/**
+ * Leave the builders' page for the `Sheet.View` examples' and come back to it,
+ * in the same page — its e3 kept in memory — so the builder mounts afresh over
+ * what the record holds.
+ */
+async function remount(page: Page, hash: string): Promise<Locator> {
+    const away = "e3/sheet/sheet/sheetBasic";
+    await page.evaluate((h) => { location.hash = `#${h}`; }, away);
+    await expect(page.locator("[data-index]", { has: page.locator(`a[href="#${away}"]`) }).locator("[data-sheet-card]")).toBeVisible({ timeout: 20_000 });
+    await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-builder-frame] [data-sheet-card]")).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry.locator("[data-builder-frame]").first().locator("xpath=..");
+}
+
+/** The rows of a builder's sheet that still hold a draft. */
+const drafts = (box: Locator) => box.locator("[data-frame-slot=main] [data-slot='row'][data-draft]");
+
+test.describe("Sheet builder — Apply on e3-web (SB54)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    test("the workshop's orders, the record's entries: an operation's notes, edited and applied, are one commit to the page's e3 — and the builder, mounted again over the record, shows them", async ({ page }) => {
+        const box = await openBuilder(page);
+        // The wardrobes order's first operation: a line, its notes empty.
+        const notesOf = (b: Locator) => b.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2202"]:not([data-blank]) [data-key="notes"]').first();
+        await notesOf(box).dblclick();
+        const input = page.locator("[data-slot='editorInput']");
+        await input.fill("Ash veneered board");
+        await input.press("Enter");
+        const apply = box.getByRole("button", { name: "Apply changes" });
+        await expect(apply).toBeEnabled();
+        await apply.click();
+        // Confirmed by the rows the record reads back: Apply off, no draft left.
+        await expect(apply).toBeDisabled();
+        await expect(drafts(box)).toHaveCount(0);
+        const again = await remount(page, HASH);
+        await expect(notesOf(again)).toHaveText("Ash veneered board");
+        await expect(drafts(again)).toHaveCount(0);
+    });
+
+    test("one week's plan, one entry's rows: a task, edited and applied, is one commit to the week in the page's e3 — and the builder, mounted again over the record, shows it", async ({ page }) => {
+        const box = await openBuilder(page, "light", 1440, WEEKS);
+        const taskOf = (b: Locator) => b.locator("[data-frame-slot=main] [data-slot='row'][data-row-id='w42-1'] [data-key='task']");
+        await expect(taskOf(box)).toHaveText("Cut the kitchen carcasses");
+        await taskOf(box).dblclick();
+        const input = page.locator("[data-slot='editorInput']");
+        await input.fill("Cut the wardrobe carcasses");
+        await input.press("Enter");
+        const apply = box.getByRole("button", { name: "Apply changes" });
+        await expect(apply).toBeEnabled();
+        await apply.click();
+        await expect(apply).toBeDisabled();
+        await expect(drafts(box)).toHaveCount(0);
+        const again = await remount(page, WEEKS);
+        await expect(taskOf(again)).toHaveText("Cut the wardrobe carcasses");
+        await expect(drafts(again)).toHaveCount(0);
     });
 });

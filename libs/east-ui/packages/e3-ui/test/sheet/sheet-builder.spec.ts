@@ -37,6 +37,7 @@ describeEast("Sheet.Builder examples", (test) => {
         sheetBuilderWorkshop: ex.sheetBuilderWorkshop,
         sheetBuilderWeeks: ex.sheetBuilderWeeks,
         sheetBuilderBatches: ex.sheetBuilderBatches,
+        sheetBuilderLoose: ex.sheetBuilderLoose,
         sheetBuilderPaged: ex.sheetBuilderPaged,
     });
 }, { platformFns: TestImpl });
