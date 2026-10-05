@@ -321,10 +321,17 @@ function anchorBodyIndex(body: readonly SheetBodyItem[], anchorId: string): numb
     return body.findIndex((it) => it.kind === "blank" && blankIdOf(it) === anchorId);
 }
 
-/** One cell write the component turns into a wire event; `extra` names the k-th NEW row a write lands on past a group's blank line (a paste, #740 G9), or past a loose row (#846 — a paste, a proposal). */
+/**
+ * One cell write the component turns into a wire event; `extra` names the k-th
+ * NEW row a write lands on past a group's blank line (a paste, #740 G9), or
+ * past a loose row (#846 — a paste, a proposal). `key` names the write's
+ * column in place of `c`, the grid's: a proposed row's cell under a column
+ * the grid hides lands too (#1186).
+ */
 interface CellWrite {
     r: number;
     c: number;
+    key?: string | undefined;
     cell: SheetCellValue;
     extra?: number | undefined;
 }
@@ -403,6 +410,13 @@ export interface SheetHost {
     fill?: boolean | undefined;
     /** The history item shows the session's error under its buttons — `true` by default; a host showing it in its banners passes `false`. */
     historyError?: boolean | undefined;
+    /**
+     * The columns the grid leaves out, by key, and the band cells under them
+     * (#1186) — a viewer's choice, never the sheet's: the lens still matches
+     * them, and a new row still has every declared cell. Hiding every column
+     * hides none.
+     */
+    hidden?: ReadonlySet<string> | undefined;
 }
 
 /**
@@ -420,7 +434,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The grid's id: its cells' ids hang off it, and the view tabs name it as what they switch (#860).
     const gridId = useId();
     // ── Decode ────────────────────────────────────────────────────────────
-    const columns = useMemo(() => indexColumns(value.columns), [value.columns]);
+    // Every declared column — what the lens matches and a new row is made
+    // of — and the columns the grid draws: all but those the host hides
+    // (#1186), and every one when it would hide them all.
+    const allColumns = useMemo(() => indexColumns(value.columns), [value.columns]);
+    const hidden = host.hidden;
+    const columns = useMemo(() => {
+        if (hidden === undefined || hidden.size === 0) return allColumns;
+        const shown = value.columns.filter((c) => !hidden.has(c.key));
+        return shown.length === 0 || shown.length === value.columns.length ? allColumns : indexColumns(shown);
+    }, [allColumns, value.columns, hidden]);
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
@@ -623,26 +646,27 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // matches (or it is revealed); INSIDE a shown group the lens works on the
     // lines — hits keep their numbers, the context switch and the reveals
     // apply to lines, and the hidden runs collapse into gaps. A group whose
-    // title matches shows every line.
+    // title matches shows every line. It matches every declared column, the
+    // hidden ones too (#1186).
     const lens = useMemo(() => {
         if (!lensOn || sliceState === undefined || sliceConfig === undefined) return undefined;
         const positions = runLayout.positions;
-        const hits = lensHits(sliceState, sliceConfig, rows, columns.list);
+        const hits = lensHits(sliceState, sliceConfig, rows, allColumns.list);
         if (group === undefined) {
             const visible = lensVisible(hits, positions, ui.lens.context, ui.lens.reveals);
             return { hits, visible, gaps: lensGaps(hits, visible, positions) };
         }
         const visible = lensVisible(hits, positions, 0, ui.lens.reveals);
-        const lineHits = rows.map((g) => lensLineHits(sliceState, sliceConfig, g, columns.list));
+        const lineHits = rows.map((g) => lensLineHits(sliceState, sliceConfig, g, allColumns.list));
         const linePositions = rows.map((g, i) => g.lines.map((_l, j) => linePosition(positions[i]!, j)));
-        const lineVisible = rows.map((g, i) => (lensTitleHit(sliceState, sliceConfig, g, columns.list)
+        const lineVisible = rows.map((g, i) => (lensTitleHit(sliceState, sliceConfig, g, allColumns.list)
             ? g.lines.map(() => true)
             : lensVisible(lineHits[i]!, linePositions[i]!, ui.lens.context, ui.lens.reveals)));
         const lineGaps = rows.map((_g, i) => lensGaps(lineHits[i]!, lineVisible[i]!, linePositions[i]!));
         // Which sub rows a search answers through: a line hit only there shows them.
         const lineSubRowHits = rows.map((g, i) => lensSubRowHits(sliceState, g, lineHits[i]!));
         return { hits, visible, gaps: lensGaps(hits, visible, positions), lineHits, lineVisible, lineGaps, lineSubRowHits };
-    }, [lensOn, sliceState, sliceConfig, rows, runLayout, columns, ui.lens.context, ui.lens.reveals, group]);
+    }, [lensOn, sliceState, sliceConfig, rows, runLayout, allColumns, ui.lens.context, ui.lens.reveals, group]);
 
     // ── The body ──────────────────────────────────────────────────────────
     const bodyBase = useMemo<SheetBodyItem[]>(() => buildBody({
@@ -762,14 +786,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             rowId: lg !== undefined ? lg.row.id : row?.id ?? "",
             offset: BigInt(position),
             line: lg !== undefined ? some(lg.key === "" ? NEW_LINE_KEY : lg.key) : none,
-            row: row?.cells ?? new Map(columns.list.map((c) => [c.key, NULL_CELL])),
+            row: row?.cells ?? new Map(allColumns.list.map((c) => [c.key, NULL_CELL])),
             rows: rowsNow.slice(seg.start, last ? undefined : seg.end),
             rowsOffset: BigInt(seg.position),
             partial: !exhausted,
             driver: driverKey !== undefined ? some(driverKey) : none,
             today,
         };
-    }, [driverColumn, columns, runLayout, exhausted, today, drafts]);
+    }, [driverColumn, allColumns, runLayout, exhausted, today, drafts]);
     // The position after the last row — where a blank row or an append lands.
     const lastSegment = runLayout.segments[runLayout.segments.length - 1]!;
     const endPosition = lastSegment.position + (lastSegment.end - lastSegment.start);
@@ -1014,14 +1038,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
         if (readOnly || !editingState.available) return { firstInserted: undefined, ids: [] };
         // Writes group by row, and by the extra new line they land on past a group's blank line.
-        const byRow = new Map<string, { r: number; extra: number; list: { c: number; cell: SheetCellValue }[] }>();
+        const byRow = new Map<string, { r: number; extra: number; list: CellWrite[] }>();
         for (const w of writes) {
             const extra = w.extra ?? 0;
             const k = `${w.r}#${extra}`;
             const entry = byRow.get(k) ?? { r: w.r, extra, list: [] };
-            entry.list.push({ c: w.c, cell: w.cell });
+            entry.list.push(w);
             byRow.set(k, entry);
         }
+        // A write's column: the one it names, hidden or not, else the grid's at its index.
+        const metaOf = (w: CellWrite): SheetColumnMeta | undefined => (w.key !== undefined ? allColumns.byKey.get(w.key) : columns.list[w.c]);
         const base = layerRef.current;
         const rowsNow = applyLayer(sourceRows, base, keyOrder);
         const edits = new Map(base.edits);
@@ -1059,7 +1085,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const cells = new Map(line?.cells ?? it.row.cells);
                     let changed = false;
                     for (const w of list) {
-                        const meta = columns.list[w.c];
+                        const meta = metaOf(w);
                         if (meta === undefined) continue;
                         if (cellEqual(cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
                         cells.set(meta.key, w.cell);
@@ -1075,12 +1101,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 if (it.kind === "blank" && it.group !== undefined) {
                     if (!canInsertRows) continue;
                     const g0 = currentGroup(it.group.row);
-                    const cells = new Map<string, SheetCellValue>(columns.list.map((c) => [c.key, NULL_CELL]));
+                    const cells = new Map<string, SheetCellValue>(allColumns.list.map((c) => [c.key, NULL_CELL]));
                     for (const w of list) {
-                        const meta = columns.list[w.c];
+                        const meta = metaOf(w);
                         if (meta !== undefined) cells.set(meta.key, w.cell);
                     }
-                    if (columns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
+                    if (allColumns.list.every((c) => cellIsBlank(cells.get(c.key)))) continue;
                     const key = mintLineKey(g0);
                     const index = g0.lines.length;
                     const last = g0.lines[index - 1];
@@ -1099,12 +1125,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 // proposal under it: the k-th new loose row, after the one before.
                 if (it.kind === "real" && it.loose !== undefined && extra > 0) {
                     if (!canInsertRows) continue;
-                    let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), columns.list);
+                    let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), allColumns.list);
                     for (const w of list) {
-                        const meta = columns.list[w.c];
+                        const meta = metaOf(w);
                         if (meta !== undefined) row = withCell(row, meta.key, w.cell);
                     }
-                    if (columns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+                    if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
                     const after = chained.get(it.row.id) ?? it.row.id;
                     appended.push(row);
                     takenIds.add(row.id);
@@ -1119,7 +1145,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const g0 = currentGroup(it.row);
                     let g = g0;
                     for (const w of list) {
-                        const meta = metaAt(r, w.c);
+                        const meta = w.key !== undefined ? group.cells.get(w.key) : metaAt(r, w.c);
                         if (meta === undefined || !meta.editable) continue;
                         if (cellEqual(g.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
                         const cells = new Map(g.cells);
@@ -1135,7 +1161,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (it !== undefined && it.kind === "real") {
                 let row = edits.get(it.row.id) ?? it.row;
                 for (const w of list) {
-                    const meta = columns.list[w.c];
+                    const meta = metaOf(w);
                     if (meta === undefined) continue;
                     if (cellEqual(row.cells.get(meta.key) ?? NULL_CELL, w.cell)) continue;
                     row = withCell(row, meta.key, w.cell);
@@ -1148,12 +1174,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (it !== undefined && !isRowSpace(it)) continue;
             if (group !== undefined || !canInsertRows) continue;
             // A blank row (or a row past the padding): one inserted row.
-            let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), columns.list);
+            let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), allColumns.list);
             for (const w of list) {
-                const meta = columns.list[w.c];
+                const meta = metaOf(w);
                 if (meta !== undefined) row = withCell(row, meta.key, w.cell);
             }
-            if (columns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+            if (allColumns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
             appended.push(row);
             takenIds.add(row.id);
             events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
@@ -1168,7 +1194,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, setLayer, emitEdit, readOnly, canInsertRows, keyOrder, editingState.available]);
+    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, newRowIdFn, setLayer, emitEdit, readOnly, canInsertRows, keyOrder, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
@@ -1254,16 +1280,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         emitEdit(variant("remove", { rowIds: ids }));
         return { n: ids.length, what: "rows", emptiedBandR: undefined };
     }, [group, rowAt, body, rowSpace, setLayer, emitEdit, readOnly, capabilities, editingState.available]);
-    /** What a proposed row writes: its set cells under the editable columns. */
-    const proposalWrites = useCallback((cells: ReadonlyMap<string, SheetCellValue>): { c: number; cell: SheetCellValue }[] => {
-        const writes: { c: number; cell: SheetCellValue }[] = [];
-        columns.list.forEach((meta, c) => {
-            if (!meta.editable || meta.kind === "stamped") return;
+    /** What a proposed row writes: its set cells under the editable columns — every declared one, the grid's hidden ones too (#1186). */
+    const proposalWrites = useCallback((cells: ReadonlyMap<string, SheetCellValue>): { key: string; cell: SheetCellValue }[] => {
+        const writes: { key: string; cell: SheetCellValue }[] = [];
+        for (const meta of allColumns.list) {
+            if (!meta.editable || meta.kind === "stamped") continue;
             const cell = cells.get(meta.key);
-            if (cell !== undefined && !cellIsBlank(cell)) writes.push({ c, cell });
-        });
+            if (cell !== undefined && !cellIsBlank(cell)) writes.push({ key: meta.key, cell });
+        }
         return writes;
-    }, [columns]);
+    }, [allColumns]);
     /** Insert one proposed row after a row: into the blank slot below it (B§5.2), else appended; on a grouped sheet into the anchor's group (#740, G11). */
     const insertProposal = useCallback((afterR: number, cells: ReadonlyMap<string, SheetCellValue>, extra = 0): { id: string; r: number } | undefined => {
         if (!canInsertRows) return undefined;
@@ -1274,27 +1300,27 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const gid = anchor !== undefined && (anchor.kind === "real" || anchor.kind === "blank") ? anchor.group?.row.id : undefined;
             const blankR = gid !== undefined ? blankLineRowOf(gid) : undefined;
             if (blankR === undefined) return undefined;
-            const res = writeCells(writes.map((w) => ({ r: blankR, c: w.c, cell: w.cell, extra })), "pattern");
+            const res = writeCells(writes.map((w) => ({ r: blankR, c: -1, key: w.key, cell: w.cell, extra })), "pattern");
             const id = res.ids[0];
             return id === undefined ? undefined : { id, r: blankR + extra };
         }
         const next = rowAt(afterR + 1);
         let target: number;
         if (next !== undefined && next.kind === "blank") target = afterR + 1;
-        else if (next !== undefined && next.kind === "real" && rowIsBlank(next.row, columns)) target = afterR + 1;
+        else if (next !== undefined && next.kind === "real" && rowIsBlank(next.row, allColumns)) target = afterR + 1;
         else {
             const firstBlank = rowSpace.bodyIndexOf.findIndex((bi) => body[bi]!.kind === "blank");
             target = firstBlank < 0 ? rowCount : firstBlank;
         }
-        const res = writeCells(writes.map((w) => ({ r: target, c: w.c, cell: w.cell })), "pattern");
+        const res = writeCells(writes.map((w) => ({ r: target, c: -1, key: w.key, cell: w.cell })), "pattern");
         const id = res.ids[0];
         if (id === undefined) return undefined;
         return { id, r: res.firstInserted ?? target };
-    }, [proposalWrites, columns, group, rowAt, blankLineRowOf, rowSpace, body, rowCount, writeCells, canInsertRows]);
+    }, [proposalWrites, allColumns, group, rowAt, blankLineRowOf, rowSpace, body, rowCount, writeCells, canInsertRows]);
     /** Insert proposed rows under a loose row (#846): new loose rows after it, in order — one write, so each lands after the one before. Returns their ids. */
     const insertLooseProposals = useCallback((afterR: number, proposals: readonly { cells: ReadonlyMap<string, SheetCellValue> }[]): string[] => {
         if (!canInsertRows) return [];
-        const writes = proposals.flatMap((p, i) => proposalWrites(p.cells).map((w) => ({ r: afterR, c: w.c, cell: w.cell, extra: i + 1 })));
+        const writes = proposals.flatMap((p, i) => proposalWrites(p.cells).map((w) => ({ r: afterR, c: -1, key: w.key, cell: w.cell, extra: i + 1 })));
         return writes.length === 0 ? [] : writeCells(writes, "pattern").ids;
     }, [canInsertRows, proposalWrites, writeCells]);
 
@@ -1313,7 +1339,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const item = r !== undefined ? rowAt(r) : undefined;
         if (r === undefined || item === undefined || (item.kind !== "real" && item.kind !== "blank")) return;
         const current = uiRef.current;
-        let row: SheetRowValue = item.kind === "real" ? item.row : blankRow("", columns.list);
+        let row: SheetRowValue = item.kind === "real" ? item.row : blankRow("", allColumns.list);
         let skipKey: string | undefined;
         if (current.edit !== null && current.edit.r === r) {
             const cell = provisionalCell(current.edit, ctxRef.current);
@@ -1324,7 +1350,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 skipKey = meta.key;
             }
         }
-        if (rowIsBlank(row, columns)) {
+        if (rowIsBlank(row, allColumns)) {
             dispatch({ t: "suggest.ready", anchorId: rowId, sugg: null });
             return;
         }
@@ -1333,7 +1359,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const residentIndex = item.kind === "real" ? item.residentIndex : rows.length;
         const rowsNow = lg !== undefined ? rows : item.kind === "real" ? rows.map((x, i) => (i === residentIndex ? row : x)) : [...rows, row];
         const below = rowAt(r + 1);
-        const nextBusy = below !== undefined && below.kind === "real" && !rowIsBlank(below.row, columns);
+        const nextBusy = below !== undefined && below.kind === "real" && !rowIsBlank(below.row, allColumns);
         const outcome = runSuggest({
             anchorId: rowId, row, skipKey, columns: fillColumns, proposers, ahead, nextBusy,
             driverKey: driverKeyOf(row, driverColumn), driverColumn, rejected: current.rejected,
@@ -2103,9 +2129,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [pendingIssue, body, rowSpace, columns, dispatch]);
 
     // ── The view tabs and the lens's chrome (B§8) ─────────────────────────
-    // A grouped sheet counts LINES (#740) — and its loose rows, each a row of its own (#846).
+    // A grouped sheet counts LINES (#740) — and its loose rows, each a row of its own (#846). A row is
+    // counted, and matched, by every declared column, the hidden ones too (#1186).
     const countedRows = useMemo(() => (group !== undefined ? rows.flatMap((g) => (isLooseRow(g) ? [g] : lineRowsOf(g))) : rows), [group, rows]);
-    const wholeCount = useMemo(() => countedRows.filter((row) => !rowIsBlank(row, columns)).length, [countedRows, columns]);
+    const wholeCount = useMemo(() => countedRows.filter((row) => !rowIsBlank(row, allColumns)).length, [countedRows, allColumns]);
     const tabViews = useMemo<SheetTabView[]>(() => {
         if (slice === undefined) return [];
         return views.map((v) => {
@@ -2113,17 +2140,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             // sub rows — and its loose rows, each by its own cells (#846).
             if (group !== undefined && sliceConfig !== undefined) {
                 const count = rows.reduce((n, g) => {
-                    if (isLooseRow(g)) return n + (lensHits(v.narrowing, sliceConfig, [g], columns.list)[0] === true && !rowIsBlank(g, columns) ? 1 : 0);
-                    const hits = lensLineHits(v.narrowing, sliceConfig, g, columns.list);
-                    return n + lineRowsOf(g).filter((row, j) => hits[j] === true && !rowIsBlank(row, columns)).length;
+                    if (isLooseRow(g)) return n + (lensHits(v.narrowing, sliceConfig, [g], allColumns.list)[0] === true && !rowIsBlank(g, allColumns) ? 1 : 0);
+                    const hits = lensLineHits(v.narrowing, sliceConfig, g, allColumns.list);
+                    return n + lineRowsOf(g).filter((row, j) => hits[j] === true && !rowIsBlank(row, allColumns)).length;
                 }, 0);
                 return { id: v.id, name: v.name, count, title: viewTitle(v, words) };
             }
-            const hits = sliceConfig !== undefined ? lensHits(v.narrowing, sliceConfig, countedRows, columns.list) : [];
-            const count = countedRows.filter((row, i) => hits[i] === true && !rowIsBlank(row, columns)).length;
+            const hits = sliceConfig !== undefined ? lensHits(v.narrowing, sliceConfig, countedRows, allColumns.list) : [];
+            const count = countedRows.filter((row, i) => hits[i] === true && !rowIsBlank(row, allColumns)).length;
             return { id: v.id, name: v.name, count, title: viewTitle(v, words) };
         });
-    }, [slice, views, sliceConfig, countedRows, columns, group, rows, words]);
+    }, [slice, views, sliceConfig, countedRows, allColumns, group, rows, words]);
     const summary = useMemo(() => {
         if (group === undefined) return undefined;
         // The groups, their lines and the sub rows under them — and the loose rows between the groups (#846).

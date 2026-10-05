@@ -13,7 +13,8 @@
  *   - a State-driven `collapsed` + `onCollapsedChange` round-trips through the
  *     store (the controlled path used by app-style ui() tasks);
  *   - a host drives `DockPane`'s open tab with `tab` and hears each change
- *     through `onTabChange` (K1, #935);
+ *     through `onTabChange` (K1, #935), and a tab's count follows its label
+ *     (#1186);
  *   - a pane that is not `collapsible` never collapses, and a host-driven
  *     `collapsed` is drawn in the commit it arrives in (#1125).
  */
@@ -260,6 +261,25 @@ describe("DockPane — the open tab, driven by its host (K1, #935)", () => {
         expect(open(getAllByRole)).toEqual(["Library"]);
         await act(async () => { fireEvent.keyDown(getAllByRole("tab")[2]!, { key: "Home" }); });
         expect(told).toEqual(["library", "query"]);
+    });
+
+    test("a tab's count follows its label, in its own slot, and is part of the tab's name; a tab with none has none", () => {
+        initializeStore(new UIStore());
+        const { getAllByRole, getByRole } = render(
+            <ChakraProvider value={system}>
+                <DockPane storageKey="dock-count-test" label="Library" surface="shell" tabs={[
+                    { key: "rows", label: "Rows", count: "3", body: "TEMPLATES" },
+                    { key: "columns", label: "Columns", body: "COLUMNS" },
+                ]} />
+            </ChakraProvider>,
+        );
+        const [rows, columns] = getAllByRole("tab");
+        expect(getByRole("tab", { name: "Rows 3" })).toBe(rows);
+        const count = rows!.querySelector("[data-tab-count]")!;
+        expect(count.textContent).toBe("3");
+        expect(count.previousSibling?.textContent).toBe(" ");
+        expect(columns!.textContent).toBe("Columns");
+        expect(columns!.querySelector("[data-tab-count]")).toBeNull();
     });
 
     test("a pane given neither keeps its own open tab, as before, and one given only onTabChange still tells it", async () => {

@@ -7,10 +7,10 @@
  * The copilot in the DOM (Sheet Spec §5 rows 10–12, §9): fills as grey ghosts
  * with one next target, the ⇥ walk, the row fill, proposal rows with ✓ / ×
  * and the rejection memory, an async proposer's pending chip and settlement
- * with fake timers, supersession (latest wins), and a swapped provider
- * function value re-running the copilot — every provider a compiled East
- * function over the typed context, the async one behind a test platform
- * function.
+ * with fake timers, supersession (latest wins), a swapped provider function
+ * value re-running the copilot, and a proposed row's cells under a column the
+ * host hides (#1186) — every provider a compiled East function over the typed
+ * context, the async one behind a test platform function.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -24,7 +24,7 @@ import {
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot } from "./index.js";
 import { sheetJournal, type PatchEvent } from "./journal.test-utils.js";
 import type { SheetRootValue } from "./values.js";
 
@@ -155,10 +155,13 @@ function withSpies(root: SheetRootValue) {
     return { value: journal.value, edits: journal.events, draft: journal.draft };
 }
 
-function mount(value: SheetRootValue) {
+/** Mounts the sheet — as `Sheet.View`, or with `hidden` its grid alone, under a host that hides those columns (#1186). */
+function mount(value: SheetRootValue, hidden?: ReadonlySet<string>) {
     const ui = (v: SheetRootValue) => (
         <ChakraProvider value={system}>
-            <EastChakraSheet value={v} storageKey="sheet-copilot-test" />
+            {hidden === undefined
+                ? <EastChakraSheet value={v} storageKey="sheet-copilot-test" />
+                : <SheetProvider value={v} storageKey="sheet-copilot-test" host={{ hidden }}><SheetRoot><SheetGrid /></SheetRoot></SheetProvider>}
         </ChakraProvider>
     );
     const utils = render(ui(value));
@@ -399,6 +402,28 @@ describe("proposals (B§5.2)", () => {
         editorKey("Enter");
         await settle();
         expect(proposals()).toHaveLength(0);
+    });
+});
+
+describe("a column the host hides (#1186)", () => {
+    test("a proposed row keeps its cells under a hidden column: the grid never draws the column, and the row taken carries them", async () => {
+        const { value, edits, draft } = withSpies(buildCopilotSheet());
+        const { container, key, type, editorKey, settle, proposals } = mount(value, new Set(["notes"]));
+        expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((c) => c.getAttribute("data-key"))).toEqual(["start", "end", "activity", "qty"]);
+        key("R");
+        type("Routing");
+        editorKey("Enter");
+        await settle();
+        expect(proposals()).toHaveLength(1);
+        expect(proposals()[0]!.querySelector('[data-key="activity"]')!.textContent).toBe("Spraying");
+        expect(proposals()[0]!.querySelector('[data-key="notes"]')).toBeNull();
+        fireEvent.mouseDown(proposals()[0]!.querySelector('[data-slot="accept"]')!, { button: 0 });
+        await settle();
+        const inserted = edits.filter((e) => e.origin.type === "pattern");
+        expect(inserted).toHaveLength(1);
+        const taken = draft(inserted[0]!.draftChanges.find((change) => change.place.type === "some")!.id, Sheet.Types.Draft(PlanRowType));
+        expect(taken.activity).toEqual(variant("value", "Spraying"));
+        expect(taken.notes).toEqual(variant("value", "spray the routed panels"));
     });
 });
 

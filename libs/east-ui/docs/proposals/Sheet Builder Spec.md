@@ -543,16 +543,31 @@ it. The history item is the shared `historyToolbarItem` (#988).
 
 - **The grid, the strip and the footer** are `Sheet Spec.md` §7's, unchanged.
 - **The frame, the panes and the library's cards** are `Calendar Spec.md`
-  §8's: the library 272px and the inspector 320px open, 44px as rails, a
-  pane's tab row 44px, the library's search band padding 12px 14px on paper-2
-  around a 32px input.
-- **A Rows card**: a grip, the template's name 12.5px 600, and under it what
-  it sets in mono 10.5px (`Edge banding · 1 x edge bander`, `Kitchen order ·
-  4 operations`).
-- **A Registers card**: the member's label in mono 11px, its meta and kind in
-  10px; a driver member carries its kind's tag (`activity`).
-- **A Columns row**: the column's header, its kind in mono 10px, an eye; a
-  hidden column's row is dimmed.
+  §8's, drawn with the shared parts: the library 272px and the inspector
+  320px open, 44px as rails, a pane's tab row 44px. A tab's name is mono caps
+  10.5px with its count after it, weight 500, in the quiet ink (`ROWS 11`),
+  the `DockPane` tab's `count`. Each tab is a `Library`: its search band is
+  the Library's toolbar row, 44px, the search box 28px on the surface, with
+  the grouping control beside it; its cards are the Library's compact card.
+- **A Rows card**: a grip (once the sheet takes drops, #1189), the
+  template's name 13px 600, and under it what it sets in mono 10px, as the
+  columns print it (`Edge banding · 1 × edge bander`), or a group template's
+  band cells and lines (`PLANNED · 4 lines`). Cards group under their
+  `group`'s head, mono caps 10px with its count.
+- **A Registers card**: the member's label 13px 600, its meta and kind under
+  it in mono 10px (a kind its meta already says, once); a driver member
+  carries its kind as its tag (`ACTIVITY`), and a member with a tone its
+  tone's dot.
+- **A Columns card**: the column's header, its kind in mono 10px, an eye
+  (an eye-slash while hidden); a hidden column's card is dimmed.
+- **An empty tab** is the shared empty state: a ☐, its title (`No
+  templates`, `No registers`, `No matches`) and a line under it.
+- **What the shared parts change from the Calendar mock**: the card's name is
+  13px, not 12.5px, and its line mono 10px, not 10.5px; a member's label is
+  the card's name, not mono 11px; the search box is the Library's 28px box in
+  its toolbar row, not a 32px input on a paper-2 band, and folds narrower in
+  a narrow pane; the empty state's glyph is 36px, not 26px. Nothing a card
+  says is lost.
 - **The inspector**: sections padded 16px with a rule between; a field row is
   the Calendar's (a 92px label column, label 12.5px over its key in mono 10px,
   a 32px input); a changed field is tinted brand.
@@ -686,14 +701,16 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   by register and kind: label, meta and kind. The search reads keys, labels
   and aliases.
 - **SB35.** With a slice, a click on a member narrows the sheet to the rows
-  that name it, through the slice's search. Without one, a click selects the
-  card.
+  that name it, through the slice's search, and a click on the member it
+  narrows to lets go. Without one, a click selects the card, and a click on
+  the selected card lets it go.
 - **SB36.** Columns lists the columns in declared order with their kind and
   an eye. Hiding a column hides it and the band cells under it from the grid,
-  never from the inspector or what the lens matches. What is hidden persists
-  per viewer under the builder's `id`.
-- **SB37.** An empty tab says so: `No templates`, `No registers`, or `No
-  matches: nothing matches "q"`.
+  never from the inspector or what the lens matches; a row the copilot
+  proposes keeps its cells under a hidden column. The last column shown
+  stays. What is hidden persists per viewer under the builder's `id`.
+- **SB37.** An empty tab says so, in the shared empty state: `No templates`,
+  `No registers`, or `No matches` over `Nothing matches "q".`
 
 ### 9.8 Drag and drop (owner: drag and drop)
 

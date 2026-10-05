@@ -77,8 +77,8 @@ export const EastChakraDock = memo(function EastChakraDock({ value, storageKey }
 export interface DockPaneProps {
     /** Where the pane keeps its open tab, and its collapsed state when persisted. */
     storageKey: string;
-    /** The tabs, each with its body; with none, `body` is the pane's one body under its label. */
-    tabs?: ReadonlyArray<{ key: string; label: string; body: ReactNode }> | undefined;
+    /** The tabs, each with its body and, after its label, any count of what it holds; with none, `body` is the pane's one body under its label. */
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | undefined; body: ReactNode }> | undefined;
     /** The body, when the pane has no tabs. */
     body?: ReactNode;
     /** Whether it collapses at all: `false`, it never collapses — no rail, and no collapse control. `true` by default. */
@@ -128,10 +128,11 @@ export interface DockPaneProps {
  * compact icon rail and stays in the document flow; the Dock's renderer, and
  * the pane a host renderer holds its own React in.
  *
- * Expanded, the pane's one row is its tab row — its tabs, or its label as the
- * only tab — with the collapse control at the row's end. Collapsed, the rail
- * holds the expand control, then the icon tile, the badge, the label and the
- * detail; while the pane is active the tile and the badge are the brand's.
+ * Expanded, the pane's one row is its tab row — its tabs, each with any count
+ * after its label, or its label as the only tab — with the collapse control at
+ * the row's end. Collapsed, the rail holds the expand control, then the icon
+ * tile, the badge, the label and the detail; while the pane is active the tile
+ * and the badge are the brand's.
  *
  * Collapsed state follows the interactive-state pattern: local state seeded
  * from `collapsed` / `defaultCollapsed`, synced when `collapsed` drives it,
@@ -350,6 +351,8 @@ export function DockPane(props: DockPaneProps) {
                                     onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => onTabKeyDown(event, index)}
                                 >
                                     {tab.label}
+                                    {/* The space keeps the label and the count apart in the tab's name; the row's gap spaces them on screen. */}
+                                    {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={styles.tabCount} data-tab-count="">{tab.count}</ChakraBox></>}
                                 </chakra.button>
                             );
                         })}

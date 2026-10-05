@@ -11,13 +11,15 @@
  * following; the noun the search box counts the items by; and the one
  * toolbar row its controls share. The gallery (#1030): its cards' media, face
  * and foot, its layout and columns, the toolbar's Grid · List switch, its
- * dashed card to add one, and the compact card's behaviour kept.
+ * dashed card to add one, and the compact card's behaviour kept. With nothing
+ * to show (#1186), the shared empty state: the host's words for no items, or
+ * `No matches` for a search or a filter that hides every card.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, act, fireEvent, screen, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, NullType, StringType, some, type ValueTypeOf } from "@elaraai/east";
+import { East, NullType, StringType, none, some, type ValueTypeOf } from "@elaraai/east";
 import { Library, Reactive, State, Stack, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { EastChakraComponent } from "../../component.js";
@@ -25,6 +27,7 @@ import { initializeStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { UIStore } from "../../platform/state-store.js";
 import { DragLayerProvider } from "../../dnd/drag-layer.js";
+import { EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "./index.js";
 
 // jsdom lacks the ResizeObserver the menu's positioner reaches for, and the
 // CSS.escape the menu finds its items with.
@@ -383,5 +386,63 @@ describe("Library — the gallery (#1030)", () => {
         await act(async () => { fireEvent.change(screen.getByPlaceholderText("Search 3 items…"), { target: { value: "roll" } }); });
         expect(container.querySelectorAll("[data-library-card]")).toHaveLength(1);
         expect(screen.getByText("2 hidden by filter ·")).toBeTruthy();
+    });
+});
+
+describe("Library — nothing to show (#1186)", () => {
+    /** A card of a kind in a bay, as a host renderer builds it. */
+    const card = (key: string, kind: string, bay: string): LibraryItemValue => ({
+        key, label: key, sublabel: none, icon: none, status: none, trailing: none, draggable: false, filtered: false, placed: false,
+        media: none, avatar: none, byline: none, action: none, search: some(key), groups: new Map(),
+        facets: new Map([["kind", [kind]], ["bay", [bay]]]), dims: new Map(),
+    });
+    /** A host's Library over its cards, filtered by kind and by bay. */
+    const library = (items: LibraryItemValue[]): LibraryValue => ({
+        id: "things", hint: none, items, groupOptions: [], groupSummaries: new Map(), dimOptions: [], defaultDimensions: [],
+        filterOptions: [{ key: "kind", label: "Kind" }, { key: "bay", label: "Bay" }], searchable: true, noun: none, addLabel: none,
+        onAdd: none, onCardClick: none, slice: none, style: none, variant: none, layout: none, toolbar: true,
+    });
+    /** What the empty state says — its glyph, its title and the line under it — or `null` while cards show. */
+    const said = (container: HTMLElement): [string, string, string | null] | null => {
+        const empty = container.querySelector<HTMLElement>("[data-library-empty]");
+        if (empty === null) return null;
+        const title = within(empty).getByRole("heading");
+        return [title.parentElement!.previousElementSibling?.textContent ?? "", title.textContent ?? "", title.nextElementSibling?.textContent ?? null];
+    };
+
+    test("no items: the host's words as the shared empty state, and nothing when the host gives none", () => {
+        const given = render(
+            <ChakraProvider value={system}>
+                <EastChakraLibrary value={library([])} storageKey="library-test" empty={{ title: "No templates", description: "The builder declares none." }} />
+            </ChakraProvider>,
+        );
+        expect(said(given.container)).toEqual(["☐", "No templates", "The builder declares none."]);
+        cleanup();
+        const silent = render(<ChakraProvider value={system}><EastChakraLibrary value={library([])} storageKey="library-test" /></ChakraProvider>);
+        expect(said(silent.container)).toBeNull();
+    });
+
+    test("a search that hides every card names what matches nothing; a filter that does says so; showing a card again clears it", async () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraLibrary value={library([card("S101", "saw", "Bay 1"), card("F401", "booth", "Bay 4")])} storageKey="library-test"
+                    empty={{ title: "No registers" }} />
+            </ChakraProvider>,
+        );
+        expect(said(container)).toBeNull();
+        const search = screen.getByRole("textbox", { name: "Search library" });
+        await act(async () => { fireEvent.change(search, { target: { value: " zz " } }); });
+        expect(said(container)).toEqual(["☐", "No matches", 'Nothing matches "zz".']);
+        await act(async () => { fireEvent.change(search, { target: { value: "S1" } }); });
+        expect(said(container)).toBeNull();
+        await act(async () => { fireEvent.change(search, { target: { value: "" } }); });
+        // A saw in Bay 4: no card is both.
+        await open(screen.getByRole("button", { name: "Filter" }));
+        await pick("saw");
+        expect(said(container)).toBeNull();
+        await pick("Bay 4");
+        expect(said(container)).toEqual(["☐", "No matches", "No item holds every value the filter checks."]);
+        await pick("Bay 1");
+        expect(said(container)).toBeNull();
     });
 });
