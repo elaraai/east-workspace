@@ -65,6 +65,18 @@ export {
 // for it (`Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`).
 export { Editing, type EditingNamespace } from "./contracts/editing.js";
 
+// Fields contract (#1147) — a typed form over an East struct: each field's
+// editor from its type, a hint for what a type cannot say, resolved into the
+// specs east-ui-components' `FieldForm` draws. A builder's inspector carries
+// them; e3-ui's `Calendar.field` is `Fields`.
+export {
+    Fields, type FieldsNamespace,
+    type FieldSpecValue, type FieldEditorValue,
+    type FieldHint, type FieldHints, type FieldHintOptions,
+    type TextFieldHint, type NumberFieldHint, type SelectFieldHint, type TagsFieldHint,
+    type ChecklistFieldHint, type ReferenceFieldHint, type ReadonlyFieldHint, type HiddenFieldHint,
+} from "./contracts/fields.js";
+
 // Event lifecycle contract — the estimated → proposed → confirmed →
 // in-progress → actual audit vocabulary scheduled-event surfaces speak
 export {

@@ -1423,6 +1423,37 @@ a new entry is placed `keyOrder`.
 | --- | --- | --- |
 | `Editing.apply(E, "id")` / `Editing.apply(DictType(K, E))` | The shared applier — an Array by its identity field, or a keyed Dict by key (`Editing.Types.ChangeSet(E, K)`): the whole batch, or a conflict saying why. | `editingApplyBatch`, `editingApplyKeyed` |
 
+### Fields — a builder inspector's typed form (#1147)
+
+A builder's inspector shows what is selected as a typed form over its struct.
+`Fields.specs(R, hints, omit)` resolves each field into a `Fields.Types.Spec`:
+its editor from its East type, a hint adding only what a type cannot say.
+e3-ui's builders carry the specs in their payloads, and east-ui-components'
+`FieldForm` draws each one as the shared `<Field>` (its label, its path as the
+key) around the input its type takes — so an inspector an author writes
+themselves from `<Field>` and the form tags looks the same.
+
+| Field type | Editor with no hint | Hint |
+| --- | --- | --- |
+| `String` | text | `Fields.text({ placeholder? })`; `Fields.reference({ of })` — a key of a keyed set the host lists |
+| `Integer`, `Float` | number, with its steppers | `Fields.number({ unit?, step?, min?, max? })` — bigints for an Integer field, numbers for a Float |
+| `Boolean` / `DateTime` | checkbox / date and time | — |
+| a variant of empty cases | select, each case's name spelled out | `Fields.select({ labels? })` — the cases it labels first |
+| `Set<String>`, `Array<String>` | tags, typed freely | `Fields.tags({ options? })` — suggested as a tag is typed |
+| `Array` of a struct with one String and one Boolean field | checklist | `Fields.checklist({ text?, done? })` — naming them where there are several |
+| a struct | its fields, under its name | a hint per nested field |
+| `Option<T>` | `T`'s, which can be cleared | `T`'s |
+| anything else | printed | `Fields.readonly()`; `Fields.hidden()` leaves any field out |
+
+Every hint but `hidden` takes `label` and `help`. A hint is checked against its
+field's type as it compiles (`Fields.number` on a String field is a type
+error), and the specs refuse one again as they resolve, naming the field.
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `Fields.specs(R, hints?, omit?): Array<Fields.Types.Spec>` **❗** | The specs: the hinted fields first, in hint order, then the rest as declared; a nested struct's fields by path, under its name; `omit`'s and the hidden fields left out. Refuses a hint that does not fit its field, naming it. | `fieldsSpecs` |
+| `Fields.select({ labels })` | A variant's select: the cases it labels first, in its order, then the rest, each name spelled out. | `fieldsSelect` |
+
 ### Drag and drop — one grammar, every target (#608)
 
 A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or e3-ui's `<Plan.View>`

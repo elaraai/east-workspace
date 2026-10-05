@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo, useCallback, useState, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
-import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box } from "@chakra-ui/react";
+import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box, useFieldContext } from "@chakra-ui/react";
 import { equalFor, equivalentFor, parseFor, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -416,6 +416,16 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
 
     useValueSync(value, dateTimeInputDataEqual, () => setProps(toChakraDateTimeInput(value)));
 
+    // Inside a Field, as the field's Ark inputs are: its label names the date
+    // and the time, its help describes them, and its read-only holds them
+    // (#1147). Outside one, the input is as its value says.
+    const field = useFieldContext();
+    const labelled = field === undefined ? {} : {
+        "aria-labelledby": field.ids.label,
+        ...(field.ariaDescribedby !== undefined && { "aria-describedby": field.ariaDescribedby }),
+    };
+    const readOnly = props.disabled || field?.readOnly === true;
+
     // Handle date change
     const handleDateChange = useCallback((newDate: DateValue | null) => {
         if (!newDate) return;
@@ -444,7 +454,7 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     if (props.precision === "time") {
         return (
             <Box css={dateFieldShell}>
-                <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={props.disabled}>
+                <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={readOnly} {...labelled}>
                     <TimeInput>
                         {({ segment }) => <TimeSegment segment={segment} />}
                     </TimeInput>
@@ -456,7 +466,7 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     if (props.precision === "date") {
         return (
             <Box css={dateFieldShell}>
-                <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
+                <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
                     <CompoundDateInput>
                         {({ segment }) => <CompoundDateSegment segment={segment} />}
                     </CompoundDateInput>
@@ -468,12 +478,12 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     // Default: datetime (both date and time)
     return (
         <Box css={dateFieldShell}>
-            <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={props.disabled}>
+            <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
                 <CompoundDateInput>
                     {({ segment }) => <CompoundDateSegment segment={segment} />}
                 </CompoundDateInput>
             </CompoundDateField>
-            <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={props.disabled}>
+            <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={readOnly} {...labelled}>
                 <TimeInput>
                     {({ segment }) => <TimeSegment segment={segment} />}
                 </TimeInput>
