@@ -64,6 +64,22 @@ const { data } = useTaskList(apiUrl, repo, workspace, requestOptions, {
 });
 ```
 
+### Recovering a failed read
+
+A view on a screen no one touches, such as a kiosk's, has no one to reload it.
+`useQueryRecovery` tries a failed query again by itself while the view is
+mounted, as every stage of `UITaskPreview` does. It waits a random point in the
+second half of a backoff from 1 s to 30 s (`recoveryDelay`), and shows the
+latest failure through each try, never loading again.
+
+```tsx
+import { StatusDisplay, useQueryRecovery, useTaskGet } from '@elaraai/e3-ui-components';
+
+const details = useTaskGet(apiUrl, repo, workspace, task);
+const failure = useQueryRecovery(details); // null once it reads
+if (failure !== null) return <StatusDisplay variant="error" title="Error" message={failure.message} />;
+```
+
 ## Components
 
 ### TaskPreview

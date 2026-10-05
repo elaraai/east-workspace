@@ -32,6 +32,16 @@ export { formatApiError, formatError } from './errors.js';
 // Hooks
 export * from './hooks/index.js';
 
+// Recovery: a failed read tried again by itself while its view is mounted, as
+// the previews' stages recover theirs (#1062), for a host's own reads
+export {
+    useQueryRecovery,
+    recoveryDelay,
+    RECOVERY_FIRST_MS,
+    RECOVERY_MAX_MS,
+    type RecoveringQuery,
+} from './platform/recovery.js';
+
 // Diff renderer — registers itself against the Diff extension on import.
 export { EastChakraDiff, type EastChakraDiffProps } from './diff/index.js';
 
