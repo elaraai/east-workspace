@@ -13,7 +13,7 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, BlobType, DictType, East, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, toEastTypeValue, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, toEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
@@ -109,14 +109,22 @@ export interface EditSessionBinding<W> {
     gate?: { available: () => boolean; acquire: () => void; release: () => void } | undefined;
 }
 
+/** An entry a request changes: as its edit began, and as the request leaves it — `none` while it is absent. */
+interface Target {
+    before: option<unknown>;
+    after: option<unknown>;
+}
+
 interface Submission<W> {
     payload: Uint8Array;
     apply: NonNullable<EditSessionBinding<W>["apply"]>;
     refresh: EditSessionBinding<W>["refresh"];
     after: Map<string, EntryVersion<W>>;
-    affected: Set<string>;
+    /** Each entry the request changes. */
+    targets: Map<string, Target>;
     base: Base;
     revision: string | undefined;
+    /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
     expected: Uint8Array | undefined;
     release: (() => void) | undefined;
 }
@@ -127,6 +135,22 @@ const blobEqual = equalFor(BlobType);
 const schemaEqual = equalFor(EastTypeType);
 /** An entry the session holds no version of: absent, nowhere — one value for every projection. */
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
+
+/**
+ * How a keyed source's entry is named (#880): a String key is its own id, any
+ * other key its `.east` printing, read back here.
+ *
+ * @param keyType - The source's key type
+ * @returns An id's key, or `undefined` for an id that names no key of the type
+ */
+function keyReader(keyType: EastType): (id: string) => unknown {
+    if (keyType.type === "String") return id => id;
+    const parse = parseFor(toEastTypeValue(keyType));
+    return (id) => {
+        const read = parse(id);
+        return read.success ? read.value : undefined;
+    };
+}
 
 /** Opaque 128-bit IDs for cross-tab deduplication, including HTTP showcases.
  * getRandomValues is available outside secure contexts; randomUUID is not.
@@ -198,6 +222,10 @@ export class EditSession<W> {
     private readonly domainEqual: (a: unknown, b: unknown) => boolean;
     private readonly draftDiff: (a: unknown, b: unknown) => Change["patch"];
     private readonly domainDiff: (a: unknown, b: unknown) => Change["patch"];
+    /** An entry's change applied to it: a value, or the `ConflictError` of one that does not hold what the change began from. */
+    private readonly domainApply: (base: unknown, patch: Change["patch"]) => unknown;
+    /** A keyed source's key by an entry's id; `undefined` for an Array source. */
+    private readonly keyOf: ((id: string) => unknown) | undefined;
     private readonly encodeBatch: (value: unknown) => Uint8Array;
     private readonly encodeEvent: (value: unknown) => Uint8Array;
     private readonly cloneDraft: (value: unknown) => unknown;
@@ -241,6 +269,8 @@ export class EditSession<W> {
         this.domainEqual = equalFor(toEastTypeValue(OptionType(entry)));
         this.draftDiff = diffFor(toEastTypeValue(OptionType(draft)));
         this.domainDiff = diffFor(toEastTypeValue(OptionType(entry)));
+        this.domainApply = applyFor(toEastTypeValue(OptionType(entry)));
+        this.keyOf = keyType === undefined ? undefined : keyReader(keyType);
         this.encodeBatch = encodeBeast2For(toEastTypeValue(EditingChangeSetTypeFor(entry, keyType)));
         // Events carry the collection's own drafts — field by field for the
         // Sheet, whole entries for the Plan — at the exact type its wire names.
@@ -500,11 +530,18 @@ export class EditSession<W> {
                 if (!this.transform) throw new Error("Inline editing requires its entry identity field or its key type");
                 const result = this.transform(this.base.value, batch, none);
                 if (result.type === "conflict") { this.status = "conflict"; this.issues = result.value; this.changed(); return; }
-                expected = this.encodeCollection(result.value);
+                // A positional source's target is its whole collection, its order
+                // included; a keyed source's order is its keys', so its target is
+                // the batch's own entries (#1185).
+                if (this.keyOf === undefined) expected = this.encodeCollection(result.value);
             }
+            const targets = new Map(batch.changes.map(change => [change.id, {
+                before: this.optionOf(change.id, this.baseline.get(change.id)),
+                after: this.optionOf(change.id, this.current.get(change.id)),
+            }]));
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
-            this.submission = { release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), affected: new Set(batch.changes.map(change => change.id)), base: this.cloneBase(this.base), revision: undefined };
+            this.submission = { release: this.binding.gate?.release, expected, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(this.current), targets, base: this.cloneBase(this.base), revision: undefined };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.changed();
@@ -554,26 +591,79 @@ export class EditSession<W> {
     }
 
     /**
-     * Retire overlays only at the acknowledged revision, after affected entries
-     * have been read. Inline callers supply the exact authoritative snapshot.
-     * `matches` checks decoded domain values against each requested result.
+     * Retire the drafts once the source reads back as the acknowledged request
+     * left it: an inline positional source's whole collection, its order
+     * included; an inline keyed source's own entries, whatever another write
+     * did to the others (#1185); a source that names its revisions, the
+     * request's entries read at the revision it committed.
+     *
+     * An entry reads back as the request left it when the source holds it
+     * otherwise than its edit began, with what the request set — the change,
+     * undone, applies to it — so a field another write set beside the
+     * request's is the source's. The session's versions of such an entry are
+     * behind the source then: they go, with the history over them, as when the
+     * source moves under no drafts.
      *
      * @param base - The base the source is at now
-     * @param matches - Whether an entry reads back as the request left it
+     * @param read - An entry the request changed, as a source at a revision holds it: its value, `none` for one it does not hold, or `undefined` while it is not read
      * @returns Whether the request was acknowledged
      */
-    reconcile(base: Base, matches: (id: string, domain: unknown) => boolean): boolean {
+    reconcile(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
         const request = this.submission;
         if (!request || this.status !== "reconciling") return false;
         if (request.base.type === "revision" && (base.type !== "revision" || (request.revision === undefined || !stringEqual(base.value, request.revision)))) return false;
-        if ([...request.affected].some(id => !matches(id, this.domain(id, request.after.get(id) ?? ABSENT)))) return false;
+        if (request.base.type === "snapshot" && base.type !== "snapshot") return false;
+        // Whether every entry reads back as the session's versions hold it.
+        let exact = true;
         if (request.expected !== undefined) {
-            if (base.type !== "snapshot") return false;
-            const actual = this.encodeCollection(base.value);
-            if (!blobEqual(actual, request.expected)) return false;
+            if (!blobEqual(this.encodeCollection(base.value), request.expected)) return false;
+        } else {
+            for (const [id, target] of request.targets) {
+                const now = base.type === "snapshot" ? this.heldIn(base.value, id) : read(id);
+                if (now === undefined || !this.leftAs(now, target)) return false;
+                exact &&= this.domainEqual(now, target.after);
+            }
         }
         this.base = this.cloneBase(base); this.baseline = new Map(request.after);
         this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;
+        if (!exact) {
+            this.baseline.clear(); this.current.clear(); this.history = []; this.cursor = 0;
+            this.draftsChanged();
+        }
         this.changed(); return true;
+    }
+
+    /** An entry's version as its domain value: `none` for one absent, or one never touched. */
+    private optionOf(id: string, version: EntryVersion<W> | undefined): option<unknown> {
+        const domain = version === undefined ? undefined : this.domain(id, version);
+        return domain === undefined ? none : some(domain);
+    }
+
+    /** An entry of an inline keyed source's whole collection, by its id: `none` while the collection does not hold it. */
+    private heldIn(collection: unknown, id: string): option<unknown> {
+        const key = this.keyOf?.(id);
+        const held = key === undefined ? undefined : (collection as ReadonlyMap<unknown, unknown>).get(key);
+        return held === undefined ? none : some(held);
+    }
+
+    /**
+     * Whether a source holds an entry as a request left it: a change of its
+     * place alone, at once; otherwise once the source holds it otherwise than
+     * its edit began, with what the request set — the change, undone, applies.
+     *
+     * @param now - The entry as the source holds it
+     * @param target - The entry as its edit began, and as the request leaves it
+     * @returns Whether it reads back as the request left it
+     */
+    private leftAs(now: option<unknown>, target: Target): boolean {
+        if (this.domainEqual(target.before, target.after)) return true;
+        if (this.domainEqual(now, target.before)) return false;
+        try {
+            this.domainApply(now, this.domainDiff(target.after, target.before));
+            return true;
+        } catch (error) {
+            if (error instanceof ConflictError) return false;
+            throw error;
+        }
     }
 }

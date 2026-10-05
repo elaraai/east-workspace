@@ -36,17 +36,22 @@
  * - **the footer** — the sheet's, with the record's last save from its
  *   commits, which the inspector also says with who made it.
  *
+ * ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — a pane, the
+ * toolbar — as the history item does (#1185, SB26): the grid answers its own,
+ * and a field being typed into keeps its own undo.
+ *
  * The builder fills its parent and draws no border.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo, type KeyboardEvent } from "react";
 import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { SheetBuilderComponent, SheetBuilderPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, implementUIComponent, usePersistedState, useTrackedEvaluation, type EditIssue,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
+    type EditIssue,
 } from "@elaraai/east-ui-components";
 import { SheetFooter } from "../Footer.js";
 import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
@@ -162,6 +167,14 @@ function SheetBuilderFrame({ value, keys, hidden, onToggleColumn }: SheetBuilder
     const where = useCallback((issue: EditIssue) => (issue.entry === "" || issue.row.type === "none" ? issue.entry
         : m.rowRef({ line: true, number: words.number(Number(issue.row.value) + 1), title: issue.entry, noun: m.groupNoun() })), [m, words]);
     const readIssue = useCallback((message: string) => issueText(message, words), [words]);
+    // The history keys from anywhere in the frame (SB26): the grid's own it has answered already.
+    const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.defaultPrevented || typedInto(event.target)) return;
+        const action = historyShortcut(event);
+        if (action === undefined) return;
+        event.preventDefault();
+        onAction(action);
+    }, [onAction]);
     const missing = getSomeorUndefined(value.missing);
     const banners = (
         <>
@@ -182,6 +195,7 @@ function SheetBuilderFrame({ value, keys, hidden, onToggleColumn }: SheetBuilder
             start={library}
             end={inspector}
             footer={<SheetFooter {...footer} saved={saved} />}
+            onKeyDown={onKeyDown}
         >
             <SheetRoot>
                 <SheetGrid />

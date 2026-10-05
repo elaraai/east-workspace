@@ -140,7 +140,6 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // An inline source's whole collection — an Array, or a keyed source's Dict.
         decodeSnapshot: decodeBeast2For(toEastTypeValue(keyType !== undefined ? DictType(keyType, entryType) : ArrayType(entryType))),
         draftEqual: equalFor(toEastTypeValue(OptionType(draftType))),
-        entryEqual: equalFor(editing.entryType),
     }), [entryType, draftType, keyType, editing.entryType]);
     const read = useCallback(() => {
         // The author's checks run here, tracked: what they read (a State, a
@@ -148,8 +147,10 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // their fresh result as its readiness — derived here, not on every
         // read of it (#859).
         session.recheck(binding.ready, binding.ready?.(session.entries));
-        const matches = new Map<string, unknown>();
-        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), matches };
+        // The entries read back at the revision an Apply committed: each one's
+        // value, or `none` for one confirmed absent. The session judges them.
+        const reads = new Map<string, option<unknown>>();
+        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads };
         const revision = source?.revision();
         if (revision?.type !== "some") return undefined;
         if (session.status === "reconciling" && source !== undefined) {
@@ -170,14 +171,14 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
                 if (page.type === "none") continue;
                 const present = page.value.some(row => stringEqual(idOf(row), id));
                 if (entry.draft === undefined) {
-                    if (!present) matches.set(id, undefined);
+                    if (!present) reads.set(id, none);
                 } else if (present) {
                     const raw = editing.readEntry(id, BigInt(at));
-                    if (raw.type === "some") matches.set(id, codecs.decodeEntry(raw.value));
+                    if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
                 }
             }
         }
-        return { base: variant("revision", revision.value), matches };
+        return { base: variant("revision", revision.value), reads };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
@@ -190,15 +191,10 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // evaluation, so a read that fails again after a Retry says so again.
         session.confirmFailed(result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error));
         if (!observed) return;
-        session.reconcile(observed.base, (id, expected) => {
-            // The session checks the complete inline target, including order.
-            if (observed.base.type === "snapshot") return true;
-            if (!observed.matches.has(id)) return false;
-            const actual = observed.matches.get(id);
-            return expected === undefined ? actual === undefined : actual !== undefined && codecs.entryEqual(actual, expected);
-        });
+        // An inline snapshot the session reads itself; at a revision, the entries read here.
+        session.reconcile(observed.base, (id) => observed.reads.get(id));
         session.observeBase(observed.base);
-    }, [session, result, observed, codecs]);
+    }, [session, result, observed]);
 
     const placeOf = useCallback((id: string): Placement => {
         if (keyType !== undefined) return some(variant("keyOrder", null));

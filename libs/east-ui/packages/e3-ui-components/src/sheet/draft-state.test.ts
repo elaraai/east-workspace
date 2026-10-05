@@ -43,7 +43,7 @@ test("discard is available only before the row has been acknowledged by the sour
     await session.apply();
     expect(discardDraft(session, Draft, undefined, "new")).toBe(false);
     expect(draftPresentation(session, Draft, undefined, "new").discardable).toBe(false);
-    expect(session.reconcile(variant("revision", "r2"), () => true)).toBe(true);
+    expect(session.reconcile(variant("revision", "r2"), () => some(row("new")))).toBe(true);
     expect(draftPresentation(session, Draft, undefined, "new").pending).toBe(false);
     expect(discardDraft(session, Draft, undefined, "new")).toBe(false);
     session.record([{ id: "new", before: fresh, after: version("new", 2n) }], "typed", "Edit row");
