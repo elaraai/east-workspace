@@ -16,7 +16,7 @@ import { getTypeId } from "../../types.js";
 import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../../compile.js";
 import { printTypeValue } from "../../compile/runtime.js";
 import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
-import type { AnalyzedIR } from "../../analyze.js";
+import { analyzeIR, type VariableContext } from "../../analyze.js";
 import type { PlatformFunction } from "../../platform.js";
 import { SourceMap, with_source_map } from "../../location.js";
 
@@ -248,6 +248,15 @@ export function buildPlatformContext(options?: Beast2DecodeOptions): PlatformDec
  * {@link EAST_SOURCE_MAP_SYMBOL}). This is the codec-independent tail of function
  * decoding — the caller has already decoded the IR and its capture values.
  *
+ * @remarks
+ * The IR is analysed before it is compiled, as every compiled function's is:
+ * whether a node awaits is the analysis's, which the IR's wire does not carry,
+ * so a body compiled without it would run every statement synchronously, and a
+ * statement after an awaited call would read its promise (#1207). The analysis checks
+ * the IR as a build's does, but allows a platform function the decode was not
+ * given: the compiler stubs it, so the value decodes wherever it is read, and
+ * only a call needs the platform.
+ *
  * @param ir - the decoded Function or AsyncFunction IR
  * @param isAsync - whether the declared type is AsyncFunction
  * @param captureContext - decoded capture values keyed by capture name
@@ -255,6 +264,8 @@ export function buildPlatformContext(options?: Beast2DecodeOptions): PlatformDec
  * @param platformCtx - pre-resolved platform bindings
  * @param sourceMap - the source map to attach, if the blob carried one
  * @returns the compiled callable with re-serialization symbols attached
+ * @throws {Error} When the IR does not analyse: a type, a scope or a given
+ *   platform function's signature it does not hold to
  */
 export function finishDecodedFunction(
   ir: FunctionIR | AsyncFunctionIR,
@@ -264,17 +275,21 @@ export function finishDecodedFunction(
   platformCtx: PlatformDecodeContext,
   sourceMap: SourceMap | null,
 ): (...inputs: any[]) => any {
-  // Compile IR to callable function — mutate in place to avoid object spread allocations
-  (ir.value as any).isAsync = isAsync;
-  // The compile snapshots the AMBIENT source map (compile_internal's
-  // fresh_ctx), so it must run under the map the blob carried: that is the
-  // map the IR's loc_ids index, and the only one that makes a runtime error
-  // inside the decoded function name its authoring site. Outside a scope the
-  // ambient map is null — or, decoding inside a build, that build's map,
-  // against which the blob's ids mean nothing. A blob without a map compiles
-  // under an empty one for the same reason (#626).
+  // The captures are the scope the body closes over.
+  const scope: VariableContext = {};
+  for (const capture of ir.value.captures) {
+    scope[capture.value.name] = { type: capture.value.type, mutable: capture.value.mutable, definedBy: capture, captured: true };
+  }
+  // The analysis names an offending node by its loc_id, and the compile
+  // snapshots the AMBIENT source map (compile_internal's fresh_ctx), so both
+  // run under the map the blob carried: that is the map the IR's loc_ids
+  // index, and the only one that makes a runtime error inside the decoded
+  // function name its authoring site. Outside a scope the ambient map is
+  // null — or, decoding inside a build, that build's map, against which the
+  // blob's ids mean nothing. A blob without a map compiles under an empty one
+  // for the same reason (#626).
   const compiled = with_source_map(sourceMap ?? new SourceMap(), () =>
-    compile_internal(ir as any as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
+    compile_internal(analyzeIR(ir, platformCtx.platform, scope, { allowMissingPlatform: true }), typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
   const rawFn = compiled(captureContext);
 
   const fn = isAsync
