@@ -42,9 +42,9 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { UIComponentType, type UIElement } from "@elaraai/east-ui";
 import { EastUI, type FieldHints } from "@elaraai/east-ui/internal";
-import { SheetRootType, type SheetLinesField, type SheetLineOf } from "./types.js";
-import { createSheetBuild, type SheetGroupedOptions, type SheetOptions, type SheetStringField } from "./root.js";
-import type { SheetColumnSpec } from "./columns.js";
+import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
+import { createSheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetStringField } from "./root.js";
+import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
 import type { SheetGroupValue } from "./group.js";
 import type { SheetArrayField, SheetElementOf } from "./sub-rows.js";
 import { recordRows, type SheetRecordEntry } from "./record.js";
@@ -166,6 +166,35 @@ export interface SheetBuilderEntry<K extends EastType, V extends StructType, A e
     rows: A;
     /** The rows' String identity field. */
     id: SheetStringField<Extract<SheetElementOf<V, A>, StructType>>;
+}
+
+/**
+ * The fields of a record's entry that hold groups with LOOSE rows between
+ * them (#846) — an `Array` of `Sheet.Types.Entry(P, "lines")`.
+ *
+ * @typeParam V - The record's entry type
+ * @typeParam P - The group's row type
+ * @typeParam F - The group's lines field
+ */
+export type SheetEntriesField<V extends StructType, P extends StructType, F extends SheetLinesField<P>> = {
+    [K in SheetFieldKey<V>]: V["fields"][K] extends ArrayType<SheetEntryOf<P, F>> ? K : never
+}[SheetFieldKey<V>];
+
+/**
+ * One entry's groups with loose rows between them (#846): the entry, its
+ * Array field of `Sheet.Types.Entry(P, "lines")`, and the String field that
+ * identifies a group and a loose row alike.
+ *
+ * @typeParam K - The record's key type
+ * @typeParam V - The record's entry type
+ * @typeParam P - The group's row type
+ * @typeParam F - The group's lines field
+ */
+export interface SheetBuilderLooseEntry<K extends EastType, V extends StructType, P extends StructType, F extends SheetLinesField<P>> extends SheetRecordEntry<K> {
+    /** The entry's Array field holding the groups and the loose rows. */
+    rows: SheetEntriesField<V, P, F>;
+    /** The String identity field of both the group type and the line type. */
+    id: SheetStringField<P> & SheetStringField<SheetLineOf<P, F>>;
 }
 
 /**
@@ -303,6 +332,22 @@ function createBuilder(options: SheetBuilderAnyOptions): ExprType<UIComponentTyp
 }
 
 /**
+ * `<Sheet.Builder record={work} entry={{ key, rows: "entries", id: "id" }} group={Sheet.group(P, "lines", …)} columns={{ … }} />`
+ * — one entry's groups with LOOSE rows between them (#846): the entry's
+ * Array field holds `Sheet.Types.Entry(P, "lines")` entries, each a group or
+ * a row of the line type; `columns` are declared over the line type, and
+ * `entry.id` names a String field both types carry.
+ */
+function SheetBuilderTag<K extends EastType, V extends StructType, P extends StructType, F extends SheetLinesField<P>>(
+    props: {
+        record: SheetRecordHandle<K, V>;
+        entry: SheetBuilderLooseEntry<K, V, P, F>;
+        group: SheetGroupValue<P, F>;
+        columns: SheetColumnSpec<SheetLineOf<P, F>>;
+    } & SheetBuilderCommon<SheetLineOf<P, F>, P>
+      & Omit<SheetEntriesOptions<P, F>, SheetViewOnly | "group">,
+): UIElement;
+/**
  * `<Sheet.Builder record={orders} entry={{ key, rows: "ops", id: "id" }} group={Sheet.group(P, "lines", …)} columns={{ … }} />`
  * — one entry's rows, grouped: the entry's Array field holds the groups, and
  * `columns` are declared over their lines.
@@ -367,7 +412,9 @@ function SheetBuilderTag(props: { record: unknown; columns: unknown }): UIElemen
  * - **The rows** are `record`'s: its entries, in key order, each row's id its
  *   key's text (`window` reads a large one a window at a time); or with
  *   `entry`, one entry's Array field, in its own order, identified by
- *   `entry.id`. A new row's key is minted unless `newRowId` names it.
+ *   `entry.id` — its rows, its groups, or its groups with loose rows between
+ *   them (`Sheet.Types.Entry(P, "lines")`, #846). A new row's key is minted
+ *   unless `newRowId` names it.
  * - **Every gesture is a draft** of the shared editing session, which the
  *   history item in the one toolbar undoes, redoes and discards; Apply
  *   commits the drafts as one patch through the record's patch mutation,
