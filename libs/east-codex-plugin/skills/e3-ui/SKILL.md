@@ -1190,6 +1190,29 @@ must atomically check its revision, deduplicate the request id and return the
 committed revision. An append-only journal is not an application acknowledgement.
 An unknown outcome retries the same frozen request.
 
+Rows an e3 record holds — one entry's Array field, in the planner's order —
+commit through the record's patch door, `Record.onApply` over that entry's
+rows; every example sheet that writes is bound this way (#1180):
+
+```tsx
+// Package side: export const plans = e3.record("plans", DictType(StringType, Plan), new Map([["week", { jobs: [] }]]));
+//               export const plansPatch = e3.mutation.patch(plans);
+const record = $.let(Record.bind(plans, [plansPatch]));
+const jobs = $.let(record.read().get("week").jobs);
+const onApply = $.const(Record.onApply(record, {
+    entry: "week",
+    get: East.function([Plan], ArrayType(JobType), (_$, plan) => plan.jobs),
+    set: East.function([Plan, ArrayType(JobType)], Plan, (_$, _plan, next) => ({ jobs: next })),
+    idField: "id",
+}));
+<Sheet.View data={jobs} id="id" columns={{ /* … */ }} onApply={onApply} />
+```
+
+The batch is checked against the rows the edit began from, and the patch
+reaches the entry's rows and nothing else of it; groups, and entries of groups
+and loose rows, commit the same way. A record's own entries as the rows,
+`Record.onApply(record)`, page in key order instead (`recordSheetApply`).
+
 The transaction contract is every editable collection's, not the Sheet's alone
 (#879): east-ui's `Editing.apply` and `Editing.Types.*` — `ChangeSet`,
 `PatchEvent`, `Readiness`, `Origin`, `Draft`, `Entry` and the rest — are the
@@ -1209,7 +1232,7 @@ placed `keyOrder`. The east-ui skill documents the contract.
 | `newRow: fn(NewRow) => Patch(R)` | Explicit defaults for newly inserted drafts, including required hidden fields. | `sheetInsertion` |
 | `ready.row: fn(Draft(R), DraftContext(R)) => Readiness` | Synchronous business checks alongside mandatory schema checks. | `sheetReadiness` |
 | `onPatch: fn(PatchEvent(E)) => Null` | Draft contents, placement, origin and readiness once per gesture. | `sheetWriteBack` |
-| `onApply: fn(ChangeSet(E)) => ApplyResult` | Complete checked batch; supports async callbacks and safe retries. | `recordSheetApply` |
+| `onApply: fn(ChangeSet(E)) => ApplyResult` | Complete checked batch; supports async callbacks and safe retries. `Record.onApply` commits it to an e3 record. | `sheetBasic`, `sheetLoose`, `recordSheetApply` |
 | `Sheet.apply(E, "id")` | Applies a checked batch to a collection: the whole batch, or a conflict saying why. | `sheetApplyBatch` |
 | `Editing.apply(E, "id")` / `Editing.apply(DictType(K, E))` | The shared applier (#879) — an Array by its identity field, or a keyed Dict by key (`Editing.Types.ChangeSet(E, K)`). | `editingApplyBatch`, `editingApplyKeyed` (east-ui) |
 | `Sheet.Types.Entry(G, "rows")` | Groups with their rows beside ungrouped rows, as one union; `Sheet.apply`, `DraftEntry` and `PatchEvent` take it. | `sheetApplyEntries` |
@@ -1361,9 +1384,10 @@ Tested examples live in `test/*.examples.tsx`:
   layout; the bound paged Plans are `data.examples.tsx`'s.
 - `sheet/sheet.examples.tsx` — `<Sheet.View>`: typed columns, registers and
   the driver, the copilot, the lens, groups, loose rows, sub rows and column
-  rules, readiness checks and insertion; the bound paged Sheet is
-  `data.examples.tsx`'s, and the record-bound one `record.examples.tsx`'s
-  `recordSheetApply`.
+  rules, readiness checks and insertion — each sheet's rows bound from e3: a
+  record entry its Apply commits to, or a task's output; a sheet paged from a
+  dataset is `data.examples.tsx`'s, and one over a record's own entries
+  `record.examples.tsx`'s `recordSheetApply`.
 - `sheet/sheet-link.examples.ts` — the link grammar: `Sheet.link.parse` and
   `Sheet.link.print`.
 - `sheet/sheet-transactions.examples.ts` — `Sheet.apply` over rows, and over

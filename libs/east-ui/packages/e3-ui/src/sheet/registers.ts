@@ -97,15 +97,25 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
- * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
- * import { Sheet } from "@elaraai/e3-ui";
+ * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const RegistersJob = StructType({
+ *     id: StringType, activity: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),
+ *     qty: OptionType(FloatType), machines: Sheet.Types.Link,
+ * });
+ * export const RegistersPlan = StructType({ jobs: ArrayType(RegistersJob) });
+ * export const sheetRegistersPlans = e3.record("sheet_registers_plans", DictType(StringType, RegistersPlan), new Map([
+ *     ["week", { jobs: [
+ *         { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
+ *           machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
+ *     ] }],
+ * ]));
+ * export const sheetRegistersPlansPatch = e3.mutation.patch(sheetRegistersPlans);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const JobType = StructType({
- *             id: StringType, activity: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),
- *             qty: OptionType(FloatType), machines: Sheet.Types.Link,
- *         });
  *         const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
  *         const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
  *         const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });
@@ -122,13 +132,18 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *             ["L2", { name: "Line 2", aliases: ["l2", "line 2"] }],
  *             ["L3", { name: "Line 3", aliases: ["l3", "line 3"] }],
  *         ]), DictType(StringType, LineType));
- *         const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_registers_jobs", [
- *             { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
- *               machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
- *         ]));
+ *         // The jobs, read from an e3 record bound with its patch door.
+ *         const plans = $.let(Record.bind(sheetRegistersPlans, [sheetRegistersPlansPatch]));
+ *         const jobs = $.let(plans.read().get("week").jobs);
+ *         const onApply = $.const(Record.onApply(plans, {
+ *             entry: "week",
+ *             get: East.function([RegistersPlan], ArrayType(RegistersJob), (_$, held) => held.jobs),
+ *             set: East.function([RegistersPlan, ArrayType(RegistersJob)], RegistersPlan, (_$, _held, next) => ({ jobs: next })),
+ *             idField: "id",
+ *         }));
  *         // The driver's row reaches a fill typed: End = Start + the activity's days.
  *         const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
- *         const endFromStart = $.const(East.function([Sheet.Types.DraftContext(JobType, ActivityType)], DateFill, ($, ctx) => {
+ *         const endFromStart = $.const(East.function([Sheet.Types.DraftContext(RegistersJob, ActivityType)], DateFill, ($, ctx) => {
  *             const noFill = $.const(none, DateFill);
  *             return ctx.row.start.match({
  *                 value: (_$, supplied) => supplied.match({
@@ -140,7 +155,7 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *                 }),
  *             }, () => noFill);
  *         }));
- *         const newJob = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { machines: { from: [], to: [] } })));
+ *         const newJob = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(RegistersJob), () => Sheet.patch(RegistersJob, { machines: { from: [], to: [] } })));
  *         return (
  *             <Sheet.View
  *                 data={jobs}
@@ -157,16 +172,16 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *                     ]),
  *                 }}
  *                 columns={{
- *                     activity: Sheet.column.lookup(JobType, { header: "Activity", width: "140px" }),
- *                     start:    Sheet.column.date(JobType, { header: "Start", width: "96px" }),
- *                     end:      Sheet.column.date(JobType, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
- *                     qty:      Sheet.column.quantity(JobType, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
- *                     machines: Sheet.column.set(JobType, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
+ *                     activity: Sheet.column.lookup(RegistersJob, { header: "Activity", width: "140px" }),
+ *                     start:    Sheet.column.date(RegistersJob, { header: "Start", width: "96px" }),
+ *                     end:      Sheet.column.date(RegistersJob, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
+ *                     qty:      Sheet.column.quantity(RegistersJob, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
+ *                     machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
  *                                   members: [{ kind: "machine", identified: true }, { kind: "line", countable: true, resolvesTo: "machine" },
  *                                             { kind: "family", countable: true, resolvesTo: "machine" }] }),
  *                 }}
  *                 newRow={newJob}
- *                 onUpdate={jobs.write}
+ *                 onApply={onApply}
  *             />
  *         );
  *     }}</Reactive>
@@ -273,15 +288,25 @@ export interface SheetDriverValue {
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
- * import { Reactive, State, UIComponentType } from "@elaraai/east-ui";
- * import { Sheet } from "@elaraai/e3-ui";
+ * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const RegistersJob = StructType({
+ *     id: StringType, activity: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),
+ *     qty: OptionType(FloatType), machines: Sheet.Types.Link,
+ * });
+ * export const RegistersPlan = StructType({ jobs: ArrayType(RegistersJob) });
+ * export const sheetRegistersPlans = e3.record("sheet_registers_plans", DictType(StringType, RegistersPlan), new Map([
+ *     ["week", { jobs: [
+ *         { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
+ *           machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
+ *     ] }],
+ * ]));
+ * export const sheetRegistersPlansPatch = e3.mutation.patch(sheetRegistersPlans);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const JobType = StructType({
- *             id: StringType, activity: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),
- *             qty: OptionType(FloatType), machines: Sheet.Types.Link,
- *         });
  *         const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
  *         const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
  *         const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });
@@ -298,13 +323,18 @@ export interface SheetDriverValue {
  *             ["L2", { name: "Line 2", aliases: ["l2", "line 2"] }],
  *             ["L3", { name: "Line 3", aliases: ["l3", "line 3"] }],
  *         ]), DictType(StringType, LineType));
- *         const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_registers_jobs", [
- *             { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
- *               machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
- *         ]));
+ *         // The jobs, read from an e3 record bound with its patch door.
+ *         const plans = $.let(Record.bind(sheetRegistersPlans, [sheetRegistersPlansPatch]));
+ *         const jobs = $.let(plans.read().get("week").jobs);
+ *         const onApply = $.const(Record.onApply(plans, {
+ *             entry: "week",
+ *             get: East.function([RegistersPlan], ArrayType(RegistersJob), (_$, held) => held.jobs),
+ *             set: East.function([RegistersPlan, ArrayType(RegistersJob)], RegistersPlan, (_$, _held, next) => ({ jobs: next })),
+ *             idField: "id",
+ *         }));
  *         // The driver's row reaches a fill typed: End = Start + the activity's days.
  *         const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
- *         const endFromStart = $.const(East.function([Sheet.Types.DraftContext(JobType, ActivityType)], DateFill, ($, ctx) => {
+ *         const endFromStart = $.const(East.function([Sheet.Types.DraftContext(RegistersJob, ActivityType)], DateFill, ($, ctx) => {
  *             const noFill = $.const(none, DateFill);
  *             return ctx.row.start.match({
  *                 value: (_$, supplied) => supplied.match({
@@ -316,7 +346,7 @@ export interface SheetDriverValue {
  *                 }),
  *             }, () => noFill);
  *         }));
- *         const newJob = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { machines: { from: [], to: [] } })));
+ *         const newJob = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(RegistersJob), () => Sheet.patch(RegistersJob, { machines: { from: [], to: [] } })));
  *         return (
  *             <Sheet.View
  *                 data={jobs}
@@ -333,16 +363,16 @@ export interface SheetDriverValue {
  *                     ]),
  *                 }}
  *                 columns={{
- *                     activity: Sheet.column.lookup(JobType, { header: "Activity", width: "140px" }),
- *                     start:    Sheet.column.date(JobType, { header: "Start", width: "96px" }),
- *                     end:      Sheet.column.date(JobType, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
- *                     qty:      Sheet.column.quantity(JobType, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
- *                     machines: Sheet.column.set(JobType, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
+ *                     activity: Sheet.column.lookup(RegistersJob, { header: "Activity", width: "140px" }),
+ *                     start:    Sheet.column.date(RegistersJob, { header: "Start", width: "96px" }),
+ *                     end:      Sheet.column.date(RegistersJob, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
+ *                     qty:      Sheet.column.quantity(RegistersJob, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
+ *                     machines: Sheet.column.set(RegistersJob, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
  *                                   members: [{ kind: "machine", identified: true }, { kind: "line", countable: true, resolvesTo: "machine" },
  *                                             { kind: "family", countable: true, resolvesTo: "machine" }] }),
  *                 }}
  *                 newRow={newJob}
- *                 onUpdate={jobs.write}
+ *                 onApply={onApply}
  *             />
  *         );
  *     }}</Reactive>
