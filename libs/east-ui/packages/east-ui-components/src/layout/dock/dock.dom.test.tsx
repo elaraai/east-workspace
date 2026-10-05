@@ -16,10 +16,12 @@
  *     through `onTabChange` (K1, #935), and a tab's count follows its label
  *     (#1186);
  *   - a pane that is not `collapsible` never collapses, and a host-driven
- *     `collapsed` is drawn in the commit it arrives in (#1125).
+ *     `collapsed` is drawn in the commit it arrives in (#1125);
+ *   - a tab row too narrow for its tabs folds them (#1210): the counts first,
+ *     then the trailing tabs into a `+n` menu, the open tab always on the row.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { useLayoutEffect, useRef } from "react";
 import { render, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -325,5 +327,192 @@ describe("DockPane — collapsible, and a host's collapse (#1125)", () => {
         view.rerender(<ChakraProvider value={system}><Host collapsed /></ChakraProvider>);
         view.rerender(<ChakraProvider value={system}><Host collapsed={false} /></ChakraProvider>);
         expect(seen).toEqual(["pane", "rail", "pane"]);
+    });
+});
+
+describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", () => {
+    const TABS = [
+        { key: "rows", label: "Rows", count: "11", body: "TEMPLATES" },
+        { key: "registers", label: "Registers", count: "29", body: "MEMBERS" },
+        { key: "columns", label: "Columns", count: "6", body: "COLUMNS" },
+    ];
+    /** The row's room, as the stand-in layout gives it. */
+    let room = 260;
+    /** Each test's own storage key: a pane keeps its open tab under it. */
+    let storageKey = "";
+    let mounts = 0;
+    /** Each ResizeObserver's callback, called as the row's room changes. */
+    const observers: Array<() => void> = [];
+    const saved = {
+        rect: Element.prototype.getBoundingClientRect,
+        clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
+        computed: window.getComputedStyle,
+        observer: (globalThis as { ResizeObserver?: unknown }).ResizeObserver,
+    };
+    /** A tab's width in the stand-in layout: 8px a letter of its name, and its count 7px after it at 6px a figure. */
+    const tabWidth = (tab: Element) => {
+        const count = tab.querySelector("[data-tab-count]")?.textContent ?? "";
+        return 8 * (tab.firstElementChild?.textContent?.length ?? 0) + (count === "" ? 0 : 7 + 6 * count.length);
+    };
+    // jsdom lays nothing out: the tabs measure as the stand-in says, 20px apart, the menu's stand-in 30px.
+    // Rows 11 is 51px, Registers 29 91px, Columns 6 69px: whole they take 251px, and 200px without their counts.
+    beforeEach(() => {
+        room = 260;
+        storageKey = `dock-fold-${++mounts}`;
+        observers.length = 0;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const width = this.matches('[role="tab"]') ? tabWidth(this)
+                : this.matches("[data-tab-count]") ? 6 * (this.textContent?.length ?? 0)
+                    : this.matches("[data-dock-more-measure]") ? 30 : 0;
+            return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0, width, height: 0, toJSON: () => ({}) } as DOMRect;
+        };
+        Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get(this: Element) { return this.matches("[data-dock-tabs]") ? room : 0; } });
+        window.getComputedStyle = ((el: Element, pseudo?: string | null) => {
+            const style = saved.computed.call(window, el, pseudo);
+            const gap = el.matches('[role="tablist"], [data-dock-tabs]') ? "20px" : el.matches('[role="tab"]') ? "7px" : undefined;
+            if (gap === undefined) return style;
+            return new Proxy(style, {
+                get: (target, prop) => {
+                    if (prop === "columnGap") return gap;
+                    const value = Reflect.get(target, prop) as unknown;
+                    return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+                },
+            });
+        }) as typeof window.getComputedStyle;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            constructor(callback: () => void) { observers.push(callback); }
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        };
+    });
+    afterEach(() => {
+        Element.prototype.getBoundingClientRect = saved.rect;
+        Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
+        window.getComputedStyle = saved.computed;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = saved.observer;
+    });
+
+    const mountLibrary = (props: { tab?: string } = {}) => render(
+        <ChakraProvider value={system}>
+            <DockPane storageKey={storageKey} label="Library" surface="shell" tabs={TABS} {...props} />
+        </ChakraProvider>,
+    );
+    /** The row's form, the tabs on it (each its name), and the `+n` menu's words. */
+    const rowOf = (view: ReturnType<typeof mountLibrary>) => {
+        const more = view.container.querySelector("[data-dock-more]");
+        return {
+            fold: view.container.querySelector('[role="tablist"]')!.getAttribute("data-fold"),
+            tabs: view.getAllByRole("tab").map((tab) => tab.textContent),
+            more: more === null ? null : [more.textContent, more.getAttribute("aria-label")],
+            measuring: view.container.querySelector("[data-dock-more-measure]") !== null,
+        };
+    };
+    const openTabs = (view: ReturnType<typeof mountLibrary>) =>
+        view.getAllByRole("tab").filter((tab) => tab.getAttribute("aria-selected") === "true").map((tab) => tab.textContent);
+    /** Opens the `+n` menu, by its trigger's name. */
+    const openMenu = async (view: ReturnType<typeof mountLibrary>, more: string) => {
+        await act(async () => { fireEvent.click(view.getByRole("button", { name: more })); });
+    };
+    /** Picks a tab from the open menu as a pointer does: pressed on the item, which highlights it, then its click. */
+    const pick = async (view: ReturnType<typeof mountLibrary>, name: string) => {
+        const item = view.getByRole("menuitem", { name });
+        await act(async () => { fireEvent.pointerDown(item); });
+        await act(async () => { fireEvent.click(item); });
+    };
+
+    test("a row its tabs fit draws every tab with its count, as before, and no menu", () => {
+        initializeStore(new UIStore());
+        const view = mountLibrary();
+        expect(rowOf(view)).toEqual({ fold: null, tabs: ["Rows 11", "Registers 29", "Columns 6"], more: null, measuring: false });
+    });
+
+    test("too narrow for the counts, the row leaves them out: every tab, each still named with its count", () => {
+        initializeStore(new UIStore());
+        room = 210;
+        const view = mountLibrary();
+        expect(rowOf(view)).toEqual({ fold: "compact", tabs: ["Rows 11", "Registers 29", "Columns 6"], more: null, measuring: false });
+        expect(view.getByRole("tab", { name: "Registers 29" })).toBeTruthy();
+    });
+
+    test("narrower still, the trailing tabs fold into a +n menu; picking one opens it, and the row folds again around it", async () => {
+        initializeStore(new UIStore());
+        room = 160;
+        const view = mountLibrary();
+        expect(rowOf(view)).toEqual({ fold: "folded", tabs: ["Rows 11"], more: ["+2", "2 more tabs"], measuring: false });
+        await openMenu(view, "2 more tabs");
+        expect(view.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Registers 29", "Columns 6"]);
+        await pick(view, "Columns 6");
+        // Columns is open, and on the row beside Rows; Registers is the menu's.
+        expect(openTabs(view)).toEqual(["Columns 6"]);
+        expect(rowOf(view)).toEqual({ fold: "folded", tabs: ["Rows 11", "Columns 6"], more: ["+1", "1 more tab"], measuring: false });
+        expect(view.getByText("COLUMNS").closest("[role=tabpanel]")!.hasAttribute("hidden")).toBe(false);
+        // Back on Rows, the row folds around it again: Columns returns to the menu.
+        await act(async () => { fireEvent.click(view.getByRole("tab", { name: "Rows 11" })); });
+        expect(rowOf(view)).toEqual({ fold: "folded", tabs: ["Rows 11"], more: ["+2", "2 more tabs"], measuring: false });
+    });
+
+    test("the open tab never folds: a host's open tab at the row's end takes its place first", () => {
+        initializeStore(new UIStore());
+        room = 160;
+        const view = mountLibrary({ tab: "columns" });
+        expect(rowOf(view).tabs).toEqual(["Rows 11", "Columns 6"]);
+        expect(openTabs(view)).toEqual(["Columns 6"]);
+    });
+
+    test("a lone open tab too wide beside the menu shrinks, its whole name its title", () => {
+        initializeStore(new UIStore());
+        room = 80;
+        const view = mountLibrary({ tab: "registers" });
+        expect(rowOf(view).tabs).toEqual(["Registers 29"]);
+        const tab = view.getByRole("tab", { name: "Registers 29" });
+        expect([tab.hasAttribute("data-squeezed"), tab.getAttribute("title")]).toEqual([true, "Registers"]);
+    });
+
+    test("the arrow keys, Home and End move among the tabs on the row, never to a folded one", async () => {
+        initializeStore(new UIStore());
+        // Room for Rows and Registers beside the menu, whichever is open; Columns folds.
+        room = 180;
+        const view = mountLibrary();
+        expect(rowOf(view)).toEqual({ fold: "folded", tabs: ["Rows 11", "Registers 29"], more: ["+1", "1 more tab"], measuring: false });
+        const key = async (name: string, k: string) => { await act(async () => { fireEvent.keyDown(view.getByRole("tab", { name }), { key: k }); }); };
+        await key("Rows 11", "ArrowRight");
+        expect(openTabs(view)).toEqual(["Registers 29"]);
+        // Past the row's last tab, round to its first: Columns, folded, is skipped.
+        await key("Registers 29", "ArrowRight");
+        expect(openTabs(view)).toEqual(["Rows 11"]);
+        await key("Rows 11", "ArrowLeft");
+        expect(openTabs(view)).toEqual(["Registers 29"]);
+        await key("Registers 29", "Home");
+        expect(openTabs(view)).toEqual(["Rows 11"]);
+        await key("Rows 11", "End");
+        expect(openTabs(view)).toEqual(["Registers 29"]);
+        expect(document.activeElement).toBe(view.getByRole("tab", { name: "Registers 29" }));
+    });
+
+    test("the row follows its room: wider, it unfolds; narrower again, it folds — measured again as the room changes", async () => {
+        initializeStore(new UIStore());
+        room = 160;
+        const view = mountLibrary();
+        expect(rowOf(view).fold).toBe("folded");
+        room = 260;
+        await act(async () => { for (const callback of observers) callback(); });
+        expect(rowOf(view)).toEqual({ fold: null, tabs: ["Rows 11", "Registers 29", "Columns 6"], more: null, measuring: false });
+        room = 210;
+        await act(async () => { for (const callback of observers) callback(); });
+        expect(rowOf(view).fold).toBe("compact");
+    });
+
+    test("other tabs are measured again: a longer count that no longer fits leaves the counts out", () => {
+        initializeStore(new UIStore());
+        room = 255;
+        const view = mountLibrary();
+        expect(rowOf(view).fold).toBeNull();
+        view.rerender(
+            <ChakraProvider value={system}>
+                <DockPane storageKey={storageKey} label="Library" surface="shell" tabs={TABS.map((tab) => (tab.key === "rows" ? { ...tab, count: "1,204" } : tab))} />
+            </ChakraProvider>,
+        );
+        expect(rowOf(view)).toEqual({ fold: "compact", tabs: ["Rows 1,204", "Registers 29", "Columns 6"], more: null, measuring: false });
     });
 });

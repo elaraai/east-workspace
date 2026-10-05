@@ -182,6 +182,12 @@ component, nothing in east-ui.
   `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
   `empty` words say what an empty tab shows; a search or a filter that
   hides every card says `No matches` itself, in the shared empty state.
+- **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
+  row first, kept in each tab's name; then the trailing tabs fold into a
+  `+n` menu after the last that fits, the open tab always on the row, so no
+  tab runs under the collapse control. The row measures its tabs drawn whole
+  before it paints, again when its room or its tabs change or fonts arrive;
+  the decision is `fitTabs` (`src/layout/dock/fold.ts`), a pure function.
 - **Modes.** `pinned`: in the flow; opening it pushes main aside over the
   design system's `--dur-base` on `--ease-in-out`. `overlay`: its 44px rail
   stays in the flow, so main never moves; open, the pane floats over main
