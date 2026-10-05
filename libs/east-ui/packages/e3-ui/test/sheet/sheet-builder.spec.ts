@@ -6,9 +6,11 @@
 /**
  * `Sheet.Builder` (#1183, `Sheet Builder Spec.md` §3–§5, SB7–SB12): its
  * examples (§3.2–§3.4), the payload — the sheet whole, the templates, the
- * record's history — a template's seed, built by `newRow`'s and `newGroup`'s
- * own code, `views` as a bind handle, and every refusal, each naming the prop
- * and the remedy. How the builder's payload meets a record runs in
+ * library's tabs, the record's history — a template's seed, built by
+ * `newRow`'s and `newGroup`'s own code, the library (#1186, SB59, SB60): its
+ * tabs in order, an author's cards through their accessors and where a drop's
+ * patch lands, `views` as a bind handle, and every refusal, each naming the
+ * prop and the remedy. How the builder's payload meets a record runs in
  * e3-ui-components' `sheet-builder-payload` spec, against the record runtime.
  */
 
@@ -22,7 +24,8 @@ import {
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
 import { State } from "@elaraai/east-ui/internal";
 import {
-    Data, Record, Sheet, SheetBuilderPayloadType, SheetTemplateWireType, buildTemplates, createSheetBuild, sheetKeys,
+    Data, Record, Sheet, SheetBuilderPayloadType, SheetLibraryTabType, SheetTemplateWireType, buildLibrary, buildTemplates, createSheetBuild, sheetKeys,
+    type SheetLibraryTab,
 } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as ex from "./sheet-builder.examples.js";
@@ -153,6 +156,123 @@ describe("templates (SB9)", () => {
         assert.equal(draft.ops.length, 2, "the template's lines");
         const row = decodeBeast2For(Sheet.Types.Row)(seed.row);
         assert.equal(row.lines.length, 2, "the card's line count");
+    });
+});
+
+// The library over the same flat and grouped sheets: an author's tab over
+// activities, and one over statuses.
+const ActivityRow = StructType({ name: StringType, uom: StringType, family: StringType });
+const ACTIVITIES = [
+    { name: "Panel cutting", uom: "panels", family: "Cutting" },
+    { name: "Edge banding", uom: "metres", family: "Cutting" },
+    { name: "Panel cutting", uom: "sheets", family: "Cutting" },
+    { name: "Assembly", uom: "units", family: "Assembly" },
+];
+const STATUS_WORDS = new SortedMap([["p", "PLANNED"], ["r", "RELEASED"]], compareFor(StringType));
+type Tab = ValueTypeOf<typeof SheetLibraryTabType>;
+
+/** A flat sheet's library: the templates, the activities — dropped on a row, its activity and a field no column shows — and the columns. */
+const flatLibrary = (tabs: ($: BlockBuilder<ArrayType<typeof SheetLibraryTabType>>) => readonly SheetLibraryTab[]) =>
+    East.compile(East.function([], ArrayType(SheetLibraryTabType), ($) => {
+        const ops = $.const(OPS, DictType(StringType, OpType));
+        const build = createSheetBuild(ops, OP_COLUMNS, {}, { keyOrdered: true });
+        return buildLibrary(tabs($), build.bridge);
+    }), [])() as Tab[];
+/** A grouped sheet's library: the statuses, dropped on an order's band, rename it. */
+const groupedLibrary = (tabs: ($: BlockBuilder<ArrayType<typeof SheetLibraryTabType>>) => readonly SheetLibraryTab[]) =>
+    East.compile(East.function([], ArrayType(SheetLibraryTabType), ($) => {
+        const orders = $.const(ORDERS, DictType(StringType, OrderType));
+        const build = createSheetBuild(orders, OP_COLUMNS, { group: Sheet.group(OrderType, "ops", { title: "name" }) }, { keyOrdered: true });
+        return buildLibrary(tabs($), build.bridge);
+    }), [])() as Tab[];
+
+describe("the library (SB59, SB60)", () => {
+    test("its tabs are the ones `library` lists, in that order; none listed, none", () => {
+        const tabs = flatLibrary(() => [Sheet.library.columns(), Sheet.library.rows()]);
+        assert.deepEqual(tabs, [variant("columns", null), variant("rows", null)]);
+        assert.deepEqual(flatLibrary(() => []), []);
+    });
+
+    test("an author's tab: one card per row through its accessors, a key that repeats keeping its first card, grouped by `group`", () => {
+        const [tab] = flatLibrary(($) => {
+            const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
+            return [Sheet.library.tab(acts, { name: "Activities", icon: "list",
+                key: a => a.name, label: a => a.name, meta: a => some(a.uom), group: a => a.family })];
+        });
+        if (tab!.type !== "tab") assert.fail(`expected an author's tab, got ${tab!.type}`);
+        assert.equal(tab!.value.name, "Activities");
+        assert.deepEqual(tab!.value.icon, some("list"));
+        assert.deepEqual(tab!.value.drop, none, "no `drop`: its cards land nowhere");
+        assert.deepEqual(tab!.value.cards.map((c) => [c.key, c.label, c.meta, c.group, c.sets.size]), [
+            ["Panel cutting", "Panel cutting", some("panels"), some("Cutting"), 0],
+            ["Edge banding", "Edge banding", some("metres"), some("Cutting"), 0],
+            ["Assembly", "Assembly", some("units"), some("Assembly"), 0],
+        ]);
+    });
+
+    test("over a Dict, the accessors take each entry's key", () => {
+        const [tab] = flatLibrary(($) => {
+            const words = $.const(STATUS_WORDS, DictType(StringType, StringType));
+            return [Sheet.library.tab(words, { name: "Words", key: (_w, k) => k, label: w => w })];
+        });
+        if (tab!.type !== "tab") assert.fail(`expected an author's tab, got ${tab!.type}`);
+        assert.deepEqual(tab!.value.cards.map((c) => [c.key, c.label, c.meta, c.group]), [["p", "PLANNED", none, none], ["r", "RELEASED", none, none]]);
+    });
+
+    test("a drop patch over the row type lands on rows, and a card carries the cells it sets through the sheet's editable columns", () => {
+        const [tab] = flatLibrary(($) => {
+            const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
+            return [Sheet.library.tab(acts, { name: "Activities", key: a => a.name, label: a => a.name,
+                drop: a => Sheet.patch(OpType, { activity: a.name, created_by: "library" }) })];
+        });
+        if (tab!.type !== "tab") assert.fail(`expected an author's tab, got ${tab!.type}`);
+        assert.deepEqual(tab!.value.drop, some(variant("row", null)));
+        const first = tab!.value.cards[0]!;
+        assert.deepEqual(first.sets.get("activity"), variant("String", "Panel cutting"));
+        assert.equal(first.sets.has("created_by"), false, "a field no column shows is not a cell");
+        assert.equal(first.sets.has("notes"), false, "a field the patch leaves unset is not a cell");
+    });
+
+    test("a drop patch over the group type lands on bands, its cells the band's", () => {
+        const [tab] = groupedLibrary(($) => {
+            const words = $.const(STATUS_WORDS, DictType(StringType, StringType));
+            return [Sheet.library.tab(words, { name: "Names", key: (_w, k) => k, label: w => w,
+                drop: w => Sheet.patch(OrderType, { name: w }) })];
+        });
+        if (tab!.type !== "tab") assert.fail(`expected an author's tab, got ${tab!.type}`);
+        assert.deepEqual(tab!.value.drop, some(variant("group", null)));
+        assert.deepEqual(tab!.value.cards[1]!.sets.get("$title"), variant("String", "RELEASED"));
+    });
+
+    test("a builder's payload carries its library; left out, it lists none", () => {
+        inBlock(($) => {
+            const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
+            const payload = Sheet.BuilderPayload({ record: jobs, columns: JOB_COLUMNS, library: [Sheet.library.columns()] });
+            assert.ok(isTypeEqual(typeOf(payload), SheetBuilderPayloadType));
+        });
+        const none_ = East.compile(East.function([], ArrayType(SheetLibraryTabType), ($) => {
+            const ops = $.const(OPS, DictType(StringType, OpType));
+            return buildLibrary(undefined, createSheetBuild(ops, OP_COLUMNS, {}, { keyOrdered: true }).bridge);
+        }), []);
+        assert.deepEqual(none_(), []);
+    });
+
+    test("refused, naming the tab: a tab listed twice, two author's tabs of one name, a drop over another type, and data neither an Array nor a Dict", () => {
+        assert.throws(() => flatLibrary(() => [Sheet.library.rows(), Sheet.library.rows()]), /the library lists Sheet.library.rows\(\) twice/);
+        assert.throws(() => flatLibrary(($) => {
+            const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
+            return [Sheet.library.tab(acts, { name: "A", key: a => a.name, label: a => a.name }), Sheet.library.tab(acts, { name: "A", key: a => a.uom, label: a => a.uom })];
+        }), /two tabs named "A"/);
+        assert.throws(() => flatLibrary(($) => {
+            const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
+            return [Sheet.library.tab(acts, { name: "Jobs", key: a => a.name, label: a => a.name, drop: a => Sheet.patch(ex.BuilderJob, { task: a.name }) })];
+        }), /the "Jobs" tab's `drop` returns a patch over neither the row type nor the group type/);
+        assert.throws(() => flatLibrary(($) => {
+            const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
+            return [Sheet.library.tab(acts, { name: "Orders", key: a => a.name, label: a => a.name, drop: a => Sheet.patch(OrderType, { name: a.name }) })];
+        }), /neither the row type nor the group type — build it with Sheet.patch\(RowType, …\) over the sheet's row type/);
+        assert.throws(() => flatLibrary(() => [Sheet.library.tab("PLANNED" as never, { name: "Words", key: () => "k", label: () => "l" })]),
+            /the "Words" tab's data must be an Array or a Dict<String, T> — got a String/);
     });
 });
 

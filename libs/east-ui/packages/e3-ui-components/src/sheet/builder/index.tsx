@@ -23,10 +23,12 @@
  *   reason; an unknown outcome and a failed confirmation read, each with
  *   Retry; the out-of-date notice, with Discard — and last, an `entry` the
  *   record does not hold;
- * - **the library**, the start pane, and **the inspector**, the end pane:
- *   `BuilderFrame`'s panes, whose open tab and collapsed state persist under
- *   the builder's `id`. The library's Columns tab hides columns from the
- *   grid, per viewer, under the builder's `id` too (SB36);
+ * - **the library**, the start pane — its tabs the ones the author's
+ *   `library` lists, and no pane when it lists none (#1186, SB59) — and
+ *   **the inspector**, the end pane: `BuilderFrame`'s panes, whose open tab
+ *   and collapsed state persist under the builder's `id`. The library's
+ *   Columns tab hides columns from the grid, per viewer, under the builder's
+ *   `id` too (SB36);
  * - **main** — the grid, filling the room the panes leave and scrolling its
  *   own rows, the strip docked under it;
  * - **the footer** — the sheet's, with the record's last save from its

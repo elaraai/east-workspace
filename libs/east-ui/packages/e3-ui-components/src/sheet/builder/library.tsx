@@ -4,55 +4,54 @@
  */
 
 /**
- * The library pane (`Sheet Builder Spec.md` §7, §8, §9.7, SB32–SB37): the
- * sheet builder's start pane, its tabs Rows · Registers · Columns, each a
- * `Library` with its count after its name and a search — what the builder
- * offers to drag into the sheet, and the columns a viewer shows and hides.
+ * The library pane (`Sheet Builder Spec.md` §7, §8, §9.7, SB32, SB33, SB36,
+ * SB37, SB59, SB60): the sheet builder's start pane, its tabs the ones the
+ * author's `library` lists, in that order, each a `Library` with its count
+ * after its name and a search — what the builder offers to drag into the
+ * sheet, and the columns a viewer shows and hides. A builder whose `library`
+ * lists no tab has no pane.
  *
- * - **Rows** — the templates, grouped by their `group`: a card names the
- *   template and, under it, what it sets — its cells as the columns print
- *   them, in column order — or, for a group template, its band cells and
- *   how many lines it drops.
- * - **Registers** — the driver's members first, then each register's, by
- *   register and kind: a card's label, its meta and kind under it, a driver
- *   member's kind as its tag, and a toned member's tone as a dot. The search
- *   reads keys, labels and aliases. With a slice, a click narrows the sheet
- *   to the rows that name the member, through the slice's search, and a click
- *   on the member it narrows to lets go; without one, a click selects the
- *   card.
- * - **Columns** — the declared columns in their order, each with its kind and
- *   an eye; a click hides it, or shows it again, dimmed while hidden. The last
- *   column shown stays.
+ * - **Rows** (`Sheet.library.rows()`) — the templates, grouped by their
+ *   `group`: a card names the template and, under it, what it sets — its
+ *   cells as the columns print them, in column order — or, for a group
+ *   template, its band cells and how many lines it drops.
+ * - **Columns** (`Sheet.library.columns()`) — the declared columns in their
+ *   order, each with its kind and an eye; a click hides it, or shows it
+ *   again, dimmed while hidden. The last column shown stays.
+ * - **An author's tab** (`Sheet.library.tab(…)`) — its cards, each its label
+ *   and its meta under it, with the tab's icon, grouped by its `group` and
+ *   searched by key, label and meta. A click selects a card, and a click on
+ *   the selected card lets it go. A tab that declares a `drop` offers its
+ *   cards to drag (#1187).
  * - An empty tab says so (SB37), in the shared empty state; collapsed, the
- *   pane is a rail with the templates' count.
+ *   pane is a rail with the templates' count, or the first tab's when the
+ *   library lists no Rows tab.
  *
- * Template and member cards drag from the libraries `sheetKeys(id).library`
- * names (`…:rows`, `…:registers`).
+ * Template cards drag from the library `${sheetKeys(id).library}:rows` names,
+ * an author's tab's from `…:tab:<its name>`.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useMemo, useState } from "react";
 import { StringType, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
 import { Sheet, type SheetBuilderPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraLibrary, getSomeorUndefined, useSliceReactivity, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
+    EastChakraLibrary, getSomeorUndefined, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
 } from "@elaraai/east-ui-components";
 import type { SheetLibraryTabWord } from "../messages.js";
 import { TITLE_KEY, cellIsBlank, cellText, indexColumns, indexGroup, type SheetColumnIndex, type SheetColumnMeta } from "../model.js";
-import type { SliceStateValue } from "../sheet-types.js";
-import type { SheetCellValue, SheetRegisterMemberValue } from "../values.js";
+import type { SheetCellValue } from "../values.js";
 import type { SheetWords } from "../words.js";
 
 /** The renderer's payload, decoded. */
 type SheetBuilderValue = ValueTypeOf<typeof SheetBuilderPayloadType>;
 /** One template, decoded. */
 type SheetTemplateValue = SheetBuilderValue["templates"][number];
+/** An author's tab, decoded. */
+type SheetAuthorTabValue = Extract<SheetBuilderValue["library"][number], { type: "tab" }>["value"];
 /** The names the builder keeps its viewer's state under. */
 type SheetKeys = ReturnType<typeof sheetKeys>;
-/** The bound slice handle, decoded. */
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 const stringEqual = equalFor(StringType);
 const decodeRow = decodeBeast2For(Sheet.Types.Row);
@@ -60,15 +59,12 @@ const decodeRow = decodeBeast2For(Sheet.Types.Row);
 /** The library open: the Calendar's 272px (§8). */
 const LIBRARY_SIZE = "272px";
 
-/** Between the parts of a member card's key: what it comes from, its kind and its key. */
-const CARD_SEP = "\u001f";
-
 /** A library tab's cards fill the pane and scroll there, every card mounted. */
 const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(false), columns: none, mediaPlacement: none, mediaSize: none });
 
 /** Props of {@link useSheetLibrary}. */
 export interface SheetLibraryProps {
-    /** The builder's payload: the sheet, and the templates. */
+    /** The builder's payload: the sheet, the templates and the library's tabs. */
     value: SheetBuilderValue;
     /** The names the builder keeps its viewer's state under. */
     keys: SheetKeys;
@@ -131,25 +127,22 @@ function templateLine(template: SheetTemplateValue, columns: SheetColumnIndex, g
 }
 
 /** A card with nothing but its face: no media, byline, action, facets or secondary facts. */
-function card(fields: Pick<LibraryItemValue, "key" | "label" | "sublabel" | "status" | "trailing" | "draggable" | "filtered" | "placed" | "search" | "groups">): LibraryItemValue {
-    return { ...fields, icon: none, media: none, avatar: none, byline: none, action: none, facets: new Map(), dims: new Map() };
+function card(fields: Pick<LibraryItemValue, "key" | "label" | "sublabel" | "icon" | "status" | "trailing" | "draggable" | "filtered" | "placed" | "search" | "groups">): LibraryItemValue {
+    return { ...fields, media: none, avatar: none, byline: none, action: none, facets: new Map(), dims: new Map() };
 }
 
-/** One member of the Registers tab: what it comes from — the driver, or a register — and the member. */
-interface MemberCard {
-    key: string;
-    driver: boolean;
-    group: string;
-    member: SheetRegisterMemberValue;
+/** The pane's tab of an author's tab: its key among the pane's tabs, and its cards' library. */
+function authorTabKey(tab: SheetAuthorTabValue): string {
+    return `tab:${tab.name}`;
 }
 
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
  * @param props - The payload, the builder's keys, the columns hidden and their toggle, and the words
- * @returns The pane: its tabs Rows, Registers and Columns, each with its count; 272px wide; its collapsed state kept per viewer (SB24)
+ * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer (SB24) — or `undefined`, no pane, when `library` lists none
  */
-export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: SheetLibraryProps): BuilderFrameDock {
+export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: SheetLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     const sheet = value.sheet;
     const columns = useMemo(() => indexColumns(sheet.columns), [sheet.columns]);
@@ -160,21 +153,8 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
         return g === undefined ? undefined : indexGroup(g, columns, titleColumn);
     }, [sheet.group, columns, titleColumn]);
 
-    // The slice a member's click narrows through, and the search it holds now.
-    const chrome = useMemo(() => getSomeorUndefined(sheet.slice), [sheet.slice]);
-    const slice = chrome === undefined ? undefined : (chrome.slice as SliceBindValue);
-    const sliceVersion = useSliceReactivity(slice?.key);
-    const search = useMemo(() => {
-        if (slice === undefined) return undefined;
-        const state = slice.read() as SliceStateValue;
-        return state.search.type === "some" ? state.search.value.trim() : undefined;
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of `slice.read()`: the store moves, no prop does (#611)
-    }, [slice, sliceVersion]);
-    // Without a slice, the member card a click selected.
-    const [picked, setPicked] = useState<string | undefined>(undefined);
-
     const noun = useCallback((tab: SheetLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
-    const empty = useCallback((tab: SheetLibraryTabWord) => ({ title: m.libraryEmpty({ tab }), description: m.libraryEmptyHint({ tab }) }), [m]);
+    const empty = useCallback((tab: SheetLibraryTabWord, name: string) => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
 
     // ── Rows: the templates, by their group (SB33) ──────────────────────
     const templates = value.templates;
@@ -188,6 +168,7 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
                 key: template.key,
                 label: template.name,
                 sublabel: sets === "" ? none : some(sets),
+                icon: none,
                 status: none,
                 trailing: none,
                 draggable: true,
@@ -214,82 +195,6 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
         toolbar: true,
     }), [keys.library, templates, columns, group, keyed, words, m, noun]);
 
-    // ── Registers: the driver's members, then each register's (SB34) ────
-    const members = useMemo((): MemberCard[] => {
-        const out: MemberCard[] = [];
-        const seen = new Set<string>();
-        const add = (key: string, driver: boolean, label: string, member: SheetRegisterMemberValue) => {
-            if (seen.has(key)) return;
-            seen.add(key);
-            out.push({ key, driver, group: label, member });
-        };
-        const driver = getSomeorUndefined(sheet.driver);
-        if (driver !== undefined) {
-            const header = columns.byKey.get(driver.column)?.header ?? driver.column;
-            for (const member of driver.members) add(["driver", member.kind, member.key].join(CARD_SEP), true, m.driverGroup({ header }), member);
-        }
-        // By register, then by kind, each kind's members in their order; a member a register lists twice once. The
-        // sheet keeps the driver's members as a register under its column's name too: they are listed once, first.
-        for (const [register, { members: listed }] of sheet.registers) {
-            if (driver !== undefined && stringEqual(register, driver.column)) continue;
-            const kinds = [...new Set(listed.map((member) => member.kind))];
-            for (const kind of kinds) {
-                for (const member of listed) {
-                    if (!stringEqual(member.kind, kind)) continue;
-                    add(["register", register, kind, member.key].join(CARD_SEP), false, m.registerGroup({ register, kind }), member);
-                }
-            }
-        }
-        return out;
-    }, [sheet.driver, sheet.registers, columns, m]);
-    const onMember = useCallback((key: string) => {
-        const found = members.find((c) => stringEqual(c.key, key));
-        if (found === undefined) return;
-        if (slice === undefined) {
-            setPicked((was) => (was !== undefined && stringEqual(was, key) ? undefined : key));
-            return;
-        }
-        // A click on the member the sheet narrows to lets go of it.
-        const narrowed = search !== undefined && stringEqual(search, found.member.key);
-        queueMicrotask(() => slice.setSearch(narrowed ? none : some(found.member.key)));
-    }, [members, slice, search]);
-    const registers = useMemo((): LibraryValue => ({
-        id: `${keys.library}:registers`,
-        hint: none,
-        items: members.map(({ key, driver, group: label, member }) => {
-            const meta = getSomeorUndefined(member.meta) ?? "";
-            const tone = getSomeorUndefined(member.tone);
-            return card({
-                key,
-                label: member.label === "" ? member.key : member.label,
-                // A driver member's kind is its tag; a register member's sits after its meta, unless its meta says it already.
-                sublabel: some(line(driver || stringEqual(meta, member.kind) ? [meta] : [meta, member.kind])),
-                status: driver ? some({ label: member.kind, tone: variant("neutral", null), ring: false }) : none,
-                trailing: tone === undefined ? none : some({ icon: "circle", label: m.memberTone({ tone: tone.type }), tone: some(tone) }),
-                draggable: true,
-                filtered: false,
-                placed: slice !== undefined ? search !== undefined && stringEqual(search, member.key) : picked !== undefined && stringEqual(picked, key),
-                search: some([member.key, member.label, ...member.aliases].join(" ")),
-                groups: new Map([["source", label]]),
-            });
-        }),
-        groupOptions: [{ key: "source", label: m.libraryGroupBy({ tab: "registers" }) }],
-        groupSummaries: new Map(),
-        dimOptions: [],
-        defaultDimensions: [],
-        filterOptions: [],
-        searchable: true,
-        noun: noun("registers"),
-        addLabel: none,
-        onAdd: none,
-        onCardClick: some((key: string) => { onMember(key); return null; }),
-        slice: none,
-        style: FILL,
-        variant: none,
-        layout: none,
-        toolbar: true,
-    }), [keys.library, members, slice, search, picked, onMember, m, noun]);
-
     // ── Columns: each with its kind and an eye (SB36) ───────────────────
     const shown = columns.list.filter((col) => !hidden.has(col.key)).length;
     const onColumn = useCallback((key: string) => {
@@ -307,6 +212,7 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
                 key: col.key,
                 label: col.header,
                 sublabel: some(kind),
+                icon: none,
                 status: none,
                 trailing: some({ icon: off ? "eye-slash" : "eye", label: m.columnEye({ hidden: off, last: !off && shown <= 1 }), tone: none }),
                 draggable: false,
@@ -333,19 +239,87 @@ export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: 
         toolbar: true,
     }), [keys.library, columns, hidden, shown, onColumn, m, noun]);
 
-    return useMemo((): BuilderFrameDock => ({
-        label: m.libraryPane(),
-        icon: "layer-group",
-        badge: words.number(templates.length),
-        size: LIBRARY_SIZE,
-        persist: "local",
-        tabs: [
-            { key: "rows", label: m.libraryTab({ tab: "rows" }), count: words.number(rows.items.length),
-                body: <EastChakraLibrary value={rows} storageKey={`${keys.library}.rows`} empty={empty("rows")} /> },
-            { key: "registers", label: m.libraryTab({ tab: "registers" }), count: words.number(registers.items.length),
-                body: <EastChakraLibrary value={registers} storageKey={`${keys.library}.registers`} empty={empty("registers")} /> },
-            { key: "columns", label: m.libraryTab({ tab: "columns" }), count: words.number(columnCards.items.length),
-                body: <EastChakraLibrary value={columnCards} storageKey={`${keys.library}.columns`} empty={empty("columns")} /> },
-        ],
-    }), [m, words, templates.length, rows, registers, columnCards, keys.library, empty]);
+    // ── An author's tabs: their cards, a click selecting one (SB60) ─────
+    // The card each tab's click selected, by the tab's key.
+    const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map());
+    const onAuthorCard = useCallback((tabKey: string, key: string) => {
+        setPicked((was) => {
+            const next = new Map(was);
+            const chosen = was.get(tabKey);
+            if (chosen !== undefined && stringEqual(chosen, key)) next.delete(tabKey);
+            else next.set(tabKey, key);
+            return next;
+        });
+    }, []);
+    const authorTabs = useMemo(() => value.library.flatMap((tab) => (tab.type === "tab" ? [tab.value] : [])), [value.library]);
+    const authorLibraries = useMemo(() => new Map(authorTabs.map((tab): [string, LibraryValue] => {
+        const tabKey = authorTabKey(tab);
+        const chosen = picked.get(tabKey);
+        const icon = getSomeorUndefined(tab.icon);
+        return [tabKey, {
+            id: `${keys.library}:${tabKey}`,
+            hint: none,
+            items: tab.cards.map((c) => {
+                const meta = getSomeorUndefined(c.meta);
+                const category = getSomeorUndefined(c.group);
+                return card({
+                    key: c.key,
+                    label: c.label,
+                    sublabel: meta === undefined ? none : some(meta),
+                    icon: icon === undefined ? none : some(icon),
+                    status: none,
+                    trailing: none,
+                    draggable: tab.drop.type === "some",
+                    filtered: false,
+                    placed: chosen !== undefined && stringEqual(chosen, c.key),
+                    search: some(line([c.key, c.label, meta ?? ""])),
+                    groups: category === undefined ? new Map() : new Map([["group", category]]),
+                });
+            }),
+            groupOptions: tab.cards.some((c) => c.group.type === "some") ? [{ key: "group", label: m.libraryGroupBy({ tab: "tab" }) }] : [],
+            groupSummaries: new Map(),
+            dimOptions: [],
+            defaultDimensions: [],
+            filterOptions: [],
+            searchable: true,
+            noun: noun("tab"),
+            addLabel: none,
+            onAdd: none,
+            onCardClick: some((key: string) => { onAuthorCard(tabKey, key); return null; }),
+            slice: none,
+            style: FILL,
+            variant: none,
+            layout: none,
+            toolbar: true,
+        }];
+    })), [authorTabs, picked, keys.library, m, noun, onAuthorCard]);
+
+    return useMemo((): BuilderFrameDock | undefined => {
+        // No tab listed: no pane (SB59).
+        if (value.library.length === 0) return undefined;
+        const tabs = value.library.map((tab) => {
+            if (tab.type === "rows") {
+                return { key: "rows", label: m.libraryTab({ tab: "rows" }), count: words.number(rows.items.length),
+                    body: <EastChakraLibrary value={rows} storageKey={`${keys.library}.rows`} empty={empty("rows", "")} /> };
+            }
+            if (tab.type === "columns") {
+                return { key: "columns", label: m.libraryTab({ tab: "columns" }), count: words.number(columnCards.items.length),
+                    body: <EastChakraLibrary value={columnCards} storageKey={`${keys.library}.columns`} empty={empty("columns", "")} /> };
+            }
+            const tabKey = authorTabKey(tab.value);
+            const library = authorLibraries.get(tabKey)!;
+            return { key: tabKey, label: tab.value.name, count: words.number(library.items.length),
+                body: <EastChakraLibrary value={library} storageKey={`${keys.library}.${tabKey}`} empty={empty("tab", tab.value.name)} /> };
+        });
+        // Collapsed, the rail counts the templates — or, with no Rows tab, the first tab's cards.
+        const listsRows = value.library.some((tab) => tab.type === "rows");
+        return {
+            label: m.libraryPane(),
+            icon: "layer-group",
+            badge: listsRows ? words.number(templates.length) : tabs[0]!.count,
+            size: LIBRARY_SIZE,
+            persist: "local",
+            tabs,
+        };
+    }, [value.library, m, words, templates.length, rows, columnCards, authorLibraries, keys.library, empty]);
 }
