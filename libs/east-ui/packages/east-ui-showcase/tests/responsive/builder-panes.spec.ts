@@ -10,8 +10,10 @@
  * menu, the open tab always on the row — on each builder the showcase holds:
  * Studio's, the query builder's and the Sheet's frame (#1216). At the desktop width
  * the panes are measured open, as they rest; on a phone each is opened from
- * its rail and measured over main. In both themes; every measurement is
- * polled until it holds, on a page at rest.
+ * its rail and measured over main, and where its row folds, a tap on its
+ * `+n` opens the menu, which stays open, and a tab picked from it opens on
+ * the row (#1235). In both themes; every measurement is polled until it
+ * holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test builder-panes --project desktop`.
@@ -23,7 +25,7 @@ import { settled } from "./settle";
 /**
  * A builder the showcase holds: its example, what shows once it is at rest,
  * the box its own spec sizes (the frame's parent when `null`) and to what
- * width, and its panes by name.
+ * width, its panes by name, and the panes whose tab rows fold on the phone.
  */
 interface BuilderPage {
     readonly name: string;
@@ -32,12 +34,13 @@ interface BuilderPage {
     readonly box: string | null;
     readonly width: number;
     readonly panes: readonly string[];
+    readonly folds: readonly string[];
 }
 
 const BUILDERS: readonly BuilderPage[] = [
-    { name: "Studio's builder", hash: "e3/studio/studio/studioBuilder", ready: "[data-snap-grid-tile]", box: "[data-studio-builder]", width: 1440, panes: ["Components", "Inspector"] },
-    { name: "the query builder", hash: "e3/query/query/queryBuilder", ready: "[data-query-results-view]", box: "[data-query-builder]", width: 1240, panes: ["Query"] },
-    { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"] },
+    { name: "Studio's builder", hash: "e3/studio/studio/studioBuilder", ready: "[data-snap-grid-tile]", box: "[data-studio-builder]", width: 1440, panes: ["Components", "Inspector"], folds: [] },
+    { name: "the query builder", hash: "e3/query/query/queryBuilder", ready: "[data-query-results-view]", box: "[data-query-builder]", width: 1240, panes: ["Query"], folds: ["Query"] },
+    { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
 ];
 
 /**
@@ -108,13 +111,34 @@ test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", 
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
     for (const builder of BUILDERS) {
-        test(`${builder.name}: each pane, opened from its rail, its tabs inside its tab row, clear of the collapse control`, async ({ page }) => {
+        test(`${builder.name}: each pane, opened from its rail, its tabs inside its tab row, clear of the collapse control; a folded tab opens from the +n menu`, async ({ page }) => {
             const frame = await openFrame(page, builder, "light", false);
             for (const name of builder.panes) {
                 await frame.getByRole("button", { name: `Expand ${name}` }).click();
                 await settled(page);
-                await expect.poll(async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past })))
-                    .toEqual([{ pane: `Collapse ${name}`, past: [] }]);
+                const rows = async () => (await tabRowsOf(frame)).map(({ pane, past }) => ({ pane, past }));
+                await expect.poll(rows).toEqual([{ pane: `Collapse ${name}`, past: [] }]);
+                const slot = frame.locator("[data-frame-slot]", { has: page.getByRole("button", { name: `Collapse ${name}` }) });
+                const more = slot.locator("[data-dock-more]");
+                await expect(more).toHaveCount(builder.folds.includes(name) ? 1 : 0);
+                if (builder.folds.includes(name)) {
+                    // Tapped, the menu stays open. It is the page's first, so Chromium
+                    // fires a font event as it inserts the menu's styles, and the row
+                    // measures again while the menu is open (#1235).
+                    await more.tap();
+                    const menu = page.getByRole("menu");
+                    await expect(menu).toBeVisible();
+                    await settled(page);
+                    await expect(menu).toBeVisible();
+                    // A tab picked from it opens on the row, which still fits.
+                    const item = menu.getByRole("menuitem").first();
+                    const tab = (await item.textContent()) ?? "";
+                    await item.tap();
+                    await expect(page.locator('[role="menu"]')).toHaveCount(0);
+                    await expect(slot.getByRole("tab", { name: tab, exact: true, selected: true })).toBeVisible();
+                    await settled(page);
+                    await expect.poll(rows).toEqual([{ pane: `Collapse ${name}`, past: [] }]);
+                }
                 await frame.getByRole("button", { name: `Collapse ${name}` }).click();
                 await settled(page);
             }

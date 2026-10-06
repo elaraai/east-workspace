@@ -137,7 +137,8 @@ export interface DockPaneProps {
  * tab's name; then the trailing tabs fold into a `+n` menu after the last
  * that fits, the open tab always on the row, so no tab runs under the collapse
  * control. The row measures its tabs drawn whole, before it paints, again as
- * its room or its tabs change or fonts arrive ({@link fitTabs}). Collapsed,
+ * its room or its tabs change or fonts arrive ({@link fitTabs}); meanwhile the
+ * `+n` menu keeps its fold, so a measure never closes it (#1235). Collapsed,
  * the rail holds the expand control, then the icon tile, the badge, the label
  * and the detail; while the pane is active the tile and the badge are the
  * brand's.
@@ -292,12 +293,17 @@ export function DockPane(props: DockPaneProps) {
         setMeasuring(false);
     }, [measuring, foldable, signature]);
     const openIndex = Math.max(0, tabs.findIndex(tab => tab.key === openTab?.key));
-    const fit = !foldable || measuring || measure === undefined || measure.tabs.length !== tabs.length
+    // The fold the last measure gave; the row draws every tab while it measures again.
+    const measured = !foldable || measure === undefined || measure.tabs.length !== tabs.length
         ? undefined
         : fitTabs(measure, openIndex);
-    // The tabs on the row, in order, and the ones in the `+n` menu.
+    const fit = measuring ? undefined : measured;
+    // The tabs on the row, in order, and the ones in the `+n` menu. The menu
+    // keeps the last measure's fold while the row measures again, so it stays
+    // mounted: a font arriving, or the room or a count changing, never closes
+    // it (#1235).
     const onRow = fit === undefined ? tabs.map((tab, index) => ({ tab, index })) : fit.shown.map(index => ({ tab: tabs[index]!, index }));
-    const inMenu = fit?.form === "folded" ? tabs.filter((_, index) => !fit.shown.includes(index)) : [];
+    const inMenu = measured?.form === "folded" ? tabs.filter((_, index) => !measured.shown.includes(index)) : [];
 
     // The arrow keys, Home and End move among the tabs on the row; the menu holds the rest.
     const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, key: string) => {
@@ -433,13 +439,15 @@ export function DockPane(props: DockPaneProps) {
                                 );
                             })}
                         </ChakraBox>
-                        {measuring ? (
-                            // The menu's stand-in, measured beside the tabs drawn whole.
+                        {measuring && (
+                            // The menu's stand-in, measured beside the tabs drawn whole: beside
+                            // the menu, never in its place, so an open menu stays open (#1235).
                             <ChakraBox as="span" css={styles.tabMore} data-dock-more-measure="" aria-hidden>
                                 +{Math.max(1, tabs.length - 1)}
                                 <FontAwesomeIcon icon={faChevronDown} />
                             </ChakraBox>
-                        ) : inMenu.length > 0 && (
+                        )}
+                        {inMenu.length > 0 && (
                             <ChakraMenu.Root positioning={{ placement: "bottom-end" }} onSelect={(detail) => openTabKey(detail.value)}>
                                 <ChakraMenu.Trigger asChild>
                                     <chakra.button type="button" css={styles.tabMore} data-dock-more=""
