@@ -148,12 +148,14 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
-// Schedule (#1218): the event and resource kinds the Calendar and Plan's
-// builder share — `Schedule.events`, `Schedule.resources`, `Schedule.field`,
-// `Schedule.days`, `Schedule.unscheduled` and `Schedule.Types`.
+// Schedule (#1218, #1190): the event and resource kinds the Calendar and
+// Plan's builder share — `Schedule.events`, `Schedule.resources`,
+// `Schedule.field`, `Schedule.days`, `Schedule.unscheduled` and
+// `Schedule.Types` — with Plan's options beside the Calendar's.
 export {
     Schedule, type ScheduleNamespace,
-    type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsConfig, type ScheduleRecordHandle,
+    type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig, type ScheduleInstantEventsConfig,
+    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle,
     type ScheduleResourceKind, type ScheduleResourcesConfig, type ScheduleTemplate,
 } from './schedule/index.js';
 

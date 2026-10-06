@@ -2145,6 +2145,42 @@ export function checkSeries(series: PlanSeriesInput, where: string): void {
 }
 
 /**
+ * What a builder reads of a series it lays out READ ONLY (#1190) — a resource
+ * kind's `measures`, a Plan's `rows`: what the series is, and whether it nests
+ * or takes a gesture, both of which a read-only series may not.
+ *
+ * @internal
+ * @property arm - The series' kind
+ * @property key - Its key
+ * @property title - Its title
+ * @property nests - Whether it declares `children`
+ * @property writes - Whether anything in its tree takes a gesture over the collection: a `review.verdict` or an `edit`
+ */
+export interface PlanSeriesFacts {
+    readonly arm: PlanSeriesArm;
+    readonly key: string;
+    readonly title: string;
+    readonly nests: boolean;
+    readonly writes: boolean;
+}
+
+/**
+ * Reads a series value's facts off the spec its builder recorded (#1190).
+ *
+ * @param series - The series value
+ * @param collection - The collection type it is laid out over (`Dict<K, R>`)
+ * @param where - Who is asking, for messages
+ * @returns Its facts; `undefined` for a series value no `Plan.series.*` builder made in place (a bound, picked or stored one)
+ * @throws {Error} When the series is built over entries of another type than the collection's
+ * @internal
+ */
+export function planSeriesFacts(series: unknown, collection: EastType, where: string): PlanSeriesFacts | undefined {
+    const spec = specOf(series);
+    if (spec === undefined) return undefined;
+    return { arm: spec.arm, key: spec.key, title: spec.title, nests: spec.nests, writes: spec.writer(collection, where) !== undefined };
+}
+
+/**
  * Apply the `series` input to the source — the canvas's BLOCKS (#823): every
  * series' blocks, in declared order.
  *

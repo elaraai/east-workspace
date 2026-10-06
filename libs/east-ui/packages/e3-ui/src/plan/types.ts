@@ -440,6 +440,22 @@ export type PlanRollupType = typeof PlanRollupType;
 /** String-literal shorthand for {@link PlanRollupType}. */
 export type PlanRollupLiteral = "union" | "byStatus" | "sum";
 
+/**
+ * How an event kind draws on a Plan (#1190, `Plan Builder Spec.md` §5.1) — a
+ * kind's `draw`. A resource shows one row per way its kinds draw, and kinds
+ * that draw alike share it.
+ *
+ * @property span - Bars from a start to an end
+ * @property buckets - Tiles in bucket cells
+ * @property cards - Chips spanning whole buckets
+ * @property marks - Marks at instants
+ */
+export const PlanDrawType = VariantType({ span: NullType, buckets: NullType, cards: NullType, marks: NullType });
+export type PlanDrawType = typeof PlanDrawType;
+
+/** String-literal shorthand for {@link PlanDrawType}. */
+export type PlanDrawLiteral = "span" | "buckets" | "cards" | "marks";
+
 // ============================================================================
 // Bucket-row leaf data — cell markers + the tile geometry vocabulary
 // ============================================================================

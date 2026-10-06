@@ -328,9 +328,10 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
-// Schedule (#1218): the kinds the Calendar and Plan's builder share, the
-// checks a builder makes across its slots, and the kinds' wire. `Schedule`
-// here is the internal namespace — the public one, `check` and the wire types.
+// Schedule (#1218, #1190): the kinds the Calendar and Plan's builder share,
+// the checks a builder makes across its slots, and the kinds' wire, the
+// Calendar's and Plan's. `Schedule` here is the internal namespace — the
+// public one, `check` and the wire types.
 export {
     ScheduleInternal as Schedule,
     scheduleCheck,
@@ -340,9 +341,11 @@ export {
 export * from './schedule/types.js';
 export {
     scheduleEvents,
-    type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsConfig, type ScheduleInstantField, type ScheduleRecordHandle,
-    type ScheduleResourceField, type ScheduleResourceOf, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField,
-    type ScheduleStringField, type ScheduleTemplate, type ScheduleValuesOf,
+    type ScheduleAtField, type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig,
+    type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
+    type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
+    type ScheduleTemplate, type ScheduleValuesOf, type ScheduleVerdictField,
 } from './schedule/events.js';
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from './schedule/resources.js';
 export { scheduleDays, scheduleUnscheduled } from './schedule/days.js';

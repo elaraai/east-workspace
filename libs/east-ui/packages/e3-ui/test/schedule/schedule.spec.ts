@@ -23,12 +23,13 @@ import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType,
     SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none,
-    some, variant, type EastType, type EastTypeValue, type ExprType, type ValueTypeOf,
+    some, variant, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Editing } from "@elaraai/east-ui/internal";
-import { Data, Record, Schedule, recordBindPlatformFn } from "@elaraai/e3-ui/internal";
+import { Data, Record, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
+import { memoryRecords } from "./memory-records.js";
 
 // ============================================================================
 // The records (Calendar Spec §3.1), metal fabrication
@@ -176,23 +177,8 @@ const STATES = new Map<string, unknown>([
     ["schedule_spec_visits", VISITS],
 ]);
 
-/**
- * `Record.bind`, in memory: each record's handle reads its state above, and
- * its patch door commits at `state-1` — the handle the record runtime builds,
- * its methods plain functions.
- */
-const PLATFORM = [recordBindPlatformFn.implement((_handleType: EastTypeValue) => (nameArg: unknown) => {
-    const name = nameArg as string;
-    return {
-        read: () => STATES.get(name),
-        status: () => variant("up-to-date", null),
-        history: () => none,
-        mutate: { pending: () => false, status: () => variant("idle", null), error: () => none, cancel: () => null, patch: () => null },
-        commit: { patch: async () => variant("committed", { commitHash: "commit-1", stateHash: "state-1" }) },
-        start: () => null,
-        binding: { name, mutations: ["patch"] },
-    };
-})];
+/** `Record.bind`, in memory, over the states above. */
+const PLATFORM = memoryRecords(STATES);
 
 type Kind = ValueTypeOf<typeof Schedule.Types.Kind>;
 type Item = ValueTypeOf<typeof Schedule.Types.Item>;
