@@ -13,7 +13,7 @@ import {
   type TreePath,
 } from '@elaraai/e3-types';
 import type {
-  LockStatus, SchemaPolicy, WorkspaceDeployProgress, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult,
+  InputPolicy, LockStatus, SchemaPolicy, WorkspaceDeployProgress, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult,
 } from './types.js';
 import {
   WorkspaceInfoType,
@@ -186,6 +186,10 @@ export interface WorkspaceDeployOptions {
   /** What the deploy does with a record it cannot keep as it is (default
    *  `migrate`). */
   schema?: SchemaPolicy;
+  /** What the deploy does with an input someone set: give it the package's
+   *  value (`reset`, the default), or keep it while its type is the package's
+   *  (`keep-edited`). */
+  inputs?: InputPolicy;
   /** Whether a record the package no longer declares may be dropped, with its
    *  state and history (default false). */
   allowDropRecords?: boolean;
@@ -209,10 +213,11 @@ export interface WorkspaceDeployOptions {
  * @param name - Workspace name
  * @param packageRef - Package reference (name or name@version)
  * @param options - Request options including auth token
- * @param deployOptions - What the deploy does with a record it cannot keep,
- *   whether it only plans, and its progress and cancellation
- * @returns What the deploy decided for each record and index, and the inputs
- *   it left unassigned
+ * @param deployOptions - What the deploy does with a record it cannot keep and
+ *   with an input someone set, whether it only plans, and its progress and
+ *   cancellation
+ * @returns What the deploy decided for each record, index and input, and the
+ *   inputs it left unassigned
  * @throws {ApiError} When the server does not start the deploy, such as for a
  *   package the repository does not hold
  * @throws {AuthError} On 401 Unauthorized
@@ -233,6 +238,7 @@ export async function workspaceDeploy(
     {
       packageRef,
       schema: variant(deployOptions.schema ?? 'migrate', null),
+      inputs: variant(deployOptions.inputs ?? 'reset', null),
       allowDropRecords: deployOptions.allowDropRecords ?? false,
       plan: deployOptions.plan ?? false,
     },

@@ -487,10 +487,23 @@ What a deploy does with each record, decided before it writes anything:
 `--schema <policy>` on `e3 workspace deploy` and `e3 watch`: `migrate` (the
 default), `fail` (run no migration; refuse) or `reset` (reset the record to its
 initial value, with a `$reset` commit). `--plan` prints what the deploy would do
-to each record and index and writes nothing — from a zip or a source it imports
-nothing, and a server plans only a package it holds. The steps run before the
-deploy writes: a failed step leaves the workspace as it was, and a deploy run
-again is served the steps that finished from the cache.
+to each record, index and input and writes nothing — from a zip or a source it
+imports nothing, and a server plans only a package it holds. The steps run
+before the deploy writes: a failed step leaves the workspace as it was, and a
+deploy run again is served the steps that finished from the cache.
+
+What a deploy does with each input — a dataset an `e3.input` declares, which
+people set:
+
+| The input now | Its type | The deploy |
+|---|---|---|
+| holds the value the deployed package gave it, or is new | — | the new package's value (`package`) |
+| someone set it | — | the new package's value under `--inputs reset`, the default, and says it reset it (`reset`) |
+| someone set it | the new package's | kept, under `--inputs keep-edited` (`keep`) |
+| someone set it | changed | the new package's value, and says why (`reset`) |
+| the deployed package took it from a file, and it holds a value | — | the new package's value under either policy, since a value set since cannot be told from the file's, and says so (`reset`) |
+| the new package takes it from a file | — | its file, as every deploy does (`file`); a deploy that reads no file, a server's, leaves it unset for its client to send |
+| the new package no longer declares it | — | gone, with its value (`drop`) |
 
 ## The e3 CLI
 
@@ -513,7 +526,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 workspace create [repo] <ws>` · `list [repo]` · `status [repo] <ws>` · `remove [repo] <ws>` | `status` shows tasks, datasets and locks. |
 | `e3 workspace deploy [repo] <ws> <pkg[@ver]>` | Deploy an imported package. |
 | `… --from-zip <zip>` · `… --from-source <src.ts> [--functions <manifest…>]` | Import the zip (or bundle the source) and deploy, creating the workspace. |
-| `… [--schema <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on; `--memory`: what those may reserve (local). |
+| `… [--schema <policy>] [--inputs <policy>] [--allow-drop-records] [--plan] [--skip-file-sources] [-j <n>] [--memory <size>] [--quiet]` | A record's policy, an input's, and `file` sources; says how far it has got (below), `--quiet` aside. `-j`: the `file` sources taken in at once, and the runner processes their intake units, the migrations and the index builds run on; `--memory`: what those may reserve (local). |
 | `e3 workspace export [repo] <ws> <zip> [--name <n>] [--version <v>]` | The workspace's state as a package. |
 | **Datasets** | |
 | `e3 dataset get [repo] <ws.name> [-f east\|json\|beast2]` | Print a value. |
@@ -531,7 +544,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target; local). |
 | `e3 reindex <repo> <record> -w <ws> [--index <name>] [-j <n>] [--memory <size>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes (local) · collapse the history to a `$compact` root, the state kept. |
 | **Development** | |
-| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--abort-on-change] [--functions <manifest…>] [-j <n>] [--memory <size>]` | Redeploy on each change (and run, with `--start`). |
+| `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--inputs <p>] [--abort-on-change] [--functions <manifest…>] [-j <n>] [--memory <size>]` | Redeploy on each change (and run, with `--start`). |
 | `e3 convert [input] [--from <f>] [--to <f>] [--type <spec>] [-o <out>]` | Convert between `.east`, `.json` and `.beast2`. |
 | `e3 completion install [--shell <s>]` · `uninstall` · `bash` \| `zsh` \| `fish` | Shell completion. |
 | **Servers** | |
@@ -604,7 +617,7 @@ naming the holder: its pid, boot id, command and when it took the lock.
 |---|---|
 | Repositories | `repoList(url, opts)`, `repoCreate(url, name, opts)`, `repoRemove(url, name, opts)`, `repoStatus(url, repo, opts)`, `repoRecord` (its release and upgrades), `repoGc(url, repo, gcRequest, opts)` — a job it polls; `repoGcStart` and `repoGcStatus` apart |
 | Packages | `packageList(url, repo, opts)`, `packageGet(url, repo, name, version, opts)`, `packageImport(url, repo, zipBytes, opts)`, `packageExport(url, repo, name, version, opts)` → zip bytes, `packageRemove` |
-| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
+| Workspaces | `workspaceList`, `workspaceCreate(url, repo, ws, opts)`, `workspaceGet`, `workspaceStatus`, `workspaceLockStatus(url, repo, ws, opts)` → what holds the workspace and how far it says it has got (a deploy's files and records), or `null`, `workspaceRemove`, `workspaceDeploy(url, repo, ws, 'pkg@ver', opts, { schema?, inputs?, allowDropRecords?, plan?, onProgress? })` — a job it polls, whose progress while `deploying` is the deploy's own, answering what it did with each record, index and input, `workspaceExport(url, repo, ws, opts, { name?, version? })` → zip bytes |
 | Datasets | `datasetGet(url, repo, ws, path, opts)` → `{ data, hash, size }` (a collection downloads as its segments), `datasetGetStream`, `datasetGetPage(…, window, opts)`, `datasetFindKey(…, query, opts)`, `datasetSet(url, repo, ws, path, beast2Bytes, opts)`, `datasetSetStream(url, repo, ws, path, { size, hash, slice }, opts, { onCommitProgress? })` — a file of any size, the server's commit saying how far it has taken it in, `datasetList`, `datasetListAt`, `datasetListRecursive`, `datasetListWithStatus`, `datasetGetStatus` |
 | Runs and tasks | `dataflowExecute(url, repo, ws, { force?, filter? }, opts, { pollInterval?, timeout? })` → the result (or `dataflowExecuteLaunch` and `dataflowExecutePoll`) — `force` is `true` or the names of the tasks to re-run, `filter` one task's exact name, `dataflowCancel` — with nothing running, `dataflow_error` ("No active execution for this workspace"), `dataflowGraph`, `dataflowBudget`, `taskList`, `taskGet`, `taskExecutionList(url, repo, ws, task, opts, { limit?, before? })` — a page of the task's runs, the latest first, each naming its `executionId`, the next page the runs `before` the last one's (100 a page unless `limit` says, 1,000 at most), `taskLogs(url, repo, ws, task, { stream?, offset?, limit?, execution? }, opts)` — a chunk of the log of the task's current execution, or of the one `execution` names (`{ inputsHash, executionId }`), the chunk naming its execution and whether it has `ended` |
 | Functions | `functionList`, `functionDescribe`, `functionCall(url, repo, pkg, version, fn, { args, runner, limits }, opts)` — each argument `variant('value', beast2Bytes)`; the function runs on its own runner for any caller (`runner: none`); a runner the call names is never `custom`, and loads a platform package the function's does not only for an elevated caller; `workspaceFunctionList`, `…Describe`, `…Call(url, repo, ws, fn, request, opts)` — where an argument may also be `variant('dataset', path)`, a dataset of the workspace pinned at its hash, which the result names (`inputs`); `oneShotExecute` — a reader runs a platform-free one (stock runner, `platforms: []`, no platform call), and its result names the datasets it read (`inputs`); `splitCall(url, repo, ws, { bodyIr, args, output, then, runner, limits }, opts, { onProgress? })` — a program over a dataset's pieces, as a job it polls, under the same rule (or `splitCallLaunch`, `splitCallStatus` and `splitCallExplain`) |
@@ -619,7 +632,7 @@ takes a runner, `new LocalTaskRunner(repo)`.
 |---|---|
 | Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repositoryUpgradeStep(storage, repo, { budgetMs, waitMs? })` → `{ owed }` — a host's job applies them so, a part per run under its time limit, each part taking a step up where the last stopped, `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention?, executionAlive? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; given a runner's `executionAlive`, an attempt recorded running that cannot finish is recorded interrupted and pruned; `repoGcStep(storage, repo, step, { windowMs, pruneMs?, markMs?, concurrency?, executionAlive?, … })` runs that one step at a time, each returning the next (`GcStepType`), `pruneMs` and `markMs` bounding a prune step and a mark step for a host with a time limit |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
-| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
+| Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `schema` and `inputs`: its policies; `onRecordPlan`, `onRecordIndex`, `onInputPlan`: what it decided; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceLockStatus(storage, repo, ws)`, `workspaceRemove` |
 | Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |
 | Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
 | Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex` |

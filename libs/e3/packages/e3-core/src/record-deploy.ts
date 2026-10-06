@@ -40,6 +40,9 @@ const encodeTaskObject = encodeBeast2For(TaskObjectType);
 export interface PriorDeployment {
   /** The deployed package's object hash. */
   packageHash: string;
+  /** The deployed package, whose inputs a deploy compares the workspace's
+   *  with. */
+  package: PackageObject;
   /** Record ref path -> the ref the workspace holds and the type the deployed
    *  package declares the record as. */
   records: Map<string, { ref: RecordRef; type: EastTypeValue }>;
@@ -69,8 +72,9 @@ export interface RecordDeployment {
 const describe = (type: EastTypeValue): string => printTypeValueSummary(type, 2, 8);
 
 /** What changed between two types, one location per line; both types when
- *  the two differ where assignability cannot see, as a subtype does. */
-function typeChange(held: EastTypeValue, declared: EastTypeValue): string {
+ *  the two differ where assignability cannot see, as a subtype does. A
+ *  deploy's input plan says it too. */
+export function typeChange(held: EastTypeValue, declared: EastTypeValue): string {
   const diff = renderTypeDiff(diffTypeValues(held, declared));
   return diff !== '' ? diff : `from ${describe(held)} to ${describe(declared)}`;
 }

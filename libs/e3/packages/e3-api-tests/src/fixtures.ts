@@ -309,6 +309,43 @@ export async function createMigrationPackageZip(
   return zipPath;
 }
 
+/** The versions of the inputs fixture. */
+export type InputsFixtureVersion = '1.0.0' | '2.0.0';
+
+/**
+ * Create a version of a package whose inputs a deploy keeps or resets.
+ *
+ * Creates a package with, by version:
+ * - `1.0.0`: Input "note" (String, "one"), Input "limit" (Integer, 10), and
+ *   Task "echo", which returns the note
+ * - `2.0.0`: "note" (String, "two"), its type as 1.0.0 has it, and "limit" a
+ *   String ("ten"), its type changed
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - The version to create
+ * @returns Path to the created zip file
+ */
+export async function createInputsPackageZip(
+  tempDir: string,
+  name: string,
+  version: InputsFixtureVersion
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const note = e3.input('note', StringType, variant('value', version === '1.0.0' ? 'one' : 'two'));
+  const limit = version === '1.0.0'
+    ? e3.input('limit', IntegerType, variant('value', 10n))
+    : e3.input('limit', StringType, variant('value', 'ten'));
+  const echo = e3.task('echo', [note], East.function([StringType], StringType, ($, x) => x));
+  const pkg = e3.package(name, version, echo, limit);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /**
  * Create a package with multiple inputs for testing.
  *

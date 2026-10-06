@@ -70,6 +70,9 @@ const MEMORY = ['--memory <size>', 'Memory those runner processes may reserve be
 // What a deploy does with a record it cannot keep as it is.
 const SCHEMA = ['--schema <policy>', "What to do with a record the deploy cannot keep as it is: migrate (run the migrations the workspace has not applied; the default), fail (run none, and refuse) or reset (reset it to the package's initial value)"] as const;
 
+// What a deploy does with an input someone set.
+const INPUTS = ['--inputs <policy>', "What to do with an input someone set in the workspace: reset (give it the package's value; the default) or keep-edited (keep it while its type is the package's, and give it the package's value when its type changed)"] as const;
+
 const program = new Command();
 
 program
@@ -181,8 +184,9 @@ program
       .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
       .option('--skip-file-sources', "Deploy without reading the package's file sources; those inputs stay unset until `e3 dataset set --from-file`")
       .option(...SCHEMA)
+      .option(...INPUTS)
       .option('--allow-drop-records', 'Drop a record the package no longer declares, with its state and history')
-      .option('--plan', 'Say what the deploy would do to each record and index, and write nothing')
+      .option('--plan', 'Say what the deploy would do to each record, index and input, and write nothing')
       .option('--quiet', 'Suppress progress and success output (errors only)')
       .option('-j, --jobs <n>', "Cores: the package's file sources taken in at once, and runner processes for their intake units and its migrations and index builds (local repositories; default: $E3_JOBS, else the CPUs available to e3)")
       .option(...MEMORY)
@@ -420,6 +424,7 @@ program
   .argument('<workspace>', 'Workspace name')
   .option('--start', 'Execute dataflow after each deploy')
   .option(...SCHEMA)
+  .option(...INPUTS)
   .option(...JOBS)
   .option(...MEMORY)
   .option('--abort-on-change', 'Abort running execution when file changes')
