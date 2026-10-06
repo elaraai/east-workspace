@@ -675,7 +675,7 @@ export interface PlanSpanInput<K extends PlanAxisKindLiteral = never> extends Pl
  *         }));
  *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
  *         return (
- *             <Plan.View
+ *             <Plan
  *                 axis={axis}
  *                 data={presses}
  *                 series={[

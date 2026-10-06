@@ -410,7 +410,7 @@ export const dataBindPagedPlan = example({
                 window: { min: week(24n), max: week(42n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
-            return <Plan.View axis={axis} data={paged} series={series} />;
+            return <Plan axis={axis} data={paged} series={series} />;
         }}</Reactive>
     )),
     inputs: [],
@@ -544,7 +544,7 @@ export const dataBindPagedBlocks = example({
                 window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
             }));
             // Bounded, so the canvas virtualizes and each block pages by what is in view.
-            return <Plan.View axis={axis} data={units} series={series} style={{ maxHeight: "420px" }} />;
+            return <Plan axis={axis} data={units} series={series} style={{ maxHeight: "420px" }} />;
         }}</Reactive>
     )),
     inputs: [],

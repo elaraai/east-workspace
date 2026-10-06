@@ -35,7 +35,8 @@
  * `popover` / `hover` / `expandRender` functions over
  * {@link PlanElementRefType} / row refs, so a row is a storable, pageable
  * dataset element. Only the root, review and the resolver signatures are
- * UIComponent-coupled (`./ir.ts`, the `PlanView` carrier's payload).
+ * UIComponent-coupled (`./ir.ts` — the canvas's root, which the `Plan`
+ * carrier's payload holds as its `plan`).
  *
  * @packageDocumentation
  */
@@ -133,7 +134,7 @@ export type PlanAxisKindLiteral = "time" | "number" | "ordinal";
  * returns such runs collects their kind, `Plan.axis.number(...)` declares
  * `"number"` — and the root demands every series' kind lie WITHIN its
  * axis's. A `"time"` series on a `"number"` axis is then a compile error at
- * the `<Plan.View>` tag, before anything renders.
+ * the `<Plan>` tag, before anything renders.
  *
  * @remarks
  * Nothing changes at runtime or on the wire: the property is optional and

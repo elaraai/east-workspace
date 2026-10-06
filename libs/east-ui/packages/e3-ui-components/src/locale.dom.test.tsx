@@ -57,7 +57,7 @@ const PLAN = East.function([], UIComponentType, ($) => {
         }),
     ], ArrayType(Plan.Types.Series(UnitRow)));
     const axis = $.const(Plan.axis({ window: { min: W27, max: W28 }, resolution: "day", now: W27 }));
-    return Plan.View({ axis, data: units, series });
+    return Plan({ axis, data: units, series });
 });
 
 /** A Sheet with a quantity: its cell prints in the locale. */

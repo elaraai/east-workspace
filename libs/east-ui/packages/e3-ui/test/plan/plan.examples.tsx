@@ -416,7 +416,7 @@ export const planTargetState = example({
             const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, (_$, _e) => null));
             const onBatch = $.const(East.function([], NullType, (_$) => null));
             return (
-                <Plan.View
+                <Plan
                     slice={{ slice, affordances: ["cohort", "filter", "search", "range", "resolution", "brush", "summary"] }}
                     axis={axis}
                     // The link graph (R1) — the W31 −24 k sheets transfer, its ends
@@ -744,7 +744,7 @@ export const planVariants = example({
                                 items={gutters.map((_$, g) => SegmentGroup.Item(g, <Text>{g}</Text>))} />),
                     ]}
                     preview={
-                        <Plan.View
+                        <Plan
                             axis={sel.axis}
                             data={ops}
                             series={series}
@@ -953,7 +953,7 @@ export const planSpanRows = example({
             const m11 = $.const(Plan.ref("rollup", "Contract A", "H2-P11"));
             const dsp = $.const(Plan.ref("delivery", "dlv"));
             return (
-                <Plan.View
+                <Plan
                     expandRender={expandRender}
                     popover={popover}
                     // A denser gutter (value + carets) — widen it (the shared
@@ -1092,7 +1092,7 @@ export const planBucketRows = example({
                 }, _$ => noBody);
             }));
             return (
-                <Plan.View
+                <Plan
                     popover={popover}
                     hover={hover}
                     axis={axis}
@@ -1231,7 +1231,7 @@ export const planChartRows = example({
             ], ArrayType(Plan.Types.Series(ChartMeasure)));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={measures}
                     series={series}
@@ -1349,7 +1349,7 @@ export const planHeatRows = example({
             ], ArrayType(Plan.Types.Series(HeatRow)));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={halls}
                     series={series}
@@ -1577,7 +1577,7 @@ export const planTableRows = example({
             ], ArrayType(Plan.Types.Series(TableOrder)));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={orders}
                     series={series}
@@ -1709,7 +1709,7 @@ export const planFold = example({
                 <VStack gap="2" align="stretch">
                     <SegmentGroup value={resKey} onChange={onRes} size="sm"
                         items={[SegmentGroup.Item("month", <Text>MONTH</Text>), SegmentGroup.Item("week", <Text>WEEK</Text>)]} />
-                    <Plan.View axis={sel.axis} data={measures} series={series} />
+                    <Plan axis={sel.axis} data={measures} series={series} />
                 </VStack>
             );
         }}</Reactive>
@@ -1800,7 +1800,7 @@ export const planCardRows = example({
                 }, _$ => noBody);
             }));
             return (
-                <Plan.View
+                <Plan
                     popover={popover}
                     axis={axis}
                     data={crews}
@@ -1875,7 +1875,7 @@ export const planEventRows = example({
                 }, _$ => noBody);
             }));
             return (
-                <Plan.View
+                <Plan
                     popover={popover}
                     axis={axis}
                     data={streams}
@@ -1966,7 +1966,7 @@ export const planGroupedRows = example({
             ], ArrayType(Plan.Types.Series(HallGroup)));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={halls}
                     series={series}
@@ -2094,7 +2094,7 @@ export const planSeriesData = example({
             ], ArrayType(Plan.Types.Series(Block)));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={blocks}
                     series={series}
@@ -2136,7 +2136,7 @@ export const planLiteralRows = example({
             }));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={presses}
                     series={[
@@ -2202,7 +2202,7 @@ export const planPick = example({
         "toggle", "eye", "show", "hide", "choose", "persisted", "Reactive", "State", "#590",
         "Data.bind", "bound", "e3.input",
     ],
-    description: "The series library, minimally — `Plan.pick` binds which series show, and `<Plan.View pick>` mounts the library beside a canvas over a source bound from e3",
+    description: "The series library, minimally — `Plan.pick` binds which series show, and `<Plan pick>` mounts the library beside a canvas over a source bound from e3",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const ops = $.let(Data.bind(planPickOps));
@@ -2237,7 +2237,7 @@ export const planPick = example({
             // `pick` REPLACES `series`: the canvas shows the picked series and
             // mounts the library itself, so nothing else is wired.
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={ops}
                     pick={shown}
@@ -2550,7 +2550,7 @@ export const planLibraryDnd = example({
             // the canvas feeds itself the picked ones and mounts the library.
             // Nothing here wires the panel to the canvas.
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={ops}
                     pick={shown}
@@ -2770,7 +2770,7 @@ export const planRowDrop = example({
                         data={palette}
                         item={c => ({ key: c.key, label: c.name, sublabel: c.note, icon: c.icon })}
                     />
-                    <Plan.View
+                    <Plan
                         axis={axis}
                         data={ops}
                         // The DnD target role: `id` names this surface in every
@@ -3081,7 +3081,7 @@ export const planFill = example({
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
             return (
                 <Box height="240px">
-                    <Plan.View axis={axis} data={halls} series={series} style={{ height: "fill" }} />
+                    <Plan axis={axis} data={halls} series={series} style={{ height: "fill" }} />
                 </Box>
             );
         }}</Reactive>
@@ -3196,7 +3196,7 @@ export const planReview = example({
             const pending = $.let(saved.filter((_$, j) => j.approval.hasTag("pending")).size());
             const rejected = $.let(saved.filter((_$, j) => j.approval.hasTag("rejected")).size());
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={jobs}
                     series={series}
@@ -3352,7 +3352,7 @@ export const planEditing = example({
                         data={palette}
                         item={c => ({ key: c.key, label: c.name, sublabel: c.note, icon: c.icon })}
                     />
-                    <Plan.View
+                    <Plan
                         axis={axis}
                         data={halls}
                         id="plan-editing"
@@ -3543,7 +3543,7 @@ export const planUiState = example({
                         <Button size="xs" onClick={openAll}>Open halls</Button>
                         <Button size="xs" onClick={chart}>On-time chart</Button>
                     </HStack>
-                    <Plan.View axis={axis} data={halls} series={series} ui={ui} style={{ height: "300px" }} />
+                    <Plan axis={axis} data={halls} series={series} ui={ui} style={{ height: "300px" }} />
                     <Text.MonoLabel>{East.str`SELECTED · ${picked} · ${East.print(now.collapsed.size())} FOLDED · ${East.print(now.expanded.size())} OPENED`}</Text.MonoLabel>
                 </VStack>
             );
@@ -3717,7 +3717,7 @@ export const planExpand = example({
                 );
             }));
             return (
-                <Plan.View
+                <Plan
                     axis={Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) })}
                     data={ops}
                     series={[
@@ -3943,7 +3943,7 @@ export const planNarrow = example({
             // the CONTAINER, so a phone, a splitter pane and this box agree.
             return (
                 <Box width="360px">
-                    <Plan.View
+                    <Plan
                         axis={axis}
                         data={halls}
                         series={series}
@@ -4176,7 +4176,7 @@ export const planNumberAxis = example({
                 window: { min: 1, max: 9 }, step: 1, now: 5, format: Chart.format.number(),
             }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={ops}
                     series={series}
@@ -4350,7 +4350,7 @@ export const planOrdinalAxis = example({
             // The declaration: the list IS the axis — one bucket per phase, `now` at PRINT.
             const axis = $.const(Plan.axis.ordinal({ values: PHASES, now: "PRINT" }));
             return (
-                <Plan.View
+                <Plan
                     axis={axis}
                     data={orders}
                     series={series}
@@ -4414,7 +4414,7 @@ export const slicePlanChrome = example({
                     resolution: "week", now: new Date("2024-01-20"),
                 }));
                 return (
-                    <Plan.View
+                    <Plan
                         axis={axis}
                         data={jobs}
                         series={series}
@@ -4442,7 +4442,7 @@ export const planDockPresses = e3.input("plan_dock_presses", DictType(StringType
 ])));
 
 /**
- * The concrete driver (#325): a `<Dock>` source panel beside a `<Plan.View>` drop
+ * The concrete driver (#325): a `<Dock>` source panel beside a `<Plan>` drop
  * target in an `<HStack>`. The dock holds a job list and the Plan is the
  * schedule board; collapsing the dock reclaims horizontal space for the board
  * without covering it (in flow — never an overlay). The Plan sibling is
@@ -4484,7 +4484,7 @@ export const dockBesidePlan = example({
                             </Stack>
                         </Dock>
                         <Box flex="1" minWidth="0">
-                            <Plan.View axis={axis} data={presses} series={series} style={{ height: "fill" }} />
+                            <Plan axis={axis} data={presses} series={series} style={{ height: "fill" }} />
                         </Box>
                     </HStack>
                 </Box>

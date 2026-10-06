@@ -45,7 +45,7 @@ export { type PickPanelOptions, createPickPanel } from "./panel/index.js";
  * ```tsx
  * const shown = $.let(Pick.bind("ops.series", all, { id: s => s.key, title: s => s.name }));
  * <Pick.Panel value={shown} title="Series" />
- * <Plan.View axis={axis} data={ops} series={Pick.active(shown)} />  // e3-ui's Plan
+ * <Plan axis={axis} data={ops} series={Pick.active(shown)} />  // e3-ui's Plan
  * ```
  */
 export const Pick = {

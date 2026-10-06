@@ -54,7 +54,7 @@ describeEast("Plan over the row-source contract (#567)", (test) => {
             Plan.series.span(WideVal, { key: "entries", title: "Entries", label: (_r, k) => k, runs: () => [] }),
         ], ArrayType(Plan.Types.Series(WideVal)));
         const axis = $.const(Plan.axis({ window: TRIM_WINDOW, resolution: "week" }));
-        const plan = $.let(Plan.Payload({ axis, data: src, series }));
+        const plan = $.let(Plan.Root({ axis, data: src, series }));
         const derived = $.let(plan.rows.unwrap("paged"));
         // One row per entry: a whole window is 20 rows, r00…r19 in key order —
         // the one series' block of it (#823: a window is the canvas's blocks).

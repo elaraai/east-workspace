@@ -1,14 +1,20 @@
 # Plan Builder — design
 
 The e3-ui `Plan`: the axis-aligned planning canvas moves from east-ui to
-e3-ui. `<Plan.View>` is today's `<Plan>`, unchanged but for where it is
-imported from. `<Plan.Builder>` plans events of several kinds across
-resources on Plan's one shared axis, laid out in `BuilderFrame` as Studio's
-builder, the query builder, the Calendar and the Roster are: one toolbar, a
-library holding every kind's templates, the backlog and the series list, the
-canvas in main, and an inspector. Resources and events are the Calendar's
-own, one shared contract, `Schedule`, so the same records drive a Calendar
-and a Plan.
+e3-ui, plans events of several kinds across resources on its one shared axis,
+and is laid out in `BuilderFrame` as Studio's builder, the query builder, the
+Calendar and the Roster are: one toolbar, a library holding every kind's
+templates, the backlog and the series list, the canvas in main, and an
+inspector. Resources and events are the Calendar's own, one shared contract,
+`Schedule`, so the same records drive a Calendar and a Plan.
+
+It is one component, `<Plan>` (decision 16, #1191): it renders in its frame
+wherever it is used, its library and inspector are optional props, and its
+rows come from event kinds over records, from `data` laid out by its series,
+and from read-only `rows`. The first design's two components, `<Plan.View>`
+(the canvas, as the east-ui `<Plan>` was) and `<Plan.Builder>` (event kinds in
+the frame), are gone; where a section below still says "the builder", it is
+`<Plan>`.
 
 This document is the design the Plan and Sheet builders' epic builds for
 Plan; `Sheet Builder Spec.md` beside it is the Sheet's. Each sub-issue copies
@@ -29,25 +35,27 @@ screenshot.
 
 ## 1. Summary
 
-- **What.** `<Plan.Builder>` places events (jobs, stops, shifts) on resources
-  (presses, crews) across Plan's axis, with every row kind Plan draws today
-  beside them: measures, rollups, links and review.
+- **What.** `<Plan>` places events (jobs, stops, shifts) on resources
+  (presses, crews) across its axis, with every row kind the east-ui `<Plan>`
+  drew beside them: rows over `data` and its series, measures, rollups, links
+  and review.
 - **Where.** Plan moves to e3 whole. Its wire types, factories, JSX tags,
   examples and skill text go to e3-ui (`libs/east-ui/packages/e3-ui/src/plan/`),
-  with carriers `PlanView` and `PlanBuilder`. Its React renderer, with its DOM
-  tests and test utilities, goes to e3-ui-components (`src/plan/`), which
-  registers both carriers. Its slot recipes stay in east-ui-components' theme,
+  on one carrier, `Plan`. Its React renderer, with its DOM tests and test
+  utilities, goes to e3-ui-components (`src/plan/`), which registers it. Its slot recipes stay in east-ui-components' theme,
   as Studio's and the query builder's do, and the shared building blocks the
   renderer imports reach e3-ui-components through
   `@elaraai/east-ui-components/internal`.
 - **Slots.** `resources={{ … }}`: one entry per resource kind, rows read
   through accessors. `events={{ … }}`: one entry per event kind, each its own
   record bound with its patch mutation. Both are `Schedule` values, the very
-  ones a Calendar takes.
+  ones a Calendar takes. Beside them, `data` and its `series` as the east-ui
+  `<Plan>` took them, and `rows`, read only (#1191).
 - **Draws.** `BuilderFrame`: one toolbar (the slice's rail, range and
   resolution, grain, overlaps, review, and the history item with Undo, Redo,
   Discard and Apply); the library (Events · Backlog · Series) in the start
-  pane; the canvas in main; the inspector in the end pane; the status footer.
+  pane when the Plan is given `library`; the canvas in main; the inspector in
+  the end pane when it is given `inspector`; the status footer.
 - **Built in.** Drag and drop: templates and backlog rows onto rows, moving
   and resizing along and across resources, and back to the backlog. Undo and
   redo across kinds, Apply per kind, review verdicts on events, overlap
@@ -62,8 +70,8 @@ These are settled; the proposal was approved on 2026-10-04.
 
 1. **Plan moves to e3 whole**: its wire types, factories, tags, examples,
    specs and skill text to e3-ui, and its React renderer with its tests to
-   e3-ui-components, with `Plan.View` (today's `<Plan>`) and `Plan.Builder` on
-   carriers. east-ui and east-ui-components keep nothing of Plan: east-ui loses
+   e3-ui-components, on a carrier (one, `Plan`, since decision 16). east-ui
+   and east-ui-components keep nothing of Plan: east-ui loses
    its arm, and east-ui-components keeps only Plan's slot recipes in its theme
    (as it keeps Studio's) and the shared building blocks the renderer imports,
    exported through `/internal`. The Calendar's shared time parts (#1148) are
@@ -75,9 +83,9 @@ These are settled; the proposal was approved on 2026-10-04.
 3. **The builder edits events that are rows of their own records**, one
    record per kind, as the Calendar does, never items inside another row's
    array.
-4. **`Plan.View` keeps today's surface unchanged**, its `data` + `series` and
-   its in-entry editing included, so nothing written against `<Plan>` is
-   lost.
+4. **The east-ui `<Plan>`'s surface is kept**, its `data` + `series` and its
+   in-entry editing included, so nothing written against it is lost — on
+   `<Plan>` itself since decision 16.
 5. **Each kind draws one way** (`draw`): bars, tiles, chips or marks. A
    resource shows one row per way its kinds draw, and kinds that draw alike
    share it.
@@ -99,8 +107,8 @@ These are settled; the proposal was approved on 2026-10-04.
     and Apply at its end. Nothing draws a second row; the horizon brush stays
     in main.
 11. **Links stay data**, read-only ribbons between events.
-12. **The builder's axis is a time axis**, as events' times are `DateTime`s.
-    Number and ordinal axes stay `Plan.View`'s.
+12. **Event kinds need a time axis**, as events' times are `DateTime`s. A
+    Plan of `data` and `rows` alone takes any axis (decision 16).
 13. **No new hi-fi mock**: the canvas follows `Plan Spec.html` and the chrome
     follows the Calendar's spec.
 14. **Sample data is a print works** (presses in halls, print jobs, plate
@@ -109,6 +117,16 @@ These are settled; the proposal was approved on 2026-10-04.
 15. **Every example uses bound sources** (§2a): Plan's examples, moved and
     new, bind e3 inputs and records, so each runs on e3-web in the
     showcase.
+16. **One Plan** (ruled 2026-10-05, #1191): `<Plan>` is the only Plan, and it
+    renders in its `BuilderFrame` wherever it is used — in an app, in the
+    showcase, in a test. Its library and inspector are optional props: no
+    prop, no pane. It takes what `Plan.View` took — rows of every kind over
+    `data`, every axis, series over a dataset and in-entry editing (#880) —
+    and the event kinds over records beside them. Nothing is refused for
+    being `Plan.View`'s: a Plan with no event kinds is a Plan over its rows,
+    and only a number or ordinal axis with event kinds is refused, naming
+    both. `Plan.View` and `Plan.Builder` go, and one payload rides one
+    carrier, `Plan`.
 
 ## 2a. Example data idiom
 
@@ -181,7 +199,7 @@ export const utilisation = e3.input("utilisation", DictType(StringType, ArrayTyp
 export const output      = e3.input("output", ArrayType(StructType({ day: DateTimeType, sheets: FloatType })), variant("value", []));
 ```
 
-### 3.2 The smallest builder
+### 3.2 The smallest Plan of event kinds
 
 ```tsx
 // press-plan.tsx
@@ -199,7 +217,7 @@ export const pressPlan = ui("press_plan", [], East.function([], UIComponentType,
             resolution: "day",
         }));
         return (
-            <Plan.Builder
+            <Plan
                 axis={axis}
                 resources={{
                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
@@ -218,11 +236,13 @@ export const pressPlan = ui("press_plan", [], East.function([], UIComponentType,
 ```
 
 That is a working editor: a row per press, each job a bar on its press. Jobs
-move and resize along a press and between presses, unscheduled jobs wait in
-the Backlog tab, every other field of a job shows in the inspector with the
-editor its East type gives it, and Apply commits the drafts as one patch
-through `jobsPatch`. The two `Schedule` values are exactly what
-`<Calendar.Builder>` takes.
+move and resize along a press and between presses, and Apply commits the
+drafts as one patch through `jobsPatch`. It lists no `library` and is given
+no `inspector`, so it has neither pane: the toolbar, the canvas and the
+footer. Given them, its unscheduled jobs wait in the Backlog tab, and every
+other field of a job shows in the inspector with the editor its East type
+gives it. The two `Schedule` values are exactly what `<Calendar.Builder>`
+takes.
 
 ### 3.3 The print works
 
@@ -250,7 +270,7 @@ export const printWorks = ui("print_works", [], East.function([], UIComponentTyp
             resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
         }));
         return (
-            <Plan.Builder
+            <Plan
                 axis={axis}
                 resources={{
                     presses: Schedule.resources(presses.read(), {
@@ -309,7 +329,7 @@ export const printWorks = ui("print_works", [], East.function([], UIComponentTyp
                                  layers: [Chart.Column(output.read(), { x: r => r.day, y: r => r.sheets })] }),
                 ]}
                 review={{ columnLabel: "Decision" }}
-                view={{ grain: "resource" }}
+                grain="resource"
             />
         );
     }}</Reactive>
@@ -353,22 +373,26 @@ accepted and ignored there.
 | `measures` | `Plan.series.heat`, `table` or `chart` values over the resource's row type | Plan | Read-only rows under each resource, in order: ordinary series, laid out as `Plan.series.views` lays an entry out today. A series that declares `edit` or `review` is refused here. |
 | `window` | `Data.bindPaged` over the resources' record | Plan | Pages the resource rows as today's paged canvas does (§9.11). |
 
-### 4.3 `Plan.Builder` props
+### 4.3 `<Plan>`'s props
+
+As built (#1191). A prop keeps one meaning: the first design's `view` and
+`density` are the east-ui `<Plan>`'s `grain`, `date` and `style.density`.
 
 | Prop | Takes | What it does |
 |---|---|---|
-| `axis` | `Plan.axis(…)` | The shared time axis, as today: a window, a resolution and its options, the now line. Number and ordinal axes stay `Plan.View`'s. |
-| `resources` | `{ [kind]: Schedule.resources(…) }` | The rows, kind by kind in this order. |
-| `events` | `{ [kind]: Schedule.events(…) }` | The event kinds, at least one. |
-| `rows` | hand-built rows, and `Plan.over(data, [series…])` | Rows beside the resources, as today's canvas builds them: a pinned KPI chart (`Plan.chart`), or a block of `Plan.series.*` over a dataset, read only. Pinned rows sit under the ruler; the rest follow the resources. A series that declares `edit` or `review` is refused at build with a message naming `Schedule.events`. |
-| `links` | `Array<Plan.Types.Link>` | Quantity ribbons between bars, as today, their ends named by event: `Plan.eventRef("job", key)`. |
-| `review` | `{ columnLabel?, summary?, onRerun? }` | The decision column, and Approve all and Reject all in the toolbar. A verdict writes the kind's `review` field. |
-| `applyMode` | `"batch"`, `"auto"` | When a ready batch goes: on Apply (the default), or as each gesture lands, as the Sheet's does. |
+| `axis` | `Plan.axis(…)`, `Plan.axis.number(…)` or `Plan.axis.ordinal(…)` | The shared axis, as today: a window, a resolution and its options, the now line. Event kinds need a time axis: with a number or ordinal one they are refused at build, naming the axis and the kinds; an axis held in a variable is refused in the same words as the Plan is evaluated. |
+| `data`, `series`, `pick`, `editing`, `ui`, `popover`, `hover`, `expandRender`, `expandGutter`, `sources`, `onSelect`, `onElementClick`, `onGroupToggle`, `onGrainChange`, `footer`, `style` | as the east-ui `<Plan>`'s | Rows over `data`, laid out by its series and edited in their entries (#880), as `Plan Spec.md` has them. `data` is optional beside event kinds or `rows`; a Plan with no rows from any source is refused. |
+| `resources` | `{ [kind]: Schedule.resources(…) }` | The rows events are placed on, kind by kind in this order, ahead of `data`'s. Refused without `events`. |
+| `events` | `{ [kind]: Schedule.events(…) }` | The event kinds, at least one when given. |
+| `rows` | hand-built rows, and `Plan.over(data, [series…])` | Rows beside the resources, as today's canvas builds them: a pinned KPI chart (`Plan.chart`), or a block of `Plan.series.*` over a dataset, read only. Pinned rows sit under the ruler; the rest follow the resources' rows and `data`'s. A series that declares `edit` or `review` is refused at build with a message naming `Schedule.events`. |
+| `links` | `Array<Plan.Types.Link>` | Quantity ribbons, as today, each end a row and a run on it (`Plan.ref`), or an event, `Plan.eventRef("job", key)`, wherever it draws. A link naming a kind `events` has not is refused at build, or, when its kind is not known there, as the Plan is evaluated. |
+| `review` | `{ columnLabel?, summary?, onRerun?, rerunLabel? }` | The decision column, and Approve all and Reject all in the toolbar. A verdict writes the kind's `review` field, or the reviewed series' field over `data`. |
+| `applyMode` | `"batch"`, `"auto"` | When the event kinds' ready drafts go: on Apply (the default), or as each gesture lands, as the Sheet's does. `data`'s session takes `editing.mode`; `applyMode` with no event kinds is refused. |
 | `slice` | `{ slice, affordances? }` | The bound slice. Its chrome (cohort, filter, search, range, resolution) folds into the one toolbar. |
-| `view` | `{ grain?, date? }` | The first grain (group or resource) and the date brought into view. The viewer's own changes persist per builder. |
-| `density` | `"compact"`, `"comfortable"` | Row rhythm, as today's `style.density`. |
-| `canDrop` | `Fn(Schedule.Types.Candidate) → Option<String>` | The app's refusals, with their message on the ghost; the Calendar's. |
-| `id` | string | Names the builder when a surface holds two: its viewer state's storage key and its library's drag-source ids. |
+| `grain`, `date` | `"group"` or `"resource"`; a `DateTime` | The first grain and the date brought into view. The viewer's own changes persist per Plan. |
+| `canDrop` | `Fn(DragEvent) → Boolean`, or `Fn(Schedule.Types.Candidate) → Option<String>` | The drop veto, its arm read from its type: over a card or an element dragged onto `data`'s rows, or over an event kind's drop, its message on the ghost, as the Calendar's. A candidate's veto with no event kinds is refused. |
+| `library`, `inspector` | the panes | Optional props (#1195, #1197): no prop, no pane. |
+| `id` | string | Names the Plan when a surface holds two: its viewer state's storage key, its library's drag-source id and its drop target. |
 
 ## 5. The East types
 
@@ -400,28 +424,28 @@ Plan.Types.Draw = VariantType({ span: NullType, buckets: NullType, cards: NullTy
 Each event kind is the Calendar's closed kind: its row type sits behind East
 functions over beast2 bytes (`items`, `unscheduled`, `write`, the shared
 editing session, `history`), so the payload is one type whatever the records
-hold. The canvas's rows are derived by one East function from the resources,
-the events with their drafts in place, and the measures: the very
-`Plan.Types.Blocks` that `Plan.View` draws.
+hold. The resources' rows are derived by one East function from the
+resources, the events with their drafts in place, and the measures: the very
+`Plan.Types.Blocks` the canvas draws.
+
+The payload holds a whole `PlanRootType`, the root the canvas draws, rather
+than a copy of its parts: a component made of parts reuses the parts'
+interface types. Its axis, links, review, slice, grain, `id` and the rest ride
+in it, with its rows over `data` and then `rows` as fixed blocks, which a
+paged canvas serves with every window. As built (#1191):
 
 ```ts
-PlanBuilderPayloadType = StructType({
-    axis:      Plan.Types.Axis,
+PlanPayloadType = StructType({
+    plan:      PlanRootType,                     // the canvas whole: the axis, the rows over `data` then `rows`, links, review, the slice, `data`'s session
     resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, and its rows resolved (label, group, parent, gutter)
     events:    ArrayType(PlanEventKindType),     // the Calendar's closed kind + draw and the state, quantity, lane and review roles
-    blocks:    FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType))],
-                            OptionType(Plan.Types.Blocks)),   // the rows over a window, every kind's drafts in place
-    rows:      Plan.Types.Blocks,                // the `rows` prop's, drawn as given
-    links:     ArrayType(Plan.Types.Link),
-    review:    OptionType(Plan.Types.Review),
-    slice:     OptionType(SliceChromeType),
-    settings:  PlanBuilderSettingsType,          // grain, density, the first date, the apply mode
-    canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),
-    id:        OptionType(StringType),
+    blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType))],
+                                       OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192)
+    canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),   // the event kinds' drop veto
+    settings:  PlanSettingsType,                 // the event kinds' apply mode, and the date brought into view first
 });
 
-PlanBuilderComponent = EastUI.component("PlanBuilder", PlanBuilderPayloadType);
-PlanViewComponent    = EastUI.component("PlanView", PlanRootType);
+PlanComponent = EastUI.component("Plan", PlanPayloadType, { optional: true });
 ```
 
 ## 6. What moves, and how the builder relates to the Calendar
@@ -429,9 +453,8 @@ PlanViewComponent    = EastUI.component("PlanView", PlanRootType);
 | Today | After | Notes |
 |---|---|---|
 | east-ui `Plan`: the IR in `src/collections/plan/` | e3-ui `Plan` in `src/plan/` | The nine files move whole: `Plan.axis`, `Plan.series.*`, `Plan.run`, `Plan.pick`, `Plan.Types` and the rest keep their names and their types; none of the eleven series types changes. |
-| `<Plan>`, the `Plan` arm of `UIComponentType` | `<Plan.View>`, on an `EastUI.component` carrier, `PlanView` | The same props and the same payload (`PlanRootType`). An app changes its import and its tag. |
-| — | `<Plan.Builder>`, carrier `PlanBuilder` | New: this design. |
-| east-ui-components `collections/plan/` (21,701 lines) and its DOM tests, registered for the arm | e3-ui-components `src/plan/`, registered for both carriers | The renderer moves whole. Its slot recipes stay in east-ui-components' theme. What it imports from east-ui-components is exported through `/internal`. The Calendar's shared time parts (#1148) are cut from it there. |
+| `<Plan>`, the `Plan` arm of `UIComponentType` | e3-ui's `<Plan>`, in its frame, on an `EastUI.component` carrier, `Plan` (#1191) | The same canvas props over `data`, the event kinds and `rows` beside them, and the panes as optional props. An app changes its import. |
+| east-ui-components `collections/plan/` (21,701 lines) and its DOM tests, registered for the arm | e3-ui-components `src/plan/`, registered for the carrier | The renderer moves whole. Its slot recipes stay in east-ui-components' theme. What it imports from east-ui-components is exported through `/internal`. The Calendar's shared time parts (#1148) are cut from it there. |
 | east-ui's Plan specs and examples (4,083 lines of examples), the skill text | e3-ui's | They test and document the namespace, imported from `@elaraai/e3-ui`. The showcase's Plan pages and their responsive specs stay in the showcase, which already loads e3-ui's components. |
 
 Nothing else in east-ui depends on Plan: Dock, the pick contract and
@@ -439,7 +462,7 @@ Nothing else in east-ui depends on Plan: Dock, the pick contract and
 Plan's builders, `resolveTag`, which is generic: it moves to east-ui's
 `shared/`.
 
-| Part | Calendar (#1144) | Plan Builder |
+| Part | Calendar (#1144) | `<Plan>` |
 |---|---|---|
 | Resource kinds | `Schedule.resources`, read only | The same, plus groups, nesting, the gutter, measures and paging |
 | Event kinds | `Schedule.events`, a record each | The same, plus how each draws, its lifecycle, quantity, lane and verdict |
@@ -453,8 +476,9 @@ Plan's builders, `resolveTag`, which is generic: it moves to east-ui's
 
 | A canvas that… | Uses |
 |---|---|
-| shows data, or reviews and edits the items inside its entries, without chrome | `Plan.View`, as today |
-| plans events kept as records of their own, with a library and an inspector | `Plan.Builder` |
+| shows data, or reviews and edits the items inside its entries | `<Plan>` with `data` and `series` |
+| plans events kept as records of their own | `<Plan>` with `resources` and `events` |
+| offers templates, the backlog and the series to show, or shows what is selected | `<Plan>` with `library`, or `inspector` |
 | shows the same events by day, week or month, or by resource column | `Calendar.Builder`, over the same `Schedule` values |
 
 The Roster (#1160) stays its own builder: its slots are a day, a group and a
@@ -484,9 +508,9 @@ shift, not instants, and its record is the roster's own. It shares the frame,
 |---|---|
 | Toolbar | Every control Plan draws outside its canvas, as items of the shared `Toolbar` (§7.1). |
 | Banners | An Apply's refusals and conflicts, by kind; a kind out of date; a write whose outcome is unknown. |
-| Start pane "Library" | Tabs Events · Backlog · Series (§9.6). |
+| Start pane "Library" | Tabs Events · Backlog · Series (§9.6), when the Plan is given `library`; none, no pane. |
 | Main | The canvas, unchanged: the horizon brush, the ruler and now line, pinned rows, the gutter, every row kind, the cursor readout, links, virtualised and paged as today. |
-| End pane "Inspector" | The selection (§9.8). |
+| End pane "Inspector" | The selection (§9.8), when the Plan is given `inspector`; none, no pane. |
 | Footer | `64 events · 9 in backlog · 4 pending · 2 to review · saved 14:02`. |
 
 The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
@@ -534,22 +558,22 @@ them.
 ## 9. Behaviour
 
 Every rule is numbered. Each sub-issue lists the rules it owns, and each rule
-has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
-`Plan.View` and `Plan.Builder` alike.
+has a test there. `Plan Spec.md`'s own rules keep holding in the canvas.
 
-### 9.1 `Plan.View` (owner: Plan moves to e3-ui)
+### 9.1 The move to e3-ui (owner: Plan moves to e3-ui)
 
-- **PB1.** `Plan.View` takes every prop `<Plan>` takes today and builds the
-  same payload, `PlanRootType`; an app changes its import (`@elaraai/e3-ui`)
-  and its tag, and nothing else.
+- **PB1.** The moved Plan takes every prop the east-ui `<Plan>` took and
+  builds the same root, `PlanRootType`. Since #1191 that Plan is `<Plan>`
+  itself: an app changes its import (`@elaraai/e3-ui`), and nothing else.
 - **PB2.** east-ui's `Plan` arm leaves `UIComponentType`. The IR is e3-ui's,
   and the canvas renderer e3-ui-components', which registers it for the
-  `PlanView` carrier; east-ui and east-ui-components export nothing of Plan.
+  `Plan` carrier (#1191); east-ui and east-ui-components export nothing of Plan.
   `resolveTag` moves to east-ui's `shared/`.
-- **PB3.** `Plan.View` keeps its own toolbar, its Series button and popover,
-  its review foot and its editing (#880, #825), as today, and every Plan
-  test, example and responsive spec passes after the move with only its
-  imports and tag changed.
+- **PB3.** Every Plan test, example and responsive spec passes after the
+  move with only its imports and tag changed, and the canvas keeps its
+  editing (#880, #825). Since #1191 its tag is `<Plan>`, and its own toolbar,
+  Series button and popover and review foot give way to the frame's
+  (decision 16).
 
 ### 9.2 `Schedule` (owner: `Schedule`, shared with the Calendar)
 
@@ -569,18 +593,22 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
 - **PB7.** A `measures` series that declares `edit` or `review` is refused at
   build, naming `Schedule.events`.
 
-### 9.3 Types and factories (owner: `Plan.Builder`'s types and factories)
+### 9.3 Types and factories (owner: the Plan's types and factories)
 
-- **PB8.** `Plan.Builder` takes the props of §4.3; a number or ordinal `axis`
-  is refused, naming `Plan.View`, and so is a builder with no event kinds.
+- **PB8.** `<Plan>` takes the props of §4.3: everything the east-ui `<Plan>`
+  took, and the event kinds. Only a number or ordinal `axis` with event kinds
+  is refused, naming the axis and the kinds (decision 16), and so is a Plan
+  with no rows from any source.
 - **PB9.** `rows` takes hand-built rows and `Plan.over(data, [series…])`,
   read only; a series in it that declares `edit` or `review` is refused at
   build, naming `Schedule.events`. Pinned rows sit under the ruler, the rest
-  after the resources.
+  after the resources' rows and `data`'s.
 - **PB10.** `Plan.eventRef(kind, key)` names an event for a link's end; a
-  link naming an unknown kind is refused at build.
-- **PB11.** The payload is `PlanBuilderPayloadType` (§5.2) on the
-  `PlanBuilder` carrier. Each event kind's row type is closed behind East
+  link naming an unknown kind is refused at build, or, when its kind is not
+  known there (a list held in a variable or built in East, an event end held
+  in a variable), in the same words as the Plan is evaluated.
+- **PB11.** The payload is `PlanPayloadType` (§5.2) on the `Plan`
+  carrier. Each event kind's row type is closed behind East
   functions over beast2 bytes, so the payload is one type whatever the records
   hold.
 
@@ -607,11 +635,12 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
 - **PB18.** A reviewed kind's rows carry the decision column, and an event's
   verdict shows on its element.
 
-### 9.5 Frame and toolbar (owner: `Plan.Builder`'s frame and toolbar)
+### 9.5 Frame and toolbar (owner: the Plan's frame and toolbar)
 
-- **PB19.** The builder is a `BuilderFrame` (toolbar, banners, the library as
-  its start pane, main, the inspector as its end pane, the footer). It fills
-  its parent and draws no border.
+- **PB19.** The Plan is a `BuilderFrame` (toolbar, banners, the library as
+  its start pane when it is given `library`, main, the inspector as its end
+  pane when it is given `inspector`, the footer). It fills its parent and
+  draws no border.
 - **PB20.** The toolbar is one row of the shared `Toolbar`, its items in
   §7.1's order.
 - **PB21.** Under width pressure the rail's clusters fold first, then the
@@ -682,7 +711,7 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
 - **PB42.** A field the drafts changed is tinted against what the record holds,
   and an edit in the inspector is one transaction.
 
-### 9.9 Editing, undo and Apply (owner: `Plan.Builder`'s editing)
+### 9.9 Editing, undo and Apply (owner: the Plan's editing)
 
 - **PB43.** Each event kind is one session of the shared `Editing` contract
   (#879) over its record. Every gesture (a move, a resize, a drop, a schedule
@@ -736,8 +765,8 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
   records seeded, and Apply commits to them.
 - **PB57.** Responsive specs measure the frame, the toolbar's fold order at
   desktop and phone widths, both themes, the panes, a drop and a resize.
-- **PB58.** The e3-ui skill documents `Plan.View`, `Plan.Builder` and
-  `Schedule` with tested examples, and the plugin indexes are regenerated.
+- **PB58.** The e3-ui skill documents `<Plan>` and `Schedule` with tested
+  examples, and the plugin indexes are regenerated.
 
 ### 9.13 Examples on bound sources (owner: Plan's examples on bound sources)
 
@@ -758,31 +787,30 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas, in
 
 ## 11. What changes from today's Plan, and what is lost
 
-| Today | The builder | Why, and what is lost |
+| Today | `<Plan>` | Why, and what is lost |
 |---|---|---|
 | The canvas's own toolbar and review foot | The frame's one toolbar | A component has one toolbar. Nothing is lost. |
-| The Series button and its popover | The Series tab | The pane holds it; `Plan.View` keeps the button. |
-| Cards reaching a Plan from a separate `<Library>` through `id`, `sources` and `edit.create` | The Events tab's templates | Data, declared with their kind. `Plan.View` keeps today's wiring. |
-| Items inside each entry's array (`edit.items`) | Events as rows of their own records | `Plan.View` keeps in-entry editing. |
-| Number and ordinal axes | A time axis | Events' times are `DateTime`s; `Plan.View` keeps the others. |
+| The Series button and its popover | The Series tab | The pane holds it. A Plan with no library has no series to hide. |
+| Cards reaching a Plan from a separate `<Library>` through `id`, `sources` and `edit.create` | The Events tab's templates | Data, declared with their kind. `data`'s series keep today's wiring. |
+| Items inside each entry's array (`edit.items`) | Events as rows of their own records | `data`'s series keep in-entry editing. |
+| Number and ordinal axes | A time axis, with event kinds | Events' times are `DateTime`s; a Plan of `data` and `rows` keeps the others. |
 | The narrow tab strip | `BuilderFrame`'s panes | The frame's phone behaviour. |
 
 ## 12. Wires
 
 - **UI.** east-ui's `Plan` arm leaves `UIComponentType`; packages are
-  re-exported (`WIRE_MIGRATION.md`). `Plan.View` and `Plan.Builder` ride
-  `EastUI.component` carriers, `PlanView` and `PlanBuilder`, as `StudioBuilder`
-  does.
+  re-exported (`WIRE_MIGRATION.md`). `<Plan>` rides an `EastUI.component`
+  carrier, `Plan` (#1191), as `StudioBuilder` does.
 - **Stored state.** None new: the records are the app's own types, and Plan's
   stored `UiState` and picks don't change.
 
 ## 13. Plan's sub-issues, in landing order
 
 1. The specs (this file and `Sheet Builder Spec.md`).
-2. Plan moves to e3: its IR to e3-ui and its renderer to e3-ui-components (`Plan.View`).
+2. Plan moves to e3: its IR to e3-ui and its renderer to e3-ui-components.
 3. Plan's examples on bound sources.
 4. `Schedule`, shared with the Calendar (after the Calendar's kinds, #1149).
-5. `Plan.Builder`'s types and factories.
+5. The Plan's types and factories: one `<Plan>` (#1191).
 6. Events into rows.
 7. The frame and the toolbar.
 8. The library pane.

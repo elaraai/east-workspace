@@ -25,7 +25,8 @@ const PLAN_NAMES = new Set([
 ].flatMap((path) => [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /plan/iu.test(name))));
 
 test('what the Plan exports is read whole — its IR\'s names and its renderer\'s', () => {
-    for (const name of ['Plan', 'PlanRootType', 'PlanViewComponent', 'PlanView', 'EastChakraPlan', 'PlanRootValue', 'PlanMessagesProvider', 'planMessages']) {
+    for (const name of ['Plan', 'PlanRootType', 'PlanPayloadType', 'PlanComponent', 'PlanTag', 'EastChakraPlan', 'EastChakraPlanPayload',
+        'PlanRootValue', 'PlanValue', 'PlanMessagesProvider', 'planMessages']) {
         assert.ok(PLAN_NAMES.has(name), `the Plan's ${name} is read`);
     }
 });

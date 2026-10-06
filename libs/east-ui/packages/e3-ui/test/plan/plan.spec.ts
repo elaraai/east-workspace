@@ -76,7 +76,7 @@ describeEast("Plan", (test) => {
     test("root carries axis, grain, footer, dnd identity and style; data + series is the definition", $ => {
         const Row = StructType({ id: StringType });
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week", resolutions: ["week", "day"], now: W31, format: "W" }),
             data,
             series: [],
@@ -114,7 +114,7 @@ describeEast("Plan", (test) => {
     test("a root with no `id` is no drop target — `none`, not an empty-string sentinel (#824)", $ => {
         const Row = StructType({ id: StringType });
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [],
@@ -133,26 +133,26 @@ describeEast("Plan", (test) => {
         // same for a time axis and a number axis. An ordinal axis's list IS
         // its window.
         const refusal = (() => {
-            try { Plan.Payload({ axis: Plan.axis({ resolution: "week" }), data, series: [] }); return ""; }
+            try { Plan.Root({ axis: Plan.axis({ resolution: "week" }), data, series: [] }); return ""; }
             catch (e) { return e instanceof Error ? e.message : String(e); }
         })();
         $(Assert.equal(East.value(refusal.includes("the axis states no `window` and no `slice` is bound")), true));
         const numberRefused = (() => {
-            try { Plan.Payload({ axis: Plan.axis.number({ step: 1 }), data, series: [] }); return false; }
+            try { Plan.Root({ axis: Plan.axis.number({ step: 1 }), data, series: [] }); return false; }
             catch { return true; }
         })();
         $(Assert.equal(East.value(numberRefused), true));
-        const ordinal = $.let(Plan.Payload({ axis: Plan.axis.ordinal({ values: ["P1", "P2"] }), data, series: [] }));
+        const ordinal = $.let(Plan.Root({ axis: Plan.axis.ordinal({ values: ["P1", "P2"] }), data, series: [] }));
         $(Assert.equal(ordinal.axis.getTag(), "ordinal"));
         // A stated window builds, inline or paged alike.
-        const stated = $.let(Plan.Payload({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series: [] }));
+        const stated = $.let(Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series: [] }));
         $(Assert.equal(stated.axis.unwrap("time").window.hasTag("some"), true));
     });
 
     test("review config defaults the column and rerun labels; the chrome carries no verdict callback (#880)", $ => {
         const Row = StructType({ id: StringType });
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [],
@@ -175,7 +175,7 @@ describeEast("Plan", (test) => {
             { id: "t2", src: "p04", srcRun: "j4624", dst: "van1", dstRun: "d1", sheets: 18.0 },
         ], ArrayType(TransferRow));
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [],
@@ -239,7 +239,7 @@ describeEast("Plan", (test) => {
         const expandRender = $.const(East.function([Plan.Types.RowId], UIComponentType, (_$, _id) =>
             Text.Root("UTIL RENDER")));
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [],
@@ -302,7 +302,7 @@ describeEast("Plan", (test) => {
         const Row = StructType({ id: StringType });
         const data = $.const(new Map(), DictType(StringType, Row));
         const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, (_$, _ref) => null));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data, series: [], onElementClick,
         }));
@@ -358,7 +358,7 @@ describeEast("Plan", (test) => {
         }, Plan.Types.UiBind);
         const Row = StructType({ id: StringType });
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data, series: [], ui: handle,
         }));
@@ -400,7 +400,7 @@ describeEast("Plan", (test) => {
     test("a reviewed series' rows show the field a verdict writes, and every row says which gestures it takes (#880)", $ => {
         const Row = StructType({ approval: ApprovalStateType, marks: ArrayType(Plan.Types.EventMark) });
         const data = $.const(new Map([["a", { approval: variant("rejected", null), marks: [] }]]), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
@@ -430,7 +430,7 @@ describeEast("Plan", (test) => {
         const Alloc = StructType({ key: StringType, at: DateTimeType });
         const Row = StructType({ jobs: ArrayType(Job), shifts: ArrayType(Job), allocs: ArrayType(Alloc) });
         const data = $.const(new Map([["a", { jobs: [], shifts: [], allocs: [] }]]), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
@@ -558,9 +558,9 @@ describeEast("Plan", (test) => {
         const data = $.const(new Map([["a", { approval: variant("pending", null) }]]), Rows);
         const series = [Plan.series.span(Row, { key: "rows", title: "Rows", label: (_r, k) => k, runs: _r => [], review: { verdict: "approval" } })];
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
-        type Config = Parameters<typeof Plan.Payload>[0];
+        type Config = Parameters<typeof Plan.Root>[0];
         const refusal = (editing: NonNullable<Config["editing"]>, source: Config["data"] = data): string => {
-            try { Plan.Payload({ axis, data: source, series, editing }); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+            try { Plan.Root({ axis, data: source, series, editing }); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const onApply = East.function([Editing.Types.ChangeSet(Row, StringType)], Editing.Types.ApplyResult, () => variant("applied", { revision: none }));
         const onUpdate = East.function([Rows], NullType, () => null);
@@ -587,7 +587,7 @@ describeEast("Plan", (test) => {
         // The right signatures build, and the wire carries them.
         const onPatch = East.function([Plan.Types.PatchEvent(Row)], NullType, () => null);
         const ready = East.function([Row, StringType], Editing.Types.Readiness, () => variant("ready", null));
-        const p = $.let(Plan.Payload({ axis, data, series, editing: { onApply, onPatch, ready, mode: "auto" } }));
+        const p = $.let(Plan.Root({ axis, data, series, editing: { onApply, onPatch, ready, mode: "auto" } }));
         const wire = $.let(p.editing.unwrap("some"));
         $(Assert.equal(wire.onApply.unwrap("some").hasTag("sync"), true));
         $(Assert.equal(wire.onPatch.hasTag("some"), true));
@@ -601,7 +601,7 @@ describeEast("Plan", (test) => {
         const data = $.const(new Map(), DictType(StringType, Row));
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
         const refusal = (config: Record<string, unknown>): string => {
-            try { Plan.Payload({ axis, data, series: [], ...config } as Parameters<typeof Plan.Payload>[0]); return ""; }
+            try { Plan.Root({ axis, data, series: [], ...config } as Parameters<typeof Plan.Root>[0]); return ""; }
             catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const noop = East.function([], NullType, () => null);
@@ -1168,7 +1168,7 @@ describeEast("Plan", (test) => {
         ]), DictType(StringType, Row));
         const halls = $.let(flat.groupToDicts(($, r) => r.hall, ($, _r, k) => k));
         const Hall = DictType(StringType, Row);
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: halls,
             series: [
@@ -1221,7 +1221,7 @@ describeEast("Plan", (test) => {
                 { name: "Costs", values: [{ at: W27, value: some(-7.0) }], children: [] },
             ] }],
         ]), DictType(StringType, Account));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: accounts,
             series: [Plan.series.table(Account, {
@@ -1262,7 +1262,7 @@ describeEast("Plan", (test) => {
             ]) }],
             ["solo", { start: W27, end: W28, presses: new Map() }],
         ]), DictType(StringType, Press));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [Plan.series.span(Press, {
@@ -1299,7 +1299,7 @@ describeEast("Plan", (test) => {
                 crews: new Map([["crewA", { hours: 80.0 }]]),
             }],
         ]), DictType(StringType, Hall));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: halls,
             series: [Plan.series.group(Hall, {
@@ -1358,7 +1358,7 @@ describeEast("Plan", (test) => {
             ["p03", { v: 1.0, jobs: true, kids: new Map([["k1", { v: 5.0 }]]) }],
             ["p04", { v: 2.0, jobs: false, kids: new Map() }],
         ]), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [Plan.series.views(Row, {
@@ -1403,7 +1403,7 @@ describeEast("Plan", (test) => {
             ["crewA", { kind: variant("crew", { shifts: [
                 { key: "s1", from: W27, to: W29, hours: 80.0, state: variant("confirmed", null) }] }) }],
         ]), DictType(StringType, OpsRow));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: ops,
             series: [
@@ -1464,8 +1464,8 @@ describeEast("Plan", (test) => {
             cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
         });
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
-        const forward = $.let(Plan.Payload({ axis, data, series: [heat, table] }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
-        const reverse = $.let(Plan.Payload({ axis, data, series: [table, heat] }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        const forward = $.let(Plan.Root({ axis, data, series: [heat, table] }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        const reverse = $.let(Plan.Root({ axis, data, series: [table, heat] }).rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // Each series is ONE contiguous block, its rows in source order.
         $(Assert.equal(forward.map((_$, r) => r.id), [
             Plan.ref("load", "a"), Plan.ref("load", "b"), Plan.ref("sheets", "a"), Plan.ref("sheets", "b"),
@@ -1476,7 +1476,7 @@ describeEast("Plan", (test) => {
         // The blocks travel apart (#823) — a data series is one block of its
         // entries' rows, in the list's order — so a paged canvas can page each
         // on its own.
-        const blocks = $.let(Plan.Payload({ axis, data, series: [table, heat] }).rows.unwrap("inline"));
+        const blocks = $.let(Plan.Root({ axis, data, series: [table, heat] }).rows.unwrap("inline"));
         $(Assert.equal(blocks.size(), 2n));
         $(Assert.equal(blocks.get(0n).rows.map((_$, r) => r.id), [Plan.ref("sheets", "a"), Plan.ref("sheets", "b")]));
         $(Assert.equal(blocks.get(1n).rows.map((_$, r) => r.id), [Plan.ref("load", "a"), Plan.ref("load", "b")]));
@@ -1485,7 +1485,7 @@ describeEast("Plan", (test) => {
         // The same holds for a list bound as an East value — a picked list is
         // one — whose order is its elements'.
         const bound = $.const([table, heat], ArrayType(Plan.Types.Series(Row)));
-        const viaValue = $.let(Plan.Payload({ axis, data, series: bound }).rows.unwrap("inline"));
+        const viaValue = $.let(Plan.Root({ axis, data, series: bound }).rows.unwrap("inline"));
         $(Assert.equal(viaValue.size(), 2n));
         $(Assert.equal(viaValue.flatMap((_$, b) => b.rows).map((_$, r) => r.id), [
             Plan.ref("sheets", "a"), Plan.ref("sheets", "b"), Plan.ref("load", "a"), Plan.ref("load", "b"),
@@ -1508,7 +1508,7 @@ describeEast("Plan", (test) => {
             Plan.series.rows(Row, { key: "chrome", title: "Milestones" }, [Plan.events({ key: "ms", label: "MS" })]),
         ];
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
-        const blocks = $.let(Plan.Payload({ axis, data, series }).rows.unwrap("inline"));
+        const blocks = $.let(Plan.Root({ axis, data, series }).rows.unwrap("inline"));
         // The header, each member, then the hand-built rows — four blocks. No
         // entry produces the header or the hand-built rows: they are FIXED.
         $(Assert.equal(blocks.map((_$, b) => b.fixed), [true, false, false, true]));
@@ -1525,7 +1525,7 @@ describeEast("Plan", (test) => {
         // fixed blocks as ever — so each member pages on its own and the
         // header is one row, not one per window.
         const source = $.let(LOADS_SOURCE, Paged.Types.Source(Loads));
-        const paged = $.let(Plan.Payload({ axis, data: source, series }).rows.unwrap("paged"));
+        const paged = $.let(Plan.Root({ axis, data: source, series }).rows.unwrap("paged"));
         const w1 = $.let(paged.page(1n, 1n).unwrap("some"));
         $(Assert.equal(w1.map((_$, b) => b.fixed), [true, false, false, true]));
         $(Assert.equal(w1.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("ops")]));
@@ -1534,7 +1534,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(w1.get(3n).rows.map((_$, r) => r.id), [Plan.ref("chrome", "ms")]));
         // A list bound as an East value lays out the same blocks.
         const bound = $.const(series, ArrayType(Plan.Types.Series(Row)));
-        const viaValue = $.let(Plan.Payload({ axis, data, series: bound }).rows.unwrap("inline"));
+        const viaValue = $.let(Plan.Root({ axis, data, series: bound }).rows.unwrap("inline"));
         $(Assert.equal(viaValue, blocks));
     });
 
@@ -1543,7 +1543,7 @@ describeEast("Plan", (test) => {
         // gone: a row's id is its series and its path.
         const Row = StructType({ v: FloatType });
         const data = $.const(new Map([["m1", { v: 1.0 }], ["m2", { v: 2.0 }]]), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
@@ -1564,7 +1564,7 @@ describeEast("Plan", (test) => {
         // At the root: two top-level series.
         const top = (() => {
             try {
-                Plan.Payload({ axis, data, series: [
+                Plan.Root({ axis, data, series: [
                     Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
                     Plan.series.events(Row, { key: "marks", title: "More marks", label: (_r, k) => k, marks: _r => [] }),
                 ] });
@@ -1635,7 +1635,7 @@ describeEast("Plan", (test) => {
     test("a Dict<Integer, R> source: path segments are the keys' text, and a key-reading accessor declares keyType", $ => {
         const Row = StructType({ v: FloatType });
         const data = $.const(new Map([[1n, { v: 1.0 }], [20n, { v: 2.0 }]]), DictType(IntegerType, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [
@@ -1666,7 +1666,7 @@ describeEast("Plan", (test) => {
             [{ hall: "H1", bin: 2n }, { v: 1.0 }],
             [{ hall: "H1", bin: 1n }, { v: 2.0 }],
         ]), DictType(Key, Row));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [Plan.series.table(Row, {
@@ -1700,7 +1700,7 @@ describeEast("Plan", (test) => {
             ["m2", { rate: 8.0, warn: false, expand: none,
               jobs: [{ ticket: "J-2", start: W28, end: W29, state: variant("confirmed", null) }] }],
         ]), DictType(StringType, PressRow));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data,
             series: [Plan.series.span(PressRow, {
@@ -1766,7 +1766,7 @@ describeEast("Plan", (test) => {
             ["m2", { kind: variant("press", { jobs: [
                 { ticket: "J-2", start: W28, end: W30, state: variant("confirmed", null) }] }) }],
         ]), DictType(StringType, OpsRow));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: ops,
             series: [
@@ -1828,7 +1828,7 @@ describeEast("Plan", (test) => {
             Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones" },
                 [Plan.events({ key: "ms", label: "MS" })]),
         ], ArrayType(Plan.Types.Series(OpsRow)));
-        const p = $.let(Plan.Payload({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data: ops, series }));
+        const p = $.let(Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data: ops, series }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.size(), 2n));
         $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.length(), 1n));
@@ -1844,7 +1844,7 @@ describeEast("Plan", (test) => {
             Plan.series.events(Row, { key: "marks", title: "Marks", label: _r => "M", marks: _r => [] }),
         ], ArrayType(Plan.Types.Series(Row)));
         const refusal = (() => {
-            try { Plan.Payload({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series }); return ""; }
+            try { Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series }); return ""; }
             catch (e) { return e instanceof Error ? e.message : String(e); }
         })();
         $(Assert.equal(East.value(refusal.includes("keyType")), true));
@@ -1942,11 +1942,11 @@ describeEast("Plan", (test) => {
         // `series` and `pick` are alternatives — the handle already carries the
         // list, so giving both would say it twice.
         $(Assert.equal(East.value((() => {
-            try { Plan.Payload({ axis, data, series: all, pick: undefined as never }); return true; }
+            try { Plan.Root({ axis, data, series: all, pick: undefined as never }); return true; }
             catch { return false; }
         })()), true));
         $(Assert.equal(East.value((() => {
-            try { Plan.Payload({ axis, data }); return false; }
+            try { Plan.Root({ axis, data }); return false; }
             catch { return true; }
         })()), true));
     });
@@ -1973,7 +1973,7 @@ describeEast("Plan", (test) => {
         // phantom axis kind makes "a series of any kind" a MIXED list, which a
         // `"time"` root refuses at compile time (see the last test).
         const build = (series: PlanSeriesValue<"time">[]) =>
-            Plan.Payload({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data: handle, series });
+            Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data: handle, series });
         const both = $.let(build([spanSeries, heatSeries]).rows.unwrap("paged"));
         const one  = $.let(build([spanSeries]).rows.unwrap("paged"));
         // Equivalence (#809) and revisions keep a window cache honest — the id
@@ -2007,7 +2007,7 @@ describeEast("Plan", (test) => {
             total: East.function([], OptionType(IntegerType), (_$) => some(1n)),
             seek: none,
         }, Paged.Types.Source(OpsSource));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: handle,
             series: [
@@ -2082,7 +2082,7 @@ describeEast("Plan", (test) => {
         // The root carries whichever arm it was given.
         const Row = StructType({ id: StringType });
         const data = $.const(new Map(), DictType(StringType, Row));
-        const p = $.let(Plan.Payload({ axis: Plan.axis.ordinal({ values: ["P1", "P2"] }), data, series: [] }));
+        const p = $.let(Plan.Root({ axis: Plan.axis.ordinal({ values: ["P1", "P2"] }), data, series: [] }));
         $(Assert.equal(p.axis.getTag(), "ordinal"));
     });
 
@@ -2187,7 +2187,7 @@ describeEast("Plan", (test) => {
         const data = $.const(new Map([
             ["m1", { start: 1.0, end: 4.0, state: variant("actual", null) }],
         ]), DictType(StringType, JobRow));
-        const p = $.let(Plan.Payload({
+        const p = $.let(Plan.Root({
             axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }),
             data,
             series: [Plan.series.span(JobRow, {
@@ -2216,26 +2216,26 @@ describeEast("Plan", (test) => {
             key: "t", title: "T", label: (_r, k) => k,
             runs: (r, k) => [Plan.run({ key: k, start: r.when, end: r.when, label: k, state: r.state })],
         });
-        const ok = $.let(Plan.Payload({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [numberRuns] }));
+        const ok = $.let(Plan.Root({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [numberRuns] }));
         $(Assert.equal(ok.axis.getTag(), "number"));
         // A `"time"` series on a `"number"` axis, and a mixed list on a
         // `"time"` axis, fail to COMPILE — the directives fail the build if
         // the check ever stops firing. (They still evaluate: the RUNTIME holds
         // rows to the axis at render, not here.)
         // @ts-expect-error — a "time" series cannot mount on a "number" axis
-        const bad = $.let(Plan.Payload({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [timeRuns] }));
+        const bad = $.let(Plan.Root({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [timeRuns] }));
         $(Assert.equal(bad.axis.getTag(), "number"));
         // @ts-expect-error — a mixed list cannot mount on a "time" axis
-        const mixed = $.let(Plan.Payload({ axis: Plan.axis.time({ window: { min: W27, max: END }, resolution: "week" }), data, series: [timeRuns, numberRuns] }));
+        const mixed = $.let(Plan.Root({ axis: Plan.axis.time({ window: { min: W27, max: END }, resolution: "week" }), data, series: [timeRuns, numberRuns] }));
         $(Assert.equal(mixed.axis.getTag(), "time"));
         // Kind-ERASED values constrain nothing — a `$.const`-bound series list
         // and a `$.let`-bound axis both mount; those stay the render-time
         // diagnostic's to hold.
         const erased = $.const([timeRuns], ArrayType(Plan.Types.Series(JobRow)));
-        const viaConst = $.let(Plan.Payload({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: erased }));
+        const viaConst = $.let(Plan.Root({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: erased }));
         $(Assert.equal(viaConst.axis.getTag(), "number"));
         const axis = $.let(Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), Plan.Types.Axis);
-        const viaLet = $.let(Plan.Payload({ axis, data, series: [timeRuns] }));
+        const viaLet = $.let(Plan.Root({ axis, data, series: [timeRuns] }));
         $(Assert.equal(viaLet.axis.getTag(), "number"));
         // Literal rows brand the same way — through `Plan.series.rows` and the
         // kind factories: Date chips refuse a number axis, `Plan.at.number`
@@ -2244,12 +2244,12 @@ describeEast("Plan", (test) => {
             Plan.cards({ key: "crew", label: "Crew", chips: [Plan.chip({ key: "s", from: W27, to: W28, label: "80h", state: "confirmed" })] }),
         ]);
         // @ts-expect-error — literal "time" chips cannot mount on a "number" axis
-        const badRows = $.let(Plan.Payload({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [chips] }));
+        const badRows = $.let(Plan.Root({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [chips] }));
         $(Assert.equal(badRows.axis.getTag(), "number"));
         const heat = Plan.series.rows(JobRow, { key: "h", title: "H" }, [
             Plan.heat({ key: "load", label: "Load", cells: Plan.heatCells([{ at: Plan.at.number(3), value: some(40.0), label: none }]) }),
         ]);
-        const okRows = $.let(Plan.Payload({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [heat] }));
+        const okRows = $.let(Plan.Root({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), data, series: [heat] }));
         $(Assert.equal(okRows.axis.getTag(), "number"));
     });
 
