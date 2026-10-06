@@ -4,7 +4,9 @@
  */
 
 /**
- * `Plan` — the axis-aligned composite canvas. One shared axis
+ * `Plan` — the axis-aligned composite canvas, `<Plan>`, the one Plan (#1191):
+ * it renders in its `BuilderFrame` wherever it is used, its panes optional
+ * props. One shared axis
  * (`{ time | number | ordinal }`, declared once and carried by every element
  * instant — #631); heterogeneous rows: span rows (Gantt state-runs), bucket
  * rows (Planner lanes), chart rows (Chart layers consumed as data),
@@ -38,9 +40,15 @@
  * envelope, the row streams and their re-basing) · `factories.ts` (the kind
  * factories, the per-kind constructors and chart-layer consumption) ·
  * `series.ts` (`Plan.series.*`, `Plan.children` and their application to
- * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts`
- * (`Plan.Root`, which returns the canvas through the `PlanView` carrier) ·
- * `view.ts` (`<Plan.View>`, the tag).
+ * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts` (the
+ * canvas's root, the internal namespace's `Plan.Root`) · `plan.ts` (`<Plan>`
+ * itself, its payload and its `Plan` carrier, #1191) with `over.ts`
+ * (`Plan.over`, read-only rows over a dataset) and `refs.ts`
+ * (`Plan.eventRef`, an event named for a link's end). The event kinds a Plan
+ * takes are `Schedule`'s (`src/schedule/`).
+ *
+ * `Plan` is the tag and the namespace at once, as east-ui's `Table` and the
+ * Sheet are.
  *
  * @packageDocumentation
  */
@@ -55,6 +63,7 @@ import {
     PlanGutterType,
     PlanPortType,
     PlanRollupType,
+    PlanDrawType,
     PlanCellMarkerType,
     PlanStretchType,
     PlanContentType,
@@ -111,7 +120,7 @@ import {
     PlanPatchEventTypeFor,
     PlanEditingType,
 } from "./types.js";
-import { PlanReviewType, PlanRootType, PlanViewComponent } from "./ir.js";
+import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
     createAxis,
     at,
@@ -164,9 +173,11 @@ import {
     createSeriesRows,
     createChildren,
 } from "./series.js";
-import { createPlanPayload, createPlanRoot } from "./root.js";
+import { createPlanRoot } from "./root.js";
 import { createPlanPick, createPlanPickItems } from "./pick.js";
-import { PlanView } from "./view.js";
+import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./plan.js";
+import { createOver } from "./over.js";
+import { createEventRef } from "./refs.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -210,6 +221,8 @@ export {
     PlanPortType,
     PlanRollupType,
     type PlanRollupLiteral,
+    PlanDrawType,
+    type PlanDrawLiteral,
     PlanCellMarkerType,
     PlanStretchType,
     type PlanStretchLiteral,
@@ -287,8 +300,22 @@ export {
 
 // ── Public surface — re-exported from the split modules ─────────────────────
 
-export { PlanReviewType, PlanRootType, PlanViewComponent } from "./ir.js";
-export { PlanView } from "./view.js";
+export { PlanReviewType, PlanRootType } from "./ir.js";
+export {
+    PlanTag,
+    PlanComponent,
+    PlanPayloadType,
+    PlanSettingsType,
+    PlanEventBlocksType,
+    PlanEventCanDropType,
+    createPlanPayload,
+    planKeys,
+    type PlanTagType,
+    type PlanProps,
+    type PlanRowsItem,
+} from "./plan.js";
+export { createOver, type PlanOverRows } from "./over.js";
+export { createEventRef, eventRefKind } from "./refs.js";
 export {
     resolvePlanEventState,
     resolveInstant,
@@ -333,7 +360,7 @@ export {
     type PlanHeatParts,
     type PlanTableParts,
 } from "./factories.js";
-export { type PlanReviewConfig, type PlanEditingConfig, type PlanBindHandle, type PlanConfig } from "./root.js";
+export { type PlanReviewConfig, type PlanEditingConfig, type PlanBindHandle, type PlanConfig, type PlanCanvasOptions, createPlanRoot, buildPlanRoot } from "./root.js";
 export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
 export {
     PlanSeriesType,
@@ -376,13 +403,11 @@ export {
 // ============================================================================
 
 /**
- * The type of the {@link Plan} namespace. Declared explicitly (rather than
- * inferred from `as const`) so the declaration emit stays within
+ * The type of `Plan`: the `<Plan>` tag and its namespace. Declared explicitly
+ * (rather than inferred from `as const`) so the declaration emit stays within
  * TypeScript's serialization limit.
  */
-export interface PlanNamespace {
-    /** `<Plan.View>` — the canvas ({@link PlanView}). */
-    View: typeof PlanView;
+export interface PlanNamespace extends PlanTagType {
     /** Builds the shared axis declaration — `Plan.axis({ … })` is the `time`
      *  shorthand; `Plan.axis.time` / `.number` / `.ordinal` declare each kind. */
     axis: typeof createAxis;
@@ -444,6 +469,10 @@ export interface PlanNamespace {
     ref: typeof createRef;
     /** A section header's id — `Plan.sectionRef("crew-block", "H1")` (#822). */
     sectionRef: typeof createSectionRef;
+    /** An event of one of the Plan's event kinds, named for a link's end — `Plan.eventRef("job", key)` (#1191). */
+    eventRef: typeof createEventRef;
+    /** Series over a dataset, read only, for a Plan's `rows` — `Plan.over(data, [series…])` (#1191). */
+    over: typeof createOver;
     /** Builds one span run. */
     run: typeof createRun;
     /** Builds one decision diamond. */
@@ -460,7 +489,7 @@ export interface PlanNamespace {
     chip: typeof createChip;
     /** Builds one event-row mark. */
     mark: typeof createEventMark;
-    /** Builds one link edge of the canvas's link graph (`Plan.Root`'s `links`). */
+    /** Builds one link edge of the canvas's link graph (`<Plan links>`). */
     link: typeof createLink;
     /** Non-null mark-kind builders (`Plan.markKind.decision(applied)`). */
     markKind: typeof markKind;
@@ -481,7 +510,7 @@ export interface PlanNamespace {
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
     /** Binds the canvas's row series to a persisted pick (#590) — pass it as
-     *  `<Plan.View pick>` and the canvas shows the picked series and mounts the
+     *  `<Plan pick>` and the canvas shows the picked series and mounts the
      *  library, which lists sections and kinds. */
     pick: typeof createPlanPick;
     /** The library entries for the canvas's series — no state binding. */
@@ -525,6 +554,8 @@ export interface PlanNamespace {
         Port: typeof PlanPortType;
         /** The rollup mode (union / byStatus / sum). */
         Rollup: typeof PlanRollupType;
+        /** How an event kind draws — bars, tiles, chips or marks (#1190). */
+        Draw: typeof PlanDrawType;
         /** One bucket-event tile. */
         BucketEvent: typeof PlanBucketEventType;
         /** One bucket-row lane. */
@@ -628,19 +659,8 @@ export interface PlanNamespace {
     };
 }
 
-/**
- * The `Plan` namespace — the axis-aligned composite canvas. Mount it with
- * `<Plan.View>` over `data` + `series` (the `Plan.series.*` blocks in layout
- * order, or a `Plan.pick` handle), declare the axis with `Plan.axis` (`time`)
- * / `Plan.axis.number` / `Plan.axis.ordinal`, place content with the value
- * builders (`Plan.run` / `event` / `chip` / `mark` / …, instants via
- * `Plan.at.*` when written as data), build one-off rows with the kind
- * factories (`Plan.span` / `buckets` / `chart` / `heat` / `table` / `cards` /
- * `events` / `group`) inside `Plan.series.rows`, and reach every East type via
- * `Plan.Types.*`.
- */
-export const Plan: PlanNamespace = {
-    View: PlanView,
+/** The namespace's members — everything `Plan` carries beside the tag itself. */
+const PLAN_MEMBERS = {
     axis: createAxis,
     at,
     quantity: createQuantity,
@@ -669,6 +689,8 @@ export const Plan: PlanNamespace = {
     children: createChildren,
     ref: createRef,
     sectionRef: createSectionRef,
+    eventRef: createEventRef,
+    over: createOver,
     run: createRun,
     decision: createDecision,
     port: createPort,
@@ -708,6 +730,7 @@ export const Plan: PlanNamespace = {
         DecisionMark: PlanDecisionMarkType,
         Port: PlanPortType,
         Rollup: PlanRollupType,
+        Draw: PlanDrawType,
         BucketEvent: PlanBucketEventType,
         Lane: PlanLaneType,
         CellMarker: PlanCellMarkerType,
@@ -761,28 +784,294 @@ export const Plan: PlanNamespace = {
 };
 
 /**
- * The type of the internal Plan namespace — the public one, the factory the
- * tag maps to and the carrier the renderer registers against.
+ * The axis-aligned planning canvas, `<Plan>`: the one Plan. It renders in its
+ * `BuilderFrame` wherever it is used — one toolbar holding every control, the
+ * banners, the canvas in main, the footer — and its panes are optional props:
+ * no prop, no pane.
+ *
+ * One shared axis (`{ time | number | ordinal }` — a window ÷ resolution or
+ * step, or an ordinal list, = `n` buckets) runs under heterogeneous rows —
+ * span rows (Gantt state-runs), bucket rows (Planner allocation lanes), chart
+ * rows (Chart layers consumed as data), heat and table rows (Matrix cells,
+ * bucketed numerals), cards rows (Roster chips), event marks and group strips
+ * — sliced and reviewed as one surface.
+ *
+ * - **The rows** come from event kinds over records (`resources` and
+ *   `events`, `Schedule`'s, which a Calendar takes too), from `data` laid out
+ *   by `series` and edited through `editing`, and from `rows` (hand-built rows
+ *   and `Plan.over(data, [series…])`), read only — in that order down the
+ *   canvas, pinned rows of any source under the ruler.
+ * - **`data` and `series`**: a keyed collection of raw entries, or a paged
+ *   source of one, and one `Plan.series.*` value per row series, whose
+ *   accessors derive each canvas row from the raw fields (`Plan.pick` makes
+ *   the list one the user picks from). The list IS the layout — one block per
+ *   series, top to bottom — and hierarchy comes only from the data's own
+ *   nesting (#822): a series' `children` walk what an entry holds, to any
+ *   depth (`Plan.children` steps down to another entry type), and a flat
+ *   source is grouped in a data step first (`groupToDicts`).
+ *   `Plan.series.section` titles a block and `Plan.series.views` shows one
+ *   entry several ways. Every row has a typed id — its series and the path of
+ *   entry keys to it (`Plan.ref`).
+ * - **The axis** is `Plan.axis` (`time`), `Plan.axis.number` or
+ *   `Plan.axis.ordinal`, its window stated or supplied by a bound slice. Event
+ *   kinds need a time axis.
+ * - **Content** comes from the value builders (`Plan.run` / `event` / `chip`
+ *   / `mark` / `marker` / `decision` / `port` / `segment` / the cell builders,
+ *   instants via `Plan.at.*` when written as data) and the kind factories
+ *   (`Plan.span` / `buckets` / `chart` / `heat` / `table` / `cards` /
+ *   `events` / `group`); every East type is on `Plan.Types.*`.
+ * - **Links** join runs (`Plan.ref(series, …path)` and the run's key) or
+ *   events (`Plan.eventRef(kind, key)`).
+ *
+ * The Plan fills its parent and draws no border of its own. `id` keeps two
+ * Plans on one surface apart. The tag is generic in the canvas's axis kind,
+ * inferred from `axis`: a series or a hand-built row whose instants ride
+ * another arm is a compile error at the tag.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
+ * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, variant } from "@elaraai/east";
+ * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Plan } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const SeriesJob = StructType({ ticket: StringType, start: DateTimeType, end: DateTimeType, sheets: FloatType, state: EventStateType });
+ * export const SeriesShift = StructType({ key: StringType, from: DateTimeType, to: DateTimeType, hours: FloatType, state: EventStateType });
+ * export const SeriesOpsRow = StructType({
+ *     hall: StringType,
+ *     kind: VariantType({
+ *         press: StructType({ jobs: ArrayType(SeriesJob) }),
+ *         crew:    StructType({ shifts: ArrayType(SeriesShift) }),
+ *     }),
+ * });
+ * export const planSeriesOps = e3.input("plan_series_ops", DictType(StringType, SeriesOpsRow), variant("value", new Map([
+ *     ["H1-P03", { hall: "Hall 1", kind: variant("press", { jobs: [
+ *         { ticket: "J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), sheets: 96.0, state: variant("in-progress", null) },
+ *         { ticket: "J-4663", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-24T00:00:00Z"), sheets: 88.0, state: variant("proposed", variant("recommended", null)) },
+ *     ] }) }],
+ *     ["H1-P04", { hall: "Hall 1", kind: variant("press", { jobs: [
+ *         { ticket: "J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), sheets: 112.0, state: variant("actual", null) },
+ *     ] }) }],
+ *     ["H2-P11", { hall: "Hall 2", kind: variant("press", { jobs: [
+ *         { ticket: "J-4723", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), sheets: 92.0, state: variant("confirmed", null) },
+ *     ] }) }],
+ *     ["crewA", { hall: "Hall 1", kind: variant("crew", { shifts: [
+ *         { key: "s1", from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), hours: 80.0, state: variant("confirmed", null) },
+ *         { key: "s2", from: new Date("2026-07-27T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z"), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
+ *     ] }) }],
+ * ])));
+ *
+ * const canvas = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         // The source, bound from e3 — its rows are what the dataset holds.
+ *         const ops = $.let(Data.bind(planSeriesOps));
+ *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+ *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+ *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+ *             return w1.addWeeks(n.subtract(1n));
+ *         }));
+ *         // Hierarchy is the DATA's (#822): one `groupToDicts` groups the rows
+ *         // into the canvas's blocks — each press under its hall, the crews
+ *         // under one "Crews" block. An entry of the result holds its rows.
+ *         const blocks = $.let(ops.read().groupToDicts(
+ *             ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.hall),
+ *             ($, _r, k) => k));
+ *         const Block = DictType(StringType, SeriesOpsRow);
+ *         // The series — real East values bound in the body, typed by the
+ *         // constructor. The list IS the layout: one block per series, top to
+ *         // bottom. The accessors are where raw fields become canvas vocabulary:
+ *         // labels, quantity displays and chip text all derive CLIENT-SIDE,
+ *         // inside each series' `derive`.
+ *         const series = $.const([
+ *             // One row per hall, its presses stepped down into
+ *             // (`Plan.children`) and their runs rolled up into its bands —
+ *             // which sum the runs' quantities, unit by unit.
+ *             Plan.series.span(Block, {
+ *                 key: "halls", title: "Halls",
+ *                 match: (_b, name) => name.equal("Crews").not(),
+ *                 label: (_b, name) => name,
+ *                 runs: _b => [],
+ *                 rollup: "union",
+ *                 children: Plan.children((b) => b, [
+ *                     Plan.series.span(SeriesOpsRow, {
+ *                         key: "presses", title: "Presses",
+ *                         match: r => r.kind.hasTag("press"),
+ *                         label: (_r, k) => k, id: true,
+ *                         runs: r => r.kind.unwrap("press").jobs.map((_$, j) => Plan.run({
+ *                             key: j.ticket, start: j.start, end: j.end,
+ *                             label: East.str`RUN · ${j.ticket}`,
+ *                             // A quantity is one value: the bar prints `96 k sheets`,
+ *                             // and the hall's band sums the sheets.
+ *                             quantity: Plan.quantity(j.sheets, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
+ *                             state: j.state,
+ *                         })),
+ *                     }),
+ *                 ]),
+ *             }),
+ *             // One strip per matching block — here the one "Crews" block,
+ *             // wearing its member count.
+ *             Plan.series.group(Block, {
+ *                 key: "crews", title: "Crews",
+ *                 match: (_b, name) => name.equal("Crews"),
+ *                 label: (_b, name) => name,
+ *                 children: Plan.children((b) => b, [
+ *                     Plan.series.cards(SeriesOpsRow, {
+ *                         key: "crew-shifts", title: "Crew shifts",
+ *                         match: r => r.kind.hasTag("crew"),
+ *                         label: (_r, k) => k,
+ *                         chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
+ *                             const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+ *                             // `+` marks ADDED hours — a removed proposal keeps the
+ *                             // plain figure (see planCardRows for the full ladder).
+ *                             const label = $.let(s.state.match({
+ *                                 proposed: (_$, p) => p.hasTag("removed").ifElse(
+ *                                     () => East.str`${hrs}h`,
+ *                                     () => East.str`+${hrs}h`),
+ *                             }, _$ => East.str`${hrs}h`), StringType);
+ *                             return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
+ *                         }),
+ *                     }),
+ *                 ]),
+ *             }),
+ *             Plan.series.rows(Block, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
+ *                 [Plan.events({ key: "ms", label: "Milestones", id: true, marks: [
+ *                     Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
+ *                     Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
+ *                 ] })]),
+ *         ], ArrayType(Plan.Types.Series(Block)));
+ *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+ *         return (
+ *             <Plan
+ *                 axis={axis}
+ *                 data={blocks}
+ *                 series={series}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
+ * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
+ * import { ApprovalStateType, EventStateType, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Plan, Record, Schedule } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const PrintPress = StructType({ name: StringType, hall: StringType, sheets_per_hour: FloatType });
+ * export const PrintJob = StructType({
+ *     title: StringType,
+ *     start: OptionType(DateTimeType),
+ *     end: OptionType(DateTimeType),
+ *     press: OptionType(StringType),
+ *     state: EventStateType,
+ *     sheets: FloatType,
+ *     verdict: ApprovalStateType,
+ *     customer: StringType,
+ *     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
+ *     due: OptionType(DateTimeType),
+ * });
+ * export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), new Map([
+ *     ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
+ *     ["a2", { name: "Press A2", hall: "Hall A", sheets_per_hour: 10000.0 }],
+ *     ["a3", { name: "Press A3", hall: "Hall A", sheets_per_hour: 8000.0 }],
+ *     ["b1", { name: "Press B1", hall: "Hall B", sheets_per_hour: 15000.0 }],
+ *     ["b2", { name: "Press B2", hall: "Hall B", sheets_per_hour: 12000.0 }],
+ *     ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
+ * ]));
+ * export const planPrintJobs = e3.record("plan_print_jobs", DictType(StringType, PrintJob), new Map([
+ *     ["J-1001", { title: "Spring catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, verdict: variant("approved", null), customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+ *     ["J-1002", { title: "Museum guide", start: some(new Date("2026-10-07T06:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 72000.0, verdict: variant("approved", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+ *     ["J-1003", { title: "Event posters", start: some(new Date("2026-10-14T07:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a1"), state: variant("in-progress", null), sheets: 60000.0, verdict: variant("approved", null), customer: "Granite Hall", stock: variant("uncoated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+ *     ["J-1004", { title: "Course handbook", start: some(new Date("2026-10-19T06:00:00Z")), end: some(new Date("2026-10-19T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+ *     ["J-1005", { title: "Menu cards", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T08:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, verdict: variant("pending", null), customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+ *     ["J-1006", { title: "Tour brochure", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a2"), state: variant("actual", null), sheets: 80000.0, verdict: variant("approved", null), customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
+ *     ["J-1007", { title: "Annual report", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T12:00:00Z")), press: some("a2"), state: variant("in-progress", null), sheets: 60000.0, verdict: variant("approved", null), customer: "Harbour Arts Society", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-1008", { title: "Seed catalogue", start: some(new Date("2026-10-21T06:00:00Z")), end: some(new Date("2026-10-21T16:00:00Z")), press: some("a2"), state: variant("proposed", variant("added", null)), sheets: 100000.0, verdict: variant("pending", null), customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-24T00:00:00Z")) }],
+ *     ["J-1009", { title: "Season flyers", start: some(new Date("2026-10-28T06:00:00Z")), end: some(new Date("2026-10-28T09:00:00Z")), press: some("a2"), state: variant("estimated", null), sheets: 30000.0, verdict: variant("pending", null), customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-10-31T00:00:00Z")) }],
+ *     ["J-1010", { title: "Club newsletter", start: some(new Date("2026-10-08T06:00:00Z")), end: some(new Date("2026-10-08T08:00:00Z")), press: some("a3"), state: variant("actual", null), sheets: 16000.0, verdict: variant("approved", null), customer: "Kestrel Cycling Club", stock: variant("uncoated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+ *     ["J-1011", { title: "Stationery set", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a3"), state: variant("confirmed", null), sheets: 24000.0, verdict: variant("approved", null), customer: "Ivy Lane Studio", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-1012", { title: "Gift boxes", start: some(new Date("2026-10-22T06:00:00Z")), end: some(new Date("2026-10-22T12:00:00Z")), press: some("a3"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-26T00:00:00Z")) }],
+ *     ["J-1013", { title: "Holiday catalogue", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T22:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 240000.0, verdict: variant("approved", null), customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
+ *     ["J-1014", { title: "Magazine run", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T18:00:00Z")), press: some("b1"), state: variant("actual", null), sheets: 180000.0, verdict: variant("approved", null), customer: "Meridian Monthly", stock: variant("coated", null), due: some(new Date("2026-10-13T00:00:00Z")) }],
+ *     ["J-1015", { title: "Store flyers", start: some(new Date("2026-10-14T06:00:00Z")), end: some(new Date("2026-10-14T16:00:00Z")), press: some("b1"), state: variant("in-progress", null), sheets: 150000.0, verdict: variant("approved", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-1016", { title: "Exhibition book", start: some(new Date("2026-10-26T06:00:00Z")), end: some(new Date("2026-10-26T12:00:00Z")), press: some("b1"), state: variant("estimated", null), sheets: 90000.0, verdict: variant("pending", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+ *     ["J-1017", { title: "Timetables", start: some(new Date("2026-10-09T06:00:00Z")), end: some(new Date("2026-10-09T10:00:00Z")), press: some("b2"), state: variant("actual", null), sheets: 48000.0, verdict: variant("approved", null), customer: "Bluewater Tours", stock: variant("uncoated", null), due: some(new Date("2026-10-12T00:00:00Z")) }],
+ *     ["J-1018", { title: "Market posters", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T12:00:00Z")), press: some("b2"), state: variant("confirmed", null), sheets: 72000.0, verdict: variant("approved", null), customer: "Orchard Street Market", stock: variant("coated", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+ *     ["J-1019", { title: "Loyalty cards", start: some(new Date("2026-10-20T10:00:00Z")), end: some(new Date("2026-10-20T13:00:00Z")), press: some("b2"), state: variant("proposed", variant("added", null)), sheets: 36000.0, verdict: variant("pending", null), customer: "Copperleaf Cafe", stock: variant("board", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+ *     ["J-1020", { title: "Ticket books", start: some(new Date("2026-10-29T06:00:00Z")), end: some(new Date("2026-10-29T08:00:00Z")), press: some("b2"), state: variant("estimated", null), sheets: 24000.0, verdict: variant("pending", null), customer: "Hollow Oak Theatre", stock: variant("uncoated", null), due: some(new Date("2026-11-02T00:00:00Z")) }],
+ *     ["J-1021", { title: "Handbook covers", start: some(new Date("2026-10-16T06:00:00Z")), end: some(new Date("2026-10-16T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+ *     ["J-1022", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+ *     ["J-1023", { title: "Guide reprint", start: none, end: none, press: none, state: variant("estimated", null), sheets: 24000.0, verdict: variant("pending", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-1024", { title: "Order forms", start: none, end: none, press: none, state: variant("proposed", variant("added", null)), sheets: 40000.0, verdict: variant("pending", null), customer: "Larkspur Home", stock: variant("uncoated", null), due: some(new Date("2026-10-17T00:00:00Z")) }],
+ *     ["J-1025", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, verdict: variant("pending", null), customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+ *     ["J-1026", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, verdict: variant("pending", null), customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
+ *     ["J-1027", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, verdict: variant("pending", null), customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-11-06T00:00:00Z")) }],
+ *     ["J-1028", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, verdict: variant("pending", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-11-13T00:00:00Z")) }],
+ *     ["J-1029", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, verdict: variant("pending", null), customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+ *     ["J-1030", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, verdict: variant("pending", null), customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
+ * ]));
+ * export const planPrintJobsPatch = e3.mutation.patch(planPrintJobs);
+ *
+ * const planEvents = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const presses = $.let(Record.bind(planPrintPresses, []));
+ *         const jobs = $.let(Record.bind(planPrintJobs, [planPrintJobsPatch]));
+ *         const axis = $.let(Plan.axis({
+ *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
+ *             resolution: "day",
+ *         }));
+ *         return (
+ *             <Plan
+ *                 axis={axis}
+ *                 resources={{
+ *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
+ *                 }}
+ *                 events={{
+ *                     job: Schedule.events(jobs, {
+ *                         name: "Print job", icon: "file-lines",
+ *                         title: "title", start: "start", end: "end",
+ *                         resource: { field: "press", of: "presses" },
+ *                     }),
+ *                 }}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
+ * ```
+ */
+export const Plan: PlanNamespace = Object.assign(PlanTag, PLAN_MEMBERS);
+
+/**
+ * The type of the internal Plan namespace — the public one, the payload the
+ * tag returns through its carrier, the canvas's root alone, and the carrier
+ * the renderer registers against.
  */
 export interface PlanInternalNamespace extends PlanNamespace {
-    /** Creates the canvas — the payload, through the `PlanView` carrier (the `<Plan.View>` tag's factory). */
-    Root: typeof createPlanRoot;
-    /** Creates the canvas's payload alone — what `Root` returns through the carrier ({@link createPlanPayload}). */
+    /** Creates the Plan's payload alone — what `<Plan>` returns through the `Plan` carrier ({@link createPlanPayload}). */
     Payload: typeof createPlanPayload;
-    /** The `PlanView` carrier ({@link PlanViewComponent}). */
-    Component: typeof PlanViewComponent;
+    /** Creates the canvas's root alone — the axis, rows over `data` and the rest the payload carries as its `plan` ({@link createPlanRoot}). */
+    Root: typeof createPlanRoot;
+    /** The `Plan` carrier ({@link PlanComponent}). */
+    Component: typeof PlanComponent;
+}
+
+/** `<Plan>`, for the internal namespace: the tag, on an object of its own, so the public `Plan` carries none of the internal members. */
+function PlanInternalTag(props: Parameters<PlanTagType>[0]): ReturnType<PlanTagType> {
+    return PlanTag(props);
 }
 
 /**
  * The internal Plan namespace — `@elaraai/e3-ui/internal`'s `Plan`: the public
- * namespace, `Plan.Root`, `Plan.Payload` and the `PlanView` carrier, for the
+ * namespace, `Plan.Payload`, `Plan.Root` and the `Plan` carrier, for the
  * renderer and the tests.
  *
  * @internal
  */
-export const PlanInternal: PlanInternalNamespace = {
-    ...Plan,
-    Root: createPlanRoot,
+export const PlanInternal: PlanInternalNamespace = Object.assign(PlanInternalTag as PlanTagType, PLAN_MEMBERS, {
     Payload: createPlanPayload,
-    Component: PlanViewComponent,
-};
+    Root: createPlanRoot,
+    Component: PlanComponent,
+});

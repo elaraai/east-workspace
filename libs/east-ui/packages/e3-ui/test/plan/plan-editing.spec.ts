@@ -98,7 +98,7 @@ const sameIds = equalFor(ArrayType(Plan.Types.RowId));
 const sameBlocks = equalFor(Plan.Types.Blocks);
 const sameApproval = equalFor(OptionType(ApprovalStateType));
 
-/** A canvas's editing declaration — of the payload `Plan.Payload` builds, compiled. */
+/** A canvas's editing declaration — of the root `Plan.Root` builds, compiled. */
 function editingOf(root: ValueTypeOf<typeof Plan.Types.Root>) {
     if (root.editing.type !== "some") throw new Error("Expected the canvas to declare editing");
     return root.editing.value;
@@ -115,7 +115,7 @@ function writeOne(wire: Wire, id: string, entry: HallValue, rows: RowId[], gestu
 
 const inlineRoot = East.function([], Plan.Types.Root, ($) => {
     const data = $.const(SEED, Halls);
-    return Plan.Payload({ axis, data, series: SERIES, editing: {} });
+    return Plan.Root({ axis, data, series: SERIES, editing: {} });
 }).toIR().compile([])();
 const inline = editingOf(inlineRoot);
 
@@ -255,7 +255,7 @@ const boardOf = (at: bigint, mark: InstantValue): BoardValue => ({
 const BOARD = boardOf(2n, variant("number", 2));
 const numberWire = editingOf(East.function([], Plan.Types.Root, ($) => {
     const data = $.const(new Map([["b", BOARD]]), DictType(StringType, Board));
-    return Plan.Payload({
+    return Plan.Root({
         axis: Plan.axis.number({ window: { min: 0, max: 10 }, step: 1 }),
         data,
         series: [
@@ -299,7 +299,7 @@ const Flow = StructType({ phases: ArrayType(Phase) });
 const FLOW: ValueTypeOf<typeof Flow> = { phases: [{ key: "p1", from: "PLATES", to: "PRINT" }] };
 const ordinalWire = editingOf(East.function([], Plan.Types.Root, ($) => {
     const data = $.const(new Map([["f", FLOW]]), DictType(StringType, Flow));
-    return Plan.Payload({
+    return Plan.Root({
         axis: Plan.axis.ordinal({ values: ["PREPRESS", "PLATES", "PRINT", "FINISH"] }),
         data,
         series: [Plan.series.cards(Flow, {
@@ -386,7 +386,7 @@ const pagedHarness = East.function([], Logged, ($) => {
         total: East.function([], OptionType(IntegerType), () => some(2n)),
         seek: none,
     }, Paged.Types.Source(Halls));
-    const ui = $.let(Plan.Payload({ axis, data: handle, series: SERIES, editing: {} }));
+    const ui = $.let(Plan.Root({ axis, data: handle, series: SERIES, editing: {} }));
     return { ui, log: East.function([], ArrayType(StringType), () => log) };
 });
 
@@ -432,7 +432,7 @@ test("ready checks each drafted entry in one call, in order — a check that thr
             });
             return result;
         }));
-        return Plan.Payload({ axis, data, series: SERIES, editing: { ready } });
+        return Plan.Root({ axis, data, series: SERIES, editing: { ready } });
     }).toIR().compile([])());
     assert.equal(wire.ready.type, "some");
     if (wire.ready.type !== "some") return;
@@ -456,7 +456,7 @@ test("onPatch hears each gesture at Plan.Types.PatchEvent(R) — whole-entry dra
         const onPatch = $.const(East.function([Plan.Types.PatchEvent(Hall)], NullType, ($, event) => {
             $(log.pushLast(East.str`${event.origin.getTag()} · ${event.label} · ${East.print(event.draftChanges.size())}`));
         }));
-        const ui = $.let(Plan.Payload({ axis, data, series: SERIES, editing: { onPatch } }));
+        const ui = $.let(Plan.Root({ axis, data, series: SERIES, editing: { onPatch } }));
         return { ui, log: East.function([], ArrayType(StringType), () => log) };
     }).toIR().compile([])();
     const wire = editingOf(heard.ui);
@@ -486,7 +486,7 @@ test("onApply receives the change set at the canvas's own entry and key types �
         const data = $.const(SEED, Halls);
         const onApply = $.const(East.function([Batch], Editing.Types.ApplyResult, (_$, batch) =>
             variant("applied", { revision: some(batch.requestId) })));
-        return Plan.Payload({ axis, data, series: SERIES, editing: { onApply, mode: "auto" } });
+        return Plan.Root({ axis, data, series: SERIES, editing: { onApply, mode: "auto" } });
     }).toIR().compile([])());
     assert.equal(sync.mode.type, "auto");
     assert.ok(sync.onApply.type === "some" && sync.onApply.value.type === "sync");
@@ -498,7 +498,7 @@ test("onApply receives the change set at the canvas's own entry and key types �
         const data = $.const(SEED, Halls);
         const onApply = $.const(East.asyncFunction([Batch], Editing.Types.ApplyResult, (_$, batch) =>
             variant("applied", { revision: some(batch.label) })));
-        return Plan.Payload({ axis, data, series: SERIES, editing: { onApply } });
+        return Plan.Root({ axis, data, series: SERIES, editing: { onApply } });
     }).toIR().compile([])());
     assert.ok(later.onApply.type === "some" && later.onApply.value.type === "async");
     if (later.onApply.type === "some" && later.onApply.value.type === "async") {
@@ -521,7 +521,7 @@ const liveHarness = East.function([], Plan.Types.Root, ($) => {
         read: East.function([], Halls, () => HallsStore.read()),
         write: East.function([Halls], NullType, ($, halls) => { $(HallsStore.write(halls)); }),
     }, StructType({ read: FunctionType([], Halls), write: FunctionType([Halls], NullType) }));
-    return Plan.Payload({ axis, data: handle, series: SERIES, editing: { onUpdate: handle.write } });
+    return Plan.Root({ axis, data: handle, series: SERIES, editing: { onUpdate: handle.write } });
 });
 
 test("onUpdate applies a batch through the live handle — checked against the snapshot it began from, and never written twice", () => {

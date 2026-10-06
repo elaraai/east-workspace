@@ -67,7 +67,7 @@ export interface PickPanelOptions<I extends EastType> {
  *     return (
  *         <HStack gap="4" align="start">
  *             <Pick.Panel value={shown} title="Series" />
- *             <Plan.View axis={axis} data={ops} series={Pick.active(shown)} />
+ *             <Plan axis={axis} data={ops} series={Pick.active(shown)} />
  *         </HStack>
  *     );
  * }}</Reactive>

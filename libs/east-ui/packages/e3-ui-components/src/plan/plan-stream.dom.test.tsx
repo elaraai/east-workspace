@@ -8,7 +8,7 @@
  * factory and COMPILED, so the rows the renderer draws are the ones the series
  * pipeline emits: nesting from the data at any depth, section headers over
  * child collections, `views` adjacency, the series list as the layout (and a
- * pick's list as its order, through the `PlanView` carrier as an app renders
+ * pick's list as its order, through the `Plan` carrier as an app renders
  * it), a repeated id drawn as a diagnostic, and sources keyed by any type.
  */
 
@@ -85,7 +85,7 @@ describe("nesting comes from the data (#822)", () => {
     ]);
     const statement = East.function([], Plan.Types.Root, ($) => {
         const accounts = $.const(ACCOUNTS, DictType(StringType, Account));
-        return Plan.Payload({
+        return Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: accounts,
             series: [Plan.series.table(Account, {
@@ -115,7 +115,7 @@ describe("nesting comes from the data (#822)", () => {
         // Not a group band: a table parent, folded by an accessor over its entry.
         const folded = East.function([], Plan.Types.Root, ($) => {
             const accounts = $.const(ACCOUNTS, DictType(StringType, Account));
-            return Plan.Payload({
+            return Plan.Root({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data: accounts,
                 series: [Plan.series.table(Account, {
@@ -161,7 +161,7 @@ describe("nesting comes from the data (#822)", () => {
         ]);
         const program = East.function([], Plan.Types.Root, ($) => {
             const halls = $.const(HALLS, DictType(StringType, Hall));
-            return Plan.Payload({
+            return Plan.Root({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data: halls,
                 series: [Plan.series.group(Hall, {
@@ -221,7 +221,7 @@ describe("nesting comes from the data (#822)", () => {
         ]);
         const program = East.function([], Plan.Types.Root, ($) => {
             const data = $.const(DATA, DictType(StringType, Row));
-            return Plan.Payload({
+            return Plan.Root({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data,
                 series: [Plan.series.views(Row, {
@@ -273,7 +273,7 @@ describe("the series list is the layout (#822)", () => {
     test("reordering the series list reorders the blocks", () => {
         const canvas = (series: typeof heat[]) => planOf(East.function([], Plan.Types.Root, ($) => {
             const data = $.const(DATA, DictType(StringType, Row));
-            return Plan.Payload({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series });
+            return Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series });
         }));
         const forward = renderPlan(canvas([heat, table]), "plan-822-order-f");
         expect(ids(forward.container)).toEqual(LOAD_FIRST);
@@ -288,7 +288,7 @@ describe("the series list is the layout (#822)", () => {
                 const data = $.const(DATA, DictType(StringType, Row));
                 const list = $.const(all, ArrayType(Plan.Types.Series(Row)));
                 const shown = $.let(Plan.pick(key, list, { hidden }));
-                return Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, pick: shown });
+                return Plan({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, pick: shown });
             }))) as never,
             getRegisteredPlatformImplementations(),
         )() as UIValue;
@@ -313,7 +313,7 @@ describe("a row's identity (#822)", () => {
         const Row = StructType({ v: FloatType });
         const program = East.function([], Plan.Types.Root, ($) => {
             const data = $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row));
-            return Plan.Payload({
+            return Plan.Root({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data,
                 series: [Plan.series.rows(Row, { key: "chrome", title: "Chrome" }, [
@@ -339,7 +339,7 @@ describe("a row's identity (#822)", () => {
         const Row = StructType({ v: FloatType });
         const byNumber = East.function([], Plan.Types.Root, ($) => {
             const data = $.const(new Map([[20n, { v: 2.0 }], [1n, { v: 1.0 }]]), DictType(IntegerType, Row));
-            return Plan.Payload({
+            return Plan.Root({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data,
                 series: [Plan.series.heat(Row, {
@@ -361,7 +361,7 @@ describe("a row's identity (#822)", () => {
                 [{ hall: "H1", bin: 2n }, { v: 1.0 }],
                 [{ hall: "H1", bin: 1n }, { v: 2.0 }],
             ]), DictType(Key, Row));
-            return Plan.Payload({
+            return Plan.Root({
                 axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
                 data,
                 series: [Plan.series.table(Row, {

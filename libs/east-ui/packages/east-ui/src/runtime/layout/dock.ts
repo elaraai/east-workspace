@@ -17,7 +17,7 @@ import { container, type ContainerProps, type JsxTag } from "../combinators.js";
  * collapse-to-rail sibling of `<Expandable>` (which instead fills the app
  * container). Reach for it when a source panel should tuck away beside the
  * thing it feeds — a `<Library>` drag-source beside a drop target (a Board, or
- * e3-ui's `<Plan.View>`),
+ * e3-ui's `<Plan>`),
  * a filter rail beside a board — so the board grows while the panel is stowed
  * and the drop-target is never covered.
  *

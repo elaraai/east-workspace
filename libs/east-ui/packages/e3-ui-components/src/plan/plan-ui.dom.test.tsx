@@ -10,7 +10,7 @@
  * chart expanded, a row to bring into view) and writes the user's actions back.
  *
  * The canvas is built by the e3-ui factory and COMPILED with the real
- * `State.bind`, and rendered through its `PlanView` carrier as an app's is, so
+ * `State.bind`, and rendered through its `Plan` carrier as an app's is, so
  * the handle the canvas reads and writes is the one East emits over the state
  * store, carried in the payload's bytes; the host's own writes reach the store
  * exactly as any `State.bind` handle at the same key puts them there. jsdom
@@ -111,7 +111,7 @@ const program = East.function([], UIComponentType, (_$) => Reactive.Root(East.fu
     const halls = $.let(presses.groupToDicts((_$2, p) => p.hall, (_$2, _p, k) => k));
     const onTime = $.const(ON_TIME, ArrayType(MeasureRow));
     const ui = $.let(State.bind([Plan.Types.UiState], KEY, Plan.uiState({ collapsed: [Plan.ref("halls", "Hall 3")] })));
-    return Plan.Root({
+    return Plan({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: halls,
         series: [

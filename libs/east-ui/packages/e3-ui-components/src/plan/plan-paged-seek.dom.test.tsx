@@ -168,7 +168,7 @@ function buildPagedPlan(): PlanRootValue {
         const axis = $.const(Plan.axis({
             window: { min: W27, max: W39 }, resolution: "week", now: NOW,
         }));
-        return Plan.Payload({ axis, data: source, series });
+        return Plan.Root({ axis, data: source, series });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
@@ -427,8 +427,8 @@ describe("the same canvas inline and paged (#822)", () => {
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             const series = twoSeries ? [jobs, loads] : [jobs];
             return paged
-                ? Plan.Payload({ axis, data: $.const(UNIFORM_SOURCES[n], Paged.Types.Source(Units)), series })
-                : Plan.Payload({ axis, data, series });
+                ? Plan.Root({ axis, data: $.const(UNIFORM_SOURCES[n], Paged.Types.Source(Units)), series })
+                : Plan.Root({ axis, data, series });
         });
         return East.compile(program, getRegisteredPlatformImplementations())();
     }
@@ -572,8 +572,8 @@ describe("a parent sits whole in its window (#823)", () => {
             ];
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             return paged
-                ? Plan.Payload({ axis, data: $.const(HALLS_SOURCE, Paged.Types.Source(Halls)), series })
-                : Plan.Payload({ axis, data: halls, series });
+                ? Plan.Root({ axis, data: $.const(HALLS_SOURCE, Paged.Types.Source(Halls)), series })
+                : Plan.Root({ axis, data: halls, series });
         });
         return East.compile(program, getRegisteredPlatformImplementations())();
     }

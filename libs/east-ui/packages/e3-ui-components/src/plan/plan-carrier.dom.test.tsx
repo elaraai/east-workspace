@@ -4,12 +4,12 @@
  *
  * @vitest-environment jsdom
  *
- * The Plan through its carrier (#1177). `<Plan.View>` returns the canvas as the
- * `PlanView` extension — its payload's bytes beside its kind — and the
- * dispatcher hands it to the renderer registered against that kind, decoding
- * the payload's functions against the registered platform. Every canvas here
- * is built by the e3-ui factory, compiled, and rendered through
- * `EastChakraComponent`, as an app renders it.
+ * The Plan through its carrier (#1177, #1191). `<Plan>` returns the Plan as
+ * the `Plan` extension — its payload's bytes beside its kind, the canvas whole
+ * in it — and the dispatcher hands it to the renderer registered against that
+ * kind, decoding the payload's functions against the registered platform.
+ * Every Plan here is built by the e3-ui factory, compiled, and rendered
+ * through `EastChakraComponent`, as an app renders it.
  */
 
 import { describe, test, expect, afterEach, afterAll } from "vitest";
@@ -96,7 +96,7 @@ const VIEW = East.function([], UIComponentType, ($) => {
         }),
     ], ArrayType(Plan.Types.Series(UnitRow)));
     const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
-    return Plan.View({ axis, data: units, series });
+    return Plan({ axis, data: units, series });
 });
 
 /** The same canvas over a paged source of the units. */
@@ -110,15 +110,15 @@ const PAGED_VIEW = East.function([], UIComponentType, ($) => {
         }),
     ], ArrayType(Plan.Types.Series(UnitRow)));
     const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
-    return Plan.View({ axis, data: source, series });
+    return Plan({ axis, data: source, series });
 });
 
-describe("<Plan.View> through its carrier (#1177)", () => {
-    test("the canvas is the PlanView extension — its payload carried as bytes beside its kind — and the dispatcher draws it", async () => {
+describe("<Plan> through its carrier (#1177, #1191)", () => {
+    test("the Plan is the Plan extension — its payload carried as bytes beside its kind — and the dispatcher draws its canvas", async () => {
         initializeStore(new UIStore());
         const value = East.compile(VIEW, getRegisteredPlatformImplementations())();
-        if (value.type !== "Extension") throw new Error(`expected the PlanView extension, got the ${value.type} arm`);
-        expect(value.value.kind).toBe("PlanView");
+        if (value.type !== "Extension") throw new Error(`expected the Plan extension, got the ${value.type} arm`);
+        expect(value.value.kind).toBe("Plan");
         const { container } = mount(value, "plan-carrier-view");
         await waitFor(() => expect(rowKeys(container)).toEqual(["u00", "u01", "u02"]));
         expect(container.querySelector(`${unitRow("u01")} [data-run="run"]`)!.textContent).toContain("RUN · u01");
@@ -170,7 +170,7 @@ const reactivePlan = East.compile(East.function([], UIComponentType, (_$) =>
             return Text.Root(label);
         }));
         const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
-        return Plan.View({ axis, data: units, series, expandRender });
+        return Plan({ axis, data: units, series, expandRender });
     })),
 ), getRegisteredPlatformImplementations());
 

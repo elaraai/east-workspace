@@ -585,7 +585,7 @@ export const DataPagedPrimitives = {
  *         const axis = $.const(Plan.axis({
  *             window: { min: week(24n), max: week(42n) }, resolution: "week",
  *         }));
- *         return Plan.View({ axis, data: paged, series });
+ *         return Plan({ axis, data: paged, series });
  *     }));
  * });
  * ```

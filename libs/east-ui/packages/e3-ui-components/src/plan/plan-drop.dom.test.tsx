@@ -63,7 +63,7 @@ const ONE_PRESS = new Map([["p1", SEED.get("p1")!]]);
 /** Press 1 as a row of every kind — the kinds holding discrete objects take a job (`edit`), the rest cannot. */
 const EVERY_KIND = East.function([], Plan.Types.Root, ($) => {
     const presses = $.const(State.bind([DictType(StringType, Press)], "plan-880.every-kind", ONE_PRESS));
-    return Plan.Payload({
+    return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: presses,
         series: [
@@ -184,7 +184,7 @@ const HOLDING = new Map([["p1", { ...SEED.get("p1")!, jobs: [{ key: "job-1", at:
 /** Press 1's jobs as keyed marks that take a card — its write refuses a job the press already holds, which no veto can see coming: `create` mints the key. */
 const KEYED = East.function([], Plan.Types.Root, ($) => {
     const presses = $.const(State.bind([DictType(StringType, Press)], "plan-825.keyed", HOLDING));
-    return Plan.Payload({
+    return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: presses,
         series: [

@@ -4,7 +4,7 @@
  */
 
 /**
- * Plan showcase — every `<Plan.View>` example wrapped as a UI task and bundled
+ * Plan showcase — every `<Plan>` example wrapped as a UI task and bundled
  * into `east-ui-showcase-plan@<pkg.version>`. The Plan is e3-ui's (#1177), so
  * its examples come from `@elaraai/e3-ui`, not the east-ui collections barrel.
  *

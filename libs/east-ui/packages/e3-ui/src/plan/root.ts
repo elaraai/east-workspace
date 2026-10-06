@@ -4,9 +4,10 @@
  */
 
 /**
- * The Plan root — `Plan.Root`, which assembles the whole canvas's payload
- * ({@link PlanRootType}) and returns it through the `PlanView` carrier
- * ({@link PlanViewComponent}).
+ * The Plan's canvas — `Plan.Root`, which assembles the canvas's root
+ * ({@link PlanRootType}): its rows over `data`, its axis, links, review,
+ * editing session and the rest. `<Plan>` carries it in its payload (#1191),
+ * beside the event kinds and their resources.
  *
  * @packageDocumentation
  */
@@ -86,7 +87,7 @@ import {
     type PlanAxisKindLiteral,
     type PlanAxisInput,
 } from "./types.js";
-import { PlanReviewType, PlanRootType, PlanViewComponent } from "./ir.js";
+import { PlanReviewType, PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES } from "./builders.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
@@ -181,7 +182,8 @@ export interface PlanBindHandle {
 }
 
 /**
- * Configuration for {@link Plan.Root} (the `<Plan.View>` tag's props).
+ * The canvas's configuration — {@link createPlanRoot}'s (`Plan.Root`), and
+ * what `<Plan>` takes for its rows over `data` (#1191).
  *
  * @remarks
  * `K` is the canvas's axis kind, inferred from `axis` ALONE (`series` is a
@@ -370,11 +372,13 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
 }
 
 /**
- * Creates the Plan root — the whole canvas.
+ * Creates the canvas's root — the {@link PlanRootType} value `<Plan>`
+ * carries as its payload's `plan` — for the tests and the renderer's own
+ * fixtures, which read it whole.
  *
  * @typeParam K - The canvas's axis kind, inferred from `config.axis`; every series must lie within it
- * @param config - The Plan configuration ({@link PlanConfig})
- * @returns An East expression of `UIComponentType` — the canvas's payload ({@link createPlanPayload}), through the `PlanView` carrier
+ * @param config - The canvas's configuration ({@link PlanConfig})
+ * @returns An East expression of {@link PlanRootType}
  * @throws {Error} When `data` is not a keyed source, `series` / `pick` are both or neither given, two series share a
  *   key, a bound series list reads another key type than `data`, or the axis states no window and no slice is bound
  *
@@ -384,26 +388,34 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  * data — a verdict, a dropped card, a moved or resized element — is a draft of
  * the `editing` session, applied as one checked batch (#880, #825).
  */
-export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<UIComponentType> {
-    return PlanViewComponent.Root(createPlanPayload(config));
+export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<PlanRootType> {
+    return buildPlanRoot(config, undefined);
 }
 
 /**
- * Creates the canvas's payload — the {@link PlanRootType} value
- * {@link createPlanRoot} returns through the `PlanView` carrier, for the tests
- * and the renderer's own fixtures, which read it whole.
+ * The canvas's configuration with `data` optional (#1191): a Plan of event
+ * kinds, or of `rows` alone, has none.
  *
- * @typeParam K - The canvas's axis kind, inferred from `config.axis`; every series must lie within it
- * @param config - The Plan configuration ({@link PlanConfig})
- * @returns An East expression of {@link PlanRootType}
- * @throws {Error} When `data` is not a keyed source, `series` / `pick` are both or neither given, two series share a
- *   key, a bound series list reads another key type than `data`, or the axis states no window and no slice is bound
+ * @internal
  */
-export function createPlanPayload<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<PlanRootType> {
+export type PlanCanvasOptions = Omit<PlanConfig, "data"> & { data?: PlanConfig["data"] };
+
+/**
+ * Builds the canvas's root (#1191): its rows over `data`, and then `extra`,
+ * fixed blocks every window serves alike — or, with no `data`, `extra`
+ * alone.
+ *
+ * @param config - The canvas's configuration, `data` optional
+ * @param extra - The fixed blocks after `data`'s: a Plan's `rows`
+ * @returns An East expression of {@link PlanRootType}
+ * @throws {Error} As {@link createPlanRoot} does; and with no `data`, a `series`, `pick` or `editing`, each of which reads it
+ * @internal
+ */
+export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined): ExprType<PlanRootType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
-    // application collapses to.
-    if (config.data === undefined) {
+    // application collapses to. A Plan of event kinds or `rows` alone has no data.
+    if (config.data === undefined && extra === undefined) {
         throw new Error("Plan: `data` is required — a canvas is its data plus the series over it");
     }
     // The removed callbacks, named (#880) — a plain JS caller would otherwise
@@ -421,7 +433,13 @@ export function createPlanPayload<K extends PlanAxisKindLiteral = PlanAxisKindLi
             "draft of the `editing` session: name the field it writes on the reviewed series (`review: { verdict: \"approval\" }`), " +
             "and commit with `editing.onApply` (or `onUpdate`)");
     }
-    if ((config.series === undefined) === (config.pick === undefined)) {
+    if (config.data === undefined) {
+        for (const prop of ["series", "pick", "editing"] as const) {
+            if (config[prop] !== undefined) {
+                throw new Error(`Plan: \`${prop}\` reads \`data\`'s entries — pass \`data\` with it, or place read-only rows with \`rows\``);
+            }
+        }
+    } else if ((config.series === undefined) === (config.pick === undefined)) {
         throw new Error(
             "Plan: give exactly one of `series` or `pick` — `series` for a fixed canvas, " +
             "`pick` for a pickable one. A `Plan.pick` handle already carries the series list, " +
@@ -438,6 +456,8 @@ export function createPlanPayload<K extends PlanAxisKindLiteral = PlanAxisKindLi
         );
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan");
+    const data = config.data;
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined);
     // A pick feeds the canvas its SURVIVING series; everything downstream sees
     // one series input either way.
     const seriesInput: PlanSeriesInput = config.pick !== undefined
@@ -447,7 +467,7 @@ export function createPlanPayload<K extends PlanAxisKindLiteral = PlanAxisKindLi
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
     // and the series pipeline is the `make` that turns each window's entries
     // into canvas rows (the single R-erasure point).
-    const resolved = resolveRowSource(config.data, "Plan");
+    const resolved = resolveRowSource(data, "Plan");
     // The canvas is KEYED: a row's path starts with its entry's key, which is
     // what keeps the canvas addressable by the keys the source is searched and
     // windowed by (#568). Refuse anything else rather than inventing keys.
@@ -475,11 +495,24 @@ export function createPlanPayload<K extends PlanAxisKindLiteral = PlanAxisKindLi
     }
     // The canvas's BLOCKS, in layout order (#823): inline, the whole source's;
     // paged, each window's share of every block — one read serves them all.
+    // A Plan's `rows` follow as fixed blocks, which every window serves alike.
     const rowsValue = buildRowSource(
         resolved,
         PlanBlocksType,
-        (source) => applySeries(seriesInput, source),
+        (source) => (extra === undefined ? applySeries(seriesInput, source) : applySeries(seriesInput, source).concat(extra)),
     ) as unknown as ExprType<PlanRowsType>;
+    return rootOf(config, rowsValue, config.editing !== undefined ? buildPlanEditing(resolved, seriesInput, config.editing) : undefined);
+}
+
+/**
+ * The canvas's root around its rows and its editing session.
+ *
+ * @param config - The canvas's configuration
+ * @param rowsValue - Its rows: inline blocks, or a paged source of them
+ * @param editing - Its editing session over `data`, if it has one
+ * @returns An East expression of {@link PlanRootType}
+ */
+function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -523,7 +556,7 @@ export function createPlanPayload<K extends PlanAxisKindLiteral = PlanAxisKindLi
             onRerun:     config.review.onRerun !== undefined ? some(config.review.onRerun) : none,
             rerunLabel:  config.review.rerunLabel ?? "Rerun",
         }, PlanReviewType)) : none,
-        editing:  config.editing !== undefined ? some(buildPlanEditing(resolved, seriesInput, config.editing)) : none,
+        editing:  editing !== undefined ? some(editing) : none,
         // The library rides as chrome, like the slice rail: the non-generic
         // contract only, since the payload must stay a closed East type.
         pick:     config.pick !== undefined

@@ -7,9 +7,7 @@
  * The Plan's UIComponent-coupled IR — since the data-interface redesign only
  * the ROOT and the review config touch `UIComponentType`; the whole row
  * vocabulary (elements, kinds, rows) is pure data in `./types.ts`. The root
- * is the payload `Plan.View` returns through its carrier,
- * {@link PlanViewComponent}, which e3-ui-components' canvas renderer
- * registers against and decodes through {@link PlanRootType}.
+ * is the canvas `<Plan>` carries in its payload (`./plan.ts`, #1191).
  *
  * @packageDocumentation
  */
@@ -22,7 +20,7 @@ import {
     StringType,
     StructType,
 } from "@elaraai/east";
-import { CanDropFnType, EastUI, PickBindType, UIComponentType } from "@elaraai/east-ui";
+import { CanDropFnType, PickBindType, UIComponentType } from "@elaraai/east-ui";
 import { SliceChromeType } from "@elaraai/east-ui/internal";
 import {
     PlanAxisType,
@@ -128,11 +126,3 @@ export const PlanRootType = StructType({
 });
 /** Type alias for {@link PlanRootType}. */
 export type PlanRootType = typeof PlanRootType;
-
-/**
- * The `PlanView` carrier — `Plan.View` builds a {@link PlanRootType} payload
- * and returns it through this {@link EastUI.component}. The React renderer
- * registers against it in `@elaraai/e3-ui-components` via
- * `implementUIComponent`.
- */
-export const PlanViewComponent = EastUI.component("PlanView", PlanRootType, { optional: true });

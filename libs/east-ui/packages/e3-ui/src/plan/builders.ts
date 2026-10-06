@@ -96,6 +96,7 @@ import {
     type PlanTableToneLiteral,
     PlanTableSeriesType,
     PlanLinkType,
+    PlanRunRefType,
     PlanRunType,
     PlanDecisionMarkType,
     PlanBucketEventType,
@@ -109,6 +110,7 @@ import {
     PlanHeatScaleType,
     PlanUiStateType,
 } from "./types.js";
+import { eventRefKind } from "./refs.js";
 
 // ============================================================================
 // Shorthand resolvers
@@ -271,6 +273,25 @@ export const at = {
 export const WINDOWLESS_AXES = new WeakSet<object>();
 
 /**
+ * The kind of each axis value `Plan.axis` built (#1191) — what a Plan reads to
+ * refuse event kinds on a number or ordinal axis at build. An axis held in a
+ * variable is not the value recorded here, so its Plan checks it as it is
+ * evaluated instead.
+ */
+const AXIS_KINDS = new WeakMap<object, PlanAxisKindLiteral>();
+
+/**
+ * The kind of an axis value `Plan.axis` built.
+ *
+ * @param axis - A Plan's `axis`
+ * @returns `"time"`, `"number"` or `"ordinal"`; `undefined` for an axis held in a variable
+ * @internal
+ */
+export function axisKindOf(axis: unknown): PlanAxisKindLiteral | undefined {
+    return typeof axis === "object" && axis !== null ? AXIS_KINDS.get(axis) : undefined;
+}
+
+/**
  * Builds the `time` axis declaration — `Plan.axis({ … })` / `Plan.axis.time`.
  *
  * @param options - Window, resolution(s), now instant and tick format ({@link PlanAxisOptions})
@@ -294,6 +315,7 @@ export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
         format:      options.format !== undefined ? some(options.format) : none,
     }), PlanAxisType) as PlanAxisExpr<"time">;
     if (options.window === undefined) WINDOWLESS_AXES.add(axis);
+    AXIS_KINDS.set(axis, "time");
     return axis;
 }
 
@@ -324,6 +346,7 @@ export function createNumberAxis(options: PlanNumberAxisOptions): PlanAxisExpr<"
         format: options.format !== undefined ? some(options.format) : none,
     }), PlanAxisType) as PlanAxisExpr<"number">;
     if (options.window === undefined) WINDOWLESS_AXES.add(axis);
+    AXIS_KINDS.set(axis, "number");
     return axis;
 }
 
@@ -344,10 +367,12 @@ export function createOrdinalAxis(options: PlanOrdinalAxisOptions): PlanAxisExpr
     if (Array.isArray(options.values) && options.values.length === 0) {
         throw new Error("Plan.axis.ordinal: `values` must list at least one value — the list is the axis");
     }
-    return East.value(variant("ordinal", {
+    const axis = East.value(variant("ordinal", {
         values: East.value(options.values as SubtypeExprOrValue<ArrayType<StringType>>, ArrayType(StringType)),
         now:    options.now !== undefined ? some(options.now) : none,
     }), PlanAxisType) as PlanAxisExpr<"ordinal">;
+    AXIS_KINDS.set(axis, "ordinal");
+    return axis;
 }
 
 /**
@@ -736,29 +761,85 @@ export function createUiState(init?: PlanUiStateInput): ExprType<PlanUiStateType
 
 /**
  * Flat input for {@link Plan.link} — one run-edge quantity link of the
- * canvas's link graph (`Plan.Root`'s `links`).
+ * canvas's link graph (a Plan's `links`). Each end is a row and a run on it
+ * (`from` and `fromRun`), or an event of one of the Plan's event kinds
+ * (`from: Plan.eventRef("job", key)`, no run), wherever it draws (#1191).
  *
  * @property key - The link's identity — what a click on its ribbon names it by (#824)
- * @property from - The source row's id (`Plan.ref(series, …path)`)
- * @property fromRun - The source run key (the ribbon leaves this run's end edge)
- * @property to - The destination row's id
- * @property toRun - The destination run key (the ribbon lands on this run's start edge)
+ * @property from - The source row's id (`Plan.ref(series, …path)`), or an event (`Plan.eventRef(kind, key)`)
+ * @property fromRun - The source run key (the ribbon leaves this run's end edge); none with an event
+ * @property to - The destination row's id, or an event
+ * @property toRun - The destination run key (the ribbon lands on this run's start edge); none with an event
  * @property quantity - The moved quantity (`Plan.quantity(34, { unit: "k sheets" })`) — the ribbon's share, opacity and caption
  */
 export interface PlanLinkInput {
     /** The link's identity — what the `link` element ref a ribbon click reports names it by (#824). */
     key: SubtypeExprOrValue<StringType>;
-    /** The source row's id (`Plan.ref(series, …path)`). */
-    from: SubtypeExprOrValue<PlanRowIdType>;
-    /** The source run key (the ribbon leaves this run's end edge). */
-    fromRun: SubtypeExprOrValue<StringType>;
-    /** The destination row's id. */
-    to: SubtypeExprOrValue<PlanRowIdType>;
-    /** The destination run key (the ribbon lands on this run's start edge). */
-    toRun: SubtypeExprOrValue<StringType>;
+    /** The source row's id (`Plan.ref(series, …path)`), or an event (`Plan.eventRef(kind, key)`). */
+    from: SubtypeExprOrValue<PlanRowIdType> | ExprType<PlanRunRefType>;
+    /** The source run key (the ribbon leaves this run's end edge) — with a row's id; an event names its own. */
+    fromRun?: SubtypeExprOrValue<StringType>;
+    /** The destination row's id, or an event. */
+    to: SubtypeExprOrValue<PlanRowIdType> | ExprType<PlanRunRefType>;
+    /** The destination run key (the ribbon lands on this run's start edge) — with a row's id; an event names its own. */
+    toRun?: SubtypeExprOrValue<StringType>;
     /** The moved quantity — `Plan.quantity(34, { unit: "k sheets" })`: its value weighs the ribbon's share of the
      *  family's largest, and its caption prints on the ribbon. Omit ⇒ the faintest ribbon, no caption. */
     quantity?: SubtypeExprOrValue<PlanQuantityType>;
+}
+
+/**
+ * The event kinds each link `Plan.link` built names at its ends — none for a
+ * link between rows — by the value it returned (#1191). A link whose event end
+ * was held in a variable is not recorded: its kind is not known here.
+ */
+const LINK_EVENT_KINDS = new WeakMap<object, readonly string[]>();
+
+/**
+ * The event kinds a link names at its ends, when they are known at build —
+ * what a Plan checks against its `events` (#1191).
+ *
+ * @param link - A link value
+ * @returns The kinds its event ends name, in order — none for a link between rows; `undefined` for a link
+ *   `Plan.link` did not build here (held in a variable, or built in East) or whose event end was held in a
+ *   variable, which a Plan checks as it is evaluated instead
+ * @internal
+ */
+export function linkEventKinds(link: unknown): readonly string[] | undefined {
+    return typeof link === "object" && link !== null ? LINK_EVENT_KINDS.get(link) : undefined;
+}
+
+/**
+ * Whether a link end is an event (`Plan.eventRef`'s run ref, a struct) rather
+ * than a row's id (a variant).
+ *
+ * @param end - The end
+ * @returns `true` for an event
+ */
+function isEventEnd(end: PlanLinkInput["from"]): boolean {
+    return end instanceof Expr && (Expr.type(end as Expr) as { type: string }).type === "Struct";
+}
+
+/**
+ * One link end on the wire: a row's id with its run, or an event's ref as it is.
+ *
+ * @param end - The end — a row's id, or an event (`Plan.eventRef`)
+ * @param run - The run on the row
+ * @param name - `"from"` or `"to"`, for the message
+ * @returns The run ref
+ * @throws {Error} When a row's end has no run, or an event's end names one
+ */
+function linkEnd(end: PlanLinkInput["from"], run: PlanLinkInput["fromRun"], name: "from" | "to"): SubtypeExprOrValue<PlanRunRefType> {
+    if (isEventEnd(end)) {
+        if (run !== undefined) {
+            throw new Error(`Plan.link: \`${name}\` is an event, which names its own run — leave out \`${name}Run\``);
+        }
+        return end as ExprType<PlanRunRefType>;
+    }
+    if (run === undefined) {
+        throw new Error(`Plan.link: \`${name}\` is a row's id — name the run on it with \`${name}Run\`, or name an event with Plan.eventRef(kind, key)`);
+    }
+    return { row: end as SubtypeExprOrValue<PlanRowIdType>, run };
 }
 
 /**
@@ -768,14 +849,19 @@ export interface PlanLinkInput {
  *
  * @param input - The link configuration ({@link PlanLinkInput})
  * @returns An East expression of {@link PlanLinkType}
+ * @throws {Error} When an end is a row's id without its run, or an event with one
  */
 export function createLink(input: PlanLinkInput): ExprType<PlanLinkType> {
-    return East.value({
+    const link = East.value({
         key:      input.key,
-        from:     { row: input.from, run: input.fromRun },
-        to:       { row: input.to, run: input.toRun },
+        from:     linkEnd(input.from, input.fromRun, "from"),
+        to:       linkEnd(input.to, input.toRun, "to"),
         quantity: input.quantity !== undefined ? some(East.value(input.quantity, PlanQuantityType)) : none,
     }, PlanLinkType);
+    // The kinds its event ends name, when each is `Plan.eventRef`'s own value.
+    const kinds = [input.from, input.to].filter(isEventEnd).map(eventRefKind);
+    if (kinds.every((k) => k !== undefined)) LINK_EVENT_KINDS.set(link, kinds as string[]);
+    return link;
 }
 
 /**
