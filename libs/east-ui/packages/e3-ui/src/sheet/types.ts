@@ -13,12 +13,11 @@
  * Plan `derive` move). The host's row type `R` and the driver's row type `D`
  * never appear here: everything the author writes over them is bridged by
  * the factory into the closed context / cell / edit types below (§4.8), so
- * the payload `Sheet.View` returns through its carrier
- * ({@link SheetViewComponent}) is {@link SheetRootType}, a closed type.
+ * the root `<Sheet>`'s payload carries ({@link SheetRootType}) is a closed
+ * type.
  *
  * This file holds only plain data and closed function types — no
- * `UIComponentType` — and the carrier beside the root type. The
- * author-facing TYPED constructors (`Sheet.Types.Context(R, D)`, `Fill(T)`,
+ * `UIComponentType`. The author-facing TYPED constructors (`Sheet.Types.Context(R, D)`, `Fill(T)`,
  * `Patch(R)`, `Proposal(R)`, `CheckContext(R)`) live here too:
  * they are type-level twins of the wire types, instantiated per row type
  * (the `Plan.Types.Series(R)` pattern).
@@ -50,7 +49,7 @@ import {
 import { SheetDraftTypeFor, type SheetDraftOf } from "./transactions.js";
 import { SheetDraftGroupTypeFor, type SheetDraftGroupOf } from "./drafts.js";
 import { SheetEditingType } from "./editing-types.js";
-import { DensityType, EastUI, RowSourceType, StatusValueType } from "@elaraai/east-ui";
+import { DensityType, RowSourceType, StatusValueType } from "@elaraai/east-ui";
 import { SliceChromeType, SliceStateType, TickFormatType } from "@elaraai/east-ui/internal";
 
 // ============================================================================
@@ -976,15 +975,12 @@ export const SheetFooterItemType = StructType({
 export type SheetFooterItemType = typeof SheetFooterItemType;
 
 /**
- * The Sheet style — uniform sizing (#320) and the gutter width.
+ * The Sheet style — the gutter width. The sheet fills the box it is given,
+ * its frame's, and scrolls its own rows there (#1216).
  *
- * @property height - Definite height (`"fill"` fills the parent); the rows scroll within
- * @property maxHeight - Max-height cap; content-sized up to it, then scrolls
  * @property gutterWidth - The row-number gutter width, a CSS px size
  */
 export const SheetStyleType = StructType({
-    height:      OptionType(StringType),
-    maxHeight:   OptionType(StringType),
     gutterWidth: OptionType(StringType),
 });
 /** Type alias for {@link SheetStyleType}. */
@@ -996,8 +992,8 @@ export type SheetStyleType = typeof SheetStyleType;
 
 /**
  * The Sheet root IR — the whole planning spreadsheet, a CLOSED struct: the
- * payload `Sheet.View` returns through the `SheetView` carrier
- * ({@link SheetViewComponent}).
+ * grid, its rows and its session, which `<Sheet>`'s payload carries as its
+ * `sheet`.
  *
  * @remarks
  * `editing` carries the exact schemas and checked batch callbacks. The
@@ -1021,7 +1017,7 @@ export type SheetStyleType = typeof SheetStyleType;
  * @property blanks - Padding rows below the last real one (default 18)
  * @property density - Row rhythm
  * @property footer - Footer items
- * @property style - Sizing and the gutter width
+ * @property style - The gutter width
  */
 export const SheetRootType = StructType({
     rows:          SheetRowsType,
@@ -1046,14 +1042,6 @@ export const SheetRootType = StructType({
 });
 /** Type alias for {@link SheetRootType}. */
 export type SheetRootType = typeof SheetRootType;
-
-/**
- * The `SheetView` carrier — `Sheet.View` builds a {@link SheetRootType}
- * payload and returns it through this {@link EastUI.component}. The React
- * renderer registers against it in `@elaraai/e3-ui-components` via
- * `implementUIComponent`.
- */
-export const SheetViewComponent = EastUI.component("SheetView", SheetRootType, { optional: true });
 
 // ============================================================================
 // The TYPED constructors — the author's side (the `Plan.Types.Series(R)` pattern)

@@ -91,9 +91,9 @@ Each wire changed under this rule, with the kind it is.
   A UI task carries the type in its IR and in what it outputs, so packages are
   re-exported, and the dataflow computes each UI task's output again under the
   new type.
-- **east-ui's `UIComponentType` loses its `Sheet` arm (#1179)** —
-  package-borne. The spreadsheet is e3-ui's `<Sheet.View>`, carried as the
-  `SheetView` extension. As with the Plan's arm, every case after `Sheet`
-  moves down one, so a UI value encoded under either type does not decode
-  under the other: packages are re-exported, and the dataflow computes each UI
-  task's output again under the new type.
+- **east-ui's `UIComponentType` loses its `Sheet` arm (#1179, #1216)** —
+  package-borne. The spreadsheet is e3-ui's `<Sheet>`, carried as the `Sheet`
+  extension, its payload the sheet and its panes. As with the Plan's arm,
+  every case after `Sheet` moves down one, so a UI value encoded under either
+  type does not decode under the other: packages are re-exported, and the
+  dataflow computes each UI task's output again under the new type.

@@ -5,10 +5,10 @@
 
 /**
  * What a Sheet's DOM tests say the browser would measure, for a jsdom that
- * lays nothing out (#856). A sheet that mounts a screenful measures its rows,
- * so a test that renders one — bounded, or unbounded at scale — needs rows as
- * tall as they draw; a test of an unbounded sheet in a page needs the page to
- * scroll; a test of a folded gutter (#1215), a touch screen's narrow frame.
+ * lays nothing out (#856). The Sheet renders in its frame and scrolls its own
+ * rows in main (#1216), so a test that renders one needs that frame as tall
+ * as the browser would lay it, and rows as tall as they draw; a test of a
+ * folded gutter (#1215), a touch screen's narrow frame.
  *
  * Test use only: the package build leaves `*.test-utils.ts` out.
  *
@@ -36,42 +36,80 @@ export function measureRowsAsDrawn(): () => void {
 }
 
 /**
- * The page an unbounded sheet scrolls in: the sheet sits at the top of a tall
- * document, `window.scrollTo` moves `scrollY` and fires `scroll`, and the
- * rows' top moves with it (the Plan's `plan-paged-seek` stand-in).
+ * How tall a frame's content is: the extent it draws its rows in, which the
+ * frame states as data (`data-virtual-extent`) — the header and the footer
+ * take no height where nothing is laid out.
+ *
+ * @param frame - A bounded rows frame
+ * @returns The extent (px)
+ */
+function extentOf(frame: Element): number {
+    return Number(frame.querySelector(":scope > [data-virtual-extent]")?.getAttribute("data-virtual-extent") ?? 0);
+}
+
+/**
+ * The frame a sheet's rows scroll in, laid out (#1216): every bounded rows
+ * frame `height` px tall, its content as tall as its rows — so a scroll stops
+ * at their end, as a browser's does — and each mounted row as tall as it
+ * draws ({@link measureRowsAsDrawn}). A test of a sheet sets the height its
+ * rows need: a few rows and the blank tail fit in 2,000 px.
+ *
+ * @param height - The frame's height (px)
+ * @returns The restore
+ */
+export function boundFrame(height: number): () => void {
+    const framed = (el: Element): boolean => el.getAttribute("data-virtual-rows") === "bounded";
+    const saved = {
+        offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!,
+        clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!,
+        scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!,
+    };
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+        configurable: true, get(this: HTMLElement) { return framed(this) ? height : saved.offsetHeight.get!.call(this); },
+    });
+    Object.defineProperty(Element.prototype, "clientHeight", {
+        configurable: true, get(this: Element) { return framed(this) ? height : saved.clientHeight.get!.call(this); },
+    });
+    Object.defineProperty(Element.prototype, "scrollHeight", {
+        configurable: true, get(this: Element) { return framed(this) ? Math.max(height, extentOf(this)) : saved.scrollHeight.get!.call(this); },
+    });
+    const restoreRows = measureRowsAsDrawn();
+    return () => {
+        restoreRows();
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", saved.offsetHeight);
+        Object.defineProperty(Element.prototype, "clientHeight", saved.clientHeight);
+        Object.defineProperty(Element.prototype, "scrollHeight", saved.scrollHeight);
+    };
+}
+
+/**
+ * The frame scrolls when it is asked to, as a browser's does: `scrollTo`,
+ * which jsdom lacks, writes a bounded rows frame's `scrollTop` and sends its
+ * scroll event — what a jump to a sought row, or a keyboard move past the
+ * rows in view, asks of it. Any other element's `scrollTo` is what it was.
  *
  * @returns The restore
  */
-export function emulateWindowScroll(): () => void {
-    let y = 0;
-    const html = document.documentElement;
-    const saved = {
-        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
-        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
-        rect: Element.prototype.getBoundingClientRect,
-    };
-    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
-    Object.defineProperty(window, "scrollTo", {
+export function frameScrolls(): () => void {
+    const own = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
         configurable: true,
         writable: true,
-        value: (arg: ScrollToOptions | number) => {
-            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
-            window.dispatchEvent(new Event("scroll"));
+        value: function scrollTo(this: HTMLElement, options?: ScrollToOptions) {
+            if (this.getAttribute("data-virtual-rows") !== "bounded") {
+                const before = (own?.value ?? (Element.prototype as { scrollTo?: (options?: ScrollToOptions) => void }).scrollTo) as ((options?: ScrollToOptions) => void) | undefined;
+                before?.call(this, options);
+                return;
+            }
+            const top = options?.top;
+            if (top === undefined || top === this.scrollTop) return;
+            this.scrollTop = top;
+            this.dispatchEvent(new Event("scroll"));
         },
     });
-    // A document tall enough to scroll through the sheet (jsdom reports 0).
-    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-        if (this.hasAttribute("data-virtual-extent")) {
-            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
-        }
-        return saved.rect.call(this);
-    };
     return () => {
-        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
-        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
-        delete (html as { scrollHeight?: number }).scrollHeight;
-        Element.prototype.getBoundingClientRect = saved.rect;
+        if (own === undefined) delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+        else Object.defineProperty(HTMLElement.prototype, "scrollTo", own);
     };
 }
 
@@ -80,7 +118,7 @@ export function emulateWindowScroll(): () => void {
  * coarse)` matches, nothing else does — and the frame the rows scroll in
  * `width` px wide, its box and inside it alike, watched as a browser watches
  * it (a `ResizeObserver` where the page has none). The frame is the rows'
- * scroll element on a bounded sheet, else their root: the card's first child.
+ * scroll element.
  *
  * @param width - The frame's width (px)
  * @returns The restore
@@ -92,7 +130,7 @@ export function touchFrame(width: number): () => void {
         offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!,
         clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
     };
-    const isFrame = (el: Element) => el.getAttribute("data-virtual-rows") === "bounded" || el.parentElement?.hasAttribute("data-sheet-card") === true;
+    const isFrame = (el: Element) => el.getAttribute("data-virtual-rows") === "bounded";
     if (saved.resizeObserver === undefined) {
         Object.defineProperty(globalThis, "ResizeObserver", {
             configurable: true, writable: true, value: class { observe() {} unobserve() {} disconnect() {} },
@@ -156,22 +194,14 @@ export function holdFrames(): { run: () => void; restore: () => void } {
 }
 
 /**
- * Where a body item starts among the rows: its virtual row's offset when the
- * sheet mounts a screenful, else the heights the sheet gave each item before
- * it in flow.
+ * Where a body item starts among the rows: its virtual row's offset.
  *
  * @param item - A body item's element: a row, a band
  * @returns Its top, in the rows' own coordinates
- * @throws {Error} When the element is not among the rows
+ * @throws {Error} When the element is not among the mounted rows
  */
 export function offsetOf(item: Element): number {
     const wrapper = item.closest<HTMLElement>('[data-slot="virtualRow"]');
-    if (wrapper !== null) return Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
-    let y = 0;
-    for (const el of item.parentElement!.children) {
-        if (el === item) return y;
-        const style = (el as HTMLElement).style;
-        y += parseFloat(style.height || style.minHeight || "0");
-    }
-    throw new Error("Not among the rows");
+    if (wrapper === null) throw new Error("Not among the mounted rows");
+    return Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
 }

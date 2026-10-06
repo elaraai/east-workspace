@@ -8,31 +8,30 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Paged, State } from "@elaraai/east-ui/internal";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { system, StateImpl, UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import type { SheetRootValue } from "./values.js";
 
-beforeEach(() => initializeStore(new UIStore()));
-afterEach(cleanup);
+let restoreFrame: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); restoreFrame(); });
 const Row = StructType({ id: StringType, task: StringType, qty: IntegerType, hidden: StringType });
 function program(insertRows = true, removeRows = true) {
-    return East.function([], Sheet.Types.Root, ($) => {
+    return East.function([], SheetPayloadType, ($) => {
         const data = $.const(State.bind([ArrayType(Row)], "insertion-rows", [
             { id: "a", task: "First", qty: 1n, hidden: "keep a" },
             { id: "b", task: "Second", qty: 2n, hidden: "keep b" },
         ]));
-        return Sheet.Payload(data, { task: Sheet.column.text(Row), qty: Sheet.column.integer(Row) }, {
-            id: "id", onUpdate: data.write, blanks: 2n, edits: { insertRows, removeRows },
-            newRow: East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Row), () => Sheet.patch(Row, { qty: 3n, hidden: "constructor" })),
-        });
+        return Sheet.Payload({ data, columns: { task: Sheet.column.text(Row), qty: Sheet.column.integer(Row) }, id: "id", onUpdate: data.write, blanks: 2n, edits: { insertRows, removeRows },
+            newRow: East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Row), () => Sheet.patch(Row, { qty: 3n, hidden: "constructor" })) });
     }).toIR().compile(StateImpl);
 }
-function mount(root: SheetRootValue) {
-    const component = (value: SheetRootValue) => <ChakraProvider value={system}><EastChakraSheet value={value} storageKey="insertion" /></ChakraProvider>;
-    const ui = render(component(root));
+function mount(sheet: SheetValue) {
+    const component = (value: SheetValue) => <ChakraProvider value={system}><EastChakraSheet value={value} storageKey="insertion" /></ChakraProvider>;
+    const ui = render(component(sheet));
     const rows = () => [...ui.container.querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')];
     const input = () => ui.container.querySelector<HTMLInputElement>('[data-slot="editorInput"]')!;
     const flush = () => act(async () => { await Promise.resolve(); });
@@ -43,7 +42,7 @@ function mount(root: SheetRootValue) {
         fireEvent.mouseEnter(row.querySelector('[data-slot="insertPoint"]')!);
         return ui.container.querySelector('[data-slot="insertLayer"] [data-slot="insertRow"]')!;
     };
-    return { ...ui, rows, input, flush, press, finish, insertAbove, refresh: (value: SheetRootValue) => ui.rerender(component(value)) };
+    return { ...ui, rows, input, flush, press, finish, insertAbove, refresh: (value: SheetValue) => ui.rerender(component(value)) };
 }
 
 test("insertion before the first row emits one draft gesture, applies in order and preserves constructor and hidden fields", async () => {
@@ -57,8 +56,8 @@ test("insertion before the first row emits one draft gesture, applies in order a
     await ui.finish("Inserted");
     await ui.press(ui.getByRole("button", { name: "Apply changes" }));
     const saved = view();
-    if (saved.rows.type !== "inline" || saved.editing.snapshot.type !== "some") throw new Error("Expected inline");
-    expect(saved.rows.value.map(row => row.cells.get("task"))).toEqual([variant("String", "Inserted"), variant("String", "First"), variant("String", "Second")]);
+    if (saved.sheet.rows.type !== "inline" || saved.sheet.editing.snapshot.type !== "some") throw new Error("Expected inline");
+    expect(saved.sheet.rows.value.map(row => row.cells.get("task"))).toEqual([variant("String", "Inserted"), variant("String", "First"), variant("String", "Second")]);
     ui.refresh(saved);
     expect((ui.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
     expect(ui.queryByRole("status")).toBeNull();
@@ -155,12 +154,10 @@ const KEYED_REFRESH = East.function([OptionType(StringType)], NullType, () => nu
 const KEYED_SOURCE = { id: "keyed-insertion", page: KEYED_PAGE, total: KEYED_TOTAL, seek: none, revision: KEYED_REVISION, refresh: KEYED_REFRESH };
 
 test("a keyed source offers Add row, uses canonical key order and emits no ordered placement", async () => {
-    const view = East.function([], Sheet.Types.Root, ($) => {
+    const view = East.function([], SheetPayloadType, ($) => {
         // Pinned: an edited paged source names the snapshot its batches are checked against.
         const data = $.const(KEYED_SOURCE, Paged.Types.PinnedSource(RowsByKey));
-        return Sheet.Payload(data, { task: Sheet.column.text(Row) }, {
-            newRowId: East.function([], StringType, () => "0-new"),
-        });
+        return Sheet.Payload({ data, columns: { task: Sheet.column.text(Row) }, newRowId: East.function([], StringType, () => "0-new") });
     }).toIR().compile(StateImpl);
     const journal = sheetJournal(view());
     const ui = mount(journal.value);

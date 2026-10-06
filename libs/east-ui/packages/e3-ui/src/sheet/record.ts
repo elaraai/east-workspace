@@ -4,7 +4,7 @@
  */
 
 /**
- * A record's rows, for `Sheet.Builder` (#1182, `Sheet Builder Spec.md` §3.4,
+ * A record's rows, for `<Sheet record>` (#1182, `Sheet Builder Spec.md` §3.4,
  * SB13–SB17): the two ways an e3 record's rows reach a sheet, and Apply back
  * to it through the record's patch mutation (`Record.onApply`).
  *
@@ -93,7 +93,7 @@ function checkIdField(element: EastType, id: string, rows: string): void {
     const arms = element.type === "Struct" ? [element] : element.type === "Variant" ? Object.values(element.cases as Record<string, EastType>) : [];
     const named = arms.length > 0 && arms.every((arm) => arm.type === "Struct" && (arm.fields as Record<string, EastType>)[id]?.type === "String");
     if (!named) {
-        throw new Error(`Sheet.Builder: \`entry.id\` must name a String field of the rows \`${rows}\` holds — "${id}" is not one of ${printType(element)}`);
+        throw new Error(`Sheet: \`entry.id\` must name a String field of the rows \`${rows}\` holds — "${id}" is not one of ${printType(element)}`);
     }
 }
 
@@ -111,11 +111,11 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     const type = Expr.type(handle as unknown as Expr) as EastType;
     const read = type.type === "Struct" ? (type.fields as Record<string, EastType>)["read"] : undefined;
     if (type.type !== "Struct" || read === undefined || read.type !== "Function" || (type.fields as Record<string, EastType>)["binding"] === undefined) {
-        throw new Error("Sheet.Builder: `record` must be a record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])");
+        throw new Error("Sheet: `record` must be a record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])");
     }
     const recordType = read.output as EastType;
     if (recordType.type !== "Dict") {
-        throw new Error(`Sheet.Builder: \`record\` must be a Dict — its entries, or one entry's rows, are the sheet's rows — and this record holds ${printType(recordType)}`);
+        throw new Error(`Sheet: \`record\` must be a Dict — its entries, or one entry's rows, are the sheet's rows — and this record holds ${printType(recordType)}`);
     }
     const keyType = recordType.key as EastType;
     const entryType = recordType.value as EastType;
@@ -138,7 +138,7 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
         const served = page !== undefined && page.type === "Function" && page.output.type === "Variant"
             ? (page.output.cases as Record<string, EastType>)["some"] : undefined;
         if (served === undefined || !isTypeEqual(served, recordType)) {
-            throw new Error(`Sheet.Builder: \`window\` must page the record's entries — Data.bindPaged(record) over the same record — and this one serves ${served === undefined ? "no collection" : printType(served)}`);
+            throw new Error(`Sheet: \`window\` must page the record's entries — Data.bindPaged(record) over the same record — and this one serves ${served === undefined ? "no collection" : printType(served)}`);
         }
         // A paged keyed source is keyed already; its session is the window's.
         return {
@@ -150,17 +150,17 @@ export function recordRows(record: unknown, options: SheetRecordRowsOptions<East
     }
 
     if (options.window !== undefined) {
-        throw new Error("Sheet.Builder: `window` pages the record's entries, and with `entry` the rows are one entry's field, read whole — pass one or the other");
+        throw new Error("Sheet: `window` pages the record's entries, and with `entry` the rows are one entry's field, read whole — pass one or the other");
     }
     // One entry's rows (SB15): its Array field, in its own order.
     const { rows, id } = options.entry;
     if (entryType.type !== "Struct") {
-        throw new Error(`Sheet.Builder: \`entry\` reads a field of one entry, so the record's entries must be structs — this record holds ${printType(entryType)}`);
+        throw new Error(`Sheet: \`entry\` reads a field of one entry, so the record's entries must be structs — this record holds ${printType(entryType)}`);
     }
     const fields = entryType.fields as Record<string, EastType>;
     const field = fields[rows];
     if (field === undefined || field.type !== "Array") {
-        throw new Error(`Sheet.Builder: \`entry.rows\` must name an Array field of the record's entries — "${rows}" is ${field === undefined ? "not a field" : `a ${field.type} field`} of ${printType(entryType)}`);
+        throw new Error(`Sheet: \`entry.rows\` must name an Array field of the record's entries — "${rows}" is ${field === undefined ? "not a field" : `a ${field.type} field`} of ${printType(entryType)}`);
     }
     const element = field.value as EastType;
     checkIdField(element, id, rows);

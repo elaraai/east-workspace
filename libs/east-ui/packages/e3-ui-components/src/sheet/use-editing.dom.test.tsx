@@ -39,7 +39,7 @@ const ROWS_REFRESH = East.function([OptionType(StringType)], NullType, () => nul
 const PINNED_ROWS = { id: "delete-source", page: ROWS_PAGE, total: ROWS_TOTAL, seek: none, revision: ROWS_REVISION, refresh: ROWS_REFRESH };
 const renderView = East.function([], Sheet.Types.Root, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "sheet-live-test", rows));
-    return Sheet.Payload(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write });
+    return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write });
 }).toIR().compile(StateImpl);
 function view(): SheetRootValue {
     return renderView();
@@ -120,7 +120,7 @@ test("a child edit after applied reorder preserves the new first child's hidden 
     const Group = StructType({ id: StringType, name: StringType, rows: ArrayType(Child) });
     const renderGroup = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Group)], "sheet-child-echo", [{ id: "g", name: "Group", rows: [{ qty: 1n, hidden: "alpha" }, { qty: 1n, hidden: "beta" }] }]));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), onUpdate: data.write });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), onUpdate: data.write });
     }).toIR().compile(StateImpl);
     const groupView = () => renderGroup();
     const initial = groupView();
@@ -151,7 +151,7 @@ test("paged deletion retires only after its exact committed revision and a loade
     let loaded = true;
     const compile = East.function([], Sheet.Types.Root, ($) => {
         const source = $.const(PINNED_ROWS, Paged.Types.PinnedSource(Rows));
-        return Sheet.Payload(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])) });
+        return Sheet.Root(source, { qty: Sheet.column.integer(Row) }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Row)], Sheet.Types.ApplyResult, () => variant("conflict", [])) });
     }).toIR().compile([]);
     const root = compile();
     if (root.rows.type !== "pinned") throw new Error("Expected a pinned Sheet");
@@ -198,7 +198,7 @@ test("creation defaults survive a multi-event gesture, later clearing, and appli
             $(count.write(count.read().add(1n)));
             return Sheet.patch(Item, { qty: 5n, note: "default note", hidden: [East.print(count.read())] });
         }));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Item), note: Sheet.column.text(Item) }, { id: "id", onUpdate: data.write, newRow });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Item), note: Sheet.column.text(Item) }, { id: "id", onUpdate: data.write, newRow });
     }).toIR().compile(StateImpl);
     const getView = () => compile();
     const root = getView();
@@ -232,7 +232,7 @@ test("group and child constructors keep hidden fields and receive the actual chi
     const Group = StructType({ id: StringType, name: StringType, owner: StringType, rows: ArrayType(Child) });
     const compile = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Group)], "seeded-groups", []));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Child) }, {
+        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, {
             id: "id", onUpdate: data.write, group: Sheet.group(Group, "rows", { title: "name" }),
             newGroup: East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(Group), () => Sheet.patch(Group, {
                 name: "New group", owner: "planner", rows: [{ qty: 3n, hidden: "supplied child" }],

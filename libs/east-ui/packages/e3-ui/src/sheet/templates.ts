@@ -4,7 +4,7 @@
  */
 
 /**
- * `Sheet.Builder`'s templates (#1183, `Sheet Builder Spec.md` §4.2, SB9): the
+ * `<Sheet>`'s templates (#1183, `Sheet Builder Spec.md` §4.2, SB9): the
  * Rows tab's cards. A row template is over the row type (a grouped sheet's
  * line type), a group template over the group type with its lines. Each is
  * checked against its type, and each carries a seed built by the code that
@@ -40,12 +40,12 @@ import { buildSheetSeed } from "./seed-bridge.js";
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 
 /**
- * One card of the builder's Rows tab: a preset a planner drops into the sheet.
+ * One card of the library's Rows tab: a preset a planner drops into the sheet.
  *
  * @typeParam R - The type it sets: the row type (a grouped sheet's line type), or the group type
  */
 export interface SheetTemplate<R extends StructType> {
-    /** Its key — unique among the builder's templates, rows and groups alike. */
+    /** Its key — unique among the sheet's templates, rows and groups alike. */
     key: string;
     /** The card's name. */
     name: string;
@@ -56,7 +56,7 @@ export interface SheetTemplate<R extends StructType> {
 }
 
 /**
- * The builder's templates.
+ * The sheet's templates.
  *
  * @typeParam L - The row type (a grouped sheet's line type)
  * @typeParam G - The group type, on a grouped sheet
@@ -132,14 +132,14 @@ function valuesOf(template: SheetTemplate<StructType>, rowType: StructType, what
     const values = East.value(template.values as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     if (!isTypeEqual(Expr.type(values as Expr) as EastType, SheetPatchTypeFor(rowType))) {
         throw new Error(what === "row"
-            ? `Sheet.Builder: row template "${template.key}" was built over another type — build its values with Sheet.patch(RowType, …) over the sheet's row type (a grouped sheet: its line type)`
-            : `Sheet.Builder: group template "${template.key}" was built over another type — build its values with Sheet.patch(GroupType, …) over the sheet's group type`);
+            ? `Sheet: row template "${template.key}" was built over another type — build its values with Sheet.patch(RowType, …) over the sheet's row type (a grouped sheet: its line type)`
+            : `Sheet: group template "${template.key}" was built over another type — build its values with Sheet.patch(GroupType, …) over the sheet's group type`);
     }
     return values;
 }
 
 /**
- * Builds the builder's templates on the wire (SB9).
+ * Builds the sheet's templates on the wire (SB9).
  *
  * @param input - The templates, by kind
  * @param bridge - The sheet's bridge, as its root compiled it
@@ -157,12 +157,12 @@ export function buildTemplates(
     const groups = input?.groups ?? [];
     const seen = new Set<string>();
     for (const t of [...rows, ...groups]) {
-        if (seen.has(t.key)) throw new Error(`Sheet.Builder: template key "${t.key}" repeats — each template's key is unique among the builder's templates, rows and groups alike`);
+        if (seen.has(t.key)) throw new Error(`Sheet: template key "${t.key}" repeats — each template's key is unique among the sheet's templates, rows and groups alike`);
         seen.add(t.key);
     }
     const groupHalf = bridge.group;
     if (groups.length > 0 && groupHalf === undefined) {
-        throw new Error("Sheet.Builder: `templates.groups` needs a grouped sheet — declare `group={Sheet.group(GroupType, \"lines\", …)}`, or drop the group templates");
+        throw new Error("Sheet: `templates.groups` needs a grouped sheet — declare `group={Sheet.group(GroupType, \"lines\", …)}`, or drop the group templates");
     }
     const wires: ExprType<SheetTemplateWireType>[] = [];
     for (const t of rows) {

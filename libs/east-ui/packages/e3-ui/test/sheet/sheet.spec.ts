@@ -15,6 +15,11 @@ import {
 import * as ex from "./sheet.examples.js";
 import * as linkEx from "./sheet-link.examples.js";
 
+// `Sheet.Root` builds the grid's root alone — the rows, the columns and the
+// session `<Sheet>`'s payload carries as its `sheet` — so these specs read
+// what the root compiles. What `<Sheet>` builds around it, its panes and its
+// sources, `sheet-payload.spec` reads.
+
 // ── The fixtures every test shares — declared at module scope so the tests
 // read as the examples do; the East bodies below bind them with `$.const`.
 const JobType = StructType({
@@ -201,11 +206,17 @@ const KEYED_PLANS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
 const KEYED_PLANS_SOURCE = { id: "plans", page: KEYED_PLANS_PAGE, total: KEYED_PLANS_TOTAL, seek: none };
 
 describeEast("Sheet", (test) => {
-    // The Sheet.View examples (#1189): everything else a sheet does is shown in its frame, on Sheet.Builder (`sheet-builder.spec`).
+    // The examples (#1216): every one a `<Sheet>` in its frame, its panes the props it is given.
     Assert.examples(test, {
         sheetBasic: ex.sheetBasic,
         sheetVariants: ex.sheetVariants,
         sheetStress: ex.sheetStress,
+        sheetLibrary: ex.sheetLibrary,
+        sheetWorkshop: ex.sheetWorkshop,
+        sheetWeeks: ex.sheetWeeks,
+        sheetBatches: ex.sheetBatches,
+        sheetLoose: ex.sheetLoose,
+        sheetPaged: ex.sheetPaged,
     });
 
     test("the examples evaluate to a Sheet under a Reactive root", $ => {
@@ -221,7 +232,7 @@ describeEast("Sheet", (test) => {
 
     test("inline rows project each column kind into its cell, blanks as Null, the id and owned stamped", $ => {
         const rows = $.const(JOBS, ArrayType(JobType));
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             start: Sheet.column.date(JobType, { header: "Start" }),
             task:  Sheet.column.text(JobType, { header: "Task" }),
             qty:   Sheet.column.quantity(JobType, { header: "Qty" }),
@@ -251,7 +262,7 @@ describeEast("Sheet", (test) => {
 
     test("a derived read projects the value and is read-only; a stamped column is never editable", $ => {
         const rows = $.const(JOBS, ArrayType(JobType));
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             task:  Sheet.column.text(JobType, { header: "Task" }),
             count: Sheet.column.integer(JobType, { header: "Twice", value: r => r.count.multiply(2n) }),
             owner: Sheet.column.stamped(JobType, { header: "Owner", owner: "ERP" }),
@@ -264,7 +275,7 @@ describeEast("Sheet", (test) => {
 
     test("the paged arm projects a window exactly as the inline arm projects the whole collection", $ => {
         const source = $.const(JOBS_SOURCE, Paged.Types.Source(Jobs));
-        const sheet = $.let(Sheet.Payload(source, {
+        const sheet = $.let(Sheet.Root(source, {
             task: Sheet.column.text(JobType, { header: "Task" }),
         }, { id: "id" }));
         const paged = $.let(sheet.rows.unwrap("paged"));
@@ -279,7 +290,7 @@ describeEast("Sheet", (test) => {
 
     test("a keyed paged source needs no id — the key is the row id", $ => {
         const source = $.const(KEYED_JOBS_SOURCE, Paged.Types.Source(KeyedJobs));
-        const sheet = $.let(Sheet.Payload(source, {
+        const sheet = $.let(Sheet.Root(source, {
             task: Sheet.column.text(KeyedJobType, { header: "Task" }),
         }));
         const win = $.let(sheet.rows.unwrap("paged").page(0n, 10n).unwrap("some"));
@@ -302,7 +313,7 @@ describeEast("Sheet", (test) => {
         const statuses = $.const(new Map([["PLANNED", { tone: variant("neutral", null) }], ["COMPLETE", { tone: variant("success", null) }]]),
             DictType(StringType, StructType({ tone: Sheet.Types.RegisterMember.fields.tone.cases.some })));
         const rows = $.const([{ id: "1", start: none, activity: "Routing", qty: some(2.0), stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "PLANNED", note: "" }], ArrayType(PlanRowType));
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
             status:   Sheet.column.enum(PlanRowType, "statuses", { header: "Status" }),
             stations: Sheet.column.link(PlanRowType, ActivityType, "stations", { header: "Work centres" }),
@@ -342,7 +353,7 @@ describeEast("Sheet", (test) => {
     test("uom and sides accessors are reified against the driver row and land as per-driver-key dictionaries", $ => {
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
         const rows = $.const([{ id: "1", start: none, activity: "Routing", qty: some(2.0), stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "", note: "" }], ArrayType(PlanRowType));
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
             qty:      Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", uom: d => d.uom }),
             stations: Sheet.column.link(PlanRowType, ActivityType, "stations", {
@@ -379,7 +390,7 @@ describeEast("Sheet", (test) => {
             fromStations: [variant("identified", { key: "R2141" })], toStations: [variant("placeholder", null)],
             machines: "r2140, the bay 2 > 4 x router, R2140-45, TBC, mystery", status: "", note: "",
         }], ArrayType(PlanRowType));
-        const sheet = $.let(Sheet.Payload(rows, {
+        const sheet = $.let(Sheet.Root(rows, {
             activity:     Sheet.column.lookup(PlanRowType, { header: "Activity" }),
             stations:     Sheet.column.link(PlanRowType, ActivityType, "stations", { header: "Link field" }),
             fromStations: Sheet.column.link(PlanRowType, ActivityType, "stations", { header: "Two arrays", to: "toStations" }),
@@ -414,10 +425,10 @@ describeEast("Sheet", (test) => {
             { key: "CNC router", label: "CNC router", kind: "family", aliases: [], meta: none, parent: none, tone: none },
         ], Sheet.Types.RegisterMembers);
         const rows = $.const([{ id: "1", start: none, activity: "", qty: none, stations: { from: [], to: [] }, fromStations: [], toStations: [], machines: "", status: "", note: "" }], ArrayType(PlanRowType));
-        const canonical = $.let(Sheet.Payload(rows, {
+        const canonical = $.let(Sheet.Root(rows, {
             machines: Sheet.column.set(PlanRowType, "stations", { header: "Machines", store: "canonical" }),
         }, { id: "id", registers: { stations: labelled } }));
-        const asTyped = $.let(Sheet.Payload(rows, {
+        const asTyped = $.let(Sheet.Root(rows, {
             machines: Sheet.column.set(PlanRowType, "stations", { header: "Machines" }),
         }, { id: "id", registers: { stations: labelled } }));
         const row = $.const({
@@ -468,7 +479,7 @@ describeEast("Sheet", (test) => {
                 (_$) => East.value(some({ value: ctx.row.count.unwrap("value").toFloat().multiply(1000.0), meta: East.str`row ${ctx.rowIndex} of ${ctx.rows.length()}` }), Fill),
                 (_$) => East.value(none, Fill))));
         const remote = $.const(East.asyncFunction([Ctx], Fill, (_$, _ctx) => East.value(none, Fill)));
-        const sheet = $.let(Sheet.Payload(rows, {
+        const sheet = $.let(Sheet.Root(rows, {
             task: Sheet.column.text(JobType, { header: "Task" }),
             qty:  Sheet.column.quantity(JobType, { header: "Qty", fill: [byOwner, remote] }),
         }, { id: "id" }));
@@ -496,7 +507,7 @@ describeEast("Sheet", (test) => {
         const followUp = $.const(East.function([Ctx], Proposals, ($, ctx) => $.const([
             { patch: Sheet.patch(JobType, { task: East.str`after ${ctx.row.task.unwrap("value")}`, count: 5n }), meta: "pattern" },
         ], Proposals)));
-        const sheet = $.let(Sheet.Payload(rows, {
+        const sheet = $.let(Sheet.Root(rows, {
             task:  Sheet.column.text(JobType, { header: "Task" }),
             qty:   Sheet.column.quantity(JobType, { header: "Qty" }),
             count: Sheet.column.integer(JobType, { header: "Count" }),
@@ -528,7 +539,7 @@ describeEast("Sheet", (test) => {
             $(Assert.equal(event.domainChanges.hasTag("none"), true));
             $(Assert.equal(event.readiness.unwrap("incomplete").get(0n).field.unwrap("some"), "owner"));
         }));
-        const root = $.const(Sheet.Payload(rows, { task: Sheet.column.text(JobType) }, { id: "id", onPatch: observed }));
+        const root = $.const(Sheet.Root(rows, { task: Sheet.column.text(JobType) }, { id: "id", onPatch: observed }));
         $(Assert.equal(root.editing.onApply.hasTag("none"), true));
         const event = $.const({ transactionId: "gesture-1", origin: variant("undo", null), label: "Undo task", draftChanges: [], domainChanges: none,
             readiness: variant("incomplete", [{ entry: "c", row: none, field: some("owner"), message: "Owner required" }]),
@@ -540,36 +551,35 @@ describeEast("Sheet", (test) => {
     // Options round-trip
     // =========================================================================
 
-    test("selection, views, footer, blanks, density, readOnly and style round-trip", $ => {
+    test("selection, the active view, footer, blanks, density, readOnly and the gutter width round-trip", $ => {
         const rows = $.const(JOBS, ArrayType(JobType));
         const onSelect = East.function([Sheet.Types.Selection], NullType, (_$, _s) => null);
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             task: Sheet.column.text(JobType, { header: "Task", sub: "free text", width: "200px" }),
         }, {
             id: "id",
             onSelect,
             selection: some({ rowId: some("a"), line: none, key: some("task") }),
-            views: [{ id: "v1", name: "ALL", narrowing: { range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(), breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none }, context: 1n, reveals: [], folds: new Map() }],
             activeView: some("v1"),
             footer: [{ text: "2 planned", tone: "info" }],
             blanks: 6,
             density: "compact",
             readOnly: true,
-            style: { height: "fill", gutterWidth: "64px" },
+            style: { gutterWidth: "64px" },
         }));
         $(Assert.equal(root.columns.get(0n).sub.unwrap("some"), "free text"));
         $(Assert.equal(root.columns.get(0n).width.unwrap("some"), "200px"));
         $(Assert.equal(root.onSelect.hasTag("some"), true));
         $(Assert.equal(root.selection.unwrap("some").rowId.unwrap("some"), "a"));
-        $(Assert.equal(root.views.size(), 1n));
-        $(Assert.equal(root.views.get(0n).context, 1n));
+        // No views handle: no views, and nothing to write them back to.
+        $(Assert.equal(root.views.size(), 0n));
+        $(Assert.equal(root.onViewsChange.hasTag("none"), true));
         $(Assert.equal(root.activeView.unwrap("some"), "v1"));
         $(Assert.equal(root.footer.get(0n).text, "2 planned"));
         $(Assert.equal(root.footer.get(0n).tone.unwrap("some").hasTag("info"), true));
         $(Assert.equal(root.blanks.unwrap("some"), 6n));
         $(Assert.equal(root.density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(root.readOnly.unwrap("some"), true));
-        $(Assert.equal(root.style.unwrap("some").height.unwrap("some"), "fill"));
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "64px"));
         $(Assert.equal(root.slice.hasTag("none"), true));
         $(Assert.equal(root.suggest.hasTag("none"), true));
@@ -589,7 +599,7 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(patch.qty.hasTag("none"), true));
         // A flat row carries no lines and no band.
         const jobs = $.const(JOBS, ArrayType(JobType));
-        const flat = $.let(Sheet.Payload(jobs, { task: Sheet.column.text(JobType) }, { id: "id" }));
+        const flat = $.let(Sheet.Root(jobs, { task: Sheet.column.text(JobType) }, { id: "id" }));
         $(Assert.equal(flat.rows.unwrap("inline").get(0n).lines.size(), 0n));
         $(Assert.equal(flat.rows.unwrap("inline").get(0n).band.hasTag("none"), true));
         $(Assert.equal(flat.group.hasTag("none"), true));
@@ -601,7 +611,7 @@ describeEast("Sheet", (test) => {
 
     test("grouped rows: a group row carries the band's cells under the line columns, its lines keyed by index, and the band", $ => {
         const plans = $.const(PLANS, ArrayType(PlanType));
-        const root = $.let(Sheet.Payload(plans, {
+        const root = $.let(Sheet.Root(plans, {
             start: Sheet.column.date(LineType, { header: "Start" }),
             task:  Sheet.column.text(LineType, { header: "Task" }),
             qty:   Sheet.column.quantity(LineType, { header: "Qty" }),
@@ -673,7 +683,7 @@ describeEast("Sheet", (test) => {
             owner: variant("value", original.owner), status: variant("value", original.status), total: variant("value", original.total),
             lines: original.lines.map((_$, row) => East.value({ start: variant("value", row.start), task: variant("value", row.task), qty: variant("value", row.qty), note: variant("value", row.note) }, Sheet.Types.Draft(LineType))),
         }, Draft);
-        const root = $.const(Sheet.Payload(plans, {
+        const root = $.const(Sheet.Root(plans, {
             task: Sheet.column.text(LineType), qty: Sheet.column.quantity(LineType), note: Sheet.column.text(LineType),
         }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name", cells: { qty: Sheet.group.cell.quantity(PlanType, "total", { editable: false }) } }) }));
         const previous = $.const(P1_ROW, Sheet.Types.Row);
@@ -712,7 +722,7 @@ describeEast("Sheet", (test) => {
                 value: East.str`${ctx.group.unwrap("some").name.unwrap("value")} · line ${ctx.rowIndex} ${ctx.row.task.unwrap("value")} · ${ctx.rows.length()} lines · ${ctx.groups.length()} plans · ${ctx.row.note.match({ value: (_$, value) => value, missing: () => East.value("missing"), invalid: () => East.value("invalid") })}`,
                 meta: "group",
             }), Fill)));
-        const sheet = $.let(Sheet.Payload(plans, {
+        const sheet = $.let(Sheet.Root(plans, {
             task: Sheet.column.text(LineType, { header: "Task" }),
             note: Sheet.column.text(LineType, { header: "Note", fill: [fromGroup] }),
         }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) }));
@@ -738,7 +748,7 @@ describeEast("Sheet", (test) => {
 
     test("loose rows: a group entry is its band and lines, a loose row its own cells with no lines and no band; owned reads the entry; the declaration says loose", $ => {
         const entries = $.const(ENTRIES, ArrayType(EntryType));
-        const root = $.let(Sheet.Payload(entries, { task: Sheet.column.text(TaskType), note: Sheet.column.text(TaskType) }, {
+        const root = $.let(Sheet.Root(entries, { task: Sheet.column.text(TaskType), note: Sheet.column.text(TaskType) }, {
             id: "id",
             group: Sheet.group(PackageType, "tasks", { title: "name" }),
             owned: e => e.match({ group: (_$, g) => g.name.equal("Nesting"), row: (_$, r) => r.note.equal("first") }),
@@ -765,13 +775,13 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(root.group.unwrap("some").loose, true));
         // A source of groups alone holds no loose rows.
         const plans = $.const(PLANS, ArrayType(PlanType));
-        const grouped = $.let(Sheet.Payload(plans, { task: Sheet.column.text(LineType) }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) }));
+        const grouped = $.let(Sheet.Root(plans, { task: Sheet.column.text(LineType) }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) }));
         $(Assert.equal(grouped.group.unwrap("some").loose, false));
     });
 
     test("an entry decodes by its band: a loose row over its own draft, its id its own; a group over its group arm", $ => {
         const entries = $.const(ENTRIES, ArrayType(EntryType));
-        const root = $.const(Sheet.Payload(entries, { task: Sheet.column.text(TaskType) }, { id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }) }));
+        const root = $.const(Sheet.Root(entries, { task: Sheet.column.text(TaskType) }, { id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }) }));
         const Draft = Sheet.Types.DraftEntry(EntryType);
         // A new loose row, from its wire row alone: the id from the row, the task typed, the note (no column) missing.
         const freshWire = $.const(LOOSE_NEW, Sheet.Types.Row);
@@ -812,7 +822,7 @@ describeEast("Sheet", (test) => {
 
     test("sub rows: each source maps its array in declaration order onto the line, blanks filled and none facets dropped", $ => {
         const orders = $.const(ORDERS, ArrayType(OrderType));
-        const root = $.let(Sheet.Payload(orders, { task: Sheet.column.text(WorkType) }, {
+        const root = $.let(Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, {
             id: "id",
             group: Sheet.group(OrderType, "work", { title: "name", noun: { singular: "order", plural: "orders" } }),
             subRows: Sheet.subRows(WorkType, {
@@ -849,14 +859,14 @@ describeEast("Sheet", (test) => {
         // none, and the renderer says its own word in the viewer's language (#861).
         $(Assert.equal(root.group.unwrap("some").noun.unwrap("some").singular, "order"));
         $(Assert.equal(root.group.unwrap("some").noun.unwrap("some").plural, "orders"));
-        const plain = $.let(Sheet.Payload(orders, { task: Sheet.column.text(WorkType) }, { id: "id", group: Sheet.group(OrderType, "work", { title: "name" }) }));
+        const plain = $.let(Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, { id: "id", group: Sheet.group(OrderType, "work", { title: "name" }) }));
         $(Assert.equal(plain.group.unwrap("some").noun.hasTag("none"), true));
         $(Assert.equal(plain.rows.unwrap("inline").get(0n).lines.get(0n).subRows.size(), 0n));
     });
 
     test("sub rows on a flat sheet ride on the row", $ => {
         const rows = $.const([{ id: "w1", task: "Assemble", ops: [{ id: "x", code: "ASM", name: "Assemble", materials: [], station: none }] }], ArrayType(FlatWorkType));
-        const root = $.let(Sheet.Payload(rows, { task: Sheet.column.text(FlatWorkType) }, {
+        const root = $.let(Sheet.Root(rows, { task: Sheet.column.text(FlatWorkType) }, {
             id: "id", subRows: Sheet.subRows(FlatWorkType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name, id: op.id }) }),
         }));
         const row = $.let(root.rows.unwrap("inline").get(0n));
@@ -867,7 +877,7 @@ describeEast("Sheet", (test) => {
 
     test("a date's level and actual and a column's detail project into unrendered cells the wire names", $ => {
         const rows = $.const(RULE_ROWS, ArrayType(RuleRowType));
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             start:  Sheet.column.date(RuleRowType, { header: "Start", level: r => r.level, actual: r => r.started }),
             status: Sheet.column.text(RuleRowType, { header: "Status", detail: r => r.code }),
             code:   Sheet.column.text(RuleRowType, { header: "Code", detail: r => r.code.length().equal(0n).ifElse(() => East.value(none, OptionType(StringType)), () => East.value(some(East.str`order ${r.code}`), OptionType(StringType))) }),
@@ -887,7 +897,7 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(r2.get("$actual:start").hasTag("Null"), true));
         $(Assert.equal(r2.get("$detail:code").hasTag("Null"), true));
         // Without the rules nothing extra crosses.
-        const plain = $.let(Sheet.Payload(rows, { start: Sheet.column.date(RuleRowType) }, { id: "id" }));
+        const plain = $.let(Sheet.Root(rows, { start: Sheet.column.date(RuleRowType) }, { id: "id" }));
         $(Assert.equal(plain.columns.get(0n).kind.unwrap("date").level.hasTag("none"), true));
         $(Assert.equal(plain.rows.unwrap("inline").get(0n).cells.size(), 1n));
     });
@@ -901,7 +911,7 @@ describeEast("Sheet", (test) => {
             const whole = $.const(none, Keys);
             return ctx.row.code.match({ value: (_$, code) => code.length().equal(0n).ifElse(() => East.value(some(["PLANNED"]), Keys), () => whole) }, () => whole);
         }));
-        const root = $.let(Sheet.Payload(rows, {
+        const root = $.let(Sheet.Root(rows, {
             activity: Sheet.column.lookup(RuleRowType, { options: byCode }),
             status:   Sheet.column.enum(RuleRowType, "statuses", { options: byCode }),
             stations: Sheet.column.link(RuleRowType, ActivityType, "stations", { options: byCode, members: [{ kind: "machine", identified: true, ranged: true }, { kind: "bay" }] }),
@@ -928,7 +938,7 @@ describeEast("Sheet", (test) => {
             rows: [], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext)).hasTag("none"), true));
         // Without a rule the kinds carry none.
-        const plain = $.let(Sheet.Payload(rows, { status: Sheet.column.enum(RuleRowType, "s") }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }));
+        const plain = $.let(Sheet.Root(rows, { status: Sheet.column.enum(RuleRowType, "s") }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }));
         $(Assert.equal(plain.columns.get(0n).kind.unwrap("enum").options.hasTag("none"), true));
     });
 }, { platformFns: TestImpl });
@@ -1065,21 +1075,21 @@ describe("Sheet refusals", () => {
 describe("Sheet structure declarations", () => {
     for (const option of ["insertGroups", "moveGroups", "removeGroups"] as const) {
         hostTest(`refuses edits.${option} on a flat sheet`, () => {
-            assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root($.const(JOBS, ArrayType(JobType)), {
+            assert.throws(() => East.function([], Sheet.Types.Root, ($) => Sheet.Root($.const(JOBS, ArrayType(JobType)), {
                 task: Sheet.column.text(JobType),
             }, { id: "id", edits: { [option]: true } })), new RegExp(`edits.${option} requires a group declaration`));
         });
     }
     hostTest("refuses top-level movement on a key-ordered flat source", () => {
-        assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root($.const(KEYED_JOBS_SOURCE, Paged.Types.Source(KeyedJobs)), {
+        assert.throws(() => East.function([], Sheet.Types.Root, ($) => Sheet.Root($.const(KEYED_JOBS_SOURCE, Paged.Types.Source(KeyedJobs)), {
             task: Sheet.column.text(KeyedJobType),
         }, { edits: { moveRows: "within" } })), /edits.moveRows cannot reorder a flat key-ordered source/);
     });
     hostTest("refuses group movement on a key-ordered source while retaining child ordering", () => {
-        assert.throws(() => East.function([], UIComponentType, ($) => Sheet.Root($.const(KEYED_PLANS_SOURCE, Paged.Types.Source(KeyedPlans)), {
+        assert.throws(() => East.function([], Sheet.Types.Root, ($) => Sheet.Root($.const(KEYED_PLANS_SOURCE, Paged.Types.Source(KeyedPlans)), {
             task: Sheet.column.text(LineType),
         }, { group: Sheet.group(PlanType, "lines", { title: "name" }), edits: { moveGroups: true } })), /edits.moveGroups cannot reorder a key-ordered source/);
-        const value = East.function([], Sheet.Types.Root, ($) => Sheet.Payload($.const(KEYED_PLANS_SOURCE, Paged.Types.Source(KeyedPlans)), {
+        const value = East.function([], Sheet.Types.Root, ($) => Sheet.Root($.const(KEYED_PLANS_SOURCE, Paged.Types.Source(KeyedPlans)), {
             task: Sheet.column.text(LineType),
         }, { group: Sheet.group(PlanType, "lines", { title: "name" }), edits: { moveRows: "within" } })).toIR().compile([])();
         assert.equal(value.editing.edits.moveRows.type, "within");

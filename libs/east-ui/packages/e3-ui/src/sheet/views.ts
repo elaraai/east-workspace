@@ -4,7 +4,7 @@
  */
 
 /**
- * `Sheet.Builder`'s saved views (#1183, `Sheet Builder Spec.md` decision 10,
+ * `<Sheet>`'s saved views (#1183, `Sheet Builder Spec.md` decision 10,
  * SB11): a whole-value bind handle of `Array<Sheet.Types.View>`, kept where
  * the app keeps it — per viewer in `State`, or shared in a dataset — read as
  * the sheet's views, and written with every change to them.
@@ -24,14 +24,14 @@ import {
 } from "@elaraai/east";
 import { SheetViewType } from "./types.js";
 
-/** The views' bind handle as the builder reads and writes it. */
+/** The views' bind handle as the sheet reads and writes it. */
 type ViewsHandle = ExprType<StructType<{
     read: FunctionType<[], ArrayType<SheetViewType>>;
     write: FunctionType<[ArrayType<SheetViewType>], NullType>;
 }>>;
 
 /**
- * The sheet's views and their write-back, from the builder's `views` handle (SB11).
+ * The sheet's views and their write-back, from its `views` handle (SB11).
  *
  * @param handle - A whole-value bind handle of `Array<Sheet.Types.View>`: `State.bind` or `Data.bind`
  * @returns The views, read through the handle, and the write the sheet calls with every change to them
@@ -50,7 +50,7 @@ export function viewsOf(handle: unknown): {
     const reads = read !== undefined && read.type === "Function" && read.inputs.length === 0 && isTypeEqual(read.output, viewsType);
     const writes = write !== undefined && write.type === "Function" && write.inputs.length === 1 && isTypeEqual(write.inputs[0]!, viewsType) && write.output.type === "Null";
     if (!reads || !writes) {
-        throw new Error("Sheet.Builder: `views` must be a bind handle of Array<Sheet.Types.View> — State.bind([ArrayType(Sheet.Types.View)], key, []) to keep them per viewer, or Data.bind over a dataset to share them");
+        throw new Error("Sheet: `views` must be a bind handle of Array<Sheet.Types.View> — State.bind([ArrayType(Sheet.Types.View)], key, []) to keep them per viewer, or Data.bind over a dataset to share them");
     }
     const views = handle as ViewsHandle;
     return { views: views.read(), onViewsChange: views.write };

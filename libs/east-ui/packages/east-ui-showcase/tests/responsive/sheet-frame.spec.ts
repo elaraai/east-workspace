@@ -4,9 +4,9 @@
  */
 
 /**
- * The Sheet builder, measured in a real browser (#1184, `Sheet Builder Spec.md`
- * §7, §8, SB18–SB24), on the joinery workshop's orders: a borderless
- * `BuilderFrame` filling the box its example gives it — one 44px toolbar row,
+ * The Sheet in its frame, measured in a real browser (#1184, #1216, `Sheet
+ * Builder Spec.md` §7, §8, SB18–SB24), on the joinery workshop's orders: a
+ * borderless `BuilderFrame` filling the box its example gives it — one 44px toolbar row,
  * the library and the inspector beside main, the grid filling main with the
  * strip docked under it, and the sheet's footer along the foot. The toolbar
  * folds by one ladder, the slice's rail first, then the sheet's own steps,
@@ -18,7 +18,7 @@
  * kept in each tab's name (#1210), and its cards' anatomy; a hidden column's
  * card dimmed, and the column out of the grid. The inspector (#1188): a
  * line's Details in the 320px pane, its sections and its fields, a changed
- * field tinted; and on the weeks' builder the author's own Details, its
+ * field tinted; and on the weeks' sheet the author's own Details, its
  * slider's step one transaction. Drag and drop (#1187), on the day's
  * batches: a template carried over a line — its caption under the ghost, the
  * 2px brand seam it would land on — and dropped there; a card refused, red;
@@ -26,34 +26,34 @@
  * (#1213); and at 560px the library sliding off main while a drag is under
  * way. Apply in each record form (SB54): the workshop's orders, the record's
  * entries, and one week's plan, one entry's rows — each an edit committed to
- * the page's e3, and read back by the builder mounted again over the record.
+ * the page's e3, and read back by the sheet mounted again over the record.
  * On a phone (#1215) the sheet's gutter folds: the first column's cell shows
  * beside it, each row's actions one 44 × 44 button whose tap opens its menu
  * and whose drag moves the row. In both themes; every measurement is polled
  * until it holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
- * `pnpm exec playwright test sheet-builder --project desktop`.
+ * `pnpm exec playwright test sheet-frame --project desktop`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { frameAt, tapScrim, type Box } from "./builder-frame";
 
-const HASH = "e3/sheet/sheet-builder/sheetBuilderWorkshop";
-/** The weeks' builder: one entry's rows, and the author's own Details (SB58). */
-const WEEKS = "e3/sheet/sheet-builder/sheetBuilderWeeks";
+const HASH = "e3/sheet/sheet/sheetWorkshop";
+/** The weeks' sheet: one entry's rows, and the author's own Details (SB58). */
+const WEEKS = "e3/sheet/sheet/sheetWeeks";
 /** The day's batches (#1187): a grouped sheet in the planner's order — templates in its Rows tab, every line and batch moved by its grip. */
-const BATCHES = "e3/sheet/sheet-builder/sheetBuilderBatches";
+const BATCHES = "e3/sheet/sheet/sheetBatches";
 
 /** The fold ladder: the rail's four steps, the view tabs' strip closing up, the history item to its buttons. */
 const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 history>1";
 
 /**
- * Open the workshop's builder and return the box its example gives it, at
+ * Open the workshop's sheet and return the box its example gives it, at
  * rest: as wide as given, or, with `null`, as the page lays it out.
  */
-async function openBuilder(page: Page, theme: "light" | "dark" = "light", width: number | null = 1440, hash = HASH): Promise<Locator> {
+async function openSheet(page: Page, theme: "light" | "dark" = "light", width: number | null = 1440, hash = HASH): Promise<Locator> {
     await page.goto(`/?theme=${theme}#${hash}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
@@ -65,7 +65,7 @@ async function openBuilder(page: Page, theme: "light" | "dark" = "light", width:
     return box;
 }
 
-/** Set the builder's box to a width, and wait for the page to be at rest. */
+/** Set the sheet's box to a width, and wait for the page to be at rest. */
 async function sizeTo(page: Page, box: Locator, width: number): Promise<void> {
     await box.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
     await settled(page);
@@ -95,12 +95,12 @@ function ladderForms(n: number, keys: readonly string[]): Map<string, number> {
     return forms;
 }
 
-test.describe("Sheet builder (#1184)", () => {
+test.describe("The Sheet's frame (#1184, #1216)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     for (const theme of ["light", "dark"] as const) {
         test(`a borderless frame filling its box: one 44px toolbar row, the library 272px and the inspector 320px pinned beside main, the grid filling main, the footer along the foot (${theme})`, async ({ page }) => {
-            const box = await openBuilder(page, theme, null);
+            const box = await openSheet(page, theme, null);
             // As the page lays it out: the frame is its box, whatever the box's width.
             await expect.poll(() => box.evaluate((el) => {
                 const frame = el.querySelector("[data-builder-frame]")!;
@@ -153,7 +153,7 @@ test.describe("Sheet builder (#1184)", () => {
     }
 
     test("the toolbar folds by one ladder — the rail first, the sheet's steps, the history item last — one 44px row at every width from 1440px to 360px", async ({ page }) => {
-        const box = await openBuilder(page);
+        const box = await openSheet(page);
         const toolbar = box.locator("[data-builder-frame] > [data-frame-slot=toolbar] [data-toolbar]");
         await expect.poll(() => toolbar.getAttribute("data-toolbar-ladder")).toBe(LADDER);
         let folded = 0;
@@ -188,7 +188,7 @@ test.describe("Sheet builder (#1184)", () => {
     });
 
     test("main holds the grid and, docked under it, the strip while a cell is edited", async ({ page }) => {
-        const box = await openBuilder(page);
+        const box = await openSheet(page);
         await box.locator("[data-frame-slot=main] [data-slot='row'] [data-key='start']").first().dblclick();
         await expect.poll(() => box.evaluate((el) => {
             const main = el.querySelector("[data-frame-slot=main]")!.getBoundingClientRect();
@@ -201,7 +201,7 @@ test.describe("Sheet builder (#1184)", () => {
     });
 
     test("the panes are pinned beside main while main keeps 480px; past that the inspector rests on its rail; at 560px and narrower both do, and an opened pane floats over main under the scrim, which a click closes", async ({ page }) => {
-        const box = await openBuilder(page);
+        const box = await openSheet(page);
         await expect.poll(async () => {
             const at = await frameAt(box);
             return { start: [at.start!.mode, at.start!.collapsed], end: [at.end!.mode, at.end!.collapsed], scrim: at.scrim };
@@ -240,12 +240,12 @@ test.describe("Sheet builder (#1184)", () => {
     });
 });
 
-test.describe("Sheet builder — the library pane (#1186)", () => {
+test.describe("The Sheet's frame — the library pane (#1186)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     for (const theme of ["light", "dark"] as const) {
         test(`the library: the tabs \`library\` lists, their counts out of the 272px pane's row and in each tab's name; cards that fit the pane — the name 13px 600, the line under it mono 10px — under mono caps group heads; collapsed, a 44px rail with the templates' count (${theme})`, async ({ page }) => {
-            const box = await openBuilder(page, theme);
+            const box = await openSheet(page, theme);
             const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
             await expect.poll(() => pane.evaluate((el) => {
                 // The theme's tokens, as the page resolves them.
@@ -312,7 +312,7 @@ test.describe("Sheet builder — the library pane (#1186)", () => {
     }
 
     test("a hidden column's card is dimmed under an eye-slash, and the grid leaves the column out; shown again, it returns", async ({ page }) => {
-        const box = await openBuilder(page);
+        const box = await openSheet(page);
         const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
         await pane.getByRole("tab", { name: "Columns 6" }).click();
         const notes = pane.locator('[role="tabpanel"]:not([hidden]) [data-library-item="notes"]');
@@ -333,11 +333,11 @@ test.describe("Sheet builder — the library pane (#1186)", () => {
     });
 });
 
-test.describe("Sheet builder — its frame on a phone (#1184)", () => {
+test.describe("The Sheet's frame — on a phone (#1184)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
     test("both panes rest on their 44px rails; the inspector, opened, covers main from its edge under the scrim — and a tap on the scrim closes it", async ({ page }) => {
-        const box = await openBuilder(page, "light", null);
+        const box = await openSheet(page, "light", null);
         const rest = await frameAt(box);
         expect({ start: [rest.start!.mode, rest.start!.collapsed, rest.start!.slot.w], end: [rest.end!.mode, rest.end!.collapsed, rest.end!.slot.w], scrim: rest.scrim })
             .toEqual({ start: ["overlay", true, 44], end: ["overlay", true, 44], scrim: null });
@@ -360,12 +360,12 @@ test.describe("Sheet builder — its frame on a phone (#1184)", () => {
     });
 });
 
-test.describe("Sheet builder — the inspector (#1188)", () => {
+test.describe("The Sheet's frame — the inspector (#1188)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     for (const theme of ["light", "dark"] as const) {
         test(`a line's Details in the 320px pane: sections padded 16px with a rule between, the eyebrow mono caps in the quiet ink, every field the shared field inside the pane, a changed field tinted brand (${theme})`, async ({ page }) => {
-            const box = await openBuilder(page, theme);
+            const box = await openSheet(page, theme);
             const pane = box.locator("[data-builder-frame] [data-frame-slot=end]");
             // The first operation of the first order: a line, never a band.
             await box.locator("[data-frame-slot=main] [data-slot=row]:not(:has([data-slot=groupSummary])) [data-slot=cell][data-key=notes]").first().click();
@@ -424,8 +424,8 @@ test.describe("Sheet builder — the inspector (#1188)", () => {
         });
     }
 
-    test("the author's own Details on the weeks' builder: a row's quantity on a slider, its key step one transaction through the cell, Undo taking it back (SB58)", async ({ page }) => {
-        const box = await openBuilder(page, "light", 1440, WEEKS);
+    test("the author's own Details on the weeks' sheet: a row's quantity on a slider, its key step one transaction through the cell, Undo taking it back (SB58)", async ({ page }) => {
+        const box = await openSheet(page, "light", 1440, WEEKS);
         const pane = box.locator("[data-builder-frame] [data-frame-slot=end]");
         const qty = box.locator("[data-frame-slot=main] [data-slot=row] [data-slot=cell][data-key=qty]").first();
         await box.locator("[data-frame-slot=main] [data-slot=row] [data-slot=cell][data-key=task]").first().click();
@@ -468,11 +468,11 @@ const lineTexts = (box: Locator, group: string, key: string) =>
     box.locator(`[data-frame-slot=main] [data-slot="row"][data-group-id="${group}"]:not([data-blank])`)
         .evaluateAll((rows, k) => rows.map((row) => row.querySelector(`[data-key="${k}"]`)?.textContent ?? ""), key);
 
-test.describe("Sheet builder — the folded gutter on a phone (#1215)", () => {
+test.describe("The Sheet's frame — the folded gutter on a phone (#1215)", () => {
     test.skip(({ isMobile }) => !isMobile, "measured on the phone");
 
     test("the workshop's sheet folds its gutter to 108px: the first column's cell shows beside it, 128px and more, each row's actions one 44 × 44 button in it; a tap opens the row's menu, every item 44px tall", async ({ page }) => {
-        const box = await openBuilder(page, "light", null);
+        const box = await openSheet(page, "light", null);
         const line = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2201"]:not([data-blank])').first();
         await expect.poll(() => line.evaluate((row) => {
             const main = row.closest("[data-frame-slot=main]")!.getBoundingClientRect();
@@ -494,7 +494,7 @@ test.describe("Sheet builder — the folded gutter on a phone (#1215)", () => {
     });
 
     test("a drag on a batch's line's row-actions button moves the line, as its grip does", async ({ page }) => {
-        const box = await openBuilder(page, "light", null, BATCHES);
+        const box = await openSheet(page, "light", null, BATCHES);
         const lines = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-101"]:not([data-blank])');
         await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Cut doors", "Band doors", "Spray doors"]);
         // The batch in the window's middle: no row the drag rests on lies near an edge, where a drag scrolls the page.
@@ -515,12 +515,12 @@ test.describe("Sheet builder — the folded gutter on a phone (#1215)", () => {
     });
 });
 
-test.describe("Sheet builder — drag and drop (#1187)", () => {
+test.describe("The Sheet's frame — drag and drop (#1187)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
     for (const theme of ["light", "dark"] as const) {
         test(`a template carried over a line: its caption under the ghost — mono, the muted ink on the paper in a strong rule — and along the seam it would land on a 2px brand line from the gutter's edge; dropped, the line inserted there (${theme})`, async ({ page }) => {
-            const box = await openBuilder(page, theme, 1440, BATCHES);
+            const box = await openSheet(page, theme, 1440, BATCHES);
             const card = box.locator('[data-frame-slot=start] [role="tabpanel"]:not([hidden]) [data-library-item="sand"]');
             const target = box.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="B-101"]:not([data-blank])').nth(1);
             await pickUp(page, card);
@@ -567,9 +567,9 @@ test.describe("Sheet builder — drag and drop (#1187)", () => {
         });
 
         test(`a status card over the rows: on a line refused — the caption red, the line its invalid wash right under the pointer — and on its order's band the brand wash; let go there, the order drafted (${theme})`, async ({ page }) => {
-            // A window that holds the whole builder: no row it measures near the edges where a drag scrolls the page.
+            // A window that holds the whole sheet: no row it measures near the edges where a drag scrolls the page.
             await page.setViewportSize({ width: page.viewportSize()!.width, height: 1300 });
-            const box = await openBuilder(page, theme);
+            const box = await openSheet(page, theme);
             const pane = box.locator("[data-builder-frame] [data-frame-slot=start]");
             await pane.getByRole("tab", { name: "Statuses 3" }).click();
             // A status is a group's: on a line it is refused, on a band it lands.
@@ -620,7 +620,7 @@ test.describe("Sheet builder — drag and drop (#1187)", () => {
     test("a sheet whose rows fit its frame, its first batch moved to the end by its grip: every row is still drawn from the first — the frame cannot scroll to keep the batch where it stood (#1213)", async ({ page }) => {
         // A box tall enough that the rows fit the frame — it has nowhere to scroll — in a window that shows all of it.
         await page.setViewportSize({ width: 1280, height: 1300 });
-        const box = await openBuilder(page, "light", 1440, BATCHES);
+        const box = await openSheet(page, "light", 1440, BATCHES);
         const main = box.locator("[data-frame-slot=main]");
         const frameOf = () => main.locator('[data-virtual-rows="bounded"]');
         await box.evaluate((el) => { (el as HTMLElement).style.height = "1000px"; });
@@ -651,7 +651,7 @@ test.describe("Sheet builder — drag and drop (#1187)", () => {
     });
 
     test("at 560px the library floats over main under the scrim; a card picked up slides it off main and lifts the scrim, and lands on the line it is dropped on — the pane back over main once the drag is over", async ({ page }) => {
-        const box = await openBuilder(page, "light", 1440, BATCHES);
+        const box = await openSheet(page, "light", 1440, BATCHES);
         await sizeTo(page, box, 560);
         await box.getByRole("button", { name: "Expand Library" }).click();
         await expect.poll(async () => {
@@ -678,12 +678,12 @@ test.describe("Sheet builder — drag and drop (#1187)", () => {
 });
 
 /**
- * Leave the builders' page for the `Sheet.View` examples' and come back to it,
- * in the same page — its e3 kept in memory — so the builder mounts afresh over
- * what the record holds.
+ * Leave the Sheet's page for another e3 page — the paged sheet a dataset
+ * binds — and come back to it, in the same page — its e3 kept in memory — so
+ * the sheet mounts afresh over what the record holds.
  */
 async function remount(page: Page, hash: string): Promise<Locator> {
-    const away = "e3/sheet/sheet/sheetBasic";
+    const away = "e3/bind/data/data/dataBindPagedSheet";
     await page.evaluate((h) => { location.hash = `#${h}`; }, away);
     await expect(page.locator("[data-index]", { has: page.locator(`a[href="#${away}"]`) }).locator("[data-sheet-card]")).toBeVisible({ timeout: 20_000 });
     await page.evaluate((h) => { location.hash = `#${h}`; }, hash);
@@ -694,14 +694,14 @@ async function remount(page: Page, hash: string): Promise<Locator> {
     return entry.locator("[data-builder-frame]").first().locator("xpath=..");
 }
 
-/** The rows of a builder's sheet that still hold a draft. */
+/** The rows of a sheet that still hold a draft. */
 const drafts = (box: Locator) => box.locator("[data-frame-slot=main] [data-slot='row'][data-draft]");
 
-test.describe("Sheet builder — Apply on e3-web (SB54)", () => {
+test.describe("The Sheet's frame — Apply on e3-web (SB54)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    test("the workshop's orders, the record's entries: an operation's notes, edited and applied, are one commit to the page's e3 — and the builder, mounted again over the record, shows them", async ({ page }) => {
-        const box = await openBuilder(page);
+    test("the workshop's orders, the record's entries: an operation's notes, edited and applied, are one commit to the page's e3 — and the sheet, mounted again over the record, shows them", async ({ page }) => {
+        const box = await openSheet(page);
         // The wardrobes order's first operation: a line, its notes empty.
         const notesOf = (b: Locator) => b.locator('[data-frame-slot=main] [data-slot="row"][data-group-id="WO-2202"]:not([data-blank]) [data-key="notes"]').first();
         await notesOf(box).dblclick();
@@ -719,8 +719,8 @@ test.describe("Sheet builder — Apply on e3-web (SB54)", () => {
         await expect(drafts(again)).toHaveCount(0);
     });
 
-    test("one week's plan, one entry's rows: a task, edited and applied, is one commit to the week in the page's e3 — and the builder, mounted again over the record, shows it", async ({ page }) => {
-        const box = await openBuilder(page, "light", 1440, WEEKS);
+    test("one week's plan, one entry's rows: a task, edited and applied, is one commit to the week in the page's e3 — and the sheet, mounted again over the record, shows it", async ({ page }) => {
+        const box = await openSheet(page, "light", 1440, WEEKS);
         const taskOf = (b: Locator) => b.locator("[data-frame-slot=main] [data-slot='row'][data-row-id='w42-1'] [data-key='task']");
         await expect(taskOf(box)).toHaveText("Cut the kitchen carcasses");
         await taskOf(box).dblclick();

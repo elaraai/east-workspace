@@ -13,9 +13,9 @@
  * drawn or written: where a template inserts, where a group or a loose row
  * snaps to the seam between entries, which cells a card sets and where it is
  * refused, where a row, a line or a group moves to and when it stays, and
- * what ⏎ on a card does. The DOM test (`builder/sheet-builder-dnd`) carries
+ * what ⏎ on a card does. The DOM test (`frame/sheet-frame-dnd`) carries
  * them through the drag layer; here every rule is held on its own, the
- * refusals a builder never offers among them.
+ * refusals a sheet's library never offers among them.
  */
 
 import { describe, expect, test } from "vitest";
@@ -220,7 +220,7 @@ describe("an author's card sets its cells on the row it lands on (SB61)", () => 
         expect(says(planDrop(card("row", [["task", "Sand"]]), END, "", flatCtx), flatCtx)).toBe("Drop onto a row");
     });
 
-    test("a cell the sheet does not write refuses the card — a read-only column, a stamped one, one the sheet has not — though a builder's card never names one", () => {
+    test("a cell the sheet does not write refuses the card — a read-only column, a stamped one, one the sheet has not — though a library's card never names one", () => {
         const ctx = contextOf(FLAT);
         const locked = planDrop(card("row", [["task", "Sand"], ["machine", "CNC router"]]), flat("a"), "", ctx);
         expect(locked).toEqual({ kind: "refused", why: { why: "column", header: "Machine" } });

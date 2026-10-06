@@ -7,10 +7,10 @@
  * One formatter (#850), rendered — the Sheet's own counts: under
  * `I18nProvider locale="de-DE"` the transport line, an unloaded band, a lens
  * gap, the view tabs, a grouped sheet's summary and a band's line count print
- * German numbers. The grouped sheet is built by its factory and COMPILED, and
- * renders through its carrier (#1179), so the renderer reads what an author's
- * program produces. The other families' counts are east-ui-components'
- * `format.dom.test.tsx`.
+ * German numbers. The grouped sheet is `<Sheet>`, COMPILED, and renders
+ * through its carrier in its frame (#1216), so the renderer reads what an
+ * author's program produces. The other families' counts are
+ * east-ui-components' `format.dom.test.tsx`.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -26,14 +26,16 @@ import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { SheetFooter } from "./Footer.js";
 import { SheetBandRow, SheetGapRow } from "./Rows.js";
 import { SheetTabs } from "./Tabs.js";
+import { boundFrame } from "./frame.test-utils.js";
 // The renderer registers against its carrier as it loads.
-import "./index.js";
+import "./frame/index.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
-beforeEach(() => { initializeStore(new UIStore()); });
-afterEach(cleanup);
+let restoreFrame: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); restoreFrame(); });
 
 type UIValue = ValueTypeOf<typeof UIComponentType>;
 
@@ -96,8 +98,9 @@ describe("the Sheet's counts (#850)", () => {
         const plans = [{ id: "p1", name: "Week 8", lines: Array.from({ length: 1234 }, (_, i) => ({ task: `Task ${i}` })) }];
         const { container } = component(compile(East.function([], UIComponentType, ($) => {
             const data = $.const(plans, ArrayType(PlanType));
-            // Folded, so the unbounded body is the band alone — the summary still counts every line.
-            return Sheet.Root(data, { task: Sheet.column.text(TaskType, { header: "Task" }) }, {
+            // Folded, so the body is the band alone — the summary still counts every line.
+            return Sheet({
+                data, columns: { task: Sheet.column.text(TaskType, { header: "Task" }) },
                 id: "id",
                 group: Sheet.group(PlanType, "lines", { title: "name", folded: (_p) => true, noun: { singular: "plan", plural: "plans" } }),
             });

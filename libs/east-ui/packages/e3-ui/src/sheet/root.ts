@@ -4,13 +4,12 @@
  */
 
 /**
- * `Sheet.Root` — assembles the whole sheet's payload ({@link SheetRootType},
- * `Sheet Spec.md` §4.6) and returns it through the `SheetView` carrier
- * ({@link SheetViewComponent}): resolves the row source (both
- * arms), describes every column against the row type, compiles the typed
- * bridge (§4.8), builds each column's wire value, compiles `onUpdate` into
- * the checked batch adapter (§4.7), and refuses every mistake naming the
- * column and the remedy.
+ * The sheet's root — assembles the grid's whole root ({@link SheetRootType},
+ * `Sheet Spec.md` §4.6), which `<Sheet>`'s payload carries (`sheet.ts`):
+ * resolves the row source (both arms), describes every column against the
+ * row type, compiles the typed bridge (§4.8), builds each column's wire
+ * value, compiles `onUpdate` into the checked batch adapter (§4.7), and
+ * refuses every mistake naming the column and the remedy.
  *
  * @packageDocumentation
  */
@@ -39,7 +38,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { DensityType, StatusValueType, UIComponentType, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
+import { DensityType, StatusValueType, type DensityLiteral, type StatusValueLiteral } from "@elaraai/east-ui";
 import {
     SliceAffordanceType,
     SliceBindType,
@@ -54,7 +53,6 @@ import {
 } from "@elaraai/east-ui/internal";
 import {
     SheetRootType,
-    SheetViewComponent,
     SheetRowType,
     SheetRowsCollectionType,
     SheetRegisterType,
@@ -170,20 +168,18 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
 }
 
 /**
- * The options of `Sheet.Root` / the `<Sheet.View>` tag's props beside `data` and
- * `columns` (§3).
+ * The sheet's own options (§3) — `<Sheet>`'s props beside its rows (`record`
+ * or `data`), its `columns`, its panes, its views and its name.
  *
  * @typeParam R - The host's row type
- * @property id - The `String` field that identifies a row (required on a positional source; a keyed paged source's key is its id)
+ * @property id - The `String` field that identifies a row of `data` (required on a positional source; a keyed paged source's key is its id)
  * @property owned - Rows the upstream system owns: no copilot, stamped columns read-only — an accessor
  * @property driver - The driver declaration (`Sheet.driver`)
  * @property registers - Register name → members (`Sheet.register.*`)
  * @property suggest - The row-proposal declaration
  * @property slice - The bound slice whose narrowing the lens draws; the rail mounts `affordances`
  * @property affordances - Rail affordances when `slice` is set (default `["search"]`; `brush` / `legend` / `breakdown` refused)
- * @property views - The saved views
  * @property activeView - The active view's id
- * @property onViewsChange - Views changed
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection (§3.14)
@@ -194,7 +190,7 @@ export interface SheetReadyInput<R extends StructType, G extends EastType = neve
  * @property blanks - Padding rows below the last real one (default 18)
  * @property density - Row rhythm
  * @property footer - Footer items
- * @property style - Sizing and the gutter width
+ * @property style - The gutter width
  */
 export interface SheetOptions<R extends StructType> {
     /** Structural capabilities; defaults depend on grouping and source ordering. */
@@ -213,12 +209,8 @@ export interface SheetOptions<R extends StructType> {
     slice?: SubtypeExprOrValue<SliceBindType>;
     /** Rail affordances when `slice` is set. */
     affordances?: SliceAffordanceLiteral[];
-    /** The saved views. */
-    views?: SubtypeExprOrValue<ArrayType<SheetViewType>>;
     /** The active view's id. */
     activeView?: SubtypeExprOrValue<OptionType<StringType>>;
-    /** Views changed. */
-    onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetViewType>], NullType>>;
     /** The whole collection with the edit applied (inline arm only). */
     onUpdate?: SubtypeExprOrValue<FunctionType<[ArrayType<R>], NullType>>;
     /** Observe one gesture's draft and domain patches; this does not authorize writes. */
@@ -255,20 +247,16 @@ export interface SheetOptions<R extends StructType> {
         /** Optional status tint. */
         tone?: StatusValueLiteral | SubtypeExprOrValue<StatusValueType>;
     }[];
-    /** Sizing and the gutter width. */
+    /** The gutter width. The sheet fills the box it is given, and scrolls its own rows there. */
     style?: {
-        /** Definite height (`"fill"` fills the parent). */
-        height?: SubtypeExprOrValue<StringType>;
-        /** Max-height cap. */
-        maxHeight?: SubtypeExprOrValue<StringType>;
         /** The gutter width, a CSS px size. */
         gutterWidth?: SubtypeExprOrValue<StringType>;
     };
 }
 
 /**
- * The options of a GROUPED sheet (#740) — `Sheet.Root(plans, lineColumns,
- * { group: Sheet.group(P, "lines", …), … })`: the group `P` is the row,
+ * The options of a GROUPED sheet (#740) — `<Sheet data={plans}
+ * group={Sheet.group(P, "lines", …)} …>`: the group `P` is the row,
  * `columns` are declared over the line type its lines field holds, and the
  * edit channel addresses lines within their group.
  *
@@ -298,8 +286,8 @@ export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesF
 
 /**
  * The options of a sheet with LOOSE rows between its groups (#846) —
- * `Sheet.Root(entries, lineColumns, { group: Sheet.group(P, "lines", …), … })`
- * over entries `Sheet.Types.Entry(P, "lines")`: each entry a group, or a row
+ * `<Sheet data={entries} group={Sheet.group(P, "lines", …)} …>` over
+ * entries `Sheet.Types.Entry(P, "lines")`: each entry a group, or a row
  * of the line type standing between the groups. Everything a grouped sheet
  * takes, with `id`, `owned` and the write-back over the entry.
  *
@@ -325,7 +313,11 @@ export interface SheetEntriesOptions<P extends StructType, F extends SheetLinesF
         | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<SheetEntryOf<P, F>>>], typeof SheetApplyResultType>>;
 }
 
-/** Either arm's options, erased — what the implementation reads. */
+/**
+ * Either arm's options, erased — what the implementation reads: the sheet's
+ * own, and its views and their write-back, which `<Sheet>` reads off its
+ * `views` handle (`views.ts`).
+ */
 type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows"> & {
     subRows?: SheetSubRowsValue<StructType>;
     ready?: { row?: unknown; group?: unknown };
@@ -334,11 +326,13 @@ type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onP
     onPatch?: unknown;
     newRow?: unknown;
     newGroup?: unknown;
+    views?: SubtypeExprOrValue<ArrayType<SheetViewType>>;
+    onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetViewType>], NullType>>;
 };
 
 /**
  * What only e3-ui's own factories pass a sheet's root, never an author's prop
- * (#1182): `Sheet.Builder`'s record forms.
+ * (#1182): a record's rows, as `<Sheet record>` reads them.
  *
  * @internal
  */
@@ -486,206 +480,96 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
 }
 
 /**
- * Creates the Sheet root — the whole planning spreadsheet.
- *
- * @typeParam T - The inline data's type (an `Array<R>` value or expression)
- * @param data - The rows: an `Array<R>` value or expression, a whole-value bind handle, or a paged source
- * @param columns - The columns, keyed by the row's fields ({@link SheetColumnSpec})
- * @param options - Everything else ({@link SheetOptions})
- * @returns An East expression of `UIComponentType` — the sheet's payload ({@link createSheetPayload}), through the `SheetView` carrier
+ * Creates the sheet's root alone — the grid, its rows and its session
+ * ({@link SheetRootType}) that `<Sheet>`'s payload carries — for the root's
+ * own specs, which read it whole. It takes the rows, the columns and the
+ * sheet's own options as `<Sheet data>` takes them, form for form, and
+ * refuses what `<Sheet>` refuses of them.
  *
  * @remarks
  * `id` is required on a positional source. `onUpdate` is refused on the
- * paged arm; edit paged rows with onApply over a pinned source — one that names
- * its snapshot (`Data.bindPaged`'s handle). A `Dict` inline is refused: a sorted map would
- * sit rows in key order, not the planner's.
+ * paged arm; edit paged rows with onApply over a pinned source — one that
+ * names its snapshot (`Data.bindPaged`'s handle). A `Dict` inline is refused:
+ * a sorted map would sit rows in key order, not the planner's.
  *
  * With `group` (#740) the rows are GROUPS: `columns` are declared over the
  * line type the group's lines field holds, `onUpdate` rebuilds the groups
- * with their lines inside. onPatch observes one gesture; onApply confirms
- * an atomic checked batch. Rows of the line type may stand between the
- * groups (#846): pass entries `Sheet.Types.Entry(GroupType, "lines")` — a
- * group, or a LOOSE row, drawn as a plain row numbered in the groups'
- * sequence — with an `id` that both types carry.
- *
- * In a `.tsx` file the `<Sheet.View>` tag calls this, with `data`, `columns`
- * and the options as its props — as the example does for the smallest
- * sheet, the week's jobs an e3 record holds.
- *
- * @example
- * ```tsx
- * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Sheet } from "@elaraai/e3-ui";
- * import e3 from "@elaraai/e3";
- *
- * export const BasicJob = StructType({
- *     id:    StringType,
- *     start: OptionType(DateTimeType),   // none = blank cell
- *     task:  StringType,                 // "" = blank cell
- *     qty:   OptionType(FloatType),
- * });
- * export const BasicPlan = StructType({ jobs: ArrayType(BasicJob) });
- * export const sheetBasicPlans = e3.record("sheet_basic_plans", DictType(StringType, BasicPlan), new Map([
- *     ["week", { jobs: [
- *         { id: "j1", start: none, task: "Routing", qty: none },
- *     ] }],
- * ]));
- * export const sheetBasicPlansPatch = e3.mutation.patch(sheetBasicPlans);
- *
- * const sheet = East.function([], UIComponentType, (_$) => (
- *     <Reactive>{$ => {
- *         // The plans, bound with their patch door: the sheet reads the
- *         // week's jobs, and Apply commits the drafts to them.
- *         const plans = $.let(Record.bind(sheetBasicPlans, [sheetBasicPlansPatch]));
- *         const jobs = $.let(plans.read().get("week").jobs);
- *         const onApply = $.const(Record.onApply(plans, {
- *             entry: "week",
- *             get: East.function([BasicPlan], ArrayType(BasicJob), (_$, held) => held.jobs),
- *             set: East.function([BasicPlan, ArrayType(BasicJob)], BasicPlan, (_$, _held, next) => ({ jobs: next })),
- *             idField: "id",
- *         }));
- *         return (
- *             <Sheet.View
- *                 data={jobs}
- *                 id="id"
- *                 columns={{
- *                     start: Sheet.column.date(BasicJob, { header: "Start", sub: "dd / mm / yyyy" }),
- *                     task:  Sheet.column.text(BasicJob, { header: "Task" }),
- *                     qty:   Sheet.column.quantity(BasicJob, { header: "Qty" }),   // no driver on this sheet — the two-argument form
- *                 }}
- *                 onApply={onApply}
- *             />
- *         );
- *     }}</Reactive>
- * ));
- * ```
- */
-export function createSheet<P extends StructType, F extends SheetLinesField<P>>(
-    data: NoInfer<SubtypeExprOrValue<ArrayType<SheetEntryOf<P, F>>> | SheetBindHandle<SheetEntryOf<P, F>> | PagedSource<ArrayType<SheetEntryOf<P, F>>> | PagedSource<DictType<StringType, SheetEntryOf<P, F>>>>,
-    columns: SheetColumnSpec<SheetLineOf<P, F>>,
-    options: SheetEntriesOptions<P, F>,
-): ExprType<UIComponentType>;
-/** GROUPED rows — an `Array<P>` value or expression of groups. */
-export function createSheet<T extends SubtypeExprOrValue<ArrayType<StructType>>, F extends SheetLinesField<DataRowType<T>>>(
-    data: T,
-    columns: SheetColumnSpec<SheetLineOf<DataRowType<T>, F>>,
-    options: SheetGroupedOptions<DataRowType<T>, F>,
-): ExprType<UIComponentType>;
-/** GROUPED rows over a whole-value bind handle of groups. */
-export function createSheet<P extends StructType, F extends SheetLinesField<P>>(
-    data: SheetBindHandle<P>,
-    columns: SheetColumnSpec<SheetLineOf<P, F>>,
-    options: SheetGroupedOptions<P, F>,
-): ExprType<UIComponentType>;
-/** GROUPED rows over a paged source of groups. */
-export function createSheet<P extends StructType, F extends SheetLinesField<P>>(
-    data: PagedSource<ArrayType<P>> | PagedSource<DictType<StringType, P>>,
-    columns: SheetColumnSpec<SheetLineOf<P, F>>,
-    options: SheetGroupedOptions<P, F>,
-): ExprType<UIComponentType>;
-/** The inline arm — an `Array<R>` value or expression. */
-export function createSheet<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
-    data: T,
-    columns: SheetColumnSpec<DataRowType<T>>,
-    options: SheetOptions<DataRowType<T>>,
-): ExprType<UIComponentType>;
-/** A whole-value bind handle retains its live reader for atomic onUpdate. */
-export function createSheet<R extends StructType>(
-    data: SheetBindHandle<R>,
-    columns: SheetColumnSpec<R>,
-    options: SheetOptions<R>,
-): ExprType<UIComponentType>;
-/** The PAGED arm — positional (`Array<R>` windows) or keyed (`Dict<String, R>` windows, the key is the id). */
-export function createSheet<R extends StructType>(
-    data: PagedSource<ArrayType<R>> | PagedSource<DictType<StringType, R>>,
-    columns: SheetColumnSpec<R>,
-    options?: SheetOptions<R>,
-): ExprType<UIComponentType>;
-export function createSheet(
-    data: unknown,
-    columns: unknown,
-    options?: unknown,
-): ExprType<UIComponentType> {
-    return SheetViewComponent.Root(sheetPayload(data, columns, options));
-}
-
-/**
- * Creates the sheet's payload — the {@link SheetRootType} value
- * {@link createSheet} returns through the `SheetView` carrier, for the tests
- * and the renderer's own fixtures, which read it whole. It takes what
- * `createSheet` takes, arm for arm, and refuses what it refuses.
+ * with their lines inside. onPatch observes one gesture; onApply confirms an
+ * atomic checked batch. Rows of the line type may stand between the groups
+ * (#846): pass entries `Sheet.Types.Entry(GroupType, "lines")` — a group, or
+ * a LOOSE row, drawn as a plain row numbered in the groups' sequence — with
+ * an `id` that both types carry.
  *
  * @param data - The rows: an `Array<R>` value or expression, a whole-value bind handle, or a paged source
  * @param columns - The columns, keyed by the row's fields ({@link SheetColumnSpec})
  * @param options - Everything else ({@link SheetOptions})
  * @returns An East expression of {@link SheetRootType}
+ * @internal
  */
-export function createSheetPayload<P extends StructType, F extends SheetLinesField<P>>(
+export function createSheetRoot<P extends StructType, F extends SheetLinesField<P>>(
     data: NoInfer<SubtypeExprOrValue<ArrayType<SheetEntryOf<P, F>>> | SheetBindHandle<SheetEntryOf<P, F>> | PagedSource<ArrayType<SheetEntryOf<P, F>>> | PagedSource<DictType<StringType, SheetEntryOf<P, F>>>>,
     columns: SheetColumnSpec<SheetLineOf<P, F>>,
     options: SheetEntriesOptions<P, F>,
 ): ExprType<SheetRootType>;
 /** GROUPED rows — an `Array<P>` value or expression of groups. */
-export function createSheetPayload<T extends SubtypeExprOrValue<ArrayType<StructType>>, F extends SheetLinesField<DataRowType<T>>>(
+export function createSheetRoot<T extends SubtypeExprOrValue<ArrayType<StructType>>, F extends SheetLinesField<DataRowType<T>>>(
     data: T,
     columns: SheetColumnSpec<SheetLineOf<DataRowType<T>, F>>,
     options: SheetGroupedOptions<DataRowType<T>, F>,
 ): ExprType<SheetRootType>;
 /** GROUPED rows over a whole-value bind handle of groups. */
-export function createSheetPayload<P extends StructType, F extends SheetLinesField<P>>(
+export function createSheetRoot<P extends StructType, F extends SheetLinesField<P>>(
     data: SheetBindHandle<P>,
     columns: SheetColumnSpec<SheetLineOf<P, F>>,
     options: SheetGroupedOptions<P, F>,
 ): ExprType<SheetRootType>;
 /** GROUPED rows over a paged source of groups. */
-export function createSheetPayload<P extends StructType, F extends SheetLinesField<P>>(
+export function createSheetRoot<P extends StructType, F extends SheetLinesField<P>>(
     data: PagedSource<ArrayType<P>> | PagedSource<DictType<StringType, P>>,
     columns: SheetColumnSpec<SheetLineOf<P, F>>,
     options: SheetGroupedOptions<P, F>,
 ): ExprType<SheetRootType>;
 /** The inline arm — an `Array<R>` value or expression. */
-export function createSheetPayload<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
+export function createSheetRoot<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
     columns: SheetColumnSpec<DataRowType<T>>,
     options: SheetOptions<DataRowType<T>>,
 ): ExprType<SheetRootType>;
 /** A whole-value bind handle retains its live reader for atomic onUpdate. */
-export function createSheetPayload<R extends StructType>(
+export function createSheetRoot<R extends StructType>(
     data: SheetBindHandle<R>,
     columns: SheetColumnSpec<R>,
     options: SheetOptions<R>,
 ): ExprType<SheetRootType>;
 /** The PAGED arm — positional (`Array<R>` windows) or keyed (`Dict<String, R>` windows, the key is the id). */
-export function createSheetPayload<R extends StructType>(
+export function createSheetRoot<R extends StructType>(
     data: PagedSource<ArrayType<R>> | PagedSource<DictType<StringType, R>>,
     columns: SheetColumnSpec<R>,
     options?: SheetOptions<R>,
 ): ExprType<SheetRootType>;
-export function createSheetPayload(
+export function createSheetRoot(
     data: unknown,
     columns: unknown,
     options?: unknown,
 ): ExprType<SheetRootType> {
-    return sheetPayload(data, columns, options);
+    return buildSheet(data, columns, options, {}).root;
 }
 
 /**
- * Creates a sheet's payload for e3-ui's own factories (#1182): what
- * {@link createSheetPayload} builds, with the options only they pass — a
- * record's whole Dict read in key order, the keyed Apply that commits to it,
- * and the session's source identity.
+ * Creates a sheet's root with the options only e3-ui's own factories pass
+ * (#1182): what {@link createSheetRoot} builds, with a record's whole Dict
+ * read in key order, the keyed Apply that commits to it, and the session's
+ * source identity.
  *
- * @param data - The rows, as {@link createSheetPayload} takes them; with `keyOrdered`, a Dict or a bind handle of one
+ * @param data - The rows, as {@link createSheetRoot} takes them; with `keyOrdered`, a Dict or a bind handle of one
  * @param columns - The columns, keyed by the row's fields
- * @param options - The sheet's options, as {@link createSheetPayload} takes them
+ * @param options - The sheet's options, as {@link createSheetRoot} takes them
  * @param internal - The factory's own options
  * @returns An East expression of {@link SheetRootType}
- * @throws Error for everything {@link createSheetPayload} refuses, and for a key-ordered sheet over anything but a Dict
+ * @throws Error for everything {@link createSheetRoot} refuses, and for a key-ordered sheet over anything but a Dict
  * @internal
  */
-export function createSheetPayloadWith(
+export function createSheetRootWith(
     data: unknown,
     columns: unknown,
     options: unknown,
@@ -695,34 +579,34 @@ export function createSheetPayloadWith(
 }
 
 /**
- * One build of a sheet: its payload, and the bridge it was compiled with —
- * what `Sheet.Builder` builds its templates' seeds and cards over (#1183),
- * so a template's draft and the cells its card shows come from the very code
+ * One build of a sheet: its root, and the bridge it was compiled with —
+ * what `<Sheet>` builds its templates' seeds and cards over (#1183), so a
+ * template's draft and the cells its card shows come from the very code
  * `newRow`'s do.
  *
  * @internal
  */
 export interface SheetBuild {
-    /** The sheet's payload. */
+    /** The sheet's root. */
     root: ExprType<SheetRootType>;
-    /** The typed bridge the payload was compiled with. */
+    /** The typed bridge the root was compiled with. */
     bridge: SheetBridge;
-    /** The declared columns, each described against the type they are declared over — the row, or a grouped sheet's line: what the builder's inspector reads its fields through (#1188). */
+    /** The declared columns, each described against the type they are declared over — the row, or a grouped sheet's line: what the inspector reads its fields through (#1188). */
     metas: readonly SheetColumnMeta[];
-    /** The registers' names — the declared ones, and the driver's under its column: what a `reference` hint in the builder's inspector may name (#1188). */
+    /** The registers' names — the declared ones, and the driver's under its column: what a `reference` hint in the inspector may name (#1188). */
     registers: readonly string[];
 }
 
 /**
- * Builds a sheet for e3-ui's own factories (#1183): {@link createSheetPayloadWith}'s
- * payload, with the bridge it was compiled with.
+ * Builds a sheet for `<Sheet>` (#1183): {@link createSheetRootWith}'s root,
+ * with the bridge it was compiled with.
  *
- * @param data - The rows, as {@link createSheetPayloadWith} takes them
+ * @param data - The rows, as {@link createSheetRootWith} takes them
  * @param columns - The columns, keyed by the row's fields
  * @param options - The sheet's options
  * @param internal - The factory's own options
- * @returns The payload and its bridge
- * @throws Error for everything {@link createSheetPayloadWith} refuses
+ * @returns The root and its bridge
+ * @throws Error for everything {@link createSheetRootWith} refuses
  * @internal
  */
 export function createSheetBuild(
@@ -732,16 +616,6 @@ export function createSheetBuild(
     internal: SheetInternalOptions,
 ): SheetBuild {
     return buildSheet(data, columns, options, internal);
-}
-
-/** The sheet's payload, built and checked — the one body every factory shares. */
-function sheetPayload(
-    data: unknown,
-    columns: unknown,
-    options?: unknown,
-    internal: SheetInternalOptions = {},
-): ExprType<SheetRootType> {
-    return buildSheet(data, columns, options, internal).root;
 }
 
 /** The sheet's payload and its bridge, built and checked. */
@@ -1037,8 +911,6 @@ function buildSheet(
     })), ArrayType(SheetFooterItemType));
     const style = opts.style !== undefined
         ? East.value(some({
-            height:      optionOf(opts.style.height, StringType),
-            maxHeight:   optionOf(opts.style.maxHeight, StringType),
             gutterWidth: optionOf(opts.style.gutterWidth, StringType),
         }), OptionType(SheetStyleType))
         : East.value(none, OptionType(SheetStyleType));

@@ -4,11 +4,11 @@
  */
 
 /**
- * The sheet builder's DOM test harness (#1184, #1186): what jsdom lacks, a
- * bounded 400px frame over the grid's rows, and the record runtime a surface
- * installs, over the builder examples' records held in memory, whose patch
- * door applies each patch with East's own checks. A test file calls
- * {@link builderHarness} once, at its top, and mounts builders as a surface
+ * The Sheet's DOM test harness over its examples (#1184, #1186, #1216): what
+ * jsdom lacks, a bounded 400px frame over the grid's rows, and the record
+ * runtime a surface installs, over the examples' records held in memory,
+ * whose patch door applies each patch with East's own checks. A test file
+ * calls {@link sheetHarness} once, at its top, and mounts sheets as a surface
  * does: under the page's drag layer when it drags (#1187).
  *
  * @packageDocumentation
@@ -18,18 +18,17 @@ import type { ReactNode } from "react";
 import { beforeEach, afterEach } from "vitest";
 import { act, cleanup, render, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { PatchType, applyFor, encodeBeast2For, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { PatchType, applyFor, encodeBeast2For, type EastIR } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
-import type { SheetBuilderPayloadType } from "@elaraai/e3-ui/internal";
 import { DragLayerProvider, EastChakraComponent, I18nProvider, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
-import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../../platform/index.js";
-import { measureRowsAsDrawn } from "../frame.test-utils.js";
-// The builder is an extension: its renderer registers as it loads.
-import { EastChakraSheetBuilder } from "./index.js";
+import { boundFrame } from "../frame.test-utils.js";
+// The Sheet is an extension: its renderer registers as it loads.
+import { EastChakraSheet, type SheetValue } from "./index.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -43,27 +42,21 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as unknown as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
 
 /** The workspace the records live in. */
-export const WORKSPACE = "sheet-builder-test";
+export const WORKSPACE = "sheet-test";
 
-/** The builder's payload, decoded. */
-export type Payload = ValueTypeOf<typeof SheetBuilderPayloadType>;
+/** The Sheet's payload, decoded. */
+export type Payload = SheetValue;
 
 /** What a test reads and writes through: the records in memory, and the cache over them. */
-export interface BuilderHarness {
+export interface SheetHarness {
     /** The records' API: their patch doors and their history. */
     memory: RecordApi;
     /** The datasets the records are read through. */
     cache: ReactiveDatasetCache;
 }
 
-// ── Layout stand-ins: the grid fills main, a 400px frame over its rows ───
+/** The frame over the grid's rows: 400px, a screenful of a dozen rows. */
 const VIEWPORT = 400;
-const frameHeight = (el: Element): number | undefined => (el.getAttribute("data-virtual-rows") === "bounded" ? VIEWPORT : undefined);
-const saved = {
-    offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!,
-    clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!,
-    scrollHeight: Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!,
-};
 
 /** A record of the examples', in memory, its patch door applying each patch with East's checks. */
 function patchable<T extends { name: string; type: Parameters<typeof applyFor>[0]; default?: unknown }>(record: T) {
@@ -81,21 +74,12 @@ function patchable<T extends { name: string; type: Parameters<typeof applyFor>[0
  *
  * @returns The records and the cache — each test's own, set before it runs
  */
-export function builderHarness(): BuilderHarness {
-    const harness = {} as BuilderHarness;
-    let restoreRows: () => void = () => {};
+export function sheetHarness(): SheetHarness {
+    const harness = {} as SheetHarness;
+    let restoreFrame: () => void = () => {};
     beforeEach(() => {
         StateRuntime.initializeStore(new UIStore());
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true, get(this: HTMLElement) { return frameHeight(this) ?? 0; },
-        });
-        Object.defineProperty(Element.prototype, "clientHeight", {
-            configurable: true, get(this: Element) { return frameHeight(this) ?? 0; },
-        });
-        Object.defineProperty(Element.prototype, "scrollHeight", {
-            configurable: true, get(this: Element) { return frameHeight(this) !== undefined ? 10_000 : 0; },
-        });
-        restoreRows = measureRowsAsDrawn();
+        restoreFrame = boundFrame(VIEWPORT);
         const store = new Map<string, Uint8Array>();
         const api: DatasetApi = {
             async get(ws, path) {
@@ -113,23 +97,20 @@ export function builderHarness(): BuilderHarness {
         harness.cache.setScheduler((notify) => queueMicrotask(notify));
         initializeReactiveDatasetCache(harness.cache);
         harness.memory = createInMemoryRecordApi(harness.cache, WORKSPACE, [
-            patchable(ex.sheetBuilderJobs), patchable(ex.sheetBuilderPlans), patchable(ex.sheetBuilderOrders), patchable(ex.sheetBuilderDays),
-            patchable(ex.sheetBuilderWork),
-            { name: ex.sheetBuilderMachines.name, stateType: ex.sheetBuilderMachines.type, initial: ex.sheetBuilderMachines.default!, mutations: [] },
+            patchable(ex.sheetJobs), patchable(ex.sheetWeekPlans), patchable(ex.sheetWorkshopOrders), patchable(ex.sheetBatchDays),
+            patchable(ex.sheetLooseWork),
+            { name: ex.sheetWorkshopMachines.name, stateType: ex.sheetWorkshopMachines.type, initial: ex.sheetWorkshopMachines.default!, mutations: [] },
         ]);
         initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
         // The workshop's activities: an input, its declared value.
-        const activities = ex.sheetBuilderActivities;
+        const activities = ex.sheetWorkshopActivities;
         if (activities.source?.type !== "value") throw new Error("the activities input declares no value");
         void harness.cache.write(WORKSPACE, activities.path, encodeBeast2For(activities.type)(activities.source.value));
     });
     afterEach(() => {
         cleanup();
         localStorage.clear();
-        restoreRows();
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", saved.offsetHeight);
-        Object.defineProperty(Element.prototype, "clientHeight", saved.clientHeight);
-        Object.defineProperty(Element.prototype, "scrollHeight", saved.scrollHeight);
+        restoreFrame();
     });
     return harness;
 }
@@ -141,13 +122,13 @@ export async function settle() {
     });
 }
 
-/** How a test mounts a builder: under the page's drag layer, as a surface that drags does (#1187). */
+/** How a test mounts a sheet: under the page's drag layer, as a surface that drags does (#1187). */
 export interface MountOptions {
     /** Mount the page's drag layer around it. */
     drag?: boolean | undefined;
 }
 
-/** The page around a builder: the theme, the locale, and the drag layer when it drags. */
+/** The page around a sheet: the theme, the locale, and the drag layer when it drags. */
 function page(children: ReactNode, options: MountOptions): ReactNode {
     return (
         <ChakraProvider value={system}>
@@ -159,31 +140,31 @@ function page(children: ReactNode, options: MountOptions): ReactNode {
 }
 
 /**
- * Mounts an example of the builder's, as a surface does.
+ * Mounts an example of the Sheet's, as a surface does.
  *
  * @param example - The example
  * @param options - Whether the page holds a drag layer
  * @returns The render
  */
 export function mount(example: { fn: { toIR(): unknown } }, options: MountOptions = {}): RenderResult {
-    // An example's `fn` erases its output type at the package boundary; the builder's examples are UI components.
+    // An example's `fn` erases its output type at the package boundary; the Sheet's examples are UI components.
     const program = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
-    return render(page(<EastChakraComponent value={program()} storageKey="sheet-builder" />, options));
+    return render(page(<EastChakraComponent value={program()} storageKey="sheet" />, options));
 }
 
 /**
- * Mounts a builder's payload as given.
+ * Mounts a sheet's payload as given.
  *
  * @param value - The payload
  * @param options - Whether the page holds a drag layer
  * @returns The render
  */
 export function mountPayload(value: Payload, options: MountOptions = {}): RenderResult {
-    return render(page(<EastChakraSheetBuilder value={value} storageKey="sheet-builder" />, options));
+    return render(page(<EastChakraSheet value={value} storageKey="sheet" />, options));
 }
 
 /**
- * A region of the builder's frame.
+ * A region of the sheet's frame.
  *
  * @param container - The render's container
  * @param name - The region: `toolbar`, `banners`, `start`, `main`, `end` or `footer`

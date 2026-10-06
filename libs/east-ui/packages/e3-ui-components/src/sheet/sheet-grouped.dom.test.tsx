@@ -9,9 +9,10 @@
  * folds; a line's commit, a blank line's insert, a band cell's commit and
  * the title rename; explicit group insertion; the two-step delete;
  * paste into a plan and a copy that skips summaries; the lens on lines and
- * source key search; the paged arm's geometry in a bounded frame, where an
+ * source key search; the paged arm's geometry in the frame, where an
  * unloaded band is as tall as its rows (#855). The group's noun is the host's
- * (`plan`). Every value built by the east-ui factory and COMPILED.
+ * (`plan`). Every value built by `<Sheet>`'s factory and COMPILED, and
+ * rendered in its frame (#1216).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -22,22 +23,27 @@ import {
     none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged, StatusValueType } from "@elaraai/east-ui";
-import { Sheet } from "@elaraai/e3-ui/internal";
-import { Slice } from "@elaraai/east-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
+import { Slice, State } from "@elaraai/east-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
-import type { SheetPagedSourceValue, SheetRootValue } from "./values.js";
+import { boundFrame, frameScrolls } from "./frame.test-utils.js";
 
-// A sheet that mounts a screenful — bounded, or of 400 rows or more (#856) —
-// measures its rows: they are as tall as they draw.
-let restoreRows: () => void = () => {};
-// Folds and a bounded frame's scroll persist under the sheet's `storageKey`
+// The frame the rows scroll in (#1216), its rows as tall as they draw: tall
+// enough for every row of the inline sheets, and a screenful of the paged
+// ones. A describe that lays out another frame sets it with `frameAt`.
+let restoreFrame: () => void = () => {};
+/** The frame `height` px tall, in place of the file's. */
+function frameAt(height: number) {
+    restoreFrame();
+    restoreFrame = boundFrame(height);
+}
+// Folds and the frame's scroll persist under the sheet's `storageKey`
 // (#857): every test starts from nothing persisted.
-beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); restoreRows = measureRowsAsDrawn(); });
-afterEach(() => { cleanup(); restoreRows(); });
+beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); restoreFrame(); });
 
 // jsdom lacks the browser APIs Chakra's Combobox positioner relies on.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -79,22 +85,24 @@ const TWO_VIEWS = [...VIEWS, { id: "all", name: "ALL", narrowing: { ...SPRAY_NAR
 type Options = { lens?: boolean; readOnly?: boolean; activeView?: "spray" | "all" };
 
 /** A grouped sheet the way an author builds one: plans over their lines, a band with a title, an eyebrow and two band cells, completed plans folded. */
-function buildGrouped(opts: Options = {}): SheetRootValue {
+function buildGrouped(opts: Options = {}): SheetValue {
     const viewList = opts.activeView !== undefined ? TWO_VIEWS : VIEWS;
     const opening = opts.activeView ?? "spray";
-    const program = East.function([], Sheet.Types.Root, ($) => {
+    const program = East.function([], SheetPayloadType, ($) => {
         const plans = $.const(PLANS, ArrayType(PlanType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
         const lines = $.const(LINES, ArrayType(LineType));
-        const views = $.const(viewList, ArrayType(Sheet.Types.View));
+        const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-grouped-views", viewList));
         const cfg = $.const(Slice.config(LineType, { fields: { task: { label: "Task" } }, searchFieldIds: ["task"] }));
         const slice = $.let(Slice.bind([LineType], "sheet_grouped_dom", cfg, Slice.state(), lines, none));
-        return Sheet.Payload(plans, {
-            start:  Sheet.column.date(LineType, { header: "Start" }),
-            task:   Sheet.column.text(LineType, { header: "Task" }),
-            qty:    Sheet.column.quantity(LineType, { header: "Qty" }),
-            status: Sheet.column.enum(LineType, "statuses", { header: "Status" }),
-        }, {
+        return Sheet.Payload({
+            data: plans,
+            columns: {
+                start:  Sheet.column.date(LineType, { header: "Start" }),
+                task:   Sheet.column.text(LineType, { header: "Task" }),
+                qty:    Sheet.column.quantity(LineType, { header: "Qty" }),
+                status: Sheet.column.enum(LineType, "statuses", { header: "Status" }),
+            },
             id: "id",
             group: Sheet.group(PlanType, "lines", {
                 title: "name",
@@ -115,12 +123,12 @@ function buildGrouped(opts: Options = {}): SheetRootValue {
 }
 
 /** Swap the host's edit channel for a spy after compilation — the renderer takes every function from the value. */
-function withSpy(root: SheetRootValue) {
-    const journal = sheetJournal(root);
+function withSpy(sheet: SheetValue) {
+    const journal = sheetJournal(sheet);
     return { value: journal.value, edits: journal.events, draft: journal.draft, drafts: journal.drafts };
 }
 
-function mount(value: SheetRootValue, storageKey = "sheet-grouped-test") {
+function mount(value: SheetValue, storageKey = "sheet-grouped-test") {
     const utils = render(
         <ChakraProvider value={system}>
             <EastChakraSheet value={value} storageKey={storageKey} />
@@ -482,38 +490,37 @@ const PAGED_PLANS = {
 };
 
 /** A pinned paged source of `n` plans — a bound dataset the planner edits —, one line each, keyed by an id that sorts as it streams. */
-function buildPagedPlans(n: 10 | 250 | 1000 | 2000): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildPagedPlans(n: 10 | 250 | 1000 | 2000): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const source = $.const(PAGED_PLANS[n], Paged.Types.PinnedSource(Plans));
-        return Sheet.Payload(source, {
-            task: Sheet.column.text(LineType, { header: "Task" }),
-        }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) });
+        return Sheet.Payload({
+            data: source,
+            columns: { task: Sheet.column.text(LineType, { header: "Task" }) },
+            id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }),
+        });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
 
 describe("the paged arm (G13)", () => {
     test("windows land with children and insertion controls without a ghost band", async () => {
-        const restore = emulateWindowScroll();
-        try {
-            const { container, band, lines, ghost, chip } = mount(withSpy(buildPagedPlans(250)).value);
-            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250"), { timeout: 15_000 });
-            expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
-            expect(ghost()).toBeNull();
-            expect(chip(band("P1000")!, "insertGroup")!.getAttribute("aria-label")).toBe("New group");
-            // Every plan landed with its line and its blank line: 750 rows, of which the sheet mounts what
-            // the page shows (#856). Down at the end, the last plan's line and blank line.
-            const extent = Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
-            expect(extent).toBe(250 * (42 + 36 + 36));
-            act(() => { window.scrollTo({ top: extent - window.innerHeight }); });
-            expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
-        } finally {
-            restore();
-        }
+        const { container, band, lines, ghost, chip } = mount(withSpy(buildPagedPlans(250)).value);
+        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250"), { timeout: 15_000 });
+        expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
+        expect(ghost()).toBeNull();
+        expect(chip(band("P1000")!, "insertGroup")!.getAttribute("aria-label")).toBe("New group");
+        // Every plan landed with its line and its blank line: 750 rows, of which the sheet mounts what
+        // the frame shows (#856). Down at the end, the last plan's line and blank line.
+        const extent = Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+        expect(extent).toBe(250 * (42 + 36 + 36));
+        const frame = container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
+        act(() => { frame.scrollTop = extent - frame.clientHeight; fireEvent.scroll(frame); });
+        expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
     }, 30_000);
 
     test("⌘End jumps to the source's last plan and lands on its last line — never the blank line under it (#860)", async () => {
-        const restore = emulateWindowScroll();
+        // The frame scrolls to the ring, as a browser's does.
+        const restore = frameScrolls();
         try {
             const { container, lines, key } = mount(withSpy(buildPagedPlans(1_000)).value);
             await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
@@ -612,17 +619,16 @@ const VARIED = sourceOver("sheet_grouped_varied_2000", Array.from({ length: 2_00
  * keyed by an id that sorts as it streams. Read-only, a group draws no blank
  * line: a plan is its band and its two lines, 42 + 2 × 36 = 114 px.
  */
-function buildFramedPlans(): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildFramedPlans(): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const source = $.const(FRAMED, Paged.Types.Source(CutPlans));
-        return Sheet.Payload(source, {
-            task: Sheet.column.text(CutLineType, { header: "Task" }),
-        }, {
+        return Sheet.Payload({
+            data: source,
+            columns: { task: Sheet.column.text(CutLineType, { header: "Task" }) },
             id: "id",
             group: Sheet.group(CutPlanType, "lines", { title: "name" }),
             subRows: Sheet.subRows(CutLineType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name }) }),
             readOnly: true,
-            style: { height: "600px" },
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
@@ -633,16 +639,15 @@ function buildFramedPlans(): SheetRootValue {
  * (#878): plans 0–199 have one line (78 px), every later plan two (114 px), so
  * an unvisited window is described at 78 px a plan and lands 7,200 px taller.
  */
-function buildVariedPlans(): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildVariedPlans(): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const source = $.const(VARIED, Paged.Types.Source(CutPlans));
-        return Sheet.Payload(source, {
-            task: Sheet.column.text(CutLineType, { header: "Task" }),
-        }, {
+        return Sheet.Payload({
+            data: source,
+            columns: { task: Sheet.column.text(CutLineType, { header: "Task" }) },
             id: "id",
             group: Sheet.group(CutPlanType, "lines", { title: "name" }),
             readOnly: true,
-            style: { height: "600px" },
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
@@ -653,28 +658,25 @@ const OPS_PLANS: ValueTypeOf<typeof CutPlanType>[] = [
     { id: "P1", name: "Plan 1", lines: [{ task: "Cut 1", ops: OPS }, { task: "Fit 1", ops: [] }] },
     { id: "P2", name: "Plan 2", lines: [{ task: "Cut 2", ops: OPS }] },
 ];
-/** A read-only sheet of {@link OPS_PLANS} — unbounded, or in a frame `height` tall. */
-function buildOpsPlans(height?: string): SheetRootValue {
-    const bound = height !== undefined ? { style: { height } } : {};
-    const program = East.function([], Sheet.Types.Root, ($) => {
+/** A read-only sheet of {@link OPS_PLANS}. */
+function buildOpsPlans(): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const plans = $.const(OPS_PLANS, ArrayType(CutPlanType));
-        return Sheet.Payload(plans, {
-            task: Sheet.column.text(CutLineType, { header: "Task" }),
-        }, {
+        return Sheet.Payload({
+            data: plans,
+            columns: { task: Sheet.column.text(CutLineType, { header: "Task" }) },
             id: "id",
             group: Sheet.group(CutPlanType, "lines", { title: "name" }),
             subRows: Sheet.subRows(CutLineType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name }) }),
             readOnly: true,
-            ...bound,
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
 
 describe("a sub row's well keeps to the view (#856)", () => {
-    test("in an unbounded sheet, and after the sheet becomes bounded, the well's content is as wide as the view past the gutter", async () => {
+    test("the well's content is as wide as the view past the gutter, and follows the view as it narrows", async () => {
         // The view's width, and a ResizeObserver the test fires: jsdom lays nothing out.
-        const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
         let width = 900;
         const watchers: { el: Element; fire: () => void }[] = [];
         const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
@@ -685,14 +687,11 @@ describe("a sub row's well keeps to the view (#856)", () => {
             unobserve() {}
             disconnect() {}
         };
-        // The frame — the card's one child, bounded or not — is as wide as the view; bounded, it is 400 px tall.
+        // The frame the rows scroll in is as wide as the view, and 400 px tall.
+        frameAt(400);
         Object.defineProperty(HTMLElement.prototype, "clientWidth", {
             configurable: true,
-            get(this: HTMLElement) { return this.parentElement?.hasAttribute("data-sheet-card") === true ? width : 0; },
-        });
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true,
-            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 400 : 0; },
+            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? width : 0; },
         });
         try {
             const ui = mount(buildOpsPlans());
@@ -702,16 +701,13 @@ describe("a sub row's well keeps to the view (#856)", () => {
             const well = () => ui.container.querySelector<HTMLElement>('[data-slot="subRowContent"]')!;
             const gutter = parseFloat(well().style.left);
             expect(well().style.maxWidth).toBe(`${900 - gutter}px`);
-            // Bounded, the frame scrolls its own rows; its scrollbar takes some of the view.
-            ui.rerender(<ChakraProvider value={system}><EastChakraSheet value={buildOpsPlans("400px")} storageKey="sheet-grouped-test" /></ChakraProvider>);
-            expect(ui.container.querySelector('[data-virtual-rows="bounded"]')).toBeTruthy();
+            // The view narrows — a scrollbar, a pane opened beside the grid: the well follows it.
             width = 880;
-            act(() => { for (const w of watchers) if (w.el.parentElement?.hasAttribute("data-sheet-card") === true) w.fire(); });
+            act(() => { for (const w of watchers) if (w.el.getAttribute("data-virtual-rows") === "bounded") w.fire(); });
             expect(well().style.maxWidth).toBe(`${880 - gutter}px`);
         } finally {
             (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
             delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
-            Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
         }
     });
 });
@@ -721,9 +717,9 @@ describe("a sub row's well keeps to the view (#856)", () => {
  * `Cut i`, with two operations as its sub rows, and `Fit i` — read-only, so a
  * plan draws its band and its two lines, 42 + 2 × 36 = 114 px.
  */
-function buildFramedInline(n: number): SheetRootValue {
+function buildFramedInline(n: number): SheetValue {
     const count = BigInt(n);
-    const program = East.function([], Sheet.Types.Root, ($) => {
+    const program = East.function([], SheetPayloadType, ($) => {
         const ops = $.const(OPS, ArrayType(OpType));
         const noOps = $.const([], ArrayType(OpType));
         const total = $.const(count);
@@ -731,14 +727,13 @@ function buildFramedInline(n: number): SheetRootValue {
             id: East.str`P${i.add(10000n)}`, name: East.str`Plan ${i}`,
             lines: [{ task: East.str`Cut ${i}`, ops }, { task: East.str`Fit ${i}`, ops: noOps }],
         }, CutPlanType)), ArrayType(CutPlanType));
-        return Sheet.Payload(plans, {
-            task: Sheet.column.text(CutLineType, { header: "Task" }),
-        }, {
+        return Sheet.Payload({
+            data: plans,
+            columns: { task: Sheet.column.text(CutLineType, { header: "Task" }) },
             id: "id",
             group: Sheet.group(CutPlanType, "lines", { title: "name" }),
             subRows: Sheet.subRows(CutLineType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name }) }),
             readOnly: true,
-            style: { height: "600px" },
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
@@ -747,34 +742,16 @@ function buildFramedInline(n: number): SheetRootValue {
 describe("what the viewer arranged survives a remount (#857)", () => {
     /** A plan's drawn height: its band (42) and two lines (36 each). */
     const PLAN_PX = 42 + 2 * 36;
-    // jsdom lays nothing out: the frame is 600 px tall and scrolls as far as it
-    // is asked (its scroll height would clamp a restore to 0), and a scroll it
-    // is asked for lands on scrollTop and sends its scroll event, as a
-    // browser's does — a restore is a scroll the frame then reads.
-    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
-    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
-    const realScrollTo = proto.scrollTo;
+    // jsdom lays nothing out: the frame is 600 px tall, its content as tall as
+    // its rows, and a scroll it is asked for lands on scrollTop and sends its
+    // scroll event, as a browser's does — a restore is a scroll the frame
+    // then reads.
+    let restoreScroll: () => void = () => {};
     beforeEach(() => {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true,
-            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
-        });
-        Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-            configurable: true,
-            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 100_000_000 : 0; },
-        });
-        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
-            if (options.top === undefined || options.top === this.scrollTop) return;
-            this.scrollTop = options.top;
-            this.dispatchEvent(new Event("scroll"));
-        };
+        frameAt(600);
+        restoreScroll = frameScrolls();
     });
-    afterEach(() => {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
-        delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
-        if (realScrollTo === undefined) delete proto.scrollTo;
-        else proto.scrollTo = realScrollTo;
-    });
+    afterEach(() => { restoreScroll(); });
 
     /** The frame, its extent, where a plan's band starts, and a scroll the frame reads. */
     function framed(ui: ReturnType<typeof mount>) {
@@ -831,10 +808,12 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         await waitFor(() => expect(f.frame().scrollTop).toBe(40 * PLAN_PX));
         expect(f.bandTop("P10040")).toBe(40 * PLAN_PX);
         ui.unmount();
-        // Past the last of the 900 items: the last — plan 299's second line.
+        // Past the last of the 900 items: the last — plan 299's second line — which the scroll brings up
+        // from below as far as the rows go: their end at the bottom of the view.
         localStorage.setItem("sheet-grouped-end", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 5_000, element: null } }));
         const end = mount(buildFramedInline(300), "sheet-grouped-end");
-        await waitFor(() => expect(framed(end).frame().scrollTop).toBe(300 * PLAN_PX - 36));
+        await waitFor(() => expect(framed(end).frame().scrollTop).toBe(300 * PLAN_PX - 600));
+        expect(end.container.querySelector('[data-slot="row"][data-group-id="P10299"][data-line="1"]')).not.toBeNull();
     }, 30_000);
 
     test("paged: the anchor's window is fetched first, and the view lands on its item", async () => {
@@ -892,26 +871,6 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         expect(g.bandTop("P10250")).toBe(250 * PLAN_PX);
     }, 30_000);
 
-    test("an unbounded sheet leaves a persisted anchor alone — its place is its page's: a paged one never fetches its window", async () => {
-        // A bounded frame persisted plan 1,500; the sheet mounts unbounded now, its page at the top.
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P2500", offset: 20, index: 3, element: 1_500 } }));
-        const restore = emulateWindowScroll();
-        try {
-            // Every window the source is asked for, by its first element.
-            const root = buildPagedPlans(2_000);
-            if (root.rows.type !== "pinned") throw new Error("a pinned sheet");
-            const source = root.rows.value;
-            const asked = new Set<number>();
-            const page: SheetPagedSourceValue["page"] = (offset, count) => { asked.add(Number(offset)); return source.page(offset, count); };
-            const ui = mount({ ...root, rows: variant("pinned", { ...source, page }) });
-            await waitFor(() => expect(ui.container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 2,000"), { timeout: 15_000 });
-            // The page's top wants windows 0–2, and nothing else is read.
-            expect([...asked].sort((a, b) => a - b)).toEqual([0, 200, 400]);
-        } finally {
-            restore();
-        }
-    }, 30_000);
-
     test("paged: a band is never an anchor's item — one persisted over the tail band lands on its element, not on the band a remount draws", async () => {
         localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "band:tail", offset: 20, index: 1, element: 1_500 } }));
         const ui = mount(buildFramedPlans());
@@ -960,18 +919,8 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
     /** A plan's drawn height: its band (42) and two lines (36 each). */
     const PLAN_PX = 42 + 2 * 36;
     // jsdom lays nothing out: the frame is 600 px tall, and a row is its least
-    // height — the height it declares inline — as if nothing wrapped (the
-    // file's `measureRowsAsDrawn`).
-    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
-    beforeEach(() => {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true,
-            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
-        });
-    });
-    afterEach(() => {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
-    });
+    // height — the height it declares inline — as if nothing wrapped.
+    beforeEach(() => { frameAt(600); });
 
     /** The frame's extent, where each plan's band starts, the frame's scroll, and the transport line. */
     function framed(ui: ReturnType<typeof mount>) {
@@ -1090,13 +1039,9 @@ describe("the copies that stick under the header are not rows (#860)", () => {
     // jsdom lays nothing out: the frame is 600 px tall, the header sits at its
     // top, and a mounted row is where its offset puts it under the header, less
     // the frame's scroll — enough for the sheet to find what sticks.
-    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
     let realRect: typeof Element.prototype.getBoundingClientRect;
     beforeEach(() => {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true,
-            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
-        });
+        frameAt(600);
         realRect = Element.prototype.getBoundingClientRect;
         const measured = realRect;
         Element.prototype.getBoundingClientRect = function (this: Element) {
@@ -1112,7 +1057,6 @@ describe("the copies that stick under the header are not rows (#860)", () => {
     });
     afterEach(() => {
         Element.prototype.getBoundingClientRect = realRect;
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
     });
 
     test("the band and the open line sticking under the header are hidden from assistive tech and carry no cell ids — the rows they copy stay the grid's", async () => {

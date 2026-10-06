@@ -12,7 +12,7 @@
  * provider reached only one of them.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider as ReactAriaI18nProvider } from "@react-aria/i18n";
@@ -23,13 +23,18 @@ import {
 } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Plan, Sheet } from "@elaraai/e3-ui/internal";
+import { boundFrame } from "./sheet/frame.test-utils.js";
 // The Plan and the Sheet are extensions: each renderer registers as it loads.
 import "./plan/index.js";
-import "./sheet/index.js";
+import "./sheet/frame/index.js";
 
+// The Sheet's frame, tall enough for its row (#1216).
+let restoreFrame: () => void = () => {};
+beforeEach(() => { restoreFrame = boundFrame(2000); });
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    restoreFrame();
 });
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -60,7 +65,7 @@ const QtyRow = StructType({ id: StringType, qty: OptionType(FloatType) });
 const QTY_ROWS = [{ id: "a", qty: some(1234.5) }];
 const SHEET = East.function([], UIComponentType, ($) => {
     const rows = $.const(QTY_ROWS, ArrayType(QtyRow));
-    return Sheet.View({ data: rows, columns: { qty: Sheet.column.quantity(QtyRow, { header: "Qty" }) }, id: "id" });
+    return Sheet({ data: rows, columns: { qty: Sheet.column.quantity(QtyRow, { header: "Qty" }) }, id: "id" });
 });
 
 /** One of east-ui-components' own: a currency. */

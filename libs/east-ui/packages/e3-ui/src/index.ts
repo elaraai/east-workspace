@@ -10,10 +10,9 @@
  * helpers:
  * - `<Plan.View>` — the axis-aligned composite canvas, with its authoring
  *   vocabulary on `Plan` (`Plan.axis`, `Plan.series.*`, the value builders).
- * - `<Sheet.View>` — the planning spreadsheet, with its authoring vocabulary
- *   on `Sheet` (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`,
- *   `Sheet.Types`); `<Sheet.Builder>` edits an e3 record as one, with a
- *   library and an inspector.
+ * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
+ *   panes as optional props, and its authoring vocabulary on `Sheet`
+ *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
@@ -136,14 +135,14 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 // `Plan.series.*`, the value and cell builders, `Plan.Types`), and its props.
 export { Plan, type PlanNamespace, type PlanConfig } from './plan/index.js';
 
-// The Sheet (#1179, #1183, #1186): the planning spreadsheet a solution mounts
-// (`<Sheet.View>`), the builder that edits an e3 record as one
-// (`<Sheet.Builder>`), their authoring vocabulary on `Sheet`
+// The Sheet (#1179, #1216): the planning spreadsheet a solution mounts,
+// `<Sheet>` — over an e3 record or the host's rows, in its frame, its library
+// and inspector panes optional props — its authoring vocabulary on `Sheet`
 // (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`,
-// `Sheet.group`, `Sheet.patch`, `Sheet.library.*`, `Sheet.apply`,
-// `Sheet.Types`), and their options.
+// `Sheet.group`, `Sheet.patch`, `Sheet.library.*`, `Sheet.field`,
+// `Sheet.apply`, `Sheet.Types`), and its props.
 export {
-    Sheet, type SheetNamespace, type SheetOptions, type SheetTemplate, type SheetTemplatesInput,
+    Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplate, type SheetTemplatesInput,
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 

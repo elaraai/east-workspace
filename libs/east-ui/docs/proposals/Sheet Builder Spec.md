@@ -1,12 +1,17 @@
 # Sheet Builder — design
 
-The e3-ui `Sheet`: the planning spreadsheet moves from east-ui to e3-ui.
-`<Sheet.View>` is today's `<Sheet>`, unchanged but for where it is imported
-from. `<Sheet.Builder>` edits an e3 record as a sheet, laid out in
-`BuilderFrame` as Studio's builder, the query builder, the Calendar and the
-Roster are: one toolbar holding every control the sheet has, the author's
-library (row templates, cards of their own to drag in, the columns), the
-sheet in main, and an inspector for the selected row.
+The e3-ui `Sheet`: the planning spreadsheet moves from east-ui to e3-ui, and
+is laid out in `BuilderFrame` as Studio's builder, the query builder, the
+Calendar and the Roster are: one toolbar holding every control the sheet has,
+the author's library (row templates, cards of their own to drag in, the
+columns), the sheet in main, and an inspector for the selected row.
+
+It is one component, `<Sheet>` (decision 16, #1216): it renders in its frame
+wherever it is used, its library and inspector are optional props, and its
+rows come from an e3 record bound with its patch mutation or are the host's
+(`data`). The first design's two components, `<Sheet.View>` (the frameless
+sheet) and `<Sheet.Builder>` (the sheet over a record, in its frame), are gone;
+where a section below still says "the builder", it is `<Sheet>`.
 
 This document is the design the Plan and Sheet builders' epic builds for the
 Sheet; `Plan Builder Spec.md` beside it is the Plan's. Each sub-issue copies
@@ -17,7 +22,7 @@ the sections it owns.
 | File | What it is |
 |---|---|
 | `Sheet Builder Spec.md` | This design. |
-| `Sheet Spec.md`, `Sheet Spec.html`, `Sheet Behaviour.html` | The sheet itself, unchanged: the grid, the column kinds, registers and the driver, the link cell, the copilot, the lens and the views. Its rules (`B§n`) still hold in both `Sheet.View` and `Sheet.Builder`. |
+| `Sheet Spec.md`, `Sheet Spec.html`, `Sheet Behaviour.html` | The sheet itself, unchanged: the grid, the column kinds, registers and the driver, the link cell, the copilot, the lens and the views. Its rules (`B§n`) still hold in `<Sheet>`. |
 | `Calendar Spec.md`, `Calendar Spec.html` | The builder chrome this follows: the frame, the panes, the library's cards and the inspector's form. |
 
 There is no hi-fi mock of the builder. The grid looks as `Sheet Spec.html`
@@ -27,15 +32,16 @@ screenshot.
 
 ## 1. Summary
 
-- **What.** `<Sheet.Builder>` edits an e3 record as a sheet: typed columns,
-  registers and the driver, the link grammar, the copilot, groups, loose rows
-  and sub rows, views and the lens, as `<Sheet>` does today. Around it go a
-  library, an inspector, and drag and drop.
+- **What.** `<Sheet>` is the planning spreadsheet in its frame: typed
+  columns, registers and the driver, the link grammar, the copilot, groups,
+  loose rows and sub rows, views and the lens, as the east-ui `<Sheet>` had
+  them. Around it go a library and an inspector, each an optional prop, and
+  drag and drop.
 - **Where.** The Sheet moves to e3 whole. Its wire types, factories, JSX
-  tags, examples and skill text go to e3-ui (`libs/east-ui/packages/e3-ui/src/sheet/`),
-  with carriers `SheetView` and `SheetBuilder`. Its React renderer, with its
-  DOM tests and test utilities, goes to e3-ui-components (`src/sheet/`), which
-  registers both carriers. Its slot recipe stays in east-ui-components' theme,
+  tag, examples and skill text go to e3-ui (`libs/east-ui/packages/e3-ui/src/sheet/`),
+  on one carrier, `Sheet`. Its React renderer, with its DOM tests and test
+  utilities, goes to e3-ui-components (`src/sheet/`), which registers it.
+  Its slot recipe stays in east-ui-components' theme,
   as Studio's and the query builder's do, and the shared building blocks the
   renderer imports (the editing session, the toolbar, the slice rail, the
   paging primitives, the state runtime, …) reach e3-ui-components through
@@ -43,14 +49,17 @@ screenshot.
 - **Rows.** `record={…}`, a `Record.bind` handle bound with its patch
   mutation. Its entries are the rows, in key order; or, with `entry`, one
   entry's Array field holds them, in their own order. A large record is read
-  a window at a time (`window`).
+  a window at a time (`window`). Or `data={…}`, the host's rows: an array, a
+  bind handle or a paged source, edited through `onApply`, `onUpdate` and
+  `onPatch` (#1216).
 - **Draws.** `BuilderFrame`: one toolbar (the view tabs, the lens's context,
   the slice's rail, the history item with Apply); the library, the tabs
   `library` lists (Rows, Columns and the author's own), in the start pane,
   and none when it lists none; the sheet and its strip in main; the inspector
-  (Details · Issues) in the end pane; the sheet's footer.
+  (Details · Issues) in the end pane when the sheet is given `inspector`, and
+  none when it is not; the sheet's footer.
 - **Built in.** Undo, redo and discard; Apply as one checked commit through
-  the record's patch mutation; drag and drop (templates and the author's
+  the record's patch mutation, or the host's `onApply`; drag and drop (templates and the author's
   cards into the sheet, rows and groups to new places); the inspector's form
   for every field, with or without a column. The app wires none of it.
 - **Keeps.** Everything today's sheet does: the column kinds, registers, the
@@ -64,15 +73,15 @@ These are settled; the proposal was approved on 2026-10-04.
 
 1. **The Sheet moves to e3 whole**: its wire types, factories, tags,
    examples, specs and skill text to e3-ui, and its React renderer with its
-   tests to e3-ui-components, with `Sheet.View` (today's `<Sheet>`) and
-   `Sheet.Builder` on carriers. east-ui and east-ui-components keep nothing of
+   tests to e3-ui-components, on a carrier (one, `Sheet`, since decision 16).
+   east-ui and east-ui-components keep nothing of
    the Sheet: east-ui loses its arm, and east-ui-components keeps only the
    sheet's slot recipe in its theme (as it keeps Studio's) and the shared
    building blocks the renderer imports, exported through `/internal`.
    `Editing` stays in east-ui, shared.
 2. **The builder edits an e3 record**, bound with its patch mutation. Its
    entries are the rows, or with `entry` one entry's Array field is. Every
-   other source stays `Sheet.View`'s.
+   other source is `data`'s (decision 16).
 3. **Over the entries the order is the keys'**, as a keyed paged sheet's is
    today: rows sit in key order, a new row's key is minted, and flat rows
    don't move. A sheet whose order the planner sets keeps its rows in one
@@ -105,12 +114,13 @@ These are settled; the proposal was approved on 2026-10-04.
    narrowing and its lens, so `Sheet.Types.View` doesn't change. Column order
    stays declared, and resizing stays out (`Sheet Spec.md` §10).
 10. **`views` takes a bind handle**, kept where the app keeps it: per viewer
-    in `State`, or shared in a dataset. `Sheet.View` keeps `views` and
-    `onViewsChange` as values.
+    in `State`, or shared in a dataset — on every sheet since decision 16,
+    which takes `onViewsChange` away.
 11. **Rows and groups move by dragging**, a new gesture for the capabilities
     `edits` already declares (`moveRows`, `moveGroups`).
-12. **`id` names the builder**, as on every other builder. The rows' identity
-    field is `entry.id`, the one form that needs it.
+12. **The sheet's name is `name`** (amended by decision 16; the first design
+    named the builder `id`). `id` names the rows' identity field wherever rows
+    need one: on `data`, and as `entry.id` does on a record's entry.
 13. **No new hi-fi mock**: the grid follows `Sheet Spec.html`, and the
     frame, library and inspector follow the Calendar's spec.
 14. **Sample data is a joinery workshop**: orders and their operations,
@@ -120,6 +130,17 @@ These are settled; the proposal was approved on 2026-10-04.
 15. **Every example uses bound sources** (§2a): the Sheet's examples, moved
     and new, bind e3 inputs and records, so each runs on e3-web in the
     showcase.
+16. **One Sheet** (ruled 2026-10-05, #1216): `<Sheet>` is the only Sheet, and
+    it renders in its `BuilderFrame` wherever it is used — in an app, in the
+    showcase, in a test. Its library and inspector are optional props: no
+    prop, no pane. Its rows are a record's (`record`, with `entry` or
+    `window`) or the host's (`data`: an array, a bind handle or a paged
+    source, edited through `onApply`, `onUpdate` and `onPatch`, and read only
+    with none of them). `Sheet.View`, `Sheet.Builder`, the frameless layout,
+    its own toolbar row and the unbounded in-flow mode go: a sheet fills the
+    box it is given and scrolls its own rows. Every example renders `<Sheet>`,
+    and between them they show each pane combination: none, a library, an
+    inspector, and both.
 
 ## 2a. Example data idiom
 
@@ -193,12 +214,12 @@ export const plans       = e3.record("plans", DictType(StringType, WeekType), ne
 export const plansPatch  = e3.mutation.patch(plans);
 ```
 
-### 3.2 The smallest builder
+### 3.2 The smallest sheet
 
 ```tsx
 // job-sheet.tsx
 import { East } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui";
+import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
 import { Record, Sheet, ui } from "@elaraai/e3-ui";
 import * as d from "./records.js";
 
@@ -206,14 +227,16 @@ export const jobSheet = ui("job_sheet", [], East.function([], UIComponentType, _
     <Reactive>{$ => {
         const jobs = $.let(Record.bind(d.jobs, [d.jobsPatch]));
         return (
-            <Sheet.Builder
-                record={jobs}
-                columns={{
-                    task:  Sheet.column.text(d.JobType, { header: "Task", width: "240px" }),
-                    start: Sheet.column.date(d.JobType, { header: "Start", width: "96px" }),
-                    qty:   Sheet.column.quantity(d.JobType, { header: "Qty", width: "96px" }),
-                }}
-            />
+            <Box height="560px">
+                <Sheet
+                    record={jobs}
+                    columns={{
+                        task:  Sheet.column.text(d.JobType, { header: "Task", width: "240px" }),
+                        start: Sheet.column.date(d.JobType, { header: "Start", width: "96px" }),
+                        qty:   Sheet.column.quantity(d.JobType, { header: "Qty", width: "96px" }),
+                    }}
+                />
+            </Box>
         );
     }}</Reactive>
 )));
@@ -222,8 +245,9 @@ export const jobSheet = ui("job_sheet", [], East.function([], UIComponentType, _
 That is a working editor. There is one row per job in key order, with a blank
 tail for the next one. Every gesture is a draft the history item can undo,
 and Apply commits the drafts as one patch through `jobsPatch`. A new row's
-key is minted unless `newRowId` names one. It lists no `library`, so it has
-no library pane. The inspector shows every field of the selected job.
+key is minted unless `newRowId` names one. It lists no `library` and is given
+no `inspector`, so it has neither pane: the toolbar, the grid and the footer.
+It fills the box it is given, 560px here, and scrolls its own rows.
 
 ### 3.3 The workshop's orders
 
@@ -280,7 +304,7 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
             { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
         ], ArrayType(d.OperationType));
         return (
-            <Sheet.Builder
+            <Sheet
                 record={orders}
                 group={Sheet.group(d.OrderType, "ops", {
                     title: "name", sub: o => o.customer, noun: { singular: "order", plural: "orders" },
@@ -309,6 +333,7 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
                                   members: [{ kind: "machine", identified: true }, { kind: "family", countable: true, resolvesTo: "machine" }] }),
                     notes:    Sheet.column.text(d.OperationType, { header: "Notes", width: "240px" }),
                 }}
+                inspector
                 fields={{ created_by: Sheet.field.readonly() }}
                 library={[
                     Sheet.library.rows(),
@@ -342,9 +367,10 @@ export const workshop = ui("workshop_orders", [], East.function([], UIComponentT
 )));
 ```
 
-Apart from `record`, `templates`, `library`, `fields` and `views`, every prop
-is today's `<Sheet>` declaration, unchanged. The orders sit in key order, by order
-number, and an order's operations keep the order the planner gives them.
+Apart from `record`, `templates`, `library`, `inspector`, `fields` and `views`,
+every prop is the east-ui `<Sheet>`'s declaration, unchanged. The orders sit in
+key order, by order number, and an order's operations keep the order the
+planner gives them.
 
 ### 3.4 One entry's rows, and a paged record
 
@@ -352,12 +378,12 @@ number, and an order's operations keep the order the planner gives them.
 // The week the viewer picked; each week keeps its own drafts until Apply or Discard.
 const plans = $.let(Record.bind(d.plans, [d.plansPatch]));
 const week  = $.let(State.bind([StringType], "plans.week", "2026-W42"));
-<Sheet.Builder record={plans} entry={{ key: week.read(), rows: "rows", id: "id" }} columns={{ /* … */ }} />
+<Sheet record={plans} entry={{ key: week.read(), rows: "rows", id: "id" }} columns={{ /* … */ }} />
 
 // A large record, paged in key order: key search over its keys, the lens over the loaded rows.
 const jobs = $.let(Record.bind(d.jobs, [d.jobsPatch]));
 const page = $.let(Data.bindPaged(d.jobs));
-<Sheet.Builder record={jobs} window={page} columns={{ /* … */ }} />
+<Sheet record={jobs} window={page} columns={{ /* … */ }} />
 ```
 
 | | The record's entries are the rows | One entry's rows |
@@ -370,27 +396,28 @@ const page = $.let(Data.bindPaged(d.jobs));
 | Apply | `Record.onApply(record, { keyed: true })`: each changed row an insert, update or delete by key, checked against what it was when the edit began | `Record.onApply(record, { entry, get, set, idField })`: one diff of that entry, reaching its rows and nothing else |
 | A large record | `window={Data.bindPaged(d.jobs)}` reads it a window at a time | Read whole: an entry is one value |
 
-Reading a whole record in key order is new. Today's sheet refuses an inline
-`Dict`, because a dictionary's rows sit in key order rather than the
-planner's. A record is keyed by nature, so the builder accepts it, in the
-order a keyed paged sheet already has.
+Reading a whole record in key order is new. `data` refuses an inline `Dict`,
+because a dictionary's rows sit in key order rather than the planner's. A
+record is keyed by nature, so `record` accepts it, in the order a keyed paged
+sheet already has.
 
 ## 4. The options
 
-### 4.1 `Sheet.Builder` props
+### 4.1 `<Sheet>`'s props
 
 | Prop | Takes | What it does |
 |---|---|---|
-| `record` | `Record.bind(rec, [patch])` | The record the rows are read from and committed to. It must be a `Dict` bound with its patch mutation, as `Record.onApply` requires. |
+| `record` | `Record.bind(rec, [patch])` | The record the rows are read from and committed to. It must be a `Dict` bound with its patch mutation, as `Record.onApply` requires. A sheet takes its rows from `record` or from `data`, never both (#1216). |
+| `data`, `id`, `onApply`, `onUpdate` | as the east-ui `<Sheet>`'s | The host's rows (#1216): an array, a bind handle or a paged source, `id` their String identity field, edited through `onApply` / `onUpdate` (and `onPatch`), read only with none. Over a record, `id`, `onApply` and `onUpdate` are refused: the record identifies and commits its rows. |
 | `entry` | `{ key, rows, id }` | The rows are one entry's Array field (`rows`, a field name) with `id` their String identity field. `key` may be an expression, such as the entry the viewer picked. Omitted, the entries are the rows. |
 | `window` | `Data.bindPaged(rec)` | Reads a large record a window at a time, in the entries form. |
 | `columns`, `group`, `subRows`, `driver`, `registers`, `owned`, `suggest`, `ready`, `newRow`, `newGroup`, `newRowId`, `edits`, `applyMode`, `onPatch`, `slice`, `affordances`, `activeView`, `blanks`, `readOnly`, `density`, `footer` | as `<Sheet>`'s | Unchanged (`Sheet Spec.md` §3). The row type the columns are built over is the entries' (or, with `entry`, the rows field's element type); a grouped sheet's columns are over its line type, as today. |
 | `views` | a bind handle of `Array<Sheet.Types.View>` | The saved views, read and written by the builder: a `State.bind` to keep them per viewer, or a `Data.bind` dataset to share them. |
 | `templates` | `{ rows?, groups? }` | The Rows tab's cards (§4.2). |
 | `library` | `Sheet.library.*` calls | The library's tabs, in order (§4.4); left out, or `[]`, no library pane. |
-| `fields`, `groupFields` | `{ [field]: Sheet.field.* }` | Hints for the inspector's form: for a field with no column, or to override what a column's kind gives (§5.3). `Sheet.field` is `Fields` (#1147), as `Calendar.field` is; a `reference` hint names one of the sheet's registers (the driver's among them, under its column). |
-| `inspector` | `(row, update) => UIComponentType` | The author's own Details for a row (SB58): an East function over the row — its own struct, a grouped sheet's line — and a writer of the edited row, passed through untouched. |
-| `id` | string | Names the builder when a surface holds two: its viewer state's storage key and its library's drag-source id. |
+| `fields`, `groupFields` | `{ [field]: Sheet.field.* }` | Hints for the inspector's form: for a field with no column, or to override what a column's kind gives (§5.3). `Sheet.field` is `Fields` (#1147), as `Calendar.field` is; a `reference` hint names one of the sheet's registers (the driver's among them, under its column). Refused without `inspector`. |
+| `inspector` | `true`, or `(row, update) => UIComponentType` | The inspector pane (#1216). Given alone (`inspector`), Details shows the selected row's form (§5.3). Given a function, the author's own Details for a row (SB58): an East function over the row — its own struct, a grouped sheet's line — and a writer of the edited row, passed through untouched. Left out, no inspector pane. |
+| `name` | string | Names the sheet when a surface holds two: its viewer state's storage key, its library's drag-source id and its drop target (#1216; the first design's builder `id`). |
 
 ### 4.2 Templates
 
@@ -412,6 +439,9 @@ missing, as a typed row's does, and readiness asks for it.
 ### 4.3 Build-time refusals
 
 Each names the prop and the remedy:
+- rows from both `record` and `data`, or from neither; `entry` or `window`
+  without a record; `id`, `onApply` or `onUpdate` over a record; and
+  `onViewsChange`, which `views` replaces (#1216);
 - `record` is not a `Dict`, or is not bound with its patch mutation;
 - `entry.rows` is not an Array field of the entry's type holding the columns'
   row type (or the groups, or `Sheet.Types.Entry` entries), or `entry.id` is
@@ -427,8 +457,9 @@ Each names the prop and the remedy:
   other half); gives a field an editor that doesn't fit its type, or a read-only
   column's field (stamped, a `value` projection, a set, link or custom column,
   `editable: false`) any editor at all; hints a column's field per nested
-  field; names in a `reference` a register the sheet doesn't declare; or
-  `groupFields` is given on a flat sheet;
+  field; names in a `reference` a register the sheet doesn't declare;
+  `groupFields` is given on a flat sheet; or either is given without an
+  `inspector` (#1216);
 - `inspector` is not an East function `(Row, (Row) => Null) => UIComponentType`
   over the row type (a grouped sheet's line type).
 
@@ -466,22 +497,25 @@ shape of §4.2, a TypeScript interface whose `values` is a `Sheet.Types.Patch`.
 
 ### 5.2 What the renderer receives: the payload
 
-The payload holds a whole `SheetRootType`, the very payload `Sheet.View`
-draws, rather than a copy of its parts: a component made of parts reuses the
-parts' interface types. Its rows are read from the record (whole, a window,
-or one entry's field), and its editing session commits through
-`Record.onApply`.
+The payload holds a whole `SheetRootType`, the root the grid draws, rather
+than a copy of its parts: a component made of parts reuses the parts'
+interface types. Over a record, its rows are read from the record (whole, a
+window, or one entry's field), and its editing session commits through
+`Record.onApply`; over `data`, they are the host's, and the session commits
+through the host's `onApply` or `onUpdate`. As built (#1216):
 
 ```ts
-SheetBuilderPayloadType = StructType({
-    sheet:     SheetRootType,                    // the grid, its rows and its session wired to the record
+SheetPayloadType = StructType({
+    sheet:     SheetRootType,                    // the grid, its rows and its session wired to its source
     templates: ArrayType(SheetTemplateWireType), // the Rows tab's cards
     library:   ArrayType(SheetLibraryTabType),   // the library's tabs, in order; none, no pane
-    fields:    SheetFormsType,                   // the inspector's forms (Fields, #1147): a row's, and a group's
-    inspector: OptionType(SheetInspectorType),   // the author's own Details for a complete row (SB58)
-    history:   FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),                     // the record's commits: the last save, and who changed it
+    inspector: OptionType(StructType({           // the inspector pane; none, no pane
+        forms:  SheetFormsType,                  //   its forms (Fields, #1147): a row's, and a group's
+        custom: OptionType(SheetInspectorType),  //   the author's own Details for a complete row (SB58)
+    })),
+    history:   OptionType(FunctionType([], OptionType(ArrayType(RecordCommitInfoType)))),   // over a record, its commits: the last save, and who changed it; none over data
     missing:   OptionType(StringType),           // with `entry`, its key while the record does not hold it: the frame's banner (SB15, SB23)
-    id:        OptionType(StringType),
+    name:      OptionType(StringType),           // names the sheet when a surface holds two
 });
 
 SheetTemplateWireType = StructType({
@@ -516,8 +550,7 @@ SheetFormType = StructType({
 });
 SheetInspectorType = FunctionType([BlobType, FunctionType([BlobType], NullType)], UIComponentType);   // the row as bytes, and the writer of the edited row as bytes
 
-SheetBuilderComponent = EastUI.component("SheetBuilder", SheetBuilderPayloadType);
-SheetViewComponent    = EastUI.component("SheetView", SheetRootType);
+SheetComponent = EastUI.component("Sheet", SheetPayloadType, { optional: true });
 ```
 
 The columns need nothing new: the Columns tab reads them from `sheet`. An
@@ -548,14 +581,13 @@ header and its second line are its label and help, unless a hint names its
 own. As built, an enum member's tone is not shown in its select: the shared
 `Select` draws no tone, and the member's label and meta are.
 
-## 6. What moves, and how the builder relates to `Sheet.View`
+## 6. What moves
 
 | Today | After | Notes |
 |---|---|---|
 | east-ui `Sheet`: the IR in `src/collections/sheet/` | e3-ui `Sheet` in `src/sheet/` | The sixteen files move whole. `Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`, `Sheet.patch`, `Sheet.group`, `Sheet.subRows`, `Sheet.apply` and `Sheet.Types` keep their names and their types. No column kind changes. |
-| `<Sheet>`, the `Sheet` arm of `UIComponentType` | `<Sheet.View>`, on an `EastUI.component` carrier, `SheetView` | The same props and the same payload (`SheetRootType`). An app changes its import and its tag. |
-| — | `<Sheet.Builder>`, carrier `SheetBuilder` | New: this design. |
-| east-ui-components `collections/sheet/` (14,373 lines) and its DOM tests, registered for the arm | e3-ui-components `src/sheet/`, registered for both carriers | The renderer moves whole, and splits into its parts: the toolbar's items, the grid with its strip, and the footer. Its slot recipe stays in east-ui-components' theme. What it imports from east-ui-components is exported through `/internal`. |
+| `<Sheet>`, the `Sheet` arm of `UIComponentType` | e3-ui's `<Sheet>`, in its frame, on an `EastUI.component` carrier, `Sheet` (#1216) | The same column, grid and session props over `data`, the record forms over `record`, and the panes as optional props. An app changes its import and gives the sheet a box of its own height. |
+| east-ui-components `collections/sheet/` (14,373 lines) and its DOM tests, registered for the arm | e3-ui-components `src/sheet/`, registered for the carrier | The renderer moves whole, and splits into its parts: the toolbar's items, the grid with its strip, and the footer, which `src/sheet/frame/` lays out in `BuilderFrame` with the panes. Its slot recipe stays in east-ui-components' theme. What it imports from east-ui-components is exported through `/internal`. |
 | east-ui's Sheet specs and examples (3,169 lines), the skill text | e3-ui's | They test and document the namespace, imported from `@elaraai/e3-ui`. The showcase's Sheet page and its responsive specs stay in the showcase, which already loads e3-ui's components. |
 | `Editing` (`contracts/editing.ts`) | Stays in east-ui | Shared with Plan, the SnapGrid, the Calendar and the Roster. `Sheet.apply` and `Sheet.Types.ChangeSet` remain its values. |
 
@@ -563,10 +595,12 @@ Nothing else in east-ui depends on the Sheet. The one helper it borrows from
 Plan's builders, `resolveTag`, moves to east-ui's `shared/` with Plan's move,
 which lands first; the helper is generic.
 
-| A sheet that… | Uses |
+| A sheet that… | Gives `<Sheet>` |
 |---|---|
-| edits a `State`, an inline value or any source the app writes itself, with no chrome around it | `Sheet.View` |
-| edits an e3 record, with a library, an inspector and drag and drop | `Sheet.Builder` |
+| edits an e3 record | `record` (with `entry` or `window`) |
+| edits a `State`, an inline value or any source the app writes itself | `data` and `id`, with `onApply` or `onUpdate` |
+| offers templates, its author's cards or the columns to show | `library` |
+| shows the selected row's every field, and the batch's issues | `inspector` |
 
 ## 7. Layout in BuilderFrame
 
@@ -593,20 +627,22 @@ which lands first; the helper is generic.
 | Banners | An Apply's conflicts and refusals, naming the rows; the record changing under pending drafts; a write whose outcome is unknown; an `entry` the record doesn't hold. |
 | Start pane "Library" | The tabs `library` lists (§9.7); none, no pane. |
 | Main | The grid: its two-line header, rows, bands, seams, lens bands and proposed rows. The strip is docked under it, where candidates, fills and what a cell accepts show while a cell is edited (`Sheet Spec.md` B§9). Nothing floats over the grid but the editor overlay, as today. |
-| End pane "Inspector" | Tabs Details · Issues (§9.9). |
+| End pane "Inspector" | Tabs Details · Issues (§9.9), when the sheet is given `inspector`; none, no pane. |
 | Footer | The sheet's footer: its count line, the app's `footer` items, the paged transport line, the key hint and the live message, and the last save from the record's commits. |
 
 The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
 overlaid with a rail and a scrim at 560px and narrower, and slid off main
 during a drag so they never hide a drop target. On a phone the grid scrolls
-sideways under its sticky gutter, as it does today. The builder fills its
+sideways under its sticky gutter, as it does today. The sheet fills its
 parent and draws no border of its own. Every style is a slot recipe's.
 
 ### 7.1 The toolbar's items
 
-Today's sheet already lays its chrome out as one row of the shared `Toolbar`,
-folded on one ladder. In the builder those items are `BuilderFrame`'s
-`toolbar`, so the frame has one row and the grid none of its own.
+The east-ui sheet laid its chrome out as one row of the shared `Toolbar`,
+folded on one ladder. In `<Sheet>` those items are `BuilderFrame`'s
+`toolbar`, so the frame has one row and the grid none of its own. A sheet
+with none of them — read only, with no slice and no key search — has no
+toolbar.
 
 | Item | Side | Under width pressure |
 |---|---|---|
@@ -664,36 +700,38 @@ it. The history item is the shared `historyToolbarItem` (#988).
 
 Every rule is numbered. Each sub-issue lists the rules it owns, and each rule
 has a test there. `Sheet Spec.md`'s own rules (§5, B§1–B§13) keep holding in
-the grid, in `Sheet.View` and `Sheet.Builder` alike.
+the grid.
 
-### 9.1 `Sheet.View` (owner: the Sheet moves to e3-ui)
+### 9.1 The move to e3-ui (owner: the Sheet moves to e3-ui)
 
-- **SB1.** `Sheet.View` takes every prop `<Sheet>` takes today and builds the
-  same payload, `SheetRootType`; an app changes its import (`@elaraai/e3-ui`)
-  and its tag, and nothing else.
+- **SB1.** The moved sheet takes every prop the east-ui `<Sheet>` took and
+  builds the same root, `SheetRootType`. Since #1216 that sheet is
+  `<Sheet data>`, in its frame: an app changes its import (`@elaraai/e3-ui`)
+  and gives the sheet a box of its own height.
 - **SB2.** east-ui's `Sheet` arm leaves `UIComponentType`. The IR is
   e3-ui's, and the renderer e3-ui-components', which registers it for the
-  `SheetView` carrier; east-ui and east-ui-components export nothing of the
+  `Sheet` carrier (#1216); east-ui and east-ui-components export nothing of the
   Sheet. `Editing` stays in east-ui; `Sheet.apply` and `Sheet.Types.ChangeSet`
   remain its values.
 - **SB3.** Every Sheet spec, example, DOM test and responsive spec passes
-  after the move with only its imports and tag changed.
+  after the move — since #1216 over the sheet in its frame.
 
 ### 9.2 The renderer's parts (owner: the Sheet renderer's parts)
 
 - **SB4.** The Sheet renderer is three parts over one shared state (the
   store, the session, the lens and the selection): the toolbar's items, the
-  grid with its strip, and the footer. `Sheet.View` lays them out as today.
+  grid with its strip, and the footer. `<Sheet>` lays them out in its frame
+  (#1216).
 - **SB5.** A part placed in another region still drives the grid: a tab
   switched in the frame's toolbar narrows the grid, and the history item's
   Undo undoes the grid's last gesture.
-- **SB6.** Nothing `Sheet.View` draws changes: its DOM tests and responsive
-  specs pass untouched.
+- **SB6.** Retired (#1216): there is no frameless layout to keep unchanged;
+  the DOM tests and responsive specs run over framed sheets.
 
-### 9.3 Types and factories (owner: `Sheet.Builder`'s types and factories)
+### 9.3 Types and factories (owner: the builder's types and factories)
 
-- **SB7.** `Sheet.Builder` takes `record` and the props of §4.1, and refuses
-  at build each case of §4.3, naming the prop and the remedy.
+- **SB7.** `<Sheet>` takes `record` or `data` and the props of §4.1, and
+  refuses at build each case of §4.3, naming the prop and the remedy.
 - **SB8.** The columns' row type is the record's entry type, or with `entry`
   the element type of `entry.rows`; a grouped sheet's columns are over its
   line type and its `group` over the entry (or element) type, as today.
@@ -703,10 +741,10 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 - **SB10.** `fields` and `groupFields` resolve through `Fields` with each
   column's kind as its field's default hint (§5.3); an explicit hint wins.
 - **SB11.** `views` takes a whole-value bind handle of
-  `Array<Sheet.Types.View>`; the builder reads it, and writes every change to
+  `Array<Sheet.Types.View>`; the sheet reads it, and writes every change to
   the views to it.
-- **SB12.** The payload is `SheetBuilderPayloadType` (§5.2) on the
-  `SheetBuilder` carrier, its `sheet` a whole `SheetRootType`.
+- **SB12.** The payload is `SheetPayloadType` (§5.2) on the `Sheet` carrier
+  (#1216), its `sheet` a whole `SheetRootType`.
 
 ### 9.4 Rows from a record (owner: rows from a record)
 
@@ -729,11 +767,12 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 - **SB17.** When `entry.key` changes the sheet shows that entry, and each
   entry keeps its own session (SB30).
 
-### 9.5 Frame and toolbar (owner: `Sheet.Builder`'s frame and toolbar)
+### 9.5 Frame and toolbar (owner: the builder's frame and toolbar)
 
-- **SB18.** The builder is a `BuilderFrame` (toolbar, banners, the library as
-  its start pane when `library` lists tabs, main, the inspector as its end
-  pane, the footer). It fills its parent and draws no border.
+- **SB18.** The sheet is a `BuilderFrame` wherever it is used (#1216):
+  toolbar, banners, the library as its start pane when `library` lists tabs,
+  main, the inspector as its end pane when it is given `inspector`, the
+  footer. It fills its parent and draws no border.
 - **SB19.** The toolbar is one row of the shared `Toolbar`, its items in
   §7.1's order. The grid draws no toolbar of its own.
 - **SB20.** Under width pressure the rail folds first (its ranks, through
@@ -741,20 +780,20 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   §6.3's order, and the history item last, to its buttons. No item wraps,
   scrolls or moves to a second row.
 - **SB21.** Main holds the grid and, docked under it, the strip.
-- **SB22.** The footer is the sheet's footer, with the last commit's time
-  from the record's history (`saved 14:02`).
+- **SB22.** The footer is the sheet's footer, with, over a record, the last
+  commit's time from the record's history (`saved 14:02`).
 - **SB23.** The banners, in this order: an Apply's conflict, naming its rows
   and who changed the record last; a refusal, with its reason; an unknown
   outcome, with Retry; a failed confirmation read, with Retry; the
   out-of-date notice, with Discard; an `entry` the record doesn't hold. A
   banner leaves when what it reports does.
 - **SB24.** The panes are `BuilderFrame`'s, and their open tab and collapsed
-  state persist under the builder's `id`.
+  state persist under the sheet's `name`.
 
-### 9.6 Editing, undo and Apply (owner: `Sheet.Builder`'s editing)
+### 9.6 Editing, undo and Apply (owner: the builder's editing)
 
-- **SB25.** The builder's session is the shared `Editing` session over the
-  record's rows, today's sheet's: every gesture (typing, a paste, a fill, a
+- **SB25.** The sheet's session is the shared `Editing` session over its
+  rows: every gesture (typing, a paste, a fill, a
   row fill, a proposal taken, an insert, a removal, a move, a library drop,
   an inspector edit) is one undoable transaction, reported to `onPatch`.
 - **SB26.** The history item shows the session's status (applying,
@@ -764,7 +803,7 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   outside the grid's editor: a field being typed into keeps its own undo.
 - **SB27.** Apply is on when the batch is structurally complete, `ready`
   passes and there is a change. It sends one request through the record's
-  patch mutation (SB16).
+  patch mutation (SB16), or, over `data`, the host's `onApply` or `onUpdate`.
 - **SB28.** A conflict or a refusal keeps every draft and shows its banner. A
   write with no answer leaves the session unknown: Apply turns into Retry,
   which resends the same request, its id unchanged, and never a new one.
@@ -796,11 +835,12 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
   an eye. Hiding a column hides it and the band cells under it from the grid,
   never from the inspector or what the lens matches; a row the copilot
   proposes keeps its cells under a hidden column. The last column shown
-  stays. What is hidden persists per viewer under the builder's `id`.
+  stays. What is hidden persists per viewer under the sheet's `name`, and a
+  sheet whose library lists no Columns tab hides none.
 - **SB37.** An empty tab says so, in the shared empty state: `No templates`,
   `Nothing in Crews` for an author's tab with no rows, or `No matches` over
   `Nothing matches "q".`
-- **SB59.** `library` is optional: left out, or `[]`, the builder draws no
+- **SB59.** `library` is optional: left out, or `[]`, the sheet draws no
   start pane. A tab listed twice is refused at build, naming it.
 - **SB60.** `Sheet.library.tab(rows, { name, icon, key, label, meta?,
   group?, drop? })` lists one card per row: its label and meta, the tab's
@@ -813,8 +853,8 @@ the grid, in `Sheet.View` and `Sheet.Builder` alike.
 
 ### 9.8 Drag and drop (owner: drag and drop)
 
-As built (#1187). A builder's sheet takes drops on its surface; a read-only
-sheet registers no drop target and its rows have no grips.
+As built (#1187). A sheet takes drops on its surface; a read-only sheet
+registers no drop target and its rows have no grips.
 
 - **SB38.** A drag starts after 4px. The ghost is what was picked up: the
   card, or for a grip the row's name (`line 3 of Doors, oak`, a group's
@@ -897,7 +937,7 @@ sheet registers no drop target and its rows have no grips.
     a line`;
   - anywhere but a band, for a group patch: `Drop onto a band`;
   - where a cell the card sets is one the sheet doesn't write: `Machine is
-    read only here`. This is a guard at the host's seam, since a builder's
+    read only here`. This is a guard at the host's seam, since a sheet's
     cards only set what the editable columns write.
 
 ### 9.9 The inspector (owner: the inspector)
@@ -938,6 +978,10 @@ sheet registers no drop target and its rows have no grips.
 - **SB62.** Nothing the inspector shows is read from the source until Details
   asks: a sheet with no inspector reads what it read before, and a row's
   entry is read once while the resident rows stand.
+- **SB63.** The inspector is optional (#1216): given alone (`inspector`),
+  Details shows the selected row's form; given a function, SB58; left out,
+  the sheet draws no end pane, and `fields` and `groupFields` are refused at
+  build.
 
 ### 9.10 Showcase and docs (owner: the Sheet builder's showcase and docs)
 
@@ -945,8 +989,8 @@ sheet registers no drop target and its rows have no grips.
   records seeded, and Apply commits to them.
 - **SB55.** Responsive specs measure the frame, the toolbar's fold order at
   desktop and phone widths, both themes, the panes, a drop and a move.
-- **SB56.** The e3-ui skill documents `Sheet.View` and `Sheet.Builder` with
-  tested examples, and the plugin indexes are regenerated.
+- **SB56.** The e3-ui skill documents `<Sheet>` with tested examples, and the
+  plugin indexes are regenerated.
 
 ### 9.11 Examples on bound sources (owner: the Sheet's examples on bound sources)
 
@@ -983,13 +1027,15 @@ before anything is drawn or written.
 
 ## 11. What changes from today's sheet, and what is lost
 
-| Today | The builder | Why, and what is lost |
+| Today | `<Sheet>` | Why, and what is lost |
 |---|---|---|
+| A sheet with no chrome around it | The sheet in its frame, its panes optional props (#1216) | A component has one form. A sheet with no pane is its toolbar, its grid and its footer. |
+| A sheet that grows with its content (the in-flow mode, #856) | A sheet fills the box it is given and scrolls its own rows (#1216) | A host gives the sheet a box of its own height. |
 | The sheet's own toolbar row | The frame's one toolbar | A component has one toolbar. Nothing is lost. |
 | The history bar's error line under its buttons | A banner | The toolbar keeps one row. Nothing is lost. |
-| Any source: an inline array, `State`, a paged source, a custom `onApply` | A record | `Sheet.View` keeps every other source. |
-| Rows in the planner's order over an inline array | Entries in key order, or one entry's rows | A record is keyed; `entry` keeps the planner's order. |
-| `views` and `onViewsChange` | A bind handle | One prop. `Sheet.View` keeps the pair. |
+| Any source: an inline array, `State`, a paged source, a custom `onApply` | A record, or `data` (#1216) | Nothing is lost. |
+| Rows in the planner's order over an inline array | Over a record, entries in key order, or one entry's rows | A record is keyed; `entry` keeps the planner's order, and `data` the host's. |
+| `views` and `onViewsChange` | A bind handle | One prop, on every sheet (#1216). |
 | Moves declared but no gesture | Drag to move | New. |
 | No library, no inspector | The author's library (Rows, Columns and their own tabs); Details · Issues | New. |
 | The first design's Registers tab: every register's members, a click narrowing the sheet | Dropped (2026-10-05) | Registers stay what the cells pick from. The slice's search narrows the sheet by a member, as it always could, and an author lists a register they want to drag from as a tab of their own. |
@@ -997,20 +1043,19 @@ before anything is drawn or written.
 ## 12. Wires
 
 - **UI.** east-ui's `Sheet` arm leaves `UIComponentType`; packages are
-  re-exported (`WIRE_MIGRATION.md`). `Sheet.View` and `Sheet.Builder` ride
-  `EastUI.component` carriers, `SheetView` and `SheetBuilder`, as
-  `StudioBuilder` does.
+  re-exported (`WIRE_MIGRATION.md`). `<Sheet>` rides one `EastUI.component`
+  carrier, `Sheet` (#1216), as Studio's builder rides `StudioBuilder`.
 - **Stored state.** None new: the records are the app's own types, and
   `Sheet.Types.View` and `Sheet.Types.Link` don't change.
 
 ## 13. The Sheet's sub-issues, in landing order
 
 1. The specs (this file and `Plan Builder Spec.md`).
-2. The Sheet moves to e3: its IR to e3-ui and its renderer to e3-ui-components (`Sheet.View`).
+2. The Sheet moves to e3: its IR to e3-ui and its renderer to e3-ui-components.
 3. The Sheet's examples on bound sources.
 4. The Sheet renderer's parts.
 5. Rows from a record.
-6. `Sheet.Builder`'s types and factories.
+6. The builder's types and factories.
 7. The frame and the toolbar.
 8. The library pane.
 9. `Fields` (#1147, the Calendar's), built here first.
@@ -1018,6 +1063,7 @@ before anything is drawn or written.
 11. Editing, undo and Apply.
 12. Drag and drop.
 13. The showcase on e3-web, the skill and examples.
+14. One Sheet: `<Sheet>` in its frame, its panes optional props (#1216).
 
 The frame, the library, `Fields` and the inspector are pushed together, so the
 builder first appears with both panes full of the examples' seeded records.

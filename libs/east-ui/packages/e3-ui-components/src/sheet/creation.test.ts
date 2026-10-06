@@ -34,13 +34,13 @@ function editingOf(entries: boolean, supplyId: boolean) {
     const program = entries
         ? East.function([], Sheet.Types.Root, ($) => {
             const rows = $.const([], ArrayType(Entry));
-            return Sheet.Payload(rows, { task: Sheet.column.text(Task) }, {
+            return Sheet.Root(rows, { task: Sheet.column.text(Task) }, {
                 id: "id", group: Sheet.group(Pkg, "tasks", { title: "name" }), newRow: supplyId ? withId : noteDestination, newGroup,
             });
         })
         : East.function([], Sheet.Types.Root, ($) => {
             const rows = $.const([], ArrayType(Pkg));
-            return Sheet.Payload(rows, { task: Sheet.column.text(Task) }, {
+            return Sheet.Root(rows, { task: Sheet.column.text(Task) }, {
                 id: "id", group: Sheet.group(Pkg, "tasks", { title: "name" }), newRow: noteDestination, newGroup,
             });
         });

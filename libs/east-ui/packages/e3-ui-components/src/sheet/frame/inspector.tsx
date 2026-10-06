@@ -5,9 +5,9 @@
 
 /**
  * The inspector pane (#1188, `Sheet Builder Spec.md` §5.3, §8, §9.9,
- * SB46–SB53, SB58): the sheet builder's end pane, its tabs Details and
- * Issues — Issues with its count — and, collapsed, a rail with its icon, the
- * issue count and what is selected.
+ * SB46–SB53, SB58): the Sheet's end pane, when it is given one (#1216), its
+ * tabs Details and Issues — Issues with its count — and, collapsed, a rail
+ * with its icon, the issue count and what is selected.
  *
  * Details shows what the ring and the range select:
  *
@@ -21,9 +21,9 @@
  *   is written through its cell — the cells a patch of it sets, or a custom
  *   column's text read by its own parse — and asks the copilot again when its
  *   column is a trigger; a field with none is set on the draft (SB52). A
- *   field the drafts changed is tinted against what the record holds. With
- *   the author's `inspector` (SB58), a complete row shows what it returns in
- *   place of the form, and its `update` is one transaction; a row still
+ *   field the drafts changed is tinted against what the source holds. With
+ *   the author's own Details (SB58), a complete row shows what they return in
+ *   place of the form, and their `update` is one transaction; a row still
  *   missing a field, or holding one unreadable, shows the form until it is
  *   complete;
  * - **a band** (SB49): its group's own fields, its line count and its issues,
@@ -31,7 +31,7 @@
  * - **several rows** (SB50): their count, a column set or cleared across
  *   them, Duplicate and Delete — each one transaction;
  * - **nothing** (SB51): the rows, the pending drafts and the issues counted,
- *   the record's last commit and who made it, and three hints.
+ *   over a record its last commit and who made it, and three hints.
  *
  * Issues (SB53) lists every issue of the batch by row — a field still
  * missing or unreadable, an author's check, an Apply's conflict or refusal —
@@ -53,7 +53,7 @@ import {
     toEastTypeValue, variant, type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { Sheet, type SheetBuilderPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
+import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
 } from "@elaraai/east-ui-components";
@@ -61,14 +61,15 @@ import { useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetI
 import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
+import type { SheetValue } from "./index.js";
 
-/** The renderer's payload, decoded. */
-type SheetBuilderValue = ValueTypeOf<typeof SheetBuilderPayloadType>;
+/** The inspector pane, decoded: its forms, and the author's own Details. */
+type PaneValue = Extract<SheetValue["inspector"], { type: "some" }>["value"];
 /** One inspector form, decoded: its struct, its fields, the fields its columns write and show, and `encode`. */
-type FormValue = SheetBuilderValue["fields"]["row"];
+type FormValue = PaneValue["forms"]["row"];
 /** One field of a form, decoded. */
 type FormField = FormValue["fields"][number];
-/** The names the builder keeps its viewer's state under. */
+/** The names the sheet keeps its viewer's state under. */
 type SheetKeys = ReturnType<typeof sheetKeys>;
 type Styles = Record<string, SystemStyleObject>;
 
@@ -93,9 +94,9 @@ export interface SheetLastCommit {
 
 /** Props of {@link useSheetInspector}. */
 export interface SheetInspectorProps {
-    /** The builder's payload: its forms, the author's inspector, the sheet's registers and editing. */
-    value: SheetBuilderValue;
-    /** The names the builder keeps its viewer's state under. */
+    /** The sheet's payload: its inspector pane, the sheet's registers and editing, and whether it is over a record. */
+    value: SheetValue;
+    /** The names the sheet keeps its viewer's state under. */
     keys: SheetKeys;
     /** The sheet's words. */
     words: SheetWords;
@@ -106,7 +107,7 @@ export interface SheetInspectorProps {
 }
 
 /** The host's word for a group, or the sheet's. */
-function nounOf(value: SheetBuilderValue, words: SheetWords): string {
+function nounOf(value: SheetValue, words: SheetWords): string {
     const group = getSomeorUndefined(value.sheet.group);
     return (group !== undefined ? getSomeorUndefined(group.noun)?.singular : undefined) ?? words.m.groupNoun();
 }
@@ -119,12 +120,15 @@ function whatOf(place: SheetInspectPlace, words: SheetWords, noun: string): stri
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The payload, the builder's keys, the words, the columns hidden and the last commit
- * @returns The pane: its tabs Details and Issues, 320px wide, its collapsed state kept per viewer (SB24)
+ * @param props - The payload, the sheet's keys, the words, the columns hidden and the last commit
+ * @returns The pane — its tabs Details and Issues, 320px wide, its collapsed state kept per viewer (SB24) — or `undefined`, no pane, when the sheet is given no inspector
  */
-export function useSheetInspector({ value, keys, words, hidden, lastCommit }: SheetInspectorProps): BuilderFrameDock {
+export function useSheetInspector({ value, keys, words, hidden, lastCommit }: SheetInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     const inspect = useSheetInspect();
+    const pane = getSomeorUndefined(value.inspector);
+    // No `inspector`: no pane (#1216).
+    if (pane === undefined) return undefined;
     const noun = nounOf(value, words);
     const issues = inspect.counts.issues;
     const selected = inspect.selected;
@@ -141,15 +145,17 @@ export function useSheetInspector({ value, keys, words, hidden, lastCommit }: Sh
         detail,
         tabs: [
             { key: "details", label: m.inspectorTab({ tab: "details" }),
-                body: <SheetInspectorDetails value={value} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} noun={noun} /> },
+                body: <SheetInspectorDetails value={value} pane={pane} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} noun={noun} /> },
             { key: "issues", label: m.inspectorTab({ tab: "issues" }), count: words.number(issues),
-                body: <SheetInspectorIssues value={value} words={words} noun={noun} /> },
+                body: <SheetInspectorIssues forms={pane.forms} words={words} noun={noun} /> },
         ],
     };
 }
 
 /** Props of the Details tab and its views. */
 interface DetailsProps extends SheetInspectorProps {
+    /** The pane: its forms, and the author's own Details. */
+    pane: PaneValue;
     /** The host's word for a group. */
     noun: string;
 }
@@ -159,11 +165,13 @@ const SheetInspectorDetails = memo(function SheetInspectorDetails(props: Details
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
     const selected = inspect.selected;
-    if (selected.kind === "none") return <NothingSelected styles={styles} inspect={inspect} words={props.words} lastCommit={props.lastCommit} />;
+    if (selected.kind === "none") {
+        return <NothingSelected styles={styles} inspect={inspect} words={props.words} record={props.value.history.type === "some"} lastCommit={props.lastCommit} />;
+    }
     // Each selection its own form: what was typed for one row never lands on the next.
     if (selected.kind === "several") return <SeveralRows key={`${selected.r0}:${selected.r1}`} {...props} styles={styles} inspect={inspect} rs={selected.rs} r0={selected.r0} r1={selected.r1} />;
     const place = selected.place;
-    const form = place.kind === "band" ? getSomeorUndefined(props.value.fields.group) : props.value.fields.row;
+    const form = place.kind === "band" ? getSomeorUndefined(props.pane.forms.group) : props.pane.forms.row;
     if (form === undefined) return null;
     return <TargetDetails key={`${place.kind}\u001f${place.entry}\u001f${place.child ?? ""}`} {...props} styles={styles} inspect={inspect} place={place} form={form} />;
 });
@@ -386,7 +394,7 @@ function TargetView(props: TargetProps) {
     const ownId = target.kind === "line" && idField !== undefined ? target.value?.[idField] : undefined;
 
     // The author's own Details for a complete row (SB58): its row as bytes, its edit back as one transaction.
-    const author = getSomeorUndefined(value.inspector);
+    const author = getSomeorUndefined(props.pane.custom);
     const struct = edit.struct;
     const codec = useMemo(() => ({ encode: encodeBeast2For(struct), decode: decodeBeast2For(struct), patch: encodeBeast2For(Sheet.Types.Patch(struct)) }), [struct]);
     const equals = useMemo(() => new Map(Object.entries(struct.fields as Record<string, EastType>).map(([k, t]) => [k, equalFor(t)])), [struct]);
@@ -520,10 +528,10 @@ interface SeveralProps extends DetailsProps {
 }
 
 /** Several rows: their count, a column set or cleared across them, Duplicate and Delete — each one transaction. */
-function SeveralRows({ value, words, styles, inspect, rs, r0, r1 }: SeveralProps) {
+function SeveralRows({ value, pane, words, styles, inspect, rs, r0, r1 }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
-    const form = value.fields.row;
+    const form = pane.forms.row;
     const lines = getSomeorUndefined(value.sheet.group) !== undefined;
     // The columns a bulk edit sets: the editable ones the form edits — never a stamped, a link or a set column, which the grid edits.
     const editable = useMemo(() => form.fields.filter((f) => {
@@ -618,8 +626,13 @@ function SeveralRows({ value, words, styles, inspect, rs, r0, r1 }: SeveralProps
 // Nothing selected (SB51)
 // ============================================================================
 
-/** Nothing selected: the counts, the last commit and who made it, and three hints. */
-function NothingSelected({ styles, inspect, words, lastCommit }: { styles: Styles; inspect: SheetInspect; words: SheetWords; lastCommit: SheetLastCommit | undefined }) {
+/**
+ * Nothing selected: the counts, over a record its last commit and who made
+ * it, and three hints.
+ */
+function NothingSelected({ styles, inspect, words, record, lastCommit }: {
+    styles: Styles; inspect: SheetInspect; words: SheetWords; record: boolean; lastCommit: SheetLastCommit | undefined;
+}) {
     const { m } = words;
     const { rows, pending, issues } = inspect.counts;
     const stats: [what: "rows" | "pending" | "issues", n: number][] = [["rows", rows], ["pending", pending], ["issues", issues]];
@@ -633,7 +646,7 @@ function NothingSelected({ styles, inspect, words, lastCommit }: { styles: Style
                     </Box>
                 ))}
             </Box>
-            <Box css={styles.commit} data-inspector-commit="">{m.inspectorLastCommit({ when: lastCommit?.when, by: lastCommit?.by })}</Box>
+            {record && <Box css={styles.commit} data-inspector-commit="">{m.inspectorLastCommit({ when: lastCommit?.when, by: lastCommit?.by })}</Box>}
             <Box as="ul" css={styles.hints}>
                 {([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}
             </Box>
@@ -646,15 +659,15 @@ function NothingSelected({ styles, inspect, words, lastCommit }: { styles: Style
 // ============================================================================
 
 /** The Issues tab: every issue of the batch by row, each a control that goes to its cell. */
-const SheetInspectorIssues = memo(function SheetInspectorIssues({ value, words, noun }: { value: SheetBuilderValue; words: SheetWords; noun: string }) {
+const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, noun }: { forms: PaneValue["forms"]; words: SheetWords; noun: string }) {
     const { m } = words;
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
     // A field's words: its label in the row's form or the group's, else its name.
     const labels = useMemo(() => new Map([
-        ...(getSomeorUndefined(value.fields.group)?.fields ?? []).map((f) => [f.spec.path[0]!, f.spec.label] as const),
-        ...value.fields.row.fields.map((f) => [f.spec.path[0]!, f.spec.label] as const),
-    ]), [value.fields]);
+        ...(getSomeorUndefined(forms.group)?.fields ?? []).map((f) => [f.spec.path[0]!, f.spec.label] as const),
+        ...forms.row.fields.map((f) => [f.spec.path[0]!, f.spec.label] as const),
+    ]), [forms]);
     // An issue's place: its entry, or a line of its group.
     const where = useCallback((issue: EditIssue) => {
         const row = getSomeorUndefined(issue.row);

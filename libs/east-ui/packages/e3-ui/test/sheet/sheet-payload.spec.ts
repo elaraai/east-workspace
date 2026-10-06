@@ -4,45 +4,35 @@
  */
 
 /**
- * `Sheet.Builder` (#1183, `Sheet Builder Spec.md` §3–§5, SB7–SB12): its
- * examples (§3.2–§3.4), the payload — the sheet whole, the templates, the
- * library's tabs, the record's history — a template's seed, built by
- * `newRow`'s and `newGroup`'s own code, the library (#1186, SB59, SB60): its
- * tabs in order, an author's cards through their accessors and where a drop's
- * patch lands, `views` as a bind handle, and every refusal, each naming the
- * prop and the remedy. How the builder's payload meets a record runs in
- * e3-ui-components' `sheet-builder-payload` spec, against the record runtime.
+ * `<Sheet>`'s payload (#1216; `Sheet Builder Spec.md` §3–§5, SB7–SB12): its
+ * two sources — a record's entries, one entry's rows, its groups, groups with
+ * loose rows between them, a window of a large one; and the host's rows, an
+ * array, a bind handle or a paged source — its panes, each an optional prop,
+ * absent and present, a template's seed, built by `newRow`'s and `newGroup`'s
+ * own code, the library (#1186, SB59, SB60): its tabs in order, an author's
+ * cards through their accessors and where a drop's patch lands, `views` as a
+ * bind handle, and every refusal, each naming the prop and the remedy. How
+ * the payload meets a record runs in e3-ui-components' `sheet-payload` spec,
+ * against the record runtime.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
+    ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
     compareFor, decodeBeast2For, isTypeEqual, none, some, variant,
     type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
-import { State } from "@elaraai/east-ui/internal";
+import { Paged, UIComponentType } from "@elaraai/east-ui";
+import { State, Text } from "@elaraai/east-ui/internal";
 import {
-    Data, Record, Sheet, SheetBuilderPayloadType, SheetLibraryTabType, SheetTemplateWireType, buildLibrary, buildTemplates, createSheetBuild, sheetKeys,
+    Data, Record, Sheet, SheetLibraryTabType, SheetPayloadType, SheetTemplateWireType, buildLibrary, buildTemplates, createSheetBuild, sheetKeys,
     type SheetLibraryTab,
 } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
-import * as ex from "./sheet-builder.examples.js";
+import * as ex from "./sheet.examples.js";
 
-describeEast("Sheet.Builder examples", (test) => {
-    Assert.examples(test, {
-        sheetBuilder: ex.sheetBuilder,
-        sheetBuilderLibrary: ex.sheetBuilderLibrary,
-        sheetBuilderWorkshop: ex.sheetBuilderWorkshop,
-        sheetBuilderWeeks: ex.sheetBuilderWeeks,
-        sheetBuilderBatches: ex.sheetBuilderBatches,
-        sheetBuilderLoose: ex.sheetBuilderLoose,
-        sheetBuilderPaged: ex.sheetBuilderPaged,
-    });
-}, { platformFns: TestImpl });
-
-/** Run `build` inside a block, as a builder's factory runs. */
+/** Run `build` inside a block, as a sheet's factory runs. */
 function inBlock<T>(build: ($: BlockBuilder<NullType>) => T): T {
     let out: T | undefined;
     East.function([], NullType, ($) => { out = build($); });
@@ -51,24 +41,24 @@ function inBlock<T>(build: ($: BlockBuilder<NullType>) => T): T {
 const typeOf = (e: unknown): EastType => Expr.type(e as Expr) as EastType;
 
 const JOB_COLUMNS = {
-    task:  Sheet.column.text(ex.BuilderJob, { header: "Task" }),
-    start: Sheet.column.date(ex.BuilderJob, { header: "Start" }),
-    qty:   Sheet.column.quantity(ex.BuilderJob, { header: "Qty" }),
+    task:  Sheet.column.text(ex.SheetJob, { header: "Task" }),
+    start: Sheet.column.date(ex.SheetJob, { header: "Start" }),
+    qty:   Sheet.column.quantity(ex.SheetJob, { header: "Qty" }),
 };
 
 describe("the payload (SB12)", () => {
-    test("the smallest builder's payload is SheetBuilderPayloadType: the sheet whole, its templates, the record's history", () => {
+    test("the smallest sheet's payload is SheetPayloadType: the sheet whole, its templates, its panes, the record's history", () => {
         inBlock(($) => {
-            const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-            const payload = Sheet.BuilderPayload({ record: jobs, columns: JOB_COLUMNS });
-            assert.ok(isTypeEqual(typeOf(payload), SheetBuilderPayloadType));
+            const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+            const payload = Sheet.Payload({ record: jobs, columns: JOB_COLUMNS });
+            assert.ok(isTypeEqual(typeOf(payload), SheetPayloadType));
         });
     });
 
-    test("the keys a builder keeps its viewer's state under, and its sheet's drop target, follow its name", () => {
-        assert.deepEqual(sheetKeys(undefined), { frame: "sheet.builder.frame", columns: "sheet.builder.columns", library: "sheet.library", surface: "sheet.builder.sheet" });
+    test("the keys a sheet keeps its viewer's state under, and its drop target, follow its name", () => {
+        assert.deepEqual(sheetKeys(undefined), { frame: "sheet.frame", columns: "sheet.columns", library: "sheet.library", surface: "sheet.surface" });
         assert.deepEqual(sheetKeys("orders"), {
-            frame: "sheet.builder.orders.frame", columns: "sheet.builder.orders.columns", library: "sheet.library.orders", surface: "sheet.builder.orders.sheet",
+            frame: "sheet.orders.frame", columns: "sheet.orders.columns", library: "sheet.library.orders", surface: "sheet.orders.surface",
         });
     });
 
@@ -76,12 +66,154 @@ describe("the payload (SB12)", () => {
         // Type-level: the build never runs. An overload that accepted these would fail the build on its unused directive.
         const never = (): void => {
             inBlock(($) => {
-                const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-                // @ts-expect-error — the columns are over the plan row, and the record holds jobs
-                return Sheet.Builder({ record: jobs, columns: { task: Sheet.column.text(ex.BuilderPlanRow, { header: "Task" }) } });
+                const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+                // @ts-expect-error — the columns are over the week's row, and the record holds jobs
+                return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) } });
             });
         };
         assert.equal(typeof never, "function");
+    });
+});
+
+// The host's rows: a flat sheet over a few jobs, as an array, and as a paged
+// source built by hand to the row-source contract.
+const Job = StructType({ id: StringType, task: StringType, qty: OptionType(FloatType) });
+const Jobs = ArrayType(Job);
+/** Fixtures at MODULE scope: East bodies never call host helpers. */
+const JOBS = [
+    { id: "j1", task: "Panel cutting", qty: some(48.0) },
+    { id: "j2", task: "Edge banding", qty: none },
+];
+const JOBS_PAGE = East.function([IntegerType, IntegerType], OptionType(Jobs), ($, offset, limit) => {
+    const all = $.const(JOBS, Jobs);
+    const n = $.let(all.size());
+    const start = $.let(offset.less(n).ifElse(() => offset, () => n));
+    const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
+    return some(all.slice(start, end));
+});
+const JOBS_TOTAL = East.function([], OptionType(IntegerType), ($) => {
+    const all = $.const(JOBS, Jobs);
+    return some(all.size());
+});
+const JOBS_SOURCE = { id: "jobs", page: JOBS_PAGE, total: JOBS_TOTAL, seek: none };
+const DATA_COLUMNS = {
+    task: Sheet.column.text(Job, { header: "Task" }),
+    qty:  Sheet.column.quantity(Job, { header: "Qty" }),
+};
+// A views handle built by hand, as `State.bind` and `Data.bind` hand one: a read and a write.
+const ViewsHandle = StructType({ read: FunctionType([], ArrayType(Sheet.Types.View)), write: FunctionType([ArrayType(Sheet.Types.View)], NullType) });
+const VIEWS = [{
+    id: "v1", name: "ALL", context: 1n, reveals: [], folds: new Map(),
+    narrowing: { range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(), breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none },
+}];
+
+type Payload = ValueTypeOf<typeof SheetPayloadType>;
+/** A sheet over the jobs as an array, with the props given beside its rows and columns, compiled and run. */
+const overJobs = (props: ($: BlockBuilder<typeof SheetPayloadType>) => Record<string, unknown>): Payload =>
+    East.compile(East.function([], SheetPayloadType, ($) => {
+        const rows = $.const(JOBS, Jobs);
+        return Sheet.Payload({ data: rows, id: "id", columns: DATA_COLUMNS, ...props($) });
+    }), [])() as Payload;
+
+describe("its rows' two sources (#1216)", () => {
+    test("over a record: its entries, a window of them, one entry's rows, its groups, and groups with loose rows between them", () => {
+        inBlock(($) => {
+            const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({ record: jobs, columns: JOB_COLUMNS })), SheetPayloadType), "the entries");
+            const page = $.let(Data.bindPaged(ex.sheetJobs));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({ record: jobs, window: page, columns: JOB_COLUMNS })), SheetPayloadType), "a window of them");
+            const plans = $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch]));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({
+                record: plans, entry: { key: "2026-W42", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
+            })), SheetPayloadType), "one entry's rows");
+            const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({
+                record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" },
+                group: Sheet.group(ex.Batch, "steps", { title: "name" }), columns: { task: Sheet.column.text(ex.BatchStep, { header: "Step" }) },
+            })), SheetPayloadType), "one entry's groups");
+            const work = $.let(Record.bind(ex.sheetLooseWork, [ex.sheetLooseWorkPatch]));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({
+                record: work, entry: { key: "2026-W42", rows: "entries", id: "id" },
+                group: Sheet.group(ex.LoosePackage, "tasks", { title: "name" }), columns: { task: Sheet.column.text(ex.LooseTask, { header: "Task" }) },
+            })), SheetPayloadType), "groups with loose rows between them");
+        });
+    });
+
+    test("over a record's entries as groups: the record's entries are the groups, in key order", () => {
+        inBlock(($) => {
+            const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({
+                record: orders, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
+                columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
+            })), SheetPayloadType));
+        });
+    });
+
+    test("over data — an array, a bind handle, a paged source: the rows its own, no record's history and no missing entry", () => {
+        const payload = overJobs(() => ({}));
+        assert.equal(payload.sheet.rows.type, "inline");
+        if (payload.sheet.rows.type !== "inline") assert.fail("an array's rows arrive inline");
+        assert.deepEqual(payload.sheet.rows.value.map((row) => row.id), ["j1", "j2"]);
+        assert.deepEqual(payload.history, none, "no record: no commits to read a last save from");
+        assert.deepEqual(payload.missing, none);
+        assert.deepEqual(payload.name, none);
+        inBlock(($) => {
+            const bound = $.let(State.bind([Jobs], "sheet.payload.spec.jobs", JOBS));
+            assert.ok(isTypeEqual(typeOf(Sheet.Payload({ data: bound, id: "id", columns: DATA_COLUMNS, onUpdate: bound.write })), SheetPayloadType), "a bind handle");
+        });
+        const paged = East.compile(East.function([], SheetPayloadType, ($) => {
+            const source = $.const(JOBS_SOURCE, Paged.Types.Source(Jobs));
+            return Sheet.Payload({ data: source, id: "id", columns: DATA_COLUMNS });
+        }), [])() as Payload;
+        assert.equal(paged.sheet.rows.type, "paged", "a paged source's rows arrive a window at a time");
+        assert.deepEqual(paged.history, none);
+    });
+});
+
+describe("its panes, each an optional prop (#1216)", () => {
+    test("no `library`, no library tab; no `inspector`, no inspector pane", () => {
+        const payload = overJobs(() => ({}));
+        assert.deepEqual(payload.library, []);
+        assert.deepEqual(payload.inspector, none);
+    });
+
+    test("`library` lists the library pane's tabs, in order", () => {
+        const payload = overJobs(() => ({ library: [Sheet.library.columns(), Sheet.library.rows()] }));
+        assert.deepEqual(payload.library, [variant("columns", null), variant("rows", null)]);
+    });
+
+    test("`inspector` alone: the pane, its Details the selected row's form, every field of the row but its identity", () => {
+        const payload = overJobs(() => ({ inspector: true }));
+        if (payload.inspector.type !== "some") assert.fail("given, the payload carries the pane");
+        assert.deepEqual(payload.inspector.value.custom, none, "no Details of the author's own: the form");
+        assert.deepEqual(payload.inspector.value.forms.row.fields.map((f) => f.spec.path.join(".")), ["task", "qty"]);
+        assert.deepEqual(payload.inspector.value.forms.group, none, "a flat sheet has no group form");
+    });
+
+    test("`inspector` given a function: the pane, with the author's own Details beside the form an incomplete row shows", () => {
+        const payload = overJobs(($) => ({
+            inspector: $.const(East.function([Job, FunctionType([Job], NullType)], UIComponentType, (_$2, row) => Text.Root(row.task))),
+        }));
+        if (payload.inspector.type !== "some") assert.fail("given, the payload carries the pane");
+        assert.equal(payload.inspector.value.custom.type, "some");
+        assert.deepEqual(payload.inspector.value.forms.row.fields.map((f) => f.spec.path.join(".")), ["task", "qty"]);
+    });
+
+    test("`views` is a bind handle: its read the sheet's views, its write their write-back", () => {
+        const payload = overJobs(($) => ({
+            views: $.const({
+                read: East.function([], ArrayType(Sheet.Types.View), () => VIEWS),
+                write: East.function([ArrayType(Sheet.Types.View)], NullType, () => null),
+            }, ViewsHandle),
+            activeView: some("v1"),
+        }));
+        assert.deepEqual(payload.sheet.views.map((v) => [v.id, v.name, v.context]), [["v1", "ALL", 1n]]);
+        assert.equal(payload.sheet.onViewsChange.type, "some");
+        assert.deepEqual(payload.sheet.activeView, some("v1"));
+    });
+
+    test("`name` names the sheet", () => {
+        assert.deepEqual(overJobs(() => ({ name: "jobs" })).name, some("jobs"));
     });
 });
 
@@ -249,19 +381,6 @@ describe("the library (SB59, SB60)", () => {
         assert.deepEqual(tab!.value.cards[1]!.sets.get("$title"), variant("String", "RELEASED"));
     });
 
-    test("a builder's payload carries its library; left out, it lists none", () => {
-        inBlock(($) => {
-            const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-            const payload = Sheet.BuilderPayload({ record: jobs, columns: JOB_COLUMNS, library: [Sheet.library.columns()] });
-            assert.ok(isTypeEqual(typeOf(payload), SheetBuilderPayloadType));
-        });
-        const none_ = East.compile(East.function([], ArrayType(SheetLibraryTabType), ($) => {
-            const ops = $.const(OPS, DictType(StringType, OpType));
-            return buildLibrary(undefined, createSheetBuild(ops, OP_COLUMNS, {}, { keyOrdered: true }).bridge);
-        }), []);
-        assert.deepEqual(none_(), []);
-    });
-
     test("refused, naming the tab: a tab listed twice, two author's tabs of one name, a drop over another type, and data neither an Array nor a Dict", () => {
         assert.throws(() => flatLibrary(() => [Sheet.library.rows(), Sheet.library.rows()]), /the library lists Sheet.library.rows\(\) twice/);
         assert.throws(() => flatLibrary(($) => {
@@ -270,7 +389,7 @@ describe("the library (SB59, SB60)", () => {
         }), /two tabs named "A"/);
         assert.throws(() => flatLibrary(($) => {
             const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
-            return [Sheet.library.tab(acts, { name: "Jobs", key: a => a.name, label: a => a.name, drop: a => Sheet.patch(ex.BuilderJob, { task: a.name }) })];
+            return [Sheet.library.tab(acts, { name: "Jobs", key: a => a.name, label: a => a.name, drop: a => Sheet.patch(ex.SheetJob, { task: a.name }) })];
         }), /the "Jobs" tab's `drop` returns a patch over neither the row type nor the group type/);
         assert.throws(() => flatLibrary(($) => {
             const acts = $.const(ACTIVITIES, ArrayType(ActivityRow));
@@ -296,7 +415,7 @@ type Column = ValueTypeOf<typeof Sheet.Types.Column>;
 const LooseTask = StructType({ id: StringType, task: StringType });
 const LoosePackage = StructType({ id: StringType, name: StringType, tasks: ArrayType(LooseTask) });
 const LooseWeek = StructType({ entries: ArrayType(Sheet.Types.Entry(LoosePackage, "tasks")) });
-const looseWork = e3.record("sheet_builder_spec_loose", DictType(StringType, LooseWeek), new Map([
+const looseWork = e3.record("sheet_spec_loose", DictType(StringType, LooseWeek), new Map([
     ["w", { entries: [
         variant("row", { id: "brief", task: "Check the drawings" }),
         variant("group", { id: "doors", name: "Kitchen doors", tasks: [{ id: "doors-1", task: "Cut door blanks" }] }),
@@ -338,75 +457,100 @@ describe("grouped checks and loose rows (#1214)", () => {
         assert.equal(machines!.kind.value.arity.type, "some");
     });
 
-    test("a builder takes one entry's groups with loose rows between them, Sheet.Types.Entry(P, \"lines\"): the tag types the form, and its payload builds", () => {
+    test("a sheet takes one entry's groups with loose rows between them, Sheet.Types.Entry(P, \"lines\"): the tag types the form, and its payload builds", () => {
         inBlock(($) => {
             const work = $.let(Record.bind(looseWork, [looseWorkPatch]));
             // Through the tag, typed: the entry's rows hold groups and loose rows, its id a field of both.
-            Sheet.Builder({
+            Sheet({
                 record: work, entry: { key: "w", rows: "entries", id: "id" },
                 group: Sheet.group(LoosePackage, "tasks", { title: "name" }),
                 columns: { task: Sheet.column.text(LooseTask, { header: "Task" }) },
             });
-            const payload = Sheet.BuilderPayload({
+            const payload = Sheet.Payload({
                 record: work, entry: { key: "w", rows: "entries", id: "id" },
                 group: Sheet.group(LoosePackage, "tasks", { title: "name" }),
                 columns: { task: Sheet.column.text(LooseTask, { header: "Task" }) },
             });
-            assert.ok(isTypeEqual(typeOf(payload), SheetBuilderPayloadType));
+            assert.ok(isTypeEqual(typeOf(payload), SheetPayloadType));
         });
     });
 });
 
 describe("refusals (SB7), each naming the prop and the remedy", () => {
-    const counter = e3.record("sheet_builder_spec_counter", IntegerType, 0n);
+    const counter = e3.record("sheet_spec_counter", IntegerType, 0n);
     const bump = e3.mutation.reduce("bump", counter, East.function([IntegerType], IntegerType, (_$, n) => n.add(1n)));
-    const builder = (props: Record<string, unknown>) => (Sheet.Builder as unknown as (p: Record<string, unknown>) => unknown)(props);
+    const sheet = (props: Record<string, unknown>) => (Sheet as unknown as (p: Record<string, unknown>) => unknown)(props);
+
+    test("rows from both `record` and `data`, from neither, and `entry` or `window` without a record", () => {
+        assert.throws(() => inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), data: $.const(JOBS, Jobs), columns: JOB_COLUMNS,
+        })), /takes its rows from `record` or from `data`, never both/);
+        assert.throws(() => sheet({ columns: DATA_COLUMNS }), /needs its rows — `record`, an e3 record bound with its patch mutation, or `data`/);
+        assert.throws(() => inBlock(($) => sheet({ data: $.const(JOBS, Jobs), id: "id", entry: { key: "w", rows: "rows", id: "id" }, columns: DATA_COLUMNS })),
+            /`entry` reads a record — pass `record` for it, or leave it out with `data`/);
+        assert.throws(() => inBlock(($) => sheet({ data: $.const(JOBS, Jobs), id: "id", window: $.let(Data.bindPaged(ex.sheetJobs)), columns: DATA_COLUMNS })),
+            /`window` reads a record/);
+    });
 
     test("a record that is not a Dict, and one bound without its patch door", () => {
-        assert.throws(() => inBlock(($) => builder({ record: $.let(Record.bind(counter, [bump])), columns: JOB_COLUMNS })),
+        assert.throws(() => inBlock(($) => sheet({ record: $.let(Record.bind(counter, [bump])), columns: JOB_COLUMNS })),
             /`record` must be a Dict — its entries, or one entry's rows, are the sheet's rows/);
-        assert.throws(() => inBlock(($) => builder({ record: $.let(Record.bind(ex.sheetBuilderJobs, [])), columns: JOB_COLUMNS })),
+        assert.throws(() => inBlock(($) => sheet({ record: $.let(Record.bind(ex.sheetJobs, [])), columns: JOB_COLUMNS })),
             /"patch" is not bound as this record's patch door/);
     });
 
     test("`window` with `entry`, and a window over another record's collection", () => {
-        assert.throws(() => inBlock(($) => builder({
-            record: $.let(Record.bind(ex.sheetBuilderPlans, [ex.sheetBuilderPlansPatch])),
-            entry: { key: "2026-W42", rows: "rows", id: "id" }, window: $.let(Data.bindPaged(ex.sheetBuilderPlans)),
-            columns: { task: Sheet.column.text(ex.BuilderPlanRow, { header: "Task" }) },
+        assert.throws(() => inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch])),
+            entry: { key: "2026-W42", rows: "rows", id: "id" }, window: $.let(Data.bindPaged(ex.sheetWeekPlans)),
+            columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
         })), /`window` pages the record's entries, and with `entry` the rows are one entry's field, read whole/);
-        assert.throws(() => inBlock(($) => builder({
-            record: $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch])), window: $.let(Data.bindPaged(ex.sheetBuilderPlans)), columns: JOB_COLUMNS,
+        assert.throws(() => inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), window: $.let(Data.bindPaged(ex.sheetWeekPlans)), columns: JOB_COLUMNS,
         })), /`window` must page the record's entries — Data.bindPaged\(record\) over the same record/);
     });
 
+    test("a record's own Apply, identity and name: `onApply` and `onUpdate` write data back, and `id` names data's identity — `name` names the sheet", () => {
+        for (const prop of ["onApply", "onUpdate"]) {
+            assert.throws(() => inBlock(($) => sheet({
+                record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS, [prop]: none,
+            })), new RegExp(`\`${prop}\` writes \`data\` back — a sheet over \`record\` commits through the record's patch mutation`));
+        }
+        assert.throws(() => inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS, id: "jobs",
+        })), /`id` names the identity field of `data`'s rows — a record's rows are identified by their key, or by `entry.id`; to name the sheet, pass `name`/);
+    });
+
+    test("hints with no inspector to take them", () => {
+        assert.throws(() => overJobs(() => ({ fields: { task: Sheet.field.readonly() } })),
+            /`fields` hints the inspector's form, and this sheet has no inspector — pass `inspector` to show the pane, or leave `fields` out/);
+        assert.throws(() => overJobs(() => ({ groupFields: { name: Sheet.field.readonly() } })),
+            /`groupFields` hints the inspector's form, and this sheet has no inspector/);
+    });
+
     test("a template over another type, a key that repeats, and a group template on a flat sheet", () => {
-        const jobsBuilder = (templates: unknown) => inBlock(($) => builder({
-            record: $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch])), columns: JOB_COLUMNS, templates,
+        const jobsSheet = (templates: unknown) => inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS, templates,
         }));
-        assert.throws(() => jobsBuilder({ rows: [{ key: "x", name: "X", values: Sheet.patch(ex.BuilderPlanRow, { task: "X" }) }] }),
+        assert.throws(() => jobsSheet({ rows: [{ key: "x", name: "X", values: Sheet.patch(ex.WeekRow, { task: "X" }) }] }),
             /row template "x" was built over another type — build its values with Sheet.patch\(RowType, …\)/);
-        assert.throws(() => jobsBuilder({ rows: [
-            { key: "a", name: "A", values: Sheet.patch(ex.BuilderJob, { task: "A" }) },
-            { key: "a", name: "Again", values: Sheet.patch(ex.BuilderJob, { task: "Again" }) },
+        assert.throws(() => jobsSheet({ rows: [
+            { key: "a", name: "A", values: Sheet.patch(ex.SheetJob, { task: "A" }) },
+            { key: "a", name: "Again", values: Sheet.patch(ex.SheetJob, { task: "Again" }) },
         ] }), /template key "a" repeats/);
-        assert.throws(() => jobsBuilder({ groups: [{ key: "g", name: "G", values: Sheet.patch(ex.BuilderJob, { task: "G" }) }] }),
+        assert.throws(() => jobsSheet({ groups: [{ key: "g", name: "G", values: Sheet.patch(ex.SheetJob, { task: "G" }) }] }),
             /`templates.groups` needs a grouped sheet/);
     });
 
-    test("a views handle of anything but Array<Sheet.Types.View>, and Sheet.View's own props", () => {
-        assert.throws(() => inBlock(($) => builder({
-            record: $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch])), columns: JOB_COLUMNS,
-            views: $.let(State.bind([StringType], "sheet.builder.spec.views", "")),
+    test("a views handle of anything but Array<Sheet.Types.View>, and `onViewsChange`, which the handle replaces", () => {
+        assert.throws(() => inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS,
+            views: $.let(State.bind([StringType], "sheet.spec.views", "")),
         })), /`views` must be a bind handle of Array<Sheet.Types.View>/);
-        inBlock(($) => builder({
-            record: $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch])), columns: JOB_COLUMNS,
-            views: $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.builder.spec.views", [])),
+        inBlock(($) => sheet({
+            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS,
+            views: $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.spec.views", [])),
         }));
-        for (const prop of ["data", "onApply", "onUpdate", "onViewsChange"]) {
-            assert.throws(() => inBlock(($) => builder({
-                record: $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch])), columns: JOB_COLUMNS, [prop]: none,
-            })), new RegExp(`\`${prop}\` is Sheet.View's`));
-        }
+        assert.throws(() => overJobs(() => ({ onViewsChange: none })), /`views` is a bind handle .* it takes no `onViewsChange`/);
     });
 });

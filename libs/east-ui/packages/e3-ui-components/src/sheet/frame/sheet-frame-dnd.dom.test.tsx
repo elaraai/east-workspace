@@ -4,9 +4,9 @@
  *
  * @vitest-environment jsdom
  *
- * `<Sheet.Builder>`'s drag and drop (#1187, `Sheet Builder Spec.md` §9.8,
+ * `<Sheet>`'s drag and drop (#1187, #1216, `Sheet Builder Spec.md` §9.8,
  * §10: SB38–SB40, SB44, SB45, SB61), through the page's drag layer and its
- * test utilities, over the in-memory stand-in records (`builder.test-utils`):
+ * test utilities, over the in-memory stand-in records (`harness.test-utils`):
  * a template dropped on a seam, a group's start or end, or the blank tail; a
  * group template between the groups, and on a keyed record where its key
  * sorts; an author's card setting its cells on a row or a band; a row, a line
@@ -18,64 +18,64 @@
 import { test, expect } from "vitest";
 import { act, fireEvent, within } from "@testing-library/react";
 import { ArrayType, East, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Record, Sheet, SheetBuilderPayloadType } from "@elaraai/e3-ui/internal";
+import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
-import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
-import { WORKSPACE, builderHarness, mount, mountPayload, settle, slot, type Payload } from "./builder.test-utils.js";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
+import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot } from "./harness.test-utils.js";
 
-const harness = builderHarness();
+const harness = sheetHarness();
 stubScrollIntoView();
 
 // ── The sheets ────────────────────────────────────────────────────────────
 
 /** A week's rows in the planner's order, with a template to drop. */
-const weekPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
-    const plans = $.let(Record.bind(ex.sheetBuilderPlans, [ex.sheetBuilderPlansPatch]));
-    return Sheet.BuilderPayload({
-        record: plans, entry: { key: "2026-W42", rows: "rows", id: "id" }, id: "week",
-        columns: { task: Sheet.column.text(ex.BuilderPlanRow, { header: "Task" }), qty: Sheet.column.quantity(ex.BuilderPlanRow, { header: "Qty" }) },
-        templates: { rows: [{ key: "seal", name: "Seal the doors", values: Sheet.patch(ex.BuilderPlanRow, { task: "Seal the doors", start: none, qty: some(24.0) }) }] },
+const weekPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+    const plans = $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch]));
+    return Sheet.Payload({
+        record: plans, entry: { key: "2026-W42", rows: "rows", id: "id" }, name: "week",
+        columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }), qty: Sheet.column.quantity(ex.WeekRow, { header: "Qty" }) },
+        templates: { rows: [{ key: "seal", name: "Seal the doors", values: Sheet.patch(ex.WeekRow, { task: "Seal the doors", start: none, qty: some(24.0) }) }] },
         library: [Sheet.library.rows()],
     });
-}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+}), getRegisteredPlatformImplementations());
 
 /** The day's batches, where the sheet's `edits` add no line and no batch. */
-const batchesAddingNothing = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
-    const days = $.let(Record.bind(ex.sheetBuilderDays, [ex.sheetBuilderDaysPatch]));
+const batchesAddingNothing = East.compile(East.function([], SheetPayloadType, ($) => {
+    const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
     const finishing = $.let([
         { task: "Sand", qty: none, parts: [], bookings: [] },
         { task: "Seal", qty: none, parts: [], bookings: [] },
-    ], ArrayType(ex.BuilderStep));
-    return Sheet.BuilderPayload({
-        record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, id: "adding-nothing",
-        group: Sheet.group(ex.BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),
-        columns: { task: Sheet.column.text(ex.BuilderStep, { header: "Step" }), qty: Sheet.column.quantity(ex.BuilderStep, { header: "Qty" }) },
+    ], ArrayType(ex.BatchStep));
+    return Sheet.Payload({
+        record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, name: "adding-nothing",
+        group: Sheet.group(ex.Batch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),
+        columns: { task: Sheet.column.text(ex.BatchStep, { header: "Step" }), qty: Sheet.column.quantity(ex.BatchStep, { header: "Qty" }) },
         templates: {
-            groups: [{ key: "finishing", name: "Finishing batch", values: Sheet.patch(ex.BuilderBatch, { name: "Finishing", steps: finishing }) }],
-            rows: [{ key: "sand", name: "Sand", values: Sheet.patch(ex.BuilderStep, { task: "Sand", qty: none }) }],
+            groups: [{ key: "finishing", name: "Finishing batch", values: Sheet.patch(ex.Batch, { name: "Finishing", steps: finishing }) }],
+            rows: [{ key: "sand", name: "Sand", values: Sheet.patch(ex.BatchStep, { task: "Sand", qty: none }) }],
         },
         library: [Sheet.library.rows()],
         edits: { insertRows: false, insertGroups: false },
     });
-}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+}), getRegisteredPlatformImplementations());
 
 /** The day's batches, where the sheet's `edits` move a line only within its batch. */
-const batchesMovingWithin = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
-    const days = $.let(Record.bind(ex.sheetBuilderDays, [ex.sheetBuilderDaysPatch]));
-    return Sheet.BuilderPayload({
-        record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, id: "moving-within",
-        group: Sheet.group(ex.BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),
-        columns: { task: Sheet.column.text(ex.BuilderStep, { header: "Step" }), qty: Sheet.column.quantity(ex.BuilderStep, { header: "Qty" }) },
+const batchesMovingWithin = East.compile(East.function([], SheetPayloadType, ($) => {
+    const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
+    return Sheet.Payload({
+        record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, name: "moving-within",
+        group: Sheet.group(ex.Batch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } }),
+        columns: { task: Sheet.column.text(ex.BatchStep, { header: "Step" }), qty: Sheet.column.quantity(ex.BatchStep, { header: "Qty" }) },
         library: [Sheet.library.rows()],
         edits: { moveRows: "within" },
     });
-}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+}), getRegisteredPlatformImplementations());
 
-type Days = ValueTypeOf<typeof ex.sheetBuilderDays.type>;
-type Plans = ValueTypeOf<typeof ex.sheetBuilderPlans.type>;
-type Jobs = ValueTypeOf<typeof ex.sheetBuilderJobs.type>;
-type Orders = ValueTypeOf<typeof ex.sheetBuilderOrders.type>;
+type Days = ValueTypeOf<typeof ex.sheetBatchDays.type>;
+type Plans = ValueTypeOf<typeof ex.sheetWeekPlans.type>;
+type Jobs = ValueTypeOf<typeof ex.sheetJobs.type>;
+type Orders = ValueTypeOf<typeof ex.sheetWorkshopOrders.type>;
 
 /** A record as it stands — what its patch door last wrote. */
 function readRecord<T>(name: string, decode: (bytes: Uint8Array) => T): T {
@@ -83,10 +83,10 @@ function readRecord<T>(name: string, decode: (bytes: Uint8Array) => T): T {
     if (bytes === undefined) throw new Error(`the record ${name} has not loaded`);
     return decode(bytes);
 }
-const readDays = (): Days => readRecord(ex.sheetBuilderDays.name, decodeBeast2For(ex.sheetBuilderDays.type));
-const readPlans = (): Plans => readRecord(ex.sheetBuilderPlans.name, decodeBeast2For(ex.sheetBuilderPlans.type));
-const readJobs = (): Jobs => readRecord(ex.sheetBuilderJobs.name, decodeBeast2For(ex.sheetBuilderJobs.type));
-const readOrders = (): Orders => readRecord(ex.sheetBuilderOrders.name, decodeBeast2For(ex.sheetBuilderOrders.type));
+const readDays = (): Days => readRecord(ex.sheetBatchDays.name, decodeBeast2For(ex.sheetBatchDays.type));
+const readPlans = (): Plans => readRecord(ex.sheetWeekPlans.name, decodeBeast2For(ex.sheetWeekPlans.type));
+const readJobs = (): Jobs => readRecord(ex.sheetJobs.name, decodeBeast2For(ex.sheetJobs.type));
+const readOrders = (): Orders => readRecord(ex.sheetWorkshopOrders.name, decodeBeast2For(ex.sheetWorkshopOrders.type));
 
 // ── Reading the sheet ─────────────────────────────────────────────────────
 
@@ -210,7 +210,7 @@ test("a row template dropped on a seam inserts its row there, selected, as one t
 });
 
 test("on a grouped sheet a row template lands as a line of the group under the pointer — beside a line, at a band's start, at a group's end — and a group template between the groups; one Apply commits them (SB39, SB40)", async () => {
-    const { container } = mount(ex.sheetBuilderBatches, { drag: true });
+    const { container } = mount(ex.sheetBatches, { drag: true });
     await settle();
     const before = [
         "# Doors, oak", "Cut doors", "Band doors", "Spray doors",
@@ -269,7 +269,7 @@ test("on a grouped sheet a row template lands as a line of the group under the p
 });
 
 test("on a keyed record a new group sits where its key sorts — the ghost says so — while a line still lands where it is dropped (SB14, SB39, SB40)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop, { drag: true });
+    const { container } = mount(ex.sheetWorkshop, { drag: true });
     await settle();
     // A line lands beside the line it is dropped on, in its group.
     pickUp(cardOf(container, "edge"));
@@ -315,7 +315,7 @@ test("a template is refused, red, where the sheet's edits add no row or no group
 // ── An author's cards (SB61) ──────────────────────────────────────────────
 
 test("an author's card sets the fields its drop patch sets on the row it lands on, as one transaction, the row selected on the field; anywhere but a row it is refused (SB61)", async () => {
-    const { container } = mount(ex.sheetBuilderLibrary, { drag: true });
+    const { container } = mount(ex.sheetLibrary, { drag: true });
     await settle();
     await openTab(container, "Tasks");
     pickUp(cardOf(container, "Sanding"));
@@ -346,7 +346,7 @@ test("an author's card sets the fields its drop patch sets on the row it lands o
 });
 
 test("a card whose patch is over the group type lands on a band, setting the group's field as one transaction; on a line it is refused (SB61)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop, { drag: true });
+    const { container } = mount(ex.sheetWorkshop, { drag: true });
     await settle();
     await openTab(container, "Statuses");
     pickUp(cardOf(container, "RELEASED"));
@@ -366,7 +366,7 @@ test("a card whose patch is over the group type lands on a band, setting the gro
 // ── Moves (SB44) ──────────────────────────────────────────────────────────
 
 test("a grip moves a step within its batch or into another, and a whole batch to another seam — each one transaction — and one Apply commits them all (SB44)", async () => {
-    const { container } = mount(ex.sheetBuilderBatches, { drag: true });
+    const { container } = mount(ex.sheetBatches, { drag: true });
     await settle();
     const before = sheetText(container);
     // Every line and every band carries a grip; a blank line does not.
@@ -449,12 +449,12 @@ test("a move is refused, red, where the sheet's edits keep the lines in their gr
     expect(sheetText(c)).toEqual(before);
     narrowed.unmount();
     // Jobs in key order: no row moves.
-    const jobs = mount(ex.sheetBuilder, { drag: true });
+    const jobs = mount(ex.sheetBasic, { drag: true });
     await settle();
     expect(main(jobs.container).querySelector('[data-slot="rowGrip"]')).toBeNull();
     jobs.unmount();
     // Orders in key order: lines move, orders do not.
-    const workshop = mount(ex.sheetBuilderWorkshop, { drag: true });
+    const workshop = mount(ex.sheetWorkshop, { drag: true });
     await settle();
     expect(gripOf(linesOf(workshop.container, "WO-2201")[0]!)).not.toBeNull();
     expect(gripOf(bandOf(workshop.container, "WO-2201"))).toBeNull();
@@ -478,7 +478,7 @@ test("⏎ on a template inserts it below the ring's row, as a drop there would; 
     expect(seal.hasAttribute("data-dragging")).toBe(false);
     week.unmount();
     // An author's card: its fields on the ring's row.
-    const library = mount(ex.sheetBuilderLibrary, { drag: true });
+    const library = mount(ex.sheetLibrary, { drag: true });
     await settle();
     fireEvent.mouseDown(rowById(library.container, "J-0002").querySelector('[data-key="qty"]')!, { button: 0 });
     await settle();
@@ -488,7 +488,7 @@ test("⏎ on a template inserts it below the ring's row, as a drop there would; 
     expect(sheetText(library.container)).toEqual(["Panel cutting", "Sanding", "CNC routing", "Spray finish"]);
     library.unmount();
     // A status on a line: refused, and the footer says why.
-    const workshop = mount(ex.sheetBuilderWorkshop, { drag: true });
+    const workshop = mount(ex.sheetWorkshop, { drag: true });
     await settle();
     fireEvent.mouseDown(linesOf(workshop.container, "WO-2202")[0]!.querySelector('[data-key="notes"]')!, { button: 0 });
     await settle();

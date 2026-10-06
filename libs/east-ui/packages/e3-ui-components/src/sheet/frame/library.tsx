@@ -5,10 +5,10 @@
 
 /**
  * The library pane (`Sheet Builder Spec.md` §7, §8, §9.7, SB32, SB33, SB36,
- * SB37, SB59, SB60): the sheet builder's start pane, its tabs the ones the
+ * SB37, SB59, SB60): the Sheet's start pane (#1216), its tabs the ones the
  * author's `library` lists, in that order, each a `Library` with its count
- * after its name and a search — what the builder offers to drag into the
- * sheet, and the columns a viewer shows and hides. A builder whose `library`
+ * after its name and a search — what the sheet offers to drag into its
+ * rows, and the columns a viewer shows and hides. A sheet whose `library`
  * lists no tab has no pane.
  *
  * - **Rows** (`Sheet.library.rows()`) — the templates, grouped by their
@@ -27,7 +27,7 @@
  *   pane is a rail with the templates' count, or the first tab's when the
  *   library lists no Rows tab.
  *
- * Template cards drag from the library `${sheetKeys(id).library}:rows` names,
+ * Template cards drag from the library `${sheetKeys(name).library}:rows` names,
  * an author's tab's from `…:tab:<its name>` ({@link templatesLibrary},
  * {@link tabLibrary}) — the libraries the sheet takes drops from (#1187). A
  * draggable card's ⏎ is the sheet's: the card, dropped below the ring's row
@@ -37,8 +37,8 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { StringType, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Sheet, type SheetBuilderPayloadType, type sheetKeys } from "@elaraai/e3-ui/internal";
+import { StringType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
+import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, getSomeorUndefined, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
 } from "@elaraai/east-ui-components";
@@ -47,14 +47,13 @@ import type { SheetLibraryTabWord } from "../messages.js";
 import { TITLE_KEY, cellIsBlank, cellText, indexColumns, indexGroup, type SheetColumnIndex, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import type { SheetWords } from "../words.js";
+import type { SheetValue } from "./index.js";
 
-/** The renderer's payload, decoded. */
-type SheetBuilderValue = ValueTypeOf<typeof SheetBuilderPayloadType>;
 /** One template, decoded. */
-type SheetTemplateValue = SheetBuilderValue["templates"][number];
+type SheetTemplateValue = SheetValue["templates"][number];
 /** An author's tab, decoded. */
-type SheetAuthorTabValue = Extract<SheetBuilderValue["library"][number], { type: "tab" }>["value"];
-/** The names the builder keeps its viewer's state under. */
+type SheetAuthorTabValue = Extract<SheetValue["library"][number], { type: "tab" }>["value"];
+/** The names the sheet keeps its viewer's state under. */
 type SheetKeys = ReturnType<typeof sheetKeys>;
 
 const stringEqual = equalFor(StringType);
@@ -68,9 +67,9 @@ const FILL = some({ height: some("fill"), maxHeight: none, virtualization: some(
 
 /** Props of {@link useSheetLibrary}. */
 export interface SheetLibraryProps {
-    /** The builder's payload: the sheet, the templates and the library's tabs. */
-    value: SheetBuilderValue;
-    /** The names the builder keeps its viewer's state under. */
+    /** The sheet's payload: the sheet, the templates and the library's tabs. */
+    value: SheetValue;
+    /** The names the sheet keeps its viewer's state under. */
     keys: SheetKeys;
     /** The columns this viewer hides, by key. */
     hidden: ReadonlySet<string>;
@@ -141,9 +140,9 @@ function authorTabKey(tab: SheetAuthorTabValue): string {
 }
 
 /**
- * The library a builder's templates drag from — the Rows tab's (#1187).
+ * The library a sheet's templates drag from — the Rows tab's (#1187).
  *
- * @param keys - The builder's keys
+ * @param keys - The sheet's keys
  * @returns The library's id
  */
 export function templatesLibrary(keys: SheetKeys): string {
@@ -153,7 +152,7 @@ export function templatesLibrary(keys: SheetKeys): string {
 /**
  * The library an author's tab's cards drag from (#1187).
  *
- * @param keys - The builder's keys
+ * @param keys - The sheet's keys
  * @param tab - The author's tab
  * @returns The library's id
  */
@@ -164,7 +163,7 @@ export function tabLibrary(keys: SheetKeys, tab: SheetAuthorTabValue): string {
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The payload, the builder's keys, the columns hidden and their toggle, and the words
+ * @param props - The payload, the sheet's keys, the columns hidden and their toggle, and the words
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer (SB24) — or `undefined`, no pane, when `library` lists none
  */
 export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words }: SheetLibraryProps): BuilderFrameDock | undefined {
