@@ -19,6 +19,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
@@ -149,7 +150,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                             onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
                     </PlanPartBoundary>
                 )}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-now left={`${scale.nowFrac * 100}%`} />}
+                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-now />}
             </Box>
         </Box>
     );

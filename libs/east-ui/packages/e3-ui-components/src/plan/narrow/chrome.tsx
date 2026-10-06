@@ -13,6 +13,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { Box } from "@chakra-ui/react";
+import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanScale } from "../context.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -75,7 +76,7 @@ export function NarrowRuler({ styles }: { styles: Styles }) {
                         {labelled(b.index) ? b.label : ""}
                     </Box>
                 ))}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
+                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} />}
             </Box>
         </Box>
     );

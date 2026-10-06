@@ -56,6 +56,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
 import { type EastChakraComponent, SliceRailCluster, useSliceReactivity } from "@elaraai/east-ui-components";
 import { railAffordanceKinds } from "@elaraai/east-ui-components/internal";
+import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { usePlanSelector } from "../controller/react.js";
 import type { PlanSnapshot } from "../controller/index.js";
@@ -286,9 +287,7 @@ export function PlanNarrow({
         feedTwoFingerPan(gesture.current, "up", e.pointerId, e.clientX, 0);
     };
 
-    const nowLine = scale.nowFrac !== undefined
-        ? <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />
-        : null;
+    const nowLine = scale.nowFrac !== undefined ? <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline /> : null;
 
     // One data row as a card — its facts computed here, its render memoized
     // (`NarrowRowCard`), so a list that grows re-renders only what it adds.

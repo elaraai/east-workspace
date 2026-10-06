@@ -24,8 +24,10 @@ import {
     useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DragPayload, type DropCellOptions,
     type DropVeto,
 } from "@elaraai/east-ui-components";
+import { proposeAt, spanFracs } from "../../shared/time/drag.js";
+import { NowLine } from "../../shared/time/now-line.js";
+import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
 import { toPlanSlot } from "../slot.js";
-import { proposeAt, slotOfEnd, slotOfInstant, spanFracs } from "../edit/move-math.js";
 import { spanWords } from "../edit/movable.js";
 import { usePlanEdit } from "../edit/store.js";
 import { holdsKey } from "../edit/use-carry.js";
@@ -533,7 +535,7 @@ export function RowShell({
                     `[data-plan-cursor]` (#609): a pointermove writes a style,
                     renders nothing. Strips carry no hairline. */}
                 {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} data-plan-axisline data-plan-now left={`${scale.nowFrac * 100}%`} />}
+                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline data-plan-now />}
             </Box>
             {decision}
         </Box>
