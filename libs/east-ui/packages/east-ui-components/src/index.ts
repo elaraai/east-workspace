@@ -591,8 +591,11 @@ export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js"
 export { Toolbar, DEFAULT_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
 export { LibraryLayoutSwitch } from "./collections/library";
 // The key search as one item of a builder's toolbar (#1193) — the box, folding
-// to its icon — over a keyed paged source's `seek`, as the Plan and the Sheet have it.
-export { useKeySearchToolbarItem, type KeySearchSource, type KeySearchToolbarOptions } from "./collections/key-search/toolbar-item.js";
+// to its icon — over a keyed paged source's `seek`, as the Plan and the Sheet
+// have it, and a host's key for it, in either form (#1221).
+export {
+    useKeySearchToolbarItem, focusKeySearch, type KeySearchSource, type KeySearchToolbarOptions,
+} from "./collections/key-search/toolbar-item.js";
 // The editing session (#879) — for sibling renderer packages whose components
 // edit through it themselves, as the query builder does (#935): the session and
 // its React hook, a draft lifted from an entry, the history item for their one

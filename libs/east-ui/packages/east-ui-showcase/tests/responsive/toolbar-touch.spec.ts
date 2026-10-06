@@ -1,0 +1,263 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Licensed under AGPL-3.0. See LICENSE file for details.
+ */
+
+/**
+ * The Plan's and the Sheet's toolbars under a touch pointer (#1221), measured
+ * in a real browser on the phone projects, whose pointer is coarse. Each
+ * toolbar is one row inside its 44px band, nothing past the row's edge, and
+ * every control in it is a 44px tap target — by its box, or by its halo
+ * (`coarseHitArea`, #346), never by growing the row (#1193): a tap 21px above
+ * or below a control's middle, on its column, lands on it; and where controls
+ * sit edge to edge — a segment strip's, the context switch's — a tap just
+ * inside one's edge lands on it, never on its neighbour's halo. An input's
+ * target is its field. Read at the phone's own width, and on a touch screen
+ * 1920px wide, where the rows unfold — the grain and resolution segments,
+ * the key search's box, the rail's search pill, the view tabs — and there with
+ * the controls a gesture brings: a key typed into the paged sheet's key search
+ * (its steps and its clear), and on the workshop's sheet a query in its search
+ * (the lens's context switch, the pill's clear), then view tabs of its own —
+ * the active tab's × shown and another's hidden — and the frame narrowed until
+ * a tab folds into `+n`. On the phone the workshop's two views fold the strip
+ * into its one chip, and the row still fits.
+ *
+ * Run: `make test-responsive` (libs/east-ui), or
+ * `pnpm exec playwright test toolbar-touch --project mobile`.
+ */
+
+import { test, expect, type Locator, type Page } from "playwright/test";
+import { PLAN_EXAMPLES } from "./plan-page";
+import { settled } from "./settle";
+
+/** A gesture that brings controls into the row. */
+interface Gesture {
+    /** What it does, as a failure names it. */
+    what: string;
+    run: (entry: Locator, page: Page) => Promise<void>;
+}
+
+/** A combobox's list, open. */
+const openList = (page: Page) => page.locator("[data-scope='combobox'][data-part='content'][data-state='open']");
+
+/** The sheet's view tabs — every one but the whole sheet's. */
+const viewTabs = (entry: Locator) => entry.locator("[data-frame-slot='toolbar'] [data-slot='tab']:not([data-tab='all'])");
+
+/** The strip folded into its one chip (#1221). */
+const tabChip = (entry: Locator) => entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMenu']");
+
+/**
+ * A new view tab, from the sheet's narrowing as it stands — `+ TAB` tapped on
+ * the strip, or picked from its chip's menu — once it is the open view, named
+ * `name`: its tab the active one, or its name on the chip.
+ */
+async function newViewTab(entry: Locator, page: Page, name: string): Promise<void> {
+    if (await tabChip(entry).isVisible()) {
+        await tabChip(entry).tap();
+        await page.getByRole("menuitem", { name: "New tab from this view" }).tap();
+    } else {
+        await entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "New tab from this view" }).tap();
+    }
+    await expect(entry.locator("[data-frame-slot='toolbar']").locator("[data-slot='tab'][data-active] [data-slot='tabLabel'], [data-slot='tabMenu'] [data-slot='tabLabel']"))
+        .toHaveText(name);
+    await settled(page);
+}
+
+/**
+ * The builders' toolbars, each by its example, with the gestures that bring
+ * more of its controls into the row: at the phone's width, and on the wide
+ * touch screen.
+ */
+const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Gesture[]; wide?: readonly Gesture[] }> = [
+    { name: "planTargetState", hash: `${PLAN_EXAMPLES}/planTargetState` },
+    { name: "planReview", hash: `${PLAN_EXAMPLES}/planReview` },
+    { name: "planEditing", hash: `${PLAN_EXAMPLES}/planEditing` },
+    {
+        name: "sheetWorkshop", hash: "e3/sheet/sheet/sheetWorkshop",
+        phone: [{
+            what: "two view tabs of its own",
+            run: async (entry, page) => {
+                await newViewTab(entry, page, "view 1");
+                await newViewTab(entry, page, "view 2");
+                // The strip folds into its one chip, the open view's (#1221): the row still fits.
+                await expect(tabChip(entry)).toHaveAttribute("aria-label", "Views: view 2");
+            },
+        }],
+        wide: [
+            {
+                what: "a query in the rail's search",
+                run: async (entry, page) => {
+                    const box = entry.locator("[data-frame-slot='toolbar'] input[placeholder='Search…']");
+                    const context = entry.getByRole("radiogroup", { name: "Context rows either side of a hit" });
+                    await box.fill("oak");
+                    // The lens's context switch, and the pill's clear.
+                    await expect(context).toBeVisible();
+                    await expect(entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Clear search" })).toBeVisible();
+                    // A tap outside the box — on the footer — closes its list, the query kept.
+                    await entry.locator("[data-builder-frame] > [data-frame-slot='footer']").tap();
+                    await expect(openList(page)).toHaveCount(0);
+                    await expect(box).toHaveValue("oak");
+                    await expect(context).toBeVisible();
+                    await settled(page);
+                },
+            },
+            {
+                what: "a view tab of its own",
+                run: async (entry, page) => {
+                    await newViewTab(entry, page, "oak");
+                    // The view's tab, active: its × shows.
+                    await expect(entry.locator("[data-slot='tab'][data-active]:not([data-tab='all']) [data-slot='tabClose']")).toBeVisible();
+                },
+            },
+            {
+                what: "a second, and the first picked again",
+                run: async (entry, page) => {
+                    await newViewTab(entry, page, "oak");
+                    await expect(viewTabs(entry)).toHaveCount(2);
+                    await viewTabs(entry).first().tap();
+                    await expect(viewTabs(entry).first()).toHaveAttribute("data-active", "");
+                    // Only the active tab's × shows: the other's halo would take a tap that switches to it.
+                    await expect(viewTabs(entry).first().locator("[data-slot='tabClose']")).toBeVisible();
+                    await expect(viewTabs(entry).nth(1).locator("[data-slot='tabClose']")).toBeHidden();
+                    await settled(page);
+                },
+            },
+            {
+                what: "the frame narrowed until a tab folds into +n",
+                run: async (entry, page) => {
+                    const box = entry.locator("[data-builder-frame]").first().locator("xpath=..");
+                    const more = entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMore']");
+                    for (let width = 1400; width >= 360 && !(await more.isVisible()); width -= 40) {
+                        await box.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
+                        await settled(page);
+                    }
+                    await expect(more).toBeVisible();
+                },
+            },
+        ],
+    },
+    {
+        name: "sheetPaged", hash: "e3/sheet/sheet/sheetPaged",
+        wide: [{
+            what: "a key in the key search",
+            run: async (entry, page) => {
+                const box = entry.locator("[data-toolbar-item='seek'] input");
+                await box.fill("J-0");
+                // Its matches found: their steps and the clear beside the box; Escape closes its list, the key kept.
+                await expect(entry.getByRole("button", { name: "Next match" })).toBeVisible();
+                await box.press("Escape");
+                await expect(openList(page)).toHaveCount(0);
+                await box.blur();
+                await expect(box).toHaveValue("J-0");
+                await settled(page);
+            },
+        }],
+    },
+    { name: "sheetBatches", hash: "e3/sheet/sheet/sheetBatches" },
+];
+
+/** Open an example's page at rest and return its entry. */
+async function openToolbar(page: Page, hash: string): Promise<Locator> {
+    await page.goto(`/?theme=light#${hash}`);
+    await page.waitForSelector("header", { timeout: 20_000 });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']").first()).toBeVisible({ timeout: 20_000 });
+    await settled(page);
+    return entry;
+}
+
+/** What is wrong with a builder's toolbar under a touch pointer — each a line saying what, empty when nothing is. */
+async function touchFaults(entry: Locator): Promise<string[]> {
+    // The band in the window's middle: a tap above or below a control is on the screen.
+    await entry.locator("[data-builder-frame] > [data-frame-slot='toolbar']").first().evaluate((el) => el.scrollIntoView({ block: "center" }));
+    return entry.evaluate((root) => {
+        const bad: string[] = [];
+        const band = root.querySelector("[data-builder-frame] > [data-frame-slot='toolbar']");
+        if (band === null) return ["no toolbar"];
+        const named = (el: Element | null) => (el === null ? "nothing"
+            : `${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") ?? el.getAttribute("placeholder") ?? el.getAttribute("title") ?? el.textContent ?? "").trim().slice(0, 32)}"`);
+        // One row, its band 44px, every item inside the band and none past the row's edge.
+        const b = band.getBoundingClientRect();
+        if (Math.abs(b.height - 44) > 0.5) bad.push(`the band is ${b.height}px tall`);
+        const rows = band.querySelectorAll("[data-toolbar]");
+        if (rows.length !== 1) return [...bad, `${rows.length} rows`];
+        const row = rows[0]!.getBoundingClientRect();
+        for (const item of band.querySelectorAll("[data-toolbar-item]")) {
+            const r = item.getBoundingClientRect();
+            if (r.width === 0) continue;
+            const key = item.getAttribute("data-toolbar-item");
+            if (r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5) bad.push(`${key}: ${r.top.toFixed(1)}–${r.bottom.toFixed(1)}, out of the band ${b.top.toFixed(1)}–${b.bottom.toFixed(1)}`);
+            if (r.right > row.right + 0.5) bad.push(`${key}: its end ${r.right.toFixed(1)} past the row's ${row.right.toFixed(1)}`);
+        }
+        // Every control it shows — the tab's × the pointer's alone, and a popover's trigger whatever element
+        // it is (the slice's chips, the rail's folded trigger) — a 44px tap target. A control inside a
+        // button is the button's. An input's field is 44px, and the input fills it: a tap 20px above or
+        // below the field's middle — inside its border — lands in the input itself.
+        const controls = [...band.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [role='radio'], [role='tab'], [role='button'], [aria-haspopup], [data-slot='tabClose']")]
+            .filter((el) => el.checkVisibility({ visibilityProperty: true }))
+            .filter((el) => el.parentElement?.closest("button, a[href], [role='button']") === null);
+        if (controls.length === 0) bad.push("no control in the row");
+        for (const el of controls) {
+            const input = el.matches("input");
+            const field = input ? (el.closest("[data-part='control']") ?? el) : el;
+            const t = field.getBoundingClientRect();
+            if (input && t.height < 43.5) bad.push(`${named(el)}: its field is ${t.height.toFixed(1)}px tall`);
+            const x = t.left + t.width / 2;
+            const y = t.top + t.height / 2;
+            for (const dy of input ? [-20, 20] : [-21, 21]) {
+                const hit = document.elementFromPoint(x, y + dy);
+                if (hit === null || !el.contains(hit)) bad.push(`${named(el)} (${t.width.toFixed(0)}×${t.height.toFixed(1)}): a tap ${dy < 0 ? "above" : "below"} its middle lands on ${named(hit)}`);
+            }
+        }
+        // Controls that sit edge to edge — a segment strip's segments, the context switch's options: siblings of one
+        // kind at most 2.5px apart. A tap 2px inside one's edge, on its middle or 21px above or below it, lands on it:
+        // the halo of the one beside it, drawn later, never takes it (`axis: "block"`, #1221).
+        for (const el of controls) {
+            const t = el.getBoundingClientRect();
+            const next = controls.find((other) => {
+                if (other === el || other.parentElement !== el.parentElement || other.tagName !== el.tagName
+                    || other.getAttribute("role") !== el.getAttribute("role")) return false;
+                const o = other.getBoundingClientRect();
+                const gap = o.left - t.right;
+                return gap > -0.5 && gap <= 2.5 && o.top < t.bottom && o.bottom > t.top;
+            });
+            if (next === undefined) continue;
+            for (const dy of [-21, 0, 21]) {
+                const hit = document.elementFromPoint(t.right - 2, t.top + t.height / 2 + dy);
+                if (hit === null || !el.contains(hit)) {
+                    bad.push(`${named(el)}: a tap 2px inside its edge beside ${named(next)}${dy === 0 ? "" : `, ${Math.abs(dy)}px ${dy < 0 ? "above" : "below"} its middle,`} lands on ${named(hit)}`);
+                }
+            }
+        }
+        return bad;
+    });
+}
+
+test.describe("the builders' toolbars under a touch pointer (#1221)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    /** Measures a toolbar at rest, then after each gesture. */
+    async function measure(page: Page, hash: string, gestures: readonly Gesture[] = []): Promise<void> {
+        const entry = await openToolbar(page, hash);
+        await expect.poll(() => touchFaults(entry)).toEqual([]);
+        for (const gesture of gestures) {
+            await gesture.run(entry, page);
+            await expect.poll(() => touchFaults(entry), { message: `with ${gesture.what}` }).toEqual([]);
+        }
+    }
+
+    /** What a test's name says of its gestures. */
+    const withGestures = (gestures: readonly Gesture[] | undefined) => (gestures === undefined ? "" : `, and with ${gestures.map((g) => g.what).join(", then ")}`);
+
+    for (const { name, hash, phone, wide } of TOOLBARS) {
+        test(`${name}, at the phone's width${withGestures(phone)}: one row in its 44px band, nothing past its edge, every control a 44px tap target`, async ({ page }) => {
+            await measure(page, hash, phone);
+        });
+
+        test(`${name}, on a touch screen 1920px wide${withGestures(wide)}: one row in its band, every control a 44px tap target`, async ({ page }) => {
+            await page.setViewportSize({ width: 1920, height: 1000 });
+            await measure(page, hash, wide);
+        });
+    }
+});

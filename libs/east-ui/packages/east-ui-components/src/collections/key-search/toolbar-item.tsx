@@ -16,6 +16,9 @@
  * through the matches of, never folds from under them: the row folds its
  * other items around it. Cleared, the item folds with the rest again.
  *
+ * A host's key for its search (the Sheet's ⌘F) reaches it in either form
+ * through {@link focusKeySearch} (#1221).
+ *
  * @packageDocumentation
  */
 
@@ -100,4 +103,34 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
         rank: options.rank ?? DEFAULT_RANK,
         held: active,
     };
+}
+
+/**
+ * Brings the focus to the key search a toolbar holds (#1221) — what a host's
+ * key for its search does: its box's input, its text selected; or, folded to
+ * its icon, the box in its popover, which it opens (the popover puts the focus
+ * in the box), or focuses there when it is open.
+ *
+ * @param toolbar - The toolbar's element (a `BuilderFrame`'s `toolbarRef`)
+ * @returns `false` when the toolbar holds no key search
+ */
+export function focusKeySearch(toolbar: HTMLElement | null): boolean {
+    const item = toolbar?.querySelector('[data-toolbar-item="seek"]') ?? null;
+    if (item === null) return false;
+    const input = item.querySelector<HTMLInputElement>("input");
+    if (input !== null) {
+        input.focus();
+        input.select();
+        return true;
+    }
+    const icon = item.querySelector<HTMLElement>('[data-key-search="icon"]');
+    if (icon === null) return false;
+    if (icon.getAttribute("data-state") !== "open") {
+        icon.click();
+        return true;
+    }
+    // Open already: the box in the popover its trigger controls.
+    const content = icon.closest('[data-part="trigger"]')?.getAttribute("aria-controls");
+    if (content !== null && content !== undefined) document.getElementById(content)?.querySelector<HTMLInputElement>("input")?.focus();
+    return true;
 }

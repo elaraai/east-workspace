@@ -23,7 +23,10 @@
  * forms of its one ladder (#952): its trailing tabs fold — the active one
  * always kept — into a `+n` menu that switches to the tab picked; then, as
  * the row needs, the strip drops its `+ TAB` label and the whole-sheet
- * count, caps its names, and closes up ({@link SheetTabsFold}).
+ * count, caps its names, and closes up; last (#1221), it folds into one
+ * chip — the open view's tab with a caret — whose menu holds every view,
+ * `+ TAB` and the open view's close ({@link SheetTabsFold}). Renaming and
+ * reordering wait for a row with room for the tabs.
  */
 
 import { memo, useEffect, useLayoutEffect, useRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
@@ -38,14 +41,23 @@ type Styles = Record<string, Record<string, unknown>>;
 /** The whole-sheet tab's key among the tabs. */
 const ALL = "all";
 
+/** The folded strip's menu items (#1221): a view's value is its id after this prefix, so none is taken for another item. */
+const MENU_VIEW = "view:";
+/** The menu's `+ TAB`. */
+const MENU_NEW = "+new";
+/** The menu's close of the open view. */
+const MENU_CLOSE = "+close";
+
 /** The strip's form, as the toolbar folds it (#952). */
 export interface SheetTabsFold {
     /** How many trailing tabs fold into the `+n` menu — the active tab never does. */
     folded: number;
     /** Past its fold, how far the strip closes up: `compact` drops the
      *  `+ TAB` label and the whole-sheet count, `capped` caps the tab names
-     *  at 72px as well, `closed` closes the gaps and drops every count. */
-    strip?: "compact" | "capped" | "closed" | undefined;
+     *  at 72px as well, `closed` closes the gaps and drops every count; and
+     *  `menu` (#1221) folds it into one chip, the open view's, whose menu
+     *  holds every view, `+ TAB` and the open view's close. */
+    strip?: "compact" | "capped" | "closed" | "menu" | undefined;
 }
 
 /** One tab's facts. */
@@ -170,6 +182,51 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
         if (skipBlur.current) { skipBlur.current = false; return; }
         props.onRenameCommit();
     };
+
+    // Folded into one chip (#1221): the open view's tab and a caret, its menu
+    // every view, `+ TAB` and the open view's close.
+    if (fold?.strip === "menu") {
+        const open = active === null ? undefined : views.find((v) => v.id === active);
+        const name = open?.name ?? m.tabAll();
+        return (
+            <Box css={styles.tabs} data-slot="tabs" data-strip="menu">
+                <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={(d) => {
+                    if (d.value === MENU_NEW) props.onCreate();
+                    else if (d.value === MENU_CLOSE) { if (active !== null) props.onClose(active); }
+                    else props.onSwitch(d.value.startsWith(MENU_VIEW) ? d.value.slice(MENU_VIEW.length) : null);
+                }}>
+                    <ChakraMenu.Trigger asChild>
+                        <chakra.button type="button" css={styles.tabMenu} data-slot="tabMenu" data-tab={active ?? ALL}
+                            aria-label={m.tabMenuName({ name })} title={m.tabMenuTitle()}>
+                            <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{name}</Box>
+                            {open !== undefined && dirty && <Box as="span" css={styles.tabDot} data-slot="tabDot" title={m.tabDirty()} />}
+                            <FontAwesomeIcon icon={faChevronDown} data-slot="tabMenuCaret" />
+                        </chakra.button>
+                    </ChakraMenu.Trigger>
+                    <Portal>
+                        <ChakraMenu.Positioner>
+                            <ChakraMenu.Content>
+                                <ChakraMenu.Item value={ALL} title={m.tabAllTitle()}>
+                                    {m.tabAll()}
+                                    <Box as="span" css={menuStyles.itemCommand}>{words.number(wholeCount)}</Box>
+                                </ChakraMenu.Item>
+                                {views.map((v) => (
+                                    <ChakraMenu.Item key={v.id} value={`${MENU_VIEW}${v.id}`} title={v.title}>
+                                        {v.name}
+                                        <Box as="span" css={menuStyles.itemCommand}>{words.number(v.count)}</Box>
+                                    </ChakraMenu.Item>
+                                ))}
+                                <ChakraMenu.Separator />
+                                <ChakraMenu.Item value={MENU_NEW} title={m.tabAddTitle({ query: hasQuery })}>{m.tabAddName()}</ChakraMenu.Item>
+                                {open !== undefined && <ChakraMenu.Item value={MENU_CLOSE}>{m.tabCloseView({ name: open.name })}</ChakraMenu.Item>}
+                            </ChakraMenu.Content>
+                        </ChakraMenu.Positioner>
+                    </Portal>
+                </ChakraMenu.Root>
+            </Box>
+        );
+    }
+
     return (
         <Box css={styles.tabs} data-slot="tabs" data-folded={hidden.length > 0 ? hidden.length : undefined} data-strip={fold?.strip}>
             <Box css={styles.tabList} data-slot="tabList" role="tablist" aria-label={m.tabList()}>

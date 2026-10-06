@@ -11,6 +11,7 @@ import { none, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -120,7 +121,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             size="lg"
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Done</chakra.button>}
             trigger={
-                <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer" data-slice-add="filter">
+                // A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221).
+                <Box css={[chip({ tone: "dashed", numeric: true, caps: true }), coarseHitArea({ position: true })]} cursor="pointer" data-slice-add="filter">
                     <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                     <Box as="span">{compact ? "filter" : "add filter"}</Box>
                 </Box>
@@ -155,8 +157,9 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         // Reserve the `+N more` chip's width during measuring (worst-case count)
         // so it never collapses one chip too many once it appears.
         const showMore = measuring ? filters.length > 0 : overflow > 0;
+        // The row clips sideways only: a chip's touch halo reaches above and below it (#1221).
         return (
-            <Box ref={rowRef} position="relative" display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" overflow="hidden" minWidth="0">
+            <Box ref={rowRef} position="relative" display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" overflowX="clip" minWidth="0">
                 {shown.map((pred, i) => (
                     <Box key={i} data-overflow-item flexShrink="0" display="inline-flex">
                         {clausePill(pred, i)}

@@ -29,8 +29,10 @@
  * the page's e3, and read back by the sheet mounted again over the record.
  * On a phone (#1215) the sheet's gutter folds: the first column's cell shows
  * beside it, each row's actions one 44 × 44 button whose tap opens its menu
- * and whose drag moves the row. In both themes; every measurement is polled
- * until it holds, on a page at rest.
+ * and whose drag moves the row; and the paged sheet's key search folds to its
+ * icon, its history whole beside it, the icon opening its box in a popover —
+ * as ⌘F does (#1221). In both themes; every measurement is polled until it
+ * holds, on a page at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test sheet-frame --project desktop`.
@@ -45,9 +47,11 @@ const HASH = "e3/sheet/sheet/sheetWorkshop";
 const WEEKS = "e3/sheet/sheet/sheetWeeks";
 /** The day's batches (#1187): a grouped sheet in the planner's order — templates in its Rows tab, every line and batch moved by its grip. */
 const BATCHES = "e3/sheet/sheet/sheetBatches";
+/** The jobs read a window at a time in key order (§3.4): its key search seeks the record's keys. */
+const PAGED = "e3/sheet/sheet/sheetPaged";
 
-/** The fold ladder: the rail's four steps, the view tabs' strip closing up, the history item to its buttons. */
-const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 history>1";
+/** The fold ladder: the rail's four steps, the view tabs' strip closing up and then folding into its chip (#1221), the history item to its buttons. */
+const LADDER = "rail>1 rail>2 rail>3 rail>4 tabs>1 tabs>2 tabs>3 tabs>4 history>1";
 
 /**
  * Open the workshop's sheet and return the box its example gives it, at
@@ -512,6 +516,38 @@ test.describe("The Sheet's frame — the folded gutter on a phone (#1215)", () =
         await page.mouse.up();
         await expect.poll(() => lineTexts(box, "B-101", "task")).toEqual(["Spray doors", "Cut doors", "Band doors"]);
         await expect(page.locator('[role="menu"]')).toHaveCount(0);
+    });
+});
+
+test.describe("The Sheet's frame — the key search on a phone (#1221)", () => {
+    test.skip(({ isMobile }) => !isMobile, "measured on the phone");
+
+    test("the paged sheet's key search folds to its icon, its history whole beside it in the row; a tap on the icon opens its box in a popover with the focus in it, and so does ⌘F", async ({ page }) => {
+        const box = await openSheet(page, "light", null, PAGED);
+        const toolbar = box.locator("[data-builder-frame] > [data-frame-slot=toolbar]");
+        await expect.poll(() => toolbar.evaluate((band) => {
+            const row = band.querySelector("[data-toolbar]")!;
+            const edge = row.getBoundingClientRect().right;
+            const seek = row.querySelector("[data-toolbar-item='seek']");
+            const apply = row.querySelector("[aria-label='Apply changes']")?.getBoundingClientRect();
+            return {
+                seek: seek?.getAttribute("data-toolbar-form") ?? null,
+                icon: seek?.querySelector("[data-key-search='icon']")?.getAttribute("aria-label") ?? null,
+                // Every item inside the row — the history's Apply among them.
+                fits: [...row.children].every((el) => el.getBoundingClientRect().right <= edge + 0.5),
+                apply: apply !== undefined && apply.right <= edge + 0.5,
+            };
+        })).toEqual({ seek: "1", icon: "Search keys", fits: true, apply: true });
+        const icon = toolbar.locator("[data-key-search='icon']");
+        await icon.tap();
+        await expect(page.locator("[data-key-search='popover'] input")).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(icon).toHaveAttribute("data-state", "closed");
+        // ⌘F in the grid opens it again, the focus in its box.
+        await box.locator("[data-frame-slot=main] [data-sheet-card]").focus();
+        await page.keyboard.press("ControlOrMeta+f");
+        await expect(page.locator("[data-key-search='popover'] input")).toBeFocused();
+        await expect(icon).toHaveAttribute("data-state", "open");
     });
 });
 

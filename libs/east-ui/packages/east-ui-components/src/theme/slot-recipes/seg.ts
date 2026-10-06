@@ -15,9 +15,15 @@
  * line inside 5 px padding) in a 25 px strip, the inactive ink its `--ink-4`.
  * Distinct from the form-control `SegmentGroup` — this is the compact chrome
  * strip the Slice toolbar and the Plan toolbar mount.
+ *
+ * On a coarse pointer a segment keeps its size and takes a 44px-tall tap
+ * target from its halo, its height alone, so it never takes a tap meant for
+ * the segment beside it (#346, #1221). The strip clips nothing, which would
+ * clip the halos: its end segments round their own corners inside its border.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const segSlotRecipe = defineSlotRecipe({
     className: "elara-seg",
@@ -29,7 +35,6 @@ export const segSlotRecipe = defineSlotRecipe({
             borderStyle: "solid",
             borderColor: "border.strong",
             borderRadius: "6px",
-            overflow: "hidden",
             background: "bg.surface",
             flex: "none",
         },
@@ -49,16 +54,25 @@ export const segSlotRecipe = defineSlotRecipe({
             borderLeftColor: "border.subtle",
             cursor: "pointer",
             whiteSpace: "nowrap",
+            ...coarseHitArea({ position: true, axis: "block" }),
+            // The strip's 6px corner, less its border, on the end segments.
             "&:first-of-type": {
                 borderLeftWidth: "0",
+                borderTopLeftRadius: "5px",
+                borderBottomLeftRadius: "5px",
+            },
+            "&:last-of-type": {
+                borderTopRightRadius: "5px",
+                borderBottomRightRadius: "5px",
             },
             '&[data-state="on"]': {
                 background: "bg.brand.subtle",
                 color: "fg",
             },
             // A segment is a radio of its strip (#632), reached by the
-            // keyboard. The strip clips its rounded corners, so the ring is
-            // drawn INSIDE the segment, where the clip cannot cut it.
+            // keyboard. The segments sit edge to edge inside the strip's
+            // border, so the ring is drawn INSIDE the segment, where it
+            // covers neither.
             "&:focus-visible": {
                 outlineWidth: "2px",
                 outlineStyle: "solid",
