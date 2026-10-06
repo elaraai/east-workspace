@@ -88,6 +88,20 @@ export interface ScheduleResourceKind<K extends EastType, R extends EastType> {
     /** Plan: the paged read of the resources; `undefined` when they are read whole. */
     readonly window: ExprType<EastType> | undefined;
     /**
+     * Plan: the resources as the kind was given them, a `Dict` of `rowType` by
+     * `keyType` — read again where a Plan draws them (#1192). Its type is
+     * erased, as `window`'s is, so a kind of any rows is one of any other.
+     */
+    readonly source: ExprType<DictType<EastType, EastType>>;
+    /** Plan: one resource as Plan's builder takes it, from its row and key: its label, group, parent and gutter. Erased, as `source` is. */
+    readonly planRow: ExprType<FunctionType<[EastType, EastType], PlanResourceRowType>>;
+    /** Plan: whether the kind's resources sit under group strips (`group`). */
+    readonly grouped: boolean;
+    /** Plan: whether a resource may nest under another of its kind (`parent`). */
+    readonly nested: boolean;
+    /** Plan: how a parent's bands roll its children's events up. */
+    readonly rollup: ExprType<PlanRollupType>;
+    /**
      * The kind on the wire, under its slot: the Calendar's.
      *
      * @param slot - The builder's slot name for it
@@ -245,6 +259,11 @@ export function scheduleResources<K extends EastType, R extends EastType>(
         name: config.name,
         measures,
         window,
+        source: source as unknown as ExprType<DictType<EastType, EastType>>,
+        planRow: planRow as unknown as ExprType<FunctionType<[EastType, EastType], PlanResourceRowType>>,
+        grouped: config.group !== undefined,
+        nested: config.parent !== undefined,
+        rollup,
         build(slot: string): ExprType<ScheduleResourcesType> {
             return East.value({
                 key: slot,

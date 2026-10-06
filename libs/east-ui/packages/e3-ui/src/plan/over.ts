@@ -16,8 +16,23 @@
 
 import { East, Expr, printType, type DictType, type EastType, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
 import { PlanBlocksType, type PlanAxisKindLiteral, type PlanKinded } from "./types.js";
-import { applySeries, checkSeries, planSeriesFacts, type PlanSeriesValue } from "./series.js";
+import { applySeries, checkSeries, planSeriesFacts, planSeriesKeys, type PlanSeriesValue } from "./series.js";
 import type { PlanBindHandle } from "./root.js";
+
+/** The keys of the series each `Plan.over` laid out, by the blocks it returned. */
+const OVER_KEYS = new WeakMap<object, readonly string[]>();
+
+/**
+ * The keys of the series a `Plan.over` laid out — what a Plan holds the keys
+ * it gives its own rows apart from (#1192).
+ *
+ * @param rows - One of a Plan's `rows`
+ * @returns Its series' keys, the series nested in them included; `undefined` for anything `Plan.over` did not return
+ * @internal
+ */
+export function overSeriesKeys(rows: unknown): readonly string[] | undefined {
+    return typeof rows === "object" && rows !== null ? OVER_KEYS.get(rows) : undefined;
+}
 
 /**
  * The blocks `Plan.over` makes: series over a dataset, read only, for a Plan's
@@ -158,5 +173,8 @@ export function createOver<K extends PlanAxisKindLiteral = never>(
         }
     });
     checkSeries(series, "Plan.over");
-    return applySeries(series, source) as unknown as PlanOverRows<K>;
+    const blocks = applySeries(series, source) as unknown as PlanOverRows<K>;
+    const keys = planSeriesKeys(series);
+    if (keys !== undefined) OVER_KEYS.set(blocks, keys);
+    return blocks;
 }

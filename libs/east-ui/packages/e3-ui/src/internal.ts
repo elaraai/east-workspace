@@ -259,6 +259,10 @@ export {
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
 } from './plan/index.js';
+// The resources' rows a Plan of event kinds draws over a window (#1192): the
+// `blocks` seam its payload carries, made inside the payload's assembly, and
+// the drafts it reads, by kind.
+export { createEventBlocks, eventDrawsOf, PlanEventDraftsType } from './plan/event-rows.js';
 
 // The Sheet (#1179, #1216): `<Sheet>` with its namespace, the payload the
 // renderer takes through the `Sheet` carrier, the grid's root, its editing

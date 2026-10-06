@@ -328,6 +328,28 @@ export interface PlanReconcileModel {
     declaredGrain: PlanGrain;
 }
 
+/** Each snapshot's element rows, once. */
+const elementRowsCache = new WeakMap<PlanPagingSnapshot, readonly PlanRowValue[]>();
+
+/**
+ * A paged canvas's rows that its source's elements placed — its paged blocks'
+ * — which are what a key search looks among. A fixed block's rows are no
+ * element's (a section's header, `rows`, the event kinds' rows, #1192), though
+ * their ids may read like one.
+ *
+ * @param p - The paging snapshot
+ * @returns Its paged blocks' rows, in order — the same array when no block is fixed
+ */
+export function elementRowsOf(p: PlanPagingSnapshot): readonly PlanRowValue[] {
+    if (!p.blocks.some((b) => b.fixed)) return p.rows;
+    let rows = elementRowsCache.get(p);
+    if (rows === undefined) {
+        rows = p.rows.filter((r) => p.blocks[r.block]?.fixed === false);
+        elementRowsCache.set(p, rows);
+    }
+    return rows;
+}
+
 /**
  * The UI state as a reconcile against `model` would leave it — what the canvas
  * renders its first frame of a new value with, before `setValue` commits the
@@ -448,7 +470,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }),
     });
     const seek = createSeekDriver({
-        rows: () => paging.getSnapshot().rows,
+        rows: () => elementRowsOf(paging.getSnapshot()),
         clearJump: () => paging.clearJump(),
         onChange: () => batch(() => undefined),
     });
@@ -515,7 +537,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             searchRequest = undefined;
             if (scroll.targetKey !== undefined) scroll = { ...scroll, targetKey: undefined };
         } else if (searchRequest !== undefined && landedAt(p, searchRequest.row)) {
-            const targetKey = p.rows[firstAtOrAfter(p.rows, searchRequest.key)]?.key;
+            const loaded = elementRowsOf(p);
+            const targetKey = loaded[firstAtOrAfter(loaded, searchRequest.key)]?.key;
             searchRequest = undefined;
             if (targetKey !== undefined) scroll = { ...scroll, owner: "search", targetKey, searchSeq: scroll.searchSeq + 1 };
         }
