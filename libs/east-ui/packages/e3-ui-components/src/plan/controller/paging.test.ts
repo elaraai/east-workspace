@@ -822,6 +822,39 @@ describe("paging driver — content revisions (#821)", () => {
         expect(revisionsShown(snap())).toEqual(new Set(["C"]));
     });
 
+    test("a fixed block's rows are the revision's — the first window read at a new one brings them, the old ones standing in until it lands (#1192)", () => {
+        const state = { revision: "A", open: new Set(["A"]) };
+        const value = {
+            id: "revisioned-fixed",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                if (!state.open.has(state.revision)) return none;
+                const pad = String(w).padStart(4, "0");
+                return some([fixed([wire("hdr", { rev: state.revision })]), paged([wire(`w${pad}r000`, { rev: state.revision })])]);
+            },
+            total: () => (state.open.has(state.revision) ? some(BigInt(50 * PLAN_PAGE_SIZE)) : none),
+            seek: none,
+            revision: () => some(state.revision),
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        const header = (s: PlanPagingSnapshot) => (s.rows[0] as unknown as { rev: string }).rev;
+        const { d, snap } = drive(value);
+        expect(rowKeys(snap())[0]).toBe("hdr");
+        expect(header(snap())).toBe("A");
+        // The dataset was written: B is in flight, and A's header stands in
+        // with A's windows.
+        state.revision = "B";
+        d.refresh();
+        expect(snap().loading).toBe(true);
+        expect(header(snap())).toBe("A");
+        // B lands: its header comes with its windows, drawn once.
+        state.open.add("B");
+        d.refresh();
+        expect(header(snap())).toBe("B");
+        expect(revisionsShown(snap())).toEqual(new Set(["B"]));
+        expect(rowKeys(snap()).filter((k) => k === "hdr")).toHaveLength(1);
+    });
+
     test("a total that moves WITH the revision rebuilds the geometry quietly — the viewport keeps its window", () => {
         const { value, state } = revisioned(250);
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

@@ -39,6 +39,7 @@ import {
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanEventRows } from "./root/events.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
 
 // ── The canvas's data ───────────────────────────────────────────────────────
@@ -351,9 +352,11 @@ export interface CanvasOptions {
     storageKey?: string;
     /** What the canvas renders inside — a message table, a locale. */
     wrap?: (plan: ReactNode) => ReactNode;
+    /** Event kinds' rows ahead of the presses' (#1192), as a Plan of event kinds hands them over. */
+    events?: PlanEventRows;
 }
 
-type Resolved = Required<Omit<CanvasOptions, "heldFrom" | "seed">> & Pick<CanvasOptions, "heldFrom"> & { seed: Map<string, PressValue> };
+type Resolved = Required<Omit<CanvasOptions, "heldFrom" | "seed" | "events">> & Pick<CanvasOptions, "heldFrom" | "events"> & { seed: Map<string, PressValue> };
 
 /** The root's chrome besides its rows and editing. */
 function chromeOf(o: Resolved) {
@@ -506,7 +509,7 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
             <DragLayerProvider>
                 <JobCard job="job-1" />
                 <JobCard job="job-2" />
-                {o.wrap(<EastChakraPlan value={value} storageKey={o.storageKey} />)}
+                {o.wrap(<EastChakraPlan value={value} storageKey={o.storageKey} events={o.events} />)}
             </DragLayerProvider>
         </ChakraProvider>
     );

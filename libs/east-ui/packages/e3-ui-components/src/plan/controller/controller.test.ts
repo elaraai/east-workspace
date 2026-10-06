@@ -899,6 +899,25 @@ describe("a key search is a request, served once (#574)", () => {
     });
 });
 
+describe("a key search looks among the source's elements (#1192)", () => {
+    test("a fixed block's rows are no element's — the search's target and its labels pass over them, though their ids read like one", async () => {
+        // A fixed block leads every window, as a Plan's event kinds' rows do,
+        // its rows' paths starting with keys that sort after every element's.
+        const lead = [planRow("zz", span(), undefined, "presses.span"), planRow("zy", span(), undefined, "presses.marks")];
+        const elements = ["e0", "e1", "e2"].map((e) => planRow(e, span(), undefined, "jobs"));
+        const source = {
+            id: "c1192-seek",
+            page: () => some([{ fixed: true, parent: none, rows: lead }, { fixed: false, parent: none, rows: elements }]),
+            total: () => some(3n),
+            seek: some(() => some({ found: true, row: 2n, count: 1n })),
+        };
+        const { c } = show(root([], { rows: variant("paged", source) }));
+        await c.search.find({ key: '"e10"' });
+        expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
+        expect(await c.search.listRange(0, 3)).toEqual(["e2"]);
+    });
+});
+
 describe("paged heights follow the canvas (#823)", () => {
     /** 50 windows, each ONE group entry with ten members — 346px at rest (a
      *  26px band + 10 × 32px, above the ledger's 1px-per-element floor for its

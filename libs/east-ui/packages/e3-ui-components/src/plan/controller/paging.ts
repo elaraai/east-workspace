@@ -95,8 +95,11 @@
  * until each lands the rows it had stand in: the canvas never empties between
  * two snapshots of its data. The geometry stays too — the ledgers' measured
  * heights and their total, until the new snapshot's total says otherwise. A
- * `paged` source names no snapshot: its rows are its id's for as long as the
- * canvas holds it.
+ * fixed block's rows are the revision's as well: the first window read at a
+ * new revision brings them, and the old ones stand in until it lands (#1192 —
+ * a Plan's event rows ride its source's windows as fixed blocks, and move with
+ * every revision). A `paged` source names no snapshot: its rows are its id's
+ * for as long as the canvas holds it.
  *
  * @packageDocumentation
  */
@@ -438,9 +441,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // The blocks' shape — from the first window to land (#823). Until then the
     // canvas is one paged block, whose demand reads that first window.
     let shape: readonly BlockShape[] | undefined;
-    // Each fixed block's rows — every window serves them alike, so the first
-    // that did is theirs.
+    // Each fixed block's rows — every window of a revision serves them alike,
+    // so the first that did is theirs — and the revision they were read at.
     let fixedRows = new Map<number, WindowRows>();
+    let fixedAt: string | undefined;
     // Each paged block's geometry, by its place in the layout.
     let lanes = new Map<number, Lane>([[0, newLane()]]);
     // Where every row a block has seen sits: its block and window (#823).
@@ -551,6 +555,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // Its series may lay the blocks out otherwise, and its fixed rows
             // may differ: both come with its first window again.
             fixedRows = new Map();
+            fixedAt = undefined;
         }
         const wanted = wantedWindows();
         const out = tracked.run((): ReadOutcome => {
@@ -604,6 +609,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         lanes = nextLanes;
         shape = next;
         fixedRows = new Map();
+        fixedAt = undefined;
         if (!lanes.has(focusBlock)) focusBlock = lanes.keys().next().value ?? 0;
     }
 
@@ -655,6 +661,17 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         if (first !== undefined && (shape === undefined || !sameShape(shape, first.read.shape))) {
             adopt(first.read.shape);
             moved = true;
+        }
+        // ── A fixed block's rows are its revision's (#821, #1192) ─────────
+        // A window read at this revision (the cache holds only this one's)
+        // brings them; until one lands, the previous revision's stand in.
+        const fresh = out.resident.find((r) => cache.get(r.w) === r.read);
+        if (fresh !== undefined && fixedAt !== out.revision) {
+            fixedRows = new Map();
+            fixedAt = out.revision;
+            fresh.read.shape.forEach((s, b) => {
+                if (s.fixed) fixedRows.set(b, fresh.read.blocks[b] ?? NO_ROWS);
+            });
         }
         // ── Landed windows teach each paged block's ledger ────────────────
         for (const { w, read } of out.resident) {

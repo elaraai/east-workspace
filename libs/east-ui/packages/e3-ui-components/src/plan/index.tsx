@@ -12,7 +12,8 @@
  * (#1177, #1191): `<Plan>` returns its payload through that carrier — the
  * canvas whole (`plan`) beside the event kinds and their resources — and this
  * module registers {@link EastChakraPlanPayload} against it as it loads. The
- * frame the canvas renders in is #1193's, and the event kinds' rows #1192's.
+ * event kinds' rows lead the canvas's own, read over the range it draws
+ * (#1192, `root/events.ts`); the frame the canvas renders in is #1193's.
  *
  * Everything the canvas remembers between renders lives in ONE framework-free
  * controller (#815, `controller/`): the UI state machine, the paged source's
@@ -67,7 +68,7 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Plan, PlanComponent, PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { Plan, PlanComponent, PlanEventBlocksType, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyToolbarItem, historyShortcut,
     implementUIComponent, type EditIssue, type DragEventValue,
@@ -96,19 +97,20 @@ import { entryOf, usePlanEditing } from "./use-plan-editing.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
-import { ribbonBody, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { elementInstants, ribbonBody, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import { PlanFooter } from "./shell/Footer.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import { planReviewModel, DECISION_WIDTH } from "./shell/Review.js";
 import type { PlanTransport } from "./shell/transport.js";
 import {
-    createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf,
+    createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
 } from "./controller/index.js";
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
 import { usePlanWindow } from "./root/window.js";
+import { usePlanEventBlocks, usePlanEventRoot, type PlanEventRows } from "./root/events.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
 import { groupEndsOf, usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
 import { PlanGapBand, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
@@ -161,6 +163,9 @@ const KEYS: Readonly<Record<string, PlanEvent>> = {
 /** The links layer, as its render-failure line names it (#811). */
 const LINKS_LAYER: PlanPart = { kind: "linksLayer" };
 
+/** Whether two event-rows seams read the same rows: their functions by their IR and what they capture (#809). */
+const eventBlocksEquivalent = equivalentFor(PlanEventBlocksType);
+
 const selectPaging = (s: PlanSnapshot) => s.paging;
 const selectSeek = (s: PlanSnapshot) => s.seek;
 const selectAnchor = (s: PlanSnapshot) => s.anchor;
@@ -182,10 +187,18 @@ export interface EastChakraPlanProps {
     value: PlanRootValue;
     /** Storage key prefix for persisting component state. */
     storageKey: string;
+    /** The event kinds' rows (#1192), drawn ahead of the root's own — a Plan of event kinds' payload carries them. */
+    events?: PlanEventRows | undefined;
+}
+
+/** Whether two event-rows props read the same rows. */
+function sameEventRows(a: PlanEventRows | undefined, b: PlanEventRows | undefined): boolean {
+    if (a === undefined || b === undefined) return a === b;
+    return a.count === b.count && eventBlocksEquivalent(a.blocks, b.blocks);
 }
 
 /** Renders an East Plan value — the composite temporal canvas. */
-export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, storageKey }: EastChakraPlanProps) {
+export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, storageKey, events }: EastChakraPlanProps) {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
@@ -221,6 +234,14 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     useLayoutEffect(() => { controller.setWords(words); }, [controller, words]);
     const paging = useControllerSelector(controller, selectPaging);
 
+    // ── The slice, the scale, and the event kinds' rows (#1192) ───────────
+    // The slice and the scale every row positions against — read from the
+    // host's root, which the drafted and composed roots below share them
+    // with. The event kinds' rows are read over the range the scale draws,
+    // and lead every other row as fixed blocks.
+    const { chrome, slice, affordances, scale } = usePlanWindow(hostValue, hostData, words);
+    const lead = usePlanEventBlocks(events, scale);
+
     // ── The editing session (#880) ────────────────────────────────────────
     // Every verdict and dropped card is a DRAFT of the entry its row came
     // from, and the canvas draws the ROOT WITH THE DRAFTS IN PLACE — derived
@@ -230,14 +251,21 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     const indexRef = useRef<PlanRowIndex | undefined>(undefined);
     const labelOf = useCallback(
         (key: RowKey) => indexRef.current?.byKey.get(key)?.gutter.label ?? rowKeyWords(key), []);
+    // The session's entries are `data`'s. Inline, the root's own rows: the
+    // event kinds' lead them on the canvas alone, below. Paged, the rows the
+    // source's elements placed — never a fixed block's, as the event kinds'
+    // rows, which lead every window, are (#1192).
     const sourceRows = useMemo(
-        () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : paging.rows),
-        [hostData.rows, paging.rows]);
+        () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : elementRowsOf(paging)),
+        [hostData.rows, paging]);
     const editing = usePlanEditing({
         value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf,
     });
-    const value = editing.value;
-    const data = editing.data;
+    // The event kinds' rows ahead of the drafted root's own, and its links'
+    // event ends named where the events draw.
+    const shown = usePlanEventRoot(editing.value, editing.data, events !== undefined ? lead : undefined);
+    const value = shown.value;
+    const data = shown.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
     // render below already drew the reconciled view, so this commits what is
     // on screen and renders nothing more.
@@ -246,6 +274,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     // read again, the rows it has standing in until they land (#821).
     const draftsVersion = editing.draftsVersion;
     useLayoutEffect(() => { if (draftsVersion > 0) controller.refreshSource(); }, [controller, draftsVersion]);
+    // So did its event kinds' rows, which lead every window.
+    const leadVersion = lead.version;
+    useLayoutEffect(() => { if (leadVersion > 0) controller.refreshSource(); }, [controller, leadVersion]);
     // The source's channels are listened to while the canvas is mounted.
     useEffect(() => controller.connect(), [controller]);
 
@@ -289,9 +320,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     const axisKind = data.axis.type;
     // An ordinal axis orders its instants by the declared list.
     const ordinalIndex = useMemo(() => ordinalIndexOf(data.axis), [data.axis]);
-    // The slice, the scale and the toolbar chrome — the scale's period is what
-    // the derivations fold to.
-    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, words);
+    // The scale's period is what the derivations fold to.
     const period = scale?.period;
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
     // rollups / aggregates / summaries / folds; the numbers are computed here,
@@ -306,13 +335,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     const derived = useStableDerived(fresh);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
-    // A run's instants by (row, run) — the ribbons' off-window resolution.
+    // A link end's instants by (row, element) — where its ribbon meets the
+    // row, and the ribbons' off-window resolution: a run, or an event's
+    // element however it draws (#1192).
     const runDates = useCallback((rowKey: string, runKey: string): { start: PlanInstantValue; end: PlanInstantValue } | undefined => {
         const row = index.byKey.get(rowKey);
-        if (row === undefined || row.kind.type !== "span") return undefined;
-        const r = row.kind.value.runs.find((x) => x.key === runKey);
-        return r !== undefined ? { start: r.start, end: r.end } : undefined;
-    }, [index]);
+        return row !== undefined && scale !== undefined ? elementInstants(row, runKey, scale) : undefined;
+    }, [index, scale]);
 
     // ── Chrome: series library, review, transport, search ─────────────────
     // The series library (#590) — chrome, like the slice rail: the Plan feeds
@@ -558,14 +587,16 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
             },
         };
     }, [paged, paging.blocks, controller]);
-    // What the toolbar reports (#811) — everything the canvas carried on past.
+    // What the toolbar reports (#811) — everything the canvas carried on past,
+    // the event kinds' rows that could not be read among it (#1192).
+    const sourceError = paging.sourceError ?? lead.error;
     const diagnostics = useMemo<PlanDiagnostics>(() => ({
         skipped: derived.diagnostics.size,
         onSeekSkipped: target.firstSkipped !== undefined ? controller.seekSkipped : undefined,
-        sourceError: paging.sourceError,
+        sourceError,
         searchError: seek.searchError,
         truncatedAt: scale?.truncated?.shown,
-    }), [derived.diagnostics, target.firstSkipped, controller, paging.sourceError, seek.searchError, scale]);
+    }), [derived.diagnostics, target.firstSkipped, controller, sourceError, seek.searchError, scale]);
 
     // The element-click funnel, when the root declares `onElementClick` (#824)
     // — the controller reports a click to the LATEST root's.
@@ -603,11 +634,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         [words, paged, loadedVerdicts]);
     // The history (#880): the toolbar's history item (#988), and the bar
     // itself among the narrow layout's chips. An issue takes the reader to its
-    // entry's first row on the canvas.
+    // entry's first row on the canvas — one its entry placed.
     const onIssue = useCallback((issue: EditIssue) => {
-        const row = index.rows.find((r) => entryOf(r.id) === issue.entry);
+        const row = sourceRows.find((r) => entryOf(r.id) === issue.entry);
         if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
-    }, [index, controller]);
+    }, [sourceRows, controller]);
     const historyProps = editing.enabled
         ? { session: editing.session, words, editing: false, onAction: editing.action, onIssue }
         : undefined;
@@ -1102,7 +1133,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
     return densityTag !== undefined
         ? <DensityProvider value={densityTag}>{canvas}</DensityProvider>
         : canvas;
-}, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
+    && sameEventRows(prev.events, next.events));
 
 /** The Plan's payload, decoded — what `<Plan>` returns through the `Plan` carrier (#1191). */
 export type PlanValue = ValueTypeOf<typeof PlanPayloadType>;
@@ -1120,13 +1152,18 @@ export interface EastChakraPlanPayloadProps {
 
 /**
  * Renders a Plan's payload (#1191): its canvas, `plan`, drawn by
- * {@link EastChakraPlan}.
+ * {@link EastChakraPlan}, with its event kinds' rows ahead of the canvas's
+ * own (#1192) — one block per resource kind, then the Unassigned rows'.
  *
  * @param props - The payload and its storage key
  * @returns The Plan's canvas
  */
 export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value, storageKey }: EastChakraPlanPayloadProps) {
-    return <EastChakraPlan value={value.plan} storageKey={storageKey} />;
+    const resourceKinds = value.resources.length;
+    const events = useMemo(
+        (): PlanEventRows | undefined => (value.blocks.type === "some" ? { blocks: value.blocks.value, count: resourceKinds + 1 } : undefined),
+        [value.blocks, resourceKinds]);
+    return <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} />;
 }, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(PlanComponent, EastChakraPlanPayload);

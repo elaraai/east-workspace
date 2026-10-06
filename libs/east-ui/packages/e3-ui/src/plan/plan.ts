@@ -33,7 +33,6 @@
 import {
     ArrayType,
     DateTimeType,
-    DictType,
     East,
     Expr,
     FunctionType,
@@ -54,7 +53,7 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { CanDropFnType, EastUI, type UIElement } from "@elaraai/east-ui";
-import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType, ScheduleDraftsType } from "../schedule/types.js";
+import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../schedule/types.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
@@ -62,7 +61,11 @@ import { PlanRootType } from "./ir.js";
 import { PlanAxisType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue } from "./types.js";
 import { axisKindOf, linkEventKinds } from "./builders.js";
 import { buildPlanRoot, type PlanConfig } from "./root.js";
-import type { PlanOverRows } from "./over.js";
+import { overSeriesKeys, type PlanOverRows } from "./over.js";
+import { planSeriesKeys } from "./series.js";
+import { PlanEventBlocksType, createEventBlocks, eventDrawsOf } from "./event-rows.js";
+
+export { PlanEventBlocksType, PlanEventDraftsType } from "./event-rows.js";
 
 // ============================================================================
 // The Plan's shared keys
@@ -102,16 +105,6 @@ export function planKeys(id: string | undefined): {
 // ============================================================================
 // The renderer's payload
 // ============================================================================
-
-/**
- * The resources' rows over a window, every event kind's drafts in place
- * (#1192): `(from, to, drafts by kind, then by entry id)` → the canvas's
- * blocks, `none` while a read is in flight.
- */
-export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, DictType(StringType, ScheduleDraftsType)], OptionType(PlanBlocksType));
-
-/** Type representing {@link PlanEventBlocksType}. */
-export type PlanEventBlocksType = typeof PlanEventBlocksType;
 
 /** An event kind's drop veto: where the drop would put the event, to the refusal's message, or `none` to let it land. */
 export const PlanEventCanDropType = FunctionType([ScheduleCandidateType], OptionType(StringType));
@@ -335,8 +328,10 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  *   resource naming a slot `resources` has not, or one not keyed by String; event kinds on a number or ordinal axis; a
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
- *   batch nor auto, or with no event kinds; and everything the canvas refuses ({@link createPlanRoot}). An axis held in
- *   a variable, and links whose kinds are not known at build, are refused in the same words as the Plan is evaluated
+ *   batch nor auto, or with no event kinds; a resource kind with no event kind placed on it and no measures; a key the
+ *   Plan gives its event rows that another series has; and everything the canvas refuses ({@link createPlanRoot}). An
+ *   axis held in a variable, and links whose kinds are not known at build, are refused in the same words as the Plan
+ *   is evaluated
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
@@ -392,18 +387,91 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         { ...canvas, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
         rows === undefined ? (events !== undefined && canvas.data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
     );
-    return East.value({
+    const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
+    const settings = East.value({
+        applyMode: variant(applyMode ?? "batch", null),
+        date: date === undefined ? none : some(date),
+    } as never, PlanSettingsType);
+    if (events === undefined) {
+        return East.value({ plan, resources: [], events: [], blocks: none, canDrop: veto, settings } as never, PlanPayloadType);
+    }
+    const resourceKinds = Object.entries(resources ?? {});
+    const eventKinds = Object.entries(events);
+    checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
+    // The payload is assembled in one function, so each kind is built once:
+    // the `blocks` seam made inside it captures the very array of event kinds
+    // the payload holds (#1192).
+    const assemble = East.function(
+        [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType],
+        PlanPayloadType,
+        (_$, root, kinds, built, canDropFn, chosen) => East.value({
+            plan: root,
+            resources: kinds,
+            events: built,
+            blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
+            canDrop: canDropFn,
+            settings: chosen,
+        } as never, PlanPayloadType),
+    );
+    return assemble(
         plan,
-        resources: Object.entries(resources ?? {}).map(([slot, kind]) => kind.buildPlan(slot)),
-        events: Object.entries(events ?? {}).map(([slot, kind]) => kind.buildPlan(slot)),
-        // The resources' rows over a window are #1192's.
-        blocks: none,
-        canDrop: eventCanDrop === undefined ? none : some(eventCanDrop),
-        settings: {
-            applyMode: variant(applyMode ?? "batch", null),
-            date: date === undefined ? none : some(date),
-        },
-    } as never, PlanPayloadType);
+        resourceKinds.map(([slot, kind]) => kind.buildPlan(slot)),
+        eventKinds.map(([slot, kind]) => kind.buildPlan(slot)),
+        veto,
+        settings,
+    );
+}
+
+/**
+ * What a Plan of event kinds checks before it draws them (#1192): every
+ * resource kind has rows to draw, and every key the Plan gives its own rows
+ * is no other series' — a row's id is its series' key and its path.
+ *
+ * @param resources - The resource kinds, by slot
+ * @param events - The event kinds, by slot
+ * @param series - `data`'s `series`, when given
+ * @param rows - The `rows` prop, when given
+ * @throws {Error} Naming a resource kind that would draw no rows, or the two series that share a key
+ */
+function checkEventRows(
+    resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[],
+    events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[],
+    series: unknown,
+    rows: readonly unknown[] | undefined,
+): void {
+    for (const [slot, kind] of resources) {
+        if (eventDrawsOf(slot, events).length === 0 && kind.measures.length === 0) {
+            throw new Error(`Plan: resources.${slot} has no event kind placed on it and no measures, so it would draw no rows — ` +
+                `place an event kind on it (Schedule.events' \`resource: { field, of: "${slot}" }\`), or give it \`measures\``);
+        }
+    }
+    const owners = new Map<string, string>();
+    const claim = (key: string, who: string): void => {
+        const prior = owners.get(key);
+        if (prior !== undefined) {
+            throw new Error(`Plan: ${prior} and ${who} have the same key, "${key}" — a row's id is its series' key and its path, so no two series share one`);
+        }
+        owners.set(key, who);
+    };
+    for (const [slot, kind] of resources) {
+        if (kind.grouped) claim(`${slot}.group`, `the group strips of resources.${slot}`);
+        for (const draw of eventDrawsOf(slot, events)) claim(`${slot}.${draw}`, `the ${draw} rows of resources.${slot}`);
+        kind.measures.forEach((measure, i) => {
+            for (const key of planSeriesKeys([measure]) ?? []) {
+                // The resources' own series lays the measures out under each resource, keyed by the kind's slot.
+                if (key === slot) {
+                    throw new Error(`Plan: resources.${slot}.measures[${i}] has the key "${key}", the slot's own — ` +
+                        "a resource kind's rows are laid out by a series of that key; give the measure another");
+                }
+                claim(key, `resources.${slot}.measures[${i}]`);
+            }
+        });
+    }
+    for (const [slot] of events) claim(`${slot}.unassigned`, `the Unassigned row of events.${slot}`);
+    for (const key of planSeriesKeys(series) ?? []) claim(key, "a series in `series`");
+    (rows ?? []).forEach((item, i) => {
+        for (const key of overSeriesKeys(item) ?? []) claim(key, `rows[${i}] (Plan.over)`);
+    });
 }
 
 // ============================================================================

@@ -9,7 +9,8 @@
  * payloads are built over the print works' records in memory — the canvas
  * whole beside the resource kinds and event kinds as a Plan takes them — and
  * every refusal at build names itself. The resources' rows over a window are
- * #1192's, and the frame the renderer draws a Plan in is #1193's.
+ * `plan-event-rows.spec.ts`'s (#1192), and the frame the renderer draws a Plan
+ * in is #1193's.
  */
 
 import { test, describe } from "node:test";
@@ -168,8 +169,8 @@ describe("the payload (PB8, PB11)", () => {
         assert.deepEqual([jobs!.key, jobs!.draw.type, jobs!.instant, jobs!.takes, jobs!.backlog], ["job", "span", false, ["presses"], true]);
         assert.equal(keysIn(jobs!).length, 22);
         assert.deepEqual(backlogOf(jobs!), ["J-1023", "J-1024", "J-1025", "J-1026", "J-1027", "J-1028", "J-1029", "J-1030"]);
-        // Nothing else declared: no blocks yet, no veto, Apply in batches, the window from its start.
-        assert.deepEqual([payload.blocks.type, payload.canDrop.type, payload.settings.applyMode.type, payload.settings.date.type], ["none", "none", "batch", "none"]);
+        // The resources' rows over a window (#1192, plan-event-rows.spec.ts); nothing else declared: no veto, Apply in batches, the window from its start.
+        assert.deepEqual([payload.blocks.type, payload.canDrop.type, payload.settings.applyMode.type, payload.settings.date.type], ["some", "none", "batch", "none"]);
     });
 
     test("§3.3: presses and crews by hall, jobs as bars, stops as marks and shifts as chips, each kind's templates, the pinned chart, review and the grain", () => {

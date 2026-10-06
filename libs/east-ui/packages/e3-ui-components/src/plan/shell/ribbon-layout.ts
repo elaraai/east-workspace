@@ -28,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { rowKeyOf, type PlanBodyItem, type PlanLinkValue, type PlanRowIndex } from "../model.js";
+import { rowKeyOf, type PlanBodyItem, type PlanLinkValue, type PlanRowIndex, type PlanRowValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanGeometry } from "../geometry.js";
@@ -74,6 +74,44 @@ export interface RibbonBody {
  *  pinned row is above them), or AT a place in them — a row in an evicted
  *  paged window, at its window's offset in its block's band (#823). */
 export type RibbonBeyond = { off: RibbonOff } | { y: number };
+
+/**
+ * Where a link's end meets its row: the element its run key names — a run's
+ * or a chip's two ends, the bucket a tile sits in, or a mark's instant. A
+ * link's end that names an event meets it however the event draws (#1192).
+ *
+ * @param row - The end's row
+ * @param key - The element's key
+ * @param scale - The shared scale (a tile's bucket)
+ * @returns The element's instants, or `undefined` when the row has no element of that key
+ */
+export function elementInstants(
+    row: PlanRowValue, key: string, scale: PlanScale,
+): { start: PlanInstantValue; end: PlanInstantValue } | undefined {
+    const k = row.kind;
+    switch (k.type) {
+        case "span": {
+            const run = k.value.runs.find((r) => r.key === key);
+            return run !== undefined ? { start: run.start, end: run.end } : undefined;
+        }
+        case "cards": {
+            const chip = k.value.chips.find((c) => c.key === key);
+            return chip !== undefined ? { start: chip.from, end: chip.to } : undefined;
+        }
+        case "buckets": {
+            const tile = k.value.events.find((e) => e.key === key);
+            if (tile === undefined) return undefined;
+            const bucket = scale.renderBucketOf(tile.at);
+            return bucket !== undefined ? { start: bucket.start, end: bucket.end } : { start: tile.at, end: tile.at };
+        }
+        case "events": {
+            const mark = k.value.marks.find((m) => m.key === key);
+            return mark !== undefined ? { start: mark.at, end: mark.at } : undefined;
+        }
+        default:
+            return undefined;
+    }
+}
 
 /**
  * The body's rows as slots.
