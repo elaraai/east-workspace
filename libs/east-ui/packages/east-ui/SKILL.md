@@ -508,7 +508,7 @@ Task → Which tag?
 │   │   └─ Factories:
 │   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = FA icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
-│   ├─ <Plan.View> — the composite canvas (ONE shared time | number | ordinal axis over heterogeneous rows, laid out by a series list) is e3-ui's (#1177): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
+│   ├─ <Plan> — the planning canvas (ONE shared time | number | ordinal axis over heterogeneous rows: event kinds over records, rows laid out by a series list over data, and read-only rows) is e3-ui's (#1177, #1191): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows or the host's, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
@@ -1156,7 +1156,7 @@ status poll reports each new content hash and the source moves to that
 snapshot, so a `refresh` after your own write only gets there sooner. A
 pinned read the server refuses because the dataset has moved on (409
 `dataset_hash_mismatch`) rediscovers the current snapshot instead of failing
-its window. How a consumer bridges the move is its own: e3-ui's `<Plan.View>` and
+its window. How a consumer bridges the move is its own: e3-ui's `<Plan>` and
 `<Sheet>` keep the rows they show until the new snapshot's windows land,
 and clear a standing key search.
 
@@ -1289,7 +1289,7 @@ Non-UI sub-structures are never child sub-tags.
 
 Every size prop is a **plain string** and every renderer parses it the same
 way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
-e3-ui's `<Plan.View>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
+e3-ui's `<Plan>`, `<Matrix>`, `<Board>`, `<Roster>`, `<Calendar>`,
 `<Library>`, `<Schematic>`, `<SnapGrid>`) and layout primitives (`<Box>` / `<Flex>` /
 `<Stack>` / `<Grid>` / `<Card>`):
 
@@ -1402,7 +1402,7 @@ through the column's `render` or `format`).
 An editable collection's changes are drafts, applied as one checked batch
 through one contract: `Editing.apply` and `Editing.Types.*` — `ChangeSet`,
 `PatchEvent`, `Readiness`, `Origin`, `Draft`, `Entry` and the rest. The
-SnapGrid's editing canvas and e3-ui's `<Sheet>` and `<Plan.View>` each
+SnapGrid's editing canvas and e3-ui's `<Sheet>` and `<Plan>` each
 run a session on it, and e3-ui's `Sheet.apply` and `Sheet.Types.*` are its
 very values under the Sheet's names. A gesture's `origin` names what made it:
 a typed or pasted value, a fill or a proposed row taken, an entry inserted,
@@ -1456,7 +1456,7 @@ error), and the specs refuse one again as they resolve, naming the field.
 
 ### Drag and drop — one grammar, every target (#608)
 
-A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or e3-ui's `<Plan.View>`
+A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or e3-ui's `<Plan>`
 that lists its `id` in `sources` is a target. Every drag between them reduces
 to one `DragEventType` — `add` (a card onto a cell), `move`, `remove` (to the
 trash or back to the palette) or `resize` (a span's edge) — and the renderer
@@ -1610,15 +1610,16 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   legend, tooltip, stacking); `Chart.Column` is the vertical twin (formerly
   named `Chart.Bar`).
 - **Plan (subsumes the retired Gantt / Planner / AlignedStack, #571)** —
-  e3-ui's `<Plan.View>` (#1177) is the composite canvas: ONE shared axis — time, number or
+  e3-ui's `<Plan>` (#1177, #1191) is the planning canvas: ONE shared axis — time, number or
   ordinal (#631) — over heterogeneous rows (state-runs, allocation lanes, chart measures,
   heat, bucketed numerals, shift chips, event marks), laid out by the series
-  list, nested from the data's own structure and each named by a typed id,
+  list and nested from the data's own structure, or placed from event kinds
+  over records (e3-ui's `Schedule`, a Calendar's too), each named by a typed id,
   with slice/key-search/series-library/review chrome, an editing session
   (every verdict, dropped card, move and resize a draft, #880 / #825) and PAGED sources. A Gantt
   is a Plan with span rows, a Planner a Plan with bucket rows, an
   AlignedStack a Plan mixing chart / heat / table rows on the shared axis.
-  Reach for `<Plan.View>` for anything scheduled on ONE shared axis — calendar
+  Reach for `<Plan>` for anything scheduled on ONE shared axis — calendar
   time, a numbered day / shift / distance, or an ordered list of phases —
   with mixed row kinds, nesting to any depth, a paged source, or rows addressed
   by stable ids; the e3-ui skill documents it.

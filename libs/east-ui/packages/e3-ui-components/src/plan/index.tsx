@@ -8,9 +8,11 @@
  * §6): decode, the one shared scale, the one controller, and the shell
  * composition (toolbar / horizon brush / ruler / rows / footer).
  *
- * It renders the `PlanView` extension `@elaraai/e3-ui` declares (#1177):
- * `<Plan.View>` returns the canvas's payload through that carrier, and this
- * module registers against it as it loads.
+ * It draws the canvas of the `Plan` extension `@elaraai/e3-ui` declares
+ * (#1177, #1191): `<Plan>` returns its payload through that carrier — the
+ * canvas whole (`plan`) beside the event kinds and their resources — and this
+ * module registers {@link EastChakraPlanPayload} against it as it loads. The
+ * frame the canvas renders in is #1193's, and the event kinds' rows #1192's.
  *
  * Everything the canvas remembers between renders lives in ONE framework-free
  * controller (#815, `controller/`): the UI state machine, the paged source's
@@ -64,8 +66,8 @@
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, equivalentFor } from "@elaraai/east";
-import { Plan, PlanViewComponent } from "@elaraai/e3-ui/internal";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { Plan, PlanComponent, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyToolbarItem, historyShortcut,
     implementUIComponent, type EditIssue, type DragEventValue,
@@ -1102,4 +1104,29 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         : canvas;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
-implementUIComponent(PlanViewComponent, EastChakraPlan);
+/** The Plan's payload, decoded — what `<Plan>` returns through the `Plan` carrier (#1191). */
+export type PlanValue = ValueTypeOf<typeof PlanPayloadType>;
+
+/** The payload's equivalence: its data, and its functions by their IR and what they capture (#809). */
+const planPayloadEqual = equivalentFor(PlanPayloadType);
+
+/** Props of {@link EastChakraPlanPayload}. */
+export interface EastChakraPlanPayloadProps {
+    /** The payload, decoded. */
+    value: PlanValue;
+    /** Storage key prefix for persisting component state. */
+    storageKey: string;
+}
+
+/**
+ * Renders a Plan's payload (#1191): its canvas, `plan`, drawn by
+ * {@link EastChakraPlan}.
+ *
+ * @param props - The payload and its storage key
+ * @returns The Plan's canvas
+ */
+export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value, storageKey }: EastChakraPlanPayloadProps) {
+    return <EastChakraPlan value={value.plan} storageKey={storageKey} />;
+}, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+implementUIComponent(PlanComponent, EastChakraPlanPayload);

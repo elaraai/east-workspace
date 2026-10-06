@@ -40,7 +40,7 @@ import {
 // with `slot.parse(DateTimeType)`); an ordinal slot IS the value. Hosts map
 // keys straight back to their source data.
 //
-// The Plan (e3-ui's `<Plan.View>`) prints every slot through the shared codecs
+// The Plan (e3-ui's `<Plan>`) prints every slot through the shared codecs
 // (`east-ui-components/src/dnd/slot-key.ts`, composed per axis arm in
 // e3-ui-components' `plan/slot.ts`), which any future axis-bearing target must reuse
 // so a host parses every slot the same way. A Plan `row` is

@@ -8,8 +8,10 @@
  *
  * The public surface is the e3-specific JSX **tags** plus the platform
  * helpers:
- * - `<Plan.View>` — the axis-aligned composite canvas, with its authoring
- *   vocabulary on `Plan` (`Plan.axis`, `Plan.series.*`, the value builders).
+ * - `<Plan>` — the axis-aligned planning canvas, rendered in its frame with
+ *   its panes as optional props: event kinds over records, rows over data and
+ *   read-only rows, with its authoring vocabulary on `Plan` (`Plan.axis`,
+ *   `Plan.series.*`, `Plan.over`, `Plan.eventRef`, the value builders).
  * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
@@ -132,10 +134,12 @@ export {
 } from './query/index.js';
 export { DataSourceType, type BoundSource } from './bind/sources.js';
 
-// The Plan (#1177): the axis-aligned composite canvas a solution mounts
-// (`<Plan.View>`), its authoring vocabulary on `Plan` (`Plan.axis`,
-// `Plan.series.*`, the value and cell builders, `Plan.Types`), and its props.
-export { Plan, type PlanNamespace, type PlanConfig } from './plan/index.js';
+// The Plan (#1177, #1191): the axis-aligned planning canvas a solution mounts,
+// `<Plan>` — event kinds over records, rows over data and read-only rows, in
+// its frame — its authoring vocabulary on `Plan` (`Plan.axis`,
+// `Plan.series.*`, `Plan.over`, `Plan.eventRef`, the value and cell builders,
+// `Plan.Types`), and its props.
+export { Plan, type PlanNamespace, type PlanProps, type PlanConfig, type PlanRowsItem, type PlanOverRows } from './plan/index.js';
 
 // The Sheet (#1179, #1216): the planning spreadsheet a solution mounts,
 // `<Sheet>` — over an e3 record or the host's rows, in its frame, its library

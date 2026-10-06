@@ -206,7 +206,7 @@ function planPickOptions(
  *         // `pick` REPLACES `series`: the canvas shows the picked series and
  *         // mounts the library itself, so nothing else is wired.
  *         return (
- *             <Plan.View
+ *             <Plan
  *                 axis={axis}
  *                 data={ops}
  *                 pick={shown}

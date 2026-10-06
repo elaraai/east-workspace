@@ -5,7 +5,7 @@
 
 /**
  * Internal exports — the `Plan` / `Sheet` / `Diff` / `Ontology` **factories**
- * (`Plan.Root(…)`, `Sheet.Payload(…)`, `Diff.Root(…)`, `Diff.Component`) plus
+ * (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Diff.Root(…)`, `Diff.Component`) plus
  * `Data`, the manifest type and derivation, and types.
  *
  * @remarks
@@ -173,14 +173,31 @@ export {
 } from './query/index.js';
 export { DataSourceType, dataSources, type BoundSource } from './bind/sources.js';
 
-// The Plan (#1177): the canvas's factory and the `PlanView` carrier, the
-// payload the renderer takes, the editing wire it is handed, and the types a
-// canvas is written with. `Plan` here is the internal namespace — the public
-// one, `Plan.Root`, `Plan.Payload` and `Plan.Component`.
+// The Plan (#1177, #1191): `<Plan>` with its namespace, the payload the
+// renderer takes through the `Plan` carrier, the canvas's root, its editing
+// wire, and the types a Plan is written with. `Plan` here is the internal
+// namespace — the public one, `Plan.Payload`, `Plan.Root` and
+// `Plan.Component`.
 export {
     PlanInternal as Plan,
-    PlanView,
-    PlanViewComponent,
+    PlanTag,
+    PlanComponent,
+    PlanPayloadType,
+    PlanSettingsType,
+    PlanEventBlocksType,
+    PlanEventCanDropType,
+    createPlanPayload,
+    createPlanRoot,
+    buildPlanRoot,
+    planKeys,
+    createOver,
+    createEventRef,
+    eventRefKind,
+    type PlanTagType,
+    type PlanProps,
+    type PlanRowsItem,
+    type PlanOverRows,
+    type PlanCanvasOptions,
     PlanRootType,
     PlanReviewType,
     PlanEditingType,

@@ -83,9 +83,10 @@ change to one is a new version of the thing, not an edit to it.
 
 Each wire changed under this rule, with the kind it is.
 
-- **east-ui's `UIComponentType` loses its `Plan` arm (#1177)** —
-  package-borne. The canvas is e3-ui's `<Plan.View>`, carried as the
-  `PlanView` extension. A variant encodes its case by its index among its
+- **east-ui's `UIComponentType` loses its `Plan` arm (#1177, #1191)** —
+  package-borne. The canvas is e3-ui's `<Plan>`, carried as the `Plan`
+  extension, its payload the canvas, its event kinds and their resources. A
+  variant encodes its case by its index among its
   cases, which are sorted by name, so every case after `Plan` moves down one,
   and a UI value encoded under either type does not decode under the other.
   A UI task carries the type in its IR and in what it outputs, so packages are

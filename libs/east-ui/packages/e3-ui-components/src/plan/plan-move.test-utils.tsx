@@ -143,7 +143,7 @@ export async function mountMoves(options: { veto?: boolean; seed?: Map<string, P
     const seed = options.seed ?? SEED;
     const program = East.compile(East.function([], Plan.Types.Root, ($) => {
         const presses = $.const(State.bind([Presses], STATE_KEY, seed));
-        return Plan.Payload({
+        return Plan.Root({
             axis: AXIS,
             data: presses,
             series: SERIES,

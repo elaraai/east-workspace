@@ -374,7 +374,7 @@ function compileCanvas(o: Resolved): () => PlanRootValue {
     const program = o.arm === "inline"
         ? East.function([], Plan.Types.Root, ($) => {
             const presses = $.const(State.bind([Presses], STATE_KEY, o.seed));
-            return Plan.Payload({
+            return Plan.Root({
                 axis, data: presses, series, ...chrome,
                 ...(o.editing ? { editing: { onUpdate: presses.write, ...ready } } : {}),
             });
@@ -384,7 +384,7 @@ function compileCanvas(o: Resolved): () => PlanRootValue {
                 id: "plan-880-presses", page: PAGE, total: TOTAL, seek: none, revision: REVISION, refresh: REFRESH,
             }, Paged.Types.PinnedSource(Presses));
             const onApply = $.const(APPLY);
-            return Plan.Payload({
+            return Plan.Root({
                 axis, data: source, series, ...chrome,
                 ...(o.editing ? { editing: { onApply, ...ready } } : {}),
             });

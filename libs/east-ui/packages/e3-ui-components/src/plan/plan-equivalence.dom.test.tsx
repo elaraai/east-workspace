@@ -93,7 +93,7 @@ const inlineCanvas = East.compile(East.function([StringType], Plan.Types.Root, (
         return Text.Root(label);
     }));
     const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
-    return Plan.Payload({ axis, data: units, series, expandRender });
+    return Plan.Root({ axis, data: units, series, expandRender });
 }), PLATFORM);
 
 /** A PAGED canvas whose one series keeps the units heavier than `threshold`
@@ -109,7 +109,7 @@ const pagedCanvas = East.compile(East.function([FloatType], Plan.Types.Root, ($,
         }),
     ], ArrayType(Plan.Types.Series(UnitRow)));
     const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
-    return Plan.Payload({ axis, data: source, series });
+    return Plan.Root({ axis, data: source, series });
 }), PLATFORM);
 
 function view(value: PlanRootValue) {

@@ -17,6 +17,17 @@ Vocabulary (masthead): **resource · group · item · run · bucket · quantity 
 decision · window · now**. The component is named `Plan` (the spec's name; it
 *is* "the planner" going forward, but the noun a user composes is a Plan).
 
+> **REVISED 2026-10-06 — e3-ui's one `<Plan>` (#1177, #1191).** The Plan moved
+> from east-ui to e3-ui (#1177), and it is one component, `<Plan>`, rendered in
+> its builder frame wherever it is used, its library and inspector panes
+> optional props. It takes everything below — rows over `data` and its series,
+> every axis, editing in the entries — and event kinds over records and
+> read-only `rows` beside them. The tag builds a payload carrying the canvas's
+> root (`Plan.Root`'s, `PlanRootType`) and returns it through its carrier; the
+> frame, the panes and the event kinds are
+> [`Plan Builder Spec.md`](./Plan%20Builder%20Spec.md)'s. The listings below
+> keep the API as it was designed.
+
 ---
 
 ## 1 · Decisions locked
@@ -69,7 +80,9 @@ The established IR → renderer split, with the repo's load-bearing rules
   (hard cap **≤ ~600–800 lines per React file**), one **pure state machine**
   owning all interaction state, Chakra slot recipes for the visual vocabulary.
 - **JSX tag** (`east-ui/src/runtime/collections/plan.ts`): `<Plan …/>`
-  desugaring to `Plan.Root`, like every other collection tag.
+  desugaring to `Plan.Root`, like every other collection tag. (Since #1191,
+  e3-ui's `<Plan>` builds its payload, the root `Plan.Root` builds among it,
+  and returns it through its `Plan` carrier.)
 
 ### The alignment contract (§3), mechanically
 
@@ -1041,8 +1054,8 @@ style); delete `collections/{gantt,planner}` + `layout/aligned-stack` (IR,
 renderers, runtime tags, component arms, recipes, tests, examples, showcase
 entries, `EXAMPLES_PLAN.md` rows); fix survivors' imports (Roster/Board/e3-ui
 `decision/types.ts` → contracts); migration notes with 1:1 recipes (a Gantt is
-`Plan.Root({ rows: [Plan.span…] })`; an AlignedStack is a Plan with chart
-rows). **Wire-breaking:** `UIComponentType` loses three arms — serialized UI
+`Plan.Root({ rows: [Plan.span…] })` — since #1191, `<Plan axis={…}
+rows={[Plan.span…]} />`; an AlignedStack is a Plan with chart rows). **Wire-breaking:** `UIComponentType` loses three arms — serialized UI
 values from older versions will not decode; flag per
 `BEAST2_WIRE_VERSION.md` conventions.
 

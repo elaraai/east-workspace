@@ -76,7 +76,7 @@ const CANVAS = East.function([], Plan.Types.Root, ($) => {
         Plan.series.span(Entry, { key: "entries", title: "Entries", label: (_r, k) => k, runs: () => [] }),
     ], ArrayType(Plan.Types.Series(Entry)));
     const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
-    return Plan.Payload({ axis, data: source, series });
+    return Plan.Root({ axis, data: source, series });
 });
 
 /** The canvas's derived source. */
