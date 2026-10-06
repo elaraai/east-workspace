@@ -12,7 +12,7 @@
  *
  *   repo      create | remove | status | gc | list
  *   package   import | export | list | remove
- *   workspace create | remove | list | status | deploy | export
+ *   workspace create | copy | remove | list | status | deploy | export
  *   dataset   get | set | list | status | find
  *   task      logs | list
  *   dataflow  run
@@ -172,6 +172,14 @@ program
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<name>', 'Workspace name')
       .action(withDefaultRepo(workspaceCommand.create))
+  )
+  .addCommand(
+    new Command('copy')
+      .description('Copy a workspace within its repository: the target becomes the source as it is now — its package, inputs, records and task outputs — made, or replaced whole')
+      .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
+      .argument('<from>', 'The workspace copied')
+      .argument('<to>', 'The workspace it is copied to')
+      .action(withDefaultRepo(workspaceCommand.copy))
   )
   .addCommand(
     new Command('deploy')

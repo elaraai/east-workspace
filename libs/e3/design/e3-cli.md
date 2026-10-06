@@ -27,6 +27,7 @@ e3 package remove <repo> <pkg>[@<ver>]
 
 ```bash
 e3 workspace create <repo> <name>
+e3 workspace copy <repo> <from> <to>            # <to> becomes <from> as it is now, its refs only written
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]
 e3 workspace deploy <repo> <ws> --from-zip <path.zip>   # Import + create + deploy
 e3 workspace export <repo> <ws> <path.zip>

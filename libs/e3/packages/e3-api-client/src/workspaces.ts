@@ -18,6 +18,7 @@ import type {
 import {
   WorkspaceInfoType,
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceDeployRequestType,
   WorkspaceDeployStatusType,
   WorkspaceStatusResultType,
@@ -60,6 +61,41 @@ export async function workspaceCreate(url: string, repo: string, name: string, o
     `/repos/${encodeURIComponent(repo)}/workspaces`,
     { name },
     WorkspaceCreateRequestType,
+    WorkspaceInfoType,
+    options
+  );
+}
+
+/**
+ * Copy a workspace within its repository: the target becomes the source as it
+ * is now — its deployed package and every dataset ref, each record's head and
+ * indexes and each task's output with them, so nothing needs to run again.
+ *
+ * @remarks
+ * The copy writes refs only, so it costs what the workspace has of datasets,
+ * never what they weigh. Nothing in the source changes, and a write to either
+ * workspace afterwards leaves the other as it was. A target that exists is
+ * replaced whole, its runs with it. The server holds the source shared, so
+ * its work goes on, and the target exclusively, as a deploy does.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param from - The workspace copied
+ * @param to - The workspace it is copied to, made or replaced
+ * @param options - Request options including auth token
+ * @returns The target, as the workspace list gives it
+ * @throws {ApiError} `workspace_not_found` for a source that does not exist,
+ *   `workspace_locked` for a target a dataflow runs in or something else
+ *   holds, or a source held exclusively, and `invalid_name` for a name no
+ *   workspace can have, or a target that is the source
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function workspaceCopy(url: string, repo: string, from: string, to: string, options: RequestOptions): Promise<WorkspaceInfo> {
+  return post(
+    url,
+    `/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(from)}/copy`,
+    { to },
+    WorkspaceCopyRequestType,
     WorkspaceInfoType,
     options
   );

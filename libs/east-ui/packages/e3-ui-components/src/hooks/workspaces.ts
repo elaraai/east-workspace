@@ -5,8 +5,10 @@
 
 import { useQuery, useMutation, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import type { QueryOverrides } from './types.js';
-import { workspaceList, workspaceCreate, workspaceGet, workspaceStatus, workspaceRemove, workspaceDeploy, workspaceExport } from '@elaraai/e3-api-client';
-import type { RequestOptions, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
+import {
+    workspaceList, workspaceCreate, workspaceCopy, workspaceGet, workspaceStatus, workspaceRemove, workspaceDeploy, workspaceExport,
+} from '@elaraai/e3-api-client';
+import type { RequestOptions, WorkspaceDeployOptions, WorkspaceDeployResult, WorkspaceInfo, WorkspaceStatusResult } from '@elaraai/e3-api-client';
 import type { WorkspaceState } from '@elaraai/e3-types';
 
 export function useWorkspaceList(url: string, repo: string, requestOptions?: RequestOptions, queryOptions?: QueryOverrides): UseQueryResult<WorkspaceInfo[], Error> {
@@ -21,6 +23,26 @@ export function useWorkspaceList(url: string, repo: string, requestOptions?: Req
 export function useWorkspaceCreate(url: string, repo: string, requestOptions?: RequestOptions): UseMutationResult<WorkspaceInfo, Error, string> {
     return useMutation<WorkspaceInfo, Error, string>({
         mutationFn: (name) => workspaceCreate(url, repo, name, requestOptions ?? { token: null }),
+    });
+}
+
+/**
+ * Copy a workspace within its repository: the target becomes the source as it
+ * is now, made or replaced whole, its refs only written.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param requestOptions - Request options including auth token
+ * @returns A mutation, given the workspace copied and the one it is copied to,
+ *   whose data is the target as the workspace list gives it
+ */
+export function useWorkspaceCopy(
+    url: string,
+    repo: string,
+    requestOptions?: RequestOptions,
+): UseMutationResult<WorkspaceInfo, Error, { from: string; to: string }> {
+    return useMutation<WorkspaceInfo, Error, { from: string; to: string }>({
+        mutationFn: ({ from, to }) => workspaceCopy(url, repo, from, to, requestOptions ?? { token: null }),
     });
 }
 
@@ -58,16 +80,18 @@ export function useWorkspaceRemove(url: string, repo: string, requestOptions?: R
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param requestOptions - Request options including auth token
- * @returns A mutation, given the workspace and the package reference, whose
- *   data is what the deploy decided for each record and index
+ * @returns A mutation, given the workspace, the package reference and the
+ *   deploy's options — what it does with a record it cannot keep and with an
+ *   input someone set, and whether it only plans — whose data is what the
+ *   deploy decided for each record, index and input
  */
 export function useWorkspaceDeploy(
     url: string,
     repo: string,
     requestOptions?: RequestOptions,
-): UseMutationResult<WorkspaceDeployResult, Error, { name: string; packageRef: string }> {
-    return useMutation<WorkspaceDeployResult, Error, { name: string; packageRef: string }>({
-        mutationFn: ({ name, packageRef }) => workspaceDeploy(url, repo, name, packageRef, requestOptions ?? { token: null }),
+): UseMutationResult<WorkspaceDeployResult, Error, { name: string; packageRef: string; options?: WorkspaceDeployOptions }> {
+    return useMutation<WorkspaceDeployResult, Error, { name: string; packageRef: string; options?: WorkspaceDeployOptions }>({
+        mutationFn: ({ name, packageRef, options }) => workspaceDeploy(url, repo, name, packageRef, requestOptions ?? { token: null }, options),
     });
 }
 

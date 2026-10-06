@@ -35,6 +35,11 @@ import { DeployProgressType } from './api.js';
 
 /**
  * Lock operation - what acquired the lock.
+ *
+ * @remarks
+ * A lock's state is stored, so a case it gains is named to sort after every
+ * case before it: its tag is then the last, and a lock an earlier release left
+ * still reads as itself.
  */
 export const LockOperationType = VariantType({
   /** Running a dataflow */
@@ -47,6 +52,9 @@ export const LockOperationType = VariantType({
   dataset_write: NullType,
   /** Exporting a workspace */
   export: NullType,
+  /** Copying a workspace: the one copied, held shared, and the one it is
+   *  copied onto, held exclusively */
+  workspace_copy: NullType,
 });
 
 export type LockOperation = ValueTypeOf<typeof LockOperationType>;

@@ -25,3 +25,4 @@ export { gcTests } from './gc.js';
 export { repositoryRecordTests } from './repository-record.js';
 export { workspaceStatusTests } from './workspace-status.js';
 export { workspaceDeployTests } from './workspace-deploy.js';
+export { workspaceCopyTests } from './workspace-copy.js';

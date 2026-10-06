@@ -238,11 +238,12 @@ export function createFeeds(deps: FeedsDeps): Feeds {
                     }
                     // What holds the workspace, and how far it has got, read only while something may.
                     const lock = locked ? await api.workspaceLock(ws) : null;
-                    const deployEnded = (store.getState().data.lock[ws]?.state.operation.type === 'deployment' && lock === null) || (wasEmpty && deployed);
+                    const held = store.getState().data.lock[ws]?.state.operation.type;
+                    const replaced = ((held === 'deployment' || held === 'workspace_copy') && lock === null) || (wasEmpty && deployed);
                     store.dispatch({ type: 'data/lock', ws, lock });
-                    // A deploy that has let go has changed what the title, the tasks and the inputs
-                    // show: read them now, not on their next turns.
-                    if (deployEnded) {
+                    // A deploy, or a copy onto the workspace, that has let go has changed what the
+                    // title, the tasks and the inputs show: read them now, not on their next turns.
+                    if (replaced) {
                         for (const key of ['workspaces', `workspaceState:${ws}`, `taskList:${ws}`, `datasets:${ws}`]) running.get(key)?.fireNow();
                     }
                 },

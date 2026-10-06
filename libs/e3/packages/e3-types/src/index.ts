@@ -331,6 +331,7 @@ export {
   PackageDetailsType,
   // Workspaces
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   SchemaPolicyType,
   InputPolicyType,
@@ -425,6 +426,7 @@ export {
   type PackageDetails,
   type WorkspaceInfo,
   type WorkspaceCreateRequest,
+  type WorkspaceCopyRequest,
   type WorkspaceDeployRequest,
   type SchemaPolicy,
   type InputPolicy,

@@ -31,7 +31,7 @@ import type {
   RecordDeployStep, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
 } from '@elaraai/e3-types';
 import type { DatasetAdoptProgress, DatasetTaken, ObjectAdoptResult } from './dataset-adopt.js';
-import { eachAtMost } from './concurrency.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { ZIP_RELEASE_ENTRY, addPackageObjects, packageResolve, packageRead, writePackageZip } from './packages.js';
 import { zipSinkOf } from './zip.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
@@ -43,6 +43,7 @@ import {
   WorkspaceExistsError,
   WorkspaceLockError,
   RecordDeployRefusedError,
+  InvalidNameError,
   checkName,
   lockStateToHolderInfo,
 } from './errors.js';
@@ -209,6 +210,96 @@ export async function workspaceRemove(
     if (!externalLock) {
       await lock.release();
     }
+  }
+}
+
+/**
+ * Copy a workspace within its repository: the target becomes the source as it
+ * is now — its deployed package and every dataset ref, so each record's head
+ * and indexes and each task's output with them, and nothing needs to run
+ * again.
+ *
+ * @remarks
+ * Within one repository every object is shared by its hash, so the copy reads
+ * and writes refs only: its cost follows the number of datasets, never their
+ * size. Nothing in the source changes, and a write to either workspace
+ * afterwards leaves the other as it was.
+ *
+ * It holds the source shared, as a dataflow run or a dataset write does, so
+ * the source's work goes on while it copies — a ref written meanwhile is
+ * copied as it stood before the write or after it — and a deploy, a removal or
+ * an export holding the source refuses the copy. It holds the target
+ * exclusively, as a deploy does, so a copy onto a workspace a dataflow runs
+ * in, or that a write, a deploy, a removal or an export holds, is refused. Both
+ * locks name the copy (`workspace_copy`), so what either refuses, and what
+ * reads them, sees a copy. And it holds the repository's running work
+ * ({@link withRunningWork}): the refs it writes name objects the source may
+ * stop naming as it goes on, which gc holding the repository still would
+ * otherwise sweep before the target names them.
+ *
+ * A target that exists is replaced whole, as a removal would take it: its
+ * refs, its dataflow's state and its runs go. So do the refs a copy cut short
+ * left at a name no workspace has: a copy writes its record last, so a removal
+ * finds no workspace there to remove. Its history starts at the copy, so it
+ * names no run of its own, and its deployment's time is the source's.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param from - The workspace copied
+ * @param to - The workspace it is copied to, made or replaced
+ * @throws {InvalidNameError} When either name is no workspace's, or `to` is
+ *   `from`, before a lock is taken
+ * @throws {WorkspaceNotFoundError} When the source does not exist
+ * @throws {WorkspaceLockError} When something holds the target — a dataflow
+ *   runs in it, or a write, a deploy, a removal or an export holds it — or
+ *   holds the source exclusively
+ * @throws {Error} When a garbage collection or an upgrade holds the repository
+ */
+export async function workspaceCopy(
+  storage: StorageBackend,
+  repo: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  // Checked before a lock is taken, as every lock's resource is: a lock's
+  // name may hold the `#` and `~` no workspace's may.
+  checkName('workspace', from);
+  checkName('workspace', to);
+  if (from === to) throw new InvalidNameError('workspace', to, 'is the workspace copied: a workspace cannot be copied onto itself');
+
+  const target = await storage.locks.acquire(repo, to, variant('workspace_copy', null));
+  if (target === null) {
+    const state = await storage.locks.getState(repo, to);
+    throw new WorkspaceLockError(to, state ? lockStateToHolderInfo(state) : undefined);
+  }
+  try {
+    const source = await storage.locks.acquire(repo, from, variant('workspace_copy', null), { mode: 'shared' });
+    if (source === null) {
+      const state = await storage.locks.getState(repo, from);
+      throw new WorkspaceLockError(from, state ? lockStateToHolderInfo(state) : undefined);
+    }
+    try {
+      await withRunningWork(storage, repo, async () => {
+        const record = await storage.refs.workspaceRead(repo, from);
+        if (record === null) throw new WorkspaceNotFoundError(from);
+        const deployed = decodeBeast2For(WorkspaceRecordType)(record);
+        const refs = await storage.datasets.readAll(repo, from);
+
+        // Every ref the target's name holds goes, a workspace's or those a
+        // copy cut short left, and then a workspace's record, its runs with it.
+        await storage.datasets.removeAll(repo, to);
+        if (await storage.refs.workspaceRead(repo, to) !== null) await storage.refs.workspaceRemove(repo, to);
+        await eachAtMost([...refs], OBJECT_CONCURRENCY, ([path, ref]) => storage.datasets.write(repo, to, path, ref));
+        // The record last, as a deploy writes it: a copy cut short leaves no
+        // workspace that reads as whole.
+        await storage.refs.workspaceWrite(repo, to, encodeBeast2For(WorkspaceRecordType)(
+          deployed.type === 'some' ? some({ ...deployed.value, currentRunId: none }) : none));
+      });
+    } finally {
+      await source.release();
+    }
+  } finally {
+    await target.release();
   }
 }
 

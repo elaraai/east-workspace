@@ -46,6 +46,7 @@ export {
   PackageDetailsType,
   // Workspaces
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   SchemaPolicyType,
   InputPolicyType,
@@ -152,6 +153,7 @@ export type {
   PackageDetails,
   WorkspaceInfo,
   WorkspaceCreateRequest,
+  WorkspaceCopyRequest,
   WorkspaceDeployRequest,
   SchemaPolicy,
   InputPolicy,
@@ -261,6 +263,7 @@ import {
   PackageInfoType,
   PackageDetailsType,
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   SchemaPolicyType,
   InputPolicyType,
@@ -368,6 +371,7 @@ export const ApiTypes = {
 
   // Workspaces
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   SchemaPolicyType,
   InputPolicyType,

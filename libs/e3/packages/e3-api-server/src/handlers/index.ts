@@ -22,6 +22,7 @@ export {
 export {
   listWorkspaces,
   createWorkspace,
+  copyWorkspace,
   getWorkspace,
   getWorkspaceStatus,
   deleteWorkspace,

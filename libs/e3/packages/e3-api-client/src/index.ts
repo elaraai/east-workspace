@@ -126,6 +126,7 @@ export {
 export {
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceGet,
   workspaceStatus,
   workspaceLockStatus,

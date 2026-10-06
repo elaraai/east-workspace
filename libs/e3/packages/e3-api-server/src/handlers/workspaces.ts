@@ -11,6 +11,7 @@ import {
 import {
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceRemove,
   workspaceGetState,
   workspaceLockStatus,
@@ -77,6 +78,41 @@ export async function createWorkspace(
       deployed: false,
       packageName: none,
       packageVersion: none,
+    });
+  } catch (err) {
+    return sendError(WorkspaceInfoType, errorToVariant(err));
+  }
+}
+
+/**
+ * Copy a workspace within its repository: the target becomes the source as it
+ * is now, its refs only written, so the copy costs what the workspace has of
+ * datasets, never what they weigh.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param from - The workspace copied
+ * @param to - The workspace it is copied to, made or replaced whole
+ * @returns The response: the target, as the workspace list gives it; or
+ *   `workspace_not_found` for a source that does not exist,
+ *   `workspace_locked` for a target a dataflow runs in or something else holds
+ *   (or a source held exclusively), or `invalid_name` for a name no workspace
+ *   can have, or a target that is the source
+ */
+export async function copyWorkspace(
+  storage: StorageBackend,
+  repoPath: string,
+  from: string,
+  to: string,
+): Promise<Response> {
+  try {
+    await workspaceCopy(storage, repoPath, from, to);
+    const state = await workspaceGetState(storage, repoPath, to);
+    return sendSuccess(WorkspaceInfoType, {
+      name: to,
+      deployed: state !== null,
+      packageName: state === null ? none : some(state.packageName),
+      packageVersion: state === null ? none : some(state.packageVersion),
     });
   } catch (err) {
     return sendError(WorkspaceInfoType, errorToVariant(err));

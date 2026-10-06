@@ -6,15 +6,15 @@
 /**
  * Workspace operations test suite.
  *
- * Tests: create, list, get, status, lock, deploy, remove
+ * Tests: create, list, get, status, lock, deploy, copy, remove
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { ArrayType, equalFor, printFor, variant } from '@elaraai/east';
-import { DatasetStatusInfoType, TaskStatusInfoType, type TreePath } from '@elaraai/e3-types';
+import { ArrayType, IntegerType, decodeBeast2For, encodeBeast2For, equalFor, printFor, some, variant } from '@elaraai/east';
+import { DatasetStatusInfoType, TaskStatusInfoType, WorkspaceInfoType, type TreePath } from '@elaraai/e3-types';
 import {
   ApiError,
   fetchWithAuth,
@@ -22,6 +22,7 @@ import {
   packageImport,
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceGet,
   workspaceLockStatus,
   workspaceStatus,
@@ -30,6 +31,8 @@ import {
   taskList,
   taskGet,
   dataflowGraph,
+  datasetGet,
+  datasetSet,
 } from '@elaraai/e3-api-client';
 
 import type { TestContext } from '../context.js';
@@ -223,6 +226,41 @@ export function workspaceTests(setup: TestSetup<TestContext>): void {
         const refusal = parseErrorBody(await response.text(), 'http_400');
         assert.strictEqual(refusal.code, 'bad_request');
         assert.match(String(refusal.details), /^path must be a dataset's path, as a status names it \(\.inputs\.x\), got "inputs\.value"/);
+      });
+
+      it('workspaceCopy makes the target the source as it is now, and a write to either afterwards leaves the other as it was', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+        const value: TreePath = [variant('field', 'inputs'), variant('field', 'value')];
+        const read = async (ws: string): Promise<bigint> =>
+          decodeBeast2For(IntegerType)((await datasetGet(ctx.config.baseUrl, ctx.repoName, ws, value, opts)).data);
+        await datasetSet(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', value, encodeBeast2For(IntegerType)(99n), opts);
+
+        const info = await workspaceCopy(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', 'copied-ws', opts);
+        const target = { name: 'copied-ws', deployed: true, packageName: some('compute-pkg'), packageVersion: some('1.0.0') };
+        assert.ok(equalFor(WorkspaceInfoType)(info, target), `the target, as the list gives it: ${printFor(WorkspaceInfoType)(info)}`);
+        assert.strictEqual((await workspaceGet(ctx.config.baseUrl, ctx.repoName, 'copied-ws', opts)).packageVersion, '1.0.0');
+        assert.strictEqual(await read('copied-ws'), 99n, 'the input as the source held it');
+
+        await datasetSet(ctx.config.baseUrl, ctx.repoName, 'copied-ws', value, encodeBeast2For(IntegerType)(7n), opts);
+        assert.strictEqual(await read('deployed-ws'), 99n, 'a write to the copy leaves the source as it was');
+      });
+
+      it('workspaceCopy refuses a source that does not exist, a copy onto itself, and a target no workspace can be named', async (t) => {
+        const ctx = await withDeployedPackage(t);
+        const opts = await ctx.opts();
+
+        await assert.rejects(
+          workspaceCopy(ctx.config.baseUrl, ctx.repoName, 'no-such-ws', 'copied-ws', opts),
+          (err: unknown) => err instanceof ApiError && err.code === 'workspace_not_found',
+        );
+        await assert.rejects(
+          workspaceCopy(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', 'deployed-ws', opts),
+          refusedAsWorkspaceName('deployed-ws', 'is the workspace copied: a workspace cannot be copied onto itself'),
+        );
+        for (const [name, why] of MALFORMED_WORKSPACE_NAMES) {
+          await assert.rejects(workspaceCopy(ctx.config.baseUrl, ctx.repoName, 'deployed-ws', name, opts), refusedAsWorkspaceName(name, why));
+        }
       });
 
       it('taskList returns task info', async (t) => {
