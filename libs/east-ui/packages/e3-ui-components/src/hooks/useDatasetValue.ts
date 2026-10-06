@@ -10,7 +10,6 @@ import type { RequestOptions } from '@elaraai/e3-api-client';
 import { variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import {
     StateImpl,
-    NavImpl,
     SliceImpl,
     SliceApplyImpl,
     OverlayImpl,
@@ -32,7 +31,7 @@ import type { QueryOverrides } from './types.js';
 // "Common traps"). UITaskPreview passes a manifest-scoped set instead; this is the unscoped fallback.
 const defaultPlatformImplementations: PlatformFunction[] =
     [
-        ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+        ...StateImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
         ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
         ...BindPlatform, ...PagedPlatform, ...FuncPlatform, ...RecordPlatform,
     ];

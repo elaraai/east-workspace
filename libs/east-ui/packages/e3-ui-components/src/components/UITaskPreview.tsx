@@ -33,7 +33,6 @@ import {
     createUIStore,
     EastChakraComponent,
     StateImpl,
-    NavImpl,
     SliceImpl,
     SliceApplyImpl,
     OverlayImpl,
@@ -84,8 +83,8 @@ export interface UITaskPreviewProps {
     pollInterval?: number;
     /**
      * Chromeless mode: drop the padding + scroll wrapper so the ui output
-     * (e.g. a deployed `<App>` shell that owns its own layout) fills its
-     * container edge-to-edge — for host kiosk embedding. Default `false`
+     * (a page that owns its own layout) fills its container edge-to-edge —
+     * for a host's own page or kiosk embedding. Default `false`
      * (the padded, scrollable preview wrapper).
      */
     bare?: boolean;
@@ -146,7 +145,6 @@ export const UITaskPreview = memo(function UITaskPreview({
                     // '<x>_bind' is not available" — and only inside an e3 ui() task, so component tests miss it
                     // (see east-contribute "Common traps"). The manifest-SCOPED data/func/record binds follow.
                     ...StateImpl,
-                    ...NavImpl,
                     ...SliceImpl,
                     ...SliceApplyImpl,
                     ...OverlayImpl,
@@ -217,7 +215,7 @@ export const UITaskPreview = memo(function UITaskPreview({
         <UIStoreProvider store={store}>
             <ErrorBoundary>
                 {/* bare: fill the container, no inset/scroll wrapper — the ui
-                    output (typically an <App>) owns its own layout + scrolling. */}
+                    output owns its own layout + scrolling. */}
                 <Box height="100%" overflow={bare ? undefined : 'auto'} p={bare ? undefined : '4'} minH={bare ? 0 : undefined}>
                     <EastChakraComponent
                         value={valueQuery.data.decoded as ValueTypeOf<typeof UIComponentType>}

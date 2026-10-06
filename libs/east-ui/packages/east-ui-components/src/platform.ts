@@ -40,7 +40,6 @@ export {
 export {
     StateImpl,
     StateRuntime,
-    NavImpl,
     SliceImpl,
     SliceApplyImpl,
     buildSliceHandle,

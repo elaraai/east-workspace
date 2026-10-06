@@ -114,8 +114,8 @@ export const navListSlotRecipe = defineSlotRecipe({
             shell: {},
         },
         /** Collapsed rail — icon-only: labels / badges / section headings hidden,
-         *  rows centred so the leading icon is the whole hit target (the `<App>`
-         *  56 px rail). Active tint + click stay live. */
+         *  rows centred so the leading icon is the whole hit target (a host's
+         *  collapsed navigation rail). Active tint + click stay live. */
         collapsed: {
             true: {
                 item: {

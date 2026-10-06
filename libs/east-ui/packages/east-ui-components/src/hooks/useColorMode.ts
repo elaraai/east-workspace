@@ -6,10 +6,9 @@
 /**
  * Renderer-side colour mode (#367) — a small, host-agnostic reader/toggler for
  * Chakra v3's class-based dark mode (the `_dark` condition keys on the `dark`
- * class on `<html>`). It lets the `<App>` shell's opt-in `themeToggle` flip the
- * mode on pure-East surfaces (the showcase / e3 `ui()` tasks) that have no host
- * theme control; embedding apps normally own the mode themselves and inject their
- * own toggle via `AppProvider barEnd`, so this stays optional.
+ * class on `<html>`). It lets a surface with no host theme control flip the
+ * mode; embedding apps normally own the mode themselves, so this stays
+ * optional.
  *
  * Promoted from the showcase's `theme-mode.ts` (the audit #362 wiring).
  */

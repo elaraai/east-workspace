@@ -229,13 +229,6 @@ export {
     type BreadcrumbItemValue,
     type EastChakraBreadcrumbProps,
     type EastChakraBreadcrumbItemProps,
-    EastChakraApp,
-    type AppValue,
-    type EastChakraAppProps,
-    AppProvider,
-    useAppSlots,
-    type AppSlots,
-    type AppProviderProps,
 } from "./navigation/index.js";
 
 // Display
@@ -456,9 +449,6 @@ export {
     // State implementation (for compilation)
     StateImpl,
     StateRuntime,
-
-    // Navigation (nav_bind) implementation — auto-registers on import
-    NavImpl,
 
     // Slice implementations (auto-register on import)
     SliceImpl, buildSliceHandle, DEFAULT_SLICE_STATE,

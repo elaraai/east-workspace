@@ -16,9 +16,8 @@ import type { UIElement } from "../runtime.js";
  * torn down and rebuilt fresh per key instead of keeping the previous case's
  * mounted state. Same-tag payload/data churn re-renders without remounting.
  * `cases` are keyed by the variant's case names, exhaustive, and each handler
- * receives that case's typed payload — exactly like `variant.match`. Where
- * the key is a nav route, use `<Route nav routes>` instead; for selecting a
- * plain *value* by key, use `variant.match` directly.
+ * receives that case's typed payload — exactly like `variant.match`. For
+ * selecting a plain *value* by key, use `variant.match` directly.
  *
  * @example
  * ```tsx

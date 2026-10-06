@@ -105,7 +105,7 @@ import { NavListType } from "./navigation/nav-list/types.js";
 import { BadgeType } from "./display/badge/types.js";
 import { TagType } from "./display/tag/types.js";
 import { AvatarType } from "./display/avatar/types.js";
-import { ImageType, ImageSourceType } from "./display/image/types.js";
+import { ImageType } from "./display/image/types.js";
 import { MetricChipToneType, MetricChipStyleType } from "./display/metric-chip/types.js";
 import { EditableChipStyleType } from "./display/editable-chip/types.js";
 import { KbdType } from "./display/kbd/types.js";
@@ -586,57 +586,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         style: OptionType(EmptyStateStyleType),
     }),
 
-    // Navigation
+    // Navigation within a page; an app's own navigation is its host's (#1227)
     Breadcrumb: BreadcrumbRootType,
     NavList: NavListType,
-    /**
-     * Pages — first-class navigation content-switcher. `render` is a nullary
-     * function yielding the active page, built by the `Pages.Root` factory as a
-     * match over the route stack (so only the active arm runs — visible-only — and
-     * every page body sits in the IR for the manifest union). The renderer
-     * evaluates it leaf-only and remounts on a route change; `navKey` is the
-     * path's State key it subscribes to.
-     */
-    Pages: StructType({
-        render: FunctionType([], node),
-        navKey: StringType,
-    }),
-    /**
-     * Route — `Pages` generalized to any slot (#333): the same nav-typed
-     * switcher payload, but placeable anywhere (a header widget, a sidebar, a
-     * drawer body). Any number of Route slots bind the same nav handle as the
-     * body Pages and each remounts its own slot on navigation.
-     */
-    Route: StructType({
-        render: FunctionType([], node),
-        navKey: StringType,
-    }),
-    /**
-     * App — the application shell (#367). Composes the navigation primitives
-     * into one surface: a collapsible nav rail, a breadcrumb app bar, an
-     * optional brand logo, app-bar slots, and the routed page body. The
-     * `App.Root` factory pre-builds `rail` / `breadcrumb` as `Reactive`
-     * NavList / Breadcrumb nodes (reading the shared `nav` handle) and `body`
-     * as a `Pages` node; the renderer is dumb layout + chrome (collapse state,
-     * `AppProvider` host-slot injection). `navKey` is the nav path's State key
-     * (collapse persistence + hotkey scope).
-     */
-    App: StructType({
-        title: OptionType(StringType),
-        logo: OptionType(ImageSourceType),
-        logoCollapsed: OptionType(ImageSourceType),
-        rail: node,
-        breadcrumb: node,
-        body: node,
-        barStart: ArrayType(node),
-        barEnd: ArrayType(node),
-        collapsible: BooleanType,
-        themeToggle: BooleanType,
-        /** App-bar density — comfortable (2 rows) / compact (tighter 2 rows) /
-         *  condensed (breadcrumb + title on ONE row). Rail + body stay constant. */
-        density: OptionType(DensityType),
-        navKey: StringType,
-    }),
 
     // Display
     Badge: BadgeType,
@@ -1440,31 +1392,6 @@ export const UIComponentType: RecursiveType<UIComponentNode> = UIComponentTypeIm
  * Type alias for UIComponentType.
  */
 export type UIComponentType = typeof UIComponentType;
-
-/**
- * Standalone `StructType` mirroring the inline `App` variant payload (#367) — the
- * renderer derives its decoded value type (`ValueTypeOf`) and memo comparator
- * (`equalFor`) from this. Keep it in **lockstep** with the `App:` case in the
- * variant above (the inline case uses `node` for recursion; this uses the
- * resolved `UIComponentType`, which is structurally identical).
- */
-export const AppValueType = StructType({
-    title: OptionType(StringType),
-    logo: OptionType(ImageSourceType),
-    logoCollapsed: OptionType(ImageSourceType),
-    rail: UIComponentType,
-    breadcrumb: UIComponentType,
-    body: UIComponentType,
-    barStart: ArrayType(UIComponentType),
-    barEnd: ArrayType(UIComponentType),
-    collapsible: BooleanType,
-    themeToggle: BooleanType,
-    density: OptionType(DensityType),
-    navKey: StringType,
-});
-
-/** Type alias for {@link AppValueType}. */
-export type AppValueType = typeof AppValueType;
 
 // ============================================================================
 // Shared positioned-content primitives (UIComp-coupled)

@@ -95,12 +95,10 @@ function createMatch<C extends { [K in string]: EastType }>({ on, cases }: Match
  * @remarks
  * Authored as the `<Match on={…} cases={{…}} />` tag; `Match.Root({ on,
  * cases })` is the underlying factory. Use it to swap a **stateful**
- * component (its own `<Reactive>` / binds) at one slot by a reactive key:
- * the active case remounts on tag change. Where the key is a nav route, use
- * `<Route nav routes>` instead — it pins the case map to the
- * `Navigation.config` and hands each body the route payload + nav. For
- * selecting a plain *value* by key (a label, a count), use `variant.match`
- * directly — only mounted subtrees need the hosting slot.
+ * component (its own `<Reactive>` / binds) at one slot by a reactive key — a
+ * page's tab or mode, a selection: the active case remounts on tag change.
+ * For selecting a plain *value* by key (a label, a count), use
+ * `variant.match` directly — only mounted subtrees need the hosting slot.
  */
 export const Match = {
     /** Build a `<Match>` hosting slot from `{ on, cases }`. See {@link createMatch}. */

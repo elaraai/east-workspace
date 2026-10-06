@@ -292,7 +292,7 @@ function buildDecisionHandle(
  * import { decodeBeast2For } from '@elaraai/east';
  * import { UIComponentType } from '@elaraai/east-ui';
  * import {
- *     StateImpl, NavImpl, SliceImpl, SliceApplyImpl, OverlayImpl, ClipboardImpl, DownloadImpl, ShareImpl,
+ *     StateImpl, SliceImpl, SliceApplyImpl, OverlayImpl, ClipboardImpl, DownloadImpl, ShareImpl,
  * } from '@elaraai/east-ui-components';
  * import {
  *     DecisionBindPlatform, createScopedBindPlatform, createScopedPagedPlatform,
@@ -301,7 +301,7 @@ function buildDecisionHandle(
  *
  * // `manifest` is the UI task's (its role's `ui` value), `bytes` its output.
  * const platforms = [
- *     ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+ *     ...StateImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
  *     ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
  *     ...createScopedBindPlatform(manifest),
  *     ...createScopedPagedPlatform(manifest.pages),

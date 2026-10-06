@@ -14,7 +14,7 @@ import { ArrayType, East, OptionType, StringType, equalFor, none, some, variant 
 import type { DataManifest } from "@elaraai/e3-types";
 import { DecisionConstraintType, DiffBindingType, decisionBindPlatformFn } from "@elaraai/e3-ui/internal";
 import {
-    ClipboardImpl, DownloadImpl, NavImpl, OverlayImpl, ShareImpl, SliceApplyImpl, SliceImpl, StateImpl,
+    ClipboardImpl, DownloadImpl, OverlayImpl, ShareImpl, SliceApplyImpl, SliceImpl, StateImpl,
 } from "@elaraai/east-ui-components";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import * as root from "./index.js";
@@ -39,7 +39,7 @@ describe("the package's root", () => {
         // UITaskPreview's list, from what the packages export by name.
         const manifest: DataManifest = { paths: [], functions: [], records: [], pages: [] };
         const platforms = [
-            ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+            ...StateImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
             ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...root.DecisionBindPlatform,
             ...root.createScopedBindPlatform(manifest),
             ...root.createScopedPagedPlatform(manifest.pages),

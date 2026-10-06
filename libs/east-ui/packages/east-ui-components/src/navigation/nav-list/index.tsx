@@ -22,7 +22,7 @@ export type NavListValue = ValueTypeOf<typeof NavList.Types.NavList>;
 
 export interface EastChakraNavListProps {
     value: NavListValue;
-    /** Collapsed rail (icon-only) — used by `<App>` when the shell rail is
+    /** Collapsed rail (icon-only), for a host whose own navigation rail is
      *  collapsed. Labels / badges / section headings hide; icons stay clickable. */
     collapsed?: boolean;
 }
