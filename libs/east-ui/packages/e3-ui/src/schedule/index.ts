@@ -9,10 +9,13 @@
  * §4, `Plan Builder Spec.md` §4).
  *
  * - `Schedule.resources(rows, config)`: one resource kind, read from any keyed
- *   rows, usually a record's `read()`; a schedule never writes them.
+ *   rows, usually a record's `read()`; a schedule never writes them. Plan's
+ *   options: groups, nesting, the gutter, rollups, measures and paging.
  * - `Schedule.events(record, config)`: one event kind, a record of its own
  *   bound with its patch mutation, closed behind East functions over beast2
  *   bytes so a builder's payload is one type whatever the records hold.
+ *   Plan's options sit beside the Calendar's (#1190): how a kind draws, an
+ *   instant kind's `at`, and its roles' fields.
  * - `Schedule.field`: the inspector's typed form, east-ui's `Fields`.
  * - `Schedule.days` and `Schedule.unscheduled`: the keys a large record's day
  *   index and backlog index file an event under.
@@ -20,7 +23,8 @@
  *
  * A builder takes its kinds by slot — `resources={{ people: … }}`,
  * `events={{ shift: … }}` — and checks them across slots
- * (`ScheduleInternal.check`) before it builds them under their slot names.
+ * (`ScheduleInternal.check`) before it builds them under their slot names:
+ * the Calendar with `build(slot)`, Plan's builder with `buildPlan(slot)`.
  *
  * @packageDocumentation
  */
@@ -31,17 +35,20 @@ import { scheduleDays, scheduleUnscheduled } from "./days.js";
 import { scheduleEvents, type ScheduleEventKind } from "./events.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
+    PlanEventItemType, PlanEventKindType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
     ScheduleCandidateType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleGestureType,
-    ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
+    ScheduleItemType, ScheduleKindType, ScheduleOverlapsType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
     ScheduleResourcesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
 } from "./types.js";
 
 export * from "./types.js";
 export {
     scheduleEvents,
-    type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsConfig, type ScheduleInstantField, type ScheduleRecordHandle,
-    type ScheduleResourceField, type ScheduleResourceOf, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField,
-    type ScheduleStringField, type ScheduleTemplate, type ScheduleValuesOf,
+    type ScheduleAtField, type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig,
+    type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
+    type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
+    type ScheduleTemplate, type ScheduleValuesOf, type ScheduleVerdictField,
 } from "./events.js";
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from "./resources.js";
 export { scheduleDays, scheduleUnscheduled } from "./days.js";
@@ -169,6 +176,18 @@ export interface ScheduleInternalNamespace extends Omit<ScheduleNamespace, "Type
         Drafts: typeof ScheduleDraftsType;
         /** One drafted entry, as `ready` reads it. */
         ReadyEntry: typeof ScheduleReadyEntryType;
+        /** Whether two events of a kind on one resource at once are a conflict. */
+        Overlaps: typeof ScheduleOverlapsType;
+        /** One event kind as Plan's builder takes it. */
+        PlanKind: typeof PlanEventKindType;
+        /** One event as Plan draws it. */
+        PlanItem: typeof PlanEventItemType;
+        /** The fields an event kind's roles read on a Plan. */
+        PlanRoles: typeof PlanEventRolesType;
+        /** One resource kind as Plan's builder takes it. */
+        PlanResources: typeof PlanResourcesType;
+        /** One resource as Plan's builder takes it. */
+        PlanResourceRow: typeof PlanResourceRowType;
     };
 }
 
@@ -190,5 +209,11 @@ export const ScheduleInternal: ScheduleInternalNamespace = {
         Template: ScheduleTemplateType,
         Drafts: ScheduleDraftsType,
         ReadyEntry: ScheduleReadyEntryType,
+        Overlaps: ScheduleOverlapsType,
+        PlanKind: PlanEventKindType,
+        PlanItem: PlanEventItemType,
+        PlanRoles: PlanEventRolesType,
+        PlanResources: PlanResourcesType,
+        PlanResourceRow: PlanResourceRowType,
     },
 };
