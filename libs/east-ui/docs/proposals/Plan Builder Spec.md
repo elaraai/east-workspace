@@ -53,9 +53,10 @@ screenshot.
   `<Plan>` took them, and `rows`, read only (#1191).
 - **Draws.** `BuilderFrame`: one toolbar (the slice's rail, range and
   resolution, grain, overlaps, review, and the history item with Undo, Redo,
-  Discard and Apply); the library (Events · Backlog · Series) in the start
-  pane when the Plan is given `library`; the canvas in main; the inspector in
-  the end pane when it is given `inspector`; the status footer.
+  Discard and Apply); the library in the start pane, its tabs the ones
+  `library` lists (Events · Backlog · Series, and the author's own); the
+  canvas in main; the inspector in the end pane when it is given `inspector`;
+  the status footer.
 - **Built in.** Drag and drop: templates and backlog rows onto rows, moving
   and resizing along and across resources, and back to the backlog. Undo and
   redo across kinds, Apply per kind, review verdicts on events, overlap
@@ -101,6 +102,10 @@ These are settled; the proposal was approved on 2026-10-04.
 9. **The library pane** is three tabs: Events (every kind's templates, by
    kind), Backlog, and Series (today's Series popover moved into the pane,
    show and hide only). The builder's toolbar has no Series button.
+   *Amended (2026-10-05, the ruling for every builder, made on the Sheet's
+   #1186):* the library is the author's. `library` lists its tabs, in order,
+   each a `Plan.library.*` call — the three, and tabs of the author's own
+   cards — and left out, or `[]`, there is no pane (#1195).
 10. **One toolbar holds every control**: the slice's rail as its toolbar items
     (folding first), the grain and resolution segments, the overlaps chip,
     Approve all and Reject all, and the history item with Undo, Redo, Discard
@@ -197,6 +202,10 @@ export const shiftsPatch = e3.mutation.patch(shifts);
 // Measures: what the canvas shows beside the plan, from the app's dataflow. Read only.
 export const utilisation = e3.input("utilisation", DictType(StringType, ArrayType(Plan.Types.HeatCell)), variant("value", new Map()));
 export const output      = e3.input("output", ArrayType(StructType({ day: DateTimeType, sheets: FloatType })), variant("value", []));
+
+// The customers, for the library's own tab (#1195). Read only.
+export const CustomerType = StructType({ name: StringType, district: StringType, trade: StringType });
+export const customers    = e3.record("customers", DictType(StringType, CustomerType), new Map());
 ```
 
 ### 3.2 The smallest Plan of event kinds
@@ -247,7 +256,9 @@ takes.
 ### 3.3 The print works
 
 Two resource kinds grouped by hall, three event kinds drawn three ways, review
-on jobs, a utilisation heat row under each press, and a pinned output chart.
+on jobs, a utilisation heat row under each press, a pinned output chart, and
+the library: every kind's templates, the backlog, the series and the
+customers (#1195).
 
 ```tsx
 // print-works.tsx
@@ -263,6 +274,7 @@ export const printWorks = ui("print_works", [], East.function([], UIComponentTyp
         const jobs    = $.let(Record.bind(d.jobs, [d.jobsPatch]));
         const stops   = $.let(Record.bind(d.stops, [d.stopsPatch]));
         const shifts  = $.let(Record.bind(d.shifts, [d.shiftsPatch]));
+        const customers = $.let(Record.bind(d.customers, []));
         const util    = $.let(Data.bind(d.utilisation));
         const output  = $.let(Data.bind(d.output));
         const axis    = $.let(Plan.axis({
@@ -330,6 +342,17 @@ export const printWorks = ui("print_works", [], East.function([], UIComponentTyp
                 ]}
                 review={{ columnLabel: "Decision" }}
                 grain="resource"
+                library={[
+                    Plan.library.events(),
+                    Plan.library.backlog(),
+                    Plan.library.series(),
+                    // The customers, by district: a card dropped on a job sets its customer.
+                    Plan.library.tab(customers.read(), {
+                        name: "Customers", icon: "building",
+                        label: c => c.name, meta: c => some(c.trade), group: c => c.district,
+                        drop: c => Schedule.patch(d.JobType, { customer: c.name }),
+                    }),
+                ]}
             />
         );
     }}</Reactive>
@@ -391,8 +414,27 @@ As built (#1191). A prop keeps one meaning: the first design's `view` and
 | `slice` | `{ slice, affordances? }` | The bound slice. Its chrome (cohort, filter, search, range, resolution) folds into the one toolbar. |
 | `grain`, `date` | `"group"` or `"resource"`; a `DateTime` | The first grain and the date brought into view. The viewer's own changes persist per Plan. |
 | `canDrop` | `Fn(DragEvent) → Boolean`, or `Fn(Schedule.Types.Candidate) → Option<String>` | The drop veto, its arm read from its type: over a card or an element dragged onto `data`'s rows, or over an event kind's drop, its message on the ghost, as the Calendar's. A candidate's veto with no event kinds is refused. |
-| `library`, `inspector` | the panes | Optional props (#1195, #1197): no prop, no pane. |
-| `id` | string | Names the Plan when a surface holds two: its viewer state's storage key, its library's drag-source id and its drop target. |
+| `library` | `Plan.library.*` calls (§4.4) | The start pane's tabs, in order (#1195): left out, or `[]`, no pane. |
+| `inspector` | the pane | An optional prop (#1197): no prop, no pane. |
+| `id` | string | Names the Plan when a surface holds two: its viewer state's storage key (the panes' state and the series it hides among it), its library's drag-source id and its drop target. |
+
+### 4.4 `Plan.library`: the library's tabs
+
+As built (#1195). The library is the author's: `library` lists its tabs, in
+order, each a `Plan.library.*` call returning the one tab type.
+
+| Tab | Holds |
+|---|---|
+| `Plan.library.events()` | Every event kind's templates, under the kind's name and then the template's `group`. |
+| `Plan.library.backlog()` | Every event kind's unscheduled events, by when they are due. |
+| `Plan.library.series()` | What the canvas shows that a viewer can hide, each with an eye: each resource kind and its measures, the event kinds, `data`'s series when they are picked (`pick`), and the Plan's `rows`. |
+| `Plan.library.tab(rows, { name, icon?, label, meta?, group?, drop? })` | A card per row of a `Dict<K, R>`, read as `Schedule.resources` reads its rows, with accessors `(row, key)`: `label` (`String`), `meta` (`Option<String>`) and `group` (`String`). `drop` returns what a card dropped on an event sets: `Schedule.patch(R, { … })` over an event kind's row type, beside `Schedule.field` and built as `Sheet.patch` is (`Schedule.Types.Patch(R)`, every field an `Option`, the fields left out `none`). The patch's type picks the kind whose events take the drop (#1196). |
+
+Templates stay code, declared with their kind. Refused at build, naming the
+tab: a tab listed twice (an author's by its name); the Events or Backlog tab
+on a Plan with no event kinds; the Series tab on a Plan with nothing a viewer
+can hide; an author's rows that are not a `Dict`; and a `drop` patch over no
+event kind's row type, or over one two kinds share.
 
 ## 5. The East types
 
@@ -439,10 +481,29 @@ PlanPayloadType = StructType({
     plan:      PlanRootType,                     // the canvas whole: the axis, the rows over `data` then `rows`, links, review, the slice, `data`'s session
     resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, and its rows resolved (label, group, parent, gutter)
     events:    ArrayType(PlanEventKindType),     // the Calendar's closed kind + draw and the state, quantity, lane and review roles
-    blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType))],
-                                       OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192)
+    blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType)),
+                                        ArrayType(StringType)],
+                                       OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192), what the viewer hides left out (#1195)
     canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),   // the event kinds' drop veto
     settings:  PlanSettingsType,                 // the event kinds' apply mode, and the date brought into view first
+    library:   ArrayType(PlanLibraryTabType),    // the library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
+});
+
+PlanLibraryTabType = VariantType({
+    events:  NullType,                           // read off the kinds: their templates
+    backlog: NullType,                           // read off the kinds: their unscheduled events
+    series:  StructType({
+        kinds: ArrayType(Pick.Types.Item),       // each resource kind, then its measures; then the event kinds
+        rows:  ArrayType(StructType({ item: Pick.Types.Item, hides: VariantType({ series: ArrayType(StringType), rows: StringType }) })),
+    }),
+    tab:     StructType({
+        name: StringType, icon: OptionType(StringType),
+        drop: OptionType(StringType),            // the event kind a card lands on: named by the drop patch's type
+        cards: ArrayType(StructType({
+            key: StringType, label: StringType, meta: OptionType(StringType), group: OptionType(StringType),
+            sets: ArrayType(StructType({ path: ArrayType(StringType), value: BlobType })),   // each field the patch sets, as the kind's field write
+        })),
+    }),
 });
 
 PlanComponent = EastUI.component("Plan", PlanPayloadType, { optional: true });
@@ -508,7 +569,7 @@ shift, not instants, and its record is the roster's own. It shares the frame,
 |---|---|
 | Toolbar | Every control Plan draws outside its canvas, as items of the shared `Toolbar` (§7.1). |
 | Banners | An Apply's refusals and conflicts, by kind; a kind out of date; a write whose outcome is unknown. |
-| Start pane "Library" | Tabs Events · Backlog · Series (§9.6), when the Plan is given `library`; none, no pane. |
+| Start pane "Library" | The tabs `library` lists — Events · Backlog · Series and the author's own (§4.4, §9.6); none, no pane. |
 | Main | The canvas, unchanged: the horizon brush, the ruler and now line, pinned rows, the gutter, every row kind, the cursor readout, links, virtualised and paged as today; below 480px, its narrow layout's tabs and cards. |
 | End pane "Inspector" | The selection (§9.8), when the Plan is given `inspector`; none, no pane. |
 | Footer | `64 events · 9 in backlog · 4 pending · 2 to review · saved 14:02`. |
@@ -551,9 +612,11 @@ them.
   44px as rails, a pane's tab row 44px, the library's search band padding
   12px 14px on paper-2 around a 32px input; an Events card a grip, its kind's
   icon tile, its name and `Print job · 6 h · presses`; a Backlog card
-  `6 h · Press A · due Fri 16`.
+  `6 h · Press A · due Fri 16`; an author's card its label, its meta and the
+  tab's icon tile (#1195).
 - **A Series row** is `Pick.Panel`'s: its kind's icon, its title and subtitle,
-  an eye; a hidden row is dimmed.
+  an eye; a hidden row is dimmed. The panel lies frameless in the pane, and
+  on a touch screen its search is a 44px field (#1195).
 - **An element of a drafted event** is tinted brand with a brand border, as
   the Calendar's blocks are; one in an overlap pair has a warn ring.
 
@@ -639,10 +702,11 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas.
 
 As built (#1192):
 
-- The rows are the payload's `blocks`, `(from, to, drafts) →
+- The rows are the payload's `blocks`, `(from, to, drafts, hidden) →
   Option<Plan.Types.Blocks>`: one block per resource kind, then the Unassigned
   rows' block, every block fixed, so a paged canvas serves them with every
-  window and draws them once. The canvas reads them over its window and the
+  window and draws them once. `hidden` is what the viewer hides in the
+  library's Series tab (#1195, PB29). The canvas reads them over its window and the
   periods it lays out beyond each edge, again when a record they read
   commits, and keeps the last rows while a read is in flight or has failed;
   a failure is said on the toolbar.
@@ -732,8 +796,9 @@ As built (#1193):
 
 ### 9.6 The library pane (owner: the library pane)
 
-- **PB26.** The library has three tabs, Events, Backlog and Series, each with
-  its count and a search. Collapsed, it is a rail with the backlog's count.
+- **PB26.** The library holds the tabs `library` lists, in its order, each with
+  its count and a search. Collapsed, it is a rail with the backlog's count, or
+  the first tab's when Backlog isn't listed.
 - **PB27.** Events holds every kind's templates, grouped under each kind's icon
   and name, then by a template's `group`. A kind with no templates has nothing
   to drop; its events still move and resize.
@@ -744,8 +809,64 @@ As built (#1193):
   everywhere, a resource kind its rows, a measure or an extra row that row.
   The order on screen is the order declared, and what is hidden persists per
   viewer.
-- **PB30.** An empty tab says so: `Backlog clear: every event is scheduled`, or
-  `No matches: nothing matches "q"`.
+- **PB30.** An empty tab says so: `Backlog clear: every event is scheduled`,
+  `Nothing in Customers` for an author's tab with no rows, or `No matches:
+  nothing matches "q"`.
+- **PB61.** `library` is optional: left out, or `[]`, the builder draws no
+  start pane. A tab listed twice is refused at build, naming it.
+- **PB62.** `Plan.library.tab(rows, { name, icon, label, meta?, group?, drop? })`
+  lists one card per row, as the Sheet's does (SB60): its label and meta,
+  grouped by `group`, searched by key, label and meta, each a drag source
+  (#1196). `drop`'s patch is checked at build: its type is one event kind's
+  row type, or the build fails naming the tab, as it does for a type two
+  kinds share.
+
+As built (#1195):
+
+- The library is e3-ui-components' `src/plan/frame/library.tsx`, the frame's
+  start pane: 272px open, its open tab and its collapsed state kept per viewer
+  under the Plan's `id` (PB25); below 560px of frame it opens from its rail
+  over main. The payload carries the tabs (`library`, §5.2).
+- Events: each card's head is its kind's name, then the template's `group`
+  (`Print job · Jobs`) — the library groups one level, so the two make one
+  head. A card's line is the kind's name, how long the template runs (an
+  instant kind's runs no time), and the resource kinds it is placed on,
+  lowercased and joined by `/`, as the Calendar's mock has them.
+- Backlog: read through each kind's `planUnscheduled` seam, as the footer
+  counts it, and read again when its record commits. A due date falls in a
+  UTC week from Monday, as the ruler's ISO weeks do, counted from the week the
+  axis's `now` is in, else the week the Plan mounted in; an overdue event is
+  due this week, as the Calendar's mock has it. A card's line is its duration
+  (hours and minutes), its resource's name — `Unassigned` on none — and `due`
+  with its weekday and day. The shared part, `src/shared/schedule/due.ts`,
+  is the Calendar's to take for its backlog (B20).
+- Series: `Pick.Panel` at editor density, frameless in the pane, over one
+  pick of every line: the tab's own — each resource kind then its measures,
+  the event kinds, the Plan's `rows` — with the canvas's own pick between
+  them. A toggle writes the canvas's pick for `data`'s series and the
+  viewer's set for the rest. The viewer's set is ids (`resources.<slot>`,
+  `events.<slot>`, `measures.<key>`, `rows.<key>`, `series.<key>`) kept per
+  viewer under `planKeys(id).series`, and only while the library lists the
+  tab, as nothing else could show them again. The event kinds' rows leave
+  them out through the `blocks` seam: a hidden kind is not read, so its
+  elements draw nowhere, its Unassigned row with them, and a row only hidden
+  kinds draw on goes too — but a resource's first row is its own and stays;
+  a hidden resource kind draws no rows, its events staying its own; a hidden
+  measure draws no row. The canvas leaves out the Plan's own `rows` the
+  viewer hides: a hand-built row and the rows under it by its key, a
+  `Plan.over` series' rows by their keys, its nested series' with them. On a
+  touch screen the panel's search is a 44px field.
+- An author's tab: as the Sheet's — a click selects a card, and a click on
+  the selected card lets it go. Its cards drag only when the tab has a
+  `drop`, from the library `planKeys(id).library` + `:tab:<name>`, each keyed
+  by its row's key as text. The templates and the backlog's events drag from
+  `…:events` and `…:backlog`, each card keyed by its kind and key as East
+  prints a `Schedule.Types.EventRef`. A drop's patch crosses the closed
+  payload as the kind's field writes — each field it sets, its path and its
+  value as bytes at the field's type — which #1196 writes through the kind's
+  own `write`.
+- The empty Events tab says `No templates`; an empty Series tab, which only
+  a pick of no series can make, `No series`.
 
 ### 9.7 Drag and drop (owner: drag and drop)
 
@@ -875,7 +996,12 @@ As built (#1193):
   re-exported (`WIRE_MIGRATION.md`). `<Plan>` rides an `EastUI.component`
   carrier, `Plan` (#1191), as `StudioBuilder` does.
 - **Stored state.** None new: the records are the app's own types, and Plan's
-  stored `UiState` and picks don't change.
+  stored `UiState` and picks don't change. What a viewer hides in the Series
+  tab is the viewer's own, kept in their browser under the Plan's `id`, as
+  the panes' state is (#1195).
+- **Payload.** The library's tabs ride the payload (#1195): a field of a UI
+  task's output, carried by the packages, as the Sheet's library is (#1186) —
+  no repository upgrade step.
 
 ## 13. Plan's sub-issues, in landing order
 

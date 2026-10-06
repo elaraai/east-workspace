@@ -32,10 +32,10 @@ import e3 from "@elaraai/e3";
 // the first example: six presses in two halls and four crews; thirty print
 // jobs over four weeks from Monday 5 October 2026, eight of them waiting in the
 // backlog; plate changes and services; early and late shifts; each press's
-// utilisation and the sheets printed each day; and templates for every kind. A
-// measure is stored as its readings from the window's first day, which the
-// series turn into cells and points, as the Plan's other examples store theirs.
-// The customers are made up.
+// utilisation and the sheets printed each day; templates for every kind; and
+// the customers its library lists (#1195). A measure is stored as its readings
+// from the window's first day, which the series turn into cells and points, as
+// the Plan's other examples store theirs. The customers are made up.
 
 // ============================================================================
 // The print works' records (§3.1)
@@ -75,6 +75,9 @@ export const PrintStop = StructType({
 
 /** A crew's shift. */
 export const PrintShift = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, crew: StringType, state: EventStateType });
+
+/** A customer: its name, the district it is in and its trade. */
+export const PrintCustomer = StructType({ name: StringType, district: StringType, trade: StringType });
 
 /** The presses: three in each hall. A Plan never writes its resources. */
 export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), new Map([
@@ -181,6 +184,26 @@ export const planPrintShifts = e3.record("plan_print_shifts", DictType(StringTyp
 /** The shifts' patch door. */
 export const planPrintShiftsPatch = e3.mutation.patch(planPrintShifts);
 
+/** The customers the jobs are printed for, by account, in three districts: what the print works' library lists. A Plan never writes them. */
+export const planPrintCustomers = e3.record("plan_print_customers", DictType(StringType, PrintCustomer), new Map([
+    ["alder-finch", { name: "Alder & Finch", district: "Old Town", trade: "Retail" }],
+    ["bluewater-tours", { name: "Bluewater Tours", district: "North Quay", trade: "Travel" }],
+    ["copperleaf-cafe", { name: "Copperleaf Cafe", district: "Old Town", trade: "Hospitality" }],
+    ["driftwood-museum", { name: "Driftwood Museum", district: "North Quay", trade: "Arts" }],
+    ["elmway-college", { name: "Elmway College", district: "Riverside", trade: "Education" }],
+    ["foxglove-gardens", { name: "Foxglove Gardens", district: "Riverside", trade: "Retail" }],
+    ["granite-hall", { name: "Granite Hall", district: "Old Town", trade: "Events" }],
+    ["harbour-arts", { name: "Harbour Arts Society", district: "North Quay", trade: "Arts" }],
+    ["hollow-oak", { name: "Hollow Oak Theatre", district: "Old Town", trade: "Arts" }],
+    ["ivy-lane", { name: "Ivy Lane Studio", district: "Riverside", trade: "Design" }],
+    ["juniper-toys", { name: "Juniper Toys", district: "Riverside", trade: "Retail" }],
+    ["kestrel-cycling", { name: "Kestrel Cycling Club", district: "Riverside", trade: "Sport" }],
+    ["larkspur-home", { name: "Larkspur Home", district: "Old Town", trade: "Retail" }],
+    ["meridian-monthly", { name: "Meridian Monthly", district: "North Quay", trade: "Publishing" }],
+    ["northwind", { name: "Northwind Outfitters", district: "North Quay", trade: "Retail" }],
+    ["orchard-market", { name: "Orchard Street Market", district: "Old Town", trade: "Markets" }],
+]));
+
 /**
  * Each press's utilisation (%): a reading a day from 5 October, as the
  * dataflow measures it, idle at the weekends. Press B2's 97 on the 20th is
@@ -259,19 +282,22 @@ export const planEvents = example({
  * by hall, three event kinds drawn three ways — jobs as bars, stops as marks
  * at their instants, shifts as chips — review on jobs, a utilisation heat row
  * under each press, and a pinned chart of the sheets printed each day. Each
- * kind declares its templates, the cards a library lists, and a job's
- * customer, stock and sheets are hinted for an inspector's form; this Plan is
- * given neither pane.
+ * kind declares its templates, and a job's customer, stock and sheets are
+ * hinted for an inspector's form. Its library (#1195) lists every kind's
+ * templates, the backlog, the series a viewer shows and hides, and the
+ * customers, a card apiece that sets the customer of the job it is dropped
+ * on; it is given no inspector.
  */
 export const planPrintWorks = example({
     keywords: [
         "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Schedule.field", "event kinds", "print works",
         "presses", "crews", "jobs", "stops", "shifts", "draw", "span", "marks", "cards", "at", "instant", "group",
         "hall", "sub", "measures", "utilisation", "heat", "state", "review", "verdict", "quantity", "backlog",
-        "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "Record.bind",
-        "Data.bind", "e3.record", "e3.input", "#1191",
+        "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "library",
+        "Plan.library", "customers", "Schedule.patch", "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191",
+        "#1195",
     ],
-    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle, sheets and verdict, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, and a pinned chart of the sheets printed each day",
+    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle, sheets and verdict, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, a pinned chart of the sheets printed each day, and its library: the templates, the backlog, the series and the customers",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(planPrintPresses, []));
@@ -279,6 +305,7 @@ export const planPrintWorks = example({
             const jobs = $.let(Record.bind(planPrintJobs, [planPrintJobsPatch]));
             const stops = $.let(Record.bind(planPrintStops, [planPrintStopsPatch]));
             const shifts = $.let(Record.bind(planPrintShifts, [planPrintShiftsPatch]));
+            const customers = $.let(Record.bind(planPrintCustomers, []));
             const util = $.let(Data.bind(planPrintUtilisation));
             const output = $.let(Data.bind(planPrintOutput));
             // The window's first day: each reading runs from it, a day apiece.
@@ -376,6 +403,94 @@ export const planPrintWorks = example({
                     ]}
                     review={{ columnLabel: "Decision" }}
                     grain="resource"
+                    library={[
+                        Plan.library.events(),
+                        Plan.library.backlog(),
+                        Plan.library.series(),
+                        // The customers, by district: a card dropped on a job sets its customer.
+                        Plan.library.tab(customers.read(), {
+                            name: "Customers", icon: "building",
+                            label: c => c.name, meta: c => some(c.trade), group: c => c.district,
+                            drop: c => Schedule.patch(PrintJob, { customer: c.name }),
+                        }),
+                    ]}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// planLibrary — the library pane (§8, §9.6)
+// ============================================================================
+
+/** Six jobs for the library's example: three on the presses, and three in the backlog, due this week, next week and never. */
+export const planLibraryJobs = e3.record("plan_library_jobs", DictType(StringType, PrintJob), new Map([
+    ["J-3001", { title: "Shop catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 64000.0, verdict: variant("approved", null), customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+    ["J-3002", { title: "Gallery guide", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T10:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 32000.0, verdict: variant("approved", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-3003", { title: "Term timetable", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, verdict: variant("pending", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+    ["J-3004", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, verdict: variant("pending", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+    ["J-3005", { title: "Gift tags", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+    ["J-3006", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 4000.0, verdict: variant("pending", null), customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+]));
+
+/** The library example's jobs' patch door. */
+export const planLibraryJobsPatch = e3.mutation.patch(planLibraryJobs);
+
+/**
+ * The library pane (`Plan Builder Spec.md` §8, §9.6, PB26–PB30, PB61, PB62):
+ * `library` lists its tabs, in order — the jobs' templates, the backlog by
+ * when each job is due, the series a viewer shows and hides, and a tab of the
+ * author's own, the customers, a card apiece, whose `drop` sets the customer
+ * of the job it lands on (`Schedule.patch`, #1196).
+ */
+export const planLibrary = example({
+    keywords: [
+        "Plan", "library", "Plan.library", "Plan.library.events", "Plan.library.backlog", "Plan.library.series",
+        "Plan.library.tab", "tab", "cards", "templates", "backlog", "due", "series", "hide", "customers", "drop",
+        "Schedule.patch", "patch", "Schedule", "Record.bind", "e3.record", "#1195",
+    ],
+    description: "The library pane — the jobs' templates, the backlog by due date, the series a viewer shows and hides, and the author's own tab of customers, each card setting the customer of the job it is dropped on (`Schedule.patch`)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Record.bind(planPrintPresses, []));
+            const jobs = $.let(Record.bind(planLibraryJobs, [planLibraryJobsPatch]));
+            const customers = $.let(Record.bind(planPrintCustomers, []));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-12T00:00:00Z"), max: new Date("2026-10-26T00:00:00Z") },
+                resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            return (
+                <Plan
+                    axis={axis}
+                    resources={{
+                        presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall }),
+                    }}
+                    events={{
+                        job: Schedule.events(jobs, {
+                            name: "Print job", icon: "file-lines",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "presses" },
+                            backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
+                            templates: [
+                                { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
+                                  values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
+                                            verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+                            ],
+                        }),
+                    }}
+                    library={[
+                        Plan.library.events(),
+                        Plan.library.backlog(),
+                        Plan.library.series(),
+                        // The author's own cards: a customer apiece, by district.
+                        Plan.library.tab(customers.read(), {
+                            name: "Customers", icon: "building",
+                            label: c => c.name, meta: c => some(c.trade), group: c => c.district,
+                            drop: c => Schedule.patch(PrintJob, { customer: c.name }),
+                        }),
+                    ]}
                 />
             );
         }}</Reactive>

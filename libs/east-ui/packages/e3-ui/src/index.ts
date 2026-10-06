@@ -136,10 +136,14 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 
 // The Plan (#1177, #1191): the axis-aligned planning canvas a solution mounts,
 // `<Plan>` — event kinds over records, rows over data and read-only rows, in
-// its frame — its authoring vocabulary on `Plan` (`Plan.axis`,
-// `Plan.series.*`, `Plan.over`, `Plan.eventRef`, the value and cell builders,
+// its frame, its library pane an optional prop (#1195) — its authoring
+// vocabulary on `Plan` (`Plan.axis`, `Plan.series.*`, `Plan.over`,
+// `Plan.eventRef`, `Plan.library.*`, the value and cell builders,
 // `Plan.Types`), and its props.
-export { Plan, type PlanNamespace, type PlanProps, type PlanConfig, type PlanRowsItem, type PlanOverRows } from './plan/index.js';
+export {
+    Plan, type PlanNamespace, type PlanProps, type PlanConfig, type PlanRowsItem, type PlanOverRows,
+    type PlanLibraryTab, type PlanLibraryTabConfig,
+} from './plan/index.js';
 
 // The Sheet (#1179, #1216): the planning spreadsheet a solution mounts,
 // `<Sheet>` — over an e3 record or the host's rows, in its frame, its library
@@ -154,13 +158,13 @@ export {
 
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,
-// `Schedule.field`, `Schedule.days`, `Schedule.unscheduled` and
-// `Schedule.Types` — with Plan's options beside the Calendar's.
+// `Schedule.field`, `Schedule.patch`, `Schedule.days`, `Schedule.unscheduled`
+// and `Schedule.Types` — with Plan's options beside the Calendar's.
 export {
     Schedule, type ScheduleNamespace,
     type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig, type ScheduleInstantEventsConfig,
-    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle,
-    type ScheduleResourceKind, type ScheduleResourcesConfig, type ScheduleTemplate,
+    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type SchedulePatchInput, type SchedulePatchOf, type ScheduleQuantity,
+    type ScheduleRecordHandle, type ScheduleResourceKind, type ScheduleResourcesConfig, type ScheduleTemplate,
 } from './schedule/index.js';
 
 // e3 `<Diff>` tag + its types

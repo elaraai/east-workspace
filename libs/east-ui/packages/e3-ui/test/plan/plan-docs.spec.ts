@@ -121,6 +121,7 @@ test("every Plan @example is the verbatim fn of a tested example, imported from 
     assert.ok(carries("index.ts", "planSeriesData"), "<Plan> carries an @example: a canvas of data and its series");
     assert.ok(carries("index.ts", "planEvents"), "<Plan> carries an @example: the smallest Plan of event kinds");
     assert.ok(carries("refs.ts", "planEventLinks") && carries("over.ts", "planEventLinks"), "Plan.eventRef and Plan.over carry an @example: links between events, and rows over a dataset");
+    assert.ok(carries("library.ts", "planLibrary"), "Plan.library.tab carries an @example: the library pane's tabs, an author's own among them");
     const failures = docs.flatMap((doc) => {
         const m = mirrorOf(doc, mirrors);
         if (m === undefined) return [`${doc.at}: its code does not end in \`const <name> = <the fn of an example() in test/plan/plan*.examples.tsx>\`, verbatim`];

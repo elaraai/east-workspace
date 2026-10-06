@@ -7,12 +7,14 @@
  * `<Plan>`'s frame, measured in a real browser (#1193, `Plan Builder Spec.md`
  * §7, PB19–PB21): every Plan is its `BuilderFrame` — one toolbar row, main
  * holding the canvas, the footer — drawing no border of its own and no pane it
- * is not given. Its toolbar is one 44px row at every width from 1440px to
- * 360px and on a phone: the rail folds first, then the Plan's own steps, the
- * review's buttons into their menu and the key search into its icon, the
- * history item last. A declared height is the whole Plan's, and a host that
- * gives the frame a height bounds the canvas, which then scrolls its own rows
- * inside main. Read at the desktop and phone widths, in both themes.
+ * is not given: the library its `library` lists (#1195). Its toolbar is one
+ * 44px row at every width from 1440px to 360px and on a phone: the rail folds
+ * first, then the Plan's own steps, the review's buttons into their menu and
+ * the key search into its icon, the history item last. A declared height is
+ * the whole Plan's, and a host that gives the frame a height bounds the
+ * canvas, which then scrolls its own rows inside main. On a phone the library
+ * opens from its rail over main, and its Series tab's search is a 44px field.
+ * Read at the desktop and phone widths, in both themes.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-frame`.
@@ -25,15 +27,16 @@ import { settled } from "./settle";
 /** The event kinds' examples file (#1191). */
 const EVENTS = "e3/plan/plan-events";
 
-/** Plans of every source and chrome, each by its examples file: a slice and a
- *  review; a review and editing over a keyed paged source; event kinds; the
- *  narrow layout's box. */
-const FRAMED: ReadonlyArray<{ name: string; file: string }> = [
+/** Plans of every source and chrome, each by its examples file and the panes
+ *  it is given: a slice and a review; a review and editing over a keyed paged
+ *  source; event kinds, with and without a library; the narrow layout's box. */
+const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly string[] }> = [
     { name: "planTargetState", file: PLAN_EXAMPLES },
     { name: "planReview", file: PLAN_EXAMPLES },
     { name: "planEditing", file: PLAN_EXAMPLES },
     { name: "planEvents", file: EVENTS },
-    { name: "planPrintWorks", file: EVENTS },
+    { name: "planPrintWorks", file: EVENTS, panes: ["start"] },
+    { name: "planLibrary", file: EVENTS, panes: ["start"] },
     { name: "planNarrow", file: PLAN_EXAMPLES },
 ];
 
@@ -43,9 +46,9 @@ const RAIL = ["cluster", "range"];
 /** The canvas's own scroller in main: the rows' bounded viewport, or the narrow layout's list. */
 const SCROLLER = "[data-frame-slot='main'] [data-virtual-rows='bounded'], [data-frame-slot='main'] [data-slot='narrowList']";
 
-/** What the eye checks of one Plan's frame, read in the page — each a line saying what is wrong. */
-async function frameFaults(entry: Locator): Promise<{ bad: string[]; toolbar: boolean }> {
-    return entry.evaluate((root) => {
+/** What the eye checks of one Plan's frame, read in the page, given the panes it is given — each a line saying what is wrong. */
+async function frameFaults(entry: Locator, panes: readonly string[] = []): Promise<{ bad: string[]; toolbar: boolean }> {
+    return entry.evaluate((root, given) => {
         const bad: string[] = [];
         const wrapper = root.querySelector("[data-plan-frame]");
         const frame = wrapper?.querySelector(":scope > [data-builder-frame]") ?? null;
@@ -68,9 +71,11 @@ async function frameFaults(entry: Locator): Promise<{ bad: string[]; toolbar: bo
             if (body === null) bad.push("main holds no canvas");
             else borderless(body, "the canvas");
         }
-        // No pane it is not given (#1195, #1197 add them).
+        // The panes it is given — the library (#1195) — and no other (#1197 adds the inspector).
         for (const side of ["start", "end"]) {
-            if (frame.querySelector(`:scope > [data-frame-slot='body'] > [data-frame-slot='${side}']`) !== null) bad.push(`a ${side} pane it was not given`);
+            const drawn = frame.querySelector(`:scope > [data-frame-slot='body'] > [data-frame-slot='${side}']`) !== null;
+            if (drawn && !given.includes(side)) bad.push(`a ${side} pane it was not given`);
+            if (!drawn && given.includes(side)) bad.push(`no ${side} pane, though it was given one`);
         }
         // PB20/PB21: one toolbar row — its band 44px, every item inside it, none past the row's edge.
         const band = frame.querySelector(":scope > [data-frame-slot='toolbar']");
@@ -96,7 +101,7 @@ async function frameFaults(entry: Locator): Promise<{ bad: string[]; toolbar: bo
             bad.push(`the history item folds before ${ladder[ladder.length - 1]}`);
         }
         return { bad, toolbar: band !== null };
-    });
+    }, panes);
 }
 
 /** Sets the box the frame fills to a width, and waits for the page to be at rest. */
@@ -107,10 +112,10 @@ async function sizeTo(page: Page, box: Locator, width: number): Promise<void> {
 
 test.describe("the Plan's frame (#1193)", () => {
     for (const theme of ["light", "dark"] as const) {
-        for (const { name, file } of FRAMED) {
-            test(`${name} (${theme}): a BuilderFrame with no border and no pane it is not given; one toolbar row, its history last`, async ({ page }) => {
+        for (const { name, file, panes } of FRAMED) {
+            test(`${name} (${theme}): a BuilderFrame with no border, the panes it is given and no other; one toolbar row, its history last`, async ({ page }) => {
                 const entry = await openExample(page, name, file, theme);
-                expect((await frameFaults(entry)).bad).toEqual([]);
+                expect((await frameFaults(entry, panes)).bad).toEqual([]);
             });
         }
     }
@@ -241,5 +246,42 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
         await page.keyboard.press("Escape");
         await toolbar.locator("[data-slot='reviewMenu']").click();
         await expect(page.locator("[role='menu'] [role='menuitem'][data-review-batch]")).toHaveText([/^Reject /, /^Approve /]);
+    });
+});
+
+test.describe("the Plan's library on a phone (#1195)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    test("planPrintWorks: the library opens from its rail over main, its last tabs folded into +n, and its Series tab's search is a 44px field the box fills — a tap 20px above or below its middle lands in the box", async ({ page }) => {
+        const entry = await openExample(page, "planPrintWorks", EVENTS);
+        const frame = entry.locator("[data-builder-frame]").first();
+        await frame.getByRole("button", { name: "Expand Library" }).tap();
+        await settled(page);
+        // Four tabs in a phone's pane: Series and Customers fold into the +n menu (#1210).
+        const pane = frame.locator("[data-frame-slot='start']");
+        await expect(pane.getByRole("tab")).toHaveText([/^Events/, /^Backlog/]);
+        await pane.locator("[data-dock-more]").tap();
+        await page.getByRole("menuitem", { name: /^Series/ }).tap();
+        // The menu closes over the pane's head and its search: measured once it has gone.
+        await expect(page.locator('[role="menu"]')).toHaveCount(0);
+        await settled(page);
+        const search = frame.locator("[data-slot='pickSearch'] input");
+        await search.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        const faults = await search.evaluate((input) => {
+            const bad: string[] = [];
+            // The pill around the box is its field.
+            const field = input.parentElement!.getBoundingClientRect();
+            if (field.height < 43.5) bad.push(`the field is ${field.height.toFixed(1)}px tall`);
+            const x = field.left + field.width / 2;
+            const y = field.top + field.height / 2;
+            for (const dy of [-20, 20]) {
+                const hit = document.elementFromPoint(x, y + dy);
+                if (hit === null || !input.contains(hit)) bad.push(`a tap ${Math.abs(dy)}px ${dy < 0 ? "above" : "below"} its middle lands on ${hit === null ? "nothing" : hit.tagName.toLowerCase()}`);
+            }
+            return bad;
+        });
+        expect(faults).toEqual([]);
+        // The pane lies over main, which keeps its place.
+        await expect(frame.locator("[data-frame-slot='start'][data-pane-mode='overlay']")).toHaveCount(1);
     });
 });

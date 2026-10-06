@@ -40,9 +40,12 @@ import { PlanSeriesType, checkSeries, type PlanSeriesArm, type PlanSeriesInput, 
  * The FA glyph the library shows for each series kind — the row kind's glyph
  * for the seven row kinds; the four composites take the marks that read as
  * "a group per entry", "a titled block", "one entry several ways" and "a
- * hand-built list".
+ * hand-built list". The library pane's Series tab lists a measure and a
+ * Plan's own rows with them too (#1195).
+ *
+ * @internal
  */
-const KIND_ICONS: Record<PlanSeriesArm, string> = {
+export const KIND_ICONS: Readonly<Record<PlanSeriesArm, string>> = {
     span:    "bars-staggered",
     // `border-all` was a 2x2 grid of squares — the same mark `table-cells-large`
     // draws for heat, and at 12px the two were indistinguishable (#590 §6.3).

@@ -112,6 +112,7 @@ import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
 import { usePlanWindow } from "./root/window.js";
 import { usePlanEventBlocks, usePlanEventRoot, type PlanEventRows } from "./root/events.js";
+import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
@@ -186,6 +187,10 @@ export interface PlanCanvasArgs {
     storageKey: string;
     /** The event kinds' rows (#1192), drawn ahead of the root's own — a Plan of event kinds' payload carries them. */
     events?: PlanEventRows | undefined;
+    /** The ids the viewer hides in the library's Series tab (#1195): the event kinds' rows leave out what they name. */
+    hidden?: readonly string[] | undefined;
+    /** What those ids hide of the Plan's own `rows`, which the canvas leaves out; `undefined` when they hide none. */
+    rowsHidden?: PlanRowsHidden | undefined;
 }
 
 /**
@@ -194,10 +199,10 @@ export interface PlanCanvasArgs {
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, and the event kinds' rows
+ * @param args - The root, its storage key, the event kinds' rows, and what the viewer hides
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
-export function usePlanCanvas({ value: hostValue, storageKey, events }: PlanCanvasArgs): PlanCanvasParts {
+export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
@@ -237,9 +242,10 @@ export function usePlanCanvas({ value: hostValue, storageKey, events }: PlanCanv
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
     // with. The event kinds' rows are read over the range the scale draws,
-    // and lead every other row as fixed blocks.
+    // what the viewer hides left out (#1195), and lead every other row as
+    // fixed blocks.
     const { slice, affordances, scale } = usePlanWindow(hostValue, hostData, words);
-    const lead = usePlanEventBlocks(events, scale);
+    const lead = usePlanEventBlocks(events, scale, hidden);
 
     // ── The editing session (#880) ────────────────────────────────────────
     // Every verdict and dropped card is a DRAFT of the entry its row came
@@ -284,11 +290,13 @@ export function usePlanCanvas({ value: hostValue, storageKey, events }: PlanCanv
     const paged = data.rows.type !== "inline";
     // The inline arm is the canvas's BLOCKS (#823), one after another — the
     // stream's order is the render order (#822) — keyed for the canvas once
-    // per decoded array.
-    const rows = useMemo(
-        () => (data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.rows),
-        [data.rows, paging.rows],
-    );
+    // per decoded array. The Plan's own `rows` the viewer hides in the Series
+    // tab are left out, each with the rows under it (#1195): they ride fixed
+    // blocks, whole in every window, so inline or paged they leave alike.
+    const rows = useMemo(() => {
+        const all = data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.rows;
+        return rowsHidden === undefined ? all : all.filter((row) => !hidesRow(rowsHidden, row.id));
+    }, [data.rows, paging.rows, rowsHidden]);
     const index = useMemo(() => indexRows(rows), [rows]);
     indexRef.current = index;
 

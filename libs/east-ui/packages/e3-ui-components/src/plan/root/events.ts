@@ -76,6 +76,8 @@ export interface PlanEventLead {
 
 /** The drafts the rows are read with: none yet — the event kinds' editing is #1194's. */
 const NO_DRAFTS: ValueTypeOf<typeof PlanEventDraftsType> = new SortedMap([], compareFor(StringType));
+/** Nothing hidden: every kind, resource kind and measure draws. */
+const NONE_HIDDEN: readonly string[] = [];
 const blocksEqual = equalFor(Plan.Types.Blocks);
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
@@ -95,20 +97,21 @@ function emptyBlocks(count: number): readonly PlanWireBlock[] {
 
 /**
  * The event kinds' rows over the range the canvas draws: the scale's window
- * and the periods laid out beyond each edge.
+ * and the periods laid out beyond each edge, what the viewer hides left out.
  *
  * @param events - The Plan's event rows, when it has event kinds
  * @param scale - The shared scale — a time scale, beside event kinds
+ * @param hidden - The ids the viewer hides in the library's Series tab (#1195)
  * @returns The rows as the canvas draws them now
  */
-export function usePlanEventBlocks(events: PlanEventRows | undefined, scale: PlanScale | undefined): PlanEventLead {
+export function usePlanEventBlocks(events: PlanEventRows | undefined, scale: PlanScale | undefined, hidden: readonly string[] = NONE_HIDDEN): PlanEventLead {
     const blocks = events?.blocks;
     const count = events?.count ?? 0;
     const from = scale !== undefined ? timeMs(scale.offset(scale.window.min, -OVERSCAN_BUCKETS)) : undefined;
     const to = scale !== undefined ? timeMs(scale.offset(scale.window.max, OVERSCAN_BUCKETS)) : undefined;
     const read = useCallback(
-        () => (blocks === undefined || from === undefined || to === undefined ? NOT_READ : blocks(new Date(from), new Date(to), NO_DRAFTS)),
-        [blocks, from, to]);
+        () => (blocks === undefined || from === undefined || to === undefined ? NOT_READ : blocks(new Date(from), new Date(to), NO_DRAFTS, [...hidden])),
+        [blocks, from, to, hidden]);
     const { result } = useTrackedEvaluation(read);
     const empty = useMemo(() => emptyBlocks(count), [count]);
     // The last rows read, held while a read is in flight or failed: kept by

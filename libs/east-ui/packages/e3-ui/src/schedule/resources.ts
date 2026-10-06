@@ -83,6 +83,8 @@ export interface ScheduleResourceKind<K extends EastType, R extends EastType> {
     readonly rowType: R;
     /** Its name. */
     readonly name: string;
+    /** Its Font Awesome icon: what a builder's library lists the kind with (#1195). */
+    readonly icon: string;
     /** Plan: the read-only series under each resource, in order. */
     readonly measures: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
     /** Plan: the paged read of the resources; `undefined` when they are read whole. */
@@ -257,6 +259,7 @@ export function scheduleResources<K extends EastType, R extends EastType>(
         keyType,
         rowType,
         name: config.name,
+        icon: config.icon,
         measures,
         window,
         source: source as unknown as ExprType<DictType<EastType, EastType>>,

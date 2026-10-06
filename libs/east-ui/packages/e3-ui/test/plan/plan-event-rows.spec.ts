@@ -10,7 +10,8 @@
  * way its kinds draw, then its measures; resources nest by parent and sit
  * under group strips; a row's id is its series' key and its path; an event no
  * resource holds draws on its kind's Unassigned row; every kind's drafts are
- * in place; and a reviewed kind's rows carry their events' verdict.
+ * in place; a reviewed kind's rows carry their events' verdict; and what the
+ * viewer hides in the library's Series tab stays out (PB29, #1195).
  */
 
 import { describe, test } from "node:test";
@@ -143,10 +144,10 @@ const entry = (series: string, ...path: string[]): RowId => variant("entry", { s
 /** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
 const elementKey = (kind: string, key: string) => printRef({ kind, key });
 
-/** The blocks over `[from, to)`, every kind's drafts in place. */
-function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS): Blocks {
+/** The blocks over `[from, to)`, every kind's drafts in place, what the viewer hides left out. */
+function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS, hidden: readonly string[] = []): Blocks {
     if (payload.blocks.type !== "some") assert.fail("expected the event kinds' blocks");
-    const read = payload.blocks.value(from, to, drafts);
+    const read = payload.blocks.value(from, to, drafts, [...hidden]);
     if (read.type !== "some") assert.fail("expected every kind's events read");
     return read.value;
 }
@@ -232,6 +233,30 @@ function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures
 
 const PRESSES = [["Hall A", ["a1", "a2", "a3"]], ["Hall B", ["b1", "b2", "b3"]]] as const;
 const CREWS = [["Hall A", ["c1", "c2"]], ["Hall B", ["c3", "c4"]]] as const;
+
+/** The presses' rows, each strip followed by its presses' rows of the given series. */
+const pressRows = (...series: readonly string[]): RowId[] => PRESSES.flatMap(([hall, keys]) => [
+    entry("presses.group", hall),
+    ...keys.flatMap((k) => series.map((s) => entry(s, hall, k))),
+]);
+
+/** A Plan of one kind whose read is in flight: its blocks seam, compiled. */
+function inFlightBlocks(): (from: Date, to: Date, drafts: Drafts, hidden: string[]) => ValueTypeOf<typeof PlanEventBlocksType.output> {
+    return East.compile(East.function([], PlanEventBlocksType, ($) => {
+        const presses = $.let(Record.bind(ex.planPrintPresses, []));
+        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const resources = { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) };
+        const events = { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) };
+        const built = $.let(events.job.buildPlan("job"));
+        const read = built as unknown as globalThis.Record<string, ExprType<typeof PlanEventKindType>>;
+        const inFlight = $.const(East.function(
+            [DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType)), () => none));
+        const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
+            [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
+        const kinds = $.let([kind], ArrayType(PlanEventKindType));
+        return createEventBlocks(Object.entries(resources), Object.entries(events), kinds);
+    }), PLATFORM)();
+}
 
 // ============================================================================
 // A resource is a row block (PB12, PB13, PB15)
@@ -560,21 +585,92 @@ describe("drafts in place (PB17)", () => {
     });
 
     test("while a kind's read is in flight, the rows are to come", () => {
-        const blocks = East.compile(East.function([], PlanEventBlocksType, ($) => {
+        assert.equal(inFlightBlocks()(FIRST, WEEK2, NO_DRAFTS, []).type, "none");
+    });
+});
+
+// ============================================================================
+// What the viewer hides (PB29, #1195)
+// ============================================================================
+
+describe("what the viewer hides (PB29, #1195)", () => {
+    const payload = payloadOf(($) => printWorks($));
+    const week1 = blocksOf(payload, FIRST, WEEK2);
+    const idsOf = (blocks: Blocks) => blocks.map((b) => b.rows.map((r) => r.id));
+    const crews = CREWS.flatMap(([hall, keys]) => [entry("crews.group", hall), ...keys.map((k) => entry("crews.cards", hall, k))]);
+
+    test("a hidden event kind draws nowhere: a row only it draws on goes, and a resource's first row, its own, stays", () => {
+        // The stops are the presses' only marks: their row goes, the bars and the utilisation stay.
+        const noStops = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["events.stop"]);
+        assert.ok(sameIds(noStops[0]!.rows.map((r) => r.id), pressRows("presses.span", "util")), noStops[0]!.rows.map((r) => printId(r.id)).join("\n"));
+        assert.deepEqual(keysOn(rowAt(noStops, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
+        // The jobs draw on each press's first row: it stays, its name in its gutter, and holds no bar.
+        const noJobs = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["events.job"]);
+        assert.ok(sameIds(noJobs[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks", "util")));
+        const a1 = rowAt(noJobs, entry("presses.span", "Hall A", "a1"));
+        assert.deepEqual([a1.gutter.label, keysOn(a1)], ["Press A1", []]);
+        assert.deepEqual(keysOn(rowAt(noJobs, entry("presses.marks", "Hall A", "a1"))), [elementKey("stop", "S-01")]);
+        // The crews' shifts are another kind's.
+        assert.deepEqual(keysOn(rowAt(noJobs, entry("crews.cards", "Hall A", "c1"))), [elementKey("shift", "SH-01"), elementKey("shift", "SH-02")]);
+    });
+
+    test("a row the kinds that draw alike share goes once every one of them is hidden", () => {
+        const shared = payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const resources = { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) };
-            const events = { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) };
-            const built = $.let(events.job.buildPlan("job"));
-            const read = built as unknown as globalThis.Record<string, ExprType<typeof PlanEventKindType>>;
-            const inFlight = $.const(East.function(
-                [DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType)), () => none));
-            const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
-                [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
-            const kinds = $.let([kind], ArrayType(PlanEventKindType));
-            return createEventBlocks(Object.entries(resources), Object.entries(events), kinds);
-        }), PLATFORM)();
-        assert.equal(blocks(FIRST, WEEK2, NO_DRAFTS).type, "none");
+            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            return Plan.Payload({
+                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
+                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                events: {
+                    job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
+                    stop: Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" } }),
+                    check: Schedule.events(stops, { name: "Check", icon: "clipboard-check", title: "title", at: "at", resource: { field: "press", of: "presses" } }),
+                },
+            });
+        });
+        const oneHidden = blocksOf(shared, FIRST, WEEK2, NO_DRAFTS, ["events.stop"]);
+        assert.deepEqual(keysOn(rowAt(oneHidden, entry("presses.marks", "a1"))), [elementKey("check", "S-01")]);
+        const bothHidden = blocksOf(shared, FIRST, WEEK2, NO_DRAFTS, ["events.stop", "events.check"]);
+        assert.ok(sameIds(bothHidden[0]!.rows.slice(0, 2).map((r) => r.id), [entry("presses.span", "a1"), entry("presses.span", "a2")]));
+    });
+
+    test("a hidden kind's events that no resource holds go with it, and with them its Unassigned row", () => {
+        const drafts = jobDrafts([["J-1002", draftOf(variant("value", { ...job("J-1002"), press: some("zz") }))]]);
+        assert.equal(blocksOf(payload, FIRST, WEEK2, drafts)[2]!.rows.length, 1);
+        assert.equal(blocksOf(payload, FIRST, WEEK2, drafts, ["events.job"])[2]!.rows.length, 0);
+    });
+
+    test("a hidden kind is not read, so a read in flight holds the rows back no longer", () => {
+        const rows = inFlightBlocks()(FIRST, WEEK2, NO_DRAFTS, ["events.job"]);
+        if (rows.type !== "some") assert.fail("expected the rows, the kind unread");
+        assert.ok(sameIds(rows.value[0]!.rows.map((r) => r.id), ["a1", "a2", "a3", "b1", "b2", "b3"].map((k) => entry("presses.span", k))));
+        assert.deepEqual(rowsOf(rows.value).flatMap(keysOn), []);
+    });
+
+    test("a hidden resource kind draws no rows, and its events draw on no Unassigned row: they are its own", () => {
+        const noCrews = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["resources.crews"]);
+        assert.equal(noCrews.length, 2);
+        assert.ok(sameIds(noCrews[0]!.rows.map((r) => r.id), week1[0]!.rows.map((r) => r.id)));
+        assert.equal(noCrews[1]!.rows.length, 0);
+        const noPresses = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["resources.presses"]);
+        assert.ok(sameIds(noPresses[0]!.rows.map((r) => r.id), crews));
+        assert.equal(noPresses[1]!.rows.length, 0);
+    });
+
+    test("a hidden measure draws no row under any resource", () => {
+        const noUtil = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["measures.util"]);
+        assert.ok(sameIds(noUtil[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks")));
+        assert.ok(sameIds(noUtil[1]!.rows.map((r) => r.id), crews));
+    });
+
+    test("an id that names nothing the seam draws leaves every row: an unknown one, a bare key, and the Plan's own rows' ids", () => {
+        const same = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["events.none", "job", "util", "presses", "rows.util", "series.util", "events.job.x"]);
+        const all = idsOf(week1);
+        idsOf(same).forEach((ids, i) => assert.ok(sameIds(ids, all[i]!), `block ${i}`));
+        // A duplicate is one id.
+        const twice = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["measures.util", "measures.util"]);
+        assert.ok(sameIds(twice[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks")));
     });
 });
 

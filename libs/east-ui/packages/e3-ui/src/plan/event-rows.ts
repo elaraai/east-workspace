@@ -30,6 +30,12 @@
  * Every block is fixed: no entry of the canvas's `data` makes these rows, so a
  * paged canvas serves them with every window and draws them once.
  *
+ * What a viewer hides in the library's Series tab stays out (PB29, #1195): a
+ * hidden event kind is not read, so its elements draw nowhere, its Unassigned
+ * row included, and a row only hidden kinds draw on goes with them; a hidden
+ * resource kind draws no rows; a hidden measure no row under each resource. A
+ * resource's first row is its own, and stays while its kind shows.
+ *
  * @packageDocumentation
  */
 
@@ -38,7 +44,7 @@ import {
     StructType, none, some, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
-import { ApprovalStateType, EventStateType, IconType, StatusValueType } from "@elaraai/east-ui";
+import { ApprovalStateType, EventStateType, IconType, PickStateType, StatusValueType } from "@elaraai/east-ui";
 import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
@@ -48,6 +54,7 @@ import {
 } from "./types.js";
 import { planGutter, planRow } from "./assemble.js";
 import { bucketsKind, cardsKind, eventsKind, spanKind } from "./factories.js";
+import { planHideId } from "./library.js";
 import {
     applySeries, createChildren, createSeriesBuckets, createSeriesCards, createSeriesEvents, createSeriesGroup,
     createSeriesSpan, createSeriesViews, planSeriesFacts, type PlanSeriesValue,
@@ -68,10 +75,13 @@ export type PlanEventDraftsType = typeof PlanEventDraftsType;
 
 /**
  * The resources' rows over a window, every event kind's drafts in place
- * (#1192): `(from, to, drafts by kind, then by entry id)` → the canvas's
- * blocks, `none` while a kind's read is in flight.
+ * (#1192): `(from, to, drafts by kind, then by entry id, the ids the viewer
+ * hides)` → the canvas's blocks, `none` while a kind's read is in flight. The
+ * hidden ids are the library's Series tab's (#1195): `resources.<slot>`,
+ * `events.<slot>` and `measures.<key>` stay out, and the rest are not this
+ * seam's.
  */
-export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType], OptionType(PlanBlocksType));
+export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanBlocksType));
 
 /** Type representing {@link PlanEventBlocksType}. */
 export type PlanEventBlocksType = typeof PlanEventBlocksType;
@@ -108,6 +118,19 @@ export function eventDrawsOf(slot: string, events: readonly (readonly [string, A
  */
 function kindNamesOf(slot: string, draw: PlanDrawLiteral, events: readonly (readonly [string, AnyEventKind])[]): string {
     return events.filter(([, k]) => k.draw === draw && k.takes.includes(slot)).map(([, k]) => k.name).join(", ");
+}
+
+/**
+ * The slots of the event kinds that draw one way on a resource kind — what
+ * hides that row of each resource, once every one of them is hidden.
+ *
+ * @param slot - The resource kind's slot
+ * @param draw - The way they draw
+ * @param events - The event kinds, by slot
+ * @returns Their slots, in `events` order
+ */
+function kindSlotsOf(slot: string, draw: PlanDrawLiteral, events: readonly (readonly [string, AnyEventKind])[]): readonly string[] {
+    return events.filter(([, k]) => k.draw === draw && k.takes.includes(slot)).map(([s]) => s);
 }
 
 // ============================================================================
@@ -298,7 +321,9 @@ type Block = BlockBuilder<EastType>;
 /**
  * One resource kind's rows over the window: its resources as a views series
  * — a member per way the kinds placed on it draw, then its measures — nested
- * by parent and under group strips, each block fixed.
+ * by parent and under group strips, each block fixed. A measure the viewer
+ * hides draws no row, nor does a way of drawing whose kinds they all hide,
+ * after a resource's first row, its own.
  *
  * @param $ - The blocks function's scope
  * @param slot - The resource kind's slot
@@ -306,6 +331,7 @@ type Block = BlockBuilder<EastType>;
  * @param all - Its resources, read once in this scope
  * @param placed - The events placed on its resources, by way of drawing
  * @param events - The event kinds, by slot
+ * @param hidden - The ids the viewer hides
  * @returns Its blocks
  */
 function resourceBlocks(
@@ -315,6 +341,7 @@ function resourceBlocks(
     all: ExprType<DictType<EastType, EastType>>,
     placed: ReadonlyMap<PlanDrawLiteral, ExprType<typeof PlacedByKeyType>>,
     events: readonly (readonly [string, AnyEventKind])[],
+    hidden: ExprType<SetType<StringType>>,
 ): ExprType<PlanBlocksType> {
     const where = `Plan: resources.${slot}`;
     const keyType = kind.keyType;
@@ -477,7 +504,34 @@ function resourceBlocks(
     } else {
         blocks = applySeries([views], roots as unknown as ExprType<EastType>);
     }
-    return $.let(blocks.map(($2, b) => ({ fixed: true, parent: b.parent, rows: b.rows })), PlanBlocksType);
+
+    // ── What the viewer hides (PB29): rows by their series' key ──
+    // A measure's rows, and a way of drawing's after the first once all its
+    // kinds are hidden: each a leaf, since a resource's children nest under its
+    // first row.
+    const hiders: (readonly [string, readonly string[]])[] = [
+        ...draws.slice(1).map((draw) => [`${slot}.${draw}`, kindSlotsOf(slot, draw, events).map(planHideId.events)] as const),
+        ...kind.measures.map((m) => {
+            const key = planSeriesFacts(m, collection, where)!.key;
+            return [key, [planHideId.measures(key)]] as const;
+        }),
+    ];
+    if (hiders.length === 0) {
+        return $.let(blocks.map(($2, b) => ({ fixed: true, parent: b.parent, rows: b.rows })), PlanBlocksType);
+    }
+    const dropped = $.let(new Set<string>(), SetType(StringType));
+    for (const [series, ids] of hiders) {
+        const gone = ids.reduce<ExprType<BooleanType>>((every, id) => every.and(() => hidden.has(id)), East.value(true, BooleanType));
+        $.if(gone, ($2) => { $2(dropped.insert(series)); });
+    }
+    return $.let(blocks.map(($2, b) => ({
+        fixed: true,
+        parent: b.parent,
+        rows: b.rows.filter(($3, row) => dropped.has(row.id.match({
+            entry: (_$4, at) => at.series,
+            section: (_$4, at) => at.series,
+        })).not()),
+    })), PlanBlocksType);
 }
 
 /**
@@ -518,8 +572,9 @@ function unassignedBlock(
 }
 
 /**
- * The `blocks` seam (see the module docs): `(from, to, drafts)` → the
- * resources' rows over `[from, to)`, every kind's drafts in place.
+ * The `blocks` seam (see the module docs): `(from, to, drafts, hidden)` → the
+ * resources' rows over `[from, to)`, every kind's drafts in place, what the
+ * viewer hides left out.
  *
  * @remarks
  * Made inside the function that assembles the payload, so `built` is the
@@ -537,14 +592,18 @@ export function createEventBlocks(
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
 ): ExprType<PlanEventBlocksType> {
-    return East.function([DateTimeType, DateTimeType, PlanEventDraftsType], OptionType(PlanBlocksType), ($, from, to, drafts) => {
+    return East.function([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanBlocksType), ($, from, to, drafts, hiding) => {
         const result = $.let(none, OptionType(PlanBlocksType));
         const noDrafts = $.const(new Map(), ScheduleDraftsType);
-        // Each kind's events over the window, its drafts in place (PB17).
+        const hidden = $.let(hiding.toSet(), SetType(StringType));
+        // Each kind's events over the window, its drafts in place (PB17). A
+        // hidden kind is not read: it places nothing, so nothing waits on it.
         const reads = events.map(([slot], i) => {
             const kind = $.let(built.get(BigInt(i)));
             const kindDrafts = $.let(drafts.get(slot, () => noDrafts));
-            return $.let(kind.planItems(from, to, kindDrafts));
+            const read = $.let(some([]), OptionType(ArrayType(PlanEventItemType)));
+            $.if(hidden.has(planHideId.events(slot)).not(), ($2) => { $2.assign(read, kind.planItems(from, to, kindDrafts)); });
+            return read;
         });
         const ready = reads.reduce<ExprType<BooleanType>>(
             (all, read) => all.and(() => read.hasTag("some")),
@@ -594,7 +653,10 @@ export function createEventBlocks(
             });
             const blocks = $2.let([], PlanBlocksType);
             for (const [slot, kind] of resources) {
-                $2(blocks.append(resourceBlocks($2 as unknown as Block, slot, kind, sources.get(slot)!, placed.get(slot)!, events)));
+                // A hidden resource kind draws no rows; its events stay its own, off the Unassigned row.
+                $2.if(hidden.has(planHideId.resources(slot)).not(), ($3) => {
+                    $3(blocks.append(resourceBlocks($3 as unknown as Block, slot, kind, sources.get(slot)!, placed.get(slot)!, events, hidden)));
+                });
             }
             $2(blocks.pushLast(unassignedBlock($2 as unknown as Block, events, lost)));
             $2.assign(result, some(blocks));

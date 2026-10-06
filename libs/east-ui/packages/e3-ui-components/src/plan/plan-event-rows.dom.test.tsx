@@ -81,7 +81,7 @@ beforeEach(() => {
     initializeReactiveDatasetCache(cache);
     const memory = createInMemoryRecordApi(cache, WORKSPACE, [
         patchable(ex.planPrintPresses), patchable(ex.planPrintCrews), patchable(ex.planPrintJobs), patchable(ex.planPrintStops),
-        patchable(ex.planPrintShifts), patchable(ex.planLinkJobs),
+        patchable(ex.planPrintShifts), patchable(ex.planLinkJobs), patchable(ex.planPrintCustomers),
     ]);
     initializeRecordApi(memory, cache, WORKSPACE);
     seed(ex.planPrintUtilisation);

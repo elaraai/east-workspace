@@ -64,6 +64,7 @@ import { buildPlanRoot, type PlanConfig } from "./root.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
 import { planSeriesKeys } from "./series.js";
 import { PlanEventBlocksType, createEventBlocks, eventDrawsOf } from "./event-rows.js";
+import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
 
 export { PlanEventBlocksType, PlanEventDraftsType } from "./event-rows.js";
 
@@ -135,6 +136,7 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property blocks - The resources' rows over a window, every kind's drafts in place; `none` while the Plan has no event kinds
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property settings - When the event kinds' drafts go, and the date brought into view first
+ * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  */
 export const PlanPayloadType = StructType({
     plan: PlanRootType,
@@ -143,6 +145,7 @@ export const PlanPayloadType = StructType({
     blocks: OptionType(PlanEventBlocksType),
     canDrop: OptionType(PlanEventCanDropType),
     settings: PlanSettingsType,
+    library: ArrayType(PlanLibraryTabType),
 });
 
 /** Type representing the `Plan` renderer's payload. */
@@ -193,6 +196,13 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> 
     applyMode?: "batch" | "auto";
     /** The date brought into view first; omitted, the axis's window from its start. */
     date?: SubtypeExprOrValue<DateTimeType>;
+    /**
+     * The library pane's tabs, in order (#1195) — `Plan.library.events()`,
+     * `Plan.library.backlog()`, `Plan.library.series()` and
+     * `Plan.library.tab(rows, { … })`, cards of the author's own. Left out, or
+     * empty, the Plan has no library pane.
+     */
+    library?: readonly PlanLibraryTab[];
     /**
      * The drop veto, by what it vets — its arm from its East type:
      * `Fn(DragEvent) → Boolean` over a card or an element dragged onto
@@ -335,7 +345,7 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, applyMode, date, canDrop, library, ...canvas } = props as PlanAnyProps;
     const kinds = events === undefined ? [] : Object.keys(events);
     if (events !== undefined) {
         scheduleCheck(resources ?? {}, events, "Plan");
@@ -392,25 +402,30 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         applyMode: variant(applyMode ?? "batch", null),
         date: date === undefined ? none : some(date),
     } as never, PlanSettingsType);
+    // `data`'s series a viewer can hide are its picked ones, through the pick.
+    const picked = canvas.pick !== undefined;
     if (events === undefined) {
-        return East.value({ plan, resources: [], events: [], blocks: none, canDrop: veto, settings } as never, PlanPayloadType);
+        const tabs = buildLibrary(library, { resources: [], events: [], rows, picked });
+        return East.value({ plan, resources: [], events: [], blocks: none, canDrop: veto, settings, library: tabs } as never, PlanPayloadType);
     }
     const resourceKinds = Object.entries(resources ?? {});
     const eventKinds = Object.entries(events);
     checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
+    const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked });
     // The payload is assembled in one function, so each kind is built once:
     // the `blocks` seam made inside it captures the very array of event kinds
     // the payload holds (#1192).
     const assemble = East.function(
-        [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType],
+        [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType, ArrayType(PlanLibraryTabType)],
         PlanPayloadType,
-        (_$, root, kinds, built, canDropFn, chosen) => East.value({
+        (_$, root, kinds, built, canDropFn, chosen, listed) => East.value({
             plan: root,
             resources: kinds,
             events: built,
             blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
             canDrop: canDropFn,
             settings: chosen,
+            library: listed,
         } as never, PlanPayloadType),
     );
     return assemble(
@@ -419,6 +434,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         eventKinds.map(([slot, kind]) => kind.buildPlan(slot)),
         veto,
         settings,
+        tabs,
     );
 }
 

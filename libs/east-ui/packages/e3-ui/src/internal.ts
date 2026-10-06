@@ -263,6 +263,19 @@ export {
 // `blocks` seam its payload carries, made inside the payload's assembly, and
 // the drafts it reads, by kind.
 export { createEventBlocks, eventDrawsOf, PlanEventDraftsType } from './plan/event-rows.js';
+// The Plan's library pane on the wire (#1195): its tabs, an author's tab's
+// cards, the Series tab's lines and what hiding each hides, and the ids a
+// viewer's hidden set holds.
+export {
+    PlanLibraryCardType,
+    PlanLibraryHidesType,
+    PlanLibraryRowsItemType,
+    PlanLibrarySeriesType,
+    PlanLibraryTabType,
+    planHideId,
+    type PlanLibraryTab,
+    type PlanLibraryTabConfig,
+} from './plan/library.js';
 
 // The Sheet (#1179, #1216): `<Sheet>` with its namespace, the payload the
 // renderer takes through the `Sheet` carrier, the grid's root, its editing
@@ -370,6 +383,7 @@ export {
 } from './schedule/events.js';
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from './schedule/resources.js';
 export { scheduleDays, scheduleUnscheduled } from './schedule/days.js';
+export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';
 export {
     Diff,
     DiffComponent,
