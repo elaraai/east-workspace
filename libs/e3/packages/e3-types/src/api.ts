@@ -276,6 +276,16 @@ export const WorkspaceCreateRequestType = StructType({
 });
 
 /**
+ * Request to copy a workspace within its repository.
+ *
+ * @property to - The workspace the copy makes, or replaces whole: it becomes
+ *   the workspace copied as it is now
+ */
+export const WorkspaceCopyRequestType = StructType({
+  to: StringType,
+});
+
+/**
  * Workspace summary information.
  *
  * @property name - Workspace name
@@ -1537,6 +1547,7 @@ export type PackageInfo = ValueTypeOf<typeof PackageInfoType>;
 export type PackageDetails = ValueTypeOf<typeof PackageDetailsType>;
 export type WorkspaceInfo = ValueTypeOf<typeof WorkspaceInfoType>;
 export type WorkspaceCreateRequest = ValueTypeOf<typeof WorkspaceCreateRequestType>;
+export type WorkspaceCopyRequest = ValueTypeOf<typeof WorkspaceCopyRequestType>;
 export type WorkspaceDeployRequest = ValueTypeOf<typeof WorkspaceDeployRequestType>;
 /** A {@link SchemaPolicyType} by its name, as a deploy's options take it. */
 export type SchemaPolicy = ValueTypeOf<typeof SchemaPolicyType>['type'];

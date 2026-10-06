@@ -41,6 +41,7 @@ e3 package remove <repo> <pkg>            # Remove a package
 
 ```bash
 e3 workspace create <repo> <name>                            # Create empty workspace
+e3 workspace copy <repo> <from> <to>                         # Make <to> what <from> is now: made, or replaced whole
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]                # Deploy a package
 e3 workspace deploy <repo> <ws> --from-zip <path.zip>        # Import + create + deploy in one shot
 e3 workspace deploy <repo> <ws> --from-source <file.ts>      # Bundle a TypeScript source into a package, then import + create + deploy
@@ -77,6 +78,13 @@ whose type changed takes the new package's value, and the deploy says why. An
 input the new package takes from a file takes its file, and one the package no
 longer declares goes. A deploy prints each input it keeps, resets or drops, and
 `--plan` prints every input's fate.
+
+`workspace copy` makes `<to>` the workspace `<from>` is now — its package and
+every input, record and task output, so nothing needs to run again — writing
+refs only, so its cost follows the number of datasets, never their size. A
+`<to>` that exists is replaced whole, its runs going with it, and a write to
+either afterwards leaves the other as it was. It is refused while a dataflow
+runs in `<to>` or a deploy, a removal or an export holds `<from>`.
 
 A deploy takes the package's `file` sources in on this machine, locally `-j` at
 a time. A collection is taken in by intake units on the runners — east-c, or

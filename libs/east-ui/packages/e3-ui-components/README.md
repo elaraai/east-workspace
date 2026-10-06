@@ -29,7 +29,7 @@ React Query hooks are provided for every e3 API domain:
 |--------|-------|
 | **Repos** | `useRepoList`, `useRepoStatus`, `useRepoGc`, `useRepoGcStart`, `useRepoGcStatus`, `useRepoCreate`, `useRepoRemove` |
 | **Packages** | `usePackageList`, `usePackageGet`, `usePackageImport`, `usePackageExport`, `usePackageRemove` |
-| **Workspaces** | `useWorkspaceList`, `useWorkspaceCreate`, `useWorkspaceGet`, `useWorkspaceStatus`, `useWorkspaceRemove`, `useWorkspaceDeploy`, `useWorkspaceExport` |
+| **Workspaces** | `useWorkspaceList`, `useWorkspaceCreate`, `useWorkspaceCopy`, `useWorkspaceGet`, `useWorkspaceStatus`, `useWorkspaceRemove`, `useWorkspaceDeploy`, `useWorkspaceExport` |
 | **Datasets** | `useDatasetList`, `useDatasetListAt`, `useDatasetListRecursive`, `useDatasetGet`, `useDatasetSet` |
 | **Tasks** | `useTaskList`, `useTaskGet`, `useTaskExecutionList` |
 | **Executions** | `useDataflowExecute`, `useDataflowStart`, `useDataflowGraph`, `useDataflowExecution`, `useDataflowCancel`, `useTaskLogs` |

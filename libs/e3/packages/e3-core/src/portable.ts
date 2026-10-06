@@ -202,6 +202,7 @@ export {
 export {
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,

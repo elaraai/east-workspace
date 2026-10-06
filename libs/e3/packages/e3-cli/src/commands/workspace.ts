@@ -8,6 +8,7 @@
  */
 
 import {
+  workspaceCopy,
   workspaceCreate,
   workspaceDeploy,
   workspaceExport,
@@ -31,6 +32,7 @@ import {
   type StorageBackend,
 } from '@elaraai/e3-core';
 import {
+  workspaceCopy as workspaceCopyRemote,
   workspaceCreate as workspaceCreateRemote,
   workspaceDeploy as workspaceDeployRemote,
   workspaceExport as workspaceExportRemote,
@@ -73,6 +75,27 @@ export const workspaceCommand = {
 
       console.log(`Created workspace: ${name}`);
       console.log('Deploy a package with: e3 workspace deploy <repo> <ws> <pkg>[@<ver>]');
+    } catch (err) {
+      exitError(formatError(err));
+    }
+  },
+
+  /**
+   * Copy a workspace within its repository: the target becomes the source as
+   * it is now — its package, its inputs, its records' heads and indexes and its
+   * tasks' outputs — made, or replaced whole, its refs only written.
+   */
+  async copy(repoArg: string, from: string, to: string): Promise<void> {
+    try {
+      const location = await parseRepoLocation(repoArg);
+
+      if (location.type === 'local') {
+        await workspaceCopy(new LocalStorage(), location.path, from, to);
+      } else {
+        await workspaceCopyRemote(location.baseUrl, location.repo, from, to, { token: location.token });
+      }
+
+      console.log(`Copied workspace ${from} to ${to}`);
     } catch (err) {
       exitError(formatError(err));
     }

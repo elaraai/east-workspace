@@ -174,6 +174,7 @@ export { workspaceDeploy, workspaceExport } from './workspace-files.js';
 export {
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceRemove,
   workspaceGetState,
   workspaceGetPackage,
