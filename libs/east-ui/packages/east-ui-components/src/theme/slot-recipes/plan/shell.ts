@@ -4,11 +4,13 @@
  */
 
 /**
- * The Plan recipe's CHROME — the frame, the toolbar, the horizon brush, the ruler,
- * the footer, the focus bar, the diagnostics, the paged window bands, and the
+ * The Plan recipe's CHROME — the frame, the horizon brush, the ruler, the
+ * footer, the focus bar, the diagnostics, the paged window bands, and the
  * canvas-wide overlays (the cursor hairline and chip, the element overlay
- * body). The now line and its chip are the shared time part's (`../time/now.ts`,
- * #1148), merged into the recipe beside this one.
+ * body). The toolbar band is the Plan's `BuilderFrame`'s (#1193); its items
+ * wear the shared parts' recipes, and the summary and the scope badge the
+ * footer's item. The now line and its chip are the shared time part's
+ * (`../time/now.ts`, #1148), merged into the recipe beside this one.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
  * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
@@ -21,7 +23,7 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const shellSlots = [
-    "root", "toolbar", "toolbarLibraryCount", "brushRow",
+    "root", "frame", "brushRow",
     "brushCaption", "horizonLens", "ruler", "rulerTick", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
     "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry",
@@ -38,23 +40,14 @@ export const shellBase = {
         minWidth: 0,
         fontVariantNumeric: "tabular-nums",
     },
-    // ── Toolbar (44px): the band the shared toolbar's row lies in (#952) —
-    // slice chrome, the grain/resolution segments, the summary, the library
-    // and the history bar, folded on one ladder ──
-    toolbar: {
-        minHeight: "var(--plan-toolbar-h)",
-        display: "flex",
-        alignItems: "center",
-        padding: "0 12px",
-        background: "bg.surface",
-        borderBottomWidth: "1px",
-        borderBottomColor: "border.subtle",
-    },
-    // The `N of M` in the library popover's head — the brand marks it as a
-    // live count of what is showing, not a static caption.
-    toolbarLibraryCount: {
-        color: "brand.fg",
-        fontWeight: "bold",
+    // ── The Plan's frame (#1193): what wraps its `BuilderFrame`, carrying
+    // the canvas's geometry variables, which the canvas, the toolbar's
+    // items and the footer all read. A Plan that declares no bound adds no
+    // box of its own; one that does is that box, at the declared height,
+    // and the frame fills it ──
+    frame: {
+        display: "contents",
+        "&[data-plan-bound]": { display: "flex", flexDirection: "column", width: "100%", minWidth: 0, minHeight: 0 },
     },
     // ── Horizon brush band (32px): caption in the gutter, strip in the plot ──
     brushRow: {
@@ -132,7 +125,7 @@ export const shellBase = {
         // (`GridSeparators`, drawn over the ticks), so the two can never sit
         // a pixel apart.
     },
-    // ── Footer (28px): mono status line ──
+    // ── Footer (28px): mono status line, the frame's footer (#1193) ──
     footer: {
         minHeight: "var(--plan-footer-h)",
         display: "flex",
@@ -142,9 +135,10 @@ export const shellBase = {
         background: "bg.panel",
         borderTopWidth: "1px",
         borderTopColor: "border.subtle",
-        // The narrow layout (§10) has no 28px band to fit a status line
-        // into — the same items wrap onto as many lines as they need.
-        "[data-plan-narrow] &": { flexWrap: "wrap", minHeight: "auto", padding: "6px 12px", rowGap: "2px", columnGap: "10px" },
+        // Under the narrow layout (§10) there is no 28px band to fit a
+        // status line into — the same items wrap onto as many lines as they
+        // need.
+        "&[data-plan-narrow]": { flexWrap: "wrap", minHeight: "auto", padding: "6px 12px", rowGap: "2px", columnGap: "10px" },
     },
     footerItem: {
         fontFamily: "mono",
@@ -250,12 +244,12 @@ export const shellBase = {
         textOverflow: "ellipsis",
         "[data-plan-row] &, [data-plan-group] &, [data-plan-card] &": { position: "absolute", inset: 0, padding: "0 10px" },
     },
-    // The diagnostics cluster (#811) — it gives way before the toolbar's
-    // controls do, wrapping its chips rather than crushing a segment.
+    // The diagnostics cluster (#811), one item of the frame's toolbar: one
+    // line, as every item is (PB21) — a long reason truncates in its chip.
     diagnostics: {
         display: "inline-flex",
         alignItems: "center",
-        flexWrap: "wrap",
+        flexWrap: "nowrap",
         gap: "6px",
         minWidth: 0,
         flexShrink: 1,

@@ -23,14 +23,19 @@
  * tap on a row that declares `expand` drills it in place (~148pt; its
  * neighbours keep their size — a vertical list needs no strip compression),
  * horizontal pan is two-finger so page scroll stays vertical. The horizon
- * brush does not mount: the window rides the slice range chip and the pan,
- * the resolution a Week chip. A paged source shows its resident prefix and
- * says so in the footer.
+ * brush does not mount: the window rides the slice's range in the frame's
+ * toolbar and the pan, the resolution the toolbar's segment. A paged source
+ * shows its resident prefix, and the frame's footer says so.
+ *
+ * The layout is the frame's main below 480px of it (#1193): its controls are
+ * the frame's toolbar's — the slice's chips, the resolution, the diagnostics
+ * and the history item, folded to the room a phone leaves — and its counts
+ * the frame's footer's, so the list draws no chip row or footer of its own.
  *
  * Failures stay local here too (#811): a card whose row cannot be placed
- * shows its diagnostic, a card whose plot throws shows its own fallback, a
- * window whose read failed is a card with the reason and a Retry at the top
- * of the list, and the chip row carries the diagnostics chips.
+ * shows its diagnostic, a card whose plot throws shows its own fallback, and
+ * a window whose read failed is a card with the reason and a Retry at the top
+ * of the list; the frame's toolbar carries the diagnostics chips.
  *
  * A paged source pages around the LIST (#812). There is no virtualizer here
  * to report a mounted range, so the cards report themselves: an
@@ -40,9 +45,8 @@
  * becomes the canvas's tail band in list form: scrolling it into view, or
  * tapping it, loads the next window.
  *
- * The cards (`cards.tsx`), the ruler and resolution chip (`chrome.tsx`), the
- * list demand (`demand.ts`) and the row walks (`lists.ts`) live beside this
- * shell (#815).
+ * The cards (`cards.tsx`), the ruler (`chrome.tsx`), the list demand
+ * (`demand.ts`) and the row walks (`lists.ts`) live beside this shell (#815).
  *
  * The tabs are Chakra's `Tabs` (Zag, #819): a tablist with a roving tab stop,
  * the arrow keys between tabs, and a tabpanel per tab — the list is the
@@ -51,11 +55,7 @@
 
 import { useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Box, Tabs } from "@chakra-ui/react";
-import { type ValueTypeOf } from "@elaraai/east";
-import { Plan } from "@elaraai/e3-ui/internal";
-import { Slice } from "@elaraai/east-ui/internal";
-import { type EastChakraComponent, SliceRailCluster, useSliceReactivity } from "@elaraai/east-ui-components";
-import { railAffordanceKinds } from "@elaraai/east-ui-components/internal";
+import { type EastChakraComponent } from "@elaraai/east-ui-components";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { usePlanSelector } from "../controller/react.js";
@@ -66,10 +66,7 @@ import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
 import { bandCaption, failureCaption } from "../rows/WindowBand.js";
 import { bandElements } from "../use-plan-paging.js";
-import { PlanFooter } from "../shell/Footer.js";
-import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanReview } from "../shell/Review.js";
-import type { PlanTransport } from "../shell/transport.js";
 import {
     rowHeight, spansWindows,
     type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
@@ -83,13 +80,10 @@ import type { PlanDraftMark } from "../use-plan-editing.js";
 import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
 import { NarrowRowCard } from "./cards.js";
 import { NarrowRuler } from "./chrome.js";
-import { SegMenu } from "../shell/Toolbar.js";
 import { useListDemand, type PlanNarrowPaging } from "./demand.js";
 import { allDataRows, dataRowsUnder, peakOf, summaryArm } from "./lists.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
-type FooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
 type UIValue = ComponentProps<typeof EastChakraComponent>["value"];
 
 export type { PlanNarrowPaging } from "./demand.js";
@@ -123,15 +117,6 @@ export interface PlanNarrowProps {
     view: PlanUiView;
     dense: boolean;
     storageKey: string;
-    /** The bound slice handle, when the canvas carries slice chrome. */
-    slice: SliceBindValue | undefined;
-    /** The declared affordance kinds (decoded `SliceChromeType`). */
-    affordances: ReadonlyArray<string>;
-    /** The active resolution + the declared segment options (`[]` ⇒ no chip). */
-    resolution: string;
-    resolutions: ReadonlyArray<string>;
-    transport: PlanTransport | undefined;
-    footer: ReadonlyArray<FooterItemValue>;
     review: PlanReview | undefined;
     /** The focused row's developer render / gutter body (the root resolvers
      *  called with the focus), or `null`. */
@@ -145,9 +130,6 @@ export interface PlanNarrowProps {
     partial: boolean | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
-    /** What the canvas carried on past (#811) — the chip row states it. The
-     *  rows chip does not seek here: the narrow list has no scroll target. */
-    diagnostics?: PlanDiagnostics | undefined;
     /** Windows whose read failed (#811) — a card each, with a Retry. */
     failures?: readonly PlanWindowFailure[] | undefined;
     /** Ask a failed window again. */
@@ -155,21 +137,17 @@ export interface PlanNarrowProps {
     /** A paged source's demand (#812) — absent on an inline canvas, which
      *  has nothing to demand. */
     paging?: PlanNarrowPaging | undefined;
-    /** The editing session's history bar (#880), when the canvas declares
-     *  editing — it rides the chip row, as it rides the canvas's toolbar. */
-    history?: ReactNode;
     /** Each drafted row's mark, by row key (#880) — a card wears its row's. */
     marks: ReadonlyMap<RowKey, PlanDraftMark>;
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
 
-/** The narrow shell: chips · tabs · ruler · card list · footer. */
+/** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
-    styles, index, derived, view, dense, storageKey,
-    slice, affordances, resolution, resolutions, transport, footer, review,
+    styles, index, derived, view, dense, storageKey, review,
     expandBody, expandGutterBody, canExpand, partial, fill,
-    diagnostics, failures, onRetry, paging, history, marks,
+    failures, onRetry, paging, marks,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -188,14 +166,6 @@ export function PlanNarrow({
     const selected = usePlanSelector(selectSelected);
     // Paged demand (#812): row cards and the load-more card enrol here.
     const watch = useListDemand(paging);
-    // The auto-appended cohort chip appears when the STORE moves (#611).
-    const sliceVersion = useSliceReactivity(slice?.key);
-    const railKinds = useMemo(
-        () => (slice === undefined ? [] : railAffordanceKinds(affordances, slice.read())
-            .filter((k) => k !== "brush" && k !== "legend" && k !== "resolution" && k !== "summary")),
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of `slice.read()` (#611)
-        [affordances, slice, sliceVersion],
-    );
 
     const rootGroups = useMemo(() => index.roots.filter((r) => r.kind.type === "group"), [index]);
     const ungrouped = useMemo(() => index.roots.filter((r) => r.kind.type !== "group"), [index]);
@@ -470,28 +440,10 @@ export function PlanNarrow({
         ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length }] : []),
     ];
 
-    // The narrow list has no virtualizer to scroll, so the rows chip states
-    // the count without offering to seek (#811).
-    const narrowDiagnostics = diagnostics !== undefined ? { ...diagnostics, onSeekSkipped: undefined } : undefined;
-    const sliceChips = slice !== undefined && (railKinds.length > 0 || resolutions.length > 0);
-    // The resolution segment's one-chip form — the wide toolbar's, folded (#952).
-    const resolutionItems = resolutions.map((r) => ({ key: r, label: words.m.resolutionName({ resolution: r }) }));
-
     return (
         <Tabs.Root asChild value={activeTab} onValueChange={(d) => setTab(d.value as NarrowTab)}
             variant="line" size="md">
             <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
-                {(sliceChips || hasDiagnostics(narrowDiagnostics) || history !== undefined) && (
-                    <Box css={styles.narrowChips} data-slot="narrowChips">
-                        {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
-                        {slice !== undefined && resolutions.length > 0 && (
-                            <SegMenu label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
-                                onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
-                        )}
-                        {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}
-                        {history}
-                    </Box>
-                )}
                 <Tabs.List data-slot="narrowTabs" flexShrink={0}>
                     {tabs.map((t) => (
                         <Tabs.Trigger key={t.key} value={t.key} data-plan-tab={t.key}>
@@ -528,7 +480,6 @@ export function PlanNarrow({
                         {list}
                     </Tabs.Content>
                 )))}
-                <PlanFooter styles={styles} items={footer} transport={transport} />
             </Box>
         </Tabs.Root>
     );

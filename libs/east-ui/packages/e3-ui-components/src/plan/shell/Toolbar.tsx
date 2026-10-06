@@ -4,38 +4,42 @@
  */
 
 /**
- * The Plan toolbar (44px, `Plan Spec.html` §1) — slice chrome and the grain
- * and resolution segments, in the §2 zone order: [cohort · filter · search]
- * [GROUP · RESOURCE] [range] [resolution] … [summary] [Series] [history].
- * The GROUP · RESOURCE strip is the canvas's own (#632): a canvas with a root
- * group mounts it, slice or no slice, between the search and the range.
+ * The Plan's toolbar items (#1193, `Plan Builder Spec.md` §7.1) — every
+ * control the Plan draws outside its canvas, as items of its frame's one
+ * toolbar (`BuilderFrame`'s), in this order: the slice's narrowing (cohort ·
+ * filter · search), the scope badge, the key search, the GROUP · RESOURCE
+ * grain, the slice's range, the resolution, the diagnostics; then, at the
+ * row's end, the summary, the review's summary with Approve all and Reject
+ * all, and the history item. The GROUP · RESOURCE strip is the canvas's own
+ * (#632): a canvas with a root group mounts it, slice or no slice. There is
+ * no Series button: the library's Series tab holds the series (#1195).
  *
- * It is one row of the shared toolbar (#952), folded on one ladder: the
- * slice rail's two clusters first — the narrowing affordances and the range,
- * merged in the rail's order — then the Plan's own items (the user's
- * decision, 2026-09-27): the summary shortens to its count, the resolution
- * segment folds into a one-chip menu, then the grain segment does, and last
- * the summary hides.
+ * They fold on one ladder (#952): the slice rail's two clusters first — the
+ * narrowing affordances and the range, merged in the rail's order — then the
+ * Plan's own items (the user's decision, 2026-09-27): the summary shortens to
+ * its count and the review's summary goes, leaving its buttons — words give
+ * way before a control does — then the resolution segment folds into a
+ * one-chip menu, then the grain segment does, and the summary hides. On a row
+ * narrower still the review's buttons fold into one menu, and the key search
+ * into its icon, which opens the box in a popover (#1193): with those, a
+ * phone's row holds every item. The history item folds last, to its buttons.
+ * Nothing wraps or goes to a second row.
  */
 
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf } from "@elaraai/east";
-import { Pick, Slice } from "@elaraai/east-ui/internal";
 import {
-    HOST_RANK, useSliceToolbarItems, railAffordanceKinds, radioGroupKey, SliceDensityContext,
+    HOST_RANK, useSliceToolbarItems, railAffordanceKinds, radioGroupKey, reviewToolbarItem,
 } from "@elaraai/east-ui-components/internal";
 import {
-    useSliceReactivity, Toolbar, type ToolbarItem, DatasetKeySearch, SliceEditPopover, EastChakraPickPanel,
+    useSliceReactivity, type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem,
 } from "@elaraai/east-ui-components";
 import { usePlanDispatch } from "../context.js";
-import { PLAN_GRAINS, type PlanGrain } from "../plan-state.js";
-import { transportLabel, type PlanTransport } from "./transport.js";
+import { PLAN_GRAINS } from "../plan-state.js";
+import { transportLabel } from "./transport.js";
 import { usePlanWords } from "../words.js";
-import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "./Diagnostics.js";
-import type { PlanSearch } from "../use-seek.js";
+import { PlanDiagnosticChips, hasDiagnostics } from "./Diagnostics.js";
+import type { PlanChrome } from "../root/chrome.js";
 
 /** Narrowing affordances whose meaning CHANGES on a paged canvas: they narrow
  *  whatever the host fed, which is the prefix that happened to land. `search`
@@ -44,19 +48,22 @@ import type { PlanSearch } from "../use-seek.js";
 const NARROWING_KINDS = new Set(["filter", "cohort", "presets", "breakdown", "search"]);
 
 /** The Plan's own fold ranks, after every step of the slice rail's (#952):
- *  the summary shortens, the resolution then the grain segment fold into
- *  their menus, and the summary hides. */
+ *  the summary shortens and the review's summary goes (one rank: the summary
+ *  first, in the row's order), the resolution then the grain segment fold
+ *  into their menus, the summary hides, the review's buttons fold into their
+ *  menu and the key search into its icon. The history item's step
+ *  (`DEFAULT_RANK`) comes after all of them. */
 const PLAN_RANK = {
     summaryShort: HOST_RANK,
+    reviewSummary: HOST_RANK,
     resolution: HOST_RANK + 1,
     grain: HOST_RANK + 2,
     summaryHide: HOST_RANK + 3,
+    reviewMenu: HOST_RANK + 4,
+    seek: HOST_RANK + 5,
 } as const;
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
-/** The decoded pick bind — DERIVED from the East type, never mirrored (#617). */
-type PickBindValue = ValueTypeOf<typeof Pick.Types.Bind>;
 
 /** A segment strip's props — shared by the strip and its one-chip menu. */
 interface SegProps<K extends string> {
@@ -107,8 +114,8 @@ export function Seg<K extends string>({ label, name, items, active, onPick }: Se
 /**
  * A segment strip folded into one chip (#952) — the checked segment and a
  * caret, opening a menu of every segment; picking one does what the strip's
- * press does. The narrow layout's resolution chip, and the wide toolbar's
- * segments once the row is short of room.
+ * press does. The toolbar's segments take this form once the row is short of
+ * room.
  */
 export function SegMenu<K extends string>({ label, name, items, active, onPick }: SegProps<K>) {
     const chip = useRecipe({ key: "chip" });
@@ -138,48 +145,30 @@ export function SegMenu<K extends string>({ label, name, items, active, onPick }
     );
 }
 
-export interface PlanToolbarProps {
-    styles: Styles;
-    /** The bound slice handle (undefined ⇒ segments only). */
-    slice: SliceBindValue | undefined;
-    /** The toolbar affordance kinds, in order (decoded `SliceChromeType`). */
-    affordances: ReadonlyArray<string>;
-    resolution: string;
-    /** The resolution segment options (`[]` ⇒ no segment). */
-    resolutions: ReadonlyArray<string>;
-    /** The active grain, when the canvas has a root group for it to fold —
-     *  it mounts the GROUP · RESOURCE segment (#632). Absent on a canvas with
-     *  no root group, where the grain changes nothing. */
-    grain?: PlanGrain | undefined;
-    /** Paged transport state — omitted on an inline canvas. */
-    transport?: PlanTransport | undefined;
-    /** Key search over the source — mounted IN PLACE of the slice `search`
-     *  affordance when the paged source declares `seek` (#574). */
-    search?: PlanSearch | undefined;
-    /** The bound series library (#590) — mounts the right-edge Series button,
-     *  which opens the library in the shared slice-editor popover. */
-    pick?: PickBindValue | undefined;
-    /** The canvas's local failures, as chips (#811) — skipped rows, a source
-     *  or search failure, a truncated axis. */
-    diagnostics?: PlanDiagnostics | undefined;
-    /** The editing session's history item (#988) — Undo, Redo, Discard and
-     *  Apply over the drafts — at the right edge, as on the Sheet. */
-    history?: ToolbarItem | undefined;
-}
-
-/** The 44px toolbar band. */
-export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, grain, transport, search, pick, diagnostics, history }: PlanToolbarProps) {
+/**
+ * The Plan's toolbar items, in §7.1's order and on its fold ladder (see the
+ * module docs) — for its frame's one toolbar. Read inside the canvas's
+ * contexts (`PlanCanvasParts.provide`): the segments dispatch to the canvas's
+ * controller.
+ *
+ * @param chrome - What the canvas's chrome is drawn from; `undefined` with no window
+ * @returns The items, a falsy entry for each the Plan has no use for — none with no window
+ */
+export function usePlanToolbarItems(chrome: PlanChrome | undefined): ReadonlyArray<ToolbarItem | false | undefined> {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
+    const slice = chrome?.slice;
+    const affordances = chrome?.affordances;
+    const search = chrome?.search;
+    const transport = chrome?.transport;
+    const resolutions = chrome?.resolutions;
     // The segments' strips — every grain and resolution, by its name (#820).
     const grainItems = useMemo(
         () => PLAN_GRAINS.map((g) => ({ key: g, label: words.m.grainName({ grain: g }) })),
         [words]);
     const resolutionItems = useMemo(
-        () => resolutions.map((r) => ({ key: r, label: words.m.resolutionName({ resolution: r }) })),
+        () => (resolutions ?? []).map((r) => ({ key: r, label: words.m.resolutionName({ resolution: r }) })),
         [resolutions, words]);
-    const btn = useRecipe({ key: "button" });
-    const [libraryOpen, setLibraryOpen] = useState(false);
     // Self-subscribe on the slice key (#611): a store write does not change
     // any prop identity here, so a memo over STORE READS must key on the
     // store's own version — a re-render alone never busts a memo whose deps
@@ -189,15 +178,15 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
     const sliceVersion = useSliceReactivity(slice?.key);
     // Rail affordances: route the listed kinds through `railAffordanceKinds`
     // (auto-appended cohort etc.), then drop the kinds that mount as Plan
-    // chrome bands rather than rail chips — `brush` (the horizon strip),
+    // chrome rather than rail chips — `brush` (the horizon strip, in main),
     // `legend`, and the Plan's own arms (`resolution` segment, `summary`
     // count line). `range` is a cluster of its own, between the segments, so
-    // the §2 zone order holds.
+    // §7.1's order holds.
     // A seek-capable paged source replaces `search` entirely: filtering the
     // loaded prefix and seeking the whole source are different operations, and
     // mounting both would offer the same word for both meanings.
     const railKinds = useMemo(
-        () => (slice === undefined ? [] : railAffordanceKinds(affordances, slice.read())
+        () => (slice === undefined || affordances === undefined ? [] : railAffordanceKinds(affordances, slice.read())
             .filter((k) => k !== "brush" && k !== "legend" && k !== "resolution" && k !== "summary")
             .filter((k) => !(k === "search" && search !== undefined))),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of `slice.read()`: the auto-injected cohort chip appears when the STORE moves, not when a prop does (#611)
@@ -209,11 +198,13 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
         { key: "cluster", kinds: clusterKinds },
         { key: "range", kinds: rangeKinds },
     ]);
+    // The key search over a seekable source: its box, or its icon on a row short of room.
+    const seek = useKeySearchToolbarItem(search, { rank: PLAN_RANK.seek, label: words.m.keySearch() });
     // A narrowing affordance on a paged canvas reports over the LOADED prefix
     // while looking like it reports over the whole source — so say so, rather
     // than removing a capability the user can still use on what has landed.
     const scoped = transport !== undefined && clusterKinds.some((k) => NARROWING_KINDS.has(k));
-    const showSummary = slice !== undefined && affordances.includes("summary");
+    const showSummary = slice !== undefined && affordances !== undefined && affordances.includes("summary");
     // The summary line, and what a row short of room keeps of it.
     const summary = useMemo(() => {
         if (!showSummary || slice === undefined) return undefined;
@@ -231,18 +222,17 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of the count reads: they move with the STORE, not with any prop (#611)
     }, [showSummary, slice, transport, sliceVersion, words]);
 
+    if (chrome === undefined) return [];
+    const { styles, grain, diagnostics, review, history } = chrome;
+    const resolution = chrome.scale.resolution ?? "";
     const summaryLine = (text: string) => <Box css={styles.footerItem} data-slot="toolbarSummary">{text}</Box>;
-    const items: ReadonlyArray<ToolbarItem | false | undefined> = [
+    return [
         rail.find((it) => it.key === "cluster"),
         scoped && { key: "scope", forms: [<Box css={styles.footerItem} data-slot="scopeBadge">{words.m.scopeBadge()}</Box>] },
-        search !== undefined && {
-            key: "seek",
-            forms: [<DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find}
-                onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />],
-        },
+        seek,
         // The grain is canvas state, not a slice write: the segment drives the
         // same `grain.set` the `g` key does, bound slice or not. It leads the
-        // group — after the search, before the range, where the §1 mock puts it.
+        // group — after the search, before the range, where §7.1 puts it.
         grain !== undefined && {
             key: "grain",
             rank: PLAN_RANK.grain,
@@ -259,7 +249,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
         // a control that does nothing. The unbound-canvas fallback story is
         // #572's (resolution persist fallback); until then, no slice ⇒ no
         // segment.
-        slice !== undefined && resolutions.length > 0 && {
+        slice !== undefined && resolutionItems.length > 0 && {
             key: "resolution",
             rank: PLAN_RANK.resolution,
             forms: [
@@ -270,7 +260,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
             ],
         },
         hasDiagnostics(diagnostics) && { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] },
-        // The right edge: the summary line, the library button, the history bar.
+        // The row's end: the summary line, the review, the history.
         summary !== undefined && {
             key: "summary",
             side: "end",
@@ -278,73 +268,14 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                 ? { rank: [PLAN_RANK.summaryShort, PLAN_RANK.summaryHide], forms: [summaryLine(summary.full), summaryLine(summary.short), null] }
                 : { rank: PLAN_RANK.summaryHide, forms: [summaryLine(summary.full), null] }),
         },
-        pick !== undefined && {
-            key: "series",
-            side: "end",
-            forms: [<PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen} btn={btn} styles={styles} />],
-        },
-        history,
+        // Approve all and Reject all, moved here from the review foot: a
+        // verdict is a draft of the editing session (#880).
+        review !== undefined && reviewToolbarItem(review, {
+            storageKey: chrome.storageKey,
+            labels: { ...chrome.reviewLabels, menu: words.m.reviewMenu() },
+            rank: { summary: PLAN_RANK.reviewSummary, menu: PLAN_RANK.reviewMenu },
+        }),
+        // The banners say the session's error, so the toolbar keeps one row.
+        history !== undefined && historyToolbarItem({ ...history, showError: false }),
     ];
-
-    return (
-        <Box css={styles.toolbar} data-slot="toolbar">
-            <Toolbar gap="md" items={items} />
-        </Box>
-    );
-}
-
-/**
- * The right-edge **Series** button — the library's only chrome at rest.
- *
- * @remarks
- * A docked panel costs 320px of canvas on every Plan that has one, forever,
- * whether or not anyone is picking. A trigger costs a button. It opens into
- * `SliceEditPopover`, the single overlay shape every compact slice affordance
- * already uses, so the library reads as one more piece of the same toolbar
- * rather than a surface of its own.
- *
- * The count rides the popover's head, not the panel's. The panel drops its own
- * frame because the popover provides `editor` density — the house mechanism for
- * "you are inside the terminal surface now", the same one `Slice.Rail` uses
- * around its editor content and `SliceEditPopover` reads to decide whether to
- * nest. No per-call flag.
- */
-function PlanLibraryButton({ pick, open, onOpenChange, btn, styles }: {
-    pick: PickBindValue;
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    btn: ReturnType<typeof useRecipe>;
-    styles: Styles;
-}) {
-    // Self-subscribe on the pick's store key — `PickBindType.key` exists for
-    // exactly this ("renderers self-subscribe on it"). Without it, a toggle
-    // that changes no rows (a zero-row series) re-renders nothing, and the
-    // per-render read below never runs again (#611).
-    useSliceReactivity(pick.key);
-    const words = usePlanWords();
-    const hidden = new Set(pick.state.read());
-    const shown = pick.items.filter((i) => !hidden.has(i.id)).length;
-    const series = words.m.seriesButton();
-    return (
-        <SliceEditPopover
-            open={open}
-            onOpenChange={onOpenChange}
-            size="lg"
-            flush
-            label={<>{series} · <Box as="span" css={styles.toolbarLibraryCount}>
-                {words.m.seriesCount({ shown: words.number(shown), total: words.number(pick.items.length) })}
-            </Box></>}
-            trigger={
-                <chakra.button type="button" css={btn({ variant: "ghost", size: "xs" })}
-                    data-slot="planLibraryTrigger" aria-label={words.m.seriesLibrary()} aria-expanded={open}>
-                    <FontAwesomeIcon icon={faLayerGroup} style={{ fontSize: "11px" }} />
-                    <Box as="span">{series}</Box>
-                </chakra.button>
-            }
-        >
-            <SliceDensityContext.Provider value="editor">
-                <EastChakraPickPanel value={{ pick, title: series }} />
-            </SliceDensityContext.Provider>
-        </SliceEditPopover>
-    );
 }

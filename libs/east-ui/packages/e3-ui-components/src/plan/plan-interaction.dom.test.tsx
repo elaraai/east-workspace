@@ -352,8 +352,8 @@ describe("The toolbar's grain segment (#632)", () => {
 
     test("a canvas with a root group mounts it, slice or no slice; without one there is nothing to fold, and no segment", () => {
         const { container } = renderPlan(planRoot(grouped()), "plan-632-mount");
-        // No slice, no search, no library: the segment alone mounts the bar.
-        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
+        // No slice, no search, no review: the segment alone gives the frame its toolbar.
+        expect(container.querySelector("[data-frame-slot='toolbar']")).not.toBeNull();
         const seg = segment(container)!;
         expect(seg.getAttribute("role")).toBe("radiogroup");
         expect(seg.getAttribute("aria-label")).toBe("Grain");
@@ -363,7 +363,7 @@ describe("The toolbar's grain segment (#632)", () => {
         // Ungrouped: neither the segment nor a toolbar for it.
         const flat = renderPlan(planRoot([planRow("f1", spanKind([])), planRow("f2", spanKind([]))]), "plan-632-flat");
         expect(segment(flat.container)).toBeNull();
-        expect(flat.container.querySelector("[data-slot='toolbar']")).toBeNull();
+        expect(flat.container.querySelector("[data-frame-slot='toolbar']")).toBeNull();
         // The grain folds ROOT groups: a group under another row gives it
         // nothing to fold.
         const nested = renderPlan(planRoot([
@@ -505,20 +505,19 @@ describe("Plan interaction fixes (#615)", () => {
     });
 
     test("the resolution segment does not mount without a bound slice — its write has nowhere to go", () => {
-        // A pick mounts the toolbar with no slice; the segment used to render
-        // on `resolutions` alone, and clicking it dispatched a slice write the
-        // effect runner drops. The unbound fallback story is #572's.
-        const pick = {
-            key: "plan.seg.gate",
-            state: { read: () => [] as string[], write: () => {}, has: () => true },
-            items: [{ id: "a", title: "Press jobs", subtitle: none, icon: none, count: none, narrowed: false }],
-        };
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            pick,
+        // A root group gives the frame a toolbar with no slice; the segment
+        // used to render on `resolutions` alone, and clicking it dispatched a
+        // slice write the effect runner drops. The unbound fallback story is
+        // #572's.
+        const hall: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });
+        const { container } = renderPlan(planRoot([
+            planRow("hall", hall),
+            planRow("m1", spanKind([]), { parent: "hall" }),
+        ], {
             resolutions: [variant("week", null), variant("day", null)],
         }), "plan-seg-gate");
-        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
-        expect(container.querySelector("[data-slot='seg']")).toBeNull();
+        expect(container.querySelector("[data-frame-slot='toolbar'] [data-plan-seg='grain']")).not.toBeNull();
+        expect(container.querySelector("[data-plan-seg='resolution']")).toBeNull();
         expect(screen.queryByText("DAY")).toBeNull();
     });
 });

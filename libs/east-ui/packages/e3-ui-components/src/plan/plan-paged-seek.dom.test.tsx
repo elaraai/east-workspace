@@ -358,20 +358,21 @@ describe("Plan paged random access (#567/#574/#577)", () => {
     }, 30_000);
 
     test("the bar appears for the SOURCE's sake — and only when there is a reason", async () => {
-        // #587's other half. Mounting the toolbar for a seek-capable source
-        // must not mount it for everything: an inline canvas binds no slice and
-        // declares no seek, so it still gets no bar rather than an empty band.
+        // #587's other half. Giving the frame its toolbar for a seek-capable
+        // source must not give it one for everything: an inline canvas binds
+        // no slice and declares no seek, so it still gets no bar rather than
+        // an empty band.
         const { root } = withRecordedWindows(buildPagedPlan());
         const { container: paged } = renderPlan(root, "plan-bar-paged");
         await waitFor(() => {
-            expect(paged.querySelector('[data-slot="toolbar"]')).toBeTruthy();
+            expect(paged.querySelector('[data-frame-slot="toolbar"]')).toBeTruthy();
         });
-        expect(paged.querySelector('[data-part="dataset-key-search"]')).toBeTruthy();
+        expect(paged.querySelector('[data-frame-slot="toolbar"] [data-part="dataset-key-search"]')).toBeTruthy();
         cleanup();
 
         const inline: PlanRootValue = { ...root, rows: variant("inline", []) as PlanRootValue["rows"] };
         const { container: plain } = renderPlan(inline, "plan-bar-inline");
-        expect(plain.querySelector('[data-slot="toolbar"]')).toBeNull();
+        expect(plain.querySelector('[data-frame-slot="toolbar"]')).toBeNull();
     }, 30_000);
 });
 

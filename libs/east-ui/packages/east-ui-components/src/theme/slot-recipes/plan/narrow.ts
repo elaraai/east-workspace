@@ -5,7 +5,8 @@
 
 /**
  * The Plan recipe's NARROW layout (§10 / #570) — below 480px of container width
- * the canvas is a review tool: chips, tabs, the shared ruler and the card list.
+ * the canvas is a review tool: tabs, the shared ruler and the card list. Its
+ * chips are the frame's toolbar's items (#1193).
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
  * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
@@ -17,7 +18,7 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 
 /** The slots this part styles. */
 export const narrowSlots = [
-    "narrowRoot", "narrowChips", "narrowTabCount", "narrowRuler", "narrowRulerTrack",
+    "narrowRoot", "narrowTabCount", "narrowRuler", "narrowRulerTrack",
     "narrowRulerTick", "narrowSection", "narrowSectionTitle", "narrowSectionGo", "narrowScope",
     "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList", "narrowCard",
     "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody", "narrowCardFoot",
@@ -37,24 +38,18 @@ export const narrowBase = {
     narrowRoot: {
         display: "flex",
         flexDirection: "column",
+        // The root is the tab strip's own (`<Tabs.Root asChild>`), whose
+        // recipe makes a horizontal root a block, in a rule of its own after
+        // this one's — and a block holds no column: in a bounded frame the
+        // list ran past it instead of scrolling (#1193). The narrow root's
+        // own attribute outranks it.
+        "&[data-plan-narrow][data-orientation]": { display: "flex" },
         minWidth: 0,
         background: "bg.panel",
-        // A bounded frame: the header (chips · tabs · ruler) stays put
+        // A bounded frame: the header (tabs · ruler) stays put
         // and the LIST scrolls inside the frame (see `narrowList`); an
         // unbounded one grows with its list.
         "&[data-plan-fill]": { flex: 1, minHeight: 0 },
-    },
-    // The slice chips + the resolution chip — one wrapping row on the
-    // page. No fill and no rule of its own: the tab strip below carries
-    // the header's one baseline (the `tabs` recipe's), so the header is
-    // chips · tabs on the page, not a ladder of filled bands.
-    narrowChips: {
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        gap: "8px",
-        padding: "10px 12px 8px",
-        flexShrink: 0,
     },
     // The plain mono numeral beside a tab label (the spec's "counts":
     // never a tinted pill). It inherits the trigger's ink — active reads

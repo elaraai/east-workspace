@@ -108,10 +108,10 @@ export {
 } from './query/hooks.js';
 export * from './query/calls.js';
 
-// The Plan (#1177, #1191) — its renderer registers itself against the Plan
-// extension on import and draws the payload's canvas — and its words (#820):
-// the message table, and the provider that overrides it for a subtree (its
-// locale is react-aria's `I18nProvider`).
+// The Plan (#1177, #1191, #1193) — its renderer registers itself against the
+// Plan extension on import, and lays the canvas out in its frame — and its
+// words (#820): the message table, and the provider that overrides it for a
+// subtree (its locale is react-aria's `I18nProvider`).
 export {
     EastChakraPlan,
     EastChakraPlanPayload,

@@ -8,8 +8,9 @@
  * each draft the entry their row came from, drawn where they were made with
  * the Sheet's marks; Undo and Redo through the history bar and the keys;
  * Discard; and Apply as ONE checked batch whose drafts retire only once the
- * source reads back what it committed. Every test runs inline and paged: the
- * behaviour is the canvas's, whatever the source.
+ * source reads back what it committed. What the session cannot do says so in
+ * the frame's banners, with their Retry and Discard (#1193, PB24). Every test
+ * runs inline and paged: the behaviour is the canvas's, whatever the source.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -19,8 +20,8 @@ import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { UIStore } from "@elaraai/east-ui-components";
 import {
     APPROVED, Presses, SEED, type PressValue,
-    batch, decide, dropCellOf, dropJob, history, historyButton, hoverJob, jobsDrawn, key, markOf, marks, mountCanvas,
-    releaseCanvases, statusLine, verdictButton, verdictOf, type EditingCanvas,
+    banner, bannerAction, batch, decide, dropCellOf, dropJob, history, historyButton, hoverJob, jobsDrawn, key, markOf, marks,
+    mountCanvas, releaseCanvases, statusLine, verdictButton, verdictOf, type EditingCanvas,
 } from "./plan-editing.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -186,17 +187,20 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
         }, 30_000);
 
-        test("a source that moves under pending drafts refuses them — until they are discarded", async () => {
+        test("a source that moves under pending drafts refuses them — until they are discarded, from the out-of-date banner", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await decide(c, "p1", "approve");
+            expect(banner(c, "stale")).toBeNull();
             // Another writer approves Press 2.
             await canvas.move(new Map([...SEED, ["p2", { ...SEED.get("p2")!, approval: APPROVED }]]));
             expect(statusLine(canvas)).toBe("Source changed — review or discard these drafts");
+            expect(banner(c, "stale")).not.toBeNull();
             expect(historyButton(canvas, "Apply changes").disabled).toBe(true);
             expect(historyButton(canvas, "Undo").disabled).toBe(true);
             expect(verdictButton(c, "p2", "reject").disabled).toBe(true);
-            await history(canvas, "Discard");
+            await bannerAction(c, "stale", "discard");
+            expect(banner(c, "stale")).toBeNull();
             expect(statusLine(canvas)).toBeNull();
             // The source as it now stands…
             expect(verdicts(c)).toEqual(["pending", "approved", "approved"]);
@@ -213,11 +217,14 @@ for (const arm of ["inline", "paged"] as const) {
             await decide(c, "p1", "approve");
             canvas.loseNextAck();
             await history(canvas, "Apply changes");
-            expect(canvas.getByRole("alert").textContent).toBe("Acknowledgement lost");
+            // The banner says so, with its Retry; the toolbar keeps one row.
+            expect(banner(c, "unknown")!.textContent).toContain("Acknowledgement lost");
+            expect(c.querySelector('[data-frame-slot="toolbar"] [role="alert"]')).toBeNull();
             expect(historyButton(canvas, "Undo").disabled).toBe(true);
             expect(historyButton(canvas, "Discard").disabled).toBe(true);
             expect(verdictButton(c, "p2", "approve").disabled).toBe(true);
-            await history(canvas, "Retry request");
+            await bannerAction(c, "unknown", "apply");
+            expect(banner(c, "unknown")).toBeNull();
             expect(canvas.queryByRole("alert")).toBeNull();
             expect(canvas.applies).toHaveLength(2);
             expect(canvas.applies[1]).toEqual(canvas.applies[0]);
@@ -256,11 +263,11 @@ describe("the narrow layout (#880)", () => {
     afterEach(() => { Element.prototype.getBoundingClientRect = realRect; });
 
     for (const arm of ["inline", "paged"] as const) {
-        test(`${arm}: the history bar rides the chips, and a card's verdict is a draft marked on its card`, async () => {
+        test(`${arm}: the history item rides the frame's toolbar, and a card's verdict is a draft marked on its card`, async () => {
             const canvas = await mountCanvas({ arm, ready: true });
             const c = canvas.container;
             expect(c.querySelector("[data-plan-narrow]")).toBeTruthy();
-            expect(c.querySelector("[data-slot='narrowChips'] [data-slot='history']")).toBeTruthy();
+            expect(c.querySelector("[data-frame-slot='toolbar'] [data-slot='history']")).toBeTruthy();
             await decide(c, "p1", "approve");
             expect(verdictButton(c, "p1", "approve").getAttribute("aria-pressed")).toBe("true");
             expect(labels(canvas)).toEqual(["Approve Press 1"]);

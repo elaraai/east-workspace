@@ -150,7 +150,7 @@ test.describe("Plan toolbar segments (#632)", () => {
 
     test("the grain segment sits between the search and the range, both strips at the mock's size; GROUP re-lays the body at its model heights", async ({ page }) => {
         const entry = await openExample(page, "planTargetState");
-        const toolbar = entry.locator("[data-slot='toolbar']");
+        const toolbar = entry.locator("[data-builder-frame] [data-frame-slot='toolbar']");
         const grain = toolbar.locator("[data-plan-seg='grain']");
         const resolution = toolbar.locator("[data-plan-seg='resolution']");
         await expect(grain.getByRole("radio")).toHaveText(["GROUP", "RESOURCE"]);

@@ -14,13 +14,17 @@
  * - `decisionHeader` — the decision-column header cell.
  * - `decisionCol` — the per-row decision cell (the Approve/Reject pair).
  * - `statusDot` — the quiet per-row status dot beside the subject's identity.
+ * - `batch` — the batch verbs as one toolbar item (`reviewToolbarItem`,
+ *   #1193): the summary and the buttons on one line, never wrapping.
+ * - `batchSummary` — the host-composed summary in that item, in the foot's
+ *   draft-line type.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const reviewChromeSlotRecipe = defineSlotRecipe({
     className: "elara-review-chrome",
-    slots: ["decisionHeader", "decisionCol", "statusDot"],
+    slots: ["decisionHeader", "decisionCol", "statusDot", "batch", "batchSummary"],
     base: {
         // Review decision-column header — mirrors the column-header type rhythm
         // but right-anchored, with a left rule fencing the column off from the
@@ -73,6 +77,26 @@ export const reviewChromeSlotRecipe = defineSlotRecipe({
             flexShrink: 0,
             verticalAlign: "middle",
             background: "fg.subtle",
+        },
+        // The batch verbs in a toolbar: one line, the toolbar's gap between them.
+        batch: {
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flexWrap: "nowrap",
+            whiteSpace: "nowrap",
+        },
+        // The summary beside them, in the commit bar's draft-line type.
+        batchSummary: {
+            display: "flex",
+            alignItems: "center",
+            minWidth: 0,
+            fontFamily: "mono",
+            fontSize: "11px",
+            fontWeight: "semibold",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "fg.subtle",
         },
     },
     variants: {
