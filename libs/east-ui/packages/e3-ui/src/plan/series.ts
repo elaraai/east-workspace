@@ -608,7 +608,8 @@ export interface PlanSpanSeriesConfig<R extends EastType, K extends PlanAxisKind
     decisions?: PlanElementsAccessor<R, PlanDecisionMarkType, K, KT>;
     /** Per-row ports accessor. */
     ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT>;
-    /** How a row with children rolls its subtree's runs into its bands (default `"union"`). */
+    /** How a row with children rolls its subtree's runs into its bands (default `"union"`). A `views` member, which
+     *  declares no `children`, declares it to roll up the children the views nest under its row (#1219). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
     /** What a gesture on a row writes — the `Array` field its runs come from; a dropped card's item (`create`,
      *  #880); a moved or resized run's key, start and end fields (#825). */
@@ -1587,20 +1588,29 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                     const cur = $2.let(value, rowType);
                     const d = $2.let(depth, IntegerType);
                     const last = $2.let(path.size().subtract(1n), IntegerType);
-                    // Down to the target's parent, then the target itself.
-                    $2.while(d.less(last), ($3) => {
+                    // Down to the target's parent, then the target itself — a
+                    // path through an entry the tree lacks writes nothing (#1219).
+                    const found = $2.let(true, BooleanType);
+                    $2.while(d.less(last).and(() => found), ($3) => {
                         const coll = $3.let(collOf(cur), cc);
-                        $3.assign(cur, ops.get(coll, keyOf(path.get(d))));
-                        $3.assign(d, d.add(1n));
+                        const step = $3.let(keyOf(path.get(d)), kc);
+                        $3.if(ops.has(coll, step), ($4) => {
+                            $4.assign(cur, ops.get(coll, step));
+                            $4.assign(d, d.add(1n));
+                        }).else(($4) => { $4.assign(found, false); });
                     });
-                    const coll = $2.let(collOf(cur), cc);
-                    const k = $2.let(keyOf(path.get(last)), kc);
-                    const written = $2.let(write(ops.get(coll, k), k, path, gesture, carried), OptionType(rowType));
-                    $2.match(written, {
-                        some: ($3, entry) => {
-                            $3(ops.put(coll, k, entry));
-                            $3.assign(result, some(value));
-                        },
+                    $2.if(found, ($3) => {
+                        const coll = $3.let(collOf(cur), cc);
+                        const k = $3.let(keyOf(path.get(last)), kc);
+                        $3.if(ops.has(coll, k), ($4) => {
+                            const written = $4.let(write(ops.get(coll, k), k, path, gesture, carried), OptionType(rowType));
+                            $4.match(written, {
+                                some: ($5, entry) => {
+                                    $5(ops.put(coll, k, entry));
+                                    $5.assign(result, some(value));
+                                },
+                            });
+                        });
                     });
                 });
                 return result;
@@ -1764,8 +1774,10 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         return spec;
     });
     // The views' own membership, collapse and children are a data series'
-    // envelope without a row of its own — built by the same machinery, so a
-    // views' children nest and recurse exactly as a data series' do.
+    // envelope without a row of its own — built by the same machinery. A
+    // step-down's children are its own series' rows; a bare accessor's are more
+    // of the views' entries, which the views walk themselves below (#1219), so
+    // each child entry draws as its members' rows, never as the host's.
     const host = dataSpec(rowType, {
         key: cfg.key, title: cfg.title, label: () => "",
         ...(cfg.keyType !== undefined ? { keyType: cfg.keyType } : {}),
@@ -1776,6 +1788,188 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
     const emitters = new ByType<EmitFn>();
     const blockLists = new ByType<BlocksFn>();
     const writerLists = new ByType<WriteFn | undefined>();
+
+    // ── A bare `children` accessor: more of the views' own entries (#1219) ──
+    const bare = typeof cfg.children === "function"
+        ? cfg.children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr
+        : undefined;
+    const recursive = (rowType as { type: string }).type === "Recursive";
+    const nodeOf = (value: ExprType<EastType>): ExprType<EastType> => recursive
+        ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>
+        : value;
+    const entryAccess = (value: ExprType<EastType>) => nodeOf(value) as unknown as Record<string, ExprType<EastType>>;
+    const childOfs = new ByType<ExprType<FunctionType<[EastType, EastType], EastType>>>();
+    /** The bare accessor, built for entries keyed by `kt` — the child collection's type is its output. */
+    const childOf = (kt: EastType) => childOfs.get(kt, () => building(where, kt, () =>
+        reifyAccessor([rowType, kt], (v: ExprType<EastType>, k: ExprType<EastType>) => bare!(nodeOf(v), k))) as unknown as
+        ExprType<FunctionType<[EastType, EastType], EastType>>);
+    const walks = new ByType<ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType], PlanRowsCollectionType>>>();
+
+    /**
+     * The subtree below one entry, over the child collection type `cc`: every
+     * level's matched entries in pre-order, each drawn as its members' rows —
+     * adjacent, in declared order, those whose own `match` takes it — with its
+     * children after all of them, nested under the first that shows.
+     */
+    const walkFor = (cc: EastType): ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType], PlanRowsCollectionType>> =>
+        walks.get(cc, () => {
+            const at = `${where} › children`;
+            const { entry, key: kc } = shapeOf(cc, at);
+            assertEntry(entry, rowType, `${at} (a bare accessor returns more of this series' entries — step down to another type with Plan.children)`);
+            const next = childOf(kc);
+            const nextType = (Expr.type(next) as unknown as { output: EastType }).output;
+            if (!isTypeEqual(nextType, cc)) {
+                throw new Error(`${at}: a recursive series' children must be the same collection type at every level`);
+            }
+            const parts = memberSpecs.map((m) => m.entryParts!(entry, kc, `${where} › ${nameOf(m)}`));
+            const match = host.entryParts!(entry, kc, where).match;
+            const collapsed = host.collapsedFor!(kc);
+            const seg = segmentOf(kc);
+            const Frame = StructType({ value: rowType, key: kc, path: PathType, parent: PlanRowIdType });
+            const Frames = ArrayType(Frame);
+            // A level's matched entries as frames, REVERSED — so the stack
+            // pops the first of them first.
+            const framesOf = East.function([cc, PathType, PlanRowIdType], Frames, ($, coll, path, parentId) => {
+                const frames = $.let([], Frames);
+                const member = match === undefined ? undefined : $.const(match);
+                $.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
+                    const add = ($3: typeof $2) => {
+                        const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
+                        $3(frames.pushLast(East.value({ value, key, path: path.concat(segs), parent: parentId }, Frame)));
+                    };
+                    if (member === undefined) add($2);
+                    else $2.if(member(value, key), add);
+                });
+                $(frames.reverseInPlace());
+                return frames;
+            });
+            return East.function([cc, PathType, PlanRowIdType], PlanRowsCollectionType, ($, coll, path0, parent0) => {
+                // Every function the loop calls, bound ONCE (see the data walk).
+                const frames = $.const(framesOf);
+                const childrenOf = $.const(next);
+                const rowsOf = parts.map((p) => $.const(p.row));
+                const showsOf = parts.map((p) => (p.match === undefined ? undefined : $.const(p.match)));
+                const collapse = collapsed === undefined ? undefined : $.const(collapsed);
+                const out = $.let([], PlanRowsCollectionType);
+                const stack = $.let(frames(coll, path0, parent0), Frames);
+                $.while(stack.size().greater(0n), ($2) => {
+                    const f = $2.let(stack.popLast(), Frame);
+                    const ids = memberSpecs.map((m) =>
+                        $2.let(East.value(variant("entry", { series: m.key, path: f.path }), PlanRowIdType), PlanRowIdType));
+                    const present = showsOf.map((shows) => (shows === undefined
+                        ? undefined
+                        : $2.let(shows(f.value, f.key), BooleanType)));
+                    // The first member whose row shows — the entry's children nest under it.
+                    const first = $2.let(-1n, IntegerType);
+                    for (let i = parts.length - 1; i >= 0; i--) {
+                        const shows = present[i];
+                        if (shows === undefined) $2.assign(first, BigInt(i));
+                        else $2.if(shows, ($3) => { $3.assign(first, BigInt(i)); });
+                    }
+                    const firstId = $2.let(ids[0]!, PlanRowIdType);
+                    for (let i = 1; i < ids.length; i++) {
+                        $2.if(first.equal(BigInt(i)), ($3) => { $3.assign(firstId, ids[i]!); });
+                    }
+                    const below = $2.let(first.greaterEqual(0n).ifElse(
+                        () => frames(childrenOf(f.value, f.key), f.path, firstId),
+                        () => East.value([], Frames)), Frames);
+                    const parent = $2.let(East.value(some(f.parent), IdOptType), IdOptType);
+                    const fold = $2.let(collapse === undefined
+                        ? East.value(false, BooleanType)
+                        : collapse(f.value, f.key), BooleanType);
+                    const noFold = $2.let(East.value(false, BooleanType), BooleanType);
+                    parts.forEach((_p, i) => {
+                        const isFirst = $2.let(first.equal(BigInt(i)), BooleanType);
+                        const hasChildren = $2.let(isFirst.and(() => below.size().greater(0n)), BooleanType);
+                        const viewRow = rowsOf[i]!;
+                        const push = ($3: typeof $2) => {
+                            $3(out.pushLast(viewRow(f.value, f.key, ids[i]!, parent, hasChildren,
+                                isFirst.ifElse(() => fold, () => noFold))));
+                        };
+                        const shows = present[i];
+                        if (shows === undefined) push($2);
+                        else $2.if(shows, push);
+                    });
+                    $2(stack.append(below));
+                });
+                return out;
+            });
+        });
+
+    /** The entry's children rows for entries keyed by `kt`: a step-down's through the host, a bare accessor's walked here. */
+    const childrenFor = (kt: EastType): ChildrenFn | undefined => {
+        if (bare === undefined) return host.childrenFor!(kt);
+        const of = childOf(kt);
+        const walk = walkFor((Expr.type(of) as unknown as { output: EastType }).output);
+        return East.function([rowType, kt, PlanRowIdType, PathType], PlanRowsCollectionType,
+            (_$, value, key, id, path) => walk(of(value, key), path, id)) as unknown as ChildrenFn;
+    };
+
+    const walkWriters = new ByType<WriteFn | undefined>();
+    /**
+     * The writer below an entry, through a bare accessor: down the path to the
+     * entry the row is one of, through the field `children` reads, and the
+     * gesture written by the member whose row it was made on.
+     */
+    const walkWriterFor = (kt: EastType): WriteFn | undefined => walkWriters.get(kt, () => {
+        const at = `${where} › children`;
+        const of = childOf(kt);
+        const cc = (Expr.type(of) as unknown as { output: EastType }).output;
+        const { entry, key: kc } = shapeOf(cc, at);
+        assertEntry(entry, rowType, at);
+        const owns = memberSpecs.flatMap((m) => {
+            const own = m.ownFor?.(kc);
+            return own === undefined ? [] : [{ key: m.key, own }];
+        });
+        if (owns.length === 0) return undefined;
+        const ref = childRefOf(rowType, kt, bare!);
+        if (ref === undefined) {
+            throw new Error(
+                `${at}: a member takes gestures, and one on a child row is written back into its entry through ` +
+                "`children` — which must read a field of the entry (`r => r.children`), not compute a collection");
+        }
+        const ops = collectionOps(cc);
+        const collOf = (value: ExprType<EastType>) => (ref.kind === "field" ? entryAccess(value)[ref.field]! : nodeOf(value));
+        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+            ($, value, _key, path, depth, series, gesture, carried) => {
+                const result = $.let(none, OptionType(rowType));
+                const writes = owns.map((o) => ({ key: o.key, own: $.const(o.own) }));
+                const keyOf = $.const(segmentKeyOf(kc));
+                const cur = $.let(value, rowType);
+                const d = $.let(depth, IntegerType);
+                const last = $.let(path.size().subtract(1n), IntegerType);
+                // Down to the target's parent, then the target itself — a path
+                // through an entry the tree lacks writes nothing.
+                const found = $.let(true, BooleanType);
+                $.while(d.less(last).and(() => found), ($2) => {
+                    const coll = $2.let(collOf(cur), cc);
+                    const step = $2.let(keyOf(path.get(d)), kc);
+                    $2.if(ops.has(coll, step), ($3) => {
+                        $3.assign(cur, ops.get(coll, step));
+                        $3.assign(d, d.add(1n));
+                    }).else(($3) => { $3.assign(found, false); });
+                });
+                $.if(found, ($2) => {
+                    const coll = $2.let(collOf(cur), cc);
+                    const k = $2.let(keyOf(path.get(last)), kc);
+                    $2.if(ops.has(coll, k), ($3) => {
+                        const target = $3.let(ops.get(coll, k), rowType);
+                        for (const w of writes) {
+                            $3.if(result.hasTag("none").and(() => series.equal(w.key)), ($4) => {
+                                const written = $4.let(w.own(target, k, path, gesture, carried), OptionType(rowType));
+                                $4.match(written, {
+                                    some: ($5, next) => {
+                                        $5(ops.put(coll, k, next));
+                                        $5.assign(result, some(value));
+                                    },
+                                });
+                            });
+                        }
+                    });
+                });
+                return result;
+            }) as unknown as WriteFn;
+    });
     const spec: PlanSeriesSpec = {
         key: cfg.key,
         title: cfg.title,
@@ -1788,7 +1982,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 assertEntry(entry, rowType, where);
                 const parts = memberSpecs.map((m) => m.entryParts!(entry, kt, `${where} › ${nameOf(m)}`));
                 const hostParts = host.entryParts!(entry, kt, where);
-                const hostKids = host.childrenFor!(kt);
+                const hostKids = childrenFor(kt);
                 const hostCollapse = host.collapsedFor!(kt);
                 const seg = segmentOf(kt);
                 return East.function([collection, PathType, IdOptType], PlanRowsCollectionType, ($, coll, prefix, parent) => {
@@ -1868,7 +2062,9 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                     const own = m.ownFor?.(kt);
                     return own === undefined ? [] : [{ key: m.key, own }];
                 });
-                const below = host.writer(collection, at);
+                // Below an entry: a step-down's rows are written by its series
+                // through the host; a bare accessor's are the members' own (#1219).
+                const below = bare === undefined ? host.writer(collection, at) : walkWriterFor(kt);
                 if (owns.length === 0 && below === undefined) return undefined;
                 return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
                     ($, value, key, path, depth, series, gesture, carried) => {
@@ -2299,7 +2495,9 @@ export function createSeriesSpan<R extends EastType, K extends PlanAxisKindLiter
     rowType: R, config: PlanSpanSeriesConfig<R, K, KT>,
 ): PlanSeriesValue<K> {
     const cfg = config as unknown as PlanSpanSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
-    const rollup = cfg.children !== undefined ? resolveTag(cfg.rollup ?? "union", PlanRollupType) : undefined;
+    // A row rolls up its children: its own (`children`), or — declared on a
+    // views member — the ones the views nest under it (#1219).
+    const rollup = cfg.children !== undefined || cfg.rollup !== undefined ? resolveTag(cfg.rollup ?? "union", PlanRollupType) : undefined;
     const spec = dataSpec(rowType, cfg, {
         arm: "span",
         kind: (value, key, hasChildren) => spanKind({
@@ -2575,6 +2773,11 @@ export function createSeriesSection<R extends EastType, K extends PlanAxisKindLi
  * member may not declare `children` (the views own the entry's children). A
  * view row's id is its member series' key and the entry's path, and a seek on
  * the entry lands on its first view row.
+ *
+ * The views' `children` are a step-down's series, or — a bare accessor — more
+ * of the views' own entries, each drawn as its members' rows, to any depth,
+ * the views' `match` and `collapsed` at every level (#1219). A span member that
+ * declares `rollup` rolls up the children nested under its row.
  *
  * @typeParam R - The entry type
  * @typeParam K - The union of the members' axis kinds (inferred; `never` when all are erased)
