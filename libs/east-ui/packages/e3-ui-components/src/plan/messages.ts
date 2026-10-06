@@ -25,6 +25,7 @@
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
  *  proposal arms spelled out. */
@@ -71,9 +72,11 @@ export type PlanFocusTagWord = "UPSTREAM" | "DOWNSTREAM" | "LINKED";
  *
  * It carries the editing session's messages too ({@link EditingMessages},
  * #880: the history bar and the draft issues), so a host translates the
- * canvas's history bar where it translates the canvas.
+ * canvas's history bar where it translates the canvas; and the time scale's
+ * ({@link TimeMessages}, #1148: its ruler's week and quarter ticks and their
+ * words), which the scale the Plan shares with the Calendar speaks.
  */
-export interface PlanMessages extends EditingMessages {
+export interface PlanMessages extends EditingMessages, TimeMessages {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
@@ -141,14 +144,6 @@ export interface PlanMessages extends EditingMessages {
     horizon: (p: { n: number; count: string; unit: PlanHorizonUnit }) => string;
     /** The ruler's now chip. */
     now: () => string;
-    /** A week tick — `W27`. */
-    rulerWeek: (p: { week: string }) => string;
-    /** A quarter tick — `Q3`. */
-    rulerQuarter: (p: { quarter: string }) => string;
-    /** A week as words — `Week of Jun 29, 2026`. */
-    periodWeek: (p: { date: string }) => string;
-    /** A quarter as words — `Q3 2026`. */
-    periodQuarter: (p: { quarter: string; year: string }) => string;
 
     // ── Row focus (R1 / R2) ────────────────────────────────────────────────
     /** The focus band's way back. */
@@ -370,6 +365,7 @@ const listed = (parts: ReadonlyArray<string | undefined>): string =>
  */
 export const planMessages: PlanMessages = {
     ...editingMessages,
+    ...timeMessages,
     gridLabel: () => "Plan",
     noWindow: () => "NO WINDOW — declare an axis window, or bind a slice whose range supplies it",
     noWindowOrdinal: () => "NO WINDOW — an ordinal axis needs at least one declared value",
@@ -412,10 +408,6 @@ export const planMessages: PlanMessages = {
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     now: () => "NOW",
-    rulerWeek: ({ week }) => `W${week}`,
-    rulerQuarter: ({ quarter }) => `Q${quarter}`,
-    periodWeek: ({ date }) => `Week of ${date}`,
-    periodQuarter: ({ quarter, year }) => `Q${quarter} ${year}`,
 
     allRows: () => "← ALL ROWS",
     focusLinks: ({ label, upstream, downstream }) =>
