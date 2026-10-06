@@ -27,7 +27,7 @@ import type { PlanInstantValue } from "../instant.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { PLAN_WORDS } from "../words.js";
 import {
-    RIBBON_FADE_W, RIBBON_OPACITY_MAX, RIBBON_OPACITY_MIN, layoutRibbons, ribbonBody,
+    RIBBON_FADE_W, RIBBON_OPACITY_MAX, RIBBON_OPACITY_MIN, elementInstants, layoutRibbons, ribbonBody,
     type RibbonLayoutInput, type RibbonViewport,
 } from "./ribbon-layout.js";
 
@@ -300,6 +300,49 @@ describe("rows the body does not hold (#818)", () => {
             links: [link("a", "x", "far", "y")], body: tall, runDates: dates, beyond, viewport: { top: 0, bottom: 400 },
         })).ribbons[0]!;
         expect(clamped.to).toMatchObject({ off: "below", bottom: 400 });
+    });
+});
+
+describe("where a link's end meets its row (#1192)", () => {
+    /** A row of `kind`, keyed `key`. */
+    const rowOfKind = (key: string, kind: unknown): PlanRowValue => ({ ...spanRow(key), kind }) as PlanRowValue;
+    const confirmed = variant("confirmed", null);
+    const run = { key: "r", start: t(at("2026-07-08")), end: t(at("2026-07-22")), label: "R", quantity: none, state: confirmed, status: none, moved: none, icon: none };
+    const chip = { key: "c", from: t(at("2026-07-13")), to: t(at("2026-07-27")), label: "C", state: confirmed, icon: none };
+    const tile = {
+        key: "e", at: t(at("2026-07-08")), lane: none, label: none, icon: none, state: confirmed, tone: none,
+        color: none, colorPalette: none, stretch: none, content: none, animation: none,
+    };
+    const mark = { key: "m", at: t(at("2026-08-05")), kind: variant("milestone", null), icon: none, label: none };
+    const bars = rowOfKind("bars", variant("span", { runs: [run], decisions: [], ports: [], rollup: none }));
+    const chips = rowOfKind("chips", variant("cards", { chips: [chip] }));
+    const tiles = rowOfKind("tiles", variant("buckets", { lanes: [], events: [tile], markers: [] }));
+    const marks = rowOfKind("marks", variant("events", { marks: [mark] }));
+
+    test("a run's and a chip's two ends, the bucket a tile sits in, a mark's instant", () => {
+        expect(elementInstants(bars, "r", scale)).toEqual({ start: t(at("2026-07-08")), end: t(at("2026-07-22")) });
+        expect(elementInstants(chips, "c", scale)).toEqual({ start: t(at("2026-07-13")), end: t(at("2026-07-27")) });
+        // A Wednesday's tile fills its week.
+        expect(elementInstants(tiles, "e", scale)).toEqual({ start: t(at("2026-07-06")), end: t(at("2026-07-13")) });
+        expect(elementInstants(marks, "m", scale)).toEqual({ start: t(at("2026-08-05")), end: t(at("2026-08-05")) });
+    });
+
+    test("a key the row draws no element of, or a row that draws none, meets nothing", () => {
+        expect(elementInstants(bars, "c", scale)).toBeUndefined();
+        expect(elementInstants(marks, "r", scale)).toBeUndefined();
+        const strip: PlanRowValue["kind"] = variant("group", { summary: variant("none", null) });
+        expect(elementInstants(rowOfKind("strip", strip), "r", scale)).toBeUndefined();
+    });
+
+    test("a ribbon to a mark lands on its instant, not across its row", () => {
+        const index = indexRows([bars, marks]);
+        const body = ribbonBody([rowItem(bars), rowItem(marks)], [32, 32], index, G);
+        const runDates: RibbonLayoutInput["runDates"] = (row, key) => {
+            const r = index.byKey.get(row);
+            return r !== undefined ? elementInstants(r, key, scale) : undefined;
+        };
+        const { ribbons } = layoutRibbons(input({ links: [link("bars", "r", "marks", "m")], body, runDates }));
+        expect([ribbons[0]!.to.leftX, ribbons[0]!.to.rightX]).toEqual([xOf(at("2026-08-05")), xOf(at("2026-08-05"))]);
     });
 });
 

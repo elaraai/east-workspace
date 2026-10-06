@@ -2377,6 +2377,31 @@ export function planSeriesFacts(series: unknown, collection: EastType, where: st
 }
 
 /**
+ * The keys of a series list's whole tree, each series' and every series
+ * nested in it, in order (#1192): what a Plan holds the keys it gives its own
+ * rows apart from, since a row's id is its series' key and its path.
+ *
+ * @param series - The `series` input, or a list of series values
+ * @returns The keys; `undefined` for an East expression list, or one holding a series no `Plan.series.*` builder
+ *   made in place, whose keys are not known until it runs
+ * @internal
+ */
+export function planSeriesKeys(series: unknown): readonly string[] | undefined {
+    if (!Array.isArray(series)) return undefined;
+    const keys: string[] = [];
+    const walk = (spec: PlanSeriesSpec): void => {
+        keys.push(spec.key);
+        spec.nested.forEach(walk);
+    };
+    for (const one of series) {
+        const spec = specOf(one);
+        if (spec === undefined) return undefined;
+        walk(spec);
+    }
+    return keys;
+}
+
+/**
  * Apply the `series` input to the source — the canvas's BLOCKS (#823): every
  * series' blocks, in declared order.
  *

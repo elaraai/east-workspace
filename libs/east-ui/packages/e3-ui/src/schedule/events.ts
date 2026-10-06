@@ -324,8 +324,12 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly rowType: R;
     /** Its name. */
     readonly name: string;
+    /** Its Font Awesome icon: what each of its elements on a Plan wears (#1192). */
+    readonly icon: string;
     /** The resource kinds its events may be on, by slot name: `resource.of`'s. */
     readonly takes: readonly string[];
+    /** Plan: how it draws — bars, tiles, chips or marks; a resource draws a row for each way its kinds draw (#1192). */
+    readonly draw: PlanDrawLiteral;
     /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options.
@@ -1043,7 +1047,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         keyType,
         rowType,
         name: config.name,
+        icon: config.icon,
         takes,
+        draw: draw as PlanDrawLiteral,
         build(slot: string): ExprType<ScheduleKindType> {
             return East.value(kindParts(slot).fields as never, ScheduleKindType);
         },

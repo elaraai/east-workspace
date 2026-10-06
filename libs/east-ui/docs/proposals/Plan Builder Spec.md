@@ -635,6 +635,33 @@ has a test there. `Plan Spec.md`'s own rules keep holding in the canvas.
 - **PB18.** A reviewed kind's rows carry the decision column, and an event's
   verdict shows on its element.
 
+As built (#1192):
+
+- The rows are the payload's `blocks`, `(from, to, drafts) →
+  Option<Plan.Types.Blocks>`: one block per resource kind, then the Unassigned
+  rows' block, every block fixed, so a paged canvas serves them with every
+  window and draws them once. The canvas reads them over its window and the
+  periods it lays out beyond each edge, again when a record they read
+  commits, and keeps the last rows while a read is in flight or has failed;
+  a failure is said on the toolbar.
+- A resource kind's rows are a `Plan.series.views` over its resources, keyed
+  by its slot: a member per draw (`<slot>.<draw>`), then the measures. `group`
+  puts strips (`<slot>.group`) over it. `parent` nests; a parent naming no
+  resource of the kind, or a resource on a cycle of parents, draws at the top.
+- An element's key is its event's `Schedule.Types.EventRef` as East prints
+  it. A link's event end (`Plan.eventRef`) is found where the event draws, and
+  its ribbon meets the element: a bar's or a chip's end, a tile's bucket, a
+  mark's instant.
+- An event whose resource names a resource its kind does not have draws on
+  the Unassigned row too. A kind's Unassigned row is `entry { series:
+  "<kind>.unassigned", path: [draw] }`, labelled "Unassigned" with the kind's
+  name as its sub line, while the kind has such events in the window.
+- Refused at build: a resource kind no event kind is placed on and with no
+  measures, and a key the event rows take that a measure, a `data` series or a
+  `Plan.over` series also has (a measure keyed with its slot's name included).
+- A row's verdict is shown, not yet taken: its decision buttons are disabled
+  until the kinds' editing (PB49, #1194).
+
 ### 9.5 Frame and toolbar (owner: the Plan's frame and toolbar)
 
 - **PB19.** The Plan is a `BuilderFrame` (toolbar, banners, the library as
