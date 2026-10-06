@@ -10,11 +10,13 @@
  * service, rendered by the real component — the Sheet in its frame (#1216).
  * Writing the dataset moves the source to the new content hash, and the
  * component swaps each row's content in place: the row element survives, and
- * the old rows stay on screen until the new revision's window lands.
+ * the old rows stay on screen until the new revision's window lands. And a
+ * Sheet's first edit drafts at once: the entry it reads before drafting is
+ * answered from the window it shows, never fetched on its own (#1217).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     DictType, East, StringType, StructType, compareFor, encodeBeast2For, none, printFor, some, toEastTypeValue, variant,
@@ -70,9 +72,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 function standInServer(initial: Content) {
     const state = { content: initial, held: new Map<string, { promise: Promise<void>; resolve: () => void }>() };
     const watchers: ((hash: string | null) => void)[] = [];
+    /** Every window asked for, as `offset+limit@hash`. */
+    const requests: string[] = [];
     const api: PagedApi = {
         async getRevision() { return state.content.hash; },
         async getPage(_ws, _path, window): Promise<DatasetPage> {
+            requests.push(`${window.offset}+${window.limit}@${window.hash ?? ""}`);
             const gate = state.held.get(window.hash ?? "");
             if (gate !== undefined) await gate.promise;
             if (window.hash !== undefined && window.hash !== state.content.hash) {
@@ -94,6 +99,7 @@ function standInServer(initial: Content) {
     };
     return {
         api,
+        requests,
         /** Write the dataset: new content under a new hash, its pages held back. */
         write(next: Content) {
             state.held.set(next.hash, deferred());
@@ -232,6 +238,12 @@ function sheetOver(handle: Record<string, unknown>): SheetValue {
     return East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never);
 }
 
+/** The same Sheet with an Apply of the host's, so a gesture drafts (#1217). */
+const editedProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, ($, machines) => {
+    const apply = $.const(East.function([Sheet.Types.ChangeSet(Machine)], Sheet.Types.ApplyResult, (_$, _batch) => variant("applied", { revision: none })));
+    return Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0, onApply: apply });
+});
+
 describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
     test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
         const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
@@ -262,5 +274,35 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
         expect(container.querySelector('[data-row-id="m1"]')).toBe(row);
+    });
+
+    test("a first edit drafts at once: the entry it reads is answered from the window the sheet shows, never fetched on its own (#1217)", async () => {
+        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
+        initializePagedApi(server.api, "ws");
+        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
+        const value = East.compile(editedProgram, getRegisteredPlatformImplementations())(handle as never);
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraSheet value={value} storageKey="e3-1217-sheet" />
+            </ChakraProvider>,
+        );
+        await screen.findByText("A-M1");
+        await settle();
+        const asked = [...server.requests];
+
+        fireEvent.doubleClick(container.querySelector('[data-row-id="m1"] [data-key="label"]')!);
+        await settle();
+        const input = container.querySelector('[data-slot="editorInput"]')!;
+        fireEvent.input(input, { target: { value: "A-M1, checked" } });
+        await settle();
+        fireEvent.keyDown(input, { key: "Enter" });
+        await settle();
+
+        // Drafted: the row marked, its cell the edit, Apply on.
+        expect(container.querySelector('[data-row-id="m1"][data-draft]')).not.toBeNull();
+        expect(container.querySelector('[data-row-id="m1"] [data-key="label"]')!.textContent).toBe("A-M1, checked");
+        expect((screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(false);
+        // The service was asked for the sheet's window, and for nothing since.
+        expect(server.requests).toEqual(asked);
     });
 });

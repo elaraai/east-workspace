@@ -30,6 +30,11 @@
  * revision it belongs to, plus one per dataset for its revision, which every
  * read tracks.
  *
+ * A window a landed one covers is never fetched (#1217): its rows are that
+ * window's, at the same revision, so the read is answered from it and keeps
+ * the answer in its own channel. A sheet reads an entry it is about to draft
+ * as a one-element window, beside the windows it draws.
+ *
  * The dataset store's CONTENT is deliberately not used: it holds whole values,
  * and a paged source is precisely the thing you cannot hold whole. A source
  * rides the store's status poll for hashes alone, through
@@ -42,6 +47,7 @@
 import {
     East,
     SortedMap,
+    SortedSet,
     compareFor,
     fromEastTypeValue,
     type EastType,
@@ -212,6 +218,11 @@ interface PageEntry {
     launchSeq: number;
     /** The decoded window — a value of the dataset's own type. */
     window?: unknown;
+    /** A landed window's place: its family (the source, its rows and the
+     *  revision), its first element's offset, and how many elements it holds —
+     *  a window the server trimmed holds fewer than it asked for. A read it
+     *  covers is answered from it (#1217). */
+    span?: WindowSpan;
     /** Total elements in the source, learned from any landed window. */
     total?: number;
     /** Where a key query landed — the answer on a seek channel. */
@@ -222,6 +233,60 @@ interface PageEntry {
     failedAtMs?: number;
     /** No retry can help while the source holds the same content. */
     permanent?: boolean;
+}
+
+/** Where a landed window sits in its source's row space (#1217). */
+interface WindowSpan {
+    /** The window's family — {@link pagedWindowFamily}: a read of another
+     *  family is never answered from it. */
+    readonly family: string;
+    /** Its first element's offset. */
+    readonly offset: number;
+    /** How many elements it holds. */
+    readonly count: number;
+}
+
+/**
+ * How many elements a decoded window holds, by the source's collection type;
+ * `undefined` for a type a window is not cut from.
+ *
+ * @param sourceType - The source's type: an Array, Dict or Set
+ * @param window - A decoded window of it
+ * @returns The element count
+ */
+function elementCount(sourceType: EastTypeValue, window: unknown): number | undefined {
+    switch (sourceType.type) {
+        case "Array": return (window as readonly unknown[]).length;
+        case "Dict": return (window as ReadonlyMap<unknown, unknown>).size;
+        case "Set": return (window as ReadonlySet<unknown>).size;
+        default: return undefined;
+    }
+}
+
+/**
+ * Elements `[from, from + count)` of a decoded window, as a value of the
+ * source's own type: an Array's slice, or a Dict's or a Set's entries in
+ * their key order, under the key type's own comparator (#1217).
+ *
+ * @param sourceType - The source's type: an Array, Dict or Set
+ * @param window - A decoded window of it
+ * @param from - The first element, counted from the window's start
+ * @param count - How many elements
+ * @returns The cut, or `undefined` for a type a window is not cut from
+ */
+function cutWindow(sourceType: EastTypeValue, window: unknown, from: number, count: number): unknown {
+    switch (sourceType.type) {
+        case "Array": return (window as readonly unknown[]).slice(from, from + count);
+        case "Dict": {
+            const keyType = fromEastTypeValue((sourceType.value as { key: EastTypeValue }).key);
+            return new SortedMap([...(window as ReadonlyMap<unknown, unknown>)].slice(from, from + count), compareFor(keyType));
+        }
+        case "Set": {
+            const elementType = fromEastTypeValue(sourceType.value as EastTypeValue);
+            return new SortedSet([...(window as ReadonlySet<unknown>)].slice(from, from + count), compareFor(elementType));
+        }
+        default: return undefined;
+    }
 }
 
 /** What every bind of one dataset shares: the content its reads are pinned to. */
@@ -384,11 +449,17 @@ export function pagedRevisionKey(workspace: string, path: TreePath): string {
     return `paged:${workspace}:${datasetPathToString(path)}#revision`;
 }
 
+/** The family a window belongs to: its dataset, the rows it serves and its
+ *  revision — every window one landed window can answer for (#1217). */
+function pagedWindowFamily(workspace: string, path: TreePath, revision: string, selector: PagedSelector): string {
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}`;
+}
+
 /** Tracked-channel key for one window of one revision. */
 export function pagedWindowKey(
     workspace: string, path: TreePath, revision: string, offset: number, limit: number, selector: PagedSelector = NO_INDEX,
 ): string {
-    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#${offset}+${limit}`;
+    return `${pagedWindowFamily(workspace, path, revision, selector)}#${offset}+${limit}`;
 }
 
 /** Tracked-channel key for one revision's element total. */
@@ -824,10 +895,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 console.error(`Data.bindPaged: decode failed for ${key}:`, err);
                 return;
             }
+            const count = elementCount(sourceType, decoded);
             const landed = this.settle(key, seq, (e) => {
                 e.status = "loaded";
                 e.window = decoded;
                 e.total = page.totalElements;
+                // Where it sits, by what it holds — a read it covers is answered from it (#1217).
+                if (count !== undefined) e.span = { family: pagedWindowFamily(workspace, path, revision, selector), offset, count };
                 delete e.error;
             });
             if (!landed) return;
@@ -843,6 +917,42 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             }
         })();
         return entry;
+    }
+
+    /**
+     * Answer a window from a landed one of its family that covers it — the
+     * same rows at the same revision (#1217): the cut lands in the window's
+     * own channel, so it keeps one identity, and nothing is fetched. The
+     * channel is the snapshot's, so a move drops the cut with every window.
+     *
+     * @param sourceType - The source's type
+     * @param snapshot - The source's snapshot
+     * @param family - The window's family
+     * @param offset - The window's first element
+     * @param limit - How many elements it asks for
+     * @param into - The window's channel, not loaded
+     */
+    private cutFromCovering(
+        sourceType: EastTypeValue, snapshot: Snapshot, family: string, offset: number, limit: number, into: PageEntry,
+    ): void {
+        for (const key of snapshot.channels) {
+            const covering = this.entries.get(key);
+            const span = covering?.span;
+            if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined || span === undefined) continue;
+            if (span.family !== family || span.offset > offset || offset + limit > span.offset + span.count) continue;
+            const cut = cutWindow(sourceType, covering.window, offset - span.offset, limit);
+            if (cut === undefined) return;
+            into.status = "loaded";
+            into.window = cut;
+            if (covering.total !== undefined) into.total = covering.total;
+            into.span = { family, offset, count: limit };
+            delete into.error;
+            delete into.failedAtMs;
+            delete into.permanent;
+            // The covering window was read, through its cut.
+            this.touchWindow(key);
+            return;
+        }
     }
 
     /** Start the pinned fence search for one key query if it is due one,
@@ -900,9 +1010,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const limit = Number(limitArg as bigint);
                     const key = pagedWindowKey(workspace, path, revision, offset, limit, selector);
                     this.track(key);
-                    const entry = this.ensureWindow(
-                        sourceType, workspace, path, this.snapshotOf(workspace, path), revision, offset, limit, selector, key,
-                    );
+                    const snapshot = this.snapshotOf(workspace, path);
+                    // A window a landed one covers is answered from it, never fetched (#1217).
+                    const own = this.channel(snapshot, key);
+                    if (own.status !== "loaded") {
+                        this.cutFromCovering(sourceType, snapshot, pagedWindowFamily(workspace, path, revision, selector), offset, limit, own);
+                    }
+                    const entry = this.ensureWindow(sourceType, workspace, path, snapshot, revision, offset, limit, selector, key);
                     if (entry.status === "loaded" && entry.window !== undefined) this.touchWindow(key);
                     return this.answer(entry, entry.window);
                 }),
