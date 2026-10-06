@@ -289,8 +289,8 @@ export async function deleteWorkspace(
  * @param repoPath - Repository identifier
  * @param repo - The repository's name, which the job is filed under
  * @param workspace - Workspace name
- * @param request - The package, and what the deploy does with a record it
- *   cannot keep as it is
+ * @param request - The package, what the deploy does with a record it cannot
+ *   keep as it is, and with an input someone set
  * @param deployStore - Where the job is filed, and dispatched from
  * @returns The response: the job's id, or the error
  */
@@ -316,6 +316,7 @@ export async function startWorkspaceDeploy(
       packageName: name,
       packageVersion: version,
       schema: request.schema,
+      inputs: request.inputs,
       allowDropRecords: request.allowDropRecords,
       plan: request.plan,
       status: variant('processing', variant('pending', null)),

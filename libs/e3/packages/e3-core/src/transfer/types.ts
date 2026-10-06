@@ -23,8 +23,8 @@ import {
   type ValueTypeOf,
 } from '@elaraai/east';
 import {
-  GcRequestType, GcStatusResultType, IntakeFileType, PackageImportProgressType, PackageExportProgressType, SchemaPolicyType,
-  SplitCallPlanType, SplitCallProgressType, TreePathType, WorkspaceDeployStatusType,
+  GcRequestType, GcStatusResultType, InputPolicyType, IntakeFileType, PackageImportProgressType, PackageExportProgressType,
+  SchemaPolicyType, SplitCallPlanType, SplitCallProgressType, TreePathType, WorkspaceDeployStatusType,
 } from '@elaraai/e3-types';
 import { SplitCallOutcomeType } from '../execution/splitCall.js';
 export { PackageImportProgressType, PackageExportProgressType };
@@ -158,6 +158,7 @@ export const WorkspaceDeployJobType = StructType({
   packageName: StringType,
   packageVersion: StringType,
   schema: SchemaPolicyType,
+  inputs: InputPolicyType,
   allowDropRecords: BooleanType,
   plan: BooleanType,
   status: WorkspaceDeployStatusType,

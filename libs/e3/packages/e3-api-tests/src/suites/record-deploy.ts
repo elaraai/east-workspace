@@ -172,7 +172,7 @@ export function recordDeployTests(setup: TestSetup<TestContext>): void {
       // as often as it moves; the migration runs on the runner, which takes a
       // while to start.
       const { id } = await call(`${base}/deploy`, 'POST', PackageJobResponseType, opts, encodeBeast2For(WorkspaceDeployRequestType)({
-        packageRef: `${PKG}@2.0.0`, schema: variant('migrate', null), allowDropRecords: false, plan: false,
+        packageRef: `${PKG}@2.0.0`, schema: variant('migrate', null), inputs: variant('reset', null), allowDropRecords: false, plan: false,
       }));
       const reported: DeployProgress[] = [];
       const held: LockStatus[] = [];

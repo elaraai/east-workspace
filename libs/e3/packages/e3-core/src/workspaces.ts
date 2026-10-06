@@ -27,8 +27,8 @@ import {
   E3_RELEASE, ExecutionStatusType, PackageObjectType, WorkspaceRecordType, decodePackageObject, decodeRecordObject, isCollectionRoot,
 } from '@elaraai/e3-types';
 import type {
-  DatasetRef, DeployProgress, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState, RecordDeployStep, RecordIndexPlan,
-  RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
+  DatasetRef, DeployProgress, InputPlan, InputPolicy, IntakeFile, IntakeStep, LockStatus, PackageObject, RecordDeployState,
+  RecordDeployStep, RecordIndexPlan, RecordObject, RecordPlan, SchemaPolicy, WorkspaceState, TreePath,
 } from '@elaraai/e3-types';
 import type { DatasetAdoptProgress, DatasetTaken, ObjectAdoptResult } from './dataset-adopt.js';
 import { eachAtMost } from './concurrency.js';
@@ -50,6 +50,7 @@ import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, recordLeafType } from './records.js';
 import { planRecordDeployments, recordDeployCommits, runRecordMigrations, type PriorDeployment } from './record-deploy.js';
+import { planInputDeployments, refsKeepingInputs } from './input-deploy.js';
 import { withRunningWork } from './running-work.js';
 
 /**
@@ -331,6 +332,18 @@ export interface WorkspaceDeployOptions {
    */
   schema?: SchemaPolicy;
   /**
+   * What the deploy does with an input someone set — one whose value in the
+   * workspace is not the value the deployed package gave it: give it the new
+   * package's value (`reset`), or keep it while its type is the new package's
+   * (`keep-edited`). An input the new package takes from a file takes its
+   * file under either, and one the deployed package took from a file takes
+   * the new package's value under either, since a value set since cannot be
+   * told from the file's.
+   *
+   * @defaultValue 'reset'
+   */
+  inputs?: InputPolicy;
+  /**
    * Whether a record the package no longer declares may be dropped, with its
    * state and history. Without it the deploy is refused.
    *
@@ -338,9 +351,9 @@ export interface WorkspaceDeployOptions {
    */
   allowDropRecords?: boolean;
   /**
-   * Say what the deploy would do, through {@link onRecordPlan} and
-   * {@link onRecordIndex}, and write nothing. A plan with refusals reports
-   * them rather than throwing.
+   * Say what the deploy would do, through {@link onRecordPlan},
+   * {@link onRecordIndex} and {@link onInputPlan}, and write nothing. A plan
+   * with refusals reports them rather than throwing.
    *
    * @defaultValue false
    */
@@ -365,6 +378,16 @@ export interface WorkspaceDeployOptions {
    * before a deploy over a large record takes minutes.
    */
   onRecordIndex?: (plan: RecordIndexPlan) => void;
+  /**
+   * Called once per input the deploy touches, with what it decided:
+   * `package`, `keep`, `reset`, `file` or `drop`.
+   *
+   * @remarks
+   * Called before the deploy writes anything, as {@link onRecordPlan} is: an
+   * input someone set that the deploy resets is the part of a release that
+   * loses what a person typed.
+   */
+  onInputPlan?: (plan: InputPlan) => void;
   /**
    * External workspace lock to use. If provided, the caller is responsible
    * for releasing the lock after the operation. If not provided, workspaceDeploy
@@ -519,7 +542,9 @@ const NO_FILES: DeployFiles = {
  *
  * Creates the workspace if it doesn't exist. Writes state file atomically
  * containing deployment info. Initializes per-dataset ref files from the
- * package's data/ directory.
+ * package's data/ directory: each input takes the package's value, or under
+ * `inputs: 'keep-edited'` keeps the one someone set while its type is the
+ * package's.
  *
  * Acquires a workspace lock to prevent conflicts with running dataflows
  * or concurrent deploys. Throws WorkspaceLockError if the workspace is
@@ -603,6 +628,12 @@ export async function workspaceDeployWith(
       storage, repo, pkg, packageHash, prior, options.schema ?? 'migrate', options.allowDropRecords ?? false,
     );
     for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
+    // Each input someone set is read now, under the lock, before the wipe
+    // below takes the workspace's refs with it.
+    const inputs = await planInputDeployments(
+      storage, repo, name, pkg, prior?.package ?? null, options.inputs ?? 'reset', options.resolveFileSources ?? true,
+    );
+    for (const input of inputs) options.onInputPlan?.(input.plan);
     const refusals = deployments.flatMap(({ plan }) =>
       plan.action.type === 'refused' ? [{ record: plan.record, reason: plan.action.value.reason }] : []);
     if (refusals.length > 0 && options.plan !== true) throw new RecordDeployRefusedError(refusals);
@@ -715,8 +746,9 @@ export async function workspaceDeployWith(
         // Remove any existing dataset refs
         await storage.datasets.removeAll(repo, name);
 
-        // Initialize per-dataset ref files from the package
-        await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+        // Initialize per-dataset ref files from the package, each input the
+        // deploy keeps holding the ref the workspace held
+        await writeRefsFromPackage(storage, repo, name, pkg.data.structure, refsKeepingInputs(pkg.data.refs, inputs));
 
         // Commit what was decided for each record: a minted one's `$init`, a
         // kept one's history with a `$deploy` commit when the package changed,
@@ -936,8 +968,9 @@ function validateDatasetSources(
 
 /**
  * The workspace's deployment as a deploy over it finds it: the package it has
- * deployed, and each of that package's records with the ref the workspace
- * holds and the type the package declares.
+ * deployed, whose inputs the deploy compares the workspace's with, and each of
+ * that package's records with the ref the workspace holds and the type the
+ * package declares.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -977,7 +1010,7 @@ async function readPriorDeployment(
     const type = recordLeafType(priorPkg.data.structure, recObj.path);
     if (ref && ref.type === 'value' && type) records.set(recObj.path, { ref: ref.value, type });
   }
-  return { packageHash: record.value.packageHash, records };
+  return { packageHash: record.value.packageHash, package: priorPkg, records };
 }
 
 /**

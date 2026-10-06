@@ -300,7 +300,7 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 | GET | `/api/repos/:repo/workspaces/:ws` | Get workspace info |
 | GET | `/api/repos/:repo/workspaces/:ws/status` | Get workspace status (datasets, tasks, summary). With `?path=` (repeated, each a dataset's keypath, `.inputs.x`), only those datasets and the tasks producing them, each as the whole status gives it: a path that names no dataset is left out, and one that is no keypath is refused 400 `bad_request` |
 | POST | `/api/repos/:repo/workspaces/:ws/deploy` | Start deploying a package to the workspace, as a job: answers the job's id |
-| GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record and index, or why it failed |
+| GET | `/api/repos/:repo/workspaces/:ws/deploy/:id` | Poll a deploy job: `processing` with how far it has got, what the deploy did for each record, index and input, or why it failed |
 | GET | `/api/repos/:repo/workspaces/:ws/lock` | What holds the workspace exclusively, and how far it says it has got; none when nothing does |
 | DELETE | `/api/repos/:repo/workspaces/:ws` | Remove workspace |
 | POST | `/api/repos/:repo/workspaces/:ws/export` | Start exporting the workspace as a package zip, as a job polled at `/api/repos/:repo/export/:id` |
@@ -308,9 +308,13 @@ All endpoints are prefixed with `/api/repos/:repo` where `:repo` is:
 A deploy that migrates a record, or builds an index over one, takes as long as
 the record is large, so it runs as a job, on the runner the server runs every
 record operation on. Its request names the package, what the deploy does with a
-record it cannot keep as it is (`schema`: `migrate`, `fail` or `reset`),
-whether it may drop a record the package no longer declares
-(`allowDropRecords`), and whether it only says what it would do (`plan`).
+record it cannot keep as it is (`schema`: `migrate`, `fail` or `reset`), what
+it does with an input someone set (`inputs`: `reset`, which gives it the
+package's value, or `keep-edited`, which keeps it while its type is the
+package's), whether it may drop a record the package no longer declares
+(`allowDropRecords`), and whether it only says what it would do (`plan`). The
+job's result says what it did with each input: gave it the package's value,
+kept it, reset it and why, took it from its file, or dropped it.
 
 While it runs, the job's `processing` says how far it has got: each file
 source's step, and each record's (waiting, migrating step n of m, building
