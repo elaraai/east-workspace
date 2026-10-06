@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
+import { EastTypeValueType, canonicalTypeValue, toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
 import type { EastType, ValueTypeOf } from "./types.js";
 import { isVariant, variant } from "./containers/variant.js";
 import { isFrozenValue } from "./frozen.js";
@@ -1258,4 +1258,42 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
   } else {
     throw new Error(`Unhandled type ${(type satisfies never as EastTypeValue).type}`);
   }
+}
+
+/** Two type values compared as data, their recursive ids as numbers: built on
+ *  first use. */
+let typeValueDataEqual: ((x: EastTypeValue, y: EastTypeValue) => boolean) | undefined;
+
+/**
+ * Whether two type values are one type, read by their structure: the
+ * comparison for types two builds made, such as a record's type in the package
+ * a workspace has deployed and in the package deployed over it.
+ *
+ * @remarks
+ * {@link isTypeValueEqual} takes two recursive types with one id as one type,
+ * without reading them. That is right within one build, whose process numbers
+ * each recursive type once, by its structure, and it keeps the type checker
+ * fast over a type as large as a UI component's. Two builds number their
+ * recursive types by their own counters, though, so a recursive type edited
+ * between two exports can keep its id. Here each type is renamed canonically
+ * ({@link canonicalTypeValue}), its wrappers numbered by where they stand, and
+ * the two are compared as values, so a difference inside a recursive type is a
+ * difference. It reads both types whole, so it suits a check made once, as a
+ * deploy's is.
+ *
+ * @param t1 - First type value
+ * @param t2 - Second type value
+ * @returns `true` when the two have one structure
+ *
+ * @example
+ * ```ts
+ * // A record's type, as the deployed package and the new one declare it
+ * if (!isTypeValueStructurallyEqual(held, declared)) {
+ *   throw new Error("the record changed type with no migration");
+ * }
+ * ```
+ */
+export function isTypeValueStructurallyEqual(t1: EastTypeValue, t2: EastTypeValue): boolean {
+  typeValueDataEqual ??= equalFor(EastTypeValueType);
+  return typeValueDataEqual(canonicalTypeValue(t1), canonicalTypeValue(t2));
 }

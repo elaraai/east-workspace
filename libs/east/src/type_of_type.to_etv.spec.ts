@@ -7,7 +7,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { toEastTypeValue, EastTypeValueType, canonicalTypeValue, isTypeValueEqual, type EastTypeValue } from "./type_of_type.js";
 import { variant } from "./containers/variant.js";
-import { equalFor } from "./comparison.js";
+import { equalFor, isTypeValueStructurallyEqual } from "./comparison.js";
 import {
   NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
   ArrayType, SetType, DictType, StructType, VariantType, RefType,
@@ -472,5 +472,46 @@ describe("canonicalTypeValue", () => {
   it("leaves a type without recursion as it was", () => {
     const type = toEastTypeValue(DictType(StringType, StructType({ xs: ArrayType(IntegerType), f: FunctionType([FloatType], BooleanType) })));
     assert.ok(typeEqual(canonicalTypeValue(type), type));
+  });
+});
+
+// Two builds number their recursive types by their own counters, so a type
+// edited between two exports can keep its id (#1225). isTypeValueEqual takes
+// one id as one type, as the type checker needs; a check across builds reads
+// the bodies.
+describe("isTypeValueStructurallyEqual", () => {
+  /** A tree of `head`s, its wrapper numbered `id`, as a build would number it. */
+  const tree = (id: bigint, head: EastTypeValue) => variant("Recursive", variant("wrapper", {
+    id,
+    inner: variant("Struct", [
+      { name: "head", type: head },
+      { name: "kids", type: variant("Array", variant("Recursive", variant("ref", id))) },
+    ]),
+  })) as EastTypeValue;
+  /** Trees inside another recursive type: the wrappers numbered `outer` and `inner`. */
+  const forest = (outer: bigint, inner: bigint, head: EastTypeValue) => variant("Recursive", variant("wrapper", {
+    id: outer,
+    inner: variant("Struct", [
+      { name: "trees", type: tree(inner, head) },
+      { name: "next", type: variant("Array", variant("Recursive", variant("ref", outer))) },
+    ]),
+  })) as EastTypeValue;
+  const integer = variant("Integer", null) as EastTypeValue;
+  const string = variant("String", null) as EastTypeValue;
+
+  it("finds a difference inside a recursive type that kept its id, which isTypeValueEqual does not read", () => {
+    assert.ok(isTypeValueEqual(tree(3n, integer), tree(3n, string)), "within a build, one id is one type");
+    assert.ok(!isTypeValueStructurallyEqual(tree(3n, integer), tree(3n, string)));
+    assert.ok(!isTypeValueStructurallyEqual(tree(0n, integer), tree(0n, string)), "both renamed canonically");
+    assert.ok(!isTypeValueStructurallyEqual(tree(3n, integer), tree(9n, string)), "ids that differ");
+    assert.ok(!isTypeValueStructurallyEqual(forest(1n, 2n, integer), forest(1n, 2n, string)), "inside a nested recursive type");
+  });
+
+  it("takes one structure as one type, whatever ids its wrappers carry", () => {
+    assert.ok(isTypeValueStructurallyEqual(tree(3n, integer), tree(3n, integer)));
+    assert.ok(isTypeValueStructurallyEqual(tree(3n, integer), tree(9n, integer)));
+    assert.ok(isTypeValueStructurallyEqual(forest(1n, 2n, integer), forest(5n, 0n, integer)));
+    const Tree = RecursiveType(self => StructType({ head: IntegerType, kids: ArrayType(self) }));
+    assert.ok(isTypeValueStructurallyEqual(toEastTypeValue(Tree), tree(0n, integer)), "a type built here and one read off the wire");
   });
 });

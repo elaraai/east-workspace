@@ -713,7 +713,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 | present, not in the package | — | `drop`: refused unless `--allow-drop-records` |
 
 - **The chain must start where the workspace is.** The stored state's type must be the first remaining step's input type, so a chain that does not start there fails before anything runs.
-- **Type comparison.** Types compare up to how recursive wrappers are named (`isTypeValueEqual`), as the store's door compares them, since a wrapper's id is the exporting process's.
+- **Type comparison.** Types compare by their structure (`isTypeValueStructurallyEqual`). The package deployed and the one deploying over it are two builds, each numbering its recursive types by its own counter, so a recursive type edited between them can keep its id; `isTypeValueEqual` takes one id as one type without reading it, which is right within one build, as in the type checker.
 - **Every refusal at once.** A deploy names every record it refuses, each with its fix.
 - **A prior deployment that does not read** is refused, naming the fix: remove the workspace and deploy again.
 
@@ -728,7 +728,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 
 **Inputs** (`input-deploy.ts`). A deploy plans each input too — a dataset its package marks writable, which people set — before it writes, and its plan (`InputPlanType`) says what it does with each. Someone set an input when the workspace holds a value other than the one the deployed package gave it.
 - An input as the deployed package set it, or new to the package, takes the new package's value (`package`).
-- One someone set whose type changed takes the new package's value under either policy, the plan rendering the type diff (`reset`). Types compare as a record's do (`isTypeValueEqual`).
+- One someone set whose type changed takes the new package's value under either policy, the plan rendering the type diff (`reset`). Types compare as a record's do (`isTypeValueStructurallyEqual`).
 - One someone set takes the new package's value too under `inputs: 'reset'`, the default, and the plan says the policy alone reset it (`reset`, its `policy` true), which the CLI follows with `--inputs keep-edited`. Under `'keep-edited'` it is kept, its ref as the workspace holds it (`keep`).
 - One the deployed package took from a file holds the file's value or one set since, and nothing records which: the deploy wrote the one, `e3 dataset set` the other, each a ref whose version vector names its own hash. So one the workspace holds a value for takes the new package's value under either policy, and the plan says why (`reset`).
 - One the new package takes from a file takes its file (`file`). A deploy that reads no file (`resolveFileSources: false`, a server's) leaves it unassigned for its client to complete, and the plan says so (`taken` false).
