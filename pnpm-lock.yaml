@@ -730,6 +730,9 @@ importers:
       minisearch:
         specifier: ^7.1.2
         version: 7.2.0
+      zod:
+        specifier: ^3.0.0
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^22.18.1
@@ -740,9 +743,6 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
-      zod:
-        specifier: ^3.0.0
-        version: 3.25.76
 
   libs/east-py/packages/east-py-datascience:
     dependencies:
