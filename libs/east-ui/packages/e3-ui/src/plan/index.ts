@@ -43,9 +43,10 @@
  * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts` (the
  * canvas's root, the internal namespace's `Plan.Root`) · `plan.ts` (`<Plan>`
  * itself, its payload and its `Plan` carrier, #1191) with `over.ts`
- * (`Plan.over`, read-only rows over a dataset) and `refs.ts`
- * (`Plan.eventRef`, an event named for a link's end). The event kinds a Plan
- * takes are `Schedule`'s (`src/schedule/`).
+ * (`Plan.over`, read-only rows over a dataset), `refs.ts` (`Plan.eventRef`,
+ * an event named for a link's end) and `library.ts` (`Plan.library`, the
+ * library pane's tabs, #1195). The event kinds a Plan takes are `Schedule`'s
+ * (`src/schedule/`).
  *
  * `Plan` is the tag and the namespace at once, as east-ui's `Table` and the
  * Sheet are.
@@ -178,6 +179,7 @@ import { createPlanPick, createPlanPickItems } from "./pick.js";
 import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./plan.js";
 import { createOver } from "./over.js";
 import { createEventRef } from "./refs.js";
+import { libraryBacklog, libraryEvents, librarySeries, libraryTab } from "./library.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -316,6 +318,20 @@ export {
 } from "./plan.js";
 export { createOver, type PlanOverRows } from "./over.js";
 export { createEventRef, eventRefKind } from "./refs.js";
+export {
+    PlanLibraryCardType,
+    PlanLibraryHidesType,
+    PlanLibraryRowsItemType,
+    PlanLibrarySeriesType,
+    PlanLibraryTabType,
+    libraryBacklog,
+    libraryEvents,
+    librarySeries,
+    libraryTab,
+    planHideId,
+    type PlanLibraryTab,
+    type PlanLibraryTabConfig,
+} from "./library.js";
 export {
     resolvePlanEventState,
     resolveInstant,
@@ -473,6 +489,17 @@ export interface PlanNamespace extends PlanTagType {
     eventRef: typeof createEventRef;
     /** Series over a dataset, read only, for a Plan's `rows` — `Plan.over(data, [series…])` (#1191). */
     over: typeof createOver;
+    /** The library pane's tabs, for a Plan's `library`, in its order (#1195). */
+    library: {
+        /** Every event kind's templates, by kind — `Plan.library.events()`. */
+        events: typeof libraryEvents;
+        /** Every event kind's unscheduled events, by when they are due — `Plan.library.backlog()`. */
+        backlog: typeof libraryBacklog;
+        /** What the canvas shows that a viewer can hide, each with an eye — `Plan.library.series()`. */
+        series: typeof librarySeries;
+        /** Cards of the author's own, one per row — `Plan.library.tab(rows, { name, label, … })`. */
+        tab: typeof libraryTab;
+    };
     /** Builds one span run. */
     run: typeof createRun;
     /** Builds one decision diamond. */
@@ -691,6 +718,12 @@ const PLAN_MEMBERS = {
     sectionRef: createSectionRef,
     eventRef: createEventRef,
     over: createOver,
+    library: {
+        events: libraryEvents,
+        backlog: libraryBacklog,
+        series: librarySeries,
+        tab: libraryTab,
+    },
     run: createRun,
     decision: createDecision,
     port: createPort,
@@ -822,6 +855,9 @@ const PLAN_MEMBERS = {
  *   `events` / `group`); every East type is on `Plan.Types.*`.
  * - **Links** join runs (`Plan.ref(series, …path)` and the run's key) or
  *   events (`Plan.eventRef(kind, key)`).
+ * - **The library** (`library`) is the start pane's tabs, in its order:
+ *   `Plan.library.events()`, `backlog()`, `series()` and `tab(rows, { … })`,
+ *   cards of the author's own. Left out, there is no library pane.
  *
  * The Plan fills its parent and draws no border of its own. `id` keeps two
  * Plans on one surface apart. The tag is generic in the canvas's axis kind,

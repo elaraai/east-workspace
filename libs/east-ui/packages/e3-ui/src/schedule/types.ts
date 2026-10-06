@@ -153,6 +153,19 @@ export const ScheduleItemType = StructType({
 export type ScheduleItemType = typeof ScheduleItemType;
 
 /**
+ * One field written into an event: its path, and its new value as bytes at
+ * the field's type — what an inspector edit writes, and each field a library
+ * card's drop sets (#1195).
+ *
+ * @property path - The field's path, a step per struct
+ * @property value - Its new value, as bytes at the field's type
+ */
+export const ScheduleFieldWriteType = StructType({ path: ArrayType(StringType), value: BlobType });
+
+/** Type representing {@link ScheduleFieldWriteType}. */
+export type ScheduleFieldWriteType = typeof ScheduleFieldWriteType;
+
+/**
  * One gesture, as `write` takes it.
  *
  * @property place - A move, a resize or a schedule: the start, the end and the resource
@@ -163,7 +176,7 @@ export type ScheduleItemType = typeof ScheduleItemType;
 export const ScheduleGestureType = VariantType({
     place: StructType({ start: DateTimeType, end: DateTimeType, resource: OptionType(ScheduleResourceRefType) }),
     unplace: NullType,
-    field: StructType({ path: ArrayType(StringType), value: BlobType }),
+    field: ScheduleFieldWriteType,
     create: StructType({ template: StringType, start: DateTimeType, end: DateTimeType, resource: OptionType(ScheduleResourceRefType) }),
 });
 

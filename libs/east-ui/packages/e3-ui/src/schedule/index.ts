@@ -17,6 +17,8 @@
  *   Plan's options sit beside the Calendar's (#1190): how a kind draws, an
  *   instant kind's `at`, and its roles' fields.
  * - `Schedule.field`: the inspector's typed form, east-ui's `Fields`.
+ * - `Schedule.patch`: what a library card dropped on an event sets, a patch
+ *   over an event kind's row type (#1195).
  * - `Schedule.days` and `Schedule.unscheduled`: the keys a large record's day
  *   index and backlog index file an event under.
  * - `Schedule.Types`: what an author meets.
@@ -33,6 +35,7 @@ import { StringType, isTypeEqual, printType, type EastType } from "@elaraai/east
 import { Fields, type FieldsNamespace } from "@elaraai/east-ui";
 import { scheduleDays, scheduleUnscheduled } from "./days.js";
 import { scheduleEvents, type ScheduleEventKind } from "./events.js";
+import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
@@ -52,6 +55,7 @@ export {
 } from "./events.js";
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from "./resources.js";
 export { scheduleDays, scheduleUnscheduled } from "./days.js";
+export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from "./patch.js";
 
 /**
  * The checks a builder makes across its slots: at least one event kind;
@@ -105,6 +109,8 @@ export interface ScheduleNamespace {
     resources: typeof scheduleResources;
     /** The inspector's typed form: east-ui's `Fields`. */
     field: FieldsNamespace;
+    /** What a library card dropped on an event sets: a patch over an event kind's row type, every field an `Option`. */
+    patch: typeof schedulePatch;
     /** The days an event touches: what a day index files it under. */
     days: typeof scheduleDays;
     /** What a backlog index files a row under: its due date while it has no start. */
@@ -125,6 +131,8 @@ export interface ScheduleNamespace {
         Duration: typeof ScheduleDurationType;
         /** Where a drop would put an event: what a builder's `canDrop` is asked. */
         Candidate: typeof ScheduleCandidateType;
+        /** `Patch(R)`: a patch over an event kind's row type, every field an `Option` — what `Schedule.patch` builds. */
+        Patch: typeof SchedulePatchTypeFor;
     };
 }
 
@@ -136,6 +144,7 @@ export const Schedule: ScheduleNamespace = {
     events: scheduleEvents,
     resources: scheduleResources,
     field: Fields,
+    patch: schedulePatch,
     days: scheduleDays,
     unscheduled: scheduleUnscheduled,
     Types: {
@@ -146,6 +155,7 @@ export const Schedule: ScheduleNamespace = {
         Clock: ScheduleClockType,
         Duration: ScheduleDurationType,
         Candidate: ScheduleCandidateType,
+        Patch: SchedulePatchTypeFor,
     },
 };
 

@@ -61,6 +61,12 @@ export type PlanMarkWord = "milestone" | "decision" | "exception";
 /** A links-focus family tag (R1). */
 export type PlanFocusTagWord = "UPSTREAM" | "DOWNSTREAM" | "LINKED";
 
+/** A tab of the library pane (#1195): the templates, the backlog, the series, or one of the author's own. */
+export type PlanLibraryTabWord = "events" | "backlog" | "series" | "tab";
+
+/** When a backlog event is due, as the Backlog tab groups it (PB28). */
+export type PlanDueWord = "thisWeek" | "nextWeek" | "later" | "none";
+
 /**
  * The Plan's message table.
  *
@@ -147,6 +153,32 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     footerToReview: (p: { n: number; count: string }) => string;
     /** When an event kind's record was last saved — `saved 14:02`: `when` is its time today, else its date and time. */
     footerSaved: (p: { when: string }) => string;
+
+    // ── The library pane (#1195) ───────────────────────────────────────────
+    /** The library pane's name. */
+    libraryPane: () => string;
+    /** A library tab — the author names their own tabs. */
+    libraryTab: (p: { tab: Exclude<PlanLibraryTabWord, "tab"> }) => string;
+    /** A library tab's empty state: its title — `No templates`, `Backlog clear`, `Nothing in Customers` (PB30); `name` is an author's tab's. */
+    libraryEmpty: (p: { tab: PlanLibraryTabWord; name: string }) => string;
+    /** The line under it. */
+    libraryEmptyHint: (p: { tab: PlanLibraryTabWord; name: string }) => string;
+    /** What a library tab's search box counts its cards as — `template`, `templates`. */
+    libraryNoun: (p: { tab: PlanLibraryTabWord; n: number }) => string;
+    /** What a library tab's cards are grouped by: its grouping control's words. */
+    libraryGroupBy: (p: { tab: PlanLibraryTabWord }) => string;
+    /** A template card's head: its kind's name, then the template's `group` (PB27) — `Print job · Jobs`. */
+    templateGroup: (p: { kind: string; group: string | undefined }) => string;
+    /** A template card's line — `Print job · 6 h · presses`: its kind's name, how long it runs (an instant kind's runs none), and the resource kinds it is placed on. */
+    templateLine: (p: { kind: string; duration: string | undefined; resources: readonly string[] }) => string;
+    /** A backlog card's line — `6 h · Press A · due Fri 16`: how long it takes, the resource it is on (`undefined`, on none), and when it is due. */
+    backlogLine: (p: { duration: string; resource: string | undefined; due: string | undefined }) => string;
+    /** When a backlog event is due — `due Fri 16`: `weekday` and `day` are its day's, formatted. */
+    backlogDue: (p: { weekday: string; day: string }) => string;
+    /** A backlog group, by when its events are due (PB28) — `Due this week`. */
+    dueGroup: (p: { due: PlanDueWord }) => string;
+    /** How long something takes — `6 h`, `2 h 15 m`, `45 m`: `hours` and `minutes` formatted, each `undefined` when it is none. */
+    duration: (p: { hours: string | undefined; minutes: string | undefined }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -420,6 +452,28 @@ export const planMessages: PlanMessages = {
     footerPending: ({ count }) => `${count} pending`,
     footerToReview: ({ count }) => `${count} to review`,
     footerSaved: ({ when }) => `saved ${when}`,
+
+    libraryPane: () => "Library",
+    libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),
+    libraryEmpty: ({ tab, name }) => (tab === "events" ? "No templates" : tab === "backlog" ? "Backlog clear"
+        : tab === "series" ? "No series" : `Nothing in ${name}`),
+    libraryEmptyHint: ({ tab, name }) => (tab === "events" ? "No event kind declares a template to drag in."
+        : tab === "backlog" ? "Every event is scheduled."
+            : tab === "series" ? "This plan shows nothing to hide."
+                : `${name} lists nothing yet.`),
+    libraryNoun: ({ tab, n }) => (tab === "events" ? plural(n, "template", "templates")
+        : tab === "backlog" ? plural(n, "event", "events")
+            : tab === "series" ? plural(n, "series", "series") : plural(n, "card", "cards")),
+    libraryGroupBy: ({ tab }) => (tab === "events" ? "Kind" : tab === "backlog" ? "Due" : "Group"),
+    templateGroup: ({ kind, group }) => (group !== undefined && group !== "" ? `${kind} · ${group}` : kind),
+    templateLine: ({ kind, duration, resources }) =>
+        [kind, duration, resources.length > 0 ? resources.join("/") : undefined]
+            .filter((p): p is string => p !== undefined && p !== "").join(" · "),
+    backlogLine: ({ duration, resource, due }) => [duration, resource ?? "Unassigned", due]
+        .filter((p): p is string => p !== undefined && p !== "").join(" · "),
+    backlogDue: ({ weekday, day }) => `due ${weekday} ${day}`,
+    dueGroup: ({ due }) => (due === "thisWeek" ? "Due this week" : due === "nextWeek" ? "Due next week" : due === "later" ? "Later" : "No date"),
+    duration: ({ hours, minutes }) => (hours === undefined ? `${minutes ?? "0"} m` : minutes === undefined ? `${hours} h` : `${hours} h ${minutes} m`),
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     now: () => "NOW",

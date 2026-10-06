@@ -8,7 +8,8 @@
  * draws each of its tabs inside the row and clear of its collapse control —
  * the counts leave the row first, then the trailing tabs fold into a `+n`
  * menu, the open tab always on the row — on each builder the showcase holds:
- * Studio's, the query builder's and the Sheet's frame (#1216). At the desktop width
+ * Studio's, the query builder's, the Sheet's frame (#1216) and the Plan's
+ * library (#1195). At the desktop width
  * the panes are measured open, as they rest; on a phone each is opened from
  * its rail and measured over main, and where its row folds, a tap on its
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
@@ -41,6 +42,8 @@ const BUILDERS: readonly BuilderPage[] = [
     { name: "Studio's builder", hash: "e3/studio/studio/studioBuilder", ready: "[data-snap-grid-tile]", box: "[data-studio-builder]", width: 1440, panes: ["Components", "Inspector"], folds: [] },
     { name: "the query builder", hash: "e3/query/query/queryBuilder", ready: "[data-query-results-view]", box: "[data-query-builder]", width: 1240, panes: ["Query"], folds: ["Query"] },
     { name: "the Sheet", hash: "e3/sheet/sheet/sheetWorkshop", ready: "[data-sheet-card]", box: null, width: 1440, panes: ["Library", "Inspector"], folds: ["Library"] },
+    // The Plan's frame fills its wrapper, which its host bounds: the host is the box sized.
+    { name: "the Plan", hash: "e3/plan/plan-events/planPrintWorks", ready: "[data-plan-body]", box: ":has(> [data-plan-frame])", width: 1440, panes: ["Library"], folds: ["Library"] },
 ];
 
 /**

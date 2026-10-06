@@ -16,11 +16,38 @@
 
 import { East, Expr, printType, type DictType, type EastType, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
 import { PlanBlocksType, type PlanAxisKindLiteral, type PlanKinded } from "./types.js";
-import { applySeries, checkSeries, planSeriesFacts, planSeriesKeys, type PlanSeriesValue } from "./series.js";
+import { applySeries, checkSeries, planSeriesFacts, planSeriesKeys, type PlanSeriesFacts, type PlanSeriesValue } from "./series.js";
 import type { PlanBindHandle } from "./root.js";
 
 /** The keys of the series each `Plan.over` laid out, by the blocks it returned. */
 const OVER_KEYS = new WeakMap<object, readonly string[]>();
+
+/**
+ * One series a `Plan.over` was given: what it is, and the keys its rows carry.
+ *
+ * @internal
+ */
+export interface PlanOverSeries {
+    /** Its facts: kind, key and title. */
+    readonly facts: PlanSeriesFacts;
+    /** The keys of its rows: its own, and every series' nested in it. */
+    readonly keys: readonly string[];
+}
+
+/** The series each `Plan.over` was given, in order, by the blocks it returned. */
+const OVER_SERIES = new WeakMap<object, readonly PlanOverSeries[]>();
+
+/**
+ * The series a `Plan.over` was given, in order — what a Plan's library lists
+ * in its Series tab, an eye apiece, and what hiding each hides (#1195).
+ *
+ * @param rows - One of a Plan's `rows`
+ * @returns The series; `undefined` for anything `Plan.over` did not return
+ * @internal
+ */
+export function overSeries(rows: unknown): readonly PlanOverSeries[] | undefined {
+    return typeof rows === "object" && rows !== null ? OVER_SERIES.get(rows) : undefined;
+}
 
 /**
  * The keys of the series a `Plan.over` laid out — what a Plan holds the keys
@@ -163,7 +190,7 @@ export function createOver<K extends PlanAxisKindLiteral = never>(
     if (series.length === 0) {
         throw new Error("Plan.over: lays series over the dataset — give at least one `Plan.series.*`");
     }
-    series.forEach((one, i) => {
+    const given = series.map((one, i): PlanOverSeries => {
         const facts = planSeriesFacts(one, type, `Plan.over › series[${i}]`);
         if (facts === undefined) {
             throw new Error(`Plan.over: series[${i}] is a Plan.series.* value written in place — a series bound or stored elsewhere cannot be checked to be read only`);
@@ -171,10 +198,13 @@ export function createOver<K extends PlanAxisKindLiteral = never>(
         if (facts.writes) {
             throw new Error(`Plan.over: series[${i}], ${facts.arm} "${facts.title}", declares \`review\` or \`edit\` — a Plan's rows over a dataset are read only, and its edits go through its event kinds (Schedule.events)`);
         }
+        // Written in place, so its keys are known: its own and its nested series'.
+        return { facts, keys: planSeriesKeys([one]) ?? [facts.key] };
     });
     checkSeries(series, "Plan.over");
     const blocks = applySeries(series, source) as unknown as PlanOverRows<K>;
     const keys = planSeriesKeys(series);
     if (keys !== undefined) OVER_KEYS.set(blocks, keys);
+    OVER_SERIES.set(blocks, given);
     return blocks;
 }
