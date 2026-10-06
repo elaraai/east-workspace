@@ -219,6 +219,16 @@ component, nothing in east-ui.
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
   host's own recipe keeps what is the host's (the snap grid's canvas column,
   the query builder's status line).
+- **Shared toolbar items.** The items more than one builder's toolbar takes
+  live here, each with a narrower form for a row short of room: the history
+  item (`historyToolbarItem`, folding last, to its buttons), the review's batch
+  verbs (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons
+  fold into one menu) and the key search over a keyed source's `seek`
+  (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
+  edit popover, and keeps its form while a query is typed). On a coarse pointer
+  a control in the row is a 44px tap target by its box or by its halo
+  (`coarseHitArea`, #346), never by growing the row (#1193); the rail's chips
+  and the Plan's segment menus take their halo with #1221.
 
 ## Field form
 

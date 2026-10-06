@@ -6,20 +6,19 @@
  *
  * Plan slice chrome DOM tests — the resolution zoom (§3), the horizon
  * brush's per-step live application (§7 / #620), chrome that tracks the
- * slice store (#611), sizing (#320 / #567 D1), and the series library as
- * toolbar chrome (#590).
+ * slice store (#611), sizing (#320 / #567 D1), and the series library, which
+ * is the library pane's Series tab, not a toolbar button (#590, #1193).
  *
  * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
  */
 
-import { describe, test, expect, vi, afterEach } from "vitest";
+import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
 import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore, getStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
@@ -314,33 +313,6 @@ describe("Plan chrome tracks the slice store (#611)", () => {
         });
         expect(screen.getByText(/^1 of 2/)).toBeTruthy();
     });
-
-    test("the Series count re-derives on a pick-store write that changes NO rows", async () => {
-        initializeStore(new UIStore());
-        const user = userEvent.setup();
-        let hidden: string[] = [];
-        const pick = {
-            key: "plan.pick.zero-rows",
-            state: { read: () => hidden, write: (n: string[]) => { hidden = n; }, has: () => true },
-            items: [
-                { id: "a", title: "Press jobs", subtitle: none, icon: none, count: none, narrowed: false },
-                { id: "b", title: "Hall load", subtitle: none, icon: none, count: none, narrowed: false },
-            ],
-        };
-        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }), "plan-611-pick");
-        // The count rides the OPEN popover's head.
-        await user.click(screen.getByRole("button", { name: "Series library" }));
-        await waitFor(() => expect(screen.getByText("2 of 2")).toBeTruthy());
-
-        // What a ZERO-ROW series toggle does: the state moves and the store
-        // key notifies — no rows change, no value identity moves. The count
-        // must re-read, not serve the mount-time value.
-        act(() => {
-            hidden = ["a"];
-            getStore().write("plan.pick.zero-rows", new Uint8Array());
-        });
-        expect(screen.getByText("1 of 2")).toBeTruthy();
-    });
 });
 
 describe("Plan sizing (#320 / #567 D1)", () => {
@@ -379,115 +351,22 @@ describe("Plan sizing (#320 / #567 D1)", () => {
     });
 });
 
-describe("the series library is TOOLBAR chrome (#590)", () => {
-    /** A `PickBindType` closure — the whole surface the panel consumes. */
-    function fakePick(hidden: string[] = []) {
-        let st = [...hidden];
-        return {
+describe("the series library is the library pane's Series tab (#590, #1193)", () => {
+    test("a pick draws no Series button: the frame's one toolbar has none, and the canvas spends nothing on it (PB21)", () => {
+        const pick = {
             key: "test.plan.pick",
-            state: { read: () => st, write: (n: string[]) => { st = n; }, has: () => true },
+            state: { read: () => [] as string[], write: () => {}, has: () => true },
             items: [
                 { id: "a", title: "Press jobs", subtitle: none, icon: none, count: none, narrowed: false },
                 { id: "b", title: "Hall load", subtitle: none, icon: none, count: none, narrowed: false },
-                { id: "c", title: "Crew shifts", subtitle: none, icon: none, count: none, narrowed: false },
             ],
         };
-    }
-
-    test("a pick mounts the toolbar even with NO slice bound, and costs no canvas at rest", () => {
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], { pick: fakePick() }));
-        // The bar mounts for the library the way it already mounts for a
-        // seek-capable source: neither is a slice, both need their chrome.
-        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
-        expect(container.querySelector("[data-slot='planLibraryTrigger']")).not.toBeNull();
-        // Closed: the library takes NO width from the canvas — that is the
-        // whole point of a trigger over a dock.
-        expect(container.querySelector("[data-slot='pickPanel']")).toBeNull();
-    });
-
-    test("no pick, no trigger — and no toolbar conjured for one", () => {
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]));
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
+        expect(container.querySelector("[data-builder-frame]")).not.toBeNull();
         expect(container.querySelector("[data-slot='planLibraryTrigger']")).toBeNull();
-        expect(container.querySelector("[data-slot='toolbar']")).toBeNull();
-    });
-
-    test("the trigger opens the library, and the panel comes up FRAMELESS inside the popover", async () => {
-        const user = userEvent.setup();
-        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick: fakePick(["c"]) }));
-        await user.click(screen.getByRole("button", { name: "Series library" }));
-        await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
-        const panel = document.querySelector("[data-slot='pickPanel']") as HTMLElement;
-        // The popover provides `editor` density — the house signal for "you are
-        // inside the terminal surface" — and the panel drops its frame on that,
-        // not on a flag the call site had to remember.
-        expect(panel.getAttribute("data-density")).toBe("editor");
-        expect(screen.getByText("Press jobs")).toBeTruthy();
-        // The count rides the popover's head, not the panel's.
-        expect(screen.getByText("2 of 3")).toBeTruthy();
-    });
-
-    test("the list is SEARCHABLE, and searching never touches the hidden set", async () => {
-        const user = userEvent.setup();
-        const pick = fakePick();
-        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
-        await user.click(screen.getByRole("button", { name: "Series library" }));
-        await waitFor(() => expect(document.querySelector("[data-slot='pickSearch']")).not.toBeNull());
-        expect(screen.getByText("Press jobs")).toBeTruthy();
-
-        await user.type(screen.getByLabelText("Search series"), "crew");
-        await waitFor(() => expect(screen.queryByText("Press jobs")).toBeNull());
-        expect(screen.getByText("Crew shifts")).toBeTruthy();
-        // Filtering the LIST is not hiding a series — the canvas is untouched.
-        expect(pick.state.read()).toEqual([]);
-
-        // A query that matches nothing says so rather than showing a blank box.
-        await user.clear(screen.getByLabelText("Search series"));
-        await user.type(screen.getByLabelText("Search series"), "zzz");
-        await waitFor(() => expect(document.querySelector("[data-slot='pickEmpty']")).not.toBeNull());
-
-        // Clearing brings everything back.
-        await user.click(screen.getByRole("button", { name: "Clear search" }));
-        await waitFor(() => expect(screen.getByText("Press jobs")).toBeTruthy());
-    });
-
-    test("two entries sharing an id are ONE switch — reported, and reconciled correctly", async () => {
-        const err = vi.spyOn(console, "error").mockImplementation(() => {});
-        const user = userEvent.setup();
-        let st: string[] = [];
-        const pick = {
-            key: "k",
-            state: { read: () => st, write: (n: string[]) => { st = n; }, has: () => true },
-            items: [
-                { id: "dup", title: "First", subtitle: none, icon: none, count: none, narrowed: false },
-                { id: "dup", title: "Second", subtitle: none, icon: none, count: none, narrowed: false },
-            ],
-        };
-        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
-        await user.click(screen.getByRole("button", { name: "Series library" }));
-        await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
-
-        // Both render — the list is an Array, so duplicates are constructable.
-        expect(screen.getByText("First")).toBeTruthy();
-        expect(screen.getByText("Second")).toBeTruthy();
-        // React reconciles them: position keys them, so no duplicate-key warning
-        // (the list re-renders on every search keystroke, where that would bite).
-        expect(err.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
-        // ...but the panel SAYS the ids collide, because nothing can resolve it.
-        expect(err.mock.calls.some((c) => String(c[0]).includes("duplicate item id"))).toBe(true);
-
-        // And the semantics it warns about: one id, so one switch for both.
-        await user.click(screen.getByLabelText("Toggle First"));
-        expect(st).toEqual(["dup"]);
-        err.mockRestore();
-    });
-
-    test("toggling inside the popover writes the hidden set", async () => {
-        const user = userEvent.setup();
-        const pick = fakePick();
-        renderPlan(planRoot([planRow("m1", spanKind([]))], { pick }));
-        await user.click(screen.getByRole("button", { name: "Series library" }));
-        await waitFor(() => expect(document.querySelector("[data-slot='pickPanel']")).not.toBeNull());
-        await user.click(screen.getByLabelText("Toggle Press jobs"));
-        expect(pick.state.read()).toEqual(["a"]);
+        expect(screen.queryByRole("button", { name: "Series library" })).toBeNull();
+        expect(container.querySelector("[data-slot='pickPanel']")).toBeNull();
+        // Nothing else asks for a control here, so the frame draws no toolbar.
+        expect(container.querySelector("[data-frame-slot='toolbar']")).toBeNull();
     });
 });

@@ -100,9 +100,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     grainLabel: () => string;
     /** A grain's name — the grain segment and the ruler caption. */
     grainName: (p: { grain: PlanGrainWord }) => string;
-    /** The resolution segment's (and the narrow resolution chip's) accessible name. */
+    /** The resolution segment's (and its one-chip menu's) accessible name. */
     resolutionLabel: () => string;
-    /** A time resolution's name — its segment and the narrow chip. */
+    /** A time resolution's name — its segment and its one-chip menu. */
     resolutionName: (p: { resolution: string }) => string;
     /** The slice summary line — `6 of 36 rows · 2 filters` (#949: a plain
      *  summary; every narrowing the slice holds counts as a filter). */
@@ -112,12 +112,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     summaryShort: (p: { result: string; total: string }) => string;
     /** The badge on narrowing chrome that sees only the loaded prefix. */
     scopeBadge: () => string;
-    /** The series library button's text, and its popover's heading. */
-    seriesButton: () => string;
-    /** The series library button's accessible name. */
-    seriesLibrary: () => string;
-    /** How many series show — the library popover's count. */
-    seriesCount: (p: { shown: string; total: string }) => string;
+    /** The key search's icon — what a toolbar short of room folds its box
+     *  to — and the head of the popover it opens the box in (#1193). */
+    keySearch: () => string;
 
     // ── Diagnostics (#811) ─────────────────────────────────────────────────
     /** Rows drawn as diagnostic rows. */
@@ -138,6 +135,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     transportRange: (p: { from: string; to: string; total: string | undefined }) => string;
     /** The line while a window is in flight. */
     transportLoading: (p: { line: string }) => string;
+
+    // ── The footer's counts (#1193) ────────────────────────────────────────
+    /** The event kinds' events in the window — `64 events`. */
+    footerEvents: (p: { n: number; count: string }) => string;
+    /** The event kinds' unscheduled events — `9 in backlog`. */
+    footerBacklog: (p: { n: number; count: string }) => string;
+    /** The changes waiting on Apply — `4 pending`. */
+    footerPending: (p: { n: number; count: string }) => string;
+    /** The events whose verdict waits on a call — `2 to review`. */
+    footerToReview: (p: { n: number; count: string }) => string;
+    /** When an event kind's record was last saved — `saved 14:02`: `when` is its time today, else its date and time. */
+    footerSaved: (p: { when: string }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -195,15 +204,17 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     approve: () => string;
     /** A row's reject button. */
     reject: () => string;
-    /** The batch foot's approve-all button. */
+    /** The toolbar's approve-all button (the review item, #1193). */
     approveAll: () => string;
-    /** The batch foot's reject-all button. */
+    /** The toolbar's reject-all button. */
     rejectAll: () => string;
-    /** The batch foot's approve-all button on a paged canvas, where it covers
+    /** The toolbar's approve-all button on a paged canvas, where it covers
      *  the loaded rows (#880) — `Approve 120 loaded`. */
     approveLoaded: (p: { n: number; count: string }) => string;
-    /** The batch foot's reject-all button on a paged canvas. */
+    /** The toolbar's reject-all button on a paged canvas. */
     rejectLoaded: (p: { n: number; count: string }) => string;
+    /** The menu a toolbar short of room folds the review's buttons into (#1193). */
+    reviewMenu: () => string;
 
     // ── Moves (#825) ───────────────────────────────────────────────────────
     /** How a keyboard reader moves an element — the description of every one that moves. */
@@ -392,9 +403,7 @@ export const planMessages: PlanMessages = {
         `${result} of ${total} rows${n > 0 ? ` · ${active} ${plural(n, "filter", "filters")}` : ""}`,
     summaryShort: ({ result, total }) => `${result} of ${total}`,
     scopeBadge: () => "loaded rows only",
-    seriesButton: () => "Series",
-    seriesLibrary: () => "Series library",
-    seriesCount: ({ shown, total }) => `${shown} of ${total}`,
+    keySearch: () => "Search keys",
 
     rowsSkipped: ({ n, count }) => `${count} ${plural(n, "row", "rows")} skipped`,
     rowsSkippedSeek: ({ n, count }) => `${count} ${plural(n, "row", "rows")} skipped — show the first`,
@@ -405,6 +414,12 @@ export const planMessages: PlanMessages = {
     transportLoaded: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
     transportRange: ({ from, to, total }) => (total !== undefined ? `elements ${from}–${to} of ${total}` : `elements ${from}–${to}`),
     transportLoading: ({ line }) => `${line} · Loading…`,
+
+    footerEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
+    footerBacklog: ({ count }) => `${count} in backlog`,
+    footerPending: ({ count }) => `${count} pending`,
+    footerToReview: ({ count }) => `${count} to review`,
+    footerSaved: ({ when }) => `saved ${when}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     now: () => "NOW",
@@ -438,6 +453,7 @@ export const planMessages: PlanMessages = {
     rejectAll: () => "Reject all",
     approveLoaded: ({ count }) => `Approve ${count} loaded`,
     rejectLoaded: ({ count }) => `Reject ${count} loaded`,
+    reviewMenu: () => "Review",
 
     moveHelp: () =>
         "Press Space to pick it up. The arrow keys then move it — Shift with left or right moves its end, Alt its start — " +

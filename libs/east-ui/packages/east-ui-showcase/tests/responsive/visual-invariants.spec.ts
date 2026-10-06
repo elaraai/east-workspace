@@ -240,8 +240,8 @@ async function violations(entry: Locator): Promise<string[]> {
             type(el, "span label", { size: 11, weight: "600", mono: true });
             for (const part of el.querySelectorAll("span")) type(part, "span label part", { weight: "600" });
         }
-        // ── 8 · Nothing pill-shaped in the toolbar ──
-        const bar = body.querySelector("[data-slot='toolbar']");
+        // ── 8 · Nothing pill-shaped in the toolbar — the Plan's frame's (#1193) ──
+        const bar = root.querySelector("[data-builder-frame] [data-frame-slot='toolbar']");
         if (bar !== null) {
             for (const el of bar.querySelectorAll("*")) {
                 const r = el.getBoundingClientRect();
@@ -352,7 +352,8 @@ test.describe("Visual invariants — the Plan", () => {
                 const lens = body.querySelector("[data-slot='horizon'] [data-plan-lens]");
                 const lr = lens?.getBoundingClientRect();
                 const bars = [...body.querySelectorAll("[data-slot='horizon'] [data-brush-bar]")].map((b) => Math.round(b.getBoundingClientRect().height));
-                const range = body.querySelector("[data-slice-range-label]");
+                // The toolbar and the footer are the frame's, around the canvas (#1193).
+                const range = root.querySelector("[data-frame-slot='toolbar'] [data-slice-range-label]");
                 const rs = range !== null ? getComputedStyle(range) : undefined;
                 const count = (sel: string) => body.querySelectorAll(sel).length;
                 return {
@@ -372,14 +373,14 @@ test.describe("Visual invariants — the Plan", () => {
                         now: count("[data-plan-row] [data-plan-now]"),
                         nowChip: count("[data-plan-nowchip]"),
                         tableCells: count("[data-plan-kind='table'] [data-plan-bucket]"),
-                        addFilter: count("[data-slot='toolbar'] [data-slice-add='filter']"),
+                        addFilter: root.querySelectorAll("[data-frame-slot='toolbar'] [data-slice-add='filter']").length,
                     },
                     lens: lr === undefined ? null : { left: Math.round(lr.left - plot.left), width: Math.round(lr.width - plot.width) },
                     barsEven: bars.length > 0 && bars.every((h) => h === bars[0]),
                     range: range?.textContent ?? null,
                     rangeType: rs === undefined ? null : { size: Number.parseFloat(rs.fontSize), mono: /mono/i.test(rs.fontFamily) },
-                    footer: [...body.querySelectorAll("[data-slot='footer'] > :not([data-slot='footerTransport'])")].map((el) => (el as HTMLElement).innerText),
-                    summary: (body.querySelector("[data-slot='toolbarSummary']") as HTMLElement | null)?.innerText ?? null,
+                    footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-slot='footerTransport'])")].map((el) => (el as HTMLElement).innerText),
+                    summary: (root.querySelector("[data-frame-slot='toolbar'] [data-slot='toolbarSummary']") as HTMLElement | null)?.innerText ?? null,
                 };
             });
             for (const [hook, n] of Object.entries(read.seen)) expect(n, `the ${hook} hook`).toBeGreaterThan(0);
@@ -679,10 +680,14 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * example that mounts it, and the viewport widths it is swept across — each
  * host's own range: the Plan's wide layout holds down to 850px (below it the
  * showcase's column is under its narrow breakpoint), its resolution folding
- * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box.
+ * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box;
+ * a Plan with a review and editing over a keyed paged source (#1193) folds its
+ * review's buttons into their menu and its key search into its icon, through
+ * the narrow layout, its history last.
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
-    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: () => PLAN_LADDER },
+    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan (review, editing)", route: `${PLAN_EXAMPLES}/planEditing`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
     { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
@@ -701,10 +706,25 @@ type ToolbarState = ReadonlyMap<string, { form: number; forms: number }>;
 /** A host's own fold steps after its rail, in order — `[item, form]`, applied once the item is at that form. */
 type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
 
-/** The Plan's own order (the user's decision, #952): the summary shortens to
- *  its count, the resolution then the grain segment fold into their menus,
- *  and last the summary hides. */
-const PLAN_LADDER: ReadonlyArray<readonly [string, number]> = [["summary", 1], ["resolution", 1], ["grain", 1], ["summary", 2]];
+/** The Plan's own order (the user's decision, #952; its frame's toolbar,
+ *  #1193, PB21): the summary shortens to its count and the review's summary
+ *  goes, the resolution then the grain segment fold into their menus, the
+ *  summary hides, the review's buttons fold into their menu and the key
+ *  search into its icon, and the history item folds last, to its buttons —
+ *  each step where its item has it to take. */
+function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
+    const summary = state.get("summary")?.forms ?? 0;
+    const review = state.get("review")?.forms ?? 0;
+    return [
+        ...(summary === 3 ? [["summary", 1] as const] : []),
+        ...(review === 3 ? [["review", 1] as const] : []),
+        ["resolution", 1], ["grain", 1],
+        ...(summary > 1 ? [["summary", summary - 1] as const] : []),
+        ...(review > 1 ? [["review", review - 1] as const] : []),
+        ["seek", 1],
+        ["history", 1],
+    ];
+}
 
 /** The Library's own order: the caption goes, the secondary facts and the
  *  filter fold to their icons, then the grouping does, and last the search
@@ -724,7 +744,7 @@ function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, numbe
 }
 
 /** The first toolbar in an example: the shared toolbar's row, or (before it) a host's own band. */
-const TOOLBAR = "[data-toolbar], [data-slot='toolbar'], [data-slot='narrowChips'], [data-flowchart-eyebrow]";
+const TOOLBAR = "[data-toolbar], [data-slot='toolbar'], [data-flowchart-eyebrow]";
 
 /** One sample of what a toolbar painted: its row's width, and what it showed. */
 interface Painted { row: number; sig: string }

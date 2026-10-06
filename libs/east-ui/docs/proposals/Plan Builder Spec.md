@@ -509,15 +509,17 @@ shift, not instants, and its record is the roster's own. It shares the frame,
 | Toolbar | Every control Plan draws outside its canvas, as items of the shared `Toolbar` (§7.1). |
 | Banners | An Apply's refusals and conflicts, by kind; a kind out of date; a write whose outcome is unknown. |
 | Start pane "Library" | Tabs Events · Backlog · Series (§9.6), when the Plan is given `library`; none, no pane. |
-| Main | The canvas, unchanged: the horizon brush, the ruler and now line, pinned rows, the gutter, every row kind, the cursor readout, links, virtualised and paged as today. |
+| Main | The canvas, unchanged: the horizon brush, the ruler and now line, pinned rows, the gutter, every row kind, the cursor readout, links, virtualised and paged as today; below 480px, its narrow layout's tabs and cards. |
 | End pane "Inspector" | The selection (§9.8), when the Plan is given `inspector`; none, no pane. |
 | Footer | `64 events · 9 in backlog · 4 pending · 2 to review · saved 14:02`. |
 
 The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
 overlaid with a rail and a scrim at 560px and narrower, and slid off main
-during a drag. Today's narrow layout (the tab strip) gives way to the
-frame's. The builder fills its parent and draws no border of its own. Every
-style is a slot recipe's.
+during a drag. Below 480px of main the canvas keeps its narrow layout, the
+Groups · Rows · Measures tabs over cards under the shared ruler, and the
+panes overlay it on their rails (the user's ruling, 2026-10-06, #1193). The
+builder fills its parent and draws no border of its own. Every style is a
+slot recipe's.
 
 ### 7.1 The toolbar's items
 
@@ -684,6 +686,47 @@ As built (#1192):
 - **PB25.** The panes are `BuilderFrame`'s, and their open tab and collapsed
   state persist under the builder's `id`.
 
+As built (#1193):
+
+- The frame is e3-ui-components' `src/plan/frame/`. The canvas is a hook,
+  `usePlanCanvas` (`src/plan/canvas.tsx`), handing the frame main and the
+  facts its toolbar, banners and footer are drawn from; the frame lays them
+  out in `BuilderFrame` with the canvas's contexts around all of them.
+- The toolbar's items are §7.1's, the overlaps chip with overlaps (#1198).
+  After the rail's steps the summary shortens and the review's summary goes
+  (one rank: words give way before a control does), the resolution and then
+  the grain fold into their one-chip menus, and the summary hides. Two more
+  steps let a phone's row hold every item: the review's buttons fold into one
+  Review menu, and the key search into its icon, which opens the box in the
+  edit popover with the focus in it. The key search stays in the row, only
+  narrower, and keeps its form while a query is typed. The history item folds
+  last, to its buttons. The three items are east-ui-components' shared parts:
+  `historyToolbarItem`, `reviewToolbarItem` and `useKeySearchToolbarItem`.
+- On a touch screen the history item's buttons keep their size and take a 44px
+  tap target from the halo, as every icon button does (the user's ruling,
+  2026-10-06). Grown to 44 × 44 they made the item 200px of a phone's 292px
+  row. #1221 brings the rail's chips, the segment menus and the paged Sheet's
+  key search to the same rule.
+- The banners are the editing session's, for `data`'s session; the event
+  kinds' banners, by kind, come with their editing (#1194).
+- The footer leads with the counts: the event kinds' events in the window and
+  their backlog, the changes pending in `data`'s session, the events to
+  review, and the newest commit of an event kind's record, as its time today
+  or its date and time; then the author's `footer` and the transport line. The
+  last counts stay while a read is in flight or has failed.
+- A declared `height` or `maxHeight` is the whole Plan's: the frame's wrapper
+  takes it and the canvas fills main. With none, a host that gives the frame a
+  height bounds the canvas once its rows outgrow main, and the canvas then
+  fills main and scrolls there; a host that gives none lets it grow with its
+  rows.
+- The narrow layout stays in main below 480px (the user's ruling, 2026-10-06;
+  §7, §11): its chip row's items are the toolbar's, its footer is the frame's,
+  and the GROUP · RESOURCE segment leaves the toolbar there, since the tabs
+  own the grain. Its root is a column in a bounded frame, so its list scrolls
+  inside main (it ran past it).
+- There is no Series button; its tests move to the Series tab (#1195). PB25 is
+  tested with the first pane (#1195).
+
 ### 9.6 The library pane (owner: the library pane)
 
 - **PB26.** The library has three tabs, Events, Backlog and Series, each with
@@ -821,7 +864,7 @@ As built (#1192):
 | Cards reaching a Plan from a separate `<Library>` through `id`, `sources` and `edit.create` | The Events tab's templates | Data, declared with their kind. `data`'s series keep today's wiring. |
 | Items inside each entry's array (`edit.items`) | Events as rows of their own records | `data`'s series keep in-entry editing. |
 | Number and ordinal axes | A time axis, with event kinds | Events' times are `DateTime`s; a Plan of `data` and `rows` keeps the others. |
-| The narrow tab strip | `BuilderFrame`'s panes | The frame's phone behaviour. |
+| The narrow layout's chip row and footer | The frame's toolbar items and footer | One toolbar and one footer. The tabs and cards stay in main below 480px, the panes overlaying them on their rails (#1193). Nothing is lost. |
 
 ## 12. Wires
 

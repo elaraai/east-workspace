@@ -36,6 +36,9 @@ export interface SliceEditPopoverProps {
     footLeft?: ReactNode;
     /** Right foot cluster — the action grammar (`Cancel · Apply`, `Done`, …). */
     footActions?: ReactNode;
+    /** The element the focus goes to as it opens — the first focusable in it
+     *  (its head's ×) when omitted, or when this finds none. */
+    initialFocusEl?: (() => HTMLElement | null) | undefined;
     /** The editor body. */
     children: ReactNode;
 }
@@ -48,7 +51,7 @@ export interface SliceEditPopoverProps {
  * action grammar varies per edit case. See `design/slice.html#slice-edit`.
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, label, size = "sm", flush, footLeft, footActions, children,
+    open, onOpenChange, trigger, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
 }: SliceEditPopoverProps) {
     const styles = useSlotRecipe({ key: "sliceEdit" })({ size, ...(flush === true && { flush: true }) });
     const density = useSliceDensity();
@@ -80,6 +83,7 @@ export function SliceEditPopover({
             onOpenChange={(d) => onOpenChange(d.open)}
             positioning={{ placement: "bottom", gutter: POPOVER_GUTTER }}
             lazyMount
+            {...(initialFocusEl !== undefined && { initialFocusEl })}
             onInteractOutside={(e) => {
                 // Portalled select / combobox listboxes render at body level;
                 // interacting with them must not dismiss the editor.

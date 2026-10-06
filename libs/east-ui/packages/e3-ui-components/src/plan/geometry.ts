@@ -68,9 +68,8 @@ export interface PlanGeometry {
     weight: number;
     /** A segment track. */
     segment: number;
-    /** The chrome bands: toolbar, horizon brush (its strip and its lens),
-     *  ruler, footer. */
-    toolbar: number;
+    /** The chrome bands: horizon brush (its strip and its lens), ruler,
+     *  footer. The toolbar band is the frame's (#1193). */
     brush: number;
     ruler: number;
     footer: number;
@@ -98,7 +97,7 @@ const DEFAULT: PlanGeometry = {
     laneCell: 22, laneGap: 2, lanePad: 3,
     bar: 20, rollBar: 12,
     tile: 16, chip: 18, weight: 20, segment: 20,
-    toolbar: 44, brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 23,
+    brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 23,
     narrowStrip: 24,
     failedBandMin: 64,
 };

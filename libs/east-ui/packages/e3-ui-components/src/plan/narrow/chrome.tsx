@@ -5,8 +5,8 @@
 
 /**
  * The narrow layout's shared ruler (split out of `narrow/index.tsx`, #815).
- * Its resolution chip is the toolbar's `SegMenu` (#952): the one-chip menu
- * the wide toolbar's segments fold into.
+ * Its resolution is the frame's toolbar's segment (#1193), folded to a
+ * one-chip menu where the row is short of room (#952).
  *
  * @packageDocumentation
  */

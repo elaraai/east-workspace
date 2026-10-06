@@ -18,8 +18,11 @@
 // the theme's colour lookup, and a density's row heights.
 export { formatDatePattern, parseDatePattern, tickFormatter, type TickFormat } from "./charts/spec/index.js";
 export { resolveColor, useDensityHeights } from "./collections/shared/helpers.js";
-// The review chrome's foot, and the decision column's width.
-export { DECISION_WIDTH, ReviewFoot, type ReviewFootModel } from "./collections/shared/review.js";
+// The review chrome's foot, its toolbar item, and the decision column's width.
+export {
+    DECISION_WIDTH, ReviewFoot, reviewToolbarItem, type ReviewFootLabels, type ReviewFootModel, type ReviewToolbarLabels,
+    type ReviewToolbarOptions, type ReviewToolbarRanks,
+} from "./collections/shared/review.js";
 // Row virtualization, and a paged source's windows: their scroll geometry
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).

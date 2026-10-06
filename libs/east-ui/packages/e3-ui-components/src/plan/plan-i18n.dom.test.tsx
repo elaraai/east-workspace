@@ -174,7 +174,7 @@ const allMarked = (texts: readonly string[]) => {
 
 // ── Every chrome word is the table's ──────────────────────────────────────
 describe("one message table (#820)", () => {
-    test("desktop: the toolbar, the ruler, a group's meta, a diagnostic row, a run's counter and a links focus all speak it", () => {
+    test("desktop: the frame's toolbar, the ruler, a group's meta, a diagnostic row, a run's counter and a links focus all speak it", () => {
         const links = [{
             key: "r1>ru", from: { row: rowId("s"), run: "r1" }, to: { row: rowId("u"), run: "ru" },
             quantity: some({ value: 1, unit: some("k sheets"), format: none, text: none }),
@@ -187,8 +187,8 @@ describe("one message table (#820)", () => {
             planRow("x", span([run("n1", variant("number", 1) as PlanInstantValue, variant("number", 2) as PlanInstantValue)]),
                 { parent: "G" }),
         ], { links }), "plan-820-desktop", marked);
-        // The toolbar: the grain segment and the diagnostics chip.
-        const toolbar = container.querySelector("[data-slot='toolbar']")!;
+        // The frame's toolbar: the grain segment and the diagnostics chip.
+        const toolbar = container.querySelector("[data-frame-slot='toolbar']")!;
         allMarked(words(toolbar));
         expect(words(toolbar)).toEqual(["⟦GROUP", "⟦RESOURCE", "⟦1 row skipped"]);
         expect(toolbar.querySelector("[data-plan-seg='grain']")!.getAttribute("aria-label")).toBe("⟦Grain");
@@ -255,11 +255,11 @@ describe("one message table (#820)", () => {
     // A canvas that takes verdicts (#880) — the factory's, compiled over a
     // source the test holds, its words the marked table's.
     for (const arm of ["inline", "paged"] as const) {
-        test(`${arm} review: a row's Approve and Reject, the batch foot's, and the history bar's`, async () => {
+        test(`${arm} review: a row's Approve and Reject, the toolbar's review item's, and the history bar's`, async () => {
             const { container } = await mountCanvas({ arm, wrap: marked });
             expect(words(pressRow(container, "p1").querySelector("[data-slot='decisionCell']")!)).toEqual(["⟦Approve", "⟦Reject"]);
-            // A paged foot says how many rows it covers — the loaded ones.
-            expect(words(container.querySelector("[data-slot='reviewFoot']")!)).toEqual(arm === "paged"
+            // On a paged canvas the batch buttons say how many rows they cover — the loaded ones.
+            expect(words(container.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='review']")!)).toEqual(arm === "paged"
                 ? ["⟦Reject 3 loaded", "⟦Approve 3 loaded"]
                 : ["⟦Reject all", "⟦Approve all"]);
             // The history bar speaks through its buttons' names.

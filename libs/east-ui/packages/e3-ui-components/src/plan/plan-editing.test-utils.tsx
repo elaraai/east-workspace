@@ -23,7 +23,7 @@
  */
 
 import type { ReactNode } from "react";
-import { act, fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
+import { act, fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BooleanType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType,
@@ -460,6 +460,8 @@ export interface EditingCanvas extends RenderResult {
     confirm: () => Promise<void>;
     /** Another writer changes the source, and the canvas reads it. */
     move: (next: ReadonlyMap<string, PressValue>) => Promise<void>;
+    /** Paged: another writer commits, and the canvas does not read it — an Apply then meets it. */
+    race: (next: ReadonlyMap<string, PressValue>) => void;
     /** The next apply persists, then loses its acknowledgement. */
     loseNextAck: () => void;
     /** Let everything in flight land. */
@@ -546,6 +548,10 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
             }
             await settle();
         },
+        race: (next) => {
+            if (paged === undefined) throw new Error("only a paged source commits unseen");
+            paged.commit("elsewhere-race", next);
+        },
         loseNextAck: () => { probe.loseAck = true; },
         settle,
     };
@@ -586,19 +592,30 @@ export async function decide(c: HTMLElement, press: string, verdict: "approve" |
     await settle();
 }
 
-/** The review foot's batch button. */
+/** The review item's batch button, in the frame's toolbar (#1193). */
 export const batchButton = (c: HTMLElement, verb: "approve" | "reject" | "rerun"): HTMLButtonElement | null =>
-    c.querySelector<HTMLButtonElement>(`[data-review-batch="${verb}"]`);
+    c.querySelector<HTMLButtonElement>(`[data-frame-slot="toolbar"] [data-review-batch="${verb}"]`);
 
-/** Click the foot's Approve all / Reject all / Rerun. */
+/** Click the toolbar's Approve all / Reject all / Rerun. */
 export async function batch(c: HTMLElement, verb: "approve" | "reject" | "rerun"): Promise<void> {
     await act(async () => { fireEvent.click(batchButton(c, verb)!); });
     await settle();
 }
 
-/** A history bar button, by its name. */
+/** A history bar button, by its name — the bar's own, never a banner's of the same name (#1193). */
 export const historyButton = (canvas: RenderResult, name: string): HTMLButtonElement =>
-    canvas.getByRole("button", { name }) as HTMLButtonElement;
+    within(canvas.container.querySelector<HTMLElement>('[data-slot="history"]')!).getByRole("button", { name }) as HTMLButtonElement;
+
+/** The frame's session banner of a kind (`conflict`, `rejected`, `unknown`, `confirm`, `stale`), if it shows. */
+export const banner = (c: HTMLElement, kind: string): HTMLElement | null =>
+    c.querySelector<HTMLElement>(`[data-frame-slot="banners"] [data-session-banner="${kind}"]`);
+
+/** Press a banner's action — its Retry or its Discard — as a pointer does. */
+export async function bannerAction(c: HTMLElement, kind: string, action: "apply" | "refresh" | "discard"): Promise<void> {
+    const button = banner(c, kind)!.querySelector<HTMLButtonElement>(`[data-banner-action="${action}"]`)!;
+    await act(async () => { fireEvent.click(button); });
+    await settle();
+}
 
 /** Press a history bar button, as a pointer does. */
 export async function history(canvas: RenderResult, name: string): Promise<void> {

@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * Plan failure-locality DOM tests (#811) — a row, a window, a resolver or a
- * part that fails stays where it happened, and the toolbar counts it.
+ * part that fails stays where it happened, and the frame's toolbar counts it.
  *
  * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
  */
@@ -325,13 +325,13 @@ describe("Plan failure is local (#811)", () => {
                 window: some({ min, max }), resolution: variant("day", null), resolutions: [], now: none, format: none,
             }),
         }), "plan-811-truncated");
-        expect(container.querySelector("[data-slot='toolbar']")).toBeTruthy();
-        expect(container.querySelector('[data-plan-diagnostics="truncated"]')!.textContent)
+        expect(container.querySelector("[data-frame-slot='toolbar']")).toBeTruthy();
+        expect(container.querySelector('[data-frame-slot="toolbar"] [data-plan-diagnostics="truncated"]')!.textContent)
             .toBe("showing the first 500 buckets — zoom in");
         expect(container.querySelectorAll('[data-slot="rulerTick"]')).toHaveLength(500);
     });
 
-    test("narrow: a failed window is a card with Retry; an off-axis row is a diagnostic card; the chips ride the chip row", async () => {
+    test("narrow: a failed window is a card with Retry; an off-axis row is a diagnostic card; the frame's toolbar states the count", async () => {
         const realRect = Element.prototype.getBoundingClientRect;
         Element.prototype.getBoundingClientRect = function () {
             return { left: 0, top: 0, right: 360, bottom: 600, width: 360, height: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
@@ -357,7 +357,7 @@ describe("Plan failure is local (#811)", () => {
             expect(container.querySelector(`${rowSel("w0r1", "data-plan-card")} [data-plan-diagnostic="number"]`)).toBeTruthy();
             expect(container.querySelector(`${rowSel("w0r0", "data-plan-card")} [data-run="xw0r0"]`)).toBeTruthy();
             // The count is stated; the narrow list has no scroll target to seek.
-            const chip = container.querySelector("[data-slot='narrowChips'] [data-plan-diagnostics='rows']")!;
+            const chip = container.querySelector("[data-frame-slot='toolbar'] [data-plan-diagnostics='rows']")!;
             expect(chip.tagName).not.toBe("BUTTON");
             expect(chip.textContent).toBe("1 row skipped");
 

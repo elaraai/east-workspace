@@ -71,7 +71,6 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("cardChip").height).toBe(v("chip"));
         expect(slot("weightBar").height).toBe(v("weight"));
         expect(slot("segmentTrack").height).toBe(v("segment"));
-        expect(slot("toolbar").minHeight).toBe(v("toolbar"));
         expect(slot("brushRow").height).toBe(v("brush"));
         expect(slot("horizonLens").height).toBe(v("lens"));
         expect(slot("ruler").height).toBe(v("ruler"));

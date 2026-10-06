@@ -16,6 +16,9 @@
  *   `button` recipe, so it matches the DecisionQueue).
  * - {@link ReviewFoot} — the batch foot on the shared `commitBar` recipe
  *   (Reject all / Rerun / Approve all + the host-composed summary).
+ * - {@link reviewToolbarItem} — the same summary and buttons as one item of a
+ *   builder's one toolbar, which leaves the builder no foot (#1193); a row
+ *   short of room folds the buttons into one menu.
  *
  * The decision-column / status-dot geometry lives on the `reviewChrome` slot
  * recipe; adopters resolve it themselves (their layouts differ) and apply
@@ -23,11 +26,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faListCheck } from "@fortawesome/free-solid-svg-icons";
 import { type OptionType, type ValueTypeOf } from "@elaraai/east";
 import { type RowReviewType, type ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 /** The row-granularity review-config value every adopter's `review` decodes to. */
 export type RowReviewValue = ValueTypeOf<RowReviewType>;
@@ -274,4 +281,148 @@ export function ReviewFoot({ controller, storageKey, labels = FOOT_LABELS }: {
             </Box>
         </Box>
     );
+}
+
+/** The words of {@link reviewToolbarItem}: the buttons', and the menu's they fold into. */
+export interface ReviewToolbarLabels extends ReviewFootLabels {
+    /** The menu's accessible name. */
+    menu: string;
+}
+
+const TOOLBAR_LABELS: ReviewToolbarLabels = { ...FOOT_LABELS, menu: "Review" };
+
+/** Props of {@link reviewToolbarItem}'s forms. */
+interface ReviewBatchProps {
+    /** The surface's batch-review model. */
+    controller: ReviewFootModel;
+    /** Storage key prefix for the summary component subtree. */
+    storageKey: string;
+    /** The buttons' words. */
+    labels: ReviewFootLabels;
+    /** Whether the form shows the summary before the buttons. */
+    summary: boolean;
+}
+
+/**
+ * The batch verbs on one row of a toolbar: the host-composed summary, in the
+ * wide form, then Reject all, Rerun and Approve all — the foot's buttons, at
+ * the toolbar's size.
+ */
+function ReviewBatch({ controller, storageKey, labels, summary }: ReviewBatchProps) {
+    const recipe = useSlotRecipe({ key: "reviewChrome" });
+    const styles = useMemo(() => recipe({}) as unknown as Record<string, Record<string, unknown>>, [recipe]);
+    const btn = useRecipe({ key: "button" });
+    return (
+        <Box css={styles.batch} data-slot="reviewBatch" data-review-form={summary ? "full" : "buttons"}>
+            {summary && controller.summary !== undefined && (
+                <Box css={styles.batchSummary} data-slot="reviewSummary">
+                    <EastChakraComponent value={controller.summary} storageKey={`${storageKey}.review.summary`} />
+                </Box>
+            )}
+            {controller.hasRejectAll && (
+                <chakra.button type="button" css={btn({ variant: "danger", size: "sm" })}
+                    disabled={controller.batchDisabled === true} data-review-batch="reject"
+                    onClick={controller.rejectAll}>{labels.rejectAll}</chakra.button>
+            )}
+            {controller.hasRerun && (
+                <chakra.button type="button" css={btn({ variant: "outline", size: "sm" })}
+                    data-review-batch="rerun"
+                    onClick={controller.rerun}>{controller.rerunLabel}</chakra.button>
+            )}
+            {controller.hasApproveAll && (
+                <chakra.button type="button" css={btn({ variant: "solid", size: "sm" })}
+                    disabled={controller.batchDisabled === true} data-review-batch="approve"
+                    onClick={controller.approveAll}>{labels.approveAll}</chakra.button>
+            )}
+        </Box>
+    );
+}
+
+/**
+ * The batch verbs folded into one menu, for a row short of room: its trigger
+ * a chip with the review's icon and a caret — a 44px touch target on a coarse
+ * pointer (#346) — its items Reject all, Rerun and Approve all, each doing
+ * what its button does, and disabled when the button is.
+ */
+function ReviewMenu({ controller, labels }: { controller: ReviewFootModel; labels: ReviewToolbarLabels }) {
+    const chip = useRecipe({ key: "chip" });
+    return (
+        <ChakraMenu.Root onSelect={(d) => {
+            if (d.value === "reject") controller.rejectAll();
+            else if (d.value === "rerun") controller.rerun();
+            else if (d.value === "approve") controller.approveAll();
+        }}>
+            <ChakraMenu.Trigger asChild>
+                <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]}
+                    data-slot="reviewMenu" aria-label={labels.menu}>
+                    <FontAwesomeIcon icon={faListCheck} data-chip-icon="" />
+                    <Box as="span" data-chip-caret="">{"▾"}</Box>
+                </chakra.button>
+            </ChakraMenu.Trigger>
+            <Portal>
+                <ChakraMenu.Positioner>
+                    <ChakraMenu.Content>
+                        {controller.hasRejectAll && (
+                            <ChakraMenu.Item value="reject" disabled={controller.batchDisabled === true} data-destructive=""
+                                data-review-batch="reject">{labels.rejectAll}</ChakraMenu.Item>
+                        )}
+                        {controller.hasRerun && (
+                            <ChakraMenu.Item value="rerun" data-review-batch="rerun">{controller.rerunLabel}</ChakraMenu.Item>
+                        )}
+                        {controller.hasApproveAll && (
+                            <ChakraMenu.Item value="approve" disabled={controller.batchDisabled === true}
+                                data-review-batch="approve">{labels.approveAll}</ChakraMenu.Item>
+                        )}
+                    </ChakraMenu.Content>
+                </ChakraMenu.Positioner>
+            </Portal>
+        </ChakraMenu.Root>
+    );
+}
+
+/** The ranks of {@link reviewToolbarItem}'s fold steps — each {@link DEFAULT_RANK} when omitted. */
+export interface ReviewToolbarRanks {
+    /** The summary goes, leaving the buttons. */
+    summary?: number | undefined;
+    /** The buttons fold into the menu. */
+    menu?: number | undefined;
+}
+
+/** Options of {@link reviewToolbarItem}. */
+export interface ReviewToolbarOptions {
+    /** Storage key prefix for the summary component subtree. */
+    storageKey: string;
+    /** The buttons' and the menu's words — English when omitted. */
+    labels?: ReviewToolbarLabels | undefined;
+    /** The ranks of the item's fold steps. */
+    rank?: ReviewToolbarRanks | undefined;
+}
+
+/**
+ * The review chrome as one item of a builder's toolbar (#1193): what the
+ * batch foot holds — the host-composed summary, then Reject all, Rerun and
+ * Approve all — on the row's end, so a builder's frame keeps every control in
+ * its one toolbar and draws no foot. Its forms, widest first: the summary and
+ * the buttons; the buttons alone; and the buttons folded into one menu. A
+ * review with no summary starts at the buttons, and one with no buttons is
+ * its summary alone, which never folds.
+ *
+ * @param controller - The surface's batch-review model
+ * @param options - Where the summary keeps its state, the words, and the ranks of the item's fold steps
+ * @returns The item, keyed `review`, on the end side — `undefined` when the foot would show nothing
+ */
+export function reviewToolbarItem(controller: ReviewFootModel, options: ReviewToolbarOptions): ToolbarItem | undefined {
+    if (!controller.showFoot) return undefined;
+    const labels = options.labels ?? TOOLBAR_LABELS;
+    const batch = (summary: boolean) => (
+        <ReviewBatch controller={controller} storageKey={options.storageKey} labels={labels} summary={summary} />
+    );
+    const buttons = controller.hasRejectAll || controller.hasRerun || controller.hasApproveAll;
+    if (!buttons) return { key: "review", side: "end", forms: [batch(true)] };
+    const menu = <ReviewMenu controller={controller} labels={labels} />;
+    const rank = { summary: options.rank?.summary ?? DEFAULT_RANK, menu: options.rank?.menu ?? DEFAULT_RANK };
+    // The buttons' widths move with their words and with which of them show.
+    const version = [labels.rejectAll, labels.approveAll, controller.rerunLabel, controller.hasRejectAll, controller.hasRerun, controller.hasApproveAll].join("|");
+    if (controller.summary === undefined) return { key: "review", side: "end", forms: [batch(false), menu], rank: rank.menu, version };
+    return { key: "review", side: "end", forms: [batch(true), batch(false), menu], rank: [rank.summary, rank.menu], version };
 }

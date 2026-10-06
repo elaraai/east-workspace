@@ -6,8 +6,11 @@ Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 `VirtualizedLogViewer`, the diff component family, the Plan's canvas
 (`src/plan/`, #1177) and the Sheet (`src/sheet/`, #1179), each registered
 against its e3-ui extension (`Plan`, `Sheet`) as the package
-loads. The Sheet renders in its `BuilderFrame` wherever it is used
-(`src/sheet/frame/`, #1216): there is no frameless Sheet. Both build on east-ui-components' shared parts through its
+loads. Each renders in its `BuilderFrame` wherever it is used — the Plan's
+(`src/plan/frame/`, #1193) around its canvas (`src/plan/canvas.tsx`, a hook
+handing the frame main and its chrome's facts), the Sheet's
+(`src/sheet/frame/`, #1216) around its grid: there is no frameless Plan or
+Sheet. Both build on east-ui-components' shared parts through its
 `./internal` entry, and their tests on `./testing`; their slot recipes
 stay in east-ui-components' theme. The time parts the Plan shares with
 the Calendar are in `src/shared/time/` (#1148): the scale (its engine and
