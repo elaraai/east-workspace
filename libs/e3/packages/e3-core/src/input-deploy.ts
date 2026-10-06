@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 
-import { isTypeValueEqual, variant, type EastTypeValue } from '@elaraai/east';
+import { isTypeValueStructurallyEqual, variant, type EastTypeValue } from '@elaraai/east';
 import type { DatasetRef, InputPlan, InputPolicy, PackageObject, Structure } from '@elaraai/e3-types';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import { typeChange } from './record-deploy.js';
@@ -135,7 +135,9 @@ async function heldValue(
  * - the deployed package took it from a file, and the workspace holds a
  *   value: `reset`, under either policy, since a value set since cannot be
  *   told from the file's;
- * - someone set it, and its type changed: `reset`, under either policy;
+ * - someone set it, and its type changed: `reset`, under either policy. Types
+ *   compare by their structure, as a record's do
+ *   ({@link isTypeValueStructurallyEqual});
  * - someone set it, under `reset`: `reset`, its `policy` true, since
  *   `keep-edited` would keep it;
  * - someone set it, under `keep-edited`: `keep`.
@@ -197,7 +199,7 @@ export async function planInputDeployments(
       deployments.push({ plan: { input, action: variant('package', null) } });
     } else if (value.kind === 'file') {
       deployments.push(reset(input, RESET_FROM_FILE));
-    } else if (!isTypeValueEqual(was, type)) {
+    } else if (!isTypeValueStructurallyEqual(was, type)) {
       deployments.push(reset(input, `was set in the workspace, and changed type:\n${typeChange(was, type).replace(/^/gm, '    ')}`));
     } else if (policy === 'reset') {
       deployments.push(reset(input, RESET_BY_POLICY, true));

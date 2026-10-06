@@ -336,6 +336,12 @@ function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
     throw new Error(`fromEastTypeValue: unhandled tag "${tag}"`);
 }
 
+const isTypeValueEqualCache = new Map<number, Map<number, boolean>>();
+
+/** One pair of wrappers an equality in progress has entered: a `ref` of the
+ *  left id corresponds to a `ref` of the right id. */
+type WrapperPair = readonly [left: bigint, right: bigint];
+
 /**
  * Compares two EastTypeValue instances for type equality.
  *
@@ -353,13 +359,15 @@ function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
  * when `A` equals `B` with `ref(a)` standing for `ref(b)`. Within one scope
  * `ref(N)` equals `ref(N)` and `wrapper({id: N})`: the same recursive type
  * seen from inside and from outside its wrapper.
+ *
+ * Two recursive types with one id are one type, and their bodies are not
+ * read: within one build, its process numbers each recursive type once, by its
+ * structure, and the type checker compares types as large as a UI component's
+ * at every node. Two builds number theirs by their own counters, so a
+ * recursive type edited between two exports can keep its id. Compare types two
+ * builds made, as a deploy compares a package's with the one deployed before
+ * it, with {@link isTypeValueStructurallyEqual}.
  */
-const isTypeValueEqualCache = new Map<number, Map<number, boolean>>();
-
-/** One pair of wrappers an equality in progress has entered: a `ref` of the
- *  left id corresponds to a `ref` of the right id. */
-type WrapperPair = readonly [left: bigint, right: bigint];
-
 export function isTypeValueEqual(t1: EastTypeValue, t2: EastTypeValue): boolean {
   return typeValueEqual(t1, t2, []);
 }

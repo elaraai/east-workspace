@@ -21,7 +21,7 @@
  */
 
 import {
-  diffTypeValues, encodeBeast2For, isTypeValueEqual, none, printTypeValueSummary, renderTypeDiff, some, variant,
+  diffTypeValues, encodeBeast2For, isTypeValueStructurallyEqual, none, printTypeValueSummary, renderTypeDiff, some, variant,
   type EastTypeValue,
 } from '@elaraai/east';
 import {
@@ -98,6 +98,10 @@ export function typeChange(held: EastTypeValue, declared: EastTypeValue): string
  * `fail` one with steps to run is refused. A record the workspace holds and
  * the package does not declare is dropped only when the deploy allows it.
  *
+ * Types compare by their structure ({@link isTypeValueStructurallyEqual}): the
+ * package deployed and this one are two builds, which can give a recursive
+ * type edited between them one id.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param pkg - The package being deployed
@@ -153,7 +157,7 @@ export async function planRecordDeployments(
       continue;
     }
     if (applied.length === chain.length) {
-      deployments.push(isTypeValueEqual(held.type, type)
+      deployments.push(isTypeValueStructurallyEqual(held.type, type)
         ? { ...deployment, prior: held.ref, plan: { record: path, action: variant('keep', { deploy: prior!.packageHash !== packageHash }) } }
         : refuse(
           `changed type with no migration:\n${typeChange(held.type, type).replace(/^/gm, '    ')}\n` +
@@ -173,7 +177,7 @@ export async function planRecordDeployments(
     let at = held.type;
     let broken: string | undefined;
     for (const [i, step] of steps.entries()) {
-      if (!isTypeValueEqual(at, step.object.from)) {
+      if (!isTypeValueStructurallyEqual(at, step.object.from)) {
         broken = i === 0
           ? `holds its state as ${describe(at)}, and its next migration, '${step.name}', takes it as ${describe(step.object.from)}.`
           : `has a migration, '${step.name}', that takes it as ${describe(step.object.from)}, where '${steps[i - 1]!.name}' leaves it as ${describe(at)}.`;
@@ -181,7 +185,7 @@ export async function planRecordDeployments(
       }
       at = step.object.to;
     }
-    if (broken === undefined && !isTypeValueEqual(at, type)) {
+    if (broken === undefined && !isTypeValueStructurallyEqual(at, type)) {
       broken = `has a last migration, '${steps[steps.length - 1]!.name}', that leaves it as ${describe(at)}, and the package declares it as ${describe(type)}.`;
     }
     if (broken !== undefined) {
