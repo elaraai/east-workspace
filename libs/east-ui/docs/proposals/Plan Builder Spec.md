@@ -527,7 +527,7 @@ slot recipe's.
 |---|---|---|
 | The slice's narrowing: cohort · filter · search | start | Folds first, as every rail does: clause chips into `+M more`, the affordances into summary chips, one chip naming what is set, then the icon. Each opens the slice editor popover. |
 | Scope badge: `loaded rows only`, while a paged canvas is narrowed | start | Shown while it applies |
-| Key search, on a paged keyed source | start | Stays; it replaces the narrowing's search |
+| Key search, on a paged keyed source | start | Folds to its icon, which opens the box in the edit popover (#1193); it replaces the narrowing's search |
 | Grain: Group · Resource | start | Its own steps, after the rail's |
 | The slice's range | start | Folds with the rail |
 | Resolution: Week · Day | start | Its own steps, after the rail's |
@@ -705,8 +705,11 @@ As built (#1193):
 - On a touch screen the history item's buttons keep their size and take a 44px
   tap target from the halo, as every icon button does (the user's ruling,
   2026-10-06). Grown to 44 × 44 they made the item 200px of a phone's 292px
-  row. #1221 brings the rail's chips, the segment menus and the paged Sheet's
-  key search to the same rule.
+  row. #1221 brought the rest of the row to the same rule: the rail's chips,
+  the grain and resolution segments — whose halos grow their height alone, as
+  they sit edge to edge — and their menus, the key search's icon and its box's
+  suggestions toggle; a search box is a 44px field, its input filling it. The
+  paged Sheet's key search folds as the Plan's does.
 - The banners are the editing session's, for `data`'s session; the event
   kinds' banners, by kind, come with their editing (#1194).
 - The footer leads with the counts: the event kinds' events in the window and

@@ -61,8 +61,10 @@ export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead } from "./reactive/tracked.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
-// Keyboard and sizing primitives.
+// Keyboard and sizing primitives, and a control's touch target on a coarse
+// pointer — its halo, the row's widths kept (#346, #1221).
 export { radioGroupKey } from "./primitives/radio-group.js";
 export { parseCssSize } from "./style/parse-size.js";
+export { coarseHitArea } from "./style/hit-area.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";

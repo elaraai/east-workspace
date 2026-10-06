@@ -9,10 +9,14 @@
  * fold on one ladder — the tabs fold into the `+n` menu one at a time,
  * then the count goes, the context label, the `+ TAB` label and the
  * whole-sheet count, the tab names cap, and last the context switch goes
- * and the strip closes up. jsdom lays nothing out, so each form's width is
- * stubbed from what it shows: a tab 80px (50 once the names cap), `+n` 30,
- * `+ TAB` 50 (20 once its label goes), the context switch 150 with its label
- * and 100 without, the count 100; the gap between items is 10px.
+ * and the strip closes up; after those a paged source's key search folds to
+ * its icon and the strip into one chip, the open view's (#1221), and last the
+ * history item to its buttons. jsdom lays nothing out, so each form's width
+ * is stubbed from what it shows: a tab 80px (50 once the names cap), `+n` 30,
+ * `+ TAB` 50 (20 once its label goes), the strip's one chip 60, the context
+ * switch 150 with its label and 100 without, the count 100, the key search's
+ * box 200 and its icon 44, the history item 150 and its buttons 100; the gap
+ * between items is 10px.
  *
  * And both by the keyboard alone (#860): the tabs a WAI-ARIA tablist, the
  * context switch a radio group.
@@ -20,14 +24,15 @@
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { useState } from "react";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { act, render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
-import { IntegerType, StringType, StructType, none, variant } from "@elaraai/east";
+import { IntegerType, StringType, StructType, none, toEastTypeValue, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { system, formatters, EditSession, historyToolbarItem, editingMessages, Toolbar } from "@elaraai/east-ui-components";
+import { system, formatters, EditSession, historyToolbarItem, editingMessages, Toolbar, type ToolbarItem } from "@elaraai/east-ui-components";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { useSheetToolbarItemsFor, type SheetToolbarProps, type SheetToolbarTabs } from "./Toolbar.js";
 import type { LensContext } from "./sheet-types.js";
+import type { SheetSearch } from "./use-seek.js";
 
 /** The toolbar's items on the shared toolbar's one row — as the Sheet's frame lays them out. */
 function SheetToolbar(props: SheetToolbarProps) {
@@ -49,6 +54,7 @@ function widthOf(el: Element): number {
         case "tabs": {
             const strip = el.querySelector('[data-slot="tabs"]');
             const squeezed = strip?.getAttribute("data-strip");
+            if (squeezed === "menu") return 60;
             const tabs = el.querySelectorAll('[data-slot="tab"]').length;
             const more = el.querySelector('[data-slot="tabMore"]') !== null ? 30 : 0;
             const add = squeezed !== null && squeezed !== undefined ? 20 : 50;
@@ -57,6 +63,8 @@ function widthOf(el: Element): number {
         }
         case "context": return el.querySelector('[data-slot="contextSwitch"] > span[aria-hidden="true"]') !== null ? 150 : 100;
         case "count": return 100;
+        case "seek": return el.querySelector('[data-key-search="icon"]') !== null ? 44 : 200;
+        case "history": return el.querySelector('[data-history-form="buttons"]') !== null ? 100 : 150;
         default: return 0;
     }
 }
@@ -88,6 +96,22 @@ const VIEWS = [
     { id: "late", name: "OVERDUE", count: 3, title: "" },
 ];
 const noop = () => {};
+
+/** The history item every collection shares (#988), over a session with nothing pending. */
+function historyItem(): ToolbarItem {
+    const Run = StructType({ id: StringType, end: IntegerType });
+    const session = new EditSession<string>({
+        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    return historyToolbarItem({ session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop });
+}
+
+/** A paged source's key search, finding nothing — what the toolbar mounts over its `seek`. */
+const SEARCH: SheetSearch = {
+    resetKey: "r1", keyType: toEastTypeValue(StringType),
+    find: async () => ({ found: false, row: 0, count: 0 }), listRange: async () => [], jump: noop, clear: noop,
+};
 
 /** The toolbar's tabs over a strip of `views`, the given one active. */
 function tabsOf(styles: Record<string, Record<string, unknown>>, views: SheetTabView[], active: string | null, extra?: Partial<Parameters<typeof SheetTabs>[0]>): SheetToolbarTabs {
@@ -193,6 +217,103 @@ describe("the toolbar's ladder", () => {
         row.px = 530;
         rerender(<ChakraProvider value={system}><Harness count="" active="router" /></ChakraProvider>);
         expect(read(container)).toMatchObject({ tabs: ["all", "spray", "router", "late"], folded: null, context: "labelled" });
+    });
+
+    test("a paged source's key search folds to its icon after the sheet's own steps, before the history item's (#1221)", () => {
+        const history = historyItem();
+        function WithSearch() {
+            const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
+            return <SheetToolbar styles={styles} slice={undefined} affordances={[]} count="12 matches" partial={false}
+                context={{ value: 0, onChange: noop }} tabs={tabsOf(styles, VIEWS, "router")} search={SEARCH} history={history} />;
+        }
+        const at = (px: number) => {
+            cleanup();
+            row.px = px;
+            const { container } = render(<ChakraProvider value={system}><WithSearch /></ChakraProvider>);
+            const form = (key: string) => container.querySelector(`[data-toolbar-item="${key}"]`)?.getAttribute("data-toolbar-form") ?? null;
+            return {
+                ladder: container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder"), strip: read(container).strip, seek: form("seek"), history: form("history"),
+                // It hugs the row's end, with the rail and the history.
+                end: container.querySelector('[data-toolbar-item="seek"]')?.hasAttribute("data-toolbar-end") ?? null,
+            };
+        };
+        // Its step comes after the strip closes up and the context switch goes; the strip's one chip after it, and the history item's last.
+        expect(at(2000)).toEqual({ ladder: "tabs>1 tabs>2 count>1 context>1 tabs>3 tabs>4 tabs>5 context>2 seek>1 tabs>6 history>1", strip: null, seek: "0", history: "0", end: true });
+        // The closed strip (150), the box (200) and the history item (150): the box holds while it fits.
+        expect(at(520)).toMatchObject({ strip: "closed", seek: "0", history: "0" });
+        // A pixel short of that, the icon (44), the history item whole.
+        expect(at(519)).toMatchObject({ strip: "closed", seek: "1", history: "0" });
+        // Shorter still (150 + 44 + 150 + 20 = 364), the strip folds into its chip (60), the history item whole.
+        expect(at(363)).toMatchObject({ strip: "menu", seek: "1", history: "0" });
+        // And past that (60 + 44 + 150 + 20 = 274), the history item folds to its buttons, last.
+        expect(at(273)).toMatchObject({ strip: "menu", seek: "1", history: "1" });
+    });
+});
+
+/** A menu's items, while it is open. */
+const menuItems = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+
+/** Opens a menu by its trigger and returns its items once they show. */
+async function openMenu(trigger: HTMLElement): Promise<HTMLElement[]> {
+    await act(async () => { fireEvent.click(trigger); });
+    return waitFor(() => {
+        const items = menuItems();
+        if (items.length === 0 || trigger.getAttribute("aria-expanded") !== "true") throw new Error("the menu has not opened");
+        return items;
+    });
+}
+
+/**
+ * Picks an item by its text as a pointer does — pressed on it, then its click; the menu opened first when it is
+ * closed — and waits for the menu to close and its content to go. A menu opened again within a frame of its close
+ * loses its content to that close: Zag's presence unmounts it a frame later, open or not. So the next open waits
+ * for this one's close to finish.
+ */
+async function pick(trigger: () => HTMLElement, text: string): Promise<void> {
+    const items = trigger().getAttribute("aria-expanded") === "true" ? menuItems() : await openMenu(trigger());
+    const item = items.find((i) => i.textContent === text);
+    if (item === undefined) throw new Error(`no item "${text}" among ${items.map((i) => i.textContent).join(", ")}`);
+    await act(async () => { fireEvent.pointerDown(item); });
+    await act(async () => { fireEvent.click(item); });
+    await waitFor(() => {
+        if (trigger().getAttribute("aria-expanded") === "true") throw new Error("the menu is still open");
+        if (document.querySelector('[role="menu"]') !== null) throw new Error("the menu's content is still there");
+    });
+}
+
+/** The strip folded into its one chip (#1221), over a host that keeps what it changes and counts `+ TAB`. */
+function MenuHost({ created }: { created: () => void }) {
+    const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
+    const [views, setViews] = useState<SheetTabView[]>(VIEWS);
+    const [active, setActive] = useState<string | null>("router");
+    return (
+        <SheetTabs styles={styles} views={views} wholeCount={60} active={active} dirty={false} hasQuery={false}
+            renaming={null} renameVal="" fold={{ folded: views.length, strip: "menu" }}
+            onSwitch={setActive} onCreate={created}
+            onClose={(id) => { setViews((vs) => vs.filter((v) => v.id !== id)); if (active === id) setActive(null); }}
+            onRenameStart={noop} onRenameChange={noop} onRenameCommit={noop} onRenameCancel={noop} onReorder={noop} />
+    );
+}
+
+describe("the strip as one chip (#1221)", () => {
+    test("the chip names the open view; its menu holds the whole sheet and every view with their counts, then + TAB and the open view's close — each doing what its tab or button does", async () => {
+        let creates = 0;
+        const { container } = render(<ChakraProvider value={system}><MenuHost created={() => { creates += 1; }} /></ChakraProvider>);
+        const chip = () => container.querySelector('[data-slot="tabMenu"]') as HTMLElement;
+        // One chip in place of the tablist: the open view's tab.
+        expect(container.querySelector('[role="tablist"]')).toBeNull();
+        expect([chip().getAttribute("aria-label"), chip().getAttribute("data-tab")]).toEqual(["Views: ROUTERS", "router"]);
+        expect((await openMenu(chip())).map((i) => i.textContent)).toEqual(["All60", "SPRAYING12", "ROUTERS12", "OVERDUE3", "New tab from this view", 'Close "ROUTERS"']);
+        // A view picked is the open one.
+        await pick(chip, "OVERDUE3");
+        expect(chip().getAttribute("aria-label")).toBe("Views: OVERDUE");
+        // Its close: the view goes, and the whole sheet is open — with nothing to close.
+        await pick(chip, 'Close "OVERDUE"');
+        expect([chip().getAttribute("aria-label"), chip().getAttribute("data-tab")]).toEqual(["Views: All", "all"]);
+        expect((await openMenu(chip())).map((i) => i.textContent)).toEqual(["All60", "SPRAYING12", "ROUTERS12", "New tab from this view"]);
+        // + TAB snapshots a view, as the strip's button does.
+        await pick(chip, "New tab from this view");
+        expect(creates).toBe(1);
     });
 });
 
@@ -306,12 +427,7 @@ describe("by the keyboard alone (#860)", () => {
 
     test("the history item every collection shares sits at the row's end (#988)", () => {
         row.px = 2000;
-        const Run = StructType({ id: StringType, end: IntegerType });
-        const session = new EditSession<string>({
-            sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
-            apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
-        });
-        const history = historyToolbarItem({ session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop });
+        const history = historyItem();
         function WithHistory() {
             const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
             return <SheetToolbar styles={styles} slice={undefined} affordances={[]} count="" partial={false} history={history} />;

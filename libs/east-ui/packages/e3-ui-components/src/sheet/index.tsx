@@ -75,7 +75,7 @@ import { ArrayType, StringType, equalFor, fromEastTypeValue, none, printFor, som
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
 import {
-    getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget,
+    focusKeySearch, getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget,
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, kindOfIssue, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -1448,7 +1448,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // ── Effects ───────────────────────────────────────────────────────────
     const cardRef = useRef<HTMLDivElement | null>(null);
     // Where the toolbar's items are placed — the frame's toolbar: ⌘F looks
-    // in it for a search box.
+    // in it for the key search, else a search box.
     const toolbarRef = useRef<HTMLDivElement | null>(null);
     /**
      * A key's move across an unloaded run (#860), waiting for its window: the
@@ -1678,6 +1678,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     break;
                 }
                 case "focus.search": {
+                    // The key search, in either form — its box, or folded to its icon its popover (#1221); else the first box in the row.
+                    if (focusKeySearch(toolbarRef.current)) break;
                     const input = toolbarRef.current?.querySelector<HTMLInputElement>("input");
                     input?.focus();
                     input?.select();
@@ -3856,7 +3858,8 @@ export function useSheetToolbarItems(): ReadonlyArray<ToolbarItem | false | unde
 
 /**
  * Reads the ref for the element that holds the toolbar's items: ⌘F and ⌘/
- * in the grid put the focus on the first search box in it.
+ * in the grid put the focus on the key search in it — its box, or, folded to
+ * its icon, the box in its popover (#1221) — else on the first search box.
  *
  * @returns The ref, for the element the frame lays the items out in.
  */

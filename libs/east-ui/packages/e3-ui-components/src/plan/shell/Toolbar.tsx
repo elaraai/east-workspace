@@ -29,7 +29,7 @@
 import { useMemo, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import {
-    HOST_RANK, useSliceToolbarItems, railAffordanceKinds, radioGroupKey, reviewToolbarItem,
+    HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds, radioGroupKey, reviewToolbarItem,
 } from "@elaraai/east-ui-components/internal";
 import {
     useSliceReactivity, type ToolbarItem, historyToolbarItem, useKeySearchToolbarItem,
@@ -126,7 +126,8 @@ export function SegMenu<K extends string>({ label, name, items, active, onPick }
             if (it !== undefined) onPick(it.key);
         }}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={chip({ tone: "neutral", numeric: true })} data-slot="segMenu"
+                {/* A 44px touch target on a coarse pointer, by its halo: the row keeps its height (#346, #1221). */}
+                <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]} data-slot="segMenu"
                     data-plan-segmenu={name} aria-label={label}>
                     {current?.label ?? active}
                     <Box as="span" data-chip-caret="">{"▾"}</Box>

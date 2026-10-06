@@ -225,10 +225,13 @@ component, nothing in east-ui.
   verbs (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons
   fold into one menu) and the key search over a keyed source's `seek`
   (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
-  edit popover, and keeps its form while a query is typed). On a coarse pointer
-  a control in the row is a 44px tap target by its box or by its halo
-  (`coarseHitArea`, #346), never by growing the row (#1193); the rail's chips
-  and the Plan's segment menus take their halo with #1221.
+  edit popover, and keeps its form while a query is typed; `focusKeySearch`
+  brings a host's key for it, the Sheet's ⌘F, to it in either form). On a
+  coarse pointer a control in the row is a 44px tap target by its box or by its
+  halo (`coarseHitArea`, #346), never by growing the row (#1193, #1221): a
+  segment whose neighbours sit edge to edge takes the halo on the block axis
+  alone (`axis: "block"`), and its strip clips nothing that would cut it; a
+  search box is a 44px field, its input filling it.
 
 ## Field form
 

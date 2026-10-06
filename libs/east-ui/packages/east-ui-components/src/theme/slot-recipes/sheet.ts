@@ -48,7 +48,8 @@
  *     ink; counts `fg.subtle`; dirty dot 5 px brand; × 14 px → neg;
  *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600. A tab, `+n` and
  *     `+ TAB` reached by the keyboard take a 2 px brand ring inside
- *     themselves — the strip clips its overflow (#860).
+ *     themselves — the strip clips its overflow sideways (#860). Folded into
+ *     one chip (#1221), the strip is the open view's tab with a caret.
  *   - Context switch: r-md, options mono 10, active brandTint; a focused
  *     option a 2 px brand ring (#860).
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
@@ -105,9 +106,11 @@
  *     keeps its lowercase, late warn, early info.
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the frame's toolbar keeps
- *     its one row through its ladder, and on a coarse pointer the small controls grow
- *     (gutter buttons, ✓ take, × close, the band's controls, the context
- *     options, the strip's chips), the editor's type goes to 16 px so a
+ *     its one row through its ladder — on a coarse pointer its controls (the
+ *     tabs, `+n`, `+ TAB`, the active tab's ×, the context options) keep their
+ *     size and take a 44 px tap target from their halos (#1221) — and in the
+ *     grid the small controls grow (gutter buttons, ✓ take, the band's
+ *     controls, the strip's chips), the editor's type goes to 16 px so a
  *     phone never zooms into it, and the band's controls — hover-revealed on
  *     a desktop — stay open where nothing can hover (`_hoverNone`).
  *   - Drag and drop (#1187): a grip leads the actions column — a
@@ -141,7 +144,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
         "toolbarRail", "toolbarCount", "toolbarBadge",
-        "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
+        "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabMenu", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
         "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
@@ -282,14 +285,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         // The strip never scrolls: the toolbar folds its trailing tabs into a
-        // `+n` menu, then closes it up (`data-strip`, #952).
+        // `+n` menu, then closes it up (`data-strip`, #952). It clips sideways
+        // alone, so its controls' touch halos reach above and below it (#1221).
         tabs: {
             display: "flex",
             alignItems: "stretch",
             gap: "16px",
             minWidth: "0",
             flex: "0 1 auto",
-            overflow: "hidden",
+            overflowX: "clip",
             // The toolbar's last rung: the strip closes up and its counts go.
             "&[data-strip='closed']": { gap: "10px" },
         },
@@ -308,7 +312,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
             gap: "7px",
             height: "30px",
-            _coarse: { height: "40px" },
+            ...coarseHitArea({ position: true }),
             paddingX: "2px",
             flex: "none",
             color: "fg.subtle",
@@ -323,7 +327,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _hover: { color: "fg.muted" },
             "&[data-active]": { boxShadow: "inset 0 -2px 0 var(--chakra-colors-fg)", color: "fg", cursor: "default" },
             // A tab of the tablist (#860), reached by the keyboard. The strip clips
-            // its overflow, so the ring is drawn inside the tab.
+            // its overflow sideways, so the ring is drawn inside the tab.
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
         },
         // The name ellipsises past 200px, and past 72px once the toolbar's
@@ -333,7 +337,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             maxWidth: "200px",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            "[data-strip='capped'] &, [data-strip='closed'] &": { maxWidth: "72px" },
+            "[data-strip='capped'] &, [data-strip='closed'] &, [data-strip='menu'] &": { maxWidth: "72px" },
         },
         tabCount: {
             color: "fg.subtle",
@@ -348,6 +352,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRadius: "{radii.full}",
             background: "brand.solid",
         },
+        // The × keeps its 14px box. On a coarse pointer it is the active or
+        // the focused tab's alone, so its 44px halo never takes a tap that
+        // switches to a tab (#1221).
         tabClose: {
             display: "inline-flex",
             alignItems: "center",
@@ -358,7 +365,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             fontSize: "9px",
             _hover: { color: "fg.danger" },
-            _coarse: { width: "24px", height: "24px", fontSize: "12px" },
+            ...coarseHitArea({ position: true }),
+            "[data-slot=tab]:not([data-active], :focus-visible) > &": { _coarse: { visibility: "hidden" } },
         },
         tabAdd: {
             flex: "none",
@@ -386,7 +394,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             userSelect: "none",
             _hover: { borderColor: "brand.solid", color: "brand.solid" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
-            _coarse: { height: "32px", paddingX: "10px" },
+            ...coarseHitArea({ position: true }),
             // Icon-only once the strip closes up at all; the title still says what it does.
             "[data-strip] &": { gap: "0", paddingX: "5px", "& > [data-slot=tabAddLabel]": { display: "none" } },
         },
@@ -396,7 +404,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
             gap: "5px",
             height: "30px",
-            _coarse: { height: "40px" },
+            ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
             flex: "none",
@@ -411,6 +419,35 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             userSelect: "none",
             _hover: { color: "fg.muted" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
+        },
+        // The strip folded into one chip, the toolbar's last rung for it
+        // (#1221): the open view's tab — its name capped, the active tab's
+        // ink and underline — and a caret, opening a menu of every view and
+        // `+ TAB`.
+        tabMenu: {
+            display: "inline-flex",
+            alignItems: "center",
+            lineHeight: "1",
+            gap: "6px",
+            height: "30px",
+            ...coarseHitArea({ position: true }),
+            paddingX: "2px",
+            paddingY: "0",
+            flex: "none",
+            border: "none",
+            background: "transparent",
+            boxShadow: "inset 0 -2px 0 var(--chakra-colors-fg)",
+            color: "fg",
+            fontFamily: "mono",
+            fontSize: "10.5px",
+            fontWeight: "600",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            cursor: "pointer",
+            userSelect: "none",
+            "& [data-slot=tabMenuCaret]": { fontSize: "8px", opacity: "0.7" },
             _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
         },
         tabRename: {
@@ -432,7 +469,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // the switch is the `+ TAB` button's size and idiom
         // (22 px, r-sm, `border.strong`, mono 9.5/600 uppercase), not a taller
-        // box of its own.
+        // box of its own — on a coarse pointer too, where its options take
+        // their touch target from their halos (#1221).
         contextSwitch: {
             display: "flex",
             alignItems: "center",
@@ -444,7 +482,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
             background: "bg.surface",
-            _coarse: { height: "32px" },
         },
         // the label and the options share ONE line box (the
         // same font size, a 20 px line, no vertical padding) so their
@@ -463,8 +500,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.1em",
             color: "fg.subtle",
             textTransform: "uppercase",
-            _coarse: { height: "26px", lineHeight: "26px" },
         },
+        // An option sits two pixels from the next: its halo grows its height alone.
         contextOption: {
             display: "inline-flex",
             alignItems: "center",
@@ -472,7 +509,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "16px",
             paddingX: "6px",
             paddingY: "0",
-            _coarse: { height: "26px", lineHeight: "26px", paddingX: "10px" },
+            ...coarseHitArea({ position: true, axis: "block" }),
             border: "none",
             background: "transparent",
             borderRadius: "{radii.sm}",

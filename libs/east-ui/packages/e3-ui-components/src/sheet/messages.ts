@@ -124,6 +124,8 @@ export interface SheetMessages extends EditingMessages {
     lensCount: (p: { n: number; count: string; context: string | undefined }) => string;
     /** The badge on a paged sheet's narrowing chrome, which sees only the loaded rows. */
     scopeBadge: () => string;
+    /** The key search's icon — what a toolbar short of room folds its box to — and the head of the popover it opens the box in (#1221). */
+    keySearch: () => string;
 
     // ── The view tabs (B§8) ────────────────────────────────────────────────
     /** The tablist's accessible name. */
@@ -154,6 +156,12 @@ export interface SheetMessages extends EditingMessages {
     tabAddName: () => string;
     /** `+ tab`'s title — with a query set, or without one. */
     tabAddTitle: (p: { query: boolean }) => string;
+    /** The strip folded into one chip (#1221): its accessible name, naming the open view — `Views: All`. */
+    tabMenuName: (p: { name: string }) => string;
+    /** Its title. */
+    tabMenuTitle: () => string;
+    /** The chip's menu item that closes the open view — `Close "Spraying"`. */
+    tabCloseView: (p: { name: string }) => string;
 
     // ── The history bar and the draft issues: the editing session's
     // (`EditingMessages`) ────────────────────────────────────────────────────
@@ -601,6 +609,7 @@ export const sheetMessages: SheetMessages = {
     contextOption: ({ n, count }) => (n === 0 ? "none" : `±${count}`),
     lensCount: ({ n, count, context }) => `${count} ${plural(n, "match", "matches")}${context !== undefined ? ` · ${context} context` : ""}`,
     scopeBadge: () => "loaded rows only",
+    keySearch: () => "Search keys",
 
     tabList: () => "Views",
     tabAll: () => "All",
@@ -624,6 +633,9 @@ export const sheetMessages: SheetMessages = {
     tabAddTitle: ({ query }) => (query
         ? "New tab from this search — query, context and expanded bands, evaluated live"
         : "New tab — no filter yet; search inside it and ⏎ to scope it"),
+    tabMenuName: ({ name }) => `Views: ${name}`,
+    tabMenuTitle: () => "Switch views, or save this one as a new tab",
+    tabCloseView: ({ name }) => `Close "${name}"`,
 
     headerNumber: () => "#",
     foldAll: ({ folded, groups }) => (folded ? `Open ${groups}` : `Fold ${groups}`),

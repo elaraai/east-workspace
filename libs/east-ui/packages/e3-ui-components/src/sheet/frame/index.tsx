@@ -17,8 +17,10 @@
  *   frame's one folding row, in §7.1's order: the view tabs, the context
  *   switch, the match count, the key search, the slice's rail, the scope
  *   badge, and the history item, which leaves its error to the banners. ⌘F
- *   in the grid finds the search box in it. A sheet with none of them — read
- *   only, with no slice and no key search — has no toolbar;
+ *   in the grid reaches the key search in it — its box, or, folded to its
+ *   icon, the box in its popover (#1221) — else the rail's search box. A sheet
+ *   with none of them — read only, with no slice and no key search — has no
+ *   toolbar;
  * - **the banners** — the session's (`SessionBanners`): an Apply's conflict,
  *   naming its rows and who changed the record last; a refusal, with its
  *   reason; an unknown outcome and a failed confirmation read, each with

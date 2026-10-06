@@ -23,8 +23,13 @@
  *   4. the context switch drops its label;
  *   5. the tab strip drops the `+ TAB` label and the whole-sheet count;
  *   6. the tab names cap at 72px;
- *   7. last, the context switch goes and the strip closes up, its counts
- *      with it.
+ *   7. the context switch goes and the strip closes up, its counts with it;
+ *   8. the key search's box folds to its icon, which opens the box in a
+ *      popover (#1221) — the shared item the Plan's toolbar takes too;
+ *   9. the strip folds into one chip, the open view's tab, whose menu holds
+ *      every view, `+ TAB` and the open view's close (#1221) — so a phone's
+ *      row holds the views a planner has saved;
+ * and the history item folds last, to its buttons.
  * Each is a form of an item, measured and chosen before paint: the toolbar's
  * configuration is a function of its width, whatever width it came from.
  *
@@ -37,7 +42,7 @@ import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Slice } from "@elaraai/east-ui/internal";
 import { radioGroupKey, HOST_RANK, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
-import { type ToolbarItem, DatasetKeySearch } from "@elaraai/east-ui-components";
+import { type ToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
 import type { SheetTabsFold } from "./Tabs.js";
 import type { LensContext } from "./sheet-types.js";
 import type { SheetSearch } from "./use-seek.js";
@@ -58,6 +63,8 @@ const SHEET_RANK = {
     stripCompact: HOST_RANK + 3,
     stripCapped: HOST_RANK + 4,
     close: HOST_RANK + 5,
+    seek: HOST_RANK + 6,
+    tabsMenu: HOST_RANK + 7,
 } as const;
 
 /** The view tabs, as the toolbar folds them. */
@@ -116,6 +123,9 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
         if (onSearchKey(e.key)) { e.preventDefault(); e.stopPropagation(); }
     }, [onSearchKey]);
 
+    // The key search over a seekable source: its box, or its icon on a row short of room.
+    const seek = useKeySearchToolbarItem(search, { side: "end", rank: SHEET_RANK.seek, label: m.keySearch() });
+
     // The rail — its forms wrapped so the tabs can claim the keys its search box takes.
     const railItem = useSliceToolbarItems(slice, [{ key: "rail", kinds, side: "end" }])[0];
     const rail: ToolbarItem | undefined = railItem === undefined ? undefined : {
@@ -125,7 +135,8 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
         )),
     };
 
-    // The tabs: one tab at a time into `+n`, then the strip's own closing up.
+    // The tabs: one tab at a time into `+n`, then the strip's own closing up,
+    // and last the strip as one chip (#1221).
     const tabsItem: ToolbarItem | undefined = tabs === undefined ? undefined : {
         key: "tabs",
         forms: [
@@ -133,10 +144,11 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
             tabs.render({ folded: tabs.maxFold, strip: "compact" }),
             tabs.render({ folded: tabs.maxFold, strip: "capped" }),
             tabs.render({ folded: tabs.maxFold, strip: "closed" }),
+            tabs.render({ folded: tabs.maxFold, strip: "menu" }),
         ],
         rank: [
             ...Array.from({ length: tabs.maxFold }, () => SHEET_RANK.tabFold),
-            SHEET_RANK.stripCompact, SHEET_RANK.stripCapped, SHEET_RANK.close,
+            SHEET_RANK.stripCompact, SHEET_RANK.stripCapped, SHEET_RANK.close, SHEET_RANK.tabsMenu,
         ],
         version: tabs.version,
         held: tabs.held,
@@ -183,11 +195,7 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
             forms: [<Box as="span" css={styles.toolbarCount} data-slot="toolbarCount">{count}</Box>, null],
             rank: SHEET_RANK.count,
         },
-        search !== undefined && {
-            key: "seek",
-            side: "end",
-            forms: [<DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find} onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />],
-        },
+        seek,
         rail,
         partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
         history,

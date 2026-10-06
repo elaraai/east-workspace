@@ -19,7 +19,7 @@ import { toEastTypeValue, StringType } from "@elaraai/east";
 import type { ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
-import { useKeySearchToolbarItem, type KeySearchSource, type KeySearchToolbarOptions } from "./toolbar-item.js";
+import { focusKeySearch, useKeySearchToolbarItem, type KeySearchSource, type KeySearchToolbarOptions } from "./toolbar-item.js";
 
 afterEach(cleanup);
 
@@ -192,4 +192,37 @@ test("a search keyed afresh starts empty, and the query typed into the one befor
     await waitFor(() => expect(view.form()).toBe("1"));
     view.resize(510, search("r2"));
     expect((screen.getByPlaceholderText("Search keys") as HTMLInputElement).value).toBe("");
+});
+
+test("a host's key for its search reaches it in either form: the box, its text selected; folded, the box in its popover, opened — or focused there when open; a toolbar with none, false", async () => {
+    // The box: focused, its text selected.
+    const wide = mount(510, search());
+    const input = screen.getByPlaceholderText("Search keys") as HTMLInputElement;
+    await userEvent.type(input, "key");
+    input.blur();
+    expect(focusKeySearch(wide.container.querySelector<HTMLElement>("[data-toolbar]"))).toBe(true);
+    expect(document.activeElement).toBe(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 3]);
+    cleanup();
+    // Folded: its popover opens, the focus in its box.
+    const narrow = mount(154, search());
+    const bar = narrow.container.querySelector<HTMLElement>("[data-toolbar]");
+    const icon = narrow.container.querySelector<HTMLElement>('[data-key-search="icon"]')!;
+    await act(async () => { expect(focusKeySearch(bar)).toBe(true); });
+    const box = await waitFor(() => {
+        const el = document.querySelector<HTMLInputElement>('[data-key-search="popover"] input');
+        if (el === null) throw new Error("no popover");
+        return el;
+    });
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    // Open already: the focus goes back to its box, and the popover stays open.
+    icon.focus();
+    await act(async () => { expect(focusKeySearch(bar)).toBe(true); });
+    expect(document.activeElement).toBe(box);
+    expect(icon.getAttribute("data-state")).toBe("open");
+    cleanup();
+    // No key search in the toolbar, or no toolbar: nothing to reach.
+    expect(focusKeySearch(null)).toBe(false);
+    const bare = render(wrap(<Toolbar items={[PEER]} />));
+    expect(focusKeySearch(bare.container.querySelector<HTMLElement>("[data-toolbar]"))).toBe(false);
 });

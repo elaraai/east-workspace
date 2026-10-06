@@ -33,7 +33,7 @@ import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 /** A sheet's keys are Strings — the search input parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
 
-/** What the toolbar needs to mount `<DatasetKeySearch>`. */
+/** What the toolbar's key search drives — the shared item's source (`useKeySearchToolbarItem`, #1221). */
 export interface SheetSearch {
     /** Source snapshot identity; remounts cached positional search results. */
     resetKey: string;

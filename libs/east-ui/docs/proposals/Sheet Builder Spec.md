@@ -646,10 +646,10 @@ toolbar.
 
 | Item | Side | Under width pressure |
 |---|---|---|
-| View tabs: the whole sheet, each saved view, `+ TAB` | start | Trailing tabs fold into `+n` (the active one kept), then the names cap at 72px and `+ TAB` loses its label |
+| View tabs: the whole sheet, each saved view, `+ TAB` | start | Trailing tabs fold into `+n` (the active one kept), then the names cap at 72px and `+ TAB` loses its label; last (#1221) the strip folds into one chip, the open view's tab, whose menu holds every view, `+ TAB` and the open view's close |
 | Context switch: ±0 · ±1 · ±3 | start | Loses its label, then goes |
 | Match count: `12 matches · 30 context` | start | Goes |
-| Key search, on a paged keyed record | end | Stays; it replaces the rail's search |
+| Key search, on a paged keyed record | end | Folds to its icon, which opens the box in the edit popover with the focus in it — after the sheet's own steps, before the history item's (#1221). It replaces the rail's search, and keeps its form while a query is typed. |
 | The slice's rail: filter · search · cohort | end | Folds first: clause chips into `+M more`, the affordances into summary chips, one chip naming what is set, then the icon. Each opens the slice editor popover. |
 | Scope badge: `loaded rows only`, while a paged sheet is narrowed | end | Shown while it applies |
 | The history item: status line · issues · Undo · Redo · Discard · Apply | end | Folds last, to its buttons |
@@ -657,7 +657,18 @@ toolbar.
 The rail's items come from `useSliceToolbarItems(slice, [{ key: "rail",
 kinds, side: "end" }])`, the hook Plan's toolbar, the Sheet's and the
 Library's use today, with `HOST_RANK` keeping every other item folding after
-it. The history item is the shared `historyToolbarItem` (#988).
+it. The history item is the shared `historyToolbarItem` (#988), and the key
+search the shared `useKeySearchToolbarItem`, as the Plan's is (#1221).
+
+On a touch screen every control in the row keeps its size and is a 44px tap
+target by its box or by its halo (`coarseHitArea`, #346), never by growing the
+row (#1221): the tabs, `+n`, `+ TAB`, the strip's one chip, the active tab's
+×, the context switch's options — whose halos grow their height alone, as
+they sit two pixels apart — the rail's chips and the key search's icon; a
+search box is a 44px field, its input filling it. The × shows on the active or the focused tab alone there, so
+its halo never takes a tap that switches tabs. ⌘F and ⌘/ in the grid reach the
+key search in either form — its box, its text selected; folded, the box in its
+popover — else the rail's search box.
 
 ## 8. Anatomy
 
@@ -777,7 +788,8 @@ the grid.
   §7.1's order. The grid draws no toolbar of its own.
 - **SB20.** Under width pressure the rail folds first (its ranks, through
   `useSliceToolbarItems`), then the sheet's own steps in `Sheet Spec.md`
-  §6.3's order, and the history item last, to its buttons. No item wraps,
+  §6.3's order, then the key search to its icon and the view tabs into one
+  chip (#1221), and the history item last, to its buttons. No item wraps,
   scrolls or moves to a second row.
 - **SB21.** Main holds the grid and, docked under it, the strip.
 - **SB22.** The footer is the sheet's footer, with, over a record, the last

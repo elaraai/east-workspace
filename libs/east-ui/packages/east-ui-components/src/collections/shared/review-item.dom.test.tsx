@@ -99,13 +99,20 @@ async function openMenu(trigger: HTMLElement) {
     await waitFor(() => expect(document.querySelectorAll('[role="menuitem"]').length).toBeGreaterThan(0));
 }
 
-/** Picks an item of the open menu as a pointer does — pressed on it, then its click — and waits for the menu to close. */
+/**
+ * Picks an item of the open menu as a pointer does — pressed on it, then its click — and waits for the menu to close
+ * and its content to go. A menu opened again within a frame of its close loses its content to that close: Zag's
+ * presence unmounts it a frame later, open or not (#1221). So the next open waits for this one's close to finish.
+ */
 async function pick(trigger: HTMLElement, name: string) {
     const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) => el.textContent === name);
     if (item === undefined) throw new Error(`no menu item ${name}`);
     await act(async () => { fireEvent.pointerDown(item); });
     await act(async () => { fireEvent.click(item); });
-    await waitFor(() => expect(trigger.getAttribute("aria-expanded")).toBe("false"));
+    await waitFor(() => {
+        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        expect(document.querySelector('[role="menu"]')).toBeNull();
+    });
 }
 
 test("the item sits at the row's end — the summary, then Reject all, Rerun and Approve all — and folds to the buttons alone, then into its menu, each at its rank", () => {

@@ -14,6 +14,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const comboboxSlotRecipe = defineSlotRecipe({
     className: "elara-combobox",
@@ -36,6 +37,10 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             width: "100%",
             paddingInline: "0",
             paddingBlock: "0",
+            /* Touch (#346): the 44px floor is the bordered box's, as the plain
+             * input's is — on the inner input it made the control 46px with
+             * its border, standing out of a 44px toolbar band (#1221). */
+            _coarse: { minHeight: "44px" },
             _focusWithin: fieldFocusRing,
         },
         input: {
@@ -48,8 +53,8 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             background: "transparent",
             border: "none",
-            /* Touch (#346): 44px input row + 16px text (iOS zoom guard). */
-            _coarse: { minHeight: "44px", fontSize: TOUCH_FONT_FLOOR },
+            /* Touch (#346): 16px text (iOS zoom guard); the 44px row is the control's. */
+            _coarse: { fontSize: TOUCH_FONT_FLOOR },
             paddingInline: "10px",
             paddingBlock: "7px",
             fontFamily: "body",
@@ -68,15 +73,19 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             flexShrink: 0,
         },
+        /* Touch (#346, #1221): the icons keep their size and take a 44px tap
+         * target from their halos, as the icon button does. */
         trigger: {
             paddingX: "{spacing.2}",
             color: "fg.muted",
             cursor: "pointer",
+            ...coarseHitArea({ position: true }),
         },
         clearTrigger: {
             paddingX: "{spacing.1}",
             color: "fg.muted",
             cursor: "pointer",
+            ...coarseHitArea({ position: true }),
         },
         content: {
             background: "bg.surface",
