@@ -280,8 +280,37 @@ function buildDecisionHandle(
     } as unknown as DecisionHandleFns;
 }
 
-/** The `decision_bind` implementation + its backing primitives. Registered on
- *  module load. */
+/**
+ * `Decision.bind`'s implementation: `decision_bind` and the `decision_*`
+ * primitives its handle's methods call. Registered as the package loads, and
+ * exported for a host that renders UI functions outside `UITaskPreview`: a UI
+ * is decoded with the platforms `UITaskPreview` lists, this among them, or a
+ * `Decision.bind` in it throws that `decision_bind` is not available.
+ *
+ * @example
+ * ```ts
+ * import { decodeBeast2For } from '@elaraai/east';
+ * import { UIComponentType } from '@elaraai/east-ui';
+ * import {
+ *     StateImpl, NavImpl, SliceImpl, SliceApplyImpl, OverlayImpl, ClipboardImpl, DownloadImpl, ShareImpl,
+ * } from '@elaraai/east-ui-components';
+ * import {
+ *     DecisionBindPlatform, createScopedBindPlatform, createScopedPagedPlatform,
+ *     createScopedFuncPlatform, createScopedRecordPlatform,
+ * } from '@elaraai/e3-ui-components';
+ *
+ * // `manifest` is the UI task's (its role's `ui` value), `bytes` its output.
+ * const platforms = [
+ *     ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+ *     ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
+ *     ...createScopedBindPlatform(manifest),
+ *     ...createScopedPagedPlatform(manifest.pages),
+ *     ...createScopedFuncPlatform(manifest.functions),
+ *     ...createScopedRecordPlatform(manifest.records),
+ * ];
+ * const ui = decodeBeast2For(UIComponentType, { platform: platforms })(bytes);
+ * ```
+ */
 export const DecisionBindPlatform: PlatformFunction[] = [
     // Generic over the constraint contract — the resolver receives the contract
     // type value and threads it into the IR-bearing judgement / inject methods.

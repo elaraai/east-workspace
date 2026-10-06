@@ -80,6 +80,36 @@ const failure = useQueryRecovery(details); // null once it reads
 if (failure !== null) return <StatusDisplay variant="error" title="Error" message={failure.message} />;
 ```
 
+### Rendering a UI outside `UITaskPreview`
+
+A host that renders UI functions itself decodes each with the platforms
+`UITaskPreview` lists. Every one is exported by name: east-ui-components' own,
+`Decision.bind`'s (`DecisionBindPlatform`), and the bindings scoped to the UI's
+manifest. Preload the manifest's `paths` with `usePreloadReactiveDatasets`
+before the UI's first read.
+
+```tsx
+import { decodeBeast2For } from '@elaraai/east';
+import { UIComponentType } from '@elaraai/east-ui';
+import {
+    StateImpl, NavImpl, SliceImpl, SliceApplyImpl, OverlayImpl, ClipboardImpl, DownloadImpl, ShareImpl,
+} from '@elaraai/east-ui-components';
+import {
+    DecisionBindPlatform, createScopedBindPlatform, createScopedPagedPlatform,
+    createScopedFuncPlatform, createScopedRecordPlatform,
+} from '@elaraai/e3-ui-components';
+
+const platforms = [
+    ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+    ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
+    ...createScopedBindPlatform(manifest),
+    ...createScopedPagedPlatform(manifest.pages),
+    ...createScopedFuncPlatform(manifest.functions),
+    ...createScopedRecordPlatform(manifest.records),
+];
+const ui = decodeBeast2For(UIComponentType, { platform: platforms })(bytes);
+```
+
 ## Components
 
 ### TaskPreview
