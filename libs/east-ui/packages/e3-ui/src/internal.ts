@@ -60,7 +60,7 @@ export {
     RecordBindPrimitives,
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
-export { deriveManifest } from './utils/derive.js';
+export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the

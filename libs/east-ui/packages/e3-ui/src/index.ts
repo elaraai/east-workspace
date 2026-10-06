@@ -73,7 +73,7 @@ export {
     recordBindPlatformFn,
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
-export { deriveManifest } from './utils/derive.js';
+export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 export { ui } from './ui.js';
 
 // The Studio (#787): components as code, the pages record operators build, and
