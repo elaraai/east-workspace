@@ -84,8 +84,10 @@ export {
 } from "./contracts/states.js";
 
 // Shared time contract — bucketed-axis resolution + drag/duration snap steps
+// (a duration: e3-ui's `Schedule.Types.Duration`, #1218)
 export {
     TimeResolutionType, type TimeResolutionLiteral,
+    TimeStepType,
 } from "./contracts/time.js";
 
 // Row-source contract (#567) — how a collection takes its rows: inline, or a
