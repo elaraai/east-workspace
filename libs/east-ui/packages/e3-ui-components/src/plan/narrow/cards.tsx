@@ -13,6 +13,7 @@
 import { memo, useMemo, type ComponentProps } from "react";
 import { Box } from "@chakra-ui/react";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
+import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { GridSeparators } from "../rows/RowShell.js";
 import { KindPlot } from "../rows/KindPlot.js";
@@ -152,9 +153,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                         )}
                     </PlanPartBoundary>
                 )}
-                {scale.nowFrac !== undefined && (
-                    <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />
-                )}
+                {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline />}
             </Box>
             {drill !== undefined && (
                 <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>

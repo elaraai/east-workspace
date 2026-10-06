@@ -22,10 +22,10 @@
 import { useCallback, useMemo, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { Box } from "@chakra-ui/react";
 import { useDragEventChip, useDragEventEdge, type CellCoord, type DragHandle } from "@elaraai/east-ui-components";
+import { slotOfInstant } from "../../shared/time/slot.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
-import { slotOfInstant, type PlanMoveMode, type PlanSpan } from "./move-math.js";
-import { usePlanEdit, type PlanEditContextValue, type PlanMovable } from "./store.js";
+import { usePlanEdit, type PlanEditContextValue, type PlanMovable, type PlanMoveMode, type PlanSpan } from "./store.js";
 
 /** What an element spreads to be picked up by the pointer, and described to the keyboard. */
 export interface PlanElementHandle {

@@ -11,6 +11,7 @@
  */
 
 import { Box } from "@chakra-ui/react";
+import { NowChip, NowLine } from "../../shared/time/now-line.js";
 import { usePlanScale } from "../context.js";
 import { usePlanWords } from "../words.js";
 import { GridSeparators } from "../rows/RowShell.js";
@@ -67,9 +68,8 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, traili
                 <GridSeparators styles={styles} />
                 {scale.nowFrac !== undefined && (
                     <>
-                        <Box css={styles.nowLine} data-plan-now left={`${scale.nowFrac * 100}%`} />
-                        <Box css={styles.nowChip} data-plan-nowchip left={`${scale.nowFrac * 100}%`}
-                            transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>{words.m.now()}</Box>
+                        <NowLine styles={styles} at={scale.nowFrac} data-plan-now />
+                        <NowChip styles={styles} at={scale.nowFrac} anchor={chipAnchor(scale.nowFrac)} data-plan-nowchip>{words.m.now()}</NowChip>
                     </>
                 )}
                 {cursorChipRef !== undefined && (

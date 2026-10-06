@@ -31,14 +31,15 @@
 import { useCallback, useMemo, useRef } from "react";
 import { none, some, variant } from "@elaraai/east";
 import type { DragEventValue, DropVeto } from "@elaraai/east-ui-components";
+import { stepSpan } from "../../shared/time/drag.js";
+import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
 import { equalInstants } from "../instant.js";
 import type { PlanRowValue, VisibleRow } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
-import { slotOfEnd, slotOfInstant, stepSpan, type PlanSpan } from "./move-math.js";
 import { spanWords } from "./movable.js";
-import type { PlanCarry, PlanEditStore, PlanMovable, PlanProposal } from "./store.js";
+import type { PlanCarry, PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store.js";
 
 /** One move, as the editing session writes it. */
 export interface PlanMoveRequest {

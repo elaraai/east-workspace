@@ -21,11 +21,17 @@
  */
 
 import { createContext, useContext } from "react";
-import { equalInstants } from "../instant.js";
+import type { MoveMode, Span } from "../../shared/time/drag.js";
+import { equalInstants, type PlanInstantValue } from "../instant.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
-import type { PlanMoveMode, PlanSpan } from "./move-math.js";
+
+/** An element's extent: a run's or a chip's two ends; a tile's or a mark's instant, twice. Moved by the time parts' arithmetic (`shared/time/drag.ts`, #1148). */
+export type PlanSpan = Span<PlanInstantValue>;
+
+/** What a gesture moves: the whole element, or one of its ends. */
+export type PlanMoveMode = MoveMode;
 
 /** What an element is, for its look in the ghost. */
 export type PlanMovableKind = "run" | "chip" | "tile" | "mark";

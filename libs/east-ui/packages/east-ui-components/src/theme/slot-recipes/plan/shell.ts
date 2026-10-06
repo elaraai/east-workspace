@@ -6,8 +6,9 @@
 /**
  * The Plan recipe's CHROME — the frame, the toolbar, the horizon brush, the ruler,
  * the footer, the focus bar, the diagnostics, the paged window bands, and the
- * canvas-wide overlays (the now line, the cursor hairline and chip, the element
- * overlay body).
+ * canvas-wide overlays (the cursor hairline and chip, the element overlay
+ * body). The now line and its chip are the shared time part's (`../time/now.ts`,
+ * #1148), merged into the recipe beside this one.
  *
  * One part of the Plan slot recipe (`../plan.ts`, #817), over semantic tokens
  * and the canvas's geometry variables (e3-ui-components' `plan/geometry.ts`).
@@ -21,9 +22,9 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 /** The slots this part styles. */
 export const shellSlots = [
     "root", "toolbar", "toolbarLibraryCount", "brushRow",
-    "brushCaption", "horizonLens", "ruler", "rulerTick", "nowChip", "footer", "footerItem", "focusBar",
+    "brushCaption", "horizonLens", "ruler", "rulerTick", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
-    "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry", "nowLine",
+    "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry",
     "cursorLine", "cursorChip", "elementOverlay",
 ] as const;
 
@@ -130,23 +131,6 @@ export const shellBase = {
         // No border: the ruler's bucket lines are the rows' own separators
         // (`GridSeparators`, drawn over the ticks), so the two can never sit
         // a pixel apart.
-    },
-    // The NOW chip in the ruler — mono 9.5 / 600 on the one committed fill
-    // (#949: the label floor, one dark fill).
-    nowChip: {
-        position: "absolute",
-        top: "50%",
-        transform: "translate(-50%, -50%)",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "semibold",
-        letterSpacing: "0.08em",
-        color: "bg.surface",
-        background: "brand.emphasized",
-        borderRadius: "2px",
-        padding: "1px 4px",
-        zIndex: 7,
-        pointerEvents: "none",
     },
     // ── Footer (28px): mono status line ──
     footer: {
@@ -374,18 +358,6 @@ export const shellBase = {
         ...planElementFocus,
     },
     // ── Overlays ──
-    nowLine: {
-        position: "absolute",
-        top: 0,
-        bottom: 0,
-        width: 0,
-        borderLeftWidth: "1.5px",
-        borderLeftColor: "{colors.brand.solid}",
-        pointerEvents: "none",
-        zIndex: 7,
-        "[data-axis='dim'] &": { opacity: 0.4 },
-        "[data-axis='off'] &": { display: "none" },
-    },
     cursorLine: {
         position: "absolute",
         top: 0,
