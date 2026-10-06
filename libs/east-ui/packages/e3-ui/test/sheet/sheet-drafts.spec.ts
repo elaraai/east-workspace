@@ -13,7 +13,7 @@ const Draft = Sheet.Types.Draft(Row);
 const wire = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 5n)]]), lines: [], band: none, subRows: [] };
 const encodeWire = encodeBeast2For(Sheet.Types.Row);
 const source = East.value([{ id: "a", qty: 1n, note: none, hidden: ["keep"] }], ArrayType(Row));
-const view = East.function([], Sheet.Types.Root, () => Sheet.Payload(source, {
+const view = East.function([], Sheet.Types.Root, () => Sheet.Root(source, {
     qty: Sheet.column.integer(Row), note: Sheet.column.text(Row),
 }, { id: "id" })).toIR().compile([])();
 const editing = view.editing;

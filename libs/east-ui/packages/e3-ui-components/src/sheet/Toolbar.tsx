@@ -4,16 +4,16 @@
  */
 
 /**
- * The toolbar row (§7): the view tabs at left, then the lens's context
+ * The toolbar's items (§7): the view tabs at left, then the lens's context
  * switch and its `n matches · m context` line, and hugging the row's right
  * edge the key search over a paged source's `seek` (in place of the rail's
  * search, which would only filter the loaded prefix), the slice rail (search
  * / filter / cohort on the bound slice), the paged scope badge *loaded rows
- * only*, and the history controls. Mounts only when the sheet has a reason:
- * a bound slice, a paged source, or edits to keep.
+ * only*, and the history controls.
  *
- * ONE row, always — nothing wraps and nothing scrolls. It is a row of the
- * shared toolbar (#952), folded on one ladder, in this order:
+ * ONE row, always — nothing wraps and nothing scrolls. They are the frame's
+ * toolbar's items, the shared toolbar (#952), folded on one ladder, in this
+ * order:
  *   1. the rail gives way first — its affordances fold into summary chips,
  *      then into one chip, then into its icon (every one of them opens the
  *      slice editor popover);
@@ -29,16 +29,15 @@
  * configuration is a function of its width, whatever width it came from.
  *
  * The items are a part of their own (SB4): `useSheetToolbarItemsFor` builds
- * them, `SheetToolbar` lays them out as the sheet's own row, and a builder
- * places them in its frame's toolbar instead.
+ * them, and the Sheet's frame places them in its one toolbar (#1216).
  */
 
-import { memo, useCallback, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
+import { useCallback, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Slice } from "@elaraai/east-ui/internal";
 import { radioGroupKey, HOST_RANK, useSliceToolbarItems } from "@elaraai/east-ui-components/internal";
-import { Toolbar, type ToolbarItem, DatasetKeySearch } from "@elaraai/east-ui-components";
+import { type ToolbarItem, DatasetKeySearch } from "@elaraai/east-ui-components";
 import type { SheetTabsFold } from "./Tabs.js";
 import type { LensContext } from "./sheet-types.js";
 import type { SheetSearch } from "./use-seek.js";
@@ -96,8 +95,7 @@ export interface SheetToolbarProps {
 
 /**
  * Builds the toolbar's items in the row's order, each with its forms and its
- * fold ranks: what {@link SheetToolbar} lays out as the sheet's own row, and
- * what a builder places in its frame's toolbar (SB4).
+ * fold ranks: what the Sheet's frame places in its toolbar (SB4).
  *
  * @param props - What the items show and drive.
  * @returns The items, a falsy entry for each the sheet has no use for.
@@ -195,26 +193,3 @@ export function useSheetToolbarItemsFor({ styles, slice, affordances, count, par
         history,
     ];
 }
-
-export interface SheetToolbarRowProps {
-    styles: Styles;
-    /** The items, as {@link useSheetToolbarItemsFor} builds them. */
-    items: ReadonlyArray<ToolbarItem | false | undefined>;
-    /** The row's element: where ⌘F looks for a search box. */
-    ref?: Ref<HTMLDivElement> | undefined;
-}
-
-/** Renders the sheet's own toolbar row: its items on one folding ladder. */
-export function SheetToolbarRow({ styles, items, ref }: SheetToolbarRowProps) {
-    return (
-        <Box ref={ref} css={styles.toolbar} data-slot="toolbar">
-            <Toolbar items={items} />
-        </Box>
-    );
-}
-
-/** Renders the toolbar. */
-export const SheetToolbar = memo(function SheetToolbar(props: SheetToolbarProps) {
-    const items = useSheetToolbarItemsFor(props);
-    return <SheetToolbarRow styles={props.styles} items={items} />;
-});

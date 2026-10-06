@@ -10,7 +10,8 @@
  * insertion chips, and the message each gesture leaves — its numbers in the
  * locale react-aria's `I18nProvider` sets, and `SheetMessagesProvider`
  * overrides the words for a subtree. The Plan's #820 test, for the Sheet.
- * Every sheet is built by the east-ui factory and COMPILED.
+ * Every sheet is built by `<Sheet>`'s factory and COMPILED, and rendered in
+ * its frame (#1216).
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -20,22 +21,26 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import { ArrayType, DateTimeType, East, IntegerType, OptionType, StringType, StructType, none, some } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Slice, State } from "@elaraai/east-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 import { SheetBandRow, SheetFailedBandRow, SheetRowBoundary } from "./Rows.js";
 import { SheetMessagesProvider, sheetMessages, type SheetMessages } from "./messages.js";
-import type { SheetRootValue } from "./values.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
-beforeEach(() => { initializeStore(new UIStore()); });
+// The frame the rows scroll in: the flat and grouped sheets fit it whole; of
+// the paged thousand, the first windows land and the rest wait.
+let restoreFrame: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(400); });
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    restoreFrame();
 });
 
 // ── Fixtures, at module scope: East bodies never call host helpers ─────────
@@ -77,42 +82,52 @@ const PAGED_TOTAL = East.function([], OptionType(IntegerType), ($) => {
 const PAGED_SOURCE = { id: "sheet_i18n_paged", page: PAGED_PAGE, total: PAGED_TOTAL, seek: none };
 
 /** An editable flat sheet: a text, a date and an integer column over a bound State, insertion and removal on. */
-const EDITABLE = East.function([], Sheet.Types.Root, ($) => {
+const EDITABLE = East.function([], SheetPayloadType, ($) => {
     const data = $.const(State.bind([ArrayType(RowType)], "sheet-i18n-rows", ROWS));
-    return Sheet.Payload(data, {
-        task: Sheet.column.text(RowType, { header: "Task" }),
-        start: Sheet.column.date(RowType, { header: "Start" }),
-        qty: Sheet.column.integer(RowType, { header: "Qty" }),
-    }, { id: "id", onUpdate: data.write, blanks: 1n, edits: { insertRows: true, removeRows: true } });
+    return Sheet.Payload({
+        data,
+        columns: {
+            task: Sheet.column.text(RowType, { header: "Task" }),
+            start: Sheet.column.date(RowType, { header: "Start" }),
+            qty: Sheet.column.integer(RowType, { header: "Qty" }),
+        },
+        id: "id", onUpdate: data.write, blanks: 1n, edits: { insertRows: true, removeRows: true },
+    });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
 /** A sheet over a bound slice, opening on a saved view that searches `spray`. */
-const LENS = East.function([], Sheet.Types.Root, ($) => {
+const LENS = East.function([], SheetPayloadType, ($) => {
     const rows = $.const(JOBS, ArrayType(JobType));
-    const views = $.const(VIEWS, ArrayType(Sheet.Types.View));
+    const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-i18n-views", VIEWS));
     const cfg = $.const(Slice.config(JobType, { fields: { activity: { label: "Activity" } }, searchFieldIds: ["activity"] }));
     const slice = $.let(Slice.bind([JobType], "sheet_i18n_dom", cfg, Slice.state(), rows, none));
-    return Sheet.Payload(rows, { activity: Sheet.column.text(JobType, { header: "Activity" }) }, {
+    return Sheet.Payload({
+        data: rows,
+        columns: { activity: Sheet.column.text(JobType, { header: "Activity" }) },
         id: "id", slice, affordances: ["search"], views, activeView: some("spray"),
     });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
 /** A grouped sheet whose declaration names no noun: the Sheet's own word says what a group is. */
-const GROUPED = East.function([], Sheet.Types.Root, ($) => {
+const GROUPED = East.function([], SheetPayloadType, ($) => {
     const plans = $.const(PLANS, ArrayType(PlanType));
-    return Sheet.Payload(plans, {
-        task: Sheet.column.text(LineType, { header: "Task" }),
-        qty: Sheet.column.integer(LineType, { header: "Qty" }),
-    }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) });
+    return Sheet.Payload({
+        data: plans,
+        columns: {
+            task: Sheet.column.text(LineType, { header: "Task" }),
+            qty: Sheet.column.integer(LineType, { header: "Qty" }),
+        },
+        id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }),
+    });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
-/** A paged source of a thousand rows, in a bounded frame: its first windows land, the rest wait. */
-const PAGED = East.function([], Sheet.Types.Root, ($) => {
+/** A paged source of a thousand rows: its first windows land, the rest wait. */
+const PAGED = East.function([], SheetPayloadType, ($) => {
     const source = $.const(PAGED_SOURCE, Paged.Types.Source(Jobs));
-    return Sheet.Payload(source, { activity: Sheet.column.text(JobType, { header: "Activity" }) }, { id: "id", style: { height: "400px" } });
+    return Sheet.Payload({ data: source, columns: { activity: Sheet.column.text(JobType, { header: "Activity" }) }, id: "id" });
 }).toIR().compile(getRegisteredPlatformImplementations());
 
-function mount(value: SheetRootValue, key: string, wrap: (sheet: ReactNode) => ReactNode = (s) => s) {
+function mount(value: SheetValue, key: string, wrap: (sheet: ReactNode) => ReactNode = (s) => s) {
     const tree = (w: (sheet: ReactNode) => ReactNode) => (
         <ChakraProvider value={system}>{w(<EastChakraSheet value={value} storageKey={key} />)}</ChakraProvider>
     );

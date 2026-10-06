@@ -4,8 +4,9 @@
  *
  * @vitest-environment jsdom
  *
- * The toolbar's one row under width pressure (Sheet Spec §6.3, #952): one
- * ladder over its items — the tabs fold into the `+n` menu one at a time,
+ * The toolbar's one row under width pressure (Sheet Spec §6.3, #952): its
+ * items on the shared toolbar, as the Sheet's frame lays them out (#1216),
+ * fold on one ladder — the tabs fold into the `+n` menu one at a time,
  * then the count goes, the context label, the `+ TAB` label and the
  * whole-sheet count, the tab names cap, and last the context switch goes
  * and the strip closes up. jsdom lays nothing out, so each form's width is
@@ -23,10 +24,15 @@ import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { system, formatters, EditSession, historyToolbarItem, editingMessages } from "@elaraai/east-ui-components";
+import { system, formatters, EditSession, historyToolbarItem, editingMessages, Toolbar } from "@elaraai/east-ui-components";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
-import { SheetToolbar, type SheetToolbarTabs } from "./Toolbar.js";
+import { useSheetToolbarItemsFor, type SheetToolbarProps, type SheetToolbarTabs } from "./Toolbar.js";
 import type { LensContext } from "./sheet-types.js";
+
+/** The toolbar's items on the shared toolbar's one row — as the Sheet's frame lays them out. */
+function SheetToolbar(props: SheetToolbarProps) {
+    return <Toolbar items={useSheetToolbarItemsFor(props)} />;
+}
 
 afterEach(cleanup);
 

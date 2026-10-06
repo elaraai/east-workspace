@@ -23,18 +23,25 @@ const EXAMPLES = Object.entries(ex).flatMap(([name, value]) =>
     "keywords" in value && "fn" in value ? [{ name, fn: value.fn }] : []);
 
 /** The path of every dataset the module's e3 definitions provide — an input's
- *  or a record's own, a task's output — as e3 prints it (`.records.sheet_basic_plans`). */
+ *  or a record's own, a task's output — as e3 prints it (`.records.sheet_jobs`). */
 const PROVIDED = new Set(Object.values(ex).flatMap((value) =>
     !("kind" in value) ? []
         : value.kind === "dataset" ? [pathToString(value.path)]
         : value.kind === "task" ? [pathToString(value.output.path)]
         : []));
 
-/** The record each sheet commits its Apply to — none for the one that only reads. */
+/** The records each sheet binds: the one its Apply commits to — the workshop's
+ *  also the machines its register reads — and none for the one that only reads. */
 const WRITES: Record<string, string[]> = {
-    sheetBasic: ["sheet_basic_plans"],
+    sheetBasic: ["sheet_jobs"],
     sheetVariants: ["sheet_variants_plans"],
     sheetStress: [],
+    sheetLibrary: ["sheet_jobs"],
+    sheetWorkshop: ["sheet_workshop_orders", "sheet_workshop_machines"],
+    sheetWeeks: ["sheet_week_plans"],
+    sheetBatches: ["sheet_batch_days"],
+    sheetLoose: ["sheet_loose_work"],
+    sheetPaged: ["sheet_jobs"],
 };
 
 describe("Sheet examples read e3", () => {

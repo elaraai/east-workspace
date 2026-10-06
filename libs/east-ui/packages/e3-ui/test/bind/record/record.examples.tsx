@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
-import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -97,15 +97,16 @@ export const recordSheetApply = example({
             const rows = $.let(Data.bindPaged(jobs));
             const record = $.let(Record.bind(jobs, [jobsPatch]));
             return (
-                <Sheet.View
-                    data={rows}
-                    columns={{
-                        task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
-                        qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
-                    }}
-                    onApply={Record.onApply(record)}
-                    style={{ height: "360px" }}
-                />
+                <Box height="360px">
+                    <Sheet
+                        data={rows}
+                        columns={{
+                            task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+                            qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
+                        }}
+                        onApply={Record.onApply(record)}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),

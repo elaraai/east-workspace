@@ -5,7 +5,7 @@
 
 /**
  * Internal exports — the `Plan` / `Sheet` / `Diff` / `Ontology` **factories**
- * (`Plan.Root(…)`, `Sheet.Root(…)`, `Diff.Root(…)`, `Diff.Component`) plus
+ * (`Plan.Root(…)`, `Sheet.Payload(…)`, `Diff.Root(…)`, `Diff.Component`) plus
  * `Data`, the manifest type and derivation, and types.
  *
  * @remarks
@@ -243,13 +243,13 @@ export {
     type PlanViewsSeriesConfig,
 } from './plan/index.js';
 
-// The Sheet (#1179): the sheet's factory and the `SheetView` carrier, the
-// payload the renderer takes, its editing wire, and the types a sheet is
-// written with. `Sheet` here is the internal namespace — the public one,
-// `Sheet.Root`, `Sheet.Payload` and `Sheet.Component`.
+// The Sheet (#1179, #1216): `<Sheet>` with its namespace, the payload the
+// renderer takes through the `Sheet` carrier, the grid's root, its editing
+// wire, and the types a sheet is written with. `Sheet` here is the internal
+// namespace — the public one, `Sheet.Payload`, `Sheet.Root` and
+// `Sheet.Component`.
 export {
     SheetInternal as Sheet,
-    SheetView,
     type SheetNamespace,
     type SheetInternalNamespace,
     type SheetOptions,
@@ -295,24 +295,29 @@ export * from './sheet/types.js';
 export * from './sheet/transactions.js';
 export * from './sheet/drafts.js';
 export * from './sheet/editing-types.js';
-// The Sheet builder (#1182, #1183, #1186, #1188): a record's rows and the
-// Apply back to it, the payload e3-ui's own factories build over them, and the
-// builder's payload, carrier, templates, library and inspector forms on the
-// wire and shared keys.
+// A record's rows and the Apply back to it (#1182), the grid's root e3-ui's
+// own factories build over them, and the sheet's payload, carrier, templates,
+// library and inspector pane on the wire, and its shared keys (#1183, #1186,
+// #1188, #1216).
 export { recordRows, type SheetRecordEntry, type SheetRecordRows, type SheetRecordRowsOptions } from './sheet/record.js';
-export { createSheetPayloadWith, createSheetBuild, type SheetBuild, type SheetInternalOptions } from './sheet/root.js';
+export { createSheetRoot, createSheetRootWith, createSheetBuild, type SheetBuild, type SheetInternalOptions } from './sheet/root.js';
 export {
-    SheetBuilder,
-    SheetBuilderComponent,
-    SheetBuilderPayloadType,
+    SheetComponent,
+    SheetPayloadType,
     SheetInspectorType,
+    SheetInspectorPaneType,
+    SheetHistoryType,
     buildInspector,
-    createSheetBuilderPayload,
+    buildInspectorPane,
+    createSheetPayload,
     sheetKeys,
+    type SheetTagType,
     type SheetRecordHandle,
-    type SheetBuilderEntry,
-    type SheetBuilderCommon,
-} from './sheet/builder.js';
+    type SheetEntryRows,
+    type SheetLooseEntryRows,
+    type SheetEntriesField,
+    type SheetCommon,
+} from './sheet/sheet.js';
 export { SheetTemplateWireType, buildTemplates, type SheetTemplate, type SheetTemplatesInput } from './sheet/templates.js';
 export {
     SheetLibraryCardType,

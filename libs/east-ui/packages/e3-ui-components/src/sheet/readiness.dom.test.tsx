@@ -27,7 +27,7 @@ const positive = East.function([Draft, Context], Ready, (_$, row) => row.qty.has
 ));
 const render = (check = positive) => East.function([], Sheet.Types.Root, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "readiness-rows", [{ id: "a", qty: 1n, note: none, hidden: "retained" }]));
-    return Sheet.Payload(data, { qty: Sheet.column.integer(Row), note: Sheet.column.quantity(Row) }, { id: "id", onUpdate: data.write, ready: { row: check } });
+    return Sheet.Root(data, { qty: Sheet.column.integer(Row), note: Sheet.column.quantity(Row) }, { id: "id", onUpdate: data.write, ready: { row: check } });
 }).toIR().compile(StateImpl);
 function rows(root: SheetRootValue): SheetRowValue[] {
     if (root.rows.type !== "inline") throw new Error("Expected inline");
@@ -99,7 +99,7 @@ test("row and group readiness receive current reordered drafts with separately a
     ));
     const view = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Group)], "readiness-groups", [{ id: "g", name: "Review", rows: [{ qty: 1n, hidden: "first" }, { qty: 1n, hidden: "second" }] }]));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), ready: { row: rowCheck, group: groupCheck }, onUpdate: data.write });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Child) }, { id: "id", group: Sheet.group(Group, "rows", { title: "name" }), ready: { row: rowCheck, group: groupCheck }, onUpdate: data.write });
     }).toIR().compile(StateImpl);
     const value = view();
     const hook = mount(value);
@@ -121,7 +121,7 @@ test("external state read by readiness is tracked without a new Sheet value", as
         const check = $.const(East.function([Draft, Context], Ready, (_$, row) => row.qty.hasTag("value").and(() => row.qty.unwrap("value").lessEqual(limit.read())).ifElse(
             () => East.value(variant("ready", null), Ready), () => variant("incomplete", [{ field: "qty", message: "Above current limit" }]),
         )));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: check } });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: check } });
     }).toIR().compile(StateImpl);
     const value = view();
     const hook = renderHook(() => {
@@ -144,7 +144,7 @@ test("a check that throws on one row marks that row invalid, and the other rows 
     });
     const view = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([ArrayType(Row)], "readiness-throws", [{ id: "a", qty: 1n, note: none, hidden: "a" }, { id: "b", qty: 1n, note: none, hidden: "b" }]));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: zeroFails } });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: zeroFails } });
     }).toIR().compile(StateImpl);
     const root = view();
     const hook = mount(root);

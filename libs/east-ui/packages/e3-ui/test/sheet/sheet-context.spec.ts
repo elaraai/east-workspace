@@ -14,7 +14,7 @@ const inspect = East.function([Sheet.Types.DraftContext(Row)], Fill, ($, ctx) =>
     value: East.str`${ctx.row.qty}|${ctx.row.hidden}|${ctx.group}|${ctx.driver}`,
     meta: ctx.rows.size().greater(0n).ifElse(() => East.str`${ctx.rows.get(0n).qty}`, () => East.value("empty")),
 }), Fill));
-const flat = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const flat = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "a", qty: 1n, note: none, hidden: "original" },
 ], ArrayType(Row)), { qty: Sheet.column.integer(Row), note: Sheet.column.text(Row, { fill: [inspect] }) }, { id: "id" })).toIR().compile([])();
 const flatFill = flat.columns[1]!.fill[0]!;
@@ -48,7 +48,7 @@ test("current draft hidden fields take precedence over the source snapshot", () 
 // repeat an id tell WHICH row answers — a scan of the collection would always
 // answer with the first.
 const Noted = StructType({ id: StringType, note: StringType });
-const reads = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const reads = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "x", note: "first" }, { id: "a", note: "" }, { id: "b", note: "" }, { id: "x", note: "second" }, { id: "c", note: "c" },
 ], ArrayType(Noted)), { note: Sheet.column.text(Noted) }, { id: "id" })).toIR().compile([])();
 const readEntry = reads.editing.readEntry;
@@ -75,7 +75,7 @@ const hiddens = East.function([Sheet.Types.DraftContext(Row)], Fill, ($, ctx) =>
     value: East.str`${ctx.rows.map((_$, r) => r.hidden)}`,
     meta: "",
 }), Fill));
-const three = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const three = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "a", qty: 1n, note: none, hidden: "ha" }, { id: "b", qty: 2n, note: none, hidden: "hb" }, { id: "c", qty: 3n, note: none, hidden: "hc" },
 ], ArrayType(Row)), { qty: Sheet.column.integer(Row), note: Sheet.column.text(Row, { fill: [hiddens] }) }, { id: "id" })).toIR().compile([])();
 const threeFill = three.columns[1]!.fill[0]!;
@@ -96,7 +96,7 @@ const groupInspect = East.function([Sheet.Types.DraftContext(Group, "children")]
     value: East.str`${ctx.row.hidden}|${ctx.row.task}|${ctx.group.unwrap("some").name}`,
     meta: East.str`${ctx.rows.get(0n).task}|${ctx.groups.get(0n).children.get(0n).task}`,
 }), Fill));
-const grouped = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const grouped = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "g", name: "Group", children: [{ task: "First", hidden: "first hidden" }, { task: "Second", hidden: "second hidden" }] },
 ], ArrayType(Group)), { task: Sheet.column.text(Child, { fill: [groupInspect] }) }, {
     id: "id", group: Sheet.group(Group, "children", { title: "name" }),
@@ -138,7 +138,7 @@ const Planned = StructType({ id: StringType, activity: StringType, qty: IntegerT
 const PlannedContext = Sheet.Types.DraftContext(Planned, Activity);
 const printPlanned = East.function([PlannedContext], Fill, ($, ctx) => $.const(some({ value: East.print(ctx), meta: "" }), Fill));
 const readyPlanned = East.function([Sheet.Types.Draft(Planned), PlannedContext], Ready, ($, _row, ctx) => $.const(variant("incomplete", [{ field: "", message: East.print(ctx) }]), Ready));
-const planned = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const planned = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "a", activity: "Glue", qty: 1n, note: "", hidden: "source a" },
     { id: "b", activity: "Spray", qty: 2n, note: "", hidden: "source b" },
     { id: "c", activity: "Glue", qty: 3n, note: "", hidden: "source c" },
@@ -192,7 +192,7 @@ const Order = StructType({ id: StringType, name: StringType, lines: ArrayType(Li
 const OrderContext = Sheet.Types.DraftContext(Order, "lines");
 const printOrder = East.function([OrderContext], Fill, ($, ctx) => $.const(some({ value: East.print(ctx), meta: "" }), Fill));
 const readyOrder = East.function([Sheet.Types.Draft(Line), OrderContext], Ready, ($, _row, ctx) => $.const(variant("incomplete", [{ field: "", message: East.print(ctx) }]), Ready));
-const orders = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const orders = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "o1", name: "First", lines: [{ task: "Cut", hidden: "cut source" }, { task: "Fold", hidden: "fold source" }] },
     { id: "o2", name: "Second", lines: [{ task: "Pack", hidden: "pack source" }] },
 ], ArrayType(Order)), { task: Sheet.column.text(Line, { fill: [printOrder] }) }, {
@@ -237,7 +237,7 @@ const strict = East.function([Sheet.Types.Draft(Row), Sheet.Types.DraftContext(R
     $.if(row.qty.hasTag("value").and(() => row.qty.unwrap("value").equal(0n)), ($) => { $.error("a quantity of zero"); });
     return variant("incomplete", [{ field: "qty", message: "Checked" }]);
 });
-const strictSheet = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const strictSheet = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     { id: "a", qty: 1n, note: none, hidden: "a" }, { id: "b", qty: 1n, note: none, hidden: "b" },
 ], ArrayType(Row)), { qty: Sheet.column.integer(Row) }, { id: "id", ready: { row: strict } })).toIR().compile([])();
 if (strictSheet.editing.readyRow.type !== "some") throw new Error("Expected a Sheet with a row check");
@@ -265,7 +265,7 @@ const Entry = Sheet.Types.Entry(Pkg, "tasks");
 const EntryContext = Sheet.Types.DraftContext(Pkg, "tasks");
 const printEntry = East.function([EntryContext], Fill, ($, ctx) => $.const(some({ value: East.print(ctx), meta: "" }), Fill));
 const readyEntry = East.function([Sheet.Types.Draft(Task), EntryContext], Ready, ($, _row, ctx) => $.const(variant("incomplete", [{ field: "", message: East.print(ctx) }]), Ready));
-const looseSheet = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const looseSheet = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     variant("row", { id: "a", task: "Brief", hidden: "a source" }),
     variant("group", { id: "p", name: "Package", tasks: [{ id: "p1", task: "Cut", hidden: "cut source" }] }),
     variant("row", { id: "b", task: "Handover", hidden: "b source" }),
@@ -336,7 +336,7 @@ const Job = StructType({ id: StringType, activity: StringType, stations: Sheet.T
 const Crew = StructType({ id: StringType, name: StringType, jobs: ArrayType(Job) });
 const JobEntry = Sheet.Types.Entry(Crew, "jobs");
 const printCheck = East.function([Sheet.Types.CheckContext(Crew, "jobs")], OptionType(StringType), ($, c) => $.const(some(East.print(c)), OptionType(StringType)));
-const checkedSheet = East.function([], Sheet.Types.Root, () => Sheet.Payload(East.value([
+const checkedSheet = East.function([], Sheet.Types.Root, () => Sheet.Root(East.value([
     variant("row", { id: "a", activity: "Glue", stations: { from: [], to: [] }, hidden: "a source" }),
     variant("group", { id: "c", name: "Crew", jobs: [{ id: "c1", activity: "Glue", stations: { from: [], to: [] }, hidden: "c1 source" }] }),
 ], ArrayType(JobEntry)), {

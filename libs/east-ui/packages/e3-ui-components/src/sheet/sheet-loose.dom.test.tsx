@@ -10,26 +10,26 @@
  * plain row numbered in the groups' sequence; the seam above a band, or
  * beside a loose row, inserts one; it edits, deletes, pastes and counts on
  * its own; fold-all passes it by, and no band sticks over it. Every value
- * built by the east-ui factory and COMPILED; Apply writes through the live
- * onUpdate adapter.
+ * built by `<Sheet>`'s factory and COMPILED, and rendered in its frame
+ * (#1216); Apply writes through the live onUpdate adapter.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, FloatType, OptionType, StringType, StructType, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { State } from "@elaraai/east-ui/internal";
 import { system, StateImpl, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import { measureRowsAsDrawn } from "./frame.test-utils.js";
-import type { SheetRootValue } from "./values.js";
+import { boundFrame } from "./frame.test-utils.js";
 
-let restoreRows: () => void = () => {};
-beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); restoreRows = measureRowsAsDrawn(); });
-afterEach(() => { cleanup(); restoreRows(); vi.useRealTimers(); });
+// The frame the rows scroll in, tall enough for every row of the sheet.
+let restoreFrame: () => void = () => {};
+beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); restoreFrame(); vi.useRealTimers(); });
 
 const TaskType = StructType({ id: StringType, task: StringType, qty: OptionType(FloatType), note: StringType });
 const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
@@ -55,8 +55,8 @@ const ENTRIES: ValueTypeOf<typeof EntryType>[] = [
  * tasks, a new task's default note, and — with `proposer` — a proposer that
  * follows a hand-over with two tasks.
  */
-function buildLoose(opts: { proposer?: boolean } = {}): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildLoose(opts: { proposer?: boolean } = {}): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const entries = $.const(ENTRIES, ArrayType(EntryType));
         const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(TaskType), () => Sheet.patch(TaskType, { note: "new" })));
         const newPackage = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(PackageType), () => Sheet.patch(PackageType, { tasks: [] })));
@@ -67,10 +67,12 @@ function buildLoose(opts: { proposer?: boolean } = {}): SheetRootValue {
             ], Proposals),
             (_$3) => East.value([], Proposals),
         )));
-        return Sheet.Payload(entries, {
-            task: Sheet.column.text(TaskType, { header: "Task" }),
-            qty: Sheet.column.quantity(TaskType, { header: "Qty" }),
-        }, {
+        return Sheet.Payload({
+            data: entries,
+            columns: {
+                task: Sheet.column.text(TaskType, { header: "Task" }),
+                qty: Sheet.column.quantity(TaskType, { header: "Qty" }),
+            },
             id: "id",
             group: Sheet.group(PackageType, "tasks", { title: "name", noun: { singular: "package", plural: "packages" } }),
             newRow: newTask,
@@ -82,23 +84,27 @@ function buildLoose(opts: { proposer?: boolean } = {}): SheetRootValue {
 }
 
 /** The same sheet over a live binding: Apply writes the checked batch through onUpdate. */
-const liveProgram = East.function([], Sheet.Types.Root, ($) => {
+const liveProgram = East.function([], SheetPayloadType, ($) => {
     const entries = $.const(State.bind([ArrayType(EntryType)], "sheet-loose-dom", ENTRIES));
     const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(TaskType), () => Sheet.patch(TaskType, { note: "new" })));
-    return Sheet.Payload(entries, {
-        task: Sheet.column.text(TaskType, { header: "Task" }),
-        qty: Sheet.column.quantity(TaskType, { header: "Qty" }),
-    }, { id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }), newRow: newTask, onUpdate: entries.write });
+    return Sheet.Payload({
+        data: entries,
+        columns: {
+            task: Sheet.column.text(TaskType, { header: "Task" }),
+            qty: Sheet.column.quantity(TaskType, { header: "Qty" }),
+        },
+        id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }), newRow: newTask, onUpdate: entries.write,
+    });
 }).toIR().compile(StateImpl);
-const liveView = (): SheetRootValue => liveProgram();
+const liveView = (): SheetValue => liveProgram();
 
 /** Swap the host's edit channel for a spy after compilation — the renderer takes every function from the value. */
-function withSpy(root: SheetRootValue) {
-    const journal = sheetJournal(root);
+function withSpy(sheet: SheetValue) {
+    const journal = sheetJournal(sheet);
     return { value: journal.value, edits: journal.events, draft: (id: string) => journal.draft(id, DraftEntry), drafts: journal.drafts };
 }
 
-function mount(value: SheetRootValue) {
+function mount(value: SheetValue) {
     const utils = render(<ChakraProvider value={system}><EastChakraSheet value={value} storageKey="sheet-loose-test" /></ChakraProvider>);
     const card = utils.container.querySelector("[data-sheet-card]") as HTMLElement;
     const band = (id: string) => utils.container.querySelector(`[data-slot="row"][data-band-row][data-row-id="${id}"]`) as HTMLElement | null;
@@ -367,7 +373,7 @@ describe("Apply", () => {
     test("a loose row inserted above a band and a line inserted into a group apply through onUpdate — the entries in their places, each with its id", async () => {
         const ui = mount(liveView());
         const wire = () => {
-            const root = liveView();
+            const root = liveView().sheet;
             if (root.rows.type !== "inline") throw new Error("Expected inline rows");
             return root.rows.value;
         };
@@ -391,7 +397,7 @@ describe("Apply", () => {
         expect(rows[1]!.lines.map((l) => l.cells.get("task"))).toEqual([variant("String", "Denib"), variant("String", "Cut panels"), variant("String", "Inspect batches")]);
         // The saved entries themselves: the loose row an entry of its own, the new line with a minted id.
         const saved = (id: string, at: bigint): ValueTypeOf<typeof EntryType> => {
-            const read = liveView().editing.readEntry(id, at);
+            const read = liveView().sheet.editing.readEntry(id, at);
             if (read.type !== "some") throw new Error(`Expected entry ${id}`);
             return decodeBeast2For(EntryType)(read.value);
         };
@@ -412,13 +418,10 @@ describe("the sticky band", () => {
     // jsdom lays nothing out: the frame is 600 px tall, the header sits at its
     // top, and a mounted row is where its offset puts it under the header, less
     // the frame's scroll — enough for the sheet to find what sticks.
-    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
     let realRect: typeof Element.prototype.getBoundingClientRect;
     beforeEach(() => {
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true,
-            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
-        });
+        restoreFrame();
+        restoreFrame = boundFrame(600);
         realRect = Element.prototype.getBoundingClientRect;
         const measured = realRect;
         Element.prototype.getBoundingClientRect = function (this: Element) {
@@ -434,20 +437,17 @@ describe("the sticky band", () => {
     });
     afterEach(() => {
         Element.prototype.getBoundingClientRect = realRect;
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
     });
 
-    /** A read-only bounded sheet: a package of eight tasks, six loose tasks, another package. */
-    function buildFramed(): SheetRootValue {
-        const program = East.function([], Sheet.Types.Root, ($) => {
+    /** A read-only sheet: a package of eight tasks, six loose tasks, another package. */
+    function buildFramed(): SheetValue {
+        const program = East.function([], SheetPayloadType, ($) => {
             const tasks = $.let(East.Array.range(0n, 8n).map(($2, i) => $2.const({ id: East.str`t${i}`, task: East.str`Task ${i}`, qty: none, note: "" }, TaskType)), ArrayType(TaskType));
             const loose = $.let(East.Array.range(0n, 6n).map(($2, i) => $2.const(variant("row", { id: East.str`l${i}`, task: East.str`Loose ${i}`, qty: none, note: "" }), EntryType)), ArrayType(EntryType));
             const first = $.const(variant("group", { id: "g1", name: "First", tasks }), EntryType);
             const last = $.const(variant("group", { id: "g2", name: "Last", tasks }), EntryType);
             const entries = $.let(East.value([first], ArrayType(EntryType)).concat(loose).concat([last]), ArrayType(EntryType));
-            return Sheet.Payload(entries, { task: Sheet.column.text(TaskType, { header: "Task" }) }, {
-                id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }), readOnly: true, style: { height: "600px" },
-            });
+            return Sheet.Payload({ data: entries, columns: { task: Sheet.column.text(TaskType, { header: "Task" }) }, id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }), readOnly: true });
         });
         return East.compile(program, getRegisteredPlatformImplementations())();
     }

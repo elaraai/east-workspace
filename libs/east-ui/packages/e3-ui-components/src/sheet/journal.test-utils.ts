@@ -7,20 +7,22 @@
 import { OptionType, applyFor, decodeBeast2For, encodeBeast2For, fromEastTypeValue, none, some, toEastTypeValue, variant, type EastType, type StructType, type ValueTypeOf } from "@elaraai/east";
 import { SheetPatchEventTypeFor } from "@elaraai/e3-ui/internal";
 import { liftDraft } from "./draft-values.js";
-import type { SheetRootValue } from "./values.js";
+import type { SheetValue } from "./frame/index.js";
 
 type Opaque = StructType<Record<never, never>>;
 export type PatchEvent = ValueTypeOf<ReturnType<typeof SheetPatchEventTypeFor<Opaque>>>;
 
 export interface SheetJournal {
-    value: SheetRootValue;
+    /** The sheet, its editing session's patches journalled. */
+    value: SheetValue;
     events: PatchEvent[];
     drafts: Map<string, unknown>;
     draft<T extends EastType>(id: string, type: T): ValueTypeOf<T>;
 }
 
 /** Replay actual East draft patches into a mirror independent of the renderer. */
-export function sheetJournal(root: SheetRootValue): SheetJournal {
+export function sheetJournal(sheet: SheetValue): SheetJournal {
+    const root = sheet.sheet;
     const entryType = fromEastTypeValue(root.editing.entryType) as Opaque;
     const draftType = fromEastTypeValue(root.editing.draftType);
     const children = root.editing.children.type === "some" ? root.editing.children.value : undefined;
@@ -36,7 +38,7 @@ export function sheetJournal(root: SheetRootValue): SheetJournal {
         if (raw.type === "some") drafts.set(row.id, liftDraft(draftType, decodeEntry(raw.value)));
     }
     const events: PatchEvent[] = [];
-    const value: SheetRootValue = { ...root, editing: { ...root.editing,
+    const value: SheetValue = { ...sheet, sheet: { ...root, editing: { ...root.editing,
         // These interaction fixtures stage changes. An application callback
         // must explicitly confirm persistence; this fixture refuses Apply.
         onApply: root.editing.onApply.type === "some" ? root.editing.onApply : some(variant("sync", () => variant("rejected", []))),
@@ -50,7 +52,7 @@ export function sheetJournal(root: SheetRootValue): SheetJournal {
             events.push(event);
             return null;
         }),
-    } };
+    } } };
     const draft = <T extends EastType>(id: string, type: T): ValueTypeOf<T> => decodeBeast2For(type)(encodeDraft(drafts.get(id)));
     return { value, events, draft, drafts };
 }

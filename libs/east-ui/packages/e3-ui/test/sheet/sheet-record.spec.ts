@@ -19,7 +19,7 @@ import {
     compareFor, decodeBeast2For, equalFor, isTypeEqual, none, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { Data, Record, Sheet, createSheetPayloadWith, recordRows, type SheetInternalOptions } from "@elaraai/e3-ui/internal";
+import { Data, Record, Sheet, createSheetRootWith, recordRows, type SheetInternalOptions } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 
 const JobType = StructType({ task: StringType, qty: IntegerType });
@@ -42,18 +42,18 @@ const dayJobs = DictType(DateTimeType, JobType);
 /** A sheet over the jobs keyed by text, read in key order, compiled. */
 const textSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_TEXT, textJobs);
-    return createSheetPayloadWith(jobs, COLUMNS, {}, { keyOrdered: true });
+    return createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true });
 }), []);
 /** A sheet over jobs keyed by number: its new rows' keys named by `newRowId`. */
 const numberSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_NUMBER, numberJobs);
     const next = $.const(East.function([], StringType, (_$) => "11"));
-    return createSheetPayloadWith(jobs, COLUMNS, { newRowId: next }, { keyOrdered: true });
+    return createSheetRootWith(jobs, COLUMNS, { newRowId: next }, { keyOrdered: true });
 }), []);
 /** A sheet over jobs keyed by day, which takes no new rows. */
 const daySheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_DAY, dayJobs);
-    return createSheetPayloadWith(jobs, COLUMNS, { edits: { insertRows: false } }, { keyOrdered: true });
+    return createSheetRootWith(jobs, COLUMNS, { edits: { insertRows: false } }, { keyOrdered: true });
 }), []);
 
 const ids = (root: Root): string[] => {
@@ -105,14 +105,14 @@ describe("a record's whole Dict, read in key order", () => {
         }), /a dictionary's rows sit in key order, not the planner's/);
         assert.throws(() => East.function([], NullType, ($) => {
             const jobs = $.const([...BY_TEXT.values()], ArrayType(JobType));
-            $(createSheetPayloadWith(jobs, COLUMNS, {}, { keyOrdered: true }));
+            $(createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true }));
         }), /a key-ordered sheet reads a Dict — a record's entries, in key order — and this source holds/);
     });
 
     test("a key that is not a String needs `newRowId` to name a new row", () => {
         assert.throws(() => East.function([], NullType, ($) => {
             const jobs = $.const(BY_NUMBER, numberJobs);
-            $(createSheetPayloadWith(jobs, COLUMNS, {}, { keyOrdered: true }));
+            $(createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true }));
         }), /the rows are keyed by \.Integer, and a new row's key is minted only for a String key — pass `newRowId`/);
     });
 
@@ -121,7 +121,7 @@ describe("a record's whole Dict, read in key order", () => {
             (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
         const keyed = (internal: SheetInternalOptions, options: object = {}) => East.function([], NullType, ($) => {
             const jobs = $.const(BY_TEXT, textJobs);
-            $(createSheetPayloadWith(jobs, COLUMNS, options, { keyOrdered: true, ...internal }));
+            $(createSheetRootWith(jobs, COLUMNS, options, { keyOrdered: true, ...internal }));
         });
         keyed({ applyKeyed: applied });
         const positional = East.asyncFunction([Editing.Types.ChangeSet(JobType)], Editing.Types.ApplyResult,
@@ -157,7 +157,7 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
             assert.ok(isTypeEqual(typeOf(rows.internal.applyKeyed),
                 AsyncFunctionType([Editing.Types.ChangeSet(JobType, StringType)], Editing.Types.ApplyResult)));
             assert.ok(isTypeEqual(typeOf(rows.internal.sourceId), StringType), "the session's source is the record");
-            assert.ok(isTypeEqual(typeOf(createSheetPayloadWith(rows.data, COLUMNS, rows.options, rows.internal)), Sheet.Types.Root));
+            assert.ok(isTypeEqual(typeOf(createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal)), Sheet.Types.Root));
         });
     });
 
@@ -168,7 +168,7 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
             const rows = recordRows(record, { window: page });
             assert.equal(rows.internal.keyOrdered, undefined, "a paged Dict is keyed already");
             assert.ok(rows.internal.applyKeyed !== undefined);
-            assert.ok(isTypeEqual(typeOf(createSheetPayloadWith(rows.data, COLUMNS, rows.options, rows.internal)), Sheet.Types.Root));
+            assert.ok(isTypeEqual(typeOf(createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal)), Sheet.Types.Root));
         });
     });
 
@@ -181,7 +181,7 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
             assert.ok(isTypeEqual(typeOf(rows.data), ArrayType(PlanRowType)));
             assert.ok(isTypeEqual(typeOf(rows.options.readOnly), BooleanType), "read-only while the record does not hold the entry");
             assert.ok(isTypeEqual(typeOf(rows.missing), OptionType(StringType)), "the key the frame's banner names");
-            assert.ok(isTypeEqual(typeOf(createSheetPayloadWith(rows.data, planColumns, rows.options, rows.internal)), Sheet.Types.Root));
+            assert.ok(isTypeEqual(typeOf(createSheetRootWith(rows.data, planColumns, rows.options, rows.internal)), Sheet.Types.Root));
         });
     });
 

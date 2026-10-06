@@ -8,10 +8,10 @@
  * narrowing drawn as hits with brand numbers and collapsed bands, the band
  * controls, the context switch, the view tabs (snapshot, dirty, update,
  * revert, close, rename), a Link column searched through its `text`
- * projection — hidden from the grid by its host, too (#1186) — and the paged
- * arm's key search over `seek` — every value built
- * by the east-ui factory and COMPILED, the slice bound through the real
- * `Slice.bind`.
+ * projection — hidden from the grid by its viewer, too (#1186) — and the
+ * paged arm's key search over `seek` — every value built by `<Sheet>`'s
+ * factory and COMPILED, the slice bound through the real `Slice.bind`, and
+ * the Sheet rendered in its frame (#1216).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -23,16 +23,20 @@ import {
     none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Sheet } from "@elaraai/e3-ui/internal";
-import { Slice } from "@elaraai/east-ui/internal";
-import { system, Toolbar, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { Sheet, SheetPayloadType, sheetKeys, type SheetLibraryTab } from "@elaraai/e3-ui/internal";
+import { Slice, State } from "@elaraai/east-ui/internal";
+import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot, useSheetToolbarItems } from "./index.js";
-import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
-import type { SheetRootValue, SheetViewValue } from "./values.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame, frameScrolls } from "./frame.test-utils.js";
+import type { SheetViewValue } from "./values.js";
 
-afterEach(cleanup);
-beforeEach(() => { initializeStore(new UIStore()); });
+// The frame the rows scroll in: the lens sheet's twelve rows and its blank
+// tail fit it whole; of the keyed thousand, the first windows land.
+let restoreFrame: () => void = () => {};
+let restoreScroll: () => void = () => {};
+afterEach(() => { cleanup(); localStorage.clear(); restoreScroll(); restoreScroll = () => {}; restoreFrame(); });
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
 
 // jsdom lacks the browser APIs Chakra's Combobox positioner relies on.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -65,23 +69,29 @@ const VIEWS = [
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-/** A sheet over a bound slice, a Link column searched through `Sheet.link.print`, two saved views, opening on `spray`. */
-function buildLensSheet(): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+/** The library a lens sheet lists: none — or the Columns tab, where its viewer hides columns. */
+const NO_LIBRARY: readonly SheetLibraryTab[] = [];
+const COLUMNS_TAB: readonly SheetLibraryTab[] = [Sheet.library.columns()];
+
+/** A sheet over a bound slice, a Link column searched through `Sheet.link.print`, two saved views kept per viewer, opening on `spray`. */
+function buildLensSheet(library: readonly SheetLibraryTab[] = NO_LIBRARY): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const rows = $.const(ROWS, ArrayType(JobType));
         const machines = $.const(MACHINES, ArrayType(MachineType));
-        const views = $.const(VIEWS, ArrayType(Sheet.Types.View));
+        const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-lens-views", VIEWS));
         const cfg = $.const(Slice.config(JobType, {
             fields: { activity: { label: "Activity" }, notes: { label: "Notes" }, stations: { label: "Work centres", text: (r) => Sheet.link.print(r.stations) } },
             searchFieldIds: ["activity", "notes", "stations"],
         }));
         const slice = $.let(Slice.bind([JobType], "sheet_lens_dom", cfg, Slice.state(), rows, none));
-        return Sheet.Payload(rows, {
-            activity: Sheet.column.text(JobType, { header: "Activity" }),
-            notes: Sheet.column.text(JobType, { header: "Notes" }),
-            stations: Sheet.column.set(JobType, "stations", { header: "Work centres", members: [{ kind: "machine", identified: true }, { kind: "family", countable: true }] }),
-            qty: Sheet.column.quantity(JobType, { header: "Qty" }),
-        }, {
+        return Sheet.Payload({
+            data: rows,
+            columns: {
+                activity: Sheet.column.text(JobType, { header: "Activity" }),
+                notes: Sheet.column.text(JobType, { header: "Notes" }),
+                stations: Sheet.column.set(JobType, "stations", { header: "Work centres", members: [{ kind: "machine", identified: true }, { kind: "family", countable: true }] }),
+                qty: Sheet.column.quantity(JobType, { header: "Qty" }),
+            },
             id: "id",
             registers: {
                 stations: Sheet.register.concat([
@@ -93,6 +103,7 @@ function buildLensSheet(): SheetRootValue {
             views,
             activeView: some("spray"),
             blanks: 2,
+            library,
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
@@ -163,30 +174,29 @@ const KEYED_SEEK = East.function([Paged.Types.SeekQuery], OptionType(Paged.Types
 const KEYED_SOURCE = { id: "sheet_lens_keyed_1000", page: KEYED_PAGE, total: KEYED_TOTAL, seek: some(KEYED_SEEK) };
 
 /** A paged sheet over the keyed source. */
-function buildKeyed(): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildKeyed(): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const source = $.const(KEYED_SOURCE, Paged.Types.Source(Jobs));
-        return Sheet.Payload(source, {
-            activity: Sheet.column.text(JobType, { header: "Activity" }),
-        }, { id: "id", blanks: 2 });
+        return Sheet.Payload({ data: source, columns: { activity: Sheet.column.text(JobType, { header: "Activity" }) }, id: "id", blanks: 2 });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
 
-/** Swap the host callback for a spy after compilation — the renderer takes every function from the value. */
-function withViewsSpy(root: SheetRootValue) {
+/** Swap the views' write-back for a spy after compilation — the renderer takes every function from the value. */
+function withViewsSpy(sheet: SheetValue) {
     const changes: SheetViewValue[][] = [];
-    const value: SheetRootValue = { ...root, onViewsChange: some((v: SheetViewValue[]) => { changes.push(v); return null; }) } as SheetRootValue;
+    const value: SheetValue = { ...sheet, sheet: { ...sheet.sheet, onViewsChange: some((v: SheetViewValue[]) => { changes.push(v); return null; }) } as SheetValue["sheet"] };
     return { value, changes };
 }
 
 /** The compiled slice handle riding the value's chrome. */
-function getSliceHandle(value: SheetRootValue): SliceBindValue {
-    if (value.slice.type !== "some") throw new Error("the sheet binds no slice");
-    return value.slice.value.slice;
+function getSliceHandle(value: SheetValue): SliceBindValue {
+    const slice = value.sheet.slice;
+    if (slice.type !== "some") throw new Error("the sheet binds no slice");
+    return slice.value.slice;
 }
 
-function mount(value: SheetRootValue) {
+function mount(value: SheetValue) {
     const utils = render(
         <ChakraProvider value={system}>
             <EastChakraSheet value={value} storageKey="sheet-lens-test" />
@@ -268,20 +278,11 @@ describe("the lens (B§8)", () => {
         await waitFor(() => expect(hits()).toEqual(["5"]));
     });
 
-    test("a column its host hides is still what the lens matches: the grid leaves the Link column out, and a search through it still hits, and counts in its view (#1186)", async () => {
-        const value = buildLensSheet();
-        function PlacedToolbar() {
-            return <Toolbar items={useSheetToolbarItems()} />;
-        }
-        const { container } = render(
-            <ChakraProvider value={system}>
-                <SheetProvider value={value} storageKey="sheet-lens-hidden" host={{ hidden: new Set(["stations"]) }}>
-                    <PlacedToolbar />
-                    <SheetRoot><SheetGrid /></SheetRoot>
-                </SheetProvider>
-            </ChakraProvider>,
-        );
-        const hits = () => [...container.querySelectorAll('[data-slot="gutterNumber"][data-hit]')].map((n) => n.textContent);
+    test("a column its viewer hides is still what the lens matches: the grid leaves the Link column out, and a search through it still hits, and counts in its view (#1186)", async () => {
+        // The viewer hid the work centres in the library's Columns tab, in an earlier session.
+        localStorage.setItem(sheetKeys(undefined).columns, JSON.stringify(["stations"]));
+        const value = buildLensSheet(COLUMNS_TAB);
+        const { container, hits } = mount(value);
         await waitFor(() => expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
         expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((c) => c.getAttribute("data-key"))).toEqual(["activity", "notes", "qty"]);
         // ROUTER matches row 2 through its work centres alone: `2 x CNC router`.
@@ -290,6 +291,13 @@ describe("the lens (B§8)", () => {
         act(() => { getSliceHandle(value).setSearch(some("r2141")); });
         await waitFor(() => expect(hits()).toEqual(["6"]));
         expect(container.querySelector('[data-slot="cell"][data-key="stations"]')).toBeNull();
+    });
+
+    test("a sheet whose library lists no Columns tab hides no column, whatever its viewer hid under its name — nothing on it could show the column again", async () => {
+        localStorage.setItem(sheetKeys(undefined).columns, JSON.stringify(["stations"]));
+        const { container, root } = mount(buildLensSheet());
+        await waitFor(() => expect(root().hasAttribute("data-lens")).toBe(true));
+        expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((c) => c.getAttribute("data-key"))).toEqual(["activity", "notes", "stations", "qty"]);
     });
 });
 
@@ -360,35 +368,29 @@ describe("the view tabs (B§8)", () => {
 
 describe("the paged arm's key search (§3.13)", () => {
     test("a keyed source mounts the key search in the toolbar; a match jumps the source and lands the ring on the row; next steps to the following match", async () => {
-        // 600 rows land, so the sheet mounts what the page shows (#856): the page scrolls to the ring.
-        const restoreRows = measureRowsAsDrawn();
-        const restore = emulateWindowScroll();
-        try {
-            const { container } = mount(buildKeyed());
-            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
-            const search = container.querySelector('[data-part="dataset-key-search"]')!;
-            expect(search).toBeTruthy();
-            const input = search.querySelector("input") as HTMLInputElement;
-            // Typed a key at a time (the control debounces into one prefix query): J10230 … J10239.
-            // Each keystroke is confirmed before the next: the combobox input is
-            // controlled, so a re-render that lands late leaves userEvent appending
-            // to a stale value, which swallows a character (a loaded CI runner typed
-            // "J123", which matches nothing).
-            for (const key of "J1023") {
-                const typed = input.value + key;
-                await userEvent.type(input, key);
-                await waitFor(() => expect(input.value).toBe(typed));
-            }
-            await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
-            fireEvent.keyDown(input, { key: "Enter" });
-            await waitFor(() => expect(cellOf(container, "J10230", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
-            expect(search.textContent).toMatch(/1 of 10/);
-            fireEvent.click(search.querySelector('[aria-label="Next match"]')!);
-            await waitFor(() => expect(cellOf(container, "J10231", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
-            expect(search.textContent).toMatch(/2 of 10/);
-        } finally {
-            restore();
-            restoreRows();
+        // The frame shows what it can of the rows that land, and scrolls to the ring (#856).
+        restoreScroll = frameScrolls();
+        const { container } = mount(buildKeyed());
+        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+        const search = container.querySelector('[data-part="dataset-key-search"]')!;
+        expect(search).toBeTruthy();
+        const input = search.querySelector("input") as HTMLInputElement;
+        // Typed a key at a time (the control debounces into one prefix query): J10230 … J10239.
+        // Each keystroke is confirmed before the next: the combobox input is
+        // controlled, so a re-render that lands late leaves userEvent appending
+        // to a stale value, which swallows a character (a loaded CI runner typed
+        // "J123", which matches nothing).
+        for (const key of "J1023") {
+            const typed = input.value + key;
+            await userEvent.type(input, key);
+            await waitFor(() => expect(input.value).toBe(typed));
         }
+        await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(cellOf(container, "J10230", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
+        expect(search.textContent).toMatch(/1 of 10/);
+        fireEvent.click(search.querySelector('[aria-label="Next match"]')!);
+        await waitFor(() => expect(cellOf(container, "J10231", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
+        expect(search.textContent).toMatch(/2 of 10/);
     }, 30_000);
 });

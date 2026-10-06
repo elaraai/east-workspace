@@ -4,7 +4,7 @@
  */
 
 // The Sheet's TypeDoc examples are tested examples (#862). Each `@example`
-// under `src/sheet/` — the `<Sheet.View>` tag's among them — is the verbatim
+// under `src/sheet/` — `<Sheet>`'s own among them — is the verbatim
 // `fn` of an `example()` in `test/sheet/sheet*.examples.ts(x)` that a spec
 // runs, behind imports from the public packages and the module-scope
 // statements of that file it reaches, each written as it is there — an
@@ -119,7 +119,7 @@ function flaw(doc: DocExample, m: Mirror): string | undefined {
 test("every Sheet @example is the verbatim fn of a tested example, imported from the public packages", () => {
     const mirrors = EXAMPLES.flatMap(mirrorsOf);
     const docs = SOURCES.flatMap(docExamplesOf);
-    assert.ok(docs.some((d) => d.at.startsWith("src/sheet/view.ts:")), "the <Sheet.View> tag carries an @example");
+    assert.ok(docs.some((d) => d.at.startsWith("src/sheet/index.ts:") && mirrorOf(d, mirrors)?.name === "sheetBasic"), "<Sheet> carries an @example: the smallest sheet's");
     const failures = docs.flatMap((doc) => {
         const m = mirrorOf(doc, mirrors);
         if (m === undefined) return [`${doc.at}: its code does not end in \`const <name> = <the fn of an example() in test/sheet/sheet*.examples.ts(x)>\`, verbatim`];

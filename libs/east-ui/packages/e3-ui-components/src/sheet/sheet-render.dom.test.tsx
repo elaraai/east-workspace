@@ -16,16 +16,18 @@ import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, StringType, StructType } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 import { setSheetRowRenderProbe } from "./Rows.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import type { SheetRootValue } from "./values.js";
 
-beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); });
-afterEach(() => { cleanup(); setSheetRowRenderProbe(undefined); });
+// The frame tall enough that every row of these sheets is mounted.
+let restoreFrame: () => void = () => {};
+beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); setSheetRowRenderProbe(undefined); restoreFrame(); });
 
 // jsdom lacks the ResizeObserver the frame watches its width with.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -37,26 +39,30 @@ const LineType = StructType({ task: StringType, ops: ArrayType(OpType) });
 const PlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(LineType) });
 const OPS = [{ code: "CUT", name: "Cut to length" }, { code: "DRL", name: "Drill" }];
 
-/** An editable sheet of `n` jobs over two text columns — unbounded and under the virtualizing threshold, so every row is in flow. */
-function buildJobs(n: number): SheetRootValue {
+/** An editable sheet of `n` jobs over two text columns. */
+function buildJobs(n: number): SheetValue {
     const count = BigInt(n);
-    const program = East.function([], Sheet.Types.Root, ($) => {
+    const program = East.function([], SheetPayloadType, ($) => {
         const total = $.const(count);
         const jobs = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
             id: East.str`j${i}`, task: East.str`Task ${i}`, code: East.str`C${i}`,
         }, JobType)), ArrayType(JobType));
-        return Sheet.Payload(jobs, {
-            task: Sheet.column.text(JobType, { header: "Task" }),
-            code: Sheet.column.text(JobType, { header: "Code" }),
-        }, { id: "id" });
+        return Sheet.Payload({
+            data: jobs,
+            columns: {
+                task: Sheet.column.text(JobType, { header: "Task" }),
+                code: Sheet.column.text(JobType, { header: "Code" }),
+            },
+            id: "id",
+        });
     });
     return sheetJournal(East.compile(program, getRegisteredPlatformImplementations())()).value;
 }
 
 /** An editable grouped sheet of `n` plans: each a band over two lines, the first with two operations as its sub rows, then its blank line. */
-function buildPlans(n: number): SheetRootValue {
+function buildPlans(n: number): SheetValue {
     const count = BigInt(n);
-    const program = East.function([], Sheet.Types.Root, ($) => {
+    const program = East.function([], SheetPayloadType, ($) => {
         const ops = $.const(OPS, ArrayType(OpType));
         const noOps = $.const([], ArrayType(OpType));
         const total = $.const(count);
@@ -64,9 +70,11 @@ function buildPlans(n: number): SheetRootValue {
             id: East.str`P${i}`, name: East.str`Plan ${i}`,
             lines: [{ task: East.str`Cut ${i}`, ops }, { task: East.str`Fit ${i}`, ops: noOps }],
         }, PlanType)), ArrayType(PlanType));
-        return Sheet.Payload(plans, {
-            task: Sheet.column.text(LineType, { header: "Task" }),
-        }, {
+        return Sheet.Payload({
+            data: plans,
+            columns: {
+                task: Sheet.column.text(LineType, { header: "Task" }),
+            },
             id: "id",
             group: Sheet.group(PlanType, "lines", { title: "name" }),
             subRows: Sheet.subRows(LineType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name }) }),
@@ -75,7 +83,7 @@ function buildPlans(n: number): SheetRootValue {
     return sheetJournal(East.compile(program, getRegisteredPlatformImplementations())()).value;
 }
 
-function mount(value: SheetRootValue) {
+function mount(value: SheetValue) {
     const ui = render(
         <ChakraProvider value={system}>
             <EastChakraSheet value={value} storageKey="sheet-render-test" />

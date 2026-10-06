@@ -4,30 +4,30 @@
  *
  * @vitest-environment jsdom
  *
- * The renderer's parts (SB4, SB5, #1181): the toolbar's items, the grid with
- * its strip, and the footer, each placed in a container of its own under one
- * `SheetProvider` (as a builder places them in its frame's regions), drive
- * one grid. A tab switched in the toolbar narrows the grid, the history
- * item's Undo undoes the grid's typed cell, the footer's message follows a
- * paste, and ⌘F in the grid finds the search box wherever the toolbar is.
- * Every value built by the e3-ui factory and COMPILED, the slice bound
- * through the real `Slice.bind`.
+ * The Sheet's parts in its frame (SB4, SB5, #1181, #1216): the toolbar's
+ * items in the frame's toolbar, the grid with its strip in main, and the
+ * footer in the frame's footer, each in a region of its own under one
+ * `SheetProvider`, drive one grid. A tab switched in the toolbar narrows the
+ * grid, the history item's Undo undoes the grid's typed cell, the footer's
+ * message follows a paste, and ⌘F and ⌘/ in the grid find the search box in
+ * the toolbar. Every value built by `<Sheet>`'s factory and COMPILED, the
+ * slice bound through the real `Slice.bind`.
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, IntegerType, StringType, StructType, none, some } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Slice, State } from "@elaraai/east-ui/internal";
-import { system, Toolbar, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { SheetFooter } from "./Footer.js";
-import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetToolbarItems, useSheetToolbarRef } from "./index.js";
-import type { SheetRootValue } from "./values.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 
-afterEach(cleanup);
-beforeEach(() => { initializeStore(new UIStore()); });
+let restoreFrame: () => void = () => {};
+afterEach(() => { cleanup(); restoreFrame(); });
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
 
 // jsdom lacks the browser APIs Chakra's Combobox positioner relies on.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -49,43 +49,31 @@ const VIEWS = [
     { id: "spray", name: "SPRAY", narrowing: { ...NARROWING, search: some("spray") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
 ];
 
-/** An editable sheet over a bound slice, with one saved view, opening on the whole sheet. */
-const program = East.compile(East.function([], Sheet.Types.Root, ($) => {
+/** An editable sheet over a bound slice, with one saved view kept per viewer, opening on the whole sheet. */
+const program = East.compile(East.function([], SheetPayloadType, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "sheet-parts-dom", ROWS));
-    const views = $.const(VIEWS, ArrayType(Sheet.Types.View));
+    const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-parts-views", VIEWS));
     const cfg = $.const(Slice.config(Row, { fields: { activity: { label: "Activity" } }, searchFieldIds: ["activity"] }));
     const slice = $.let(Slice.bind([Row], "sheet_parts_dom", cfg, Slice.state(), data.read(), none));
-    return Sheet.Payload(data, {
-        activity: Sheet.column.text(Row, { header: "Activity" }),
-        qty: Sheet.column.integer(Row, { header: "Quantity" }),
-    }, { id: "id", onUpdate: data.write, slice, affordances: ["search"], views });
+    return Sheet.Payload({
+        data,
+        columns: {
+            activity: Sheet.column.text(Row, { header: "Activity" }),
+            qty: Sheet.column.integer(Row, { header: "Quantity" }),
+        },
+        id: "id", onUpdate: data.write, slice, affordances: ["search"], views,
+    });
 }), getRegisteredPlatformImplementations());
 /** The sheet as the store holds it now. */
-const buildSheet = (): SheetRootValue => program();
+const buildSheet = (): SheetValue => program();
 
-/** The toolbar's items laid out apart from the grid, as a builder's frame lays them out. */
-function PlacedToolbar() {
-    const items = useSheetToolbarItems();
-    const ref = useSheetToolbarRef();
-    return <div ref={ref}><Toolbar items={items} /></div>;
-}
-
-/** The footer, apart from the grid. */
-function PlacedFooter() {
-    return <SheetFooter {...useSheetFooter()} />;
-}
-
-function mount(value: SheetRootValue) {
+function mount(value: SheetValue) {
     const utils = render(
         <ChakraProvider value={system}>
-            <SheetProvider value={value} storageKey="sheet-parts-test">
-                <section data-region="toolbar"><PlacedToolbar /></section>
-                <section data-region="main"><SheetRoot><SheetGrid /></SheetRoot></section>
-                <section data-region="footer"><PlacedFooter /></section>
-            </SheetProvider>
+            <EastChakraSheet value={value} storageKey="sheet-parts-test" />
         </ChakraProvider>,
     );
-    const region = (name: "toolbar" | "main" | "footer") => utils.container.querySelector(`[data-region="${name}"]`) as HTMLElement;
+    const region = (name: "toolbar" | "main" | "footer") => utils.container.querySelector(`[data-builder-frame] [data-frame-slot="${name}"]`) as HTMLElement;
     const root = () => region("main").querySelector("[data-sheet]") as HTMLElement;
     const card = () => region("main").querySelector("[data-sheet-card]") as HTMLElement;
     const cell = (id: string, key: string) => region("main").querySelector<HTMLElement>(`[data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`);
@@ -101,7 +89,7 @@ function mount(value: SheetRootValue) {
     return { ...utils, region, root, card, cell, numbers, flush, press };
 }
 
-test("each part draws where it is placed, and a tab switched in the toolbar narrows the grid (SB4, SB5)", async () => {
+test("each part draws in its region of the frame, and a tab switched in the toolbar narrows the grid (SB4, SB5)", async () => {
     const ui = mount(buildSheet());
     expect(ui.region("main").querySelector('[data-slot="tab"]')).toBeNull();
     expect(ui.region("main").querySelector('[data-slot="footer"]')).toBeNull();
@@ -115,7 +103,7 @@ test("each part draws where it is placed, and a tab switched in the toolbar narr
     expect(ui.numbers()).toEqual(["2"]);
 });
 
-test("Undo in the history item, placed apart, commits the grid's open editor and undoes it; Redo restores it (SB5)", async () => {
+test("Undo in the history item, in the toolbar, commits the grid's open editor and undoes it; Redo restores it (SB5)", async () => {
     const ui = mount(buildSheet());
     fireEvent.doubleClick(ui.cell("a", "qty")!);
     await ui.flush();
@@ -128,7 +116,7 @@ test("Undo in the history item, placed apart, commits the grid's open editor and
     expect(ui.cell("a", "qty")!.textContent).toBe("7");
 });
 
-test("the footer's message, placed apart, follows a paste in the grid", async () => {
+test("the footer's message, in the frame's footer, follows a paste in the grid", async () => {
     const ui = mount(buildSheet());
     fireEvent.mouseDown(ui.cell("c", "qty")!, { button: 0 });
     await act(async () => { fireEvent.paste(ui.card(), { clipboardData: { getData: () => "9" } }); });
@@ -136,24 +124,15 @@ test("the footer's message, placed apart, follows a paste in the grid", async ()
     expect(ui.region("footer").querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Pasted 1×1 from clipboard");
 });
 
-test("⌘F in the grid puts the focus on the search box wherever the toolbar is placed", async () => {
+test("⌘F and ⌘/ in the grid put the focus on the search box in the frame's toolbar", async () => {
     const ui = mount(buildSheet());
     const search = ui.region("toolbar").querySelector<HTMLInputElement>('[data-slot="toolbarRail"] input');
     expect(search).not.toBeNull();
-    fireEvent.mouseDown(ui.cell("a", "activity")!, { button: 0 });
-    fireEvent.keyDown(ui.card(), { key: "f", metaKey: true });
-    await waitFor(() => expect(document.activeElement).toBe(search));
-});
-
-test("⌘/ in Sheet.View puts the focus on its own toolbar's search box", async () => {
-    const utils = render(
-        <ChakraProvider value={system}>
-            <EastChakraSheet value={buildSheet()} storageKey="sheet-parts-view" />
-        </ChakraProvider>,
-    );
-    const search = utils.container.querySelector<HTMLInputElement>('[data-slot="toolbar"] [data-slot="toolbarRail"] input');
-    expect(search).not.toBeNull();
-    fireEvent.mouseDown(utils.container.querySelector('[data-row-id="a"] [data-slot="cell"][data-key="activity"]')!, { button: 0 });
-    fireEvent.keyDown(utils.container.querySelector("[data-sheet-card]")!, { key: "/", metaKey: true });
-    await waitFor(() => expect(document.activeElement).toBe(search));
+    for (const key of ["f", "/"]) {
+        fireEvent.mouseDown(ui.cell("a", "activity")!, { button: 0 });
+        ui.card().focus();
+        expect(document.activeElement).not.toBe(search);
+        fireEvent.keyDown(ui.card(), { key, metaKey: true });
+        await waitFor(() => expect(document.activeElement).toBe(search));
+    }
 });

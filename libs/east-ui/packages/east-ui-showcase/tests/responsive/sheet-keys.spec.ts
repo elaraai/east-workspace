@@ -6,13 +6,14 @@
 /**
  * The Sheet's ring stays on screen as the keyboard moves it (#860), in a real
  * layout. End on a sheet wider than its frame — the workshop's, in its
- * builder's main, at both viewports (on a phone, beside its folded gutter,
+ * frame's main, at both viewports (on a phone, beside its folded gutter,
  * #1215); on a phone the stress sheet's too, wider than the window — scrolls
  * the columns sideways until the ring's cell shows right of the sticky
- * gutter, and Home brings the first column back. On an unbounded
- * sheet small enough to render its rows in flow — the smallest sheet, in a
- * window shorter than it — ↓ walked past the bottom of the view scrolls to the
- * ring's row, at both viewports.
+ * gutter, and Home brings the first column back. On a sheet whose rows and
+ * blank tail run past the bottom of its frame — the smallest sheet, in its
+ * 560px box — ↓ walked past the frame's bottom scrolls the frame to the
+ * ring's row, at both viewports. Every sheet scrolls its own rows in its
+ * frame (#1216): there is no sheet whose rows render in flow.
  *
  * Every read is polled until it holds, on a page at rest.
  *
@@ -96,8 +97,8 @@ function ring(entry: Locator): Promise<{ key: string | null; sideways: boolean; 
 }
 
 test.describe("the Sheet's ring stays on screen (#860)", () => {
-    test("End brings the last column into view sideways, and Home the first — in a builder's main", async ({ page }) => {
-        const entry = await openExample(page, "sheet-builder/sheetBuilderWorkshop");
+    test("End brings the last column into view sideways, and Home the first — in the frame's main", async ({ page }) => {
+        const entry = await openExample(page, "sheet/sheetWorkshop");
         // A press puts the ring on the first order's first operation — a line, never its band; a press never scrolls (the cell is under the pointer).
         await pressCell(page, entry.locator("[data-sheet-card] [data-slot='row'][data-group-id]:not([data-blank]) [data-slot='cell']").first());
         await expect.poll(async () => (await ring(entry)).key).toBe("activity");
@@ -118,15 +119,16 @@ test.describe("the Sheet's ring stays on screen (#860)", () => {
         await expect.poll(() => ring(entry)).toEqual({ key: "start", sideways: true, down: true });
     });
 
-    test("↓ walked past the bottom of the view brings the ring's row in, on a sheet whose rows render in flow", async ({ page }) => {
-        // A window shorter than the sheet's rows and their blank tail, so the walk passes its bottom.
-        await page.setViewportSize({ width: page.viewportSize()!.width, height: 480 });
+    test("↓ walked past the bottom of the frame brings the ring's row in, the frame scrolled to it", async ({ page }) => {
         const entry = await openExample(page, "sheet/sheetBasic");
-        await expect(entry.locator("[data-sheet-card] [data-virtual-rows]")).toHaveCount(0);
-        await entry.locator("[data-sheet-card] [data-slot='row'] [data-slot='cell']").first().click();
-        const lastRow = entry.locator("[data-sheet-card] [data-slot='row']").last();
-        expect(await lastRow.evaluate((row) => row.getBoundingClientRect().top > window.innerHeight), "the sheet's last row starts below the window").toBe(true);
+        // The frame the rows scroll in: its rows and their blank tail run past its bottom, so the walk passes it.
+        const frame = entry.locator("[data-sheet-card] [data-virtual-rows='bounded']");
+        await expect(frame).toHaveCount(1);
+        expect(await frame.evaluate((el) => el.scrollHeight > el.clientHeight), "the rows run past the frame's bottom").toBe(true);
+        await pressCell(page, entry.locator("[data-sheet-card] [data-slot='row'] [data-slot='cell']").first());
+        await expect.poll(async () => (await ring(entry)).key).toBe("task");
         for (let i = 0; i < 30; i++) await page.keyboard.press("ArrowDown");
         await expect.poll(async () => (await ring(entry)).down).toBe(true);
+        expect(await frame.evaluate((el) => el.scrollTop > 0), "the frame scrolled to the ring's row").toBe(true);
     });
 });
