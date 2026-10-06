@@ -329,6 +329,11 @@ jobs:
       - name: Build east-diagnostics
         working-directory: libs/east-diagnostics
         run: make build
+      - name: Build east-plugin
+        # The agent plugin runtime a plugin that builds on East's depends on;
+        # its index.json is committed, its dist built here.
+        working-directory: libs/east-plugin
+        run: make build
       - name: Build eslint-plugin-east
         working-directory: libs/eslint-plugin-east
         run: make build

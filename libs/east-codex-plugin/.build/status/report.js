@@ -1820,13 +1820,69 @@ var objectToNumericMapAsync = async (object) => {
 var wait = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
 var SPACE_OR_PUNCTUATION = /[\n\r\p{Z}\p{P}]+/u;
 
+// ../east-plugin/dist/lib/search-guidance.js
+var EAST_GUIDANCE = {
+  searchTool: "mcp__plugin_east_east__search_east_examples",
+  getTool: "mcp__plugin_east_east__get_east_example",
+  corpus: "East",
+  scope: "@elaraai"
+};
+function bare(tool) {
+  const at = tool.lastIndexOf("__");
+  return at < 0 ? tool : tool.slice(at + 2);
+}
+function gateText(g) {
+  return [
+    `STOP: no ${g.corpus} example search on record in this session, and this is ${g.corpus} code.`,
+    `Before writing or changing ${g.corpus} code, search the tested example index \u2014 it is the API reference:`,
+    `1. \`${g.searchTool}\` with what you are about to do (language: "python" for east-py, "typescript" otherwise); summaries come back \u2014 id, signature, inputs and result.`,
+    `2. \`${g.getTool}\` for the one or two that match, and pattern your code on them.`,
+    `Do not read node_modules/${g.scope}/** or *.examples.ts files instead: the index is the same corpus, exact and far cheaper. Every ${g.corpus} skill requires this step.`
+  ].join("\n");
+}
+function readText(g) {
+  return [
+    `Note: the ${g.corpus} example index is the API reference \u2014 \`${g.searchTool}\` (then \`${bare(g.getTool)}\`) returns the same tested programs as the ${g.corpus} packages' examples and type declarations, exact, printed in TypeScript or python, at a fraction of the tokens.`,
+    `Reading \`.d.ts\` signatures or sweeping \`*.examples.ts\` files reliably produces broken ${g.corpus} code that still type-checks: the signatures omit the runtime rules. Search instead, and read a specific file only when the search pointed you at it.`
+  ].join("\n");
+}
+function corpusReadFor(scope) {
+  const escaped = scope.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const packagePath = new RegExp(`[/\\\\]node_modules[/\\\\]${escaped}[/\\\\]`);
+  const packagePattern = new RegExp(`(^|[/\\\\])node_modules[/\\\\]${escaped}([/\\\\]|$)`);
+  const examplesFile = /\.examples\.tsx?$/;
+  return (tool, input) => {
+    const file = typeof input["file_path"] === "string" ? input["file_path"] : "";
+    const dir = typeof input["path"] === "string" ? input["path"] : "";
+    const pattern = typeof input["pattern"] === "string" ? input["pattern"] : "";
+    return tool === "Read" ? packagePath.test(file) || examplesFile.test(file) : packagePath.test(dir) || packagePattern.test(pattern) || /\.examples\.tsx?/.test(pattern);
+  };
+}
+var GATE_TEXT = gateText(EAST_GUIDANCE);
+var READ_TEXT = readText(EAST_GUIDANCE);
+var isExampleCorpusRead = corpusReadFor(EAST_GUIDANCE.scope);
+
 // ../east-plugin/dist/lib/search.js
 async function buildSearchIndex(indexPath) {
   return (await loadIndex(indexPath)).search;
 }
 async function loadIndex(indexPath) {
-  const raw = await readFile(indexPath, "utf-8");
-  const data = JSON.parse(raw);
+  return loadIndexes([indexPath]);
+}
+async function loadIndexes(indexPaths) {
+  const entries = [];
+  const fileOf = /* @__PURE__ */ new Map();
+  for (const indexPath of indexPaths) {
+    const data2 = JSON.parse(await readFile(indexPath, "utf-8"));
+    for (const entry of data2.entries) {
+      const first = fileOf.get(entry.id);
+      if (first !== void 0)
+        throw new Error(`example id "${entry.id}" is in both ${first} and ${indexPath}`);
+      fileOf.set(entry.id, indexPath);
+      entries.push(entry);
+    }
+  }
+  const data = { entries };
   const miniSearch = new MiniSearch({
     idField: "id",
     fields: ["keywordsText", "test", "builtinsText", "suite", "typesText", "code"],
@@ -1847,6 +1903,7 @@ async function loadIndex(indexPath) {
   miniSearch.addAll(documents);
   return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
 }
+var EAST_SCOPES = [EAST_GUIDANCE.scope];
 
 // ../east-plugin/dist/lib/east-project.js
 import { readFile as readFile2 } from "node:fs/promises";

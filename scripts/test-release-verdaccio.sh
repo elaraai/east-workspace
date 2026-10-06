@@ -74,6 +74,7 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
   pnpm --filter @elaraai/east-py-datascience run build
   NODE_OPTIONS=--max-old-space-size=4096 make -C libs/east-ui build
   make -C libs/east-diagnostics build
+  make -C libs/east-plugin build
   make -C libs/eslint-plugin-east build
   make -C libs/tsserver-plugin-east build
   pnpm --filter @elaraai/scaffold-core --filter @elaraai/create-e3 --filter @elaraai/create-east run build
@@ -209,6 +210,7 @@ cat > "$PROJ/package.json" <<EOF
     "@elaraai/e3-ui-cli": "$VERSION",
     "@elaraai/east": "$VERSION",
     "@elaraai/east-node-std": "$VERSION",
+    "@elaraai/east-plugin": "$VERSION",
     "@elaraai/eslint-plugin-east": "$VERSION"
   },
   "scripts": {
@@ -230,6 +232,21 @@ echo -n "  require @elaraai/east: "; ( cd "$PROJ" && node -e "require('@elaraai/
 # Pulls @elaraai/east-diagnostics transitively, so this also proves the
 # workspace:* rewrite + both new packages actually shipped their dist.
 echo -n "  require @elaraai/eslint-plugin-east: "; ( cd "$PROJ" && node -e "require('@elaraai/eslint-plugin-east'); console.log('ok')" )
+# The agent plugin runtime as a plugin that builds on East's uses it: its dist
+# and the East index it ships load, and the search answers from that index.
+cat > "$PROJ/east-plugin-smoke.mjs" <<'SMOKE'
+import { EAST_INDEX_PATH } from '@elaraai/east-plugin/lib/east-index';
+import { loadIndexes, searchExamples } from '@elaraai/east-plugin/lib/search';
+
+const index = await loadIndexes([EAST_INDEX_PATH]);
+const { entries } = searchExamples(index, { query: 'array map', limit: 3 });
+if (entries.length === 0) {
+  console.error(`no hits in the East index the package ships (${EAST_INDEX_PATH})`);
+  process.exit(1);
+}
+console.log('ok');
+SMOKE
+echo -n "  @elaraai/east-plugin searches the East index it ships: "; ( cd "$PROJ" && node east-plugin-smoke.mjs )
 if [ -n "$JOB_LAUNCHER" ]; then
   # e3-core as a user installs it: its optionalDependency brought the job
   # launcher, and a runner it spawns is the launcher's child — inside its job.
