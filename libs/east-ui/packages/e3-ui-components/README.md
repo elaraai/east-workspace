@@ -92,15 +92,16 @@ before the UI's first read.
 import { decodeBeast2For } from '@elaraai/east';
 import { UIComponentType } from '@elaraai/east-ui';
 import {
-    StateImpl, NavImpl, SliceImpl, SliceApplyImpl, OverlayImpl, ClipboardImpl, DownloadImpl, ShareImpl,
+    StateImpl, SliceImpl, SliceApplyImpl, OverlayImpl, ClipboardImpl, DownloadImpl, ShareImpl,
 } from '@elaraai/east-ui-components';
+import { RecordSliceImpl } from '@elaraai/east-ui-components/platform';
 import {
     DecisionBindPlatform, createScopedBindPlatform, createScopedPagedPlatform,
     createScopedFuncPlatform, createScopedRecordPlatform,
 } from '@elaraai/e3-ui-components';
 
 const platforms = [
-    ...StateImpl, ...NavImpl, ...SliceImpl, ...SliceApplyImpl, ...OverlayImpl,
+    ...StateImpl, ...SliceImpl, ...RecordSliceImpl, ...SliceApplyImpl, ...OverlayImpl,
     ...ClipboardImpl, ...DownloadImpl, ...ShareImpl, ...DecisionBindPlatform,
     ...createScopedBindPlatform(manifest),
     ...createScopedPagedPlatform(manifest.pages),

@@ -1954,13 +1954,12 @@ var NAME21 = "no-dynamic-bind-path";
 var CODE21 = 990026;
 var KEY_ARG_INDEX = {
   Data: 0,
-  State: 1,
-  Navigation: 1
+  State: 1
 };
 var noDynamicBindPath = {
   name: NAME21,
   code: CODE21,
-  description: "Data.bind / State.bind / Navigation.bind keys must be IR-build constants \u2014 an East-computed key can't be captured in the ui() manifest.",
+  description: "Data.bind / State.bind keys must be IR-build constants \u2014 an East-computed key can't be captured in the ui() manifest.",
   check(node, ctx) {
     const t = ctx.ts;
     if (!t.isCallExpression(node))

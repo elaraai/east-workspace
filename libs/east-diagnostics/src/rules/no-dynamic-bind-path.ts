@@ -18,14 +18,13 @@ const CODE = 990026;
 const KEY_ARG_INDEX: Record<string, number> = {
   Data: 0,
   State: 1,
-  Navigation: 1,
 };
 
 export const noDynamicBindPath: EastRule = {
   name: NAME,
   code: CODE,
   description:
-    "Data.bind / State.bind / Navigation.bind keys must be IR-build constants — an East-computed key can't be captured in the ui() manifest.",
+    "Data.bind / State.bind keys must be IR-build constants — an East-computed key can't be captured in the ui() manifest.",
   check(node, ctx) {
     const t = ctx.ts;
     if (!t.isCallExpression(node)) return;

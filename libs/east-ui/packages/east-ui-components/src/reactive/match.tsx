@@ -6,11 +6,9 @@
 /**
  * `<Match>` hosting-slot renderer (#333).
  *
- * `Match` is the general form of the `<Pages>` remount mechanism: where Pages
- * keys the reactive subtree by the nav store's version at `navKey`, Match has
- * no store key — the `on` expression may read any State/Data — so it keys by
- * the **active case name**, evaluated through the same dependency tracking a
- * `Reactive` render uses. Tag change ⇒ the mounted case (and its
+ * The `on` expression may read any State/Data, so `Match` keys the reactive
+ * subtree by the **active case name**, evaluated through the same dependency
+ * tracking a `Reactive` render uses. Tag change ⇒ the mounted case (and its
  * subscriptions) remounts; same-tag payload/data churn re-renders through the
  * inner reactive's own subscriptions without losing mounted state.
  *
