@@ -13,6 +13,8 @@
  * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
+ * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
+ *   share (`Schedule.events`, `Schedule.resources`).
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
@@ -145,6 +147,15 @@ export {
     Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplate, type SheetTemplatesInput,
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
+
+// Schedule (#1218): the event and resource kinds the Calendar and Plan's
+// builder share — `Schedule.events`, `Schedule.resources`, `Schedule.field`,
+// `Schedule.days`, `Schedule.unscheduled` and `Schedule.Types`.
+export {
+    Schedule, type ScheduleNamespace,
+    type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsConfig, type ScheduleRecordHandle,
+    type ScheduleResourceKind, type ScheduleResourcesConfig, type ScheduleTemplate,
+} from './schedule/index.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';
