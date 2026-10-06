@@ -18,7 +18,8 @@
  *   - a pane that is not `collapsible` never collapses, and a host-driven
  *     `collapsed` is drawn in the commit it arrives in (#1125);
  *   - a tab row too narrow for its tabs folds them (#1210): the counts first,
- *     then the trailing tabs into a `+n` menu, the open tab always on the row.
+ *     then the trailing tabs into a `+n` menu, the open tab always on the row;
+ *     an open `+n` menu stays open as the row measures again (#1235).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -341,8 +342,12 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
     /** Each test's own storage key: a pane keeps its open tab under it. */
     let storageKey = "";
     let mounts = 0;
-    /** Each ResizeObserver's callback, called as the row's room changes. */
-    const observers: Array<() => void> = [];
+    /** How many times the row has measured: each measure reads the menu's stand-in once. */
+    let measures = 0;
+    /** Each ResizeObserver's callback and what it observes: the row's is called as its room changes. */
+    const observers: Array<{ callback: () => void; targets: Element[] }> = [];
+    /** The page's fonts: jsdom has none, so the row hears this stand-in's `loadingdone`. */
+    let fonts = new EventTarget();
     const saved = {
         rect: Element.prototype.getBoundingClientRect,
         clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
@@ -359,8 +364,12 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
     beforeEach(() => {
         room = 260;
         storageKey = `dock-fold-${++mounts}`;
+        measures = 0;
         observers.length = 0;
+        fonts = new EventTarget();
+        Object.defineProperty(document, "fonts", { configurable: true, value: fonts });
         Element.prototype.getBoundingClientRect = function (this: Element) {
+            if (this.matches("[data-dock-more-measure]")) measures += 1;
             const width = this.matches('[role="tab"]') ? tabWidth(this)
                 : this.matches("[data-tab-count]") ? 6 * (this.textContent?.length ?? 0)
                     : this.matches("[data-dock-more-measure]") ? 30 : 0;
@@ -380,10 +389,11 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
             });
         }) as typeof window.getComputedStyle;
         (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
-            constructor(callback: () => void) { observers.push(callback); }
-            observe() {}
+            private readonly observer: { callback: () => void; targets: Element[] };
+            constructor(callback: () => void) { this.observer = { callback, targets: [] }; observers.push(this.observer); }
+            observe(target: Element) { this.observer.targets.push(target); }
             unobserve() {}
-            disconnect() {}
+            disconnect() { this.observer.targets.length = 0; }
         };
     });
     afterEach(() => {
@@ -391,7 +401,14 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
         Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
         window.getComputedStyle = saved.computed;
         (globalThis as { ResizeObserver?: unknown }).ResizeObserver = saved.observer;
+        Reflect.deleteProperty(document, "fonts");
     });
+    /** The row's room has changed: the row's observers hear it, as the layout would tell them. */
+    const resized = async () => {
+        await act(async () => {
+            for (const { callback, targets } of observers) if (targets.some((el) => el.matches("[data-dock-tabs]"))) callback();
+        });
+    };
 
     const mountLibrary = (props: { tab?: string } = {}) => render(
         <ChakraProvider value={system}>
@@ -496,10 +513,10 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
         const view = mountLibrary();
         expect(rowOf(view).fold).toBe("folded");
         room = 260;
-        await act(async () => { for (const callback of observers) callback(); });
+        await resized();
         expect(rowOf(view)).toEqual({ fold: null, tabs: ["Rows 11", "Registers 29", "Columns 6"], more: null, measuring: false });
         room = 210;
-        await act(async () => { for (const callback of observers) callback(); });
+        await resized();
         expect(rowOf(view).fold).toBe("compact");
     });
 
@@ -514,5 +531,43 @@ describe("DockPane — a tab row too narrow for its tabs folds them (#1210)", ()
             </ChakraProvider>,
         );
         expect(rowOf(view)).toEqual({ fold: "compact", tabs: ["Rows 1,204", "Registers 29", "Columns 6"], more: null, measuring: false });
+    });
+
+    test("an open +n menu stays open, with its items, as the row measures again — a font arriving, the room or a count changing — and goes once every tab has room on the row (#1235)", async () => {
+        initializeStore(new UIStore());
+        room = 160;
+        const view = mountLibrary();
+        await openMenu(view, "2 more tabs");
+        /** Whether the menu's trigger says it is open, and the items the menu shows. */
+        const menu = () => ({
+            open: view.container.querySelector("[data-dock-more]")?.getAttribute("aria-expanded") ?? null,
+            items: view.queryAllByRole("menuitem").map((item) => item.textContent),
+        });
+        expect(menu()).toEqual({ open: "true", items: ["Registers 29", "Columns 6"] });
+        // A font arriving: in Chromium the page's first menu sets one off, as it inserts its styles.
+        let before = measures;
+        await act(async () => { fonts.dispatchEvent(new Event("loadingdone")); });
+        expect(measures).toBe(before + 1);
+        expect(menu()).toEqual({ open: "true", items: ["Registers 29", "Columns 6"] });
+        // The room changing, the fold the same.
+        before = measures;
+        room = 170;
+        await resized();
+        expect(measures).toBe(before + 1);
+        expect(menu()).toEqual({ open: "true", items: ["Registers 29", "Columns 6"] });
+        // A tab's count changing: its item follows.
+        before = measures;
+        view.rerender(
+            <ChakraProvider value={system}>
+                <DockPane storageKey={storageKey} label="Library" surface="shell" tabs={TABS.map((tab) => (tab.key === "registers" ? { ...tab, count: "30" } : tab))} />
+            </ChakraProvider>,
+        );
+        expect(measures).toBe(before + 1);
+        expect(menu()).toEqual({ open: "true", items: ["Registers 30", "Columns 6"] });
+        // Room for every tab: the menu goes with the fold.
+        room = 260;
+        await resized();
+        expect(rowOf(view)).toEqual({ fold: null, tabs: ["Rows 11", "Registers 30", "Columns 6"], more: null, measuring: false });
+        expect(document.querySelector('[role="menu"]')).toBeNull();
     });
 });
