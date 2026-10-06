@@ -6,7 +6,8 @@
 /**
  * `Schedule`'s East types (#1218): what an author meets (`Calendar Spec.md`
  * §5.1), and the kinds' wire (§5.2) that a builder's payload holds — the
- * Calendar's and Plan's builder's alike.
+ * Calendar's, and Plan's builder's (#1190, `Plan Builder Spec.md` §5.2): the
+ * same kinds with Plan's options resolved beside them.
  *
  * @packageDocumentation
  */
@@ -16,8 +17,9 @@ import {
     StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
+import { ApprovalStateType, EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
+import { PlanDrawType, PlanQuantityType, PlanRollupType } from "../plan/types.js";
 
 // ============================================================================
 // What an author meets
@@ -291,3 +293,127 @@ export const ScheduleResourcesType = StructType({
 
 /** Type representing {@link ScheduleResourcesType}. */
 export type ScheduleResourcesType = typeof ScheduleResourcesType;
+
+// ============================================================================
+// The kinds as Plan's builder takes them (#1190)
+// ============================================================================
+
+/**
+ * Whether two events of a kind on one resource at once are a conflict.
+ *
+ * @property warn - They are: both wear a warn ring, and the overlaps count them (the default)
+ * @property allow - They are not: the kind's events run in parallel
+ */
+export const ScheduleOverlapsType = VariantType({ warn: NullType, allow: NullType });
+
+/** Type representing {@link ScheduleOverlapsType}. */
+export type ScheduleOverlapsType = typeof ScheduleOverlapsType;
+
+/**
+ * One event as Plan draws it: what every view draws ({@link ScheduleItemType}),
+ * with its lifecycle, its quantity, its lane and its verdict.
+ *
+ * @property state - The lifecycle it wears, from its kind's `state` field; confirmed when the kind has none
+ * @property quantity - Its kind's `quantity` field, with the kind's unit and format: what a bar prints and a parent's rollup sums
+ * @property lane - The lane its tile sits in, from its kind's `lane` field
+ * @property verdict - Its review verdict, from its kind's `review` field
+ */
+export const PlanEventItemType = StructType({
+    ...ScheduleItemType.fields,
+    state: EventStateType,
+    quantity: OptionType(PlanQuantityType),
+    lane: OptionType(StringType),
+    verdict: OptionType(ApprovalStateType),
+});
+
+/** Type representing {@link PlanEventItemType}. */
+export type PlanEventItemType = typeof PlanEventItemType;
+
+/**
+ * The fields an event kind's roles read on a Plan, by name: what a gesture
+ * writes to change one (a `field` gesture's path), and what the inspector
+ * draws in its own sections rather than in the kind's form.
+ *
+ * @property state - The `EventStateType` field
+ * @property quantity - The `Float` quantity field
+ * @property lane - The `String` lane field
+ * @property review - The `ApprovalStateType` field a verdict writes
+ */
+export const PlanEventRolesType = StructType({
+    state: OptionType(StringType),
+    quantity: OptionType(StringType),
+    lane: OptionType(StringType),
+    review: OptionType(StringType),
+});
+
+/** Type representing {@link PlanEventRolesType}. */
+export type PlanEventRolesType = typeof PlanEventRolesType;
+
+/**
+ * One event kind as Plan's builder takes it: the Calendar's closed kind
+ * ({@link ScheduleKindType}), field for field, with how the kind draws and its
+ * roles, and its events as Plan draws them.
+ *
+ * @property draw - How it draws: bars, tiles, chips or marks
+ * @property instant - Whether each of its events is one instant (`at`), its start and its end the same
+ * @property overlaps - Whether two of its events on one resource at once are a conflict
+ * @property roles - The fields its roles read
+ * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight
+ * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place
+ */
+export const PlanEventKindType = StructType({
+    ...ScheduleKindType.fields,
+    draw: PlanDrawType,
+    instant: BooleanType,
+    overlaps: ScheduleOverlapsType,
+    roles: PlanEventRolesType,
+    planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
+    planUnscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
+});
+
+/** Type representing {@link PlanEventKindType}. */
+export type PlanEventKindType = typeof PlanEventKindType;
+
+/**
+ * One resource as Plan's builder takes it: what every view draws
+ * ({@link ScheduleResourceRowType}), with where it sits and its gutter.
+ *
+ * @property group - The group strip it sits under (a hall); `none` when the kind has no `group`
+ * @property parent - The key's text of the resource of its kind it nests under
+ * @property sub - The gutter's sub line
+ * @property value - The gutter's value slot
+ * @property status - The gutter's status dot
+ * @property collapsed - Whether it starts folded, when it has resources under it
+ */
+export const PlanResourceRowType = StructType({
+    ...ScheduleResourceRowType.fields,
+    group: OptionType(StringType),
+    parent: OptionType(StringType),
+    sub: OptionType(StringType),
+    value: OptionType(StringType),
+    status: OptionType(StatusValueType),
+    collapsed: BooleanType,
+});
+
+/** Type representing {@link PlanResourceRowType}. */
+export type PlanResourceRowType = typeof PlanResourceRowType;
+
+/**
+ * One resource kind as Plan's builder takes it, its rows resolved.
+ *
+ * @property key - The kind's slot name
+ * @property name - Its name
+ * @property icon - Its Font Awesome icon
+ * @property rollup - How a parent's bands roll its children's events up
+ * @property rows - Its resources, in key order
+ */
+export const PlanResourcesType = StructType({
+    key: StringType,
+    name: StringType,
+    icon: StringType,
+    rollup: PlanRollupType,
+    rows: ArrayType(PlanResourceRowType),
+});
+
+/** Type representing {@link PlanResourcesType}. */
+export type PlanResourcesType = typeof PlanResourcesType;
