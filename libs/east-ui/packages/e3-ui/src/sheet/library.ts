@@ -4,12 +4,12 @@
  */
 
 /**
- * `Sheet.library` — the builder's library, the author's (#1186,
+ * `Sheet.library` — the sheet's library pane, the author's (#1186,
  * `Sheet Builder Spec.md` §4.4, SB32, SB59, SB60). `library` lists the
  * pane's tabs, in order, each built here: `Sheet.library.rows()` (the
  * templates), `Sheet.library.columns()` (the columns a viewer shows and
  * hides) and `Sheet.library.tab(data, { … })`, cards of the author's own.
- * Left out, or empty, the builder has no library pane.
+ * Left out, or empty, the sheet has no library pane.
  *
  * An author's tab reads its rows as `Sheet.register.members` does — an
  * `Array<T>` or a `Dict<String, T>`, its accessors reified ONCE into a
@@ -76,7 +76,7 @@ export const SheetLibraryDropType = VariantType({ row: NullType, group: NullType
 export type SheetLibraryDropType = typeof SheetLibraryDropType;
 
 /**
- * One tab of the builder's library on the wire, in the order `library` lists them.
+ * One tab of the library pane on the wire, in the order `library` lists them.
  *
  * - `rows` — the templates (`templates`), by their group;
  * - `columns` — the declared columns, each with an eye;
@@ -126,14 +126,14 @@ export interface SheetLibraryTabConfig<T extends EastType, P extends EastType = 
     drop?: (value: ExprType<T>, key: ExprType<StringType>) => ExprType<P>;
 }
 
-/** One tab of the builder's library — what each `Sheet.library.*` call returns, and `library` lists. */
+/** One tab of the library pane — what each `Sheet.library.*` call returns, and `library` lists. */
 export type SheetLibraryTab =
     | { readonly kind: "rows" }
     | { readonly kind: "columns" }
     | { readonly kind: "tab"; readonly data: unknown; readonly config: SheetLibraryTabConfig<EastType> };
 
 /**
- * The library's Rows tab — `Sheet.library.rows()`: the builder's templates,
+ * The library's Rows tab — `Sheet.library.rows()`: the sheet's templates,
  * by their group, each card saying what it sets (SB33).
  *
  * @returns The tab
@@ -173,41 +173,41 @@ export function libraryColumns(): SheetLibraryTab {
  * import { Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const BuilderJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
- * export const sheetBuilderJobs = e3.record("sheet_builder_jobs", DictType(StringType, BuilderJob), new Map([
+ * export const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
+ * export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), new Map([
  *     ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
  *     ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
  *     ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
  *     ["J-0004", { task: "Spray finish", start: none, qty: none }],
  * ]));
- * export const sheetBuilderJobsPatch = e3.mutation.patch(sheetBuilderJobs);
- * export const BuilderTask = StructType({ name: StringType, stage: StringType });
+ * export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
+ * export const LibraryTask = StructType({ name: StringType, stage: StringType });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const jobs = $.let(Record.bind(sheetBuilderJobs, [sheetBuilderJobsPatch]));
+ *         const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
  *         const tasks = $.let([
  *             { name: "Panel cutting", stage: "Cutting" },
  *             { name: "Edge banding",  stage: "Cutting" },
  *             { name: "CNC routing",   stage: "Machining" },
  *             { name: "Sanding",       stage: "Finishing" },
  *             { name: "Spray finish",  stage: "Finishing" },
- *         ], ArrayType(BuilderTask));
+ *         ], ArrayType(LibraryTask));
  *         return (
  *             <Box height="560px">
- *                 <Sheet.Builder
+ *                 <Sheet
  *                     record={jobs}
- *                     id="library"
+ *                     name="library"
  *                     columns={{
- *                         task:  Sheet.column.text(BuilderJob, { header: "Task", width: "240px" }),
- *                         start: Sheet.column.date(BuilderJob, { header: "Start", width: "96px" }),
- *                         qty:   Sheet.column.quantity(BuilderJob, { header: "Qty", width: "96px" }),
+ *                         task:  Sheet.column.text(SheetJob, { header: "Task", width: "240px" }),
+ *                         start: Sheet.column.date(SheetJob, { header: "Start", width: "96px" }),
+ *                         qty:   Sheet.column.quantity(SheetJob, { header: "Qty", width: "96px" }),
  *                     }}
  *                     library={[
  *                         // The tasks a job takes, by their stage: a card dropped on a job sets its task.
  *                         Sheet.library.tab(tasks, { name: "Tasks", icon: "hammer",
  *                             key: t => t.name, label: t => t.name, group: t => t.stage,
- *                             drop: t => Sheet.patch(BuilderJob, { task: t.name }) }),
+ *                             drop: t => Sheet.patch(SheetJob, { task: t.name }) }),
  *                         Sheet.library.columns(),
  *                     ]}
  *                 />
@@ -261,10 +261,10 @@ function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetB
     // The data is an Array or a Dict whatever the cast above says: widen to read its real East type.
     const t = Expr.type(expr) as EastType;
     if (t.type !== "Array" && t.type !== "Dict") {
-        throw new Error(`Sheet.Builder: ${tabName(tab)}'s data must be an Array or a Dict<String, T> — got a ${t.type}`);
+        throw new Error(`Sheet: ${tabName(tab)}'s data must be an Array or a Dict<String, T> — got a ${t.type}`);
     }
     if (t.type === "Dict" && (t.key as EastType).type !== "String") {
-        throw new Error(`Sheet.Builder: ${tabName(tab)}'s data must be a Dict<String, T> — its keys ride to the accessors as the second argument`);
+        throw new Error(`Sheet: ${tabName(tab)}'s data must be a Dict<String, T> — its keys ride to the accessors as the second argument`);
     }
     const elem: EastType = t.value;
 
@@ -284,7 +284,7 @@ function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetB
             landing = "group";
             project = buildPatchCells(groupHalf.groupType, groupHalf.cellMetas, {});
         } else {
-            throw new Error(`Sheet.Builder: ${tabName(tab)}'s \`drop\` returns a patch over neither the row type nor the group type — build it with Sheet.patch(RowType, …)${bridge.group !== undefined ? ", or Sheet.patch(GroupType, …) for a band" : " over the sheet's row type"}`);
+            throw new Error(`Sheet: ${tabName(tab)}'s \`drop\` returns a patch over neither the row type nor the group type — build it with Sheet.patch(RowType, …)${bridge.group !== undefined ? ", or Sheet.patch(GroupType, …) for a band" : " over the sheet's row type"}`);
         }
     }
 
@@ -312,7 +312,7 @@ function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetB
 }
 
 /**
- * Builds the builder's library on the wire (SB59, SB60): its tabs in the
+ * Builds the library pane on the wire (SB59, SB60): its tabs in the
  * order `library` lists them; none when it is left out.
  *
  * @param tabs - The tabs, each a `Sheet.library.*` call
@@ -327,8 +327,8 @@ export function buildLibrary(tabs: readonly SheetLibraryTab[] | undefined, bridg
         const id = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
         if (seen.has(id)) {
             throw new Error(tab.kind === "tab"
-                ? `Sheet.Builder: the library lists two tabs named "${tab.config.name}" — each tab's name is its own`
-                : `Sheet.Builder: the library lists ${tabName(tab)} twice — each tab once`);
+                ? `Sheet: the library lists two tabs named "${tab.config.name}" — each tab's name is its own`
+                : `Sheet: the library lists ${tabName(tab)} twice — each tab once`);
         }
         seen.add(id);
     }

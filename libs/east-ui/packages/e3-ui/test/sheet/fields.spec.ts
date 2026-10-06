@@ -4,8 +4,8 @@
  */
 
 /**
- * The Sheet builder's inspector forms (#1188, `Sheet Builder Spec.md` §5.3,
- * SB10, SB58): every field of a row through `Fields` — each column's kind its
+ * The Sheet's inspector forms (#1188, `Sheet Builder Spec.md` §5.3, SB10,
+ * SB58): every field of a row through `Fields` — each column's kind its
  * field's default editor, a field with no column by its type — the hints
  * overriding them and their order, a group's own fields through its band
  * cells, the cells a patch of each sets, every refusal naming the prop and
@@ -226,27 +226,25 @@ describe("the inspector's forms (SB10)", () => {
     });
 });
 
-describe("the author's inspector (SB58)", () => {
+describe("the author's own Details (SB58)", () => {
     const Job = StructType({ task: StringType, qty: FloatType });
-    type Inspector = ValueTypeOf<OptionType<typeof SheetInspectorType>>;
+    type Inspector = ValueTypeOf<typeof SheetInspectorType>;
     const encodeJob = encodeBeast2For(Job);
     const decodeJob = decodeBeast2For(Job);
 
-    /** The wrapped inspector of an author's function: compiled, called where Details draws it. */
-    const wrapped = (author: ($: BlockBuilder<OptionType<typeof SheetInspectorType>>) => unknown) =>
-        East.compile(East.function([], OptionType(SheetInspectorType), ($) => buildInspector(author($), Job)), [])() as Inspector;
+    /** The wrapped Details of an author's function: compiled, called where Details draws them. */
+    const wrapped = (author: ($: BlockBuilder<typeof SheetInspectorType>) => unknown) =>
+        East.compile(East.function([], SheetInspectorType, ($) => buildInspector(author($), Job)), [])() as Inspector;
 
-    test("left out, none; given, the row arrives as its own struct and its writer takes the edited row back", () => {
-        assert.equal(wrapped(() => undefined).type, "none");
+    test("the row arrives as its own struct, and its writer takes the edited row back", () => {
         const inspector = wrapped(($) => $.const(East.function([Job, FunctionType([Job], NullType)], UIComponentType, ($2, row, update) => {
             // Doubling the quantity, for the test, as the author's UI would on a gesture.
             const edited = $2.const({ task: row.task, qty: row.qty.multiply(2.0) }, Job);
             $2(update(edited));
             return Text.Root(row.task);
         })));
-        if (inspector.type !== "some") assert.fail("given, the payload carries it");
         const written: Uint8Array[] = [];
-        const ui = inspector.value(encodeJob({ task: "Hang doors", qty: 4.0 }), (bytes: Uint8Array) => { written.push(bytes); return null; });
+        const ui = inspector(encodeJob({ task: "Hang doors", qty: 4.0 }), (bytes: Uint8Array) => { written.push(bytes); return null; });
         assert.equal(ui.type, "Text");
         assert.equal(written.length, 1, "one write");
         assert.ok(equalFor(Job)(decodeJob(written[0]!), { task: "Hang doors", qty: 8.0 }));
@@ -255,8 +253,8 @@ describe("the author's inspector (SB58)", () => {
     test("refused at build: a function over another type, or with no writer", () => {
         const Other = StructType({ name: StringType });
         assert.throws(() => wrapped(($) => $.const(East.function([Other, FunctionType([Other], NullType)], UIComponentType, (_$2, row) => Text.Root(row.name)))),
-            /`inspector` must be an East.function over the row and its writer/);
+            /`inspector` is given alone, for the selected row's Details form, or as an East.function over the row and its writer/);
         assert.throws(() => wrapped(($) => $.const(East.function([Job], UIComponentType, (_$2, row) => Text.Root(row.task)))),
-            /`inspector` must be an East.function over the row and its writer/);
+            /`inspector` is given alone, for the selected row's Details form, or as an East.function over the row and its writer/);
     });
 });

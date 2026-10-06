@@ -4,16 +4,16 @@
  *
  * @vitest-environment jsdom
  *
- * The Sheet through its carrier (#1179). `<Sheet.View>` returns the sheet as
- * the `SheetView` extension — its payload's bytes beside its kind — and the
+ * The Sheet through its carrier (#1179, #1216). `<Sheet>` returns the sheet
+ * as the `Sheet` extension — its payload's bytes beside its kind — and the
  * dispatcher hands it to the renderer registered against that kind, decoding
  * the payload's functions against the registered platform: a paged source's
  * `page` and `total`, and the editing wire's `onApply`. Every sheet here is
- * built by the e3-ui factory, compiled, and rendered through
- * `EastChakraComponent`, as an app renders it.
+ * built by `<Sheet>`, compiled, and rendered through `EastChakraComponent`,
+ * as an app renders it: in its frame.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, IntegerType, OptionType, StringType, StructType, encodeBeast2For, none, some, type ValueTypeOf } from "@elaraai/east";
@@ -22,12 +22,16 @@ import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
 import { Sheet } from "@elaraai/e3-ui/internal";
+import { boundFrame } from "./frame.test-utils.js";
 // The sheet is an extension: its renderer registers as it loads.
-import "./index.js";
+import "./frame/index.js";
 
+let restoreFrame: () => void = () => {};
+beforeEach(() => { restoreFrame = boundFrame(2000); });
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    restoreFrame();
 });
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -77,7 +81,7 @@ const rowIds = (container: HTMLElement): (string | null)[] =>
 /** A sheet over the jobs. */
 const VIEW = East.function([], UIComponentType, ($) => {
     const jobs = $.const(JOBS, Jobs);
-    return Sheet.View({
+    return Sheet({
         data: jobs,
         columns: { task: Sheet.column.text(Job, { header: "Task" }), qty: Sheet.column.integer(Job, { header: "Qty" }) },
         id: "id",
@@ -87,17 +91,20 @@ const VIEW = East.function([], UIComponentType, ($) => {
 /** The same sheet over a paged source of the jobs. */
 const PAGED_VIEW = East.function([], UIComponentType, ($) => {
     const source = $.const(JOBS_SOURCE, Paged.Types.Source(Jobs));
-    return Sheet.View({ data: source, columns: { task: Sheet.column.text(Job, { header: "Task" }) }, id: "id" });
+    return Sheet({ data: source, columns: { task: Sheet.column.text(Job, { header: "Task" }) }, id: "id" });
 });
 
-describe("<Sheet.View> through its carrier (#1179)", () => {
-    test("the sheet is the SheetView extension — its payload carried as bytes beside its kind — and the dispatcher draws it", async () => {
+describe("<Sheet> through its carrier (#1179, #1216)", () => {
+    test("the sheet is the Sheet extension — its payload carried as bytes beside its kind — and the dispatcher draws it, in its frame", async () => {
         initializeStore(new UIStore());
         const value = East.compile(VIEW, getRegisteredPlatformImplementations())();
-        if (value.type !== "Extension") throw new Error(`expected the SheetView extension, got the ${value.type} arm`);
-        expect(value.value.kind).toBe("SheetView");
+        if (value.type !== "Extension") throw new Error(`expected the Sheet extension, got the ${value.type} arm`);
+        expect(value.value.kind).toBe("Sheet");
         const { container } = mount(value, "sheet-carrier-view");
         await waitFor(() => expect(rowIds(container)).toEqual(["j1", "j2", "j3"]));
+        // In its frame: the rows in main, the footer in the frame's footer.
+        expect(container.querySelector('[data-builder-frame] [data-frame-slot="main"] [data-sheet-card]')).not.toBeNull();
+        expect(container.querySelector('[data-builder-frame] [data-frame-slot="footer"] [data-slot="footer"]')).not.toBeNull();
         expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((h) => h.textContent)).toEqual(["Task", "Qty"]);
         expect(container.querySelector('[data-row-id="j2"] [data-key="task"]')!.textContent).toBe("Drill");
     });
@@ -123,7 +130,7 @@ const EDITED = East.compile(East.function([], UIComponentType, (_$) =>
         const tick = $.let(State.bind([IntegerType], TICK_KEY, 0n));
         $(tick.read());
         const data = $.const(State.bind([Jobs], JOBS_KEY, JOBS));
-        return Sheet.View({ data, columns: { qty: Sheet.column.integer(Job, { header: "Qty" }) }, id: "id", onUpdate: data.write });
+        return Sheet({ data, columns: { qty: Sheet.column.integer(Job, { header: "Qty" }) }, id: "id", onUpdate: data.write });
     })),
 ), getRegisteredPlatformImplementations());
 

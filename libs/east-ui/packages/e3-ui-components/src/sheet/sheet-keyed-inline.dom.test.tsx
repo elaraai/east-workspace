@@ -8,8 +8,10 @@
  * order, a keyed inline source. A new row takes its key from `newRowId` and
  * sits where its key sorts, at the key's own type; nothing is placed by
  * position; a removal is a delete by key; and readiness holds a new row's
- * missing field against Apply. Every value built by the e3-ui factory and
- * COMPILED; Apply is a spy over the batch the record would be handed.
+ * missing field against Apply. Every root built by the e3-ui factory a
+ * record's rows reach the sheet through, in the Sheet's payload, and
+ * COMPILED; Apply is a spy over the batch the record would be handed. The
+ * Sheet is mounted in its frame (#1216).
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -17,15 +19,16 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { Sheet, createSheetPayloadWith } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType, createSheetRootWith } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import type { SheetRootValue } from "./values.js";
 
-beforeEach(() => initializeStore(new UIStore()));
-afterEach(cleanup);
+let restoreFrame: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); restoreFrame(); });
 
 const JobType = StructType({ task: StringType, qty: IntegerType });
 const COLUMNS = {
@@ -43,38 +46,43 @@ const APPLY_TEXT = East.asyncFunction([Editing.Types.ChangeSet(JobType, StringTy
 const APPLY_NUMBER = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,
     (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
 
+// Each Sheet holds its root alone: no pane, no record's history to read.
 /** The jobs keyed by text, a new row's key `J-0002`. */
-const textSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
+const textSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_TEXT, DictType(StringType, JobType));
     const next = $.const(East.function([], StringType, (_$) => "J-0002"));
-    return createSheetPayloadWith(jobs, COLUMNS, { newRowId: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT });
+    const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newRowId: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT }));
+    return East.value({ sheet, templates: [], library: [], inspector: none, history: none, missing: none, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by text, a new row's key minted by the renderer. */
-const mintedSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
+const mintedSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_TEXT, DictType(StringType, JobType));
-    return createSheetPayloadWith(jobs, COLUMNS, { blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT });
+    const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT }));
+    return East.value({ sheet, templates: [], library: [], inspector: none, history: none, missing: none, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by number, a new row's key `11`. */
-const numberSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
+const numberSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_NUMBER, DictType(IntegerType, JobType));
     const next = $.const(East.function([], StringType, (_$) => "11"));
-    return createSheetPayloadWith(jobs, COLUMNS, { newRowId: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_NUMBER });
+    const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newRowId: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_NUMBER }));
+    return East.value({ sheet, templates: [], library: [], inspector: none, history: none, missing: none, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 
 const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(JobType, StringType));
 type Batch = ValueTypeOf<ReturnType<typeof Editing.Types.ChangeSet<typeof JobType, typeof StringType>>>;
 
-/** A root whose Apply records the batches it is handed. */
-function withApplySpy(root: SheetRootValue) {
+/** A sheet whose Apply records the batches it is handed. */
+function withApplySpy(sheet: SheetValue) {
     const batches: Batch[] = [];
-    const value: SheetRootValue = { ...root, editing: { ...root.editing, onApply: some(variant("async", async (bytes: Uint8Array) => {
+    const root = sheet.sheet;
+    const value: SheetValue = { ...sheet, sheet: { ...root, editing: { ...root.editing, onApply: some(variant("async", async (bytes: Uint8Array) => {
         batches.push(decodeBatch(bytes));
         return variant("applied", { revision: none });
-    })) } };
+    })) } } };
     return { value, batches };
 }
 
-function mount(value: SheetRootValue) {
+function mount(value: SheetValue) {
     const ui = render(<ChakraProvider value={system}><EastChakraSheet value={value} storageKey="sheet-keyed-inline" /></ChakraProvider>);
     const ids = () => [...ui.container.querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.getAttribute("data-row-id"));
     const blankCell = (key: string) => ui.container.querySelector<HTMLElement>(`[data-slot="row"][data-blank] [data-key="${key}"]`)!;

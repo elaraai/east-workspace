@@ -133,7 +133,7 @@ test("an interpreted Sheet callback returns the original confirmed result on rep
     StateRuntime.initializeStore(new UIStore());
     const render = East.function([], Sheet.Types.Root, ($) => {
         const data = $.const(State.bind([Rows], "interpreted-replay", before));
-        return Sheet.Payload(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write });
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write });
     }).toIR().compile(StateImpl);
     const root = render();
     if (root.editing.onApply.type !== "some") throw new Error("Expected a bound Sheet");

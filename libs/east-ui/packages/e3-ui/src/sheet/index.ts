@@ -24,16 +24,15 @@
  * `seed-bridge.ts` (draft-aware contexts, draft decoding and the `newRow` /
  * `newGroup` defaults) · `editing-bridge.ts` and `editing-types.ts` (the
  * editing session's callbacks and their closed transport, the inline
- * `onUpdate` adapter among them) · `root.ts` (`Sheet.Root`, which returns the
- * sheet through the `SheetView` carrier, and `Sheet.Payload`) · `view.ts`
- * (`<Sheet.View>`, the tag) · `builder.ts` (`<Sheet.Builder>`, an e3 record
- * edited as a sheet, and its `SheetBuilder` carrier, #1183) with `record.ts`
- * (a record's rows, #1182), `templates.ts` (the Rows tab's cards),
- * `library.ts` (`Sheet.library.*`, the library's tabs, #1186), `fields.ts`
- * (`Sheet.field`, the inspector's forms, #1188) and `views.ts` (the views'
- * bind handle).
+ * `onUpdate` adapter among them) · `root.ts` (the grid's root) · `sheet.ts`
+ * (`<Sheet>` itself, its payload and its `Sheet` carrier, #1216) with
+ * `record.ts` (a record's rows, #1182), `templates.ts` (the Rows tab's
+ * cards), `library.ts` (`Sheet.library.*`, the library pane's tabs, #1186),
+ * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188) and
+ * `views.ts` (the views' bind handle).
  *
- * One namespace object per category, the `Plan.series` / `Plan.at` /
+ * `Sheet` is the tag and the namespace at once, as east-ui's `Table` is: one
+ * namespace object per category on it, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
  *
  * @packageDocumentation
@@ -88,7 +87,6 @@ import {
     SheetFooterItemType,
     SheetStyleType,
     SheetRootType,
-    SheetViewComponent,
     SheetFillTypeFor,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
@@ -105,9 +103,8 @@ import {
 import { text, date, quantity, integer, lookup, reference, enumColumn, set, link, stamped, custom } from "./columns.js";
 import { createMembers, concatMembers, createDriver } from "./registers.js";
 import { createArity, check, parseLink, printLink, SheetMembersType, SheetRegisterMembersType } from "./link.js";
-import { createSheet, createSheetPayload } from "./root.js";
-import { SheetView } from "./view.js";
-import { SheetBuilder, SheetBuilderComponent, createSheetBuilderPayload } from "./builder.js";
+import { createSheetRoot } from "./root.js";
+import { SheetComponent, SheetTag, createSheetPayload, type SheetTagType } from "./sheet.js";
 import { libraryColumns, libraryRows, libraryTab } from "./library.js";
 import { SheetField } from "./fields.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
@@ -180,7 +177,6 @@ export {
     SheetFooterItemType,
     SheetStyleType,
     SheetRootType,
-    SheetViewComponent,
     SheetContextTypeFor,
     SheetFillTypeFor,
     SheetPatchTypeFor,
@@ -255,23 +251,26 @@ export {
     type SheetProposerInput,
     type SheetStringField,
     type SheetBindHandle,
-    createSheet,
-    createSheetPayload,
+    createSheetRoot,
 } from "./root.js";
-export { SheetView } from "./view.js";
 export {
-    SheetBuilder,
-    SheetBuilderComponent,
-    SheetBuilderPayloadType,
+    SheetTag,
+    SheetComponent,
+    SheetPayloadType,
     SheetInspectorType,
-    createSheetBuilderPayload,
+    SheetInspectorPaneType,
+    SheetHistoryType,
+    createSheetPayload,
+    buildInspector,
+    buildInspectorPane,
     sheetKeys,
+    type SheetTagType,
     type SheetRecordHandle,
-    type SheetBuilderEntry,
-    type SheetBuilderLooseEntry,
+    type SheetEntryRows,
+    type SheetLooseEntryRows,
     type SheetEntriesField,
-    type SheetBuilderCommon,
-} from "./builder.js";
+    type SheetCommon,
+} from "./sheet.js";
 export { SheetTemplateWireType, type SheetTemplate, type SheetTemplatesInput } from "./templates.js";
 export {
     SheetLibraryCardType,
@@ -329,15 +328,15 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  * import { Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const BuilderPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
- * export const BuilderBooking = VariantType({
+ * export const BatchPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
+ * export const BatchBooking = VariantType({
  *     labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),
  *     equipment: StructType({ resource: StringType }),
  * });
- * export const BuilderStep = StructType({ task: StringType, qty: OptionType(FloatType), parts: ArrayType(BuilderPart), bookings: ArrayType(BuilderBooking) });
- * export const BuilderBatch = StructType({ id: StringType, name: StringType, steps: ArrayType(BuilderStep) });
- * export const BuilderDay = StructType({ batches: ArrayType(BuilderBatch) });
- * export const sheetBuilderDays = e3.record("sheet_builder_days", DictType(StringType, BuilderDay), new Map([
+ * export const BatchStep = StructType({ task: StringType, qty: OptionType(FloatType), parts: ArrayType(BatchPart), bookings: ArrayType(BatchBooking) });
+ * export const Batch = StructType({ id: StringType, name: StringType, steps: ArrayType(BatchStep) });
+ * export const BatchDay = StructType({ batches: ArrayType(Batch) });
+ * export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType, BatchDay), new Map([
  *     ["2026-10-12", { batches: [
  *         { id: "B-101", name: "Doors, oak", steps: [
  *             { task: "Cut doors", qty: some(12.0), parts: [
@@ -358,38 +357,38 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  *         ] },
  *     ] }],
  * ]));
- * export const sheetBuilderDaysPatch = e3.mutation.patch(sheetBuilderDays);
+ * export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const days = $.let(Record.bind(sheetBuilderDays, [sheetBuilderDaysPatch]));
+ *         const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
  *         // The steps a finishing batch starts with: the batch template's lines.
  *         const finishing = $.let([
  *             { task: "Sand", qty: none, parts: [], bookings: [] },
  *             { task: "Seal", qty: none, parts: [], bookings: [] },
  *             { task: "Spray", qty: none, parts: [], bookings: [] },
- *         ], ArrayType(BuilderStep));
+ *         ], ArrayType(BatchStep));
  *         // A batch needs a name before Apply.
- *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(BuilderBatch, "steps")], Sheet.Types.Readiness, ($, batch) => {
+ *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
  *                 $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the batch" }]), Sheet.Types.Readiness));
  *             });
  *             return East.value(variant("ready", null), Sheet.Types.Readiness);
  *         }));
- *         const newStep = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(BuilderStep), () => Sheet.patch(BuilderStep, { qty: none, parts: [], bookings: [] })));
- *         const newBatch = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(BuilderBatch), () => Sheet.patch(BuilderBatch, { steps: [] })));
+ *         const newStep = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(BatchStep), () => Sheet.patch(BatchStep, { qty: none, parts: [], bookings: [] })));
+ *         const newBatch = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(Batch), () => Sheet.patch(Batch, { steps: [] })));
  *         return (
  *             <Box height="560px">
- *                 <Sheet.Builder
+ *                 <Sheet
  *                     record={days}
  *                     entry={{ key: "2026-10-12", rows: "batches", id: "id" }}
- *                     group={Sheet.group(BuilderBatch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } })}
- *                     id="batches"
+ *                     group={Sheet.group(Batch, "steps", { title: "name", noun: { singular: "batch", plural: "batches" } })}
+ *                     name="batches"
  *                     columns={{
- *                         task: Sheet.column.text(BuilderStep, { header: "Step", width: "240px" }),
- *                         qty:  Sheet.column.quantity(BuilderStep, { header: "Qty", width: "96px" }),
+ *                         task: Sheet.column.text(BatchStep, { header: "Step", width: "240px" }),
+ *                         qty:  Sheet.column.quantity(BatchStep, { header: "Qty", width: "96px" }),
  *                     }}
- *                     subRows={Sheet.subRows(BuilderStep, {
+ *                     subRows={Sheet.subRows(BatchStep, {
  *                         parts: (p) => Sheet.subRow({
  *                             code:   p.code,
  *                             name:   p.name,
@@ -402,13 +401,14 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  *                             equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
  *                         }),
  *                     })}
- *                     // The sub rows show a step's parts and bookings; its form leaves them out.
+ *                     // The sub rows show a step's parts and bookings; the inspector's form leaves them out.
+ *                     inspector
  *                     fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
  *                     templates={{
  *                         groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
- *                                    values: Sheet.patch(BuilderBatch, { name: "Finishing", steps: finishing }) }],
- *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Sand", qty: none }) },
- *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BuilderStep, { task: "Seal", qty: none }) }],
+ *                                    values: Sheet.patch(Batch, { name: "Finishing", steps: finishing }) }],
+ *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BatchStep, { task: "Sand", qty: none }) },
+ *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BatchStep, { task: "Seal", qty: none }) }],
  *                     }}
  *                     library={[Sheet.library.rows(), Sheet.library.columns()]}
  *                     ready={{ group: readyBatch }}
@@ -436,15 +436,11 @@ export function createPatch<R extends StructType>(rowType: R, record: SheetPatch
 // ============================================================================
 
 /**
- * The type of the {@link Sheet} namespace. Declared explicitly (rather than
- * inferred from `as const`) so the declaration emit stays within
- * TypeScript's serialization limit.
+ * The type of `Sheet`: the `<Sheet>` tag — every form its props take — and
+ * its namespace. Declared explicitly (rather than inferred from `as const`)
+ * so the declaration emit stays within TypeScript's serialization limit.
  */
-export interface SheetNamespace {
-    /** `<Sheet.View>` — the planning spreadsheet ({@link SheetView}). */
-    View: typeof SheetView;
-    /** `<Sheet.Builder>` — an e3 record edited as a sheet, with a library and an inspector, in `BuilderFrame` ({@link SheetBuilder}). */
-    Builder: typeof SheetBuilder;
+export interface SheetNamespace extends SheetTagType {
     /** The column builders — each takes the row type first (§3.2). */
     column: {
         /** Free text. */
@@ -492,7 +488,7 @@ export interface SheetNamespace {
     };
     /** A row patch — the fields a proposal or a new row's defaults set (§3.6). */
     patch: typeof createPatch;
-    /** The builder's library tabs, listed in order by `<Sheet.Builder library={[…]}>` (#1186). */
+    /** The library pane's tabs, listed in order by `<Sheet library={[…]}>` (#1186). */
     library: {
         /** The Rows tab: the templates, by their group. */
         rows: typeof libraryRows;
@@ -501,7 +497,7 @@ export interface SheetNamespace {
         /** A tab of the author's own cards, read as a register's members are, each dropping the `Sheet.patch` its `drop` returns. */
         tab: typeof libraryTab;
     };
-    /** The inspector's hints — `Fields`' own (#1147, #1188): `<Sheet.Builder fields={{ created_by: Sheet.field.readonly() }}>`. */
+    /** The inspector pane's hints — `Fields`' own (#1147, #1188): `<Sheet inspector fields={{ created_by: Sheet.field.readonly() }}>`. */
     field: typeof SheetField;
     /** Sub rows (#844) — `Sheet.subRows(R, { field: (item, row) => Sheet.subRow({ … }) })`, keyed by `R`'s array fields. */
     subRows: typeof createSubRows;
@@ -691,23 +687,8 @@ export interface SheetNamespace {
     };
 }
 
-/**
- * The `Sheet` namespace — the planning spreadsheet. Mount a sheet with
- * `<Sheet.View>`, declare columns with `Sheet.column.*`
- * (row type first), registers with `Sheet.register.members` / `.concat` and
- * the driver with `Sheet.driver`, link rules with `Sheet.link.*`, proposed
- * rows and new-row defaults with `Sheet.patch`, a builder's library tabs with
- * `Sheet.library.*` and its inspector's hints with `Sheet.field.*`, grouped rows with
- * `Sheet.group` (#740), sub rows with `Sheet.subRows` / `Sheet.subRow`
- * (#844), apply a checked batch to a collection with `Sheet.apply`, and
- * reach every East type — the closed wire types and the typed constructors
- * `DraftContext(R, D)` / `Fill(T)` / `Patch(R)` / `Proposal(R)` /
- * `PatchEvent(E)` / `ChangeSet(E)` / `Entry(G, "rows")` / `CheckContext(R)`
- * — via `Sheet.Types.*`.
- */
-export const Sheet: SheetNamespace = {
-    View: SheetView,
-    Builder: SheetBuilder,
+/** The namespace's members — everything `Sheet` carries beside the tag itself. */
+const SHEET_MEMBERS = {
     column: { text, date, quantity, integer, lookup, reference, enum: enumColumn, set, link, stamped, custom },
     register: { members: createMembers, concat: concatMembers },
     driver: createDriver,
@@ -798,34 +779,120 @@ export const Sheet: SheetNamespace = {
 };
 
 /**
- * The type of the internal Sheet namespace — the public one, the factory the
- * tag maps to and the carrier the renderer registers against.
+ * The planning spreadsheet, `<Sheet>`: the one Sheet. It renders in its
+ * `BuilderFrame` wherever it is used — one toolbar holding every control the
+ * sheet has, the banners, the grid in main with its strip docked under it,
+ * the footer — and its panes are optional props: no prop, no pane.
+ *
+ * @remarks
+ * - **The rows** are `record`'s — its entries, in key order, each row's id
+ *   its key's text (`window` reads a large one a window at a time); or with
+ *   `entry`, one entry's Array field, in its own order, identified by
+ *   `entry.id` — its rows, its groups, or its groups with loose rows between
+ *   them (`Sheet.Types.Entry(P, "lines")`, #846). Or they are `data`'s: an
+ *   `Array<R>`, a bind handle or a paged source, identified by `id`.
+ * - **Every gesture is a draft** of the shared editing session, which the
+ *   history item in the one toolbar undoes, redoes and discards. Over a
+ *   record, Apply commits the drafts as one patch through the record's patch
+ *   mutation, checked against what each row was when the edit began; over
+ *   `data`, it hands the checked batch to `onApply` (or `onUpdate` rebuilds
+ *   the collection), and with neither the sheet is read only.
+ * - **The library pane** (`library`) lists its tabs, in order:
+ *   `Sheet.library.rows()` (the templates), `Sheet.library.columns()` (hide
+ *   and show columns, per viewer) and `Sheet.library.tab(data, { … })`, the
+ *   author's own cards, whose `drop` is the `Sheet.patch` a dropped card sets.
+ * - **The inspector pane** (`inspector`) shows the selected row's every
+ *   field — a field with a column through its column's kind, any other by its
+ *   type, hinted with `fields={{ created_by: Sheet.field.readonly() }}` (and
+ *   `groupFields` for a group's own) — and the batch's Issues; given a
+ *   function `(row, update) => UIComponentType`, Details for a complete row
+ *   are the author's own.
+ * - **Templates** (`templates={{ rows, groups }}`) are the Rows tab's cards,
+ *   each `{ key, name, group?, values: Sheet.patch(…) }`: a dropped card is
+ *   `newRow`'s (or `newGroup`'s) defaults with the template's fields over them.
+ * - **Views** (`views`) are a bind handle: `State.bind` keeps them per viewer,
+ *   `Data.bind` shares them.
+ * - **The namespace**: the columns (`Sheet.column.*`, row type first),
+ *   registers (`Sheet.register.members` / `.concat`) and the driver
+ *   (`Sheet.driver`), link rules (`Sheet.link.*`), proposed rows and new-row
+ *   defaults (`Sheet.patch`), the library's tabs (`Sheet.library.*`) and the
+ *   inspector's hints (`Sheet.field.*`), groups (`Sheet.group`, #740), sub
+ *   rows (`Sheet.subRows` / `Sheet.subRow`, #844), a checked batch applied to
+ *   a collection (`Sheet.apply`), and every East type — the closed wire types
+ *   and the typed constructors `DraftContext(R, D)` / `Fill(T)` / `Patch(R)`
+ *   / `Proposal(R)` / `PatchEvent(E)` / `ChangeSet(E)` / `Entry(G, "rows")` /
+ *   `CheckContext(R)` — via `Sheet.Types.*`.
+ *
+ * The sheet fills its parent and draws no border of its own: a ui task's
+ * page fills the window, and a sheet among other components is given a box
+ * of its own height. `name` keeps two sheets on one surface apart.
+ *
+ * @example
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
+ * import { DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, none, some } from "@elaraai/east";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * export const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
+ * export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), new Map([
+ *     ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+ *     ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+ *     ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+ *     ["J-0004", { task: "Spray finish", start: none, qty: none }],
+ * ]));
+ * export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
+ *
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
+ *         return (
+ *             <Box height="560px">
+ *                 <Sheet
+ *                     record={jobs}
+ *                     columns={{
+ *                         task:  Sheet.column.text(SheetJob, { header: "Task", width: "240px" }),
+ *                         start: Sheet.column.date(SheetJob, { header: "Start", width: "96px" }),
+ *                         qty:   Sheet.column.quantity(SheetJob, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                 />
+ *             </Box>
+ *         );
+ *     }}</Reactive>
+ * ));
+ * ```
+ */
+export const Sheet: SheetNamespace = Object.assign(SheetTag, SHEET_MEMBERS);
+
+/**
+ * The type of the internal Sheet namespace — the public one, the payload the
+ * tag returns through its carrier, the grid's root alone, and the carrier the
+ * renderer registers against.
  */
 export interface SheetInternalNamespace extends SheetNamespace {
-    /** Creates the sheet — the payload, through the `SheetView` carrier (the `<Sheet.View>` tag's factory). */
-    Root: typeof createSheet;
-    /** Creates the sheet's payload alone — what `Root` returns through the carrier ({@link createSheetPayload}). */
+    /** Creates the sheet's payload alone — what `<Sheet>` returns through the `Sheet` carrier ({@link createSheetPayload}). */
     Payload: typeof createSheetPayload;
-    /** The `SheetView` carrier ({@link SheetViewComponent}). */
-    Component: typeof SheetViewComponent;
-    /** The `SheetBuilder` carrier ({@link SheetBuilderComponent}). */
-    BuilderComponent: typeof SheetBuilderComponent;
-    /** Creates the builder's payload alone — what `<Sheet.Builder>` returns through the carrier ({@link createSheetBuilderPayload}). */
-    BuilderPayload: typeof createSheetBuilderPayload;
+    /** Creates the grid's root alone — the rows, the columns and the session the payload carries as its `sheet` ({@link createSheetRoot}). */
+    Root: typeof createSheetRoot;
+    /** The `Sheet` carrier ({@link SheetComponent}). */
+    Component: typeof SheetComponent;
+}
+
+/** `<Sheet>`, for the internal namespace: the tag, on an object of its own, so the public `Sheet` carries none of the internal members. */
+function SheetInternalTag(props: { columns: unknown }): ReturnType<SheetTagType> {
+    return (SheetTag as (p: { columns: unknown }) => ReturnType<SheetTagType>)(props);
 }
 
 /**
  * The internal Sheet namespace — `@elaraai/e3-ui/internal`'s `Sheet`: the
- * public namespace, `Sheet.Root`, `Sheet.Payload` and the `SheetView`
- * carrier, for the renderer and the tests.
+ * public one, `Sheet.Payload`, `Sheet.Root` and the `Sheet` carrier, for the
+ * renderer and the tests.
  *
  * @internal
  */
-export const SheetInternal: SheetInternalNamespace = {
-    ...Sheet,
-    Root: createSheet,
+export const SheetInternal: SheetInternalNamespace = Object.assign(SheetInternalTag as SheetTagType, SHEET_MEMBERS, {
     Payload: createSheetPayload,
-    Component: SheetViewComponent,
-    BuilderComponent: SheetBuilderComponent,
-    BuilderPayload: createSheetBuilderPayload,
-};
+    Root: createSheetRoot,
+    Component: SheetComponent,
+});

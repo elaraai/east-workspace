@@ -556,7 +556,7 @@ const settleWrite = East.function(
  * @example
  * ```tsx
  * import { DictType, East, IntegerType, StringType, StructType } from "@elaraai/east";
- * import { Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
@@ -570,15 +570,16 @@ const settleWrite = East.function(
  *         const rows = $.let(Data.bindPaged(jobs));
  *         const record = $.let(Record.bind(jobs, [jobsPatch]));
  *         return (
- *             <Sheet.View
- *                 data={rows}
- *                 columns={{
- *                     task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
- *                     qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
- *                 }}
- *                 onApply={Record.onApply(record)}
- *                 style={{ height: "360px" }}
- *             />
+ *             <Box height="360px">
+ *                 <Sheet
+ *                     data={rows}
+ *                     columns={{
+ *                         task: Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+ *                         qty:  Sheet.column.integer(JobType, { header: "Qty", width: "96px" }),
+ *                     }}
+ *                     onApply={Record.onApply(record)}
+ *                 />
+ *             </Box>
  *         );
  *     }}</Reactive>
  * ));

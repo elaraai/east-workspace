@@ -4,7 +4,7 @@
  */
 
 /**
- * The Sheet builder's inspector forms (#1188, `Sheet Builder Spec.md` §5.3,
+ * The Sheet's inspector forms (#1188, `Sheet Builder Spec.md` §5.3,
  * SB10): every field of a row — a grouped sheet's line — and of a group,
  * resolved through `Fields`, each column's kind its field's default hint and
  * an explicit hint (`fields`, `groupFields`) winning.
@@ -132,7 +132,7 @@ function readOnlyReason(meta: SheetColumnMeta): string | undefined {
 /** A hint's `reference` editor, checked against the sheet's registers: the keyed set a select lists is one of them. */
 function checkReference(editor: FieldEditorValue, field: string, registers: ReadonlySet<string>): void {
     if (editor.type !== "reference" || registers.has(editor.value.of)) return;
-    throw new Error(`Sheet.Builder: \`${field}\` is a reference to "${editor.value.of}", which is not one of the sheet's registers (${[...registers].join(", ") || "none declared"}) — declare it in \`registers\`, or name one of them`);
+    throw new Error(`Sheet: \`${field}\` is a reference to "${editor.value.of}", which is not one of the sheet's registers (${[...registers].join(", ") || "none declared"}) — declare it in \`registers\`, or name one of them`);
 }
 
 /** A column's field's editor with no hint: its kind's. */
@@ -174,7 +174,7 @@ function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefi
     } else {
         const reason = readOnlyReason(meta);
         if (reason !== undefined) {
-            throw new Error(`Sheet.Builder: \`${where}.${name}\` gives its field an editor, but its column ${reason} — hint it Sheet.field.readonly() or Sheet.field.hidden(), or give it a label or help alone`);
+            throw new Error(`Sheet: \`${where}.${name}\` gives its field an editor, but its column ${reason} — hint it Sheet.field.readonly() or Sheet.field.hidden(), or give it a label or help alone`);
         }
         // The hint's editor, checked against the field's type as Fields checks it, and a select's set against the registers.
         editor = fieldSpecs(StructType({ [name]: meta.fieldType }), { [name]: hint } as never)[0]!.editor;
@@ -221,10 +221,10 @@ function formFields(
     const halves = new Set([...metas.values()].flatMap((m) => (m.otherField !== undefined ? [m.otherField] : [])));
     for (const name of Object.keys(hints)) {
         if (!(name in fields)) {
-            throw new Error(`Sheet.Builder: \`${where}\` names "${name}", which is not a field of ${where === "groupFields" ? "the group type" : "the row type"} (${Object.keys(fields).join(", ")})`);
+            throw new Error(`Sheet: \`${where}\` names "${name}", which is not a field of ${where === "groupFields" ? "the group type" : "the row type"} (${Object.keys(fields).join(", ")})`);
         }
         if (leave.has(name) || halves.has(name)) {
-            throw new Error(`Sheet.Builder: \`${where}\` names "${name}", which the inspector does not show as a field of its own — ${halves.has(name) ? "it is a link column's other half, shown with that column" : "it is the row's identity, or the group's rows"}`);
+            throw new Error(`Sheet: \`${where}\` names "${name}", which the inspector does not show as a field of its own — ${halves.has(name) ? "it is a link column's other half, shown with that column" : "it is the row's identity, or the group's rows"}`);
         }
     }
     const order = [...Object.keys(hints), ...Object.keys(fields).filter((name) => !(name in hints))];
@@ -236,7 +236,7 @@ function formFields(
         const meta = metas.get(name);
         if (meta !== undefined) {
             if (hint !== undefined && !isHint(hint)) {
-                throw new Error(`Sheet.Builder: \`${where}.${name}\` is shown through its column — its hint is one of Sheet.field's, never a hint per nested field`);
+                throw new Error(`Sheet: \`${where}.${name}\` is shown through its column — its hint is one of Sheet.field's, never a hint per nested field`);
             }
             out.push(columnField(name, meta, hint, where, registers));
             continue;
@@ -297,7 +297,7 @@ export function buildForms(
     const named = new Set(registers);
     const groupHalf = bridge.group;
     if (groupHalf === undefined && groupHints !== undefined) {
-        throw new Error("Sheet.Builder: `groupFields` hints a group's fields, and this sheet declares no group — pass `group={Sheet.group(…)}`, or hint the rows with `fields`");
+        throw new Error("Sheet: `groupFields` hints a group's fields, and this sheet declares no group — pass `group={Sheet.group(…)}`, or hint the rows with `fields`");
     }
     // A row's identity is its header's, never a field to edit: a flat row's, and a loose row's line beside the groups (#846).
     const lineLeave = new Set(idField !== undefined && idField in bridge.lineType.fields ? [idField] : []);

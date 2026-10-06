@@ -7,13 +7,13 @@
  * A Plan (#821) and a Sheet (#851) over a bound paged source follow its
  * dataset — the real `Data.bindPaged` runtime (`defaultPagedRuntime`, its
  * channels, its revision pinning and `refresh`) behind a stand-in paging
- * service, rendered by the real component. Writing the dataset moves the
- * source to the new content hash, and the component swaps each row's content
- * in place: the row element survives, and the old rows stay on screen until
- * the new revision's window lands.
+ * service, rendered by the real component — the Sheet in its frame (#1216).
+ * Writing the dataset moves the source to the new content hash, and the
+ * component swaps each row's content in place: the row element survives, and
+ * the old rows stay on screen until the new revision's window lands.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -22,20 +22,25 @@ import {
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
-import { Plan, Sheet } from "@elaraai/e3-ui/internal";
+import { Plan, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { DatasetHashMismatchError, type DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { EastChakraPlan, type PlanRootValue } from "../plan/index.js";
-import { EastChakraSheet, type SheetRootValue } from "../sheet/index.js";
+import { EastChakraSheet, type SheetValue } from "../sheet/frame/index.js";
+import { boundFrame } from "../sheet/frame.test-utils.js";
 import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi, type PagedSelector } from "./paged-runtime.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
+// The Sheet's frame, tall enough for its rows (#1216).
+let restoreFrame: () => void = () => {};
+beforeEach(() => { restoreFrame = boundFrame(2000); });
 afterEach(() => {
     cleanup();
     clearPagedApi();
     localStorage.clear();
+    restoreFrame();
 });
 
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -219,11 +224,11 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
 /** A Sheet as an author writes it — a text column over the bound machines,
  *  the handle its input — so the rows reach the renderer through the Sheet's
  *  own derived source, pinned as `Data.bindPaged`'s handle is. */
-const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], Sheet.Types.Root, (_$, machines) =>
-    Sheet.Payload(machines, { label: Sheet.column.text(Machine, { header: "Label" }) }, { blanks: 0 }));
+const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, (_$, machines) =>
+    Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0 }));
 
-/** The Sheet root over the bound handle. */
-function sheetOver(handle: Record<string, unknown>): SheetRootValue {
+/** The Sheet over the bound handle. */
+function sheetOver(handle: Record<string, unknown>): SheetValue {
     return East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never);
 }
 

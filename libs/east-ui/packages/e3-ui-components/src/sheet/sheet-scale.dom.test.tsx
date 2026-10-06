@@ -16,23 +16,20 @@ import { test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, StringType, StructType, variant } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
-import type { SheetRootValue, SheetRowValue } from "./values.js";
+import { boundFrame } from "./frame.test-utils.js";
+import type { SheetRowValue } from "./values.js";
 
-// A sheet of 400 rows or more mounts a screenful of its page (#856): its rows
-// are measured as they draw, and the page scrolls.
+// The sheet mounts a screenful of its frame (#856): its rows are measured as they draw.
 let restore: () => void = () => {};
 beforeEach(() => {
     localStorage.clear();
     initializeStore(new UIStore());
-    const rows = measureRowsAsDrawn();
-    const page = emulateWindowScroll();
-    restore = () => { rows(); page(); };
+    restore = boundFrame(600);
 });
 afterEach(() => { cleanup(); restore(); });
 
@@ -42,17 +39,21 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 const JobType = StructType({ id: StringType, task: StringType, code: StringType });
 
 /** An editable sheet of `n` jobs over two text columns. */
-function buildJobs(n: number): SheetRootValue {
+function buildJobs(n: number): SheetValue {
     const count = BigInt(n);
-    const program = East.function([], Sheet.Types.Root, ($) => {
+    const program = East.function([], SheetPayloadType, ($) => {
         const total = $.const(count);
         const jobs = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
             id: East.str`j${i}`, task: East.str`Task ${i}`, code: East.str`C${i}`,
         }, JobType)), ArrayType(JobType));
-        return Sheet.Payload(jobs, {
-            task: Sheet.column.text(JobType, { header: "Task" }),
-            code: Sheet.column.text(JobType, { header: "Code" }),
-        }, { id: "id" });
+        return Sheet.Payload({
+            data: jobs,
+            columns: {
+                task: Sheet.column.text(JobType, { header: "Task" }),
+                code: Sheet.column.text(JobType, { header: "Code" }),
+            },
+            id: "id",
+        });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
@@ -76,9 +77,10 @@ test("a paste of 2,000 rows into 20,000 reads each source row's id a bounded num
         });
         return copy as unknown as SheetRowValue;
     };
-    const root = buildJobs(n);
+    const sheet = buildJobs(n);
+    const root = sheet.sheet;
     if (root.rows.type !== "inline") throw new Error("an inline sheet");
-    const value = sheetJournal({ ...root, rows: variant("inline", (root.rows.value as SheetRowValue[]).map(counted)) }).value;
+    const value = sheetJournal({ ...sheet, sheet: { ...root, rows: variant("inline", (root.rows.value as SheetRowValue[]).map(counted)) } }).value;
     const ui = render(
         <ChakraProvider value={system}>
             <EastChakraSheet value={value} storageKey="sheet-scale-test" />

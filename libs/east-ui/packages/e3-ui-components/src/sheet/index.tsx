@@ -4,27 +4,27 @@
  */
 
 /**
- * `EastChakraSheet` — the planning spreadsheet (`Sheet Spec.md` §6): decode,
- * the row source (both arms), the local data layer (edits over the decoded
- * rows until the host writes back), THE state machine, the effect runner,
- * the copilot runner (§6.2) and the shell — toolbar · sticky two-line header
- * · virtualised rows · the docked strip · the footer.
+ * The Sheet's shared state and its parts — the planning spreadsheet (`Sheet
+ * Spec.md` §6): decode, the row source (both arms), the local data layer
+ * (edits over the decoded rows until the source writes back), THE state
+ * machine, the effect runner, the copilot runner (§6.2), and what they draw —
+ * the toolbar's items · the sticky two-line header · virtualised rows · the
+ * docked strip · the footer.
  *
- * It renders the `SheetView` extension `@elaraai/e3-ui` declares (#1179):
- * `<Sheet.View>` returns the sheet's payload through that carrier, and this
- * module registers against it as it loads.
+ * The Sheet itself — `<Sheet>`, the `Sheet` extension `@elaraai/e3-ui`
+ * declares (#1216) — is `EastChakraSheet` (`frame/index.tsx`): one
+ * `BuilderFrame` whose regions hold these parts.
  *
- * The renderer is three parts over one shared state (SB4, #1181).
- * `SheetProvider` builds the store, the editing session, the lens and the
- * selection, every hook in the order it always ran, and its parts place what
- * it builds wherever a host puts them: `useSheetToolbarItems()` the toolbar's
- * items, `SheetGrid` the header, the rows and the strip (inside `SheetRoot`,
- * the element they are laid in), and `useSheetFooter()` the footer's props.
- * `Sheet.View` lays them out in one column, as it always has; a builder
- * places them in its frame's regions, and they drive one grid (SB5). A host
- * that places them itself says what it takes over ({@link SheetHost}): the
- * grid fills its region, and the history item leaves its error to the host's
- * banners, which read the session through `useSheetHistory()` (#1184).
+ * Three parts over one shared state (SB4, #1181). `SheetProvider` builds the
+ * store, the editing session, the lens and the selection, every hook in the
+ * order it always ran, and the frame places what it builds: the toolbar's
+ * items (`useSheetToolbarItems()`) in its one toolbar, `SheetGrid` — the
+ * header, the rows and the strip, inside `SheetRoot` — in main, which it
+ * fills, scrolling its own rows, and the footer (`useSheetFooter()`'s props)
+ * in its footer, driving one grid (SB5). Its banners read the session
+ * through `useSheetHistory()` (#1184), so the history item shows no error of
+ * its own. What the frame hands the parts besides is {@link SheetHost}: the
+ * columns the viewer hides, and the drops the sheet takes.
  *
  * A source-bound transaction session retains draft gestures and history —
  * the editing session every editable collection shares (`src/editing/`,
@@ -34,13 +34,13 @@
  * Function values come from the latest render; submitted callbacks remain
  * captured until their request resolves.
  *
- * The memo compares with `equivalentFor` (#809), so a value whose only change
- * is a closure — a swapped provider, an `onPatch` over new data — still
- * re-renders, and every function is taken from the latest value (§6.2). The
- * derivations that own local state (the decoded rows, the controlled
- * selection) key on the value's DATA identity instead, and the transaction
- * session on its source and schema, so such a change never resets them; the
- * copilot's memo is keyed on the value's identity.
+ * The Sheet's memo compares with `equivalentFor` (#809), so a value whose
+ * only change is a closure — a swapped provider, an `onPatch` over new data —
+ * still re-renders, and every function is taken from the latest value
+ * (§6.2). The derivations that own local state (the decoded rows, the
+ * controlled selection) key on the value's DATA identity instead, and the
+ * transaction session on its source and schema, so such a change never
+ * resets them; the copilot's memo is keyed on the value's identity.
  *
  * Grouped rows (#740): the source rows are GROUPS; the body draws each
  * group's band over its lines (pseudo rows tagged with their group), one
@@ -56,10 +56,10 @@
  * into view drop in; nothing moves on a scroll, a lens change or a view
  * switch, and nothing at all under reduced motion.
  *
- * A host that offers drops (`SheetHost.drop`, a builder's, #1187) makes each
- * row a drop target on its surface and each row's gutter a grip: its
- * library's templates insert at a seam, its author's cards set their cells
- * on a row or a band, and a row, a line or a group moves to another seam —
+ * The frame's drops (`SheetHost.drop`, #1187) make each row a drop target on
+ * the sheet's surface and each row's gutter a grip: its library's templates
+ * insert at a seam, its author's cards set their cells on a row or a band,
+ * and a row, a line or a group moves to another seam —
  * each drop one transaction, planned by `drop.ts` from the rows as they
  * stand, and the ghost saying where it lands, or why it can't.
  *
@@ -69,16 +69,16 @@
  * decisions and the inserts at it — and the seams offer no chips.
  */
 
-import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, equivalentFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
-import { Sheet, SheetBatchReadinessType, SheetDraftFieldType, SheetViewComponent } from "@elaraai/e3-ui/internal";
+import { ArrayType, StringType, equalFor, fromEastTypeValue, none, printFor, some, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import { Slice } from "@elaraai/east-ui/internal";
 import {
     getSomeorUndefined, useCoarsePointer, useSliceReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget,
-    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, implementUIComponent, type ToolbarItem,
+    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { parseCssSize, DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, kindOfIssue, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, railAffordanceKinds, VirtualRows, kindOfIssue, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { boundSliceConfig } from "@elaraai/east-ui-components/platform";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
@@ -126,10 +126,10 @@ import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
-import { SheetFooter, type SheetFooterProps, type SheetTransport } from "./Footer.js";
+import type { SheetFooterProps, SheetTransport } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
-import { SheetToolbarRow, useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
+import { useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLineValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetSubRowValue, SheetViewValue } from "./values.js";
 
 export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js";
@@ -138,7 +138,6 @@ type Styles = Record<string, Record<string, unknown>>;
 type SheetTransactionsIssue = SheetTransactions["issues"][number];
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-const sheetRootEqual = equivalentFor(Sheet.Types.Root);
 const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 const stringEqual = equalFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
@@ -361,14 +360,7 @@ interface SuggestRequest {
     ready?: Suggestions;
 }
 
-export interface EastChakraSheetProps {
-    /** The Sheet root value. */
-    value: SheetRootValue;
-    /** Storage key prefix for persisting component state. */
-    storageKey: string;
-}
-
-/** What the element the grid is laid in carries: the attributes the rows' styles and the tests key on, and a bounded frame's height. */
+/** What the element the grid is laid in carries: the attributes the rows' styles and the tests key on. */
 interface SheetRootFacts {
     /** A paged source with rows still to load. */
     partial: boolean;
@@ -380,8 +372,6 @@ interface SheetRootFacts {
     view: string | undefined;
     /** Rows slide after a gesture that folds or opens. */
     moving: boolean;
-    /** The declared height and max height, when either is, or the whole of a host's region: the frame scrolls its own rows. */
-    frame: { height: string | undefined; maxHeight: string | undefined } | undefined;
 }
 
 /**
@@ -394,27 +384,26 @@ export interface SheetParts {
     styles: Styles;
     /** What {@link SheetRoot} carries. */
     root: SheetRootFacts;
-    /** The toolbar: its items, whether the sheet has one at all, and the element a host places the items in. */
+    /** The toolbar: its items, and the element the frame places them in. */
     toolbar: {
         items: ReadonlyArray<ToolbarItem | false | undefined>;
-        shown: boolean;
         ref: RefObject<HTMLDivElement | null>;
     };
     /** The header, the rows and the strip: what {@link SheetGrid} places. */
     grid: ReactNode;
     /** The footer's props: today's footer, fed from the shared state. */
     footer: SheetFooterProps;
-    /** The editing session and its history actions: what a host's banners report, and what their Retry and Discard run. */
+    /** The editing session and its history actions: what the frame's banners report, and what their Retry and Discard run. */
     history: SheetHistory;
     /** What shows in place of the whole sheet when its source failed before any row landed (#853). */
     failure: ReactNode | undefined;
-    /** What a builder's inspector reads of the sheet, and the gestures it makes (#1188). */
+    /** What the inspector pane reads of the sheet, and the gestures it makes (#1188). */
     inspect: SheetInspect;
     /** A library card's ⏎ (#1187, SB45): the card, by its library and its key, taken as a drop below the ring's row. Stable. */
     enter: (library: string, key: string) => void;
 }
 
-/** The editing session as a host reads it ({@link useSheetHistory}). */
+/** The editing session as the frame reads it ({@link useSheetHistory}). */
 export interface SheetHistory {
     /** The session: its status, its issues, its error and whether the source moved under its drafts. */
     session: SheetTransactions;
@@ -423,14 +412,10 @@ export interface SheetHistory {
 }
 
 /**
- * What a host that places the parts itself takes over from them — a
- * builder's frame (#1184).
+ * What the frame hands the parts beside the payload (#1184): the viewer's
+ * hidden columns, and the drops the sheet takes.
  */
 export interface SheetHost {
-    /** The grid fills the element the host lays it in and scrolls its own rows there, whatever height the sheet declares. */
-    fill?: boolean | undefined;
-    /** The history item shows the session's error under its buttons — `true` by default; a host showing it in its banners passes `false`. */
-    historyError?: boolean | undefined;
     /**
      * The columns the grid leaves out, by key, and the band cells under them
      * (#1186) — a viewer's choice, never the sheet's: the lens still matches
@@ -492,7 +477,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const gridId = useId();
     // ── Decode ────────────────────────────────────────────────────────────
     // Every declared column — what the lens matches and a new row is made
-    // of — and the columns the grid draws: all but those the host hides
+    // of — and the columns the grid draws: all but those the viewer hides
     // (#1186), and every one when it would hide them all.
     const allColumns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const hidden = host.hidden;
@@ -536,8 +521,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The grouped blank-tail path remains until all insertions use explicit destinations.
     const blanks = !capabilities.insertRows ? 0 : group !== undefined ? (readOnly ? 0 : 1) : Number(getSomeorUndefined(value.blanks) ?? BigInt(DEFAULT_BLANKS));
     // What moves the rows, as the frame reports it (#856): the element they
-    // scroll sideways in, and what scrolls them vertically — live in every
-    // mode, and through a switch between bounded and unbounded.
+    // scroll in, both ways.
     const [viewport, setViewport] = useState<RowsViewport | null>(null);
     // The frame's width: inside it (`clientWidth`), the view a sub row's well
     // keeps its content to; its box (`offsetWidth`, which no scrollbar of its
@@ -623,7 +607,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     );
     // ── What survives a remount (#857) ────────────────────────────────────
     // Under the sheet's `storageKey`: the folds the viewer left, with the tab
-    // they left them on, and where a bounded frame's scroll rests — the Plan's
+    // they left them on, and where the frame's scroll rests — the Plan's
     // rule (#813). Read once, at mount; written when either changes, and only
     // when it differs from what storage holds.
     const { state: stored, setState: setStored } = usePersistedState<SheetPersisted>(storageKey, NOT_PERSISTED);
@@ -907,14 +891,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const activeViewValue = useMemo(() => (ui.tabs.active === null ? undefined : views.find((v) => v.id === ui.tabs.active)), [views, ui.tabs.active]);
     const dirty = activeViewValue !== undefined && sliceState !== undefined && !sliceStateEqual(activeViewValue.narrowing, sliceState);
 
-    // What moves a page (#860): the rows a bounded frame shows, or the page's
-    // under an unbounded sheet — less one, so a page keeps a row of context.
-    // Unmeasured (a frame not laid out), the machine's default. The frame is
-    // the one the rows report (`viewport`, below), read when the key comes.
+    // What moves a page (#860): the rows the frame shows — less one, so a
+    // page keeps a row of context. Unmeasured (a frame not laid out), the
+    // machine's default. The frame is the one the rows report (`viewport`,
+    // below), read when the key comes.
     const viewportRef = useRef<RowsViewport | null>(null);
     const pageRows = useCallback((): number => {
         const frame = viewportRef.current;
-        const px = frame === null ? 0 : frame.scroller === frame.frame ? frame.frame.clientHeight : window.innerHeight;
+        const px = frame === null ? 0 : frame.frame.clientHeight;
         return px > 0 ? Math.max(1, Math.floor(px / rowPx) - 1) : 10;
     }, [rowPx]);
     const pagedHead = paging.head;
@@ -1463,8 +1447,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
 
     // ── Effects ───────────────────────────────────────────────────────────
     const cardRef = useRef<HTMLDivElement | null>(null);
-    // Where the toolbar's items are placed — the sheet's own row, or a
-    // builder's toolbar: ⌘F looks in it for a search box.
+    // Where the toolbar's items are placed — the frame's toolbar: ⌘F looks
+    // in it for a search box.
     const toolbarRef = useRef<HTMLDivElement | null>(null);
     /**
      * A key's move across an unloaded run (#860), waiting for its window: the
@@ -1950,10 +1934,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // ── Recipe + layout ───────────────────────────────────────────────────
     const recipe = useSlotRecipe({ key: "sheet" });
     const styles = useMemo(() => recipe({ size } as Record<string, unknown>) as unknown as Styles, [recipe, size]);
-    // A host's region, filled (#1184); else the height the sheet declares, if any.
-    const height = host.fill === true ? "100%" : parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
-    const maxHeight = host.fill === true ? undefined : parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
-    const frameFills = height !== undefined || maxHeight !== undefined;
 
     // ── The editor and the strip ──────────────────────────────────────────
     const edit = ui.edit;
@@ -2142,9 +2122,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // scrolled there. The element is clamped to the source's count first: a
     // jump past the end pins a window no demand makes resident, so it would
     // never settle — and a pending jump owns the viewport. An anchor whose
-    // item is gone lands in its place (`placeOf`). Only a bounded frame
-    // scrolls itself: an unbounded sheet's place is its page's (#856), so it
-    // neither restores nor jumps. Where the frame mounts is never reported
+    // item is gone lands in its place (`placeOf`). Where the frame mounts is never reported
     // (`VirtualRows` reports settles, not its first rest), so the top the
     // sheet opens at never overwrites the anchor it restores.
     const [anchorPhase, setAnchorPhase] = useState<"pending" | "seeking" | "settled">(() => (restored.anchor === null ? "settled" : "pending"));
@@ -2155,7 +2133,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     useEffect(() => {
         if (anchorPhase === "settled") return;
         const saved = restored.anchor;
-        if (saved === null || !frameFills) { setAnchorPhase("settled"); return; }
+        if (saved === null) { setAnchorPhase("settled"); return; }
         if (body.length === 0) return;
         // A band is a place in one run, never the item (see elementUnder): its element decides.
         const at = body.findIndex((it, i) => it.kind !== "band" && keyOfItem(it, i) === saved.key);
@@ -2175,7 +2153,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         anchorHandBack.current = anchorPhase === "seeking";
         setRestoreAnchor(at >= 0 ? { index: at, offset: saved.offset } : { index: placeOf(body, saved.index, element), offset: 0 });
         setAnchorPhase("settled");
-    }, [anchorPhase, restored, frameFills, body, pagedSource, pagedTotal, jumpToElement, anchorJump]);
+    }, [anchorPhase, restored, body, pagedSource, pagedTotal, jumpToElement, anchorJump]);
     useEffect(() => {
         if (!anchorHandBack.current) return;
         anchorHandBack.current = false;
@@ -2515,11 +2493,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // unloaded band never anchors: rows landing below it move its top.
     const anchorable = useCallback((i: number): boolean => body[i]?.kind !== "band", [body]);
     viewportRef.current = viewport;
-    // The header pins only in a frame that scrolls its own rows — a bounded
-    // one. An unbounded sheet's header scrolls with the page, as every
-    // unbounded collection's does (#856), so the band and the line that stick
-    // under it are a bounded frame's.
-    const pinnedFrame = viewport !== null && viewport.scroller === viewport.frame ? viewport.frame : null;
+    // The header pins in the frame, which scrolls its own rows: the band and
+    // the line that stick under it are read off it.
+    const pinnedFrame = viewport?.frame ?? null;
     // The frame's widths (above), measured before the first paint: a sheet
     // that folds its gutter never paints the gutter it folds.
     const viewFrame = viewport?.frame;
@@ -2578,17 +2554,15 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (stickyLineRef.current !== null) stickyLineRef.current.style.top = `${stickyLineTop.current}px`;
     }, [stickyLineAt]);
     // The ring's cell in view after a keyboard move (#860). The frame brings
-    // the ring's ROW in wherever it virtualizes; what it cannot is the column —
-    // the rows scroll sideways inside the card — nor the row of an unbounded
-    // sheet small enough to render its rows in flow, which scroll with the page.
-    // The column's header cell says where the column is: it is always mounted,
-    // and it shares the column's box. The gutter is sticky, so the columns show
-    // right of it.
+    // the ring's ROW in; what it cannot is the column — the rows scroll
+    // sideways inside the card. The column's header cell says where the column
+    // is: it is always mounted, and it shares the column's box. The gutter is
+    // sticky, so the columns show right of it.
     useEffect(() => {
         if (revealSeq === 0) return;
         const view = viewportRef.current;
         if (view === null) return;
-        const { id, col } = ringCellRef.current;
+        const { col } = ringCellRef.current;
         const frame = view.frame;
         const head = headerRef.current?.querySelectorAll<HTMLElement>('[data-slot="headerCell"]')[col];
         if (head !== undefined) {
@@ -2599,7 +2573,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (cell.left < left) frame.scrollLeft -= left - cell.left;
             else if (cell.right > right) frame.scrollLeft += Math.min(cell.right - right, cell.left - left);
         }
-        if (view.scroller === null && id !== undefined) document.getElementById(id)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a keyboard move is the trigger; the ring and the frame are read as they are then
     }, [revealSeq]);
     /**
@@ -2661,9 +2634,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const moving = gesture || movingSince !== 0;
 
     // ── Drag and drop: what the rows hold (#1187) ─────────────────────────
-    // With a host that offers drops, every row is a drop target on its
+    // With the frame's drops, every row is a drop target on the sheet's
     // surface, and a row, a line or a band its grip moves: one object every
-    // row shares, held still while the host does, its functions reading the
+    // row shares, held still while the frame's drops are, its functions reading the
     // plans the sheet makes below (`dropApi`), so no row renders again for a
     // drag. A sheet that takes no gesture now — read only, or between an
     // Apply's request and its answer — takes no drop either.
@@ -2744,15 +2717,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setInsertPreview(undefined);
     }, []);
     // A scroll moves the rows from under the chips, and a change of rows moves the seam: either way the chips go until the pointer finds a seam again.
-    // The scroll is the frame's (the rows sideways, or both ways when bounded) or the page's under an unbounded sheet (#856).
-    // A drag starting takes them too (#1187).
+    // The scroll is the frame's, either way. A drag starting takes them too (#1187).
     useEffect(() => { setSeam(undefined); setInsertPreview(undefined); }, [body, dragActive]);
     useEffect(() => {
         if (viewport === null) return;
         const hide = () => { setSeam(undefined); setInsertPreview(undefined); };
-        const targets = viewport.scroller === null || viewport.scroller === viewport.frame ? [viewport.frame] : [viewport.frame, viewport.scroller];
-        for (const t of targets) t.addEventListener("scroll", hide, { passive: true });
-        return () => { for (const t of targets) t.removeEventListener("scroll", hide); };
+        const frame = viewport.frame;
+        frame.addEventListener("scroll", hide, { passive: true });
+        return () => { frame.removeEventListener("scroll", hide); };
     }, [viewport]);
     // A row draws its own seam from primitives and this one stable handler,
     // so hovering a seam, or a gesture anywhere, never hands every row a new
@@ -2972,8 +2944,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
-    // Nothing here reads the source until a builder's inspector asks for a
-    // target: a sheet with no inspector reads exactly what it read before.
+    // Nothing here reads the source until the inspector pane asks for a
+    // target: a sheet with no inspector pane reads nothing for it.
     const originalOf = editingState.original;
     // What the source holds for an entry no gesture has touched, lifted into
     // its draft — read once while the resident rows stand, so a paged source's
@@ -3521,17 +3493,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         context: lensOn ? { value: ui.lens.context, onChange: onContext } : undefined,
         search: seek.search,
         onSearchKey,
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue, showError: host.historyError }) : undefined,
+        // The session's error is the frame's banner (#1184), never a line under the item.
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue, showError: false }) : undefined,
     });
-    // A toolbar when the sheet has a reason for one: a bound slice, a paged source, or edits to keep.
-    const toolbar = { items: toolbarItems, shown: chrome !== undefined || transport !== undefined || !readOnly, ref: toolbarRef };
+    const toolbar = { items: toolbarItems, ref: toolbarRef };
     const root: SheetRootFacts = {
         partial: transport !== undefined && !exhausted,
         copilot: copilotOn,
         lens: lensOn,
         view: ui.tabs.active ?? undefined,
         moving,
-        frame: frameFills ? { height, maxHeight } : undefined,
     };
     const footer: SheetFooterProps = {
         styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), transport, onRetry: paging.retry,
@@ -3666,20 +3637,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 onKeyDown={onKeyDown}
                 onCopy={onCopy}
                 onPaste={onPaste}
-                {...(frameFills ? { display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 } : {})}
             >
                 <VirtualRows
                     height={undefined}
                     maxHeight={undefined}
-                    fillParent={frameFills}
+                    fillParent
                     header={header}
                     footer={<Box height={`${BOTTOM_PAD_PX}px`} />}
                     count={body.length}
                     estimateSize={sizeOf}
                     getItemKey={itemKey}
                     anchorable={anchorable}
-                    // Unbounded, a large sheet mounts only what the page shows (#856) — the Plan's threshold.
-                    virtualizeUnboundedAt={VIRTUALIZE_UNBOUNDED_AT}
                     onViewport={setViewport}
                     renderRow={renderRow}
                     minWidth={`${minWidth}px`}
@@ -3713,7 +3681,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
 const SheetContext = createContext<SheetParts | undefined>(undefined);
 
 /**
- * Where a row, a line or a band a builder's inspector shows stands (#1188):
+ * Where a row, a line or a band the inspector pane shows stands (#1188):
  * its place, its number, its group and its sub rows — all read off the
  * body, never from the source.
  */
@@ -3741,7 +3709,7 @@ export interface SheetInspectPlace {
 }
 
 /**
- * A row, a line or a band a builder's inspector shows (#1188): its place,
+ * A row, a line or a band the inspector pane shows (#1188): its place,
  * its draft as its struct's values, what the record holds, and how its draft
  * presents — the source's entry read once while the resident rows stand.
  */
@@ -3774,7 +3742,7 @@ export interface SheetInspectWrite {
     fields?: ReadonlyMap<string, unknown> | undefined;
 }
 
-/** What a builder's inspector reads of the sheet, and the gestures it makes (#1188). */
+/** What the inspector pane reads of the sheet, and the gestures it makes (#1188). */
 export interface SheetInspect {
     /** What the ring and the range select. */
     selected: SheetSelected;
@@ -3839,7 +3807,7 @@ function withFields(draft: Record<string, unknown>, fields: ReadonlyMap<string, 
     return next;
 }
 
-/** The shared state the parts read; a part outside a {@link SheetProvider} is a host's mistake, and throws. */
+/** The shared state the parts read; a part outside a {@link SheetProvider} is a mistake of the frame's, and throws. */
 function useSheetParts(): SheetParts {
     const parts = useContext(SheetContext);
     if (parts === undefined) throw new Error("A Sheet part is placed outside a SheetProvider");
@@ -3851,9 +3819,9 @@ export interface SheetProviderProps {
     value: SheetRootValue;
     /** Storage key prefix for persisting component state. */
     storageKey: string;
-    /** What the host takes over from the parts; nothing by default. */
+    /** What the frame hands the parts: the columns hidden, and the drops taken; nothing by default. */
     host?: SheetHost | undefined;
-    /** Where the host places the parts. */
+    /** Where the frame places the parts. */
     children: ReactNode;
 }
 
@@ -3862,7 +3830,7 @@ const NO_HOST: SheetHost = {};
 /**
  * Provides the sheet's one shared state (SB4): the store, the editing
  * session, the lens and the selection, for the parts below it, wherever the
- * host places them (SB5). The declared density reaches every one of them.
+ * frame places them (SB5). The declared density reaches every one of them.
  */
 export function SheetProvider({ value, storageKey, host = NO_HOST, children }: SheetProviderProps) {
     const parts = useSheet(value, storageKey, host);
@@ -3876,9 +3844,9 @@ export function SheetProvider({ value, storageKey, host = NO_HOST, children }: S
 /**
  * Reads the toolbar's items (§7) in the row's order and on its fold ladder:
  * the view tabs, the context switch, the count, the key search, the slice's
- * rail, the scope badge and the history item. A host lays them out with the
- * shared `Toolbar`, and puts {@link useSheetToolbarRef}'s ref on the element
- * that holds them.
+ * rail, the scope badge and the history item. The frame lays them out with
+ * the shared `Toolbar`, and puts {@link useSheetToolbarRef}'s ref on the
+ * element that holds them.
  *
  * @returns The items, a falsy entry for each the sheet has no use for.
  */
@@ -3890,7 +3858,7 @@ export function useSheetToolbarItems(): ReadonlyArray<ToolbarItem | false | unde
  * Reads the ref for the element that holds the toolbar's items: ⌘F and ⌘/
  * in the grid put the focus on the first search box in it.
  *
- * @returns The ref, for the element the host lays the items out in.
+ * @returns The ref, for the element the frame lays the items out in.
  */
 export function useSheetToolbarRef(): RefObject<HTMLDivElement | null> {
     return useSheetParts().toolbar.ref;
@@ -3898,7 +3866,7 @@ export function useSheetToolbarRef(): RefObject<HTMLDivElement | null> {
 
 /**
  * Reads the footer's props: the counts, the key hint, the paged transport
- * line and the live message, for the footer a host places.
+ * line and the live message, for the footer the frame places.
  *
  * @returns The props of the sheet's footer.
  */
@@ -3907,9 +3875,9 @@ export function useSheetFooter(): SheetFooterProps {
 }
 
 /**
- * Reads the editing session and its history actions, for a host that shows
- * the session's state itself — a builder's banners (`SessionBanners`), whose
- * Retry and Discard run as the history item's do.
+ * Reads the editing session and its history actions, for the frame's
+ * banners (`SessionBanners`), which show the session's state, their Retry
+ * and Discard run as the history item's do.
  *
  * @returns The session, and the actions' runner
  */
@@ -3918,7 +3886,7 @@ export function useSheetHistory(): SheetHistory {
 }
 
 /**
- * Reads what a builder's inspector shows of the sheet and the gestures it
+ * Reads what the inspector pane shows of the sheet and the gestures it
  * makes (#1188): what is selected — one row, line or band, several rows, or
  * nothing — each target's draft against what the record holds, the batch's
  * issues, and the writes, each one transaction as typing in the grid is.
@@ -3930,7 +3898,7 @@ export function useSheetInspect(): SheetInspect {
 }
 
 /**
- * Reads what a builder's library calls on a card's ⏎ (#1187, SB45): the card,
+ * Reads what the library pane calls on a card's ⏎ (#1187, SB45): the card,
  * by its library and its key, taken as a drop below the ring's row — a
  * template inserted after it, an author's card's cells set on it — or, where
  * that is refused, why, in the footer.
@@ -3944,16 +3912,14 @@ export function useSheetDropEnter(): (library: string, key: string) => void {
 /**
  * Renders the element the grid is laid in: the sheet's root, its recipe's
  * root styles, and the attributes its rows' styles key on (`data-sheet`,
- * `data-lens`, `data-view`, `data-moving`, …). It takes a bounded frame's
- * height when the sheet declares one, and fills a host's region when the host
- * asks it to ({@link SheetHost}).
+ * `data-lens`, `data-view`, `data-moving`, …). It fills the frame's main
+ * region, and the grid in it scrolls its own rows.
  */
 export function SheetRoot({ children }: { children: ReactNode }) {
     const { styles, root } = useSheetParts();
     return (
         <Box css={styles.root} data-sheet data-sheet-partial={root.partial ? "" : undefined} data-copilot={root.copilot ? "" : undefined}
-            data-lens={root.lens ? "" : undefined} data-view={root.view} data-moving={root.moving ? "" : undefined}
-            {...(root.frame !== undefined ? { style: root.frame } : {})}>
+            data-lens={root.lens ? "" : undefined} data-view={root.view} data-moving={root.moving ? "" : undefined}>
             {children}
         </Box>
     );
@@ -3968,28 +3934,3 @@ export function SheetGrid() {
     const parts = useSheetParts();
     return parts.failure ?? parts.grid;
 }
-
-/** `Sheet.View`'s layout: one column — the toolbar, the grid with its strip, the footer — in the sheet's root. */
-function SheetViewLayout() {
-    const parts = useSheetParts();
-    if (parts.failure !== undefined) return parts.failure;
-    return (
-        <SheetRoot>
-            {/* One bar: the tabs, the search rail and, right of it, the history controls. */}
-            {parts.toolbar.shown && <SheetToolbarRow ref={parts.toolbar.ref} styles={parts.styles} items={parts.toolbar.items} />}
-            <SheetGrid />
-            <SheetFooter {...parts.footer} />
-        </SheetRoot>
-    );
-}
-
-/** Renders an East Sheet value — the planning spreadsheet. */
-export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey }: EastChakraSheetProps) {
-    return (
-        <SheetProvider value={value} storageKey={storageKey}>
-            <SheetViewLayout />
-        </SheetProvider>
-    );
-}, (prev, next) => sheetRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
-
-implementUIComponent(SheetViewComponent, EastChakraSheet);

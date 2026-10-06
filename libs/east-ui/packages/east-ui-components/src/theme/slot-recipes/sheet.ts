@@ -8,9 +8,11 @@
  * (`Sheet Spec.md` §7, B§11), every value a semantic token so the dark theme
  * comes for free.
  *
- *   - Card: `bg.surface`, no border of its own (the host frames a component,
- *     as with Plan); 120 px bottom pad. One rule per seam: toolbar and
- *     header `border.strong` below, strip and footer `border.subtle` above.
+ *   - Root and card: the sheet fills its frame's main region, and the card
+ *     the room the strip leaves, its rows scrolling there (#1216).
+ *     `bg.surface`, no border of its own (the host frames a component, as
+ *     with Plan); 120 px bottom pad. One rule per seam: the header
+ *     `border.strong` below, the strip and the footer `border.subtle` above.
  *   - Header: sticky, two lines — label mono 10/600/.16em uppercase
  *     `fg.subtle`; sub mono 9 `fg.subtle` ellipsised; 1 px `border.subtle`
  *     column dividers; `border.strong` bottom.
@@ -102,13 +104,13 @@
  *     ink-5 in capitals like the resolution tags; a delta (`+1d` · `−3h`)
  *     keeps its lowercase, late warn, early info.
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
- *     a gutter that stays put (`position: sticky`), the toolbar keeps its one
- *     row through its ladder, and on a coarse pointer the small controls grow
+ *     a gutter that stays put (`position: sticky`), the frame's toolbar keeps
+ *     its one row through its ladder, and on a coarse pointer the small controls grow
  *     (gutter buttons, ✓ take, × close, the band's controls, the context
  *     options, the strip's chips), the editor's type goes to 16 px so a
  *     phone never zooms into it, and the band's controls — hover-revealed on
  *     a desktop — stay open where nothing can hover (`_hoverNone`).
- *   - Drag and drop, a builder's (#1187): a grip leads the actions column — a
+ *   - Drag and drop (#1187): a grip leads the actions column — a
  *     14 px `grip-vertical` in the faintest ink, shown on the row's hover
  *     and always where nothing hovers, a 32 px halo on a coarse pointer; the
  *     row it lifts takes a 1 px brand inset ring, and its ghost is the
@@ -138,7 +140,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
-        "toolbar", "toolbarRail", "toolbarCount", "toolbarBadge",
+        "toolbarRail", "toolbarCount", "toolbarBadge",
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
@@ -161,9 +163,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
     ],
     base: {
+        // The sheet fills its frame's main region (#1216).
         root: {
             display: "flex",
             flexDirection: "column",
+            height: "100%",
             minWidth: "0",
             fontFamily: "body",
             color: "fg",
@@ -236,7 +240,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flexDirection: "column",
             minHeight: "0",
         },
+        // The card takes the room the strip leaves, and its rows scroll there.
         card: {
+            display: "flex",
+            flexDirection: "column",
+            flex: "1 1 auto",
             background: "bg.surface",
             overflow: "hidden",
             outline: "none",
@@ -245,28 +253,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         body: {
             paddingBottom: "120px",
-        },
-        // ONE row, always: nothing wraps and nothing scrolls. The band holds
-        // the shared toolbar's row (#952), which folds on one ladder: the
-        // rail to its icon first, then the tabs into their `+n` menu, then
-        // the count, the context label, the `+ TAB` label and the
-        // whole-sheet count (the strip's `data-strip="compact"`), the tab
-        // names (`capped`), and last the context switch, the strip closing
-        // up and dropping every count (`closed`).
-        // `clip`, not `hidden`: a scroll container's minimum height is 0,
-        // and in a fixed-height frame the column flex would squash the row.
-        toolbar: {
-            display: "flex",
-            flexWrap: "nowrap",
-            alignItems: "center",
-            gap: "{spacing.3}",
-            paddingX: "20px",
-            paddingY: "8px",
-            background: "bg.surface",
-            borderBottomWidth: "1px",
-            borderBottomColor: "border.subtle",
-            overflow: "clip",
-            flexShrink: "0",
         },
         // The rail's forms, each wrapped so the tabs can claim the keys its
         // search box takes — a wrapper that lays out nothing of its own.

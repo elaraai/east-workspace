@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
-import { Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Sheet } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
@@ -664,16 +664,17 @@ export const dataBindPagedSheet = example({
             const jobs = $.let(Data.bindPaged(jobsTask));
             return (
                 <VStack gap="3" align="stretch">
-                    <Sheet.View
-                        data={jobs}
-                        columns={{
-                            start: Sheet.column.date(JobRow, { header: "Start", width: "96px" }),
-                            task:  Sheet.column.text(JobRow, { header: "Task", width: "180px" }),
-                            qty:   Sheet.column.quantity(JobRow, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
-                        }}
-                        readOnly={true}
-                        style={{ height: "420px" }}
-                    />
+                    <Box height="420px">
+                        <Sheet
+                            data={jobs}
+                            columns={{
+                                start: Sheet.column.date(JobRow, { header: "Start", width: "96px" }),
+                                task:  Sheet.column.text(JobRow, { header: "Task", width: "180px" }),
+                                qty:   Sheet.column.quantity(JobRow, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                            }}
+                            readOnly={true}
+                        />
+                    </Box>
                     <Text.MonoLabel>Bound dataset · key search and paging</Text.MonoLabel>
                 </VStack>
             );

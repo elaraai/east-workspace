@@ -8,28 +8,28 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, some, variant } from "@elaraai/east";
-import { Sheet, SheetReadyBatchType } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType, SheetReadyBatchType } from "@elaraai/e3-ui/internal";
 import { State } from "@elaraai/east-ui/internal";
 import { system, StateImpl, UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import type { SheetRootValue } from "./values.js";
 
 const Row = StructType({ id: StringType, qty: IntegerType, hidden: StringType });
-const program = East.function([], Sheet.Types.Root, ($) => {
+const program = East.function([], SheetPayloadType, ($) => {
     const data = $.const(State.bind([ArrayType(Row)], "sheet-history-dom", [{ id: "a", qty: 1n, hidden: "preserve" }]));
-    return Sheet.Payload(data, { qty: Sheet.column.integer(Row, { header: "Quantity" }) }, { id: "id", onUpdate: data.write });
+    return Sheet.Payload({ data, columns: { qty: Sheet.column.integer(Row, { header: "Quantity" }) }, id: "id", onUpdate: data.write });
 }).toIR().compile(StateImpl);
-const view = (): SheetRootValue => program();
+const view = (): SheetValue => program();
 const quantity = () => {
-    const root = view();
+    const root = view().sheet;
     if (root.rows.type !== "inline") throw new Error("Expected inline rows");
     return root.rows.value[0]!.cells.get("qty")!.value;
 };
-function mount(root = view()) {
-    const component = (value: SheetRootValue) => <ChakraProvider value={system}><EastChakraSheet value={value} storageKey="history-dom" /></ChakraProvider>;
-    const utils = render(component(root));
+function mount(sheet = view()) {
+    const component = (value: SheetValue) => <ChakraProvider value={system}><EastChakraSheet value={value} storageKey="history-dom" /></ChakraProvider>;
+    const utils = render(component(sheet));
     const cell = () => utils.container.querySelector('[data-slot="row"] [data-key="qty"]')!;
     const input = () => utils.container.querySelector('[data-slot="editorInput"]')!;
     const flush = () => act(async () => { await Promise.resolve(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
@@ -49,8 +49,9 @@ function mount(root = view()) {
     return { ...utils, cell, input, edit, press, refresh: () => utils.rerender(component(view())) };
 }
 
-beforeEach(() => initializeStore(new UIStore()));
-afterEach(cleanup);
+let restoreFrame: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); });
+afterEach(() => { cleanup(); restoreFrame(); });
 
 test("Apply commits the open editor before writing the checked batch; applied Undo stages its inverse", async () => {
     const ui = mount();
@@ -85,25 +86,34 @@ test("Undo first commits an open editor, then undoes that gesture; Redo restores
 });
 
 test("an acknowledgement lost after persistence freezes mutations and retries the identical request", async () => {
-    const root = view();
+    const sheet = view();
+    const root = sheet.sheet;
     if (root.editing.onApply.type !== "some") throw new Error("Expected writer");
     const apply = root.editing.onApply.value.value;
     const requests: Uint8Array[] = [];
-    const ui = mount({ ...root, editing: { ...root.editing, onApply: some(variant("async", async bytes => {
+    const ui = mount({ ...sheet, sheet: { ...root, editing: { ...root.editing, onApply: some(variant("async", async bytes => {
         requests.push(bytes.slice());
         const result = await apply(bytes);
         if (requests.length === 1) throw new Error("Acknowledgement lost");
         return result;
-    })) } });
+    })) } } });
     await ui.edit("8");
     await ui.press("Apply changes");
     expect(quantity()).toBe(8n);
-    expect(ui.getByRole("alert").textContent).toBe("Acknowledgement lost");
+    // The frame's banner says so (#1184), the error under its title, and holds the Retry.
+    expect(ui.getByRole("alert").closest('[data-session-banner="unknown"]')!.textContent).toContain("Acknowledgement lost");
     expect((ui.getByRole("button", { name: "Undo" }) as HTMLButtonElement).disabled).toBe(true);
     expect((ui.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.doubleClick(ui.cell());
     expect(ui.input()).toBeNull();
-    await ui.press("Retry request");
+    // Retry from the banner, as the history item's own Retry would.
+    const retry = ui.container.querySelector<HTMLElement>('[data-session-banner="unknown"] [data-banner-action="apply"]')!;
+    expect(retry.textContent).toBe("Retry request");
+    await act(async () => {
+        fireEvent.mouseDown(retry, { button: 0 });
+        fireEvent.click(retry);
+    });
+    expect(ui.container.querySelector('[data-session-banner="unknown"]')).toBeNull();
     expect(ui.queryByRole("alert")?.textContent).toBeUndefined();
     expect(requests).toHaveLength(2);
     expect(requests[1]).toEqual(requests[0]);
@@ -198,16 +208,17 @@ test("discarding a new row first commits another row's open editor as a separate
 
 
 test("an author rule marks the affected row, blocks Apply, focuses its issue and clears on Undo", async () => {
-    const root = view();
+    const sheet = view();
+    const root = sheet.sheet;
     const batchOf = decodeBeast2For(SheetReadyBatchType);
-    const ui = mount({ ...root, editing: { ...root.editing, readyRow: some(blob => {
+    const ui = mount({ ...sheet, sheet: { ...root, editing: { ...root.editing, readyRow: some(blob => {
         const batch = batchOf(blob);
         return batch.checks.map((check) => {
             const qty = batch.rows[Number(check.index)]!.cells.get("qty");
             return qty?.type === "Integer" && qty.value <= 0n
                 ? variant("incomplete", [{ field: "qty", message: "Quantity needs approval" }]) : variant("ready", null);
         });
-    }) } });
+    }) } } });
     await ui.edit("0");
     await ui.press("Apply changes");
     expect(quantity()).toBe(1n);

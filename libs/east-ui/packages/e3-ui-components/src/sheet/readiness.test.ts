@@ -132,7 +132,7 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
                 () => East.value(variant("ready", null), Ready),
             );
         });
-        const sheet = East.function([ArrayType(Row)], Sheet.Types.Root, (_$, data) => Sheet.Payload(data, { qty: Sheet.column.integer(Row) }, { id: "id", ready: { row: atMostFive } }))
+        const sheet = East.function([ArrayType(Row)], Sheet.Types.Root, (_$, data) => Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", ready: { row: atMostFive } }))
             .toIR().compile([counted.implement(() => { authored += 1; return null; })]);
         const root = sheet(Array.from({ length: 2_000 }, (_u, i) => ({ id: `r${i}`, qty: 1n, hidden: `hidden ${i}` })));
         if (root.rows.type !== "inline" || root.editing.readyRow.type !== "some") throw new Error("Expected an inline Sheet with a row check");

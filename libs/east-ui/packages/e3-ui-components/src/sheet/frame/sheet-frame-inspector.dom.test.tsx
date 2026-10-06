@@ -4,9 +4,10 @@
  *
  * @vitest-environment jsdom
  *
- * `<Sheet.Builder>`'s inspector (#1188, `Sheet Builder Spec.md` §5.3, §9.9,
- * SB46–SB53, SB58), over the builder's examples and their seeded records
- * (`builder.test-utils.tsx`): its two tabs, Issues counted, and its rail;
+ * `<Sheet>`'s inspector pane (#1188, #1216, `Sheet Builder Spec.md` §5.3,
+ * §9.9, SB46–SB53, SB58), over the Sheet's examples and their seeded records
+ * (`harness.test-utils.tsx`) — a sheet given the pane: its two tabs, Issues
+ * counted, and its rail;
  * nothing selected — the counts, the last commit and who made it, the hints;
  * one row — its number and id, each field by its column's kind, an edit one
  * transaction through its cell, tinted and Pending; a line — a field with no
@@ -24,81 +25,91 @@ import { act, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ArrayType, East, FloatType, FunctionType, NullType, OptionType, StringType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
 import { Button, UIComponentType } from "@elaraai/east-ui/internal";
-import { Record, Sheet, SheetBuilderPayloadType } from "@elaraai/e3-ui/internal";
+import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { formatters, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
-import { WORKSPACE, builderHarness, mount, mountPayload, settle, slot, tabs, type Payload } from "./builder.test-utils.js";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
+import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
 
-const harness = builderHarness();
+const harness = sheetHarness();
 const WORDS = formatters("en-US");
-const JOBS = ex.sheetBuilderJobs;
+const JOBS = ex.sheetJobs;
 const stringEqual = equalFor(StringType);
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
+/** The jobs as `sheetBasic` declares them, given the inspector pane. */
+const jobsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    return Sheet.Payload({ record: jobs, name: "jobs", inspector: true, columns: {
+        task:  Sheet.column.text(ex.SheetJob, { header: "Task", width: "240px" }),
+        start: Sheet.column.date(ex.SheetJob, { header: "Start", width: "96px" }),
+        qty:   Sheet.column.quantity(ex.SheetJob, { header: "Qty", width: "96px" }),
+    } });
+}), getRegisteredPlatformImplementations());
+
 /**
- * The jobs builder with an author's inspector of one button: pressed, the row
+ * The jobs with an author's inspector of one button: pressed, the row
  * goes back renamed, its start cleared and its quantity doubled — the task
  * through its column, the start under a read-only column, the quantity with
  * no column at all.
  */
-const doublingPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-    const inspector = $.const(East.function([ex.BuilderJob, FunctionType([ex.BuilderJob], NullType)], UIComponentType, ($2, row, update) => {
+const doublingPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const inspector = $.const(East.function([ex.SheetJob, FunctionType([ex.SheetJob], NullType)], UIComponentType, ($2, row, update) => {
         const double = $2.const(East.function([], NullType, ($3) => {
             const qty = $3.let(row.qty.match({ none: () => 0.0, some: (_$, q) => q }));
-            const edited = $3.const({ task: East.str`${row.task}, twice`, start: none, qty: some(qty.multiply(2.0)) }, ex.BuilderJob);
+            const edited = $3.const({ task: East.str`${row.task}, twice`, start: none, qty: some(qty.multiply(2.0)) }, ex.SheetJob);
             $3(update(edited));
         }));
         return Button.Root("Double it", { onClick: double });
     }));
-    return Sheet.BuilderPayload({ record: jobs, id: "doubling", inspector, columns: {
-        task:  Sheet.column.text(ex.BuilderJob, { header: "Task" }),
-        start: Sheet.column.date(ex.BuilderJob, { header: "Start", editable: false }),
+    return Sheet.Payload({ record: jobs, name: "doubling", inspector, columns: {
+        task:  Sheet.column.text(ex.SheetJob, { header: "Task" }),
+        start: Sheet.column.date(ex.SheetJob, { header: "Start", editable: false }),
     } });
-}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+}), getRegisteredPlatformImplementations());
 
 /**
  * The orders, their operations' activity and notes each picked from one
  * register of words — the activity narrowed by its options rule to two of
  * them, the notes offered every one.
  */
-const selectsPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
-    const orders = $.let(Record.bind(ex.sheetBuilderOrders, [ex.sheetBuilderOrdersPatch]));
+const selectsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
     const words = $.let(["Panel cutting", "Edge banding", "Assembly", "Oak veneered board"], ArrayType(StringType));
-    const firstTwo = $.const(East.function([Sheet.Types.DraftContext(ex.BuilderOrder, "ops")], OptionType(ArrayType(StringType)), ($2, _ctx) => {
+    const firstTwo = $.const(East.function([Sheet.Types.DraftContext(ex.WorkshopOrder, "ops")], OptionType(ArrayType(StringType)), ($2, _ctx) => {
         const two = $2.const(some(["Panel cutting", "Edge banding"]), OptionType(ArrayType(StringType)));
         return two;
     }));
-    return Sheet.BuilderPayload({ record: orders, id: "selects",
-        group: Sheet.group(ex.BuilderOrder, "ops", { title: "name" }),
+    return Sheet.Payload({ record: orders, name: "selects", inspector: true,
+        group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
         registers: { words: Sheet.register.members(words, { kind: "word", key: (w) => w, label: (w) => w }) },
         columns: {
-            activity: Sheet.column.enum(ex.BuilderOperation, "words", { header: "Activity", options: firstTwo }),
-            notes:    Sheet.column.enum(ex.BuilderOperation, "words", { header: "Notes" }),
+            activity: Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Activity", options: firstTwo }),
+            notes:    Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Notes" }),
         } });
-}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+}), getRegisteredPlatformImplementations());
 
 /**
  * The jobs with a task read through a custom column, whose parse marks what
  * it reads with a `!`, and the quantity under a `value` projection showing it
  * doubled — the field read only, the cell what it shows.
  */
-const customPayload = East.compile(East.function([], SheetBuilderPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-    const parse = $.const(East.function([StringType, Sheet.Types.DraftContext(ex.BuilderJob)], OptionType(StringType), (_$2, text, _ctx) => some(East.str`${text.trim()}!`)));
+const customPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const parse = $.const(East.function([StringType, Sheet.Types.DraftContext(ex.SheetJob)], OptionType(StringType), (_$2, text, _ctx) => some(East.str`${text.trim()}!`)));
     const print = $.const(East.function([StringType], StringType, (_$2, task) => task));
-    return Sheet.BuilderPayload({ record: jobs, id: "custom", columns: {
-        task: Sheet.column.custom(ex.BuilderJob, { header: "Task", accepts: "a task", parse, print }),
-        qty:  Sheet.column.quantity(ex.BuilderJob, { header: "Qty × 2", value: (r) => r.qty.match({
+    return Sheet.Payload({ record: jobs, name: "custom", inspector: true, columns: {
+        task: Sheet.column.custom(ex.SheetJob, { header: "Task", accepts: "a task", parse, print }),
+        qty:  Sheet.column.quantity(ex.SheetJob, { header: "Qty × 2", value: (r) => r.qty.match({
             none: () => East.value(none, OptionType(FloatType)),
             some: (_$2, q) => East.value(some(q.multiply(2.0)), OptionType(FloatType)),
         }) }),
     } });
-}), getRegisteredPlatformImplementations()) as unknown as () => Payload;
+}), getRegisteredPlatformImplementations());
 
 /** A record as it stands — what its patch door last wrote. */
-function readRecord<T extends typeof JOBS | typeof ex.sheetBuilderOrders>(record: T) {
+function readRecord<T extends typeof JOBS | typeof ex.sheetWorkshopOrders>(record: T) {
     const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", record.name)]);
     if (bytes === undefined) throw new Error("the record has not loaded");
     return decodeBeast2For(record.type)(bytes) as ReturnType<ReturnType<typeof decodeBeast2For<T["type"]>>>;
@@ -182,7 +193,7 @@ async function retype(c: HTMLElement, key: string, text: string) {
 }
 
 test("the inspector has two tabs, Details and Issues, Issues with its count; collapsed, a rail with its icon, the issue count and the selected row (SB46)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mountPayload(jobsPayload());
     await settle();
     expect(tabs(pane(container))).toEqual(["Details", "Issues 0"]);
     await select(cell(container, 0, "task"));
@@ -200,7 +211,7 @@ test("the inspector has two tabs, Details and Issues, Issues with its count; col
 });
 
 test("with nothing selected, Details counts the rows, the pending drafts and the issues, says the last commit and who made it, and gives three hints (SB51)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mountPayload(jobsPayload());
     await settle();
     // The blank row after the last job: no row to show.
     await select(cell(container, 4, "task"));
@@ -222,7 +233,7 @@ test("with nothing selected, Details counts the rows, the pending drafts and the
 });
 
 test("one row: its number and id, each field by its column's kind; an edit is one transaction through its cell, tinted and Pending, and Undo takes it back (SB47, SB52)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mountPayload(jobsPayload());
     await settle();
     await select(cell(container, 0, "task"));
     expect(showing(container)).toBe("row");
@@ -254,7 +265,7 @@ test("one row: its number and id, each field by its column's kind; an edit is on
 });
 
 test("each selection its own form: what was typed for one line and not yet committed never lands on the next, though both hold the same value", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop);
+    const { container } = mount(ex.sheetWorkshop);
     await settle();
     // Two operations with no notes: neither a blank line.
     const empty = rows(container).flatMap((row, i) => (!row.hasAttribute("data-blank") && reads(cell(container, i, "notes")) === "" ? [i] : []));
@@ -288,7 +299,7 @@ test("a custom column's text is read by its own parse, as typing in its cell is;
 });
 
 test("a line: a field with no column read only by its hint, a quantity in its activity's unit, a select's members with their meta, a link's cell with Edit in sheet (SB47, SB48)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop);
+    const { container } = mount(ex.sheetWorkshop);
     await settle();
     await select(cell(container, 0, "notes"));
     expect(showing(container)).toBe("line");
@@ -315,7 +326,7 @@ test("a line: a field with no column read only by its hint, a quantity in its ac
 });
 
 test("an edit asks the copilot again when its column is a trigger: a start set in the inspector, the end's fill shows (SB52)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop);
+    const { container } = mount(ex.sheetWorkshop);
     await settle();
     // The ash wardrobes' edge banding: no start, no end.
     const line = column(container, "activity").map((text, i) => [text, i] as const).filter(([text]) => text === "Edge banding")[1]![1];
@@ -332,7 +343,7 @@ test("an edit asks the copilot again when its column is a trigger: a start set i
 });
 
 test("a band: the group's own fields, its line count and its issues, then Add line, Duplicate and Delete with its lines (SB49)", async () => {
-    const { container } = mount(ex.sheetBuilderWorkshop);
+    const { container } = mount(ex.sheetWorkshop);
     await settle();
     await select(bandCell(container, 0, "end"));
     expect(showing(container)).toBe("band");
@@ -372,15 +383,15 @@ test("a band: the group's own fields, its line count and its issues, then Add li
 });
 
 test("a band's Duplicate copies the order with its lines, under a key of its own, as one step Apply commits (SB49)", async () => {
-    const { container, getByRole } = mount(ex.sheetBuilderWorkshop);
+    const { container, getByRole } = mount(ex.sheetWorkshop);
     await settle();
     await select(bandCell(container, 0, "end"));
     await press(within(panel(container)).getByRole("button", { name: "Duplicate with its lines" }));
     await press(getByRole("button", { name: "Apply changes" }));
-    const orders = readRecord(ex.sheetBuilderOrders);
+    const orders = readRecord(ex.sheetWorkshopOrders);
     expect(orders.size).toBe(7);
     const kitchen = orders.get("WO-2201")!;
-    const copies = [...orders].filter(([key, order]) => !stringEqual(key, "WO-2201") && equalFor(ex.BuilderOrder)(order, kitchen));
+    const copies = [...orders].filter(([key, order]) => !stringEqual(key, "WO-2201") && equalFor(ex.WorkshopOrder)(order, kitchen));
     expect(copies).toHaveLength(1);
 });
 
@@ -398,7 +409,7 @@ test("a select offers its register's members as its column's options rule offers
 });
 
 test("several rows: their count, a column set across them as one step, cleared, and deleted (SB50)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mountPayload(jobsPayload());
     await settle();
     const gutters = () => live(slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="row"] [data-slot="gutter"]'));
     fireEvent.mouseDown(gutters()[0]!, { button: 0 });
@@ -423,7 +434,7 @@ test("several rows: their count, a column set across them as one step, cleared, 
 });
 
 test("Issues lists every issue of the batch by row, and a click puts the ring on its cell (SB53)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mountPayload(jobsPayload());
     await settle();
     // No issues yet: the empty state.
     fireEvent.click(within(pane(container)).getByRole("tab", { name: /Issues/ }));
@@ -462,7 +473,7 @@ test("Issues lists every issue of the batch by row, and a click puts the ring on
 });
 
 test("the author's inspector: a complete row shows it in place of the form; a row missing a field shows the form until it is complete (SB58)", async () => {
-    const { container } = mount(ex.sheetBuilderWeeks);
+    const { container } = mount(ex.sheetWeeks);
     await settle();
     await select(cell(container, 0, "task"));
     const fields = () => panel(container).querySelector<HTMLElement>("[data-inspector-fields]")!;
@@ -505,6 +516,6 @@ test("the author's update is one transaction: a column's field through its cell,
     await press(getByRole("button", { name: "Apply changes" }));
     const job = readJobs().get("J-0001")!;
     expect(job.task).toBe("Panel cutting, twice");
-    expect(equalFor(ex.BuilderJob.fields.qty)(job.qty, some(96.0))).toBe(true);
-    expect(equalFor(ex.BuilderJob.fields.start)(job.start, some(new Date("2026-10-12T00:00:00Z")))).toBe(true);
+    expect(equalFor(ex.SheetJob.fields.qty)(job.qty, some(96.0))).toBe(true);
+    expect(equalFor(ex.SheetJob.fields.start)(job.start, some(new Date("2026-10-12T00:00:00Z")))).toBe(true);
 });

@@ -4,8 +4,8 @@
  *
  * @vitest-environment jsdom
  *
- * `<Sheet.Builder>`'s editing, undo and Apply (#1185, `Sheet Builder Spec.md`
- * SB25–SB31), over the in-memory stand-in records (`builder.test-utils.tsx`):
+ * `<Sheet>`'s editing, undo and Apply (#1185, #1216, `Sheet Builder Spec.md`
+ * SB25–SB31), over the in-memory stand-in records (`harness.test-utils.tsx`):
  * each gesture one transaction, undone and redone from the history item and
  * from the keys anywhere in the frame, never while typing in a field; Apply
  * one commit through the record's patch door, the history item naming each
@@ -23,15 +23,15 @@ import {
 } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
-import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { initializeRecordApi, type RecordApi } from "../../platform/index.js";
-import { WORKSPACE, builderHarness, mount, settle, slot } from "./builder.test-utils.js";
+import { WORKSPACE, sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
 
-const harness = builderHarness();
-const JOBS = ex.sheetBuilderJobs;
-const PLANS = ex.sheetBuilderPlans;
+const harness = sheetHarness();
+const JOBS = ex.sheetJobs;
+const PLANS = ex.sheetWeekPlans;
 type Jobs = ValueTypeOf<typeof JOBS.type>;
-type Job = ValueTypeOf<typeof ex.BuilderJob>;
+type Job = ValueTypeOf<typeof ex.SheetJob>;
 type Plans = ValueTypeOf<typeof PLANS.type>;
 const encodeJobsPatch = encodeBeast2For(PatchType(JOBS.type));
 const diffJobs = diffFor(JOBS.type);
@@ -39,8 +39,17 @@ const diffJobs = diffFor(JOBS.type);
 /** The jobs, applied as each gesture lands (SB31). */
 const autoJobs = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetBuilderJobs, [ex.sheetBuilderJobsPatch]));
-        return Sheet.Builder({ record: jobs, columns: { task: Sheet.column.text(ex.BuilderJob, { header: "Task" }) }, applyMode: "auto", id: "auto" });
+        const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+        return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, applyMode: "auto", name: "auto" });
+    }))),
+};
+
+/** The jobs, given both panes: a library of the columns, with its search, and the inspector. */
+const panedJobs = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+        return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) },
+            library: [Sheet.library.columns()], inspector: true, name: "panes" });
     }))),
 };
 
@@ -110,7 +119,7 @@ async function command(el: Element, key: string, shift = false) {
 }
 
 test("each gesture is one transaction — typing, a paste across rows, an insert, a removal — undone and redone a step at a time from the history item (SB25)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     const before = ["Panel cutting", "Edge banding", "CNC routing", "Spray finish"];
     expect(tasks(container)).toEqual(before);
@@ -148,7 +157,7 @@ test("each gesture is one transaction — typing, a paste across rows, an insert
 });
 
 test("⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — the grid a step at a time, a pane's tab — never while typing in the library's search (SB26)", async () => {
-    const { container } = mount(ex.sheetBuilderLibrary);
+    const { container } = mount(panedJobs);
     await settle();
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     await typeInto(cells(container, "task")[1]!, "Edge banding, oak");
@@ -174,7 +183,7 @@ test("⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — the 
 });
 
 test("Apply is one commit through the record's patch door: the history item says applying, then confirming, and the drafts retire once the rows read back as it left them (SB26, SB27, SB29)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     const apply = toolbar(container).getByRole("button", { name: "Apply changes" });
     // Nothing to apply yet.
@@ -208,7 +217,7 @@ test("Apply is one commit through the record's patch door: the history item says
 });
 
 test("a conflict keeps every draft, with its banner and the out-of-date notice; Apply is off, and nothing is rebased (SB28, SB29)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     // Another write moves the same job just as Apply goes.
@@ -227,7 +236,7 @@ test("a conflict keeps every draft, with its banner and the out-of-date notice; 
 });
 
 test("a refusal keeps every draft, with its banner and the reason; a revised draft may be applied again (SB28)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     await typeInto(cells(container, "task")[1]!, "Edge banding, both edges");
     initializeRecordApi({ ...harness.memory, mutate: async () => ({ outcome: variant("failed", { exitCode: 1n, stderr: "the edge bander is booked that week" }) }) }, harness.cache, WORKSPACE);
@@ -250,7 +259,7 @@ test("a refusal keeps every draft, with its banner and the reason; a revised dra
 });
 
 test("a write with no answer leaves the session unknown: Apply turns into Retry, which sends the same request — its id unchanged — and never writes twice (SB28)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     await typeInto(cells(container, "task")[2]!, "CNC routing, both faces");
     // The write lands, and its answer is lost.
@@ -280,7 +289,7 @@ test("a write with no answer leaves the session unknown: Apply turns into Retry,
 });
 
 test("the record moving under pending drafts makes the session out of date: Apply is off, a banner offers Discard, and nothing is rebased (SB29)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     // Another write, to another job.
@@ -298,7 +307,7 @@ test("the record moving under pending drafts makes the session out of date: Appl
 });
 
 test("a commit to a record read whole confirms once its own rows read back, whatever another write did meanwhile — to another row, or to another field of its own (#1185, SB29)", async () => {
-    const { container } = mount(ex.sheetBuilder);
+    const { container } = mount(ex.sheetBasic);
     await settle();
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     // Right after this commit, before the sheet reads it back, another planner writes J-0003's task and J-0001's quantity.
@@ -326,7 +335,7 @@ test("a commit to a record read whole confirms once its own rows read back, what
 });
 
 test("each week keeps its own drafts across a switch of the entry, and a remount finds them, until Apply or Discard (SB17, SB30)", async () => {
-    const view = mount(ex.sheetBuilderWeeks);
+    const view = mount(ex.sheetWeeks);
     await settle();
     expect(tasks(view.container)).toEqual(["Cut the kitchen carcasses", "Band the carcass edges", "Route the door panels"]);
     await typeInto(cells(view.container, "task")[0]!, "Cut the oak carcasses");
@@ -349,7 +358,7 @@ test("each week keeps its own drafts across a switch of the entry, and a remount
     fireEvent.click(view.getByText("2026-W43"));
     await settle();
     view.unmount();
-    const again = mount(ex.sheetBuilderWeeks);
+    const again = mount(ex.sheetWeeks);
     await settle();
     expect(tasks(again.container)[0]).toBe("Assemble the ash wardrobes");
     expect(drafted(again.container)).toBe(1);

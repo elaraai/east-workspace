@@ -22,7 +22,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
-import { RecordBindHandleType, Sheet, createSheetPayloadWith, recordRows } from "@elaraai/e3-ui/internal";
+import { RecordBindHandleType, Sheet, createSheetRootWith, recordRows } from "@elaraai/e3-ui/internal";
 import type { TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey, type ReactiveDatasetCacheInterface } from "../src/platform/dataset-store.js";
 import { RecordRuntime, createInMemoryRecordApi, type RecordApi, type RecordMutateArgs } from "../src/platform/record-runtime.js";
@@ -92,7 +92,7 @@ describe("the record's entries are the rows", () => {
     function sheetOver(runtime: RecordRuntime): (handle: unknown) => Root {
         return East.compile(East.function([JobsHandle], Sheet.Types.Root, ($, record) => {
             const rows = recordRows(record);
-            return createSheetPayloadWith(rows.data, COLUMNS, rows.options, rows.internal);
+            return createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal);
         }), runtime.buildPrimitives()) as unknown as (handle: unknown) => Root;
     }
     /** Takes J-0001 from 48 to 50, removes J-0002 and adds J-0003, over the snapshot the session began from. */
@@ -161,7 +161,7 @@ describe("one entry's rows", () => {
     function sheetOver(runtime: RecordRuntime): (handle: unknown, week: string) => Root {
         return East.compile(East.function([PlansHandle, StringType], Sheet.Types.Root, ($, record, week) => {
             const rows = recordRows(record, { entry: { key: week, rows: "rows", id: "id" } });
-            return createSheetPayloadWith(rows.data, COLUMNS, rows.options, rows.internal);
+            return createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal);
         }), runtime.buildPrimitives()) as unknown as (handle: unknown, week: string) => Root;
     }
     /** The week the record does not hold, as the frame's banner names it. */

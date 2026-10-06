@@ -9,10 +9,11 @@
  * and the rejection memory, an async proposer's pending chip and settlement
  * with fake timers, supersession (latest wins), a swapped provider function
  * value re-running the copilot, a proposed row's cells under a column the
- * host hides (#1186), and a folded gutter's row-actions menu taking the fill
- * and the suggestions as the gutter's buttons do (#1215) — every provider a
- * compiled East function over the typed context, the async one behind a test
- * platform function.
+ * viewer hides (#1186), and a folded gutter's row-actions menu taking the
+ * fill and the suggestions as the gutter's buttons do (#1215) — every
+ * provider a compiled East function over the typed context, the async one
+ * behind a test platform function, and the Sheet rendered in its frame
+ * (#1216).
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
@@ -23,16 +24,21 @@ import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType,
     equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui/internal";
+import { Sheet, SheetPayloadType, sheetKeys, type SheetLibraryTab } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { EastChakraSheet, SheetGrid, SheetProvider, SheetRoot } from "./index.js";
+import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { sheetJournal, type PatchEvent } from "./journal.test-utils.js";
-import { touchFrame } from "./frame.test-utils.js";
-import type { SheetRootValue } from "./values.js";
+import { boundFrame, touchFrame } from "./frame.test-utils.js";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
-beforeEach(() => { initializeStore(new UIStore()); vi.useFakeTimers(); });
+// jsdom lacks the ResizeObserver the library pane watches its cards with.
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+
+// The frame the rows scroll in, tall enough for every row of these sheets.
+let restoreFrame: () => void = () => {};
+afterEach(() => { cleanup(); localStorage.clear(); restoreFrame(); vi.useRealTimers(); });
+beforeEach(() => { initializeStore(new UIStore()); restoreFrame = boundFrame(2000); vi.useFakeTimers(); });
 
 const PlanRowType = StructType({
     id: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), activity: StringType, qty: OptionType(FloatType), notes: StringType,
@@ -69,11 +75,11 @@ const ROWS_WITH_WRAPPING = [
     { id: "j2", start: some(FEB20), end: none, activity: "Wrapping", qty: none, notes: "" },
 ];
 
-type Options = { proposers?: "sync" | "async"; hours?: number; rows?: ValueTypeOf<typeof PlanRowType>[] };
+type Options = { proposers?: "sync" | "async"; hours?: number; rows?: ValueTypeOf<typeof PlanRowType>[]; readOnly?: boolean; library?: readonly SheetLibraryTab[] };
 
 /** The sheet the way an author declares it: derive · history · sequence · default fills, a pattern proposer, an async model. */
-function buildCopilotSheet(opts: Options = {}): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildCopilotSheet(opts: Options = {}): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const rows = $.const(opts.rows ?? ROWS, ArrayType(PlanRowType));
         const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
         const hours = $.const(opts.hours ?? 8.0);
@@ -135,36 +141,38 @@ function buildCopilotSheet(opts: Options = {}): SheetRootValue {
         )));
         // A model — an ASYNC proposer behind the platform function.
         const modelProposals = $.const(East.asyncFunction([Ctx], Proposals, (_$2, ctx) => recommend(ctx)));
-        return Sheet.Payload(rows, {
-            start: Sheet.column.date(PlanRowType, { header: "Start", fill: [nextSlot] }),
-            end: Sheet.column.date(PlanRowType, { header: "End", base: "start", fill: [endFromStart] }),
-            activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
-            qty: Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", uom: (d) => d.uom, fill: [lastQuantity, shiftQuantity] }),
-            notes: Sheet.column.text(PlanRowType, { header: "Notes" }),
-        }, {
+        return Sheet.Payload({
+            data: rows,
+            columns: {
+                start: Sheet.column.date(PlanRowType, { header: "Start", fill: [nextSlot] }),
+                end: Sheet.column.date(PlanRowType, { header: "End", base: "start", fill: [endFromStart] }),
+                activity: Sheet.column.lookup(PlanRowType, { header: "Activity" }),
+                qty: Sheet.column.quantity(PlanRowType, ActivityType, { header: "Qty", uom: (d) => d.uom, fill: [lastQuantity, shiftQuantity] }),
+                notes: Sheet.column.text(PlanRowType, { header: "Notes" }),
+            },
             id: "id",
             driver: Sheet.driver("activity", activities, { key: (a) => a.name, label: (a) => a.name }),
             suggest: { ahead: 2n, triggers: ["activity", "start", "qty", "notes"], propose: opts.proposers === "async" ? [modelProposals] : [followUps] },
             blanks: 3,
             footer: [{ text: "1 planned" }],
+            readOnly: opts.readOnly === true,
+            library: opts.library ?? [],
         });
     });
     return East.compile(program, getRegisteredPlatformImplementations())();
 }
 
 /** Swap the host callbacks for spies after compilation. */
-function withSpies(root: SheetRootValue) {
-    const journal = sheetJournal(root);
+function withSpies(sheet: SheetValue) {
+    const journal = sheetJournal(sheet);
     return { value: journal.value, edits: journal.events, draft: journal.draft };
 }
 
-/** Mounts the sheet — as `Sheet.View`, or with `hidden` its grid alone, under a host that hides those columns (#1186). */
-function mount(value: SheetRootValue, hidden?: ReadonlySet<string>) {
-    const ui = (v: SheetRootValue) => (
+/** Mounts the sheet, in its frame. */
+function mount(value: SheetValue) {
+    const ui = (v: SheetValue) => (
         <ChakraProvider value={system}>
-            {hidden === undefined
-                ? <EastChakraSheet value={v} storageKey="sheet-copilot-test" />
-                : <SheetProvider value={v} storageKey="sheet-copilot-test" host={{ hidden }}><SheetRoot><SheetGrid /></SheetRoot></SheetProvider>}
+            <EastChakraSheet value={v} storageKey="sheet-copilot-test" />
         </ChakraProvider>
     );
     const utils = render(ui(value));
@@ -184,7 +192,7 @@ function mount(value: SheetRootValue, hidden?: ReadonlySet<string>) {
     const proposals = () => [...utils.container.querySelectorAll('[data-slot="row"][data-proposed]')] as HTMLElement[];
     const stripChips = () => [...utils.container.querySelectorAll('[data-slot="stripChip"]')].map((c) => c.textContent);
     const message = () => utils.container.querySelector('[data-slot="footerMessage"]')!.textContent;
-    const rerender = (v: SheetRootValue) => utils.rerender(ui(v));
+    const rerender = (v: SheetValue) => utils.rerender(ui(v));
     return { ...utils, card, rows, cell, input, key, editorKey, type, settle, proposals, stripChips, message, rerender };
 }
 
@@ -350,7 +358,8 @@ describe("fills (B§5.1)", () => {
         // Nothing left to fill on the row (the proposal row's cells are hatched, not fills).
         expect(container.querySelectorAll('[data-slot="row"]:not([data-proposed]) [data-slot="cell"][data-proposed]')).toHaveLength(0);
         cleanup();
-        const ro = mount({ ...buildCopilotSheet(), readOnly: some(true) } as SheetRootValue);
+        const ro = mount(buildCopilotSheet({ readOnly: true }));
+        expect(ro.container.querySelector("[data-sheet]")).not.toBeNull();
         expect(ro.container.querySelector("[data-sheet][data-copilot]")).toBeNull();
     });
 });
@@ -408,10 +417,12 @@ describe("proposals (B§5.2)", () => {
     });
 });
 
-describe("a column the host hides (#1186)", () => {
+describe("a column the viewer hides (#1186)", () => {
     test("a proposed row keeps its cells under a hidden column: the grid never draws the column, and the row taken carries them", async () => {
-        const { value, edits, draft } = withSpies(buildCopilotSheet());
-        const { container, key, type, editorKey, settle, proposals } = mount(value, new Set(["notes"]));
+        // The viewer hid the notes in the library's Columns tab, in an earlier session.
+        localStorage.setItem(sheetKeys(undefined).columns, JSON.stringify(["notes"]));
+        const { value, edits, draft } = withSpies(buildCopilotSheet({ library: [Sheet.library.columns()] }));
+        const { container, key, type, editorKey, settle, proposals } = mount(value);
         expect([...container.querySelectorAll('[data-slot="headerCell"]')].map((c) => c.getAttribute("data-key"))).toEqual(["start", "end", "activity", "qty"]);
         key("R");
         type("Routing");
@@ -496,7 +507,7 @@ describe("a swapped provider (§6.2, #809)", () => {
         expect(cell(1, "qty").textContent).toBe("960cartons");
         // The patch channel stays the same spy, so only the fill provider's
         // closure differs between the two values.
-        rerender({ ...two.value, editing: { ...two.value.editing, onPatch: eight.value.editing.onPatch } });
+        rerender({ ...two.value, sheet: { ...two.value.sheet, editing: { ...two.value.sheet.editing, onPatch: eight.value.sheet.editing.onPatch } } });
         expect(cell(1, "notes").textContent).toBe("x");
         fireEvent.mouseDown(cell(1, "notes"), { button: 0 });
         key("y");
@@ -511,9 +522,9 @@ describe("a swapped provider (§6.2, #809)", () => {
 
 describe("a folded gutter (#1215)", () => {
     // A phone's sheet: a coarse pointer, and a frame too narrow for the touch gutter beside the first column.
-    let restoreFrame: () => void = () => {};
-    beforeEach(() => { restoreFrame = touchFrame(300); });
-    afterEach(() => { restoreFrame(); });
+    let restoreTouch: () => void = () => {};
+    beforeEach(() => { restoreTouch = touchFrame(300); });
+    afterEach(() => { restoreTouch(); });
 
     const draftEqual = equalFor(Sheet.Types.Draft(PlanRowType));
     /** A row's row-actions button. */
@@ -615,8 +626,8 @@ const PLANS = [
 ];
 
 /** A grouped sheet whose fill reads the plan and whose proposer follows routing with spraying — both over `Sheet.Types.DraftContext(PlanType, "lines")`. */
-function buildGroupedCopilot(): SheetRootValue {
-    const program = East.function([], Sheet.Types.Root, ($) => {
+function buildGroupedCopilot(): SheetValue {
+    const program = East.function([], SheetPayloadType, ($) => {
         const plans = $.const(PLANS, ArrayType(PlanType));
         const inPlan = $.const(East.function([GroupCtx], NotesFill, (_$2, ctx) =>
             East.value(some({ value: East.str`${ctx.group.unwrap("some").name.unwrap("value")} · line ${ctx.rowIndex.add(1n)} of ${ctx.rows.length()} · ${ctx.groups.length()} plans`, meta: "the plan" }), NotesFill)));
@@ -624,11 +635,13 @@ function buildGroupedCopilot(): SheetRootValue {
             ($3) => $3.const([{ patch: Sheet.patch(LineType, { activity: "Spraying", notes: "spray the routed panels" }), meta: "spraying follows routing" }], LineProposals),
             (_$3) => East.value([], LineProposals),
         )));
-        return Sheet.Payload(plans, {
-            activity: Sheet.column.text(LineType, { header: "Activity" }),
-            qty: Sheet.column.quantity(LineType, { header: "Qty" }),
-            notes: Sheet.column.text(LineType, { header: "Notes", fill: [inPlan] }),
-        }, {
+        return Sheet.Payload({
+            data: plans,
+            columns: {
+                activity: Sheet.column.text(LineType, { header: "Activity" }),
+                qty: Sheet.column.quantity(LineType, { header: "Qty" }),
+                notes: Sheet.column.text(LineType, { header: "Notes", fill: [inPlan] }),
+            },
             id: "id",
             group: Sheet.group(PlanType, "lines", { title: "name" }),
             suggest: { ahead: 1n, triggers: ["activity", "qty"], propose: [followUps] },

@@ -25,8 +25,8 @@
 import { test, expect, type Page } from "playwright/test";
 import { settled } from "./settle";
 
-const FILE = "e3/sheet/sheet-builder";
-const NAME = "sheetBuilderWorkshop";
+const FILE = "e3/sheet/sheet";
+const NAME = "sheetWorkshop";
 /** How much the row above the link grows, and then shrinks: thousands, as a
  *  live example's first render can. */
 const GROWTH = 6000;

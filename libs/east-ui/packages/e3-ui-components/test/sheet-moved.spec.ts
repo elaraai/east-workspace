@@ -25,7 +25,7 @@ const SHEET_NAMES = new Set([
 ].flatMap((path) => [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /sheet/iu.test(name))));
 
 test('what the Sheet exports is read whole — its IR\'s names and its renderer\'s', () => {
-    for (const name of ['Sheet', 'SheetRootType', 'SheetViewComponent', 'SheetView', 'EastChakraSheet', 'SheetRootValue', 'SheetMessagesProvider', 'sheetMessages']) {
+    for (const name of ['Sheet', 'SheetRootType', 'SheetPayloadType', 'SheetComponent', 'EastChakraSheet', 'SheetValue', 'SheetRootValue', 'SheetMessagesProvider', 'sheetMessages']) {
         assert.ok(SHEET_NAMES.has(name), `the Sheet's ${name} is read`);
     }
 });

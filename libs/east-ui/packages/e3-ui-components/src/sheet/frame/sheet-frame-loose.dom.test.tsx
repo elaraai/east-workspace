@@ -4,33 +4,57 @@
  *
  * @vitest-environment jsdom
  *
- * `<Sheet.Builder>` over one entry's groups with LOOSE rows between them
- * (#846): the week's entries are `Sheet.Types.Entry(Package, "tasks")`, each a
- * work package with its tasks or a task of no package, as `sheetBuilderLoose`
+ * `<Sheet>` over one entry's groups with LOOSE rows between them (#846,
+ * #1216): the week's entries are `Sheet.Types.Entry(Package, "tasks")`, each a
+ * work package with its tasks or a task of no package, as `sheetLoose`
  * declares them. A loose task is a plain row numbered in the packages'
- * sequence, Details shows it as a row, Alt+Insert beside it adds another with
- * a minted id, and a grip moves it, or a package with its tasks, between the
- * entries; one Apply commits each to the record.
+ * sequence, Details shows it as a row — the sheet given the inspector pane —
+ * Alt+Insert beside it adds another with a minted id, and a grip moves it, or
+ * a package with its tasks, between the entries; one Apply commits each to
+ * the record.
  */
 
 import { test, expect } from "vitest";
 import { act, fireEvent, within } from "@testing-library/react";
-import { decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
+import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
-import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-builder";
-import { WORKSPACE, builderHarness, mount, settle, slot, tabs } from "./builder.test-utils.js";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
+import { WORKSPACE, sheetHarness, mount, mountPayload, settle, slot } from "./harness.test-utils.js";
 
-const harness = builderHarness();
+const harness = sheetHarness();
 stubScrollIntoView();
 
-type Work = ValueTypeOf<typeof ex.sheetBuilderWork.type>;
-const entryEqual = equalFor(ex.BuilderLooseEntry);
+type Work = ValueTypeOf<typeof ex.sheetLooseWork.type>;
+const entryEqual = equalFor(ex.LooseEntry);
+
+/** The week's work as `sheetLoose` declares it, given the inspector pane: Details for a loose task, and the batch's Issues. */
+const inspected = East.compile(East.function([], SheetPayloadType, ($) => {
+    const work = $.let(Record.bind(ex.sheetLooseWork, [ex.sheetLooseWorkPatch]));
+    const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(ex.LooseTask), () => Sheet.patch(ex.LooseTask, { qty: none, notes: "" })));
+    const newPackage = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(ex.LoosePackage), () => Sheet.patch(ex.LoosePackage, { tasks: [] })));
+    return Sheet.Payload({
+        record: work,
+        entry: { key: "2026-W42", rows: "entries", id: "id" },
+        group: Sheet.group(ex.LoosePackage, "tasks", { title: "name", noun: { singular: "package", plural: "packages" } }),
+        name: "loose",
+        columns: {
+            task:  Sheet.column.text(ex.LooseTask, { header: "Task", width: "240px" }),
+            qty:   Sheet.column.quantity(ex.LooseTask, { header: "Qty", width: "96px" }),
+            notes: Sheet.column.text(ex.LooseTask, { header: "Notes", width: "260px" }),
+        },
+        newRow: newTask,
+        newGroup: newPackage,
+        inspector: true,
+    });
+}), getRegisteredPlatformImplementations());
 
 /** The record as it stands — what its patch door last wrote. */
 function readWork(): Work {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", ex.sheetBuilderWork.name)]);
+    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", ex.sheetLooseWork.name)]);
     if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(ex.sheetBuilderWork.type)(bytes);
+    return decodeBeast2For(ex.sheetLooseWork.type)(bytes);
 }
 /** The week's entries, each its id, as the record holds them. */
 const entryIds = () => readWork().get("2026-W42")!.entries.map((entry) => entry.value.id);
@@ -81,7 +105,7 @@ const caption = () => {
 };
 
 test("the week's entries in the planner's order: a loose task a plain row numbered in the packages' sequence, a package its band and its tasks; Details on a loose task is its own row, under the entry's id", async () => {
-    const { container } = mount(ex.sheetBuilderLoose);
+    const { container } = mountPayload(inspected());
     await settle();
     expect(numbered(container)).toEqual([
         "1 Check the drawings",
@@ -101,7 +125,7 @@ test("the week's entries in the planner's order: a loose task a plain row number
 });
 
 test("Alt+Insert beside a loose task adds a loose task after it, its id minted; typed and applied, the record holds it as an entry in its place, in one commit", async () => {
-    const { container } = mount(ex.sheetBuilderLoose);
+    const { container } = mount(ex.sheetLoose);
     await settle();
     fireEvent.mouseDown(entryRow(container, "brief").querySelector('[data-key="task"]')!, { button: 0 });
     await settle();
@@ -116,7 +140,7 @@ test("Alt+Insert beside a loose task adds a loose task after it, its id minted; 
     expect(["brief", "doors", "handover", "finish", ""]).not.toContain(minted);
     expect(numbered(container).slice(2, 3)).toEqual(["3 # Kitchen doors"]);
     // Its task still missing, it is the batch's one issue.
-    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues 1"]);
+    expect(within(slot(container, "toolbar")!).getByRole("button", { name: "1 issue" })).toBeTruthy();
     // Typed: the ring is on its task.
     fireEvent.keyDown(grid, { key: "M" });
     await settle();
@@ -126,19 +150,19 @@ test("Alt+Insert beside a loose task adds a loose task after it, its id minted; 
     fireEvent.keyDown(input, { key: "Enter" });
     await settle();
     expect(sheetText(container)[1]).toBe("Measure the site");
-    expect(tabs(slot(container, "end")!)).toEqual(["Details", "Issues 0"]);
+    expect(within(slot(container, "toolbar")!).getByRole("button", { name: "0 issues" })).toBeTruthy();
     await history(container, "Apply changes");
     // An entry of its own, between the first and the first package — `newRow`'s defaults under what was typed.
     const entries = readWork().get("2026-W42")!.entries;
     expect(entries.map((entry) => entry.value.id)).toEqual(["brief", minted, "doors", "handover", "finish"]);
     expect(entryEqual(entries[1]!, variant("row", { id: minted, task: "Measure the site", qty: none, notes: "" }))).toBe(true);
-    const { commits } = await harness.memory.history(WORKSPACE, ex.sheetBuilderWork.name, undefined);
+    const { commits } = await harness.memory.history(WORKSPACE, ex.sheetLooseWork.name, undefined);
     expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
     expect(main(container).querySelectorAll('[data-slot="row"][data-draft]').length).toBe(0);
 });
 
 test("Alt+Insert beside a package's task adds a task in the package, its id minted as a loose task's is — the field both are identified by; typed, it applies", async () => {
-    const { container } = mount(ex.sheetBuilderLoose);
+    const { container } = mount(ex.sheetLoose);
     await settle();
     fireEvent.mouseDown(linesOf(container, "doors")[0]!.querySelector('[data-key="task"]')!, { button: 0 });
     await settle();
@@ -170,7 +194,7 @@ test("Alt+Insert beside a package's task adds a task in the package, its id mint
 });
 
 test("a loose task's grip moves it between the entries — over a package, to the seam before it — and a package's moves it with its tasks; a line stays in its package; one Apply commits the order", async () => {
-    const { container } = mount(ex.sheetBuilderLoose, { drag: true });
+    const { container } = mount(ex.sheetLoose, { drag: true });
     await settle();
     // The loose task before the last: over the first package's band, either half, or one of its lines — the seam before the package.
     pickUp(gripOf(entryRow(container, "handover")));
@@ -210,6 +234,6 @@ test("a loose task's grip moves it between the entries — over a package, to th
     await history(container, "Apply changes");
     expect(entryIds()).toEqual(["finish", "brief", "handover", "doors"]);
     // The package moved whole: as it was seeded, its task inside it.
-    const seeded = ex.sheetBuilderWork.default!.get("2026-W42")!.entries[3]!;
+    const seeded = ex.sheetLooseWork.default!.get("2026-W42")!.entries[3]!;
     expect(entryEqual(readWork().get("2026-W42")!.entries[0]!, seeded)).toBe(true);
 });

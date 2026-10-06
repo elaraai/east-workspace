@@ -509,7 +509,7 @@ Task → Which tag?
 │   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = FA icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
 │   ├─ <Plan.View> — the composite canvas (ONE shared time | number | ordinal axis over heterogeneous rows, laid out by a series list) is e3-ui's (#1177): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
-│   ├─ <Sheet.View> — the planning spreadsheet (typed columns over the host's rows, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens and an editing session) is e3-ui's (#1179): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
+│   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows or the host's, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — row structs, or RecursiveType rows whose node is a struct (nested with `tree`); columns (required) — array of Matrix.column(…) (data-drivable with .map)
@@ -1157,7 +1157,7 @@ snapshot, so a `refresh` after your own write only gets there sooner. A
 pinned read the server refuses because the dataset has moved on (409
 `dataset_hash_mismatch`) rediscovers the current snapshot instead of failing
 its window. How a consumer bridges the move is its own: e3-ui's `<Plan.View>` and
-`<Sheet.View>` keep the rows they show until the new snapshot's windows land,
+`<Sheet>` keep the rows they show until the new snapshot's windows land,
 and clear a standing key search.
 
 ## Key Patterns
@@ -1402,7 +1402,7 @@ through the column's `render` or `format`).
 An editable collection's changes are drafts, applied as one checked batch
 through one contract: `Editing.apply` and `Editing.Types.*` — `ChangeSet`,
 `PatchEvent`, `Readiness`, `Origin`, `Draft`, `Entry` and the rest. The
-SnapGrid's editing canvas and e3-ui's `<Sheet.View>` and `<Plan.View>` each
+SnapGrid's editing canvas and e3-ui's `<Sheet>` and `<Plan.View>` each
 run a session on it, and e3-ui's `Sheet.apply` and `Sheet.Types.*` are its
 very values under the Sheet's names. A gesture's `origin` names what made it:
 a typed or pasted value, a fill or a proposed row taken, an entry inserted,
@@ -1624,13 +1624,14 @@ import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
   by stable ids; the e3-ui skill documents it.
 - **Table vs Sheet** — `<Table>` DISPLAYS rows (sort, pin, nest, review,
   paginate; cells printed in the viewer's language, or drawn by `render`);
-  e3-ui's `<Sheet.View>` (#1179) is where a planner TYPES
-  them: typed cells with grammars (dates, quantities, register lookups, a
-  directed link), a blank tail that inserts rows, an East-function copilot,
-  and a slice lens drawn as context bands rather than a filtered row set.
-  Reach for `<Sheet.View>` when the rows are authored in place and written
-  back (`onUpdate` / `onApply`) — the e3-ui skill documents it; for reading,
-  sorting and reviewing a dataset, `<Table>`.
+  e3-ui's `<Sheet>` (#1179, #1216) is where a planner TYPES
+  them, in its builder frame: typed cells with grammars (dates, quantities,
+  register lookups, a directed link), a blank tail that inserts rows, an
+  East-function copilot, and a slice lens drawn as context bands rather than
+  a filtered row set. Reach for `<Sheet>` when the rows are authored in place
+  and written back (through an e3 record's patch, or `onUpdate` / `onApply`)
+  — the e3-ui skill documents it; for reading, sorting and reviewing a
+  dataset, `<Table>`.
 - **Flowchart vs Schematic** — `<Schematic>` is a world-coordinate 2D canvas
   (data carries x/y; zones, footprints, camera); `<Flowchart>` derives its
   whole layout from lanes + links (no coordinates) for state-transition /

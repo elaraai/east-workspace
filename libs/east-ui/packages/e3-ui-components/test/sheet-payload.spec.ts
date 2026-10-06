@@ -4,7 +4,7 @@
  */
 
 /**
- * `Sheet.Builder`'s payload over the runtime (#1183, `Sheet Builder Spec.md`
+ * `<Sheet>`'s payload over the runtime (#1183, #1216, `Sheet Builder Spec.md`
  * SB11, SB12, SB15, SB16): built from an in-memory record and the State
  * runtime. The sheet holds the record's entries and commits through it, the
  * views are read from their bind handle and written back to it, and one
@@ -21,7 +21,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, State } from "@elaraai/east-ui/internal";
-import { RecordBindHandleType, Sheet, SheetBuilderPayloadType } from "@elaraai/e3-ui/internal";
+import { RecordBindHandleType, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { StateImpl, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import type { TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey, type ReactiveDatasetCacheInterface } from "../src/platform/dataset-store.js";
@@ -29,7 +29,7 @@ import { RecordRuntime, createInMemoryRecordApi } from "../src/platform/record-r
 
 const ws = "test-workspace";
 const keys = compareFor(StringType);
-type Payload = ValueTypeOf<typeof SheetBuilderPayloadType>;
+type Payload = ValueTypeOf<typeof SheetPayloadType>;
 
 /** A dataset cache holding what the in-memory record writes into it. */
 function fakeCache(): ReactiveDatasetCacheInterface {
@@ -83,14 +83,14 @@ describe("the record's entries", () => {
     test("the sheet holds the entries in key order, and its Apply commits through the record (SB12, SB16)", async () => {
         StateRuntime.initializeStore(new UIStore());
         const { memory, runtime, handle } = jobs();
-        const payloadOf = East.compile(East.function([JobsHandle], SheetBuilderPayloadType, ($, record) =>
-            Sheet.BuilderPayload({ record, columns: COLUMNS, id: "jobs" })), [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown) => Payload;
+        const payloadOf = East.compile(East.function([JobsHandle], SheetPayloadType, ($, record) =>
+            Sheet.Payload({ record, columns: COLUMNS, name: "jobs" })), [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown) => Payload;
         const payload = payloadOf(handle);
         assert.deepEqual(ids(payload), ["J-0001", "J-0002"]);
-        assert.deepEqual(payload.id, some("jobs"));
+        assert.deepEqual(payload.name, some("jobs"));
         assert.deepEqual(payload.missing, none);
         assert.deepEqual(payload.templates, []);
-        if (payload.sheet.editing.onApply.type !== "some") assert.fail("the builder's sheet has no Apply");
+        if (payload.sheet.editing.onApply.type !== "some") assert.fail("the sheet has no Apply");
         const batch = encodeBeast2For(Editing.Types.ChangeSet(JobType, StringType))({
             requestId: "builder-1", base: variant("snapshot", new SortedMap([["J-0001", CUT], ["J-0002", BAND]], keys)), label: "Edit jobs",
             changes: [{ id: "J-0001", patch: diffFor(OptionType(JobType))(some(CUT), some({ ...CUT, qty: some(50.0) })), place: none }],
@@ -104,13 +104,13 @@ describe("the record's entries", () => {
     test("views are read from their bind handle, and every change is written back to it (SB11)", () => {
         StateRuntime.initializeStore(new UIStore());
         const { runtime, handle } = jobs();
-        const payloadOf = East.compile(East.function([JobsHandle], SheetBuilderPayloadType, ($, record) => {
-            const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.builder.payload.views", []));
-            return Sheet.BuilderPayload({ record, columns: COLUMNS, views });
+        const payloadOf = East.compile(East.function([JobsHandle], SheetPayloadType, ($, record) => {
+            const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.payload.views", []));
+            return Sheet.Payload({ record, columns: COLUMNS, views });
         }), [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown) => Payload;
         const first = payloadOf(handle);
         assert.ok(viewsEqual(first.sheet.views, []));
-        if (first.sheet.onViewsChange.type !== "some") assert.fail("the builder's sheet does not write its views");
+        if (first.sheet.onViewsChange.type !== "some") assert.fail("the sheet does not write its views");
         first.sheet.onViewsChange.value([SPRAY]);
         assert.ok(viewsEqual(payloadOf(handle).sheet.views, [SPRAY]), "the next build reads what the sheet wrote");
     });
@@ -131,8 +131,8 @@ describe("one entry's rows", () => {
     test("an entry the record does not hold is named for the banner, its sheet empty and read-only (SB15)", () => {
         StateRuntime.initializeStore(new UIStore());
         const { runtime, handle } = plans();
-        const payloadOf = East.compile(East.function([PlansHandle, StringType], SheetBuilderPayloadType, ($, record, week) =>
-            Sheet.BuilderPayload({ record, entry: { key: week, rows: "rows", id: "id" }, columns: COLUMNS })),
+        const payloadOf = East.compile(East.function([PlansHandle, StringType], SheetPayloadType, ($, record, week) =>
+            Sheet.Payload({ record, entry: { key: week, rows: "rows", id: "id" }, columns: COLUMNS })),
         [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown, week: string) => Payload;
         const held = payloadOf(handle, "2026-W42");
         assert.deepEqual(ids(held), ["r1"]);
@@ -147,8 +147,8 @@ describe("one entry's rows", () => {
     test("the author's readOnly holds whether or not the record holds the entry", () => {
         StateRuntime.initializeStore(new UIStore());
         const { runtime, handle } = plans();
-        const payloadOf = East.compile(East.function([PlansHandle], SheetBuilderPayloadType, ($, record) =>
-            Sheet.BuilderPayload({ record, entry: { key: "2026-W42", rows: "rows", id: "id" }, columns: COLUMNS, readOnly: true })),
+        const payloadOf = East.compile(East.function([PlansHandle], SheetPayloadType, ($, record) =>
+            Sheet.Payload({ record, entry: { key: "2026-W42", rows: "rows", id: "id" }, columns: COLUMNS, readOnly: true })),
         [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown) => Payload;
         assert.deepEqual(payloadOf(handle).sheet.readOnly, some(true));
     });

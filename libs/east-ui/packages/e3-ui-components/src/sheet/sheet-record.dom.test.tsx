@@ -4,18 +4,19 @@
  *
  * @vitest-environment jsdom
  *
- * A Sheet over one entry of an e3 record (#1180) — how e3-ui's Sheet examples
- * are bound: the rows read with `Record.bind`, and Apply committing the drafts
- * through the record's patch door, `Record.onApply` over the entry's rows. The
- * example itself is mounted, under the record runtime a surface installs; the
- * record is the in-memory stand-in, whose patch door applies each patch with
- * East's own checks.
+ * A Sheet over the host's rows, read from one entry of an e3 record (#1180):
+ * the configurator's sheet, its rows `data` read with `Record.bind`, and Apply
+ * handing the checked batch to `onApply` — `Record.onApply` over the entry's
+ * rows, which commits it through the record's patch door. The example itself
+ * is mounted, in its frame (#1216), under the record runtime a surface
+ * installs; the record is the in-memory stand-in, whose patch door applies
+ * each patch with East's own checks.
  */
 
 import { test, expect, beforeEach, afterEach } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, variant, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, some, variant, type EastIR, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
@@ -23,21 +24,29 @@ import {
     ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
     type DatasetApi, type RecordApi,
 } from "../platform/index.js";
+import { boundFrame } from "./frame.test-utils.js";
 // The Sheet is an extension: its renderer registers as it loads.
-import "./index.js";
+import "./frame/index.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+// jsdom has no `matchMedia`; the configurator's controls ask it whether the viewer wants less motion.
+(globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
+    matches: false, media: query, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+});
 
 const WORKSPACE = "sheet-record-test";
-const PLANS = ex.sheetBasicPlans;
+const PLANS = ex.sheetVariantsPlans;
 type Plans = ValueTypeOf<typeof PLANS.type>;
 
 let memory: RecordApi;
 let cache: ReactiveDatasetCache;
+let restoreFrame: () => void = () => {};
 
 beforeEach(() => {
     StateRuntime.initializeStore(new UIStore());
+    restoreFrame = boundFrame(2000);
     const store = new Map<string, Uint8Array>();
     const api: DatasetApi = {
         async get(ws, path) {
@@ -64,6 +73,7 @@ beforeEach(() => {
 afterEach(() => {
     cleanup();
     localStorage.clear();
+    restoreFrame();
 });
 
 /** Let the record's reads, the session, the write and the renders settle. */
@@ -83,7 +93,7 @@ function readRecord(): Plans {
 test("an edited task, applied, is one commit through the record's patch door, and the drafts retire", async () => {
     // An example's `fn` erases its output type at the package boundary; the
     // Sheet's examples are UI components (as the showcase's `exampleIr` narrows).
-    const program = (ex.sheetBasic.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+    const program = (ex.sheetVariants.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
     const utils = render(
         <ChakraProvider value={system}>
             <EastChakraComponent value={program()} storageKey="sheet-record" />
@@ -112,7 +122,9 @@ test("an edited task, applied, is one commit through the record's patch door, an
 
     // The record holds the edit, and nothing else of it moved — one patch commit.
     const expected = new SortedMap([["week", { jobs: [
-        { id: "j1", start: none, task: "Spraying", qty: none },
+        { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Spraying", qty: some(1200.0), notes: "Nest the C-18 panels" },
+        { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Spraying", qty: some(250.0), notes: "" },
+        { id: "j3", start: none, task: "Wrapping", qty: none, notes: "" },
     ] }]], compareFor(StringType));
     expect(equalFor(PLANS.type)(readRecord(), expected)).toBe(true);
     const { commits } = await memory.history(WORKSPACE, PLANS.name, undefined);
