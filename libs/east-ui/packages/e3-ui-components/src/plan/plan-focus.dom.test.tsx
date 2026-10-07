@@ -386,15 +386,16 @@ describe("Plan link ribbons (#818)", () => {
             const g = container.querySelector('[data-plan-link="0"]')!;
             const hit = g.querySelector('[data-link="0"]')!;
             expect(g.hasAttribute("data-lit")).toBe(false);
-            // At rest every link's casing lies under every link's ink.
+            // At rest every link's casing lies under every link's ink — the
+            // layer's own figures, in the plot's clip (#1258).
             expect(g.querySelector("[data-plan-ribbon-casing]")).toBeNull();
-            expect(container.querySelectorAll("svg > [data-plan-ribbon-casing]")).toHaveLength(2);
+            expect(container.querySelectorAll("[data-plan-clip] > [data-plan-ribbon-casing]")).toHaveLength(2);
             fireEvent.pointerEnter(hit);
             expect(g.hasAttribute("data-lit")).toBe(true);
             // Lit, it is drawn last — its casing with it, over the rest.
             expect(order()).toEqual(["1", "0"]);
             expect(g.querySelector('[data-plan-ribbon-casing="0"]')).toBeTruthy();
-            expect(container.querySelectorAll("svg > [data-plan-ribbon-casing]")).toHaveLength(1);
+            expect(container.querySelectorAll("[data-plan-clip] > [data-plan-ribbon-casing]")).toHaveLength(1);
             // The halo is 1px, 4 outside each run: a's bar in row 0, b's in row 1
             // (its line's middle 4.5 out, round a 7.5 corner).
             const halo = (side: string) => {

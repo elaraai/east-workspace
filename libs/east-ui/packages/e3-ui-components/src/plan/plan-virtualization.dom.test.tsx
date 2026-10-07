@@ -630,13 +630,15 @@ describe("a link into an evicted window (#823, #818)", () => {
         // Over the head band, 40px above window 1's place in it. (The scroll
         // is read before it settles — a settled one would bring window 1 back.)
         // The far end is drawn AT its window's offset, unclamped; the near
-        // end, below the view, stubs toward its row.
+        // end, below the view, stubs toward its row. The far run starts at the
+        // window's start, so the link enters it from below, onto its bottom
+        // edge — never through the gutter (#1258).
         scrollFrame(container, W - 40);
         const link = () => container.querySelector('[data-plan-link="0"]')!;
         expect(link()).toBeTruthy();
         const head = () => link().querySelector("[data-plan-ribbon-head]")!;
         expect(head().hasAttribute("data-plan-stub")).toBe(false);
-        expect(tipOf(head().getAttribute("d")!)[1]).toBe(W + PLAN_GEOMETRY.default.bar / 2);
+        expect(tipOf(head().getAttribute("d")!)[1]).toBe(W + PLAN_GEOMETRY.default.bar);
         expect(link().querySelector('[data-plan-stub="below"]')).toBeTruthy();
         // Down at the focused row, the far end is above the view: it clamps to
         // the view's top and stubs up toward its window.
