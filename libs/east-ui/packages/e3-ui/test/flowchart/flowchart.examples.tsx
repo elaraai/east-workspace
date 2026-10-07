@@ -4,12 +4,88 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Drawer, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Flowchart } from "@elaraai/e3-ui";
+import { Box, Drawer, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Data, Flowchart, Record } from "@elaraai/e3-ui";
+import e3 from "@elaraai/e3";
+
+// The depot's flows, by name: each a whole flowchart, written as literals and
+// checked when the package builds.
+export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, Flowchart.values({
+    "Inbound parcels": {
+        description: "From the trailer to the van",
+        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
+        states: [
+            { key: "ARV", label: "Arrived", lane: "intake" },
+            { key: "SCN", label: "Scanned", lane: "intake" },
+            { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
+            { key: "LDD", label: "Loaded", lane: "load" },
+        ],
+        links: [
+            { from: "ARV", to: "SCN" },
+            { from: "SCN", to: "CH*", trigger: "route" },
+            { from: "CH*", to: "LDD" },
+            { from: "SCN", to: "SCN", kind: "observed" },
+        ],
+        triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
+    },
+    "Returns": {
+        description: "From the counter back to the sender",
+        lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
+        states: [
+            { key: "RCV", label: "Received", lane: "counter" },
+            { key: "INS", label: "Inspected", lane: "check" },
+            { key: "RSD", label: "Resent", lane: "out" },
+        ],
+        links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
+    },
+}));
+export const depotFlowsPatch = e3.mutation.patch(depotFlows);
+
+// One flow, for an app that has only one: the host's, read only.
+export const handoverFlow = e3.input("flowchart_handover", Flowchart.Types.Flow, variant("value", Flowchart.value({
+    description: "From the last scan to the driver's signature",
+    lanes: [{ key: "load", label: "Load" }, { key: "road", label: "Road" }, { key: "door", label: "Door" }],
+    states: [
+        { key: "LDD", label: "Loaded", lane: "load" },
+        { key: "DSP", label: "Dispatched", lane: "road" },
+        { key: "DLV", label: "Delivered", lane: "door" },
+        { key: "RTN", label: "Returned", lane: "door" },
+    ],
+    links: [
+        { from: "LDD", to: "DSP" },
+        { from: "DSP", to: "DLV", trigger: "attempt" },
+        { from: "DSP", to: "RTN", kind: "observed", trigger: "attempt" },
+    ],
+    triggers: [{ key: "attempt", label: "attempt", owner: "driver" }],
+})));
+
+export const flowchartFlows = example({
+    keywords: ["Flowchart", "record", "Flows", "Flowchart.values", "Record.bind", "flow", "many flows", "e3.record"],
+    description: "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+            return <Box height="480px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const flowchartHandover = example({
+    keywords: ["Flowchart", "data", "Flow", "Flowchart.value", "Data.bind", "one flow", "e3.input", "read only"],
+    description: "One flow of the host's — the hand-over from the last scan to the door — an input bound with Data.bind and shown read only",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const handover = $.let(Data.bind(handoverFlow));
+            return <Box height="420px"><Flowchart data={handover} /></Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
 
 export const flowchartMinimal = example({
-    keywords: ["Flowchart", "states", "links", "lanes", "minimal", "planned", "observed"],
-    description: "Minimal flowchart — six states across three phase lanes, one observed transition",
+    keywords: ["Flowchart", "Flowchart.over", "data", "states", "links", "lanes", "minimal", "planned", "observed"],
+    description: "Minimal flowchart — one flow over the host's tables: six states across three phase lanes, one observed transition",
     fn: East.function([], UIComponentType, ($) => {
         const states = $.const([
             { code: "ARV", name: "Arrived", phase: "intake" },
@@ -30,9 +106,11 @@ export const flowchartMinimal = example({
         ]);
         return (
             <Flowchart
-                states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-                links={links} link={l => ({ from: l.src, to: l.dst, kind: l.kind })}
-                lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }]}
+                data={Flowchart.over(states, {
+                    state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                    links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
+                    lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
+                })}
             />
         );
     }),
@@ -40,8 +118,8 @@ export const flowchartMinimal = example({
 });
 
 export const flowchartDepot = example({
-    keywords: ["Flowchart", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness", "onAddLane"],
-    description: "Parcel-depot flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice, dev-defined hover cards on states, links AND trigger diamonds, and the + LANE affordance",
+    keywords: ["Flowchart", "Flowchart.over", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness", "onAddLane"],
+    description: "Parcel-depot flowchart over the host's tables — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, dev-defined hover cards on states, links AND trigger diamonds, and the + LANE affordance",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const KindType = Flowchart.Types.Kind;
@@ -50,7 +128,7 @@ export const flowchartDepot = example({
                 trigger: OptionType(StringType), parcels: OptionType(FloatType), n: OptionType(IntegerType),
                 at: DateTimeType, service: StringType, units: ArrayType(StringType),
             });
-            const states = $.const(East.value([
+            const states = $.const([
                 { code: "ARV", name: "Arrived", phase: "intake", slots: none },
                 { code: "SCN", name: "Scanned", phase: "intake", slots: none },
                 { code: "IND", name: "Inducting", phase: "induct", slots: none },
@@ -63,11 +141,11 @@ export const flowchartDepot = example({
                 { code: "DSP", name: "Dispatched", phase: "dispatch", slots: none },
             ], ArrayType(StructType({
                 code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType),
-            }))));
+            })));
             const stamp = new Date("2026-06-30T00:00:00Z");
             const planned = variant("planned", null);
             const observed = variant("observed", null);
-            const links = $.const(East.value([
+            const links = $.const([
                 { id: "l1", src: "ARV", dst: "SCN", kind: planned, trigger: none, parcels: some(18460.0), n: some(412n), at: stamp, service: "standard", units: ["C"] },
                 { id: "l2", src: "SCN", dst: "IND", kind: planned, trigger: none, parcels: some(7720.0), n: some(171n), at: stamp, service: "standard", units: ["C"] },
                 { id: "l3", src: "IND", dst: "IND", kind: planned, trigger: none, parcels: none, n: some(2n), at: stamp, service: "standard", units: ["C"] },
@@ -78,7 +156,7 @@ export const flowchartDepot = example({
                 { id: "l8", src: "CLR", dst: "LDD", kind: planned, trigger: none, parcels: some(8240.0), n: some(183n), at: stamp, service: "standard", units: ["T"] },
                 { id: "l9", src: "LDD", dst: "DSP", kind: planned, trigger: none, parcels: some(8160.0), n: some(181n), at: stamp, service: "standard", units: [] },
                 { id: "l10", src: "DSP", dst: "DLV", kind: planned, trigger: none, parcels: none, n: none, at: stamp, service: "standard", units: [] },
-            ], ArrayType(LinkRow)));
+            ], ArrayType(LinkRow));
             const cfg = Slice.config(LinkRow, {
                 fields: {
                     service: { label: "Service" },
@@ -118,20 +196,21 @@ export const flowchartDepot = example({
             const onAddLane = $.const(East.function([], NullType, (_$) => null));
             return (
                 <Flowchart
-                    states={states}
-                    state={s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots })}
-                    links={Slice.rows([LinkRow], slice)}
-                    link={l => ({
-                        key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
-                        evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
+                    data={Flowchart.over(states, {
+                        state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
+                        links: Slice.rows([LinkRow], slice),
+                        link: l => ({
+                            key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
+                            evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
+                        }),
+                        lanes: [
+                            { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
+                            { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
+                            { key: "dispatch", label: "Dispatch" },
+                        ],
+                        triggers,
+                        trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
                     })}
-                    lanes={[
-                        { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
-                        { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
-                        { key: "dispatch", label: "Dispatch" },
-                    ]}
-                    triggers={triggers}
-                    trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
                     linkHover={linkHover} stateHover={stateHover} triggerHover={triggerHover}
                     onAddLane={onAddLane}
                     slice={slice} affordances={["filter", "search"]}
@@ -150,8 +229,8 @@ export const flowchartDepot = example({
  * is the one link-authoring grammar.
  */
 export const flowchartBuilder = example({
-    keywords: ["Flowchart", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onRenameLane", "onDeleteLane", "onCreateLink", "onDeleteLink", "canConnect", "connect", "linkMode", "authoring", "interactive", "edit", "phases", "ghost"],
-    description: "Interactive builder — State-bound lanes, states and links: + LANE, + STATE ghosts, double-click edit, cross-lane drag, handle-drag linking with Del delete and an intake-only canConnect veto",
+    keywords: ["Flowchart", "Flowchart.over", "Reactive", "State", "builder", "onAddState", "onEditState", "onMoveState", "onAddLane", "onRenameLane", "onDeleteLane", "onCreateLink", "onDeleteLink", "canConnect", "connect", "linkMode", "authoring", "interactive", "edit", "phases", "ghost"],
+    description: "Interactive builder — one flow over State-bound lanes, states and links: + LANE, + STATE ghosts, double-click edit, cross-lane drag, handle-drag linking with Del delete and an intake-only canConnect veto",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const LaneRow = StructType({ key: StringType, label: StringType });
@@ -176,7 +255,7 @@ export const flowchartBuilder = example({
             const renameLane = $.const(East.function([Flowchart.Types.LaneRenameEvent], NullType, ($, e) => {
                 $(lanes.write(lanes.read().map(($, l) =>
                     East.equal(l.key, e.key).ifElse(
-                        () => East.value({ key: l.key, label: e.label }, LaneRow),
+                        () => ({ key: l.key, label: e.label }),
                         () => l,
                     ))));
             }));
@@ -193,19 +272,19 @@ export const flowchartBuilder = example({
             const editState = $.const(East.function([Flowchart.Types.StateEditEvent], NullType, ($, e) => {
                 $(states.write(states.read().map(($, s) =>
                     East.equal(s.code, e.key).ifElse(
-                        () => East.value({ code: e.code, name: e.label, phase: s.phase }, StateRow),
+                        () => ({ code: e.code, name: e.label, phase: s.phase }),
                         () => s,
                     ))));
                 // Rekey link endpoints so edges follow the renamed state.
-                $(links.write(links.read().map(($, l) => East.value({
+                $(links.write(links.read().map(($, l) => ({
                     src: East.equal(l.src, e.key).ifElse(() => e.code, () => l.src),
                     dst: East.equal(l.dst, e.key).ifElse(() => e.code, () => l.dst),
-                }, LinkRow))));
+                }))));
             }));
             const moveState = $.const(East.function([Flowchart.Types.StateMoveEvent], NullType, ($, e) => {
                 $(states.write(states.read().map(($, s) =>
                     East.equal(s.code, e.key).ifElse(
-                        () => East.value({ code: s.code, name: s.name, phase: e.lane }, StateRow),
+                        () => ({ code: s.code, name: s.name, phase: e.lane }),
                         () => s,
                     ))));
             }));
@@ -228,9 +307,11 @@ export const flowchartBuilder = example({
             return (
                 <VStack gap="3" align="stretch">
                     <Flowchart
-                        states={states.read()} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-                        links={links.read()} link={l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst })}
-                        lanes={lanes.read()} lane={r => ({ key: r.key, label: r.label })}
+                        data={Flowchart.over(states.read(), {
+                            state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                            links: links.read(), link: l => ({ key: East.str`${l.src}→${l.dst}`, from: l.src, to: l.dst }),
+                            lanes: lanes.read(), lane: r => ({ key: r.key, label: r.label }),
+                        })}
                         linkMode="connect"
                         onAddLane={addLane} onRenameLane={renameLane} onDeleteLane={deleteLane}
                         onAddState={addState} onEditState={editState} onMoveState={moveState}
@@ -250,7 +331,7 @@ export const flowchartBuilder = example({
  * read-only, click commits to the drawer.
  */
 export const flowchartDetail = example({
-    keywords: ["Flowchart", "hover", "stateHover", "linkHover", "triggerHover", "Meter", "card", "glance", "Drawer", "onSelectLink", "onSelectState", "drill", "detail", "click", "open"],
+    keywords: ["Flowchart", "Flowchart.over", "hover", "stateHover", "linkHover", "triggerHover", "Meter", "card", "glance", "Drawer", "onSelectLink", "onSelectState", "drill", "detail", "click", "open"],
     description: "Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer",
     fn: East.function([], UIComponentType, ($) => {
         const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });
@@ -324,13 +405,15 @@ export const flowchartDetail = example({
         }));
         return (
             <Flowchart
-                states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-                links={links}
-                link={l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
-                    evidence: { volume: some(l.parcels), count: some(l.n), unit: "parcels" } })}
-                lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "out", label: "Outbound" }]}
-                triggers={[{ id: "release", name: "release", who: "dock-scheduler" }]}
-                trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
+                data={Flowchart.over(states, {
+                    state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                    links,
+                    link: l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
+                        evidence: { volume: some(l.parcels), count: some(l.n), unit: "parcels" } }),
+                    lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "out", label: "Outbound" }],
+                    triggers: [{ id: "release", name: "release", who: "dock-scheduler" }],
+                    trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
+                })}
                 stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
                 onSelectLink={onSelectLink} onSelectState={onSelectState}
             />

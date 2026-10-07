@@ -29,8 +29,9 @@ const FLOWCHART_NAMES = new Set([
 const RECIPE = 'flowchartSlotRecipe';
 
 test('what the Flowchart exports is read whole — its IR\'s names and its renderer\'s', () => {
-    for (const name of ['Flowchart', 'FlowchartRootType', 'FlowchartComponent', 'FlowchartTag', 'FlowchartTypes', 'FlowchartConfig',
-        'FlowchartStateType', 'FlowchartLinkType', 'EastChakraFlowchart', 'EastChakraFlowchartProps', 'FlowchartValue']) {
+    for (const name of ['Flowchart', 'FlowchartPayloadType', 'FlowchartCanvasType', 'FlowchartComponent', 'FlowchartTag', 'FlowchartTypes',
+        'FlowchartCanvasOptions', 'FlowchartFlowType', 'FlowchartFlowsType', 'FlowchartStateType', 'FlowchartLinkType',
+        'EastChakraFlowchart', 'EastChakraFlowchartProps', 'FlowchartValue']) {
         assert.ok(FLOWCHART_NAMES.has(name), `the Flowchart's ${name} is read`);
     }
 });

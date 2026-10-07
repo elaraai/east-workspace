@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search); typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply), (14) The Flowchart — <Flowchart>, the state-transition flowchart: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, from flat tables with row mappers, with hover cards, selection, path tracing and authoring callbacks (connect, lanes, states) — its types on Flowchart.Types."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search); typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply), (14) The Flowchart — <Flowchart>, the state-transition flowchart: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers), with hover cards, selection, path tracing and authoring callbacks (connect, lanes, states) — its types on Flowchart.Types, a row patch from Flowchart.patch."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -152,9 +152,11 @@ Task → What do you need?
     │   └─ Drafts checked as they are made, one checked Save   → onUpdate | onApply, ready, newRow
     │
     ├─ Draw a state-transition or process flow — the Flowchart (see The Flowchart below)
-    │   ├─ States in ordered phase lanes, the transitions between them → <Flowchart states={…} links={…} lanes={…} />
-    │   ├─ The app's own tables                                       → state / link / lane / trigger row mappers
-    │   ├─ Decision triggers and evidence on the transitions          → triggers + trigger, a link's trigger / evidence
+    │   ├─ An e3 record of flows by name                              → <Flowchart record={…} flow="…" /> (record = Record.bind(r, [patch]), r of Flowchart.Types.Flows)
+    │   ├─ The record's value, written as literals                    → Flowchart.values({ [name]: { lanes, states, links, triggers? } }) (a lone flow: one entry)
+    │   ├─ One flow of the host's, an input's value                   → <Flowchart data={Data.bind(input)} /> (the input's value Flowchart.value({ … }))
+    │   ├─ One flow from the app's own tables                         → <Flowchart data={Flowchart.over(states, { state, links, link, lanes, triggers?, trigger? })} />
+    │   ├─ Decision triggers and evidence on the transitions          → a flow's triggers, a link's trigger / evidence
     │   ├─ Hover cards, selection, ⌥-click path tracing               → stateHover / linkHover / triggerHover, onSelect*, onTracePath
     │   └─ Connect states, add and edit lanes and states              → linkMode + onCreateLink / onDeleteLink / canConnect, onAddLane …, onAddState …
     │
@@ -1604,17 +1606,74 @@ builder's `id` (`name`), `onViewsChange` (`views` is a bind handle) and
 `<Flowchart>` is the state-transition flowchart: states as nodes in ORDERED
 phase lanes — its layout derived from the lanes and the links, never from
 coordinates — H/V-routed transition arrows, optional per-link decision
-triggers (lettered diamonds) and evidence-weighted strokes, all from flat
-tables. The dim-ladder highlight, hover cards and the selection grammar are
-built in; hover content is the author's (an East function of a key, as the
-Schematic's is), and view lenses are saved slice cohorts. Where east-ui's
-`<Schematic>` places items at world coordinates, the Flowchart lays its
-states out itself, for reading a process flow.
+triggers (lettered diamonds) and evidence-weighted strokes. The dim-ladder
+highlight, hover cards and the selection grammar are built in; hover content
+is the author's (an East function of a key, as the Schematic's is), and view
+lenses are saved slice cohorts. Where east-ui's `<Schematic>` places items at
+world coordinates, the Flowchart lays its states out itself, for reading a
+process flow.
+
+Its flows come from one of two sources:
+
+- **`record`** — an e3 record of `Flowchart.Types.Flows`, flows by name, bound
+  with its patch mutation: `Record.bind(r, [e3.mutation.patch(r)])`. The usual
+  case: the canvas shows `flow`, else the first flow by name. A record always
+  holds flows by name — `e3.mutation.patch` writes only keyed records — so a
+  lone flow is a record of one entry, or the host's `data`; a record of one
+  flow is refused at build.
+- **`data`** — the host's flows by name or one flow, the value's type picking
+  the arm: a value, an expression or a bind handle (`Data.bind`).
+  `Flowchart.over(states, { … })` builds one flow from the app's own tables
+  through their row mappers, and a `slice` narrows the transitions it builds
+  from. `onApply` is the host's commit of its edits: one patch of the value,
+  answered as the editing session's Apply is.
+
+A flow is `{ description, lanes, states, links, triggers }` of the row types
+(`Flowchart.Types.Flow`). `Flowchart.values({ [name]: flow })` and
+`Flowchart.value(flow)` write a dataset's value as literals, filling what a
+literal leaves out and refusing at build what would not draw or commit: two
+lanes, states, links or decisions of one key, a state naming a lane the flow
+does not have, a link naming a decision it does not have. A link naming a
+state the flow does not have is kept — it draws as the unresolved ghost.
 
 The tag and its types — `Flowchart.Types` — come from `@elaraai/e3-ui`, and
 the tags around it from `@elaraai/east-ui`. It moved here from east-ui
-(#1243): a surface that wrote east-ui's `<Flowchart>` imports `Flowchart`
-from `@elaraai/e3-ui`, its props as they were.
+(#1243), and its tables became a flow (#1244): a surface that wrote east-ui's
+`<Flowchart states={…} links={…} lanes={…} />` passes the same tables and
+mappers to `Flowchart.over`, as `data`.
+
+```tsx
+/** @jsxImportSource @elaraai/e3-ui */
+import { East } from '@elaraai/east';
+import { Box, Reactive, UIComponentType } from '@elaraai/east-ui';
+import { Flowchart, Record } from '@elaraai/e3-ui';
+import e3 from '@elaraai/e3';
+
+// The depot's flows, by name: each written as a literal, checked when the package builds.
+export const depotFlows = e3.record("depot_flows", Flowchart.Types.Flows, Flowchart.values({
+    "Inbound parcels": {
+        description: "From the trailer to the van",
+        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
+        states: [
+            { key: "ARV", label: "Arrived", lane: "intake" },
+            { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
+            { key: "LDD", label: "Loaded", lane: "load" },
+        ],
+        links: [{ from: "ARV", to: "CH*", trigger: "route" }, { from: "CH*", to: "LDD" }],
+        triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
+    },
+}));
+export const depotFlowsPatch = e3.mutation.patch(depotFlows);
+
+const flowchart = East.function([], UIComponentType, _$ => (
+    <Reactive>{$ => {
+        const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+        return <Box height="480px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+    }}</Reactive>
+));
+```
+
+One flow from the app's own tables, through their row mappers:
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
@@ -1634,43 +1693,55 @@ const flowchart = East.function([], UIComponentType, ($) => {
     ]);
     return (
         <Flowchart
-            states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
-            links={links} link={l => ({ from: l.src, to: l.dst, kind: l.kind })}
-            lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }]}
+            data={Flowchart.over(states, {
+                state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
+                lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
+            })}
         />
     );
 });
 ```
 
 ```
-<Flowchart states={…} links={…} lanes={…} /> — state-transition flowchart: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); dim-ladder highlight built in; hover content is DEV-DEFINED (the Schematic contract); view lenses are saved slice cohorts
-├─ Props:
+<Flowchart record={…} | data={…} /> — state-transition flowchart: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); dim-ladder highlight built in; hover content is DEV-DEFINED (the Schematic contract); view lenses are saved slice cohorts
+├─ Its flows — ONE of two sources (both, or neither, is refused):
+│   ├─ record — Record.bind(r, [e3.mutation.patch(r)]): r of Flowchart.Types.Flows, flows by name (`flow` opens one first, else the first by name). A record always holds flows by name — e3's patch mutation writes only keyed records — so a lone flow is a record of one entry, or `data`; a record of one flow is refused
+│   └─ data — a value, an expression or a bind handle of Flowchart.Types.Flows (+ `flow`) or Flowchart.Types.Flow, the value's type picking the arm; onApply (async, PatchType(the value's type) → Editing.Types.ApplyResult) the host's commit
+├─ Flowchart.over(states, { state?, links, link?, lanes, lane?, triggers?, trigger? }) — one Flowchart.Types.Flow from the app's tables:
 │   ├─ states + links + lanes (required) — the three tables (lanes accept a literal [{ key, label? }] array; array order = band order)
 │   ├─ state / link / lane / trigger (optional) — row mappers to { key, label?, lane, members?, notes? } / { key?, from, to, kind?, trigger?, evidence? } / { key, label? } / { key, label, letter?, owner?, queue?, outcomes? }; omit when rows are already Flowchart.Types.*
-│   ├─ triggers (optional) — decision registry; a link's `trigger` names one (0..1 per link ⇒ the lettered diamond at the longest-run midpoint; clicking it highlights governed links)
+│   └─ triggers (optional) — decision registry; a link's `trigger` names one (0..1 per link ⇒ the lettered diamond at the longest-run midpoint; clicking it highlights governed links)
+├─ Flowchart.values({ [name]: flow }) / Flowchart.value(flow) — a dataset's value as literals { description?, lanes, states, links, triggers? }, Options filled, checked at build (two of one key; a state naming no lane the flow has; a link naming a decision it does not have)
+├─ A flow's rows:
 │   ├─ link `kind` "planned" (solid, default) | "observed" (dashed 5/4); DERIVED marks: a from/to ref with no state row ⇒ the neg-dashed ghost "No state row" node (unresolved, counted in the footer); from == to folds to the `↻ n` badge (never routed); `members` ⇒ the ×N state-class badge
-│   ├─ link `evidence` { volume?, count?, measuredAt?, unit? } — stroke weight (log 1.6 / 2 / 2.5 px, floor 1.4) + paper-filled run badges whose chrome inherits the link class (imported, never hand-authored)
+│   └─ link `evidence` { volume?, count?, measuredAt?, unit? } — stroke weight (log 1.6 / 2 / 2.5 px, floor 1.4) + paper-filled run badges whose chrome inherits the link class (imported, never hand-authored)
+├─ Props:
 │   ├─ stateHover / linkHover / triggerHover (optional) — hover-card content builders (East fn key => UIComponent, evaluated lazily on hover in the standard 400ms shell); absent ⇒ no hover card; detail drills through the click callbacks (open a <Drawer> in the handler)
 │   ├─ orientation (optional) — "LR" (default) | "TD" initial; the eyebrow segment toggles it (view state, never a filter chip; TD swaps the handle axes); freshness (optional) — eyebrow chip { label, date? }
 │   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states
-│   ├─ slice + affordances (optional) — bound slice chrome at compact density (default ["filter","search"]; search = "⌕ find state"; "brush" is a build-time error — no continuous 1D axis); the footer derives `N links · narrowed from M · −%` + the planned/observed split
+│   ├─ slice + affordances (optional, over data) — bound slice chrome at compact density (default ["filter","search"]; search = "⌕ find state"); the host feeds Flowchart.over's links through Slice.rows; the footer derives `N links · narrowed from M · −%` + the planned/observed split
 │   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
 │   ├─ linkMode + onCreateLink + onDeleteLink + canConnect (optional) — drag-to-connect authoring from ANY handle ("draw" | "connect"; links join at the closest FACING handle pair; canConnect(from, to) vetoes BEFORE the draft snaps and fails OPEN; dropping on the SOURCE node commits an ↻ in-place transition; the drag previews the spec-compliant H/V route; Del deletes the selected link)
 │   ├─ onAddLane (optional) — its presence renders the dashed full-height "+ LANE" tail affordance (click fires it); absent ⇒ no affordance
 │   ├─ onRenameLane + onDeleteLane (optional) — lane editing: headers become click-to-edit (Enter/blur commits → { key, label }); × beside each header deletes (lane key). The HOST owns the cascade — the canvas stays safe either way: states referencing a missing lane fall into the LAST lane, dangling links render as neg-dashed ghosts (orphans stay visible)
 │   ├─ onAddState + onEditState + onMoveState (optional) — state editing: hovering a lane band reveals the dashed node-footprint "+ STATE" ghost parked one row below its last node (click → inline editor, code auto-focused + label; ⏎ commits { lane, key, label }, esc/blur-empty dismisses; the committed state starts unconnected); double-click a node opens the same editor ({ key, code, label } — rekeying links is the host's call); dragging a node across lanes highlights candidate bands and drops fire { key, lane }
-│   ├─ readOnly (optional) — runtime edit gate: true suppresses every authoring affordance (connect gesture, Del, + LANE) WITHOUT unwiring callbacks (feed a permission / published-mode flag); read-only is otherwise the DEFAULT — each edit channel exists only when its callback / mode is provided; selection + hover always stay (inspecting isn't editing)
+│   ├─ readOnly (optional) — runtime edit gate: true suppresses every authoring affordance (connect gesture, Del, + LANE) WITHOUT unwiring callbacks (feed a permission / published-mode flag); each edit channel exists only when its callback / mode is provided; selection + hover always stay (inspecting isn't editing)
+│   ├─ inspector (optional) — the inspector pane; name (optional) — names the flowchart when a surface holds two
 │   └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320); default content-sized
-└─ Factories: (tables are plain rows + mappers; closed-set fields are typed values via Flowchart.Types.* — State, Link, Lane, Trigger, Evidence, Kind, Orientation, LinkMode, LinkCreateEvent)
+└─ Factories: Flowchart.values / Flowchart.value / Flowchart.over / Flowchart.patch(T, { … }) (a row patch over State | Link | Lane | Trigger, every field an Option); closed-set fields are typed values via Flowchart.Types.* — Flow, Flows, State, Link, Lane, Trigger, Evidence, Kind, Orientation, LinkMode, LinkCreateEvent, Patch(T)
 ```
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `<Flowchart states={…} state={…} links={…} link={…} lanes={…} />` | States in ordered phase lanes and the transitions between them, from the app's own tables through their row mappers. | `flowchartMinimal` |
-| `triggers` + `trigger`, a link's `trigger` / `evidence`, `slice` + `affordances`, `freshness` | Decision diamonds, evidence-weighted strokes and badges, a bound slice's rail at compact density, the freshness chip. | `flowchartDepot` |
-| `affordances: ["brush"]` **❗** | Refused at build: a flowchart has no continuous 1D axis. | — |
+| `<Flowchart record={…} flow="…" />`, `Flowchart.values({ … })` | A record of flows by name, bound with its patch mutation; the canvas shows `flow`, else the first by name. | `flowchartFlows` |
+| `<Flowchart data={Data.bind(input)} />`, `Flowchart.value({ … })` | One flow of the host's, an input's value, read only. | `flowchartHandover` |
+| `<Flowchart data={Flowchart.over(states, { state, links, link, lanes })} />` | One flow from the app's own tables through their row mappers. | `flowchartMinimal` |
+| `Flowchart.over`'s `triggers` + `trigger`, a link's `trigger` / `evidence`, `slice` + `affordances`, `freshness` | Decision diamonds, evidence-weighted strokes and badges, a bound slice's rail at compact density, the freshness chip. | `flowchartDepot` |
 | `linkMode` + `onCreateLink` / `onDeleteLink` / `canConnect`, `onAddLane` / `onRenameLane` / `onDeleteLane`, `onAddState` / `onEditState` / `onMoveState` | Authoring: each channel exists only while its callback is given; the host owns the data. | `flowchartBuilder` |
 | `stateHover` / `linkHover` / `triggerHover`, `onSelectState` / `onSelectLink` / `onSelectTrigger` | Hover cards a key builds, and clicks the host hears — a click that opens a `<Drawer>`, say. | `flowchartDetail` |
+| `record` and `data` together, or neither; `onApply`, `slice` or `affordances` over a record; `flow` over one flow; a record of one flow, or of another type, or bound without its patch mutation; `affordances: ["brush"]`; `states=`, `links=`, … on the tag **❗** | Refused at build, each naming the prop and the remedy. | — |
+| `Flowchart.patch(Flowchart.Types.State, { key: "HLD", label: some("Held") })` | A patch over one of a flow's rows: the fields it sets, the rest `none`. | — |
 
 ## Rendering surfaces in an app — `<E3Provider>`
 
@@ -1824,7 +1895,10 @@ Tested examples live in `test/*.examples.tsx`:
   `Sheet.link.print`.
 - `sheet/sheet-transactions.examples.ts` — `Sheet.apply` over rows, and over
   entries of groups and loose rows.
-- `flowchart/flowchart.examples.tsx` — `<Flowchart>`: the smallest
+- `flowchart/flowchart.examples.tsx` — `<Flowchart>`: a record of the
+  depot's flows by name, its value from `Flowchart.values` (`flowchartFlows`);
+  one flow of the host's, an input's value from `Flowchart.value`
+  (`flowchartHandover`); the smallest, over the host's tables
   (`flowchartMinimal`); the parcel depot's, with decision triggers, evidence,
   a ×14 state class, an in-place loop, an unresolved ghost, a bound slice and
   hover cards (`flowchartDepot`); the authoring loop over State — lanes,
