@@ -4,8 +4,8 @@
  */
 
 /**
- * `EastChakraFlowchart` — the Flowchart (#1243, #1244, #1245,
- * `Flowchart Builder Spec.md` §7, §7.1, §8, FB7–FB11): the one flowchart,
+ * `EastChakraFlowchart` — the Flowchart (#1243, #1244, #1245, #1246,
+ * `Flowchart Builder Spec.md` §7, §7.1, §8, §9.4, §9.5): the one flowchart,
  * laid out in `BuilderFrame` wherever it is used. There is no other
  * flowchart: no canvas without the frame, and no toolbar but its one.
  *
@@ -14,52 +14,75 @@
  * record of flows by name, or the host's flows or flow — and the canvas's
  * options: the flowchart reads the flows (a record's where it renders, and
  * again when it moves), opens one, and the frame places its parts in its
- * regions, over one shared state — the open flow's model, the orientation and
- * the state find state picked:
+ * regions, over one shared state — the open flow's model, its session, the
+ * orientation and the state find state picked:
  *
+ * - **the open flow**, over many flows (FB12, `open-flow.ts`): the one the
+ *   viewer opened last, kept in the UI store under the flowchart's `name`,
+ *   while the flowchart holds it; else `flow`; else the first by name; else
+ *   none, and main says so in the shared empty state. While `flow` names a
+ *   flow the flowchart doesn't hold, and the viewer has opened none in its
+ *   place, a banner above main names it and the flow shown (FB42);
+ * - **its session** (FB14, FB15, `session.ts`): one editing session per flow
+ *   over a record, so each flow keeps its drafts while another is open; its
+ *   history item ends the toolbar, and its banners sit under it;
+ * - **LR · TD** (FB43, `orientation.ts`): the viewer's, kept in the UI store
+ *   under the flowchart's `name`; the payload's `orientation` until they pick;
  * - **the toolbar** — the flowchart's items (`useFlowchartToolbarItems`,
  *   `toolbar.tsx`) on the frame's one folding row, in §7.1's order: find
  *   state, LR · TD and the freshness chip, and at the row's end the slice's
- *   rail over `data`. The canvas draws no eyebrow;
+ *   rail over `data` and the history item over a record. The canvas draws no
+ *   eyebrow;
  * - **main** — the canvas (`canvas.tsx`), filling main and scrolling both
  *   ways inside it;
  * - **the footer** — today's counts (`footer.tsx`): over many flows the open
  *   flow's name first, and over a record its last save;
  * - **the panes** — the library in the start pane when the payload's
  *   `library` lists a tab, and the inspector in the end pane when it is given
- *   `inspector`: optional props, no prop, no pane. The frame places them; what
- *   each holds is its own (the Flows tab #1246, the templates and the
- *   author's tabs #1248, the inspector #1250). Their open tab and collapsed
- *   state persist under the flowchart's `name` (`flowchartKeys(name).frame`).
+ *   `inspector`: optional props, no prop, no pane. The Flows tab
+ *   (`flows.tsx`) lists every flow by name and starts new ones; what the
+ *   other tabs hold is their own (the templates and the author's tabs #1248,
+ *   the inspector #1250). The panes' open tab and collapsed state persist
+ *   under the flowchart's `name` (`flowchartKeys(name).frame`).
  *
  * The flowchart fills the box it is given and draws no border: a host gives it
- * a box of its own height. The editing session's banners, history item and
- * pending changes join the frame with #1247.
+ * a box of its own height.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf, type option } from "@elaraai/east";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { StringType, compareFor, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import type { Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView,
     BuilderFrame,
+    SessionBanners,
     getSomeorUndefined,
+    historyToolbarItem,
     implementUIComponent,
     useDataStable,
     useFormatters,
     useSliceReactivity,
     useTrackedEvaluation,
     type BuilderFrameDock,
+    type EditIssue,
+    type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { buildModel, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./model.js";
 import { FlowchartCanvasView, type FlowchartReveal } from "./canvas.js";
 import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
-import { useFlowchartToolbarItems, type FlowchartOrientation } from "./toolbar.js";
+import { FlowsTab, NoFlows, type FlowCard, type NewFlowProps } from "./flows.js";
+import { flowchartMessages, type FlowchartWords } from "./messages.js";
+import { missingFlow, openFlowName, useOpenedFlow } from "./open-flow.js";
+import { useViewerOrientation } from "./orientation.js";
+import { draftedFlow, newFlows, recordNewFlow, useFlowSession, useKeptSessions } from "./session.js";
+import { useFlowchartToolbarItems } from "./toolbar.js";
+
+type Styles = Record<string, SystemStyleObject>;
 
 /** The memo's comparison: a changed callback re-renders. */
 const payloadEqual = equivalentFor(Flowchart.Types.Payload);
@@ -67,6 +90,7 @@ const payloadEqual = equivalentFor(Flowchart.Types.Payload);
 const flowEqual = equalFor(Flowchart.Types.Flow);
 /** Flows by name, in East's order. */
 const nameOrder = compareFor(StringType);
+const nameEqual = equalFor(StringType);
 
 export type { FlowchartValue, FlowchartCanvasValue, FlowchartFlowValue };
 
@@ -84,13 +108,29 @@ const LIBRARY_SIZE = "272px";
 /** The inspector pane's width open: the design system's 320px (§8). */
 const INSPECTOR_SIZE = "320px";
 
+/** The flows by name, decoded. */
+type FlowsValue = ValueTypeOf<typeof Flowchart.Types.Flows>;
+
 /** The flows a payload's source holds: many by name, or one. */
 type FlowsHeld =
-    | { readonly many: true; readonly flows: ValueTypeOf<typeof Flowchart.Types.Flows> }
+    | { readonly many: true; readonly flows: FlowsValue }
     | { readonly many: false; readonly flow: FlowchartFlowValue };
 
-/** A flow with nothing in it: the canvas over a record of flows that holds none. */
+/** A flow with nothing in it: the canvas while a flow is not yet there to draw. */
 const NO_FLOW: FlowchartFlowValue = { description: none, lanes: [], states: [], links: [], triggers: [] };
+
+/** A new flow's one lane's key: its identity, which its states will name. */
+const NEW_LANE_KEY = "lane-1";
+
+/**
+ * A new flow (FB14): one lane, nothing else.
+ *
+ * @param words - The flowchart's words: the lane's label
+ * @returns The flow
+ */
+function emptyFlow(words: FlowchartWords): FlowchartFlowValue {
+    return { description: none, lanes: [{ key: NEW_LANE_KEY, label: some(words.m.newFlowLane()) }], states: [], links: [], triggers: [] };
+}
 
 /**
  * The flows a source holds: a record's flows by name, read — a reactive read,
@@ -110,46 +150,29 @@ function flowsHeld(source: FlowchartValue["source"]): FlowsHeld {
 }
 
 /**
- * Over many flows, the open one and its name: the one `open` names, while the
- * flows hold it; else the first by name; else none (an empty record).
- *
- * @param flows - The flows by name
- * @param open - The flow the payload opens first
- * @returns The open flow and its name, or `undefined` when the flows hold none
- */
-export function openFlow(flows: ValueTypeOf<typeof Flowchart.Types.Flows>, open: option<string>): { name: string; flow: FlowchartFlowValue } | undefined {
-    if (open.type === "some") {
-        const named = flows.get(open.value);
-        if (named !== undefined) return { name: open.value, flow: named };
-    }
-    let first: string | undefined;
-    for (const name of flows.keys()) {
-        if (first === undefined || nameOrder(name, first) < 0) first = name;
-    }
-    if (first === undefined) return undefined;
-    const flow = flows.get(first);
-    return flow === undefined ? undefined : { name: first, flow };
-}
-
-/**
  * The library pane, when the payload's `library` lists a tab: the frame's
- * start pane, its tabs in the order listed. What each tab holds is its own
- * child's — the Flows tab #1246's, the templates and the author's tabs
- * #1248's.
+ * start pane, its tabs in the order listed. The Flows tab is #1246's; what
+ * the other tabs hold is their own child's — the templates and the author's
+ * tabs #1248's.
  *
  * @param library - The tabs the payload lists
+ * @param flows - The Flows tab's body and its count; `undefined` over one flow
+ * @param words - The flowchart's words
  * @returns The pane, or `undefined` when the library lists none
  */
-function libraryPane(library: FlowchartValue["library"]): BuilderFrameDock | undefined {
+function libraryPane(library: FlowchartValue["library"], flows: { body: ReactNode; count: string } | undefined, words: FlowchartWords): BuilderFrameDock | undefined {
     if (library.length === 0) return undefined;
+    // Collapsed, the rail counts the first tab's cards: the Flows tab's, when it is first.
+    const badge = library[0]?.type === "flows" ? flows?.count : undefined;
     return {
         label: "Library",
         icon: "layer-group",
         size: LIBRARY_SIZE,
         persist: "local",
+        ...(badge === undefined ? {} : { badge }),
         tabs: library.map((tab) => {
             switch (tab.type) {
-                case "flows": return { key: "flows", label: "Flows", body: null };
+                case "flows": return { key: "flows", label: words.m.flowsTab(), count: flows?.count, body: flows?.body ?? null };
                 case "states": return { key: "states", label: tab.value.name, body: null };
                 case "transitions": return { key: "transitions", label: tab.value.name, body: null };
                 case "tab": return { key: `tab.${tab.value.name}`, label: tab.value.name, body: null };
@@ -162,8 +185,8 @@ function libraryPane(library: FlowchartValue["library"]): BuilderFrameDock | und
 const INSPECTOR_PANE: BuilderFrameDock = { label: "Inspector", icon: "sliders", size: INSPECTOR_SIZE, persist: "local", body: null };
 
 /**
- * Renders the flowchart: reads its flows from the payload's source, opens one
- * over many, and lays it out in its frame — see the module docs.
+ * Renders the flowchart: reads its flows from the payload's source, and lays
+ * them out in its frame — see the module docs.
  *
  * @param props - The payload and its storage key
  * @returns The flowchart, in its frame
@@ -185,43 +208,78 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
             </Box>
         );
     }
-    const held = result.value;
-    const open = held.many ? openFlow(held.flows, value.open) : { name: undefined, flow: held.flow };
-    return <FlowchartFrame value={value} name={open?.name} flow={open?.flow ?? NO_FLOW} storageKey={storageKey} />;
+    return <FlowchartFrame value={value} held={result.value} storageKey={storageKey} />;
 }, (prev, next) => payloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 /** Props of {@link FlowchartFrame}. */
 interface FlowchartFrameProps {
     /** The payload, decoded. */
     readonly value: FlowchartValue;
-    /** The open flow's name, over many flows; `undefined` over one. */
-    readonly name: string | undefined;
-    /** The open flow. */
-    readonly flow: FlowchartFlowValue;
+    /** The flows its source holds. */
+    readonly held: FlowsHeld;
     /** The structural storage key. */
     readonly storageKey: string;
 }
 
 /** The frame, its regions holding the flowchart's parts over one shared state. */
-function FlowchartFrame({ value, name, flow, storageKey }: FlowchartFrameProps) {
-    const styles = useSlotRecipe({ key: "flowchart" })();
-    // The counts, the dates and the badges, in the app's locale (#850).
-    const words = useFormatters();
+function FlowchartFrame({ value, held, storageKey }: FlowchartFrameProps) {
+    const styles = useSlotRecipe({ key: "flowchart" })() as Styles;
+    // The counts, the dates and the badges, in the app's locale (#850), and the flowchart's words.
+    const formatters = useFormatters();
+    const words = useMemo((): FlowchartWords => ({ ...formatters, m: flowchartMessages }), [formatters]);
     const canvas = value.canvas;
     const keys = useMemo(() => flowchartKeys(getSomeorUndefined(value.name)), [value.name]);
+
+    // ── The flows, and the one open (FB12) ──────────────────────────────
+    const flows = held.many ? held.flows : undefined;
+    // The session's Apply: a record's, while the flowchart edits. Over `data`, its commit is #1247's.
+    const apply = value.source.type === "record" && !value.readOnly ? value.source.value.apply : undefined;
+    const [opened, openFlow] = useOpenedFlow(keys.flow);
+    // The flow "+ New flow" is starting: open at once, recorded once its session has read its base.
+    const [creating, setCreating] = useState<string | undefined>(undefined);
+    const kept = useKeptSessions(storageKey, keys.flow);
+    // The new flows the sessions hold, not yet applied, as their drafts stand.
+    const fresh = useMemo(() => (flows === undefined ? new Map<string, FlowchartFlowValue>() : newFlows(kept.sessions, (n) => flows.has(n))),
+        // The sessions move under their version.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [flows, kept.sessions, kept.version]);
+    // Whether the flowchart holds a flow of a name: in its flows, or as a new flow, committed or not.
+    const holds = useCallback((n: string) => flows !== undefined
+        && (flows.has(n) || fresh.has(n) || (creating !== undefined && nameEqual(creating, n))), [flows, fresh, creating]);
+    const asked = getSomeorUndefined(value.open);
+    const openName = useMemo(() => (flows === undefined ? undefined
+        : openFlowName([...flows.keys(), ...fresh.keys()], holds, opened, asked)), [flows, fresh, holds, opened, asked]);
+    // `flow` names a flow the flowchart doesn't hold, and the viewer opened none in its place: the banner's (FB42).
+    const missing = missingFlow(holds, opened, asked);
+    const heldFlow = flows !== undefined && openName !== undefined ? flows.get(openName) : undefined;
+
+    // ── The open flow's session (FB14, FB15) ────────────────────────────
+    const flowSession = useFlowSession({ key: keys.flow, name: openName, held: heldFlow, apply, storageKey, sessions: kept.sessions });
+    const session = flowSession.session;
+    useEffect(() => {
+        if (creating === undefined || openName === undefined || !nameEqual(openName, creating) || !flowSession.available) return;
+        // A name another write took meanwhile is the record's: it opens as the record holds it.
+        if (heldFlow === undefined) recordNewFlow(session, creating, emptyFlow(words), words.m.newFlow());
+        setCreating(undefined);
+    }, [creating, openName, heldFlow, flowSession.available, session, words]);
+    // The open flow as its drafts stand; with none, as the record holds it.
+    const pending = session.pending > 0;
+    const flow = !held.many ? held.flow
+        : pending ? (flowSession.drafted ?? NO_FLOW)
+        : (heldFlow ?? flowSession.drafted ?? NO_FLOW);
+    const edits = apply !== undefined && openName !== undefined;
+
     // The open flow's model, the canvas's and the footer's — keyed on the
     // flow's DATA (#809): a closure-only change keeps it.
     const data = useDataStable(flow, flowEqual);
     const model = useMemo(() => buildModel(data, words), [data, words]);
-    // LR · TD: the viewer's, seeded by the canvas's `orientation`, and again when the host's moves.
-    const orientationDefault: FlowchartOrientation = getSomeorUndefined(canvas.orientation)?.type ?? "LR";
-    const [orientation, setOrientation] = useState<FlowchartOrientation>(orientationDefault);
-    useEffect(() => { setOrientation(orientationDefault); }, [orientationDefault]);
+    // LR · TD (FB43): the viewer's, kept under the flowchart's name; the canvas's `orientation` until they pick.
+    const [orientation, setOrientation] = useViewerOrientation(keys.orientation, getSomeorUndefined(canvas.orientation)?.type ?? "LR");
     // Find state over the open flow's states: a pick reveals the state on the canvas.
     const [reveal, setReveal] = useState<FlowchartReveal | null>(null);
     const onPick = useCallback((key: string) => { setReveal((was) => ({ key, seq: (was?.seq ?? 0) + 1 })); }, []);
     const findable = useMemo(() => data.states.map((s) => ({ key: s.key, label: getSomeorUndefined(s.label) })), [data]);
-    const find = useFindState(findable, name ?? "", onPick);
+    const find = useFindState(findable, openName ?? "", onPick);
     // The host's slice over the transitions it builds its flow from (over `data`).
     const sliceChrome = getSomeorUndefined(canvas.slice) as
         | { slice: ValueTypeOf<typeof SliceInternal.Types.Bind>; affordances: ReadonlyArray<{ type: string }> }
@@ -236,24 +294,81 @@ function FlowchartFrame({ value, name, flow, storageKey }: FlowchartFrameProps) 
     const freshness = useMemo(
         () => (freshnessValue === undefined ? undefined : { label: freshnessValue.label, date: getSomeorUndefined(freshnessValue.date) }),
         [freshnessValue]);
-    const items = useFlowchartToolbarItems({ styles, find, orientation, onOrientation: setOrientation, freshness, slice, affordances, words });
+
+    // ── The history item and the banners: the open flow's session (FB15) ──
+    const onAction = useCallback((action: HistoryAction) => {
+        switch (action) {
+            case "undo": session.undo(); return;
+            case "redo": session.redo(); return;
+            case "discard": session.discard(); return;
+            case "refresh": session.refresh(); return;
+            case "apply": void session.apply(); return;
+        }
+    }, [session]);
+    // An issue is the flow's it names, which opens; one of the record's as a whole names none.
+    const onIssue = useCallback((issue: EditIssue) => { if (!nameEqual(issue.entry, "")) openFlow(issue.entry); }, [openFlow]);
+    const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, onAction, showError: false }) : undefined;
+    const items = useFlowchartToolbarItems({ styles, find, orientation, onOrientation: setOrientation, freshness, slice, affordances, words, history });
     const saved = useLastSave(value.source, words);
-    const start = useMemo(() => libraryPane(value.library), [value.library]);
+
+    // ── The Flows tab (FB13, FB14) ──────────────────────────────────────
+    const cards = useMemo((): FlowCard[] => {
+        if (flows === undefined) return [];
+        const names = [...new Set([...flows.keys(), ...fresh.keys()])].sort(nameOrder);
+        return names.flatMap((n): FlowCard[] => {
+            const own = kept.sessions.get(n);
+            const drafts = own !== undefined && own.pending > 0;
+            const shown = (drafts ? draftedFlow(own, n) : undefined) ?? flows.get(n) ?? fresh.get(n);
+            return shown === undefined ? [] : [{ name: n, flow: shown, pending: drafts }];
+        });
+        // The sessions move under their version.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [flows, fresh, kept.sessions, kept.version]);
+    const onCreate = useCallback((n: string) => {
+        setCreating(n);
+        openFlow(n);
+    }, [openFlow]);
+    const newFlow = useMemo((): NewFlowProps | undefined => (apply === undefined || flows === undefined ? undefined : {
+        taken: new Set(cards.map((c) => c.name)),
+        onCreate,
+    }), [apply, flows, cards, onCreate]);
+    const flowsTab = useMemo(() => (flows === undefined ? undefined : {
+        count: words.number(cards.length),
+        body: <FlowsTab cards={cards} open={openName} onOpen={openFlow} newFlow={newFlow}
+            id={`${keys.library}:flows`} storageKey={`${keys.library}.flows`} styles={styles} words={words} />,
+    }), [flows, cards, openName, openFlow, newFlow, keys.library, styles, words]);
+    const start = useMemo(() => libraryPane(value.library, flowsTab, words), [value.library, flowsTab, words]);
+
+    // The banners: the open flow's session's, then a `flow` the flowchart doesn't hold, as the Sheet names an entry its record doesn't (FB42).
+    const banners = !edits && missing === undefined ? undefined : (
+        <>
+            {edits && <SessionBanners session={session} words={words} onAction={onAction} />}
+            {missing !== undefined && (
+                <Box data-flowchart-banner="missing">
+                    <BannerView status="neutral" title={words.m.flowMissing({ name: missing, shown: openName })} />
+                </Box>
+            )}
+        </>
+    );
+
     return (
         <Box css={styles.root} data-flowchart-root="" data-density={getSomeorUndefined(canvas.density)?.type}>
             <BuilderFrame
                 storageKey={keys.frame}
                 toolbar={items}
+                banners={banners}
                 start={start}
                 end={value.inspector ? INSPECTOR_PANE : undefined}
                 footer={
-                    <FlowchartFooter styles={styles} name={name} links={flow.links.length}
+                    <FlowchartFooter styles={styles} name={openName} links={flow.links.length}
                         narrowedFrom={total !== undefined && narrowed !== undefined && narrowed < total ? total : undefined}
                         counts={model.counts} saved={saved} words={words} />
                 }
             >
-                <FlowchartCanvasView canvas={canvas} model={model} orientation={orientation} reveal={reveal}
-                    readOnly={value.readOnly} storageKey={storageKey} />
+                {held.many && openName === undefined
+                    ? <NoFlows newFlow={newFlow} styles={styles} words={words} />
+                    : <FlowchartCanvasView canvas={canvas} model={model} orientation={orientation} reveal={reveal}
+                        readOnly={value.readOnly} storageKey={storageKey} />}
             </BuilderFrame>
         </Box>
     );

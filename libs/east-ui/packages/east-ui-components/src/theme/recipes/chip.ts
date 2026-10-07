@@ -26,7 +26,7 @@
  * muted meta word such as a day count (`data-chip-meta`), and a clause's
  * remove (`data-chip-remove`) — the pointer's, in the link's ink (#1231). The
  * icon, the caret and the remove are Font Awesome's — the caret its caret-down,
- * the remove its xmark — never a text glyph (#1263). The caret and the remove
+ * the remove its xmark — never a text glyph (#1246, #1263). The caret and the remove
  * take their own width (`--fa-width: auto`), never Font Awesome 7's fixed
  * 1.25em, so each is as wide as the glyph it replaced and the chip keeps its
  * width: the caret, 5px at its 8px; the remove, at 0.8em, the mono `×`'s 0.6em

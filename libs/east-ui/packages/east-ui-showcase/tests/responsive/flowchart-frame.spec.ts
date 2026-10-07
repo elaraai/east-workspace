@@ -18,9 +18,10 @@
  * it has scrolled; find
  * state's query, typed a key at a time, finds a state by its label, and a
  * pick selects it and scrolls it into the canvas's view. In both themes; on a
- * phone the row holds every item, folded, and on a touch screen 1920px wide
- * every item unfolded. Every measurement is polled until it holds, on a page
- * at rest.
+ * phone the row holds every item, folded — LR · TD's chip with Font Awesome's
+ * caret, sized by the chip recipe — and on a touch screen 1920px wide every
+ * item unfolded. Every measurement is polled until it holds, on a page at
+ * rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test flowchart-frame --project desktop`.
@@ -246,7 +247,7 @@ test.describe("The Flowchart's frame on a phone and on a touch screen (#1245)", 
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`on the phone the row holds every item, folded — the rail's icon, LR · TD's chip, find state's icon — in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
+        test(`on the phone the row holds every item, folded — the rail's icon, LR · TD's chip, its caret Font Awesome's, find state's icon — in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {
             const root = await openDepot(page, theme);
             const bar = await toolbarOf(root);
             expect([bar.band, bar.rows, bar.past]).toEqual([44, 1, []]);
@@ -255,6 +256,14 @@ test.describe("The Flowchart's frame on a phone and on a touch screen (#1245)", 
             for (const control of ["[data-toolbar-item='rail'] [data-slot='railTrigger']", "[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']"]) {
                 await expect(root.locator(control)).toBeVisible();
             }
+            // LR · TD's chip: its caret Font Awesome's solid caret-down (#1246), the chip recipe sizing it —
+            // 8px tall, and its own width, never Font Awesome's fixed 1.25em, so the chip is no wider than a glyph made it.
+            const caret = root.locator("[data-flowchart-segmenu] [data-chip-caret] svg");
+            await expect(caret).toHaveCount(1);
+            expect(await caret.evaluate((svg) => {
+                const box = svg.getBoundingClientRect();
+                return [svg.getAttribute("data-prefix"), svg.getAttribute("data-icon"), Math.round(box.height), Math.round(box.width)];
+            })).toEqual(["fas", "caret-down", 8, 5]);
         });
 
         test(`on a touch screen 1920px wide the row holds every item unfolded, in its 44px band, nothing past its edge (${theme})`, async ({ page }) => {

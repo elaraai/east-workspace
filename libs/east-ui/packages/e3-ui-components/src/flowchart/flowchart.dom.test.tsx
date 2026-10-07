@@ -20,7 +20,7 @@
  * at that size, and the toolbar folds nothing.
  */
 
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -30,7 +30,9 @@ import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { sliceConfig } from "@elaraai/east-ui-components/testing";
 import { flowchartKeys, type FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EastChakraFlowchart, openFlow, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
+import { EastChakraFlowchart, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
+import { flowchartMessages } from "./messages.js";
+import { openFlowName } from "./open-flow.js";
 
 beforeAll(() => {
     class RO {
@@ -39,6 +41,11 @@ beforeAll(() => {
         disconnect(): void { /* noop */ }
     }
     (globalThis as { ResizeObserver?: unknown }).ResizeObserver = RO;
+});
+
+// Each test its own UI store: the flow a test opens, and its sessions, stay its own.
+beforeEach(() => {
+    initializeStore(new UIStore());
 });
 
 afterEach(() => {
@@ -125,10 +132,12 @@ const FLOWS = new SortedMap<string, FlowchartFlowValue>([["Sort", sortFlow()], [
 /** A record's history and patch write, as the record runtime decodes them — unused until the flowchart commits (#1247). */
 const HISTORY = () => none;
 const PATCH = async () => variant("committed", { commitHash: "c", stateHash: "s" });
+/** The editing session's Apply through the record — unused here: these flowcharts make no draft. */
+const APPLY = async () => variant("applied", { revision: none });
 
 /** A record of the depot's flows, its history the commits given. */
 function record(history: () => ReturnType<typeof HISTORY> | ReturnType<typeof committed> = HISTORY): FlowchartValue["source"] {
-    return variant("record", { read: () => FLOWS, history, commit: { patch: PATCH } });
+    return variant("record", { read: () => FLOWS, history, commit: { patch: PATCH }, apply: APPLY });
 }
 
 /** A history, newest first, whose newest commit was made `at` and the one before it long before. */
@@ -270,7 +279,8 @@ describe("the frame's panes and footer (#1245)", () => {
     it("a library that lists tabs is the start pane, its tabs in order; an inspector given is the end pane", () => {
         const { container } = mount({ ...payload(record()), library: LIBRARY, inspector: true });
         const start = container.querySelector("[data-frame-slot='start']")!;
-        expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Flows", "Steps"]);
+        // The Flows tab counts the record's flows (#1246); the templates' tab is #1248's.
+        expect([...start.querySelectorAll("[role='tab']")].map((t) => t.textContent)).toEqual(["Flows 2", "Steps"]);
         expect(container.querySelector("[data-frame-slot='end']")!.textContent).toContain("Inspector");
     });
 
@@ -348,31 +358,34 @@ describe("the flow the source holds (#1244)", () => {
     it("over a record of flows, the canvas reads the record where it renders", () => {
         let reads = 0;
         const read = (): typeof FLOWS => { reads++; return FLOWS; };
-        const { container } = mount(payload(variant("record", { read, history: HISTORY, commit: { patch: PATCH } }), some("Sort")));
+        const { container } = mount(payload(variant("record", { read, history: HISTORY, commit: { patch: PATCH }, apply: APPLY }), some("Sort")));
         expect(reads).toBeGreaterThan(0);
         expect(stateKeys(container)).toContain("SRD");
     });
 
     it("a lone flow is a record of flows with one entry, and the canvas shows it", () => {
         const one = new SortedMap<string, FlowchartFlowValue>([["Returns", RETURNS]], compareFor(StringType));
-        const { container } = mount(payload(variant("record", { read: () => one, history: HISTORY, commit: { patch: PATCH } })));
+        const { container } = mount(payload(variant("record", { read: () => one, history: HISTORY, commit: { patch: PATCH }, apply: APPLY })));
         expect(stateKeys(container)).toEqual(["RCV", "INS"]);
     });
 
-    it("an empty record of flows draws an empty canvas, in its frame", () => {
+    it("an empty record of flows shows, in its frame's main, the shared empty state — and \"+ New flow\" in it (#1246)", () => {
         const empty = new SortedMap<string, FlowchartFlowValue>([], compareFor(StringType));
-        const { container } = mount(payload(variant("record", { read: () => empty, history: HISTORY, commit: { patch: PATCH } })));
+        const { container } = mount(payload(variant("record", { read: () => empty, history: HISTORY, commit: { patch: PATCH }, apply: APPLY })));
         expect(container.querySelector("[data-flowchart-root] > [data-builder-frame]")).not.toBeNull();
         expect(stateKeys(container)).toEqual([]);
+        const main = container.querySelector("[data-frame-slot='main']")!;
+        expect(main.querySelector("[data-flowchart-no-flows]")!.textContent).toContain(flowchartMessages.flowsEmpty());
+        expect(main.querySelector("[data-flowchart-new-flow]")!.textContent).toBe(flowchartMessages.newFlow());
+        expect(main.querySelector("[data-flowchart-body]")).toBeNull();
     });
 
-    it("a flow that comes after an empty record is drawn: the canvas's box was measured while it was empty", () => {
-        const empty = new SortedMap<string, FlowchartFlowValue>([], compareFor(StringType));
-        const { container, rerender } = mount(payload(variant("record", { read: () => empty, history: HISTORY, commit: { patch: PATCH } })));
+    it("a flow that comes after an empty one is drawn: the canvas's box was measured while it was empty", () => {
+        const { container, rerender } = mount(payload(hostFlow({ ...sortFlow(), lanes: [], states: [], links: [] })));
         expect(stateKeys(container)).toEqual([]);
         rerender(
             <ChakraProvider value={system}>
-                <EastChakraFlowchart value={payload(record(), some("Sort"))} storageKey="test.flowchart" />
+                <EastChakraFlowchart value={payload(hostFlow(sortFlow()))} storageKey="test.flowchart" />
             </ChakraProvider>,
         );
         expect(stateKeys(container)).toEqual(["IND", "CH*", "SRD", "GONE"]);
@@ -380,19 +393,22 @@ describe("the flow the source holds (#1244)", () => {
 
     it("a record that cannot be read says why, in its frame's main, in place of the canvas", () => {
         const read = (): typeof FLOWS => { throw new Error("the record is not loaded"); };
-        const { container } = mount(payload(variant("record", { read, history: HISTORY, commit: { patch: PATCH } })));
+        const { container } = mount(payload(variant("record", { read, history: HISTORY, commit: { patch: PATCH }, apply: APPLY })));
         const main = container.querySelector("[data-flowchart-root] [data-frame-slot='main']")!;
         expect(main.textContent).toContain("The flows could not be read: the record is not loaded");
         expect(container.querySelector("[data-flowchart-body]")).toBeNull();
     });
 
-    it("openFlow names the open flow by East's order of names", () => {
-        const [a, b, upper] = [sortFlow(), { ...RETURNS }, { ...RETURNS }];
-        const byName = new SortedMap<string, FlowchartFlowValue>([["b", b], ["a", a], ["C", upper]], compareFor(StringType));
-        expect(openFlow(byName, none)).toEqual({ name: "C", flow: upper });
-        expect(openFlow(byName, none)!.flow).toBe(upper);
-        expect(openFlow(byName, some("a"))).toEqual({ name: "a", flow: a });
-        expect(openFlow(byName, some("Gone"))!.name).toBe("C");
-        expect(openFlow(new SortedMap([], compareFor(StringType)), some("a"))).toBeUndefined();
+    it("the open flow is the one the viewer opened, while it is held; else `flow`; else the first by East's order of names; else none (FB12)", () => {
+        const byName = new SortedMap<string, FlowchartFlowValue>([["b", sortFlow()], ["a", sortFlow()], ["C", RETURNS]], compareFor(StringType));
+        const holds = (name: string) => byName.has(name);
+        const names = [...byName.keys()];
+        expect(openFlowName(names, holds, undefined, undefined)).toBe("C");
+        expect(openFlowName(names, holds, undefined, "a")).toBe("a");
+        expect(openFlowName(names, holds, "b", "a")).toBe("b");
+        // Opened, or named first, but not held: the next rule's.
+        expect(openFlowName(names, holds, "Gone", "a")).toBe("a");
+        expect(openFlowName(names, holds, "Gone", "Lost")).toBe("C");
+        expect(openFlowName([], () => false, "a", "a")).toBeUndefined();
     });
 });

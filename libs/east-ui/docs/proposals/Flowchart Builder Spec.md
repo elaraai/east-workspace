@@ -423,7 +423,7 @@ parts reuses the parts' interface types.
 FlowchartPayloadType = StructType({
     canvas:    FlowchartCanvasType,                    // today's root, less the tables and the callbacks that go: the drawing options, hover, selection, canConnect, slice
     source:    VariantType({                           // where the flows come from
-        record: StructType({ read, history, commit: StructType({ patch }) }),   //   a record of flows by name, bound with its patch: Record.bind's handle
+        record: StructType({ read, history, commit: StructType({ patch }), apply }),   //   a record of flows by name, bound with its patch: Record.bind's handle, and `apply`, its session's commit — Record.onApply(record, { keyed: true }) over the batch (#1246)
         data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked
             flows: StructType({ value: Flowchart.Types.Flows, onApply: OptionType(…) }),
             flow:  StructType({ value: Flowchart.Types.Flow,  onApply: OptionType(…) }),
@@ -611,6 +611,18 @@ has a test there. Today's canvas behaviour keeps holding.
 - **FB16.** Over one flow — `data` of `Flowchart.Types.Flow` — there is no
   Flows tab (`flows()` is refused), and the canvas shows the flow. A record's
   lone flow is its one entry, which the Flows tab lists.
+- **FB42.** When `flow` names a flow the flowchart doesn't hold — in its flows,
+  or as a new flow — the canvas shows FB12's next flow, and a banner above
+  main, the shared `BannerView` in the neutral tone of the Sheet's banner for
+  an entry its record doesn't hold, names the flow asked for and the one shown
+  (`Gone isn't a flow here — showing Inbound parcels`). It stays while that
+  holds, and goes once the viewer opens a flow or the record gains that name.
+  (§7's banner; assigned to #1246, which keeps the open flow under `name`.)
+- **FB43.** LR · TD is the viewer's (§4.1): kept in the UI store under the
+  flowchart's `name` (`flowchartKeys(name).orientation`), as the open flow is,
+  so a remount keeps it and two flowcharts of one name share it. The payload's
+  `orientation` is the first value, shown until the viewer picks; a pick then
+  holds against it.
 
 ### 9.6 Editing, undo and Apply (owner: the editing)
 
@@ -749,7 +761,7 @@ has a test there. Today's canvas behaviour keeps holding.
 3. The Flowchart moves to e3 (FB2, FB3, #1243).
 4. The flow types and the payload (FB4–FB6, #1244).
 5. The frame and the toolbar (FB7–FB11, #1245).
-6. The flows and the Flows tab (FB12–FB16, #1246).
+6. The flows and the Flows tab (FB12–FB16, FB42, FB43, #1246).
 7. Editing, undo and Apply (FB17–FB24, #1247).
 8. The library: state and transition templates, the author's tabs (FB25–FB29, #1248).
 9. Drag and drop (FB30–FB34, #1249).

@@ -4,11 +4,11 @@
  */
 
 /**
- * The Flowchart (#1243, #1244, #1245): the state-transition flowchart, e3-ui's
- * as the Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows
- * from an e3 record of flows by name, or from the host — flows by name, or one
- * flow — and returns its payload through the `Flowchart` carrier, which
- * e3-ui-components' renderer draws in its builder frame.
+ * The Flowchart (#1243, #1244, #1245, #1246): the state-transition flowchart,
+ * e3-ui's as the Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes
+ * its flows from an e3 record of flows by name, or from the host — flows by
+ * name, or one flow — and returns its payload through the `Flowchart`
+ * carrier, which e3-ui-components' renderer draws in its builder frame.
  *
  * - `types.ts` — the flow, the record of flows, and the row, closed-set and
  *   event types (`Flowchart.Types.*`).
@@ -16,6 +16,7 @@
  *   written as literals and checked when the package builds.
  * - `over.ts` — `Flowchart.over`, one flow from an app's own tables.
  * - `patch.ts` — `Flowchart.patch`, a patch over one of a flow's rows.
+ * - `library.ts` — `Flowchart.library`, the library pane's tabs: the Flows tab.
  * - `canvas.ts` — the canvas: what the flowchart draws its flow with.
  * - `payload.ts` — the payload, its carrier, the shared keys, the props and
  *   their refusals.
@@ -26,6 +27,7 @@
 
 import { FlowchartTag, type FlowchartTagType } from "./flowchart.js";
 import { FlowchartCanvasType } from "./canvas.js";
+import { FlowchartLibraryFactories, type FlowchartLibrary } from "./library.js";
 import { flowchartOver } from "./over.js";
 import { FlowchartPatchTypeFor, flowchartPatch } from "./patch.js";
 import {
@@ -38,6 +40,7 @@ import {
     FlowchartLaneCardType,
     FlowchartLibraryTabType,
     FlowchartPayloadType,
+    FlowchartSessionApplyType,
     FlowchartSourceType,
     FlowchartStateCardType,
     FlowchartTransitionCardType,
@@ -86,6 +89,13 @@ export {
 } from "./over.js";
 export { FlowchartPatchTypeFor, flowchartPatch, type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput } from "./patch.js";
 export {
+    FlowchartLibraryFactories,
+    libraryFlows,
+    type FlowchartLibrary,
+    type FlowchartLibraryTab,
+    type FlowchartOneFlowLibraryTab,
+} from "./library.js";
+export {
     FlowchartCardType,
     FlowchartComponent,
     FlowchartDataType,
@@ -98,6 +108,7 @@ export {
     FlowchartLaneCardType,
     FlowchartLibraryTabType,
     FlowchartPayloadType,
+    FlowchartSessionApplyType,
     FlowchartSourceType,
     FlowchartStateCardType,
     FlowchartTransitionCardType,
@@ -191,6 +202,8 @@ export interface FlowchartNamespace extends FlowchartTagType {
     over: typeof flowchartOver;
     /** A patch over one of a flow's rows ({@link flowchartPatch}). */
     patch: typeof flowchartPatch;
+    /** The library pane's tabs, each a factory `library` lists ({@link FlowchartLibrary}). */
+    library: FlowchartLibrary;
     /** The East types a flowchart is written with ({@link FlowchartTypes}). */
     Types: FlowchartTypes;
 }
@@ -201,6 +214,7 @@ const MEMBERS = {
     values: flowchartValues,
     over: flowchartOver,
     patch: flowchartPatch,
+    library: FlowchartLibraryFactories,
     Types: TYPES,
 };
 
@@ -213,10 +227,19 @@ const MEMBERS = {
  * @remarks
  * - **Its frame**: it renders in its builder frame wherever it is used — one
  *   toolbar (find state, LR · TD, the freshness chip and, over `data`, the
- *   slice's rail), the canvas filling main and scrolling both ways inside it,
- *   and the footer's counts; a library pane when `library` lists tabs, and an
- *   inspector pane when given `inspector`. It fills the box it is given and
- *   draws no border: give it a box of its own height.
+ *   slice's rail; over a record, the history item), the canvas filling main
+ *   and scrolling both ways inside it, and the footer's counts; a library pane
+ *   when `library` lists tabs, and an inspector pane when given `inspector`.
+ *   It fills the box it is given and draws no border: give it a box of its
+ *   own height.
+ * - **Its open flow**, over many flows: `flow`, else the first by name, until
+ *   the viewer opens another — from the Flows tab
+ *   (`Flowchart.library.flows()`), which lists every flow by name — kept in
+ *   the UI store under its `name`, so a remount opens it again; a `flow` it
+ *   doesn't hold is named in a banner above main. LR · TD is the viewer's
+ *   too, kept under its `name`. Over a record, "+ New flow" names a new flow,
+ *   opened empty with one lane; each flow keeps its own drafts until the
+ *   history item commits or discards them.
  * - **Its flows** are an e3 record's (`record`): `Flowchart.Types.Flows`,
  *   flows by name, bound with its patch mutation, the canvas showing `flow`,
  *   else the first by name. A record always holds flows by name (ruled
@@ -239,7 +262,8 @@ const MEMBERS = {
  *   `slice` or `affordances` over a record; `flow` over one flow; a record of
  *   one flow, or of another type, or not bound with its patch mutation;
  *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
- *   it fills sets.
+ *   it fills sets; a library that lists a tab twice, or the Flows tab over
+ *   one flow.
  *
  * The closed-set fields in data (`kind`, `orientation`, `linkMode`) are typed
  * variant values, `Flowchart.Types.*`.
@@ -286,7 +310,11 @@ const MEMBERS = {
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
- *         return <Box height="500px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+ *         return (
+ *             <Box height="500px">
+ *                 <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+ *             </Box>
+ *         );
  *     }}</Reactive>
  * ));
  * ```
@@ -315,6 +343,8 @@ export interface FlowchartInternalNamespace extends FlowchartNamespace {
         Data: typeof FlowchartDataType;
         /** A record of flows, bound ({@link FlowchartFlowsHandleType}). */
         FlowsHandle: typeof FlowchartFlowsHandleType;
+        /** The editing session's Apply over a record of flows ({@link FlowchartSessionApplyType}). */
+        SessionApply: typeof FlowchartSessionApplyType;
         /** One tab of the library ({@link FlowchartLibraryTabType}). */
         LibraryTab: typeof FlowchartLibraryTabType;
         /** An author's tab's cards, by what they land on ({@link FlowchartLandsType}). */
@@ -354,6 +384,7 @@ export const FlowchartInternal: FlowchartInternalNamespace = Object.assign(Flowc
         Source: FlowchartSourceType,
         Data: FlowchartDataType,
         FlowsHandle: FlowchartFlowsHandleType,
+        SessionApply: FlowchartSessionApplyType,
         LibraryTab: FlowchartLibraryTabType,
         Lands: FlowchartLandsType,
         Card: FlowchartCardType,

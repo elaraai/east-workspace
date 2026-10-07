@@ -333,7 +333,11 @@ export function flowchartValue(flow: FlowchartFlowInput): FlowValue {
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
- *         return <Box height="500px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+ *         return (
+ *             <Box height="500px">
+ *                 <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+ *             </Box>
+ *         );
  *     }}</Reactive>
  * ));
  * ```

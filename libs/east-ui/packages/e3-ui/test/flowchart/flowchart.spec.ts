@@ -13,9 +13,12 @@
  * back through the `Flowchart` carrier's beast2 bytes; a record of one flow
  * refused, as the user ruled (2026-10-07: e3's patch mutation writes only
  * keyed records); every refusal of §4.4 this child owns, each naming its
- * prop; the tag's forms, type by type; and the frame's (#1245): the keys its
+ * prop; the tag's forms, type by type; the frame's (#1245): the keys its
  * panes keep their state under, and no height of its own — the flowchart fills
- * the box it is given.
+ * the box it is given; and the flows' (#1246): the Flows tab on the wire,
+ * refused twice and over one flow, the keys the open flow and LR · TD are
+ * kept under, and the editing session's Apply over a record, a keyed batch
+ * committed as one patch through the record's patch mutation.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -23,7 +26,7 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
     ArrayType, AsyncFunctionType, BooleanType, DictType, East, Expr, FunctionType, IntegerType, NullType, OptionType, PatchType, SortedMap,
-    StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeEqual, none, some, variant,
+    StringType, StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, Slice, UIComponentType } from "@elaraai/east-ui";
@@ -373,6 +376,50 @@ describe("the payload (FB6)", () => {
         assert.deepEqual([payload.open, payload.name, payload.inspector, payload.readOnly, payload.library], [some("Returns"), some("depot"), true, false, []]);
     });
 
+    hostTest("over a record, the editing session's Apply commits its keyed batch as one patch through the record's patch mutation — a new flow's insert by name (#1246)", async () => {
+        // A record whose patch write answers with the patch it was handed, printed, as the state it wrote.
+        const printPatch = printFor(PatchType(FlowsType));
+        const echoing = East.function([], RecordBindHandleType(FlowsType, { patch: [PatchType(FlowsType)] }), (_$) => ({
+            read: East.function([], FlowsType, (_$2) => FLOWS),
+            status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+            history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
+            mutate: {
+                pending: East.function([], BooleanType, (_$2) => false),
+                status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
+                error: East.function([], OptionType(RecordErrorType), (_$2) => none),
+                cancel: East.function([], NullType, (_$2) => null),
+                patch: East.function([PatchType(FlowsType)], NullType, (_$2) => null),
+            },
+            commit: {
+                patch: East.asyncFunction([StringType, PatchType(FlowsType)], RecordOutcomeType,
+                    (_$2, requestId, patch) => variant("committed", { commitHash: requestId, stateHash: East.print(patch) })),
+            },
+            start: East.function([], NullType, (_$2) => null),
+            binding: { name: "flows", mutations: ["patch"] },
+        }) as never);
+        const payload = carried(($) => PublicFlowchart({ record: $.let(echoing()) }));
+        if (payload.source.type !== "record") assert.fail(`expected the record arm, got ${payload.source.type}`);
+        // The session's batch: a new flow, one lane, inserted under its name.
+        const night: Flow = { description: none, lanes: [{ key: "lane-1", label: some("Lane 1") }], states: [], links: [], triggers: [] };
+        const ChangeSet = Editing.Types.ChangeSet(FlowType, StringType);
+        const batch = encodeBeast2For(ChangeSet)({
+            requestId: "r-1", base: variant("snapshot", new SortedMap([], compareFor(StringType))), label: "New flow",
+            changes: [{ id: "Night shift", patch: diffFor(OptionType(FlowType))(none, some(night)), place: some(variant("keyOrder", null)) }],
+        });
+        const answer = await payload.source.value.apply(batch);
+        const inserted = new SortedMap([["Night shift", variant("insert", night)]], compareFor(StringType));
+        assert.deepEqual(answer, variant("applied", { revision: some(printPatch(variant("patch", inserted) as never)) }),
+            "one commit through the patch door: the flow inserted by name, and nothing else");
+    });
+
+    hostTest("Flowchart.library.flows() is the Flows tab on the wire, over a record of flows and over the host's flows by name (#1246)", () => {
+        const overRecord = carried(($) => PublicFlowchart({ record: $.let(flowsRecord()), library: [PublicFlowchart.library.flows()] }));
+        const overData = carried((_$) => PublicFlowchart({ data: FLOWS, library: [PublicFlowchart.library.flows()] }));
+        const noTab = carried((_$) => PublicFlowchart({ data: FLOWS, library: [] }));
+        assert.deepEqual([overRecord.library, overData.library, noTab.library], [[variant("flows", null)], [variant("flows", null)], []]);
+        assert.deepEqual(PublicFlowchart.library.flows(), { kind: "flows" });
+    });
+
     hostTest("an e3 record of flows binds with e3.mutation.patch; e3 gives a record of one flow none, so a record always holds flows by name", () => {
         const flows = e3.record("flowchart_spec_flows", FlowsType, FLOWS);
         const one = e3.record("flowchart_spec_one", FlowType, INBOUND_VALUE);
@@ -457,9 +504,11 @@ describe("the payload (FB6)", () => {
         assert.ok(equalFor(tabsType)(decodeBeast2For(tabsType)(encodeBeast2For(tabsType)(tabs)), tabs));
     });
 
-    hostTest("a flowchart keeps its frame's panes — their open tab and collapsed state — under its name (#1245)", () => {
-        assert.deepEqual(flowchartKeys(undefined), { frame: "flowchart.frame" });
-        assert.deepEqual(flowchartKeys("depot"), { frame: "flowchart.depot.frame" });
+    hostTest("a flowchart keeps its frame's panes (#1245), its open flow, its library and LR · TD (#1246) under its name", () => {
+        assert.deepEqual(flowchartKeys(undefined),
+            { frame: "flowchart.frame", flow: "flowchart.flow", library: "flowchart.library", orientation: "flowchart.orientation" });
+        assert.deepEqual(flowchartKeys("depot"),
+            { frame: "flowchart.depot.frame", flow: "flowchart.depot.flow", library: "flowchart.library.depot", orientation: "flowchart.depot.orientation" });
     });
 });
 
@@ -510,6 +559,12 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `height` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … \/><\/Box>$/],
         ["`maxHeight`, which the box the flowchart fills sets (#1245)", (_$) => ({ data: INBOUND_VALUE, maxHeight: "560px" }),
             /^Error: Flowchart: `maxHeight` is not a prop — the flowchart fills the box it is given/],
+        ["the Flows tab over one flow (#1246, FB16)", (_$) => ({ data: INBOUND_VALUE, library: [Flowchart.library.flows()] }),
+            /^Error: Flowchart: Flowchart\.library\.flows\(\) lists flows by name, and this `data` is one flow, Flowchart\.Types\.Flow — leave the Flows tab out of `library`, or pass the flows by name$/],
+        ["the Flows tab listed twice (#1246)", ($) => ({ record: $.let(flowsRecord()), library: [Flowchart.library.flows(), Flowchart.library.flows()] }),
+            /^Error: Flowchart: the library lists Flowchart\.library\.flows\(\) twice — each tab once$/],
+        ["a `library` that is no list of Flowchart.library calls (#1246)", (_$) => ({ data: FLOWS, library: [{ kind: "rows" }] }),
+            /^Error: Flowchart: `library` lists the library pane's tabs, each a Flowchart\.library\.\* call — library=\{\[Flowchart\.library\.flows\(\)\]\}$/],
     ];
     for (const [what, props, refusal] of refusals) {
         hostTest(`refuses ${what}`, () => {
@@ -541,9 +596,11 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             const applyFlows = $.const(East.asyncFunction([PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             const applyFlow = $.const(East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             // Each form, as it is written.
-            PublicFlowchart({ record: flows, flow: "Returns", inspector: true, name: "depot" });
-            PublicFlowchart({ data: FLOWS, flow: "Returns", onApply: applyFlows, slice, affordances: ["search"] });
-            PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow });
+            PublicFlowchart({ record: flows, flow: "Returns", inspector: true, name: "depot", library: [PublicFlowchart.library.flows()] });
+            PublicFlowchart({ data: FLOWS, flow: "Returns", onApply: applyFlows, slice, affordances: ["search"], library: [PublicFlowchart.library.flows()] });
+            PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow, library: [] });
+            // @ts-expect-error — one flow has no Flows tab: there are no flows by name to list (#1246, FB16)
+            PublicFlowchart({ data: INBOUND_VALUE, library: [PublicFlowchart.library.flows()] });
             // @ts-expect-error — a record holds flows by name: a lone flow is a record of one entry, or `data`
             PublicFlowchart({ record: one });
             // @ts-expect-error — a record commits through its patch mutation, never the host's onApply
