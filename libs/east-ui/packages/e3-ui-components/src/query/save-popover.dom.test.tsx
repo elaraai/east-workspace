@@ -16,6 +16,8 @@
  * untouched or cleared and the text once edited; it closes once the host has saved, and
  * shows what refused the save otherwise. While the save runs Save is loading
  * and both buttons are disabled; Esc cancels, and each opening starts over.
+ * Hung from the ⋯ chip Save… folds into (#1229), it opens from the chip's
+ * menu, beside the chip, and gives the focus back to the chip as it closes.
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -45,10 +47,25 @@ const counted = (n: number) => `${n}/140 · shown under the name in the library`
 
 type Save = QuerySavePopoverProps["onSave"];
 
+/** What a harness gives the popover: all but what it hangs from and whether it is open. */
+type Given = Omit<QuerySavePopoverProps, "open" | "onOpenChange" | "trigger" | "anchor">;
+
 /** The toolbar's Save… and the popover it opens, over the open query, as the builder places them. */
-function SaveHarness(props: Omit<QuerySavePopoverProps, "open" | "onOpenChange" | "trigger">) {
+function SaveHarness(props: Given) {
     const [open, setOpen] = useState(false);
     return <QuerySavePopover {...props} open={open} onOpenChange={setOpen} trigger={<button type="button">Save…</button>} />;
+}
+
+/** The ⋯ chip the popover hangs from once Save… has folded into it (#1229), and its menu's Save…, which opens it. */
+function AnchoredHarness(props: Given) {
+    const [open, setOpen] = useState(false);
+    return (
+        <>
+            <QuerySavePopover {...props} open={open} onOpenChange={setOpen} anchor={<button type="button">⋯</button>} />
+            <button type="button" onClick={() => setOpen(true)}>Save from the menu</button>
+            <button type="button">Elsewhere</button>
+        </>
+    );
 }
 
 /** Let the popover's transitions and the save settle. */
@@ -254,5 +271,58 @@ describe("the query's save popover (#936)", () => {
         const field = descriptionField(again);
         expect([nameField(again).value, field.value, field.hasAttribute("data-generated"), hintOf(field)])
             .toEqual(["Big orders", GENERATED, true, "Generated from the steps · edit to write your own"]);
+    }, 30_000);
+});
+
+describe("the query's save popover hung from the ⋯ chip (#1229)", () => {
+    /** Mount the chip and its menu's Save… over the open query "Big orders", the popover closed. */
+    function mountAnchored(onSave: Save) {
+        render(
+            <ChakraProvider value={system}>
+                <AnchoredHarness name="Big orders" taken={new Set(["Order count"])} description={none} generated={GENERATED} onSave={onSave} />
+            </ChakraProvider>,
+        );
+        return screen.getByRole("button", { name: "⋯" });
+    }
+    /**
+     * Open it, as the chip's menu's Save… does, and wait the frame in which the
+     * popover starts to hear Esc and a click outside: Zag defers that a frame.
+     */
+    async function openFromMenu() {
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save from the menu" })); });
+        await settle();
+        await act(async () => { await new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }); });
+        return within(screen.getByRole("dialog"));
+    }
+
+    test("the chip sits in the popover's anchor, its own props untouched; Save… in its menu opens the popover, which saves; closing, the focus goes back to the chip", async () => {
+        const onSave = vi.fn<Save>(async () => undefined);
+        const chip = mountAnchored(onSave);
+        expect(chip.parentElement!.getAttribute("data-part")).toBe("anchor");
+        expect([chip.getAttribute("aria-haspopup"), chip.getAttribute("data-part")]).toEqual([null, null]);
+        const popover = await openFromMenu();
+        expect(popover.getByText("Save query ·").textContent).toBe("Save query · Big orders");
+        await act(async () => { fireEvent.click(saveButton(popover)); });
+        await closed();
+        expect(onSave.mock.calls).toEqual([["Big orders", none]]);
+        await waitFor(() => expect(document.activeElement).toBe(chip));
+    }, 30_000);
+
+    test("Esc closes it, nothing saved, and the focus goes back to the chip; a control the viewer moves to keeps the focus", async () => {
+        const onSave = vi.fn<Save>(async () => undefined);
+        const chip = mountAnchored(onSave);
+        const popover = await openFromMenu();
+        nameField(popover).focus();
+        await userEvent.keyboard("{Escape}");
+        await closed();
+        await waitFor(() => expect(document.activeElement).toBe(chip));
+        expect(onSave.mock.calls).toEqual([]);
+        // Opened again and left for another control: the focus stays where the viewer put it.
+        await openFromMenu();
+        const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+        await userEvent.click(elsewhere);
+        await closed();
+        await settle();
+        expect(document.activeElement).toBe(elsewhere);
     }, 30_000);
 });

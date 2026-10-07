@@ -78,6 +78,8 @@ export interface SnapGridMessages extends EditingMessages {
     zoomIn: () => string;
     /** The design widths' accessible name. */
     widthsLabel: () => string;
+    /** The View chip a row short of room folds the zoom and the widths into (#1229) — its accessible name. */
+    viewLabel: () => string;
     /** The selection bar with nothing selected. */
     noSelection: () => string;
     /** Beside it, what to do. */
@@ -112,6 +114,7 @@ export const snapGridMessages: SnapGridMessages = {
     zoomOut: () => "Zoom out",
     zoomIn: () => "Zoom in",
     widthsLabel: () => "Design width",
+    viewLabel: () => "View",
     noSelection: () => "No selection",
     noSelectionHint: () => "Click a component on the grid to arrange it",
     applyRefused: () => "The drafts could not be applied",

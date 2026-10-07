@@ -173,6 +173,42 @@ describe("the toolbar's one ladder", () => {
         expect(shown(container)).toEqual(["rail-icon", "tabs-all", "history"]);
     });
 
+    /**
+     * A chip that takes the place of two controls (#1229), as the SnapGrid
+     * editor's View chip does: the segments fold to their icons (rank 40), then
+     * the zoom folds into the chip and the segments hide with it — one bundle
+     * at one rank (50). `chip` is the zoom's folded form.
+     */
+    const viewItems = (chip = form("zoom-chip", 45)): ToolbarItem[] => [
+        { key: "zoom", forms: [form("zoom", 100), chip], rank: 50, bundle: "view" },
+        { key: "widths", forms: [form("widths", 140), form("widths-icons", 72), null], rank: [40, 50], bundle: [undefined, "view"] },
+        { key: "history", side: "end", forms: [form("history", 220)] },
+    ];
+
+    test("a bundle's steps apply together: the chip draws in the step that hides the controls it holds, and the ladder lists every step (#1229)", () => {
+        // 100 + 72 + 220 + 20 = 412: the segments' icons fit.
+        const { container } = mount(viewItems(), 412);
+        expect(shown(container)).toEqual(["zoom", "widths-icons", "history"]);
+        expect(container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("widths>1 zoom>1 widths>2");
+        // At 400 the chip beside the icons (45 + 72 + 220 + 20 = 357) would fit — half the bundle: both steps apply.
+        resize(400);
+        expect(shown(container)).toEqual(["zoom-chip", "history"]);
+        expect(container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-folds")).toBe("3");
+        resize(412);
+        expect(shown(container)).toEqual(["zoom", "widths-icons", "history"]);
+    });
+
+    test("a held member holds its bundle: while the chip's menu is open, the controls it holds never unfold beside it (#1229)", () => {
+        const open = <span data-w={45} data-form-name="zoom-chip"><span data-part="trigger" data-state="open" /></span>;
+        const { container } = mount(viewItems(open), 300);
+        expect(shown(container)).toEqual(["zoom-chip", "history"]);
+        // Room for every control now — the segments' labels too — but the chip holds its menu open.
+        resize(620);
+        expect(shown(container)).toEqual(["zoom-chip", "history"]);
+        resize(300);
+        expect(shown(container)).toEqual(["zoom-chip", "history"]);
+    });
+
     test("an empty form hides the item, and takes no gap", () => {
         const list: ToolbarItem[] = [
             { key: "count", forms: [form("count", 100), null], rank: 1 },

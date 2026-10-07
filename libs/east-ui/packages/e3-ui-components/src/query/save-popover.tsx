@@ -32,13 +32,16 @@
  * locale's; its layout is the `sliceEdit` recipe's, and its description the
  * `input` recipe's field, as its name is.
  *
+ * It hangs from Save…, or — the row short of room, Save… folded into the
+ * toolbar's ⋯ chip (#1229) — from that chip, as its anchor.
+ *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useId, useState, type ChangeEvent, type KeyboardEvent, type ReactElement } from "react";
+import { memo, useCallback, useId, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { OptionType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
-import { useValueSync } from "@elaraai/east-ui-components";
+import { useValueSync, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 import { NamePopover } from "../shared/name-popover.js";
 import { DESCRIPTION_MAX } from "./model/words.js";
 import { useQueryWords } from "./words.js";
@@ -52,14 +55,12 @@ const descriptionEquivalent = equivalentFor(DescriptionType);
 /** Whether a description's data changed — what re-syncs the field. */
 const descriptionEqual = equalFor(DescriptionType);
 
-/** Props of {@link QuerySavePopover}. */
-export interface QuerySavePopoverProps {
+/** Props of {@link QuerySavePopover}: what it hangs from — the toolbar's Save… (`trigger`), which its host renders, or the ⋯ chip (`anchor`) — and the rest. */
+export type QuerySavePopoverProps = SliceEditPopoverAnchor & {
     /** Whether it is open. */
     open: boolean;
     /** Opens or closes it — its trigger, ×, Esc, a click outside, Cancel, or a save that was made. */
     onOpenChange: (open: boolean) => void;
-    /** The one button it hangs from — the toolbar's Save…, which its host renders. */
-    trigger: ReactElement;
     /** The open query's name — its head names it, and its name field offers it each time it opens. */
     name: string;
     /** The names the other saved queries hold; the open query's own saved name is not among them. */
@@ -70,17 +71,17 @@ export interface QuerySavePopoverProps {
     generated: string;
     /** Saves the query under the name, with the description — `none` for the generated sentence — and resolves to what refused the save, or `undefined` once it is saved. */
     onSave: (name: string, description: option<string>) => Promise<string | undefined>;
-}
+};
 
 /**
  * Renders the save popover — see the module docs.
  *
  * @param props - The query it saves, and the save
- * @returns The trigger, and the popover while open
+ * @returns The trigger or the anchor, and the popover while open
  */
-export const QuerySavePopover = memo(function QuerySavePopover({
-    open, onOpenChange, trigger, name, taken, description, generated, onSave,
-}: QuerySavePopoverProps) {
+export const QuerySavePopover = memo(function QuerySavePopover(props: QuerySavePopoverProps) {
+    const { open, onOpenChange, name, taken, description, generated, onSave } = props;
+    const hangs: SliceEditPopoverAnchor = props.trigger !== undefined ? { trigger: props.trigger } : { anchor: props.anchor };
     const edit = useSlotRecipe({ key: "sliceEdit" })() as Styles;
     const input = useRecipe({ key: "input" })({}) as SystemStyleObject;
     const { messages: m, formatters: f } = useQueryWords();
@@ -123,9 +124,9 @@ export const QuerySavePopover = memo(function QuerySavePopover({
         : m.descriptionGenerated();
     return (
         <NamePopover
+            {...hangs}
             open={open}
             onOpenChange={onOpenChange}
-            trigger={trigger}
             label={<>{m.saveQuery()} · <Box as="span" css={edit.clauseField}>{name}</Box></>}
             placeholder={m.queryName()}
             initial={name}
@@ -152,5 +153,5 @@ export const QuerySavePopover = memo(function QuerySavePopover({
 }, (prev, next) =>
     prev.open === next.open && prev.name === next.name && prev.generated === next.generated
     && descriptionEquivalent(prev.description, next.description)
-    && Object.is(prev.taken, next.taken) && Object.is(prev.trigger, next.trigger)
+    && Object.is(prev.taken, next.taken) && Object.is(prev.trigger, next.trigger) && Object.is(prev.anchor, next.anchor)
     && Object.is(prev.onOpenChange, next.onOpenChange) && Object.is(prev.onSave, next.onSave));
