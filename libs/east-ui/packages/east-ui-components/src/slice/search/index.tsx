@@ -29,7 +29,10 @@ export interface EastChakraSliceSearchProps {
  * `⌘K · N matches` eyebrow and the keyboard-hint footer. Typing drives
  * `state.search` via `slice.setSearch`; the host-computed `matches` populate the
  * dropdown as-is (the Combobox does not re-filter); selecting one commits via
- * `slice.setSearch(some(id))`. Free text is the search (`allowCustomValue`):
+ * `slice.setSearch(some(id))`, and the box shows the id. A pick writes nothing
+ * else into the box (`selectionBehavior="preserve"`, #1239): Zag's default
+ * would write the item's label there, which reaches `onInputValueChange` and
+ * commits the label over the id. Free text is the search (`allowCustomValue`):
  * a blur keeps what was typed rather than resetting the box to a picked item
  * — without it, clicking into the narrowed surface cleared the narrowing. The
  * dropdown closes when the focus moves to anything outside it, the box and
@@ -128,6 +131,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                 onOpenChange={trackOpen}
                 openOnClick
                 allowCustomValue
+                selectionBehavior="preserve"
                 flex="1 1 240px"
                 minWidth="200px"
                 maxWidth="480px"
@@ -158,6 +162,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                     onOpenChange={trackOpen}
                     openOnClick
                     allowCustomValue
+                    selectionBehavior="preserve"
                     width="full"
                 >
                     <ChakraCombobox.Control>

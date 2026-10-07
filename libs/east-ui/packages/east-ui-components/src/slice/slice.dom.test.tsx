@@ -1019,6 +1019,30 @@ describe("Slice.Search — combobox drives the query", () => {
         expect(search.value).toBe("SKU");
     });
 
+    // #1239 — a pick searches its id. Zag's default selection behaviour wrote the
+    // picked item's label into the box, and the box's input handler then
+    // committed the label, after the id the pick had committed.
+    for (const density of ["compact", "focused"] as const) {
+        test(`${density}: a suggestion picked searches its id, and the box shows the id — never its label (#1239)`, async () => {
+            const slice = fakeSlice({}, { matches: () => [
+                { id: "SKU-1", label: "Oak board", meta: none },
+                { id: "SKU-2", label: "Ash board", meta: none },
+            ] });
+            const value: any = { slice, recent: [], density: some(variant(density, null)) };
+            ui(<EastChakraSliceSearch value={value} />);
+            const user = userEvent.setup();
+            await user.click(screen.getByPlaceholderText("Search…"));
+            await user.paste("board");
+            const item = (await screen.findByText("Ash board")).closest<HTMLElement>('[data-part="item"]')!;
+            fireEvent.pointerDown(item, { pointerType: "mouse", button: 0 });
+            fireEvent.click(item);
+            // Every commit the pick queued has run: the last is what the slice searches.
+            await act(async () => { await Promise.resolve(); });
+            expect(slice.read().search).toEqual(some("SKU-2"));
+            expect((screen.getByPlaceholderText("Search…") as HTMLInputElement).value).toBe("SKU-2");
+        });
+    }
+
     // #1228 — on a touch screen Zag hears no focus move outside an open list,
     // so the search hears it, as Zag does on a desktop, and closes its own; a
     // blur to nothing moves the focus nowhere, and closes nothing.
