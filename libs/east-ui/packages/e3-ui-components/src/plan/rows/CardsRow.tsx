@@ -24,6 +24,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
+import { usePlanElementOverlap } from "./element-overlap.js";
 import { chipName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -62,10 +63,13 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
     const ref = variant("chip", { row: rowId, chip: chip.key }) as PlanElementRefValue;
     // An event's chip selects its event (#1197); any other chip, its row.
     const select = usePlanElementSelect(rowKey, chip.key, ref);
+    // An event in an overlap pair wears the warn ring (#1198).
+    const overlap = usePlanElementOverlap(chip.key);
     return (
         <Box css={styles.cardChip}
             data-ctx={ctx === true ? "" : undefined}
             data-chip={chip.key}
+            data-overlap={overlap ? "" : undefined}
             // Focusable: Enter opens its popover (#816), and the
             // row's Tab walk reaches it (#819).
             tabIndex={-1}

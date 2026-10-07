@@ -36,6 +36,7 @@ import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 import { usePlanElementSelect } from "./element-select.js";
+import { usePlanElementOverlap } from "./element-overlap.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SpanKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "span" }>["value"];
@@ -96,12 +97,15 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
     const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
     // An event's bar selects its event (#1197); any other bar, its row.
     const select = usePlanElementSelect(rowKey, run.key, ref);
+    // An event in an overlap pair wears the warn ring (#1198).
+    const overlap = usePlanElementOverlap(run.key);
     return (
         <Box
             css={styles.bar}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-stuck={stuck ? "" : undefined}
+            data-overlap={overlap ? "" : undefined}
             data-runoff={runoff ? "" : undefined}
             data-run={run.key}
             data-plan-frac={left.toFixed(4)}

@@ -399,6 +399,37 @@ describe("keyboard navigation (#819)", () => {
     });
 });
 
+describe("events selected from outside the canvas (#1198)", () => {
+    test("the selection is the events, on their row — its folded group and the group grain opened, scrolled to, the tab stop; one notification, the selection said", () => {
+        const rows = [{ ...planRow("G", group()), collapsed: true } as PlanWireRow, planRow("g1", span(), "G"), planRow("r1")];
+        const v = root(rows, { grain: some(variant("group", null)) });
+        const c = createPlanController({ grain: "group", collapsed: [rowKey("G")] });
+        c.setValue(v, v);
+        let notified = 0;
+        c.subscribe(() => { notified += 1; });
+        c.selectEvents(["e1", "e2"], rowKey("g1"));
+        const snap = c.getSnapshot();
+        expect(snap.store.ui.collapsed.has(rowKey("G"))).toBe(false);
+        expect(snap.store.ui.grain).toBe("resource");
+        expect([snap.store.ui.selected, snap.store.ui.elements]).toEqual([rowKey("g1"), ["e1", "e2"]]);
+        // Brought into view — the narrow layout told the row itself — and made
+        // the tab stop; DOM focus stays on the control that asked.
+        expect(snap.scroll).toMatchObject({ owner: "nav", nav: { key: rowItem("g1"), align: "auto", row: rowKey("g1") } });
+        expect(snap.nav).toEqual({ active: rowItem("g1"), request: null });
+        expect(snap.announce?.text).toBe("2 events selected");
+        expect(notified).toBe(1);
+    });
+
+    test("with no row — the viewer hid the series that draws them — the events are selected and nothing scrolls", () => {
+        const { c } = show(root(ROWS));
+        const scroll = c.getSnapshot().scroll;
+        c.selectEvents(["e1"], null);
+        expect([c.getSnapshot().store.ui.selected, c.getSnapshot().store.ui.elements]).toEqual([null, ["e1"]]);
+        expect(c.getSnapshot().scroll).toBe(scroll);
+        expect(c.getSnapshot().nav.active).toBeNull();
+    });
+});
+
 describe("the live region (#819)", () => {
     test("says what an interaction changed — and nothing for one that changed nothing", () => {
         const { c } = show(root(ROWS));

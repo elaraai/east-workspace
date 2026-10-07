@@ -23,9 +23,29 @@ import { parseFor } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import { usePlanDispatch, usePlanResolvers, type PlanElementRefValue } from "../context.js";
 import { PlanControllerContext } from "../controller/react.js";
+import type { PlanRowValue } from "../model.js";
 
 /** The elements that may be an event's: a bar, a tile, a chip, a mark — never a cell, which is a bucket's. */
 export const PLAN_EVENT_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],[data-mark]";
+
+/**
+ * Whether a row draws the element of a key — a run, a chip, a tile or a mark:
+ * the row an event selected from outside the canvas is shown on (#1198).
+ *
+ * @param row - The row
+ * @param key - The element's key
+ * @returns Whether one of its elements has that key
+ */
+export function holdsElement(row: PlanRowValue, key: string): boolean {
+    const kind = row.kind;
+    switch (kind.type) {
+        case "span": return kind.value.runs.some((run) => run.key === key);
+        case "cards": return kind.value.chips.some((chip) => chip.key === key);
+        case "buckets": return kind.value.events.some((tile) => tile.key === key);
+        case "events": return kind.value.marks.some((mark) => mark.key === key);
+        default: return false;
+    }
+}
 
 /**
  * An element ref's own key — what its element is keyed by on its row.

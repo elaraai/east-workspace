@@ -1001,6 +1001,40 @@ with #1194):
 - **PB53.** The inspector's banner lists what the selected event overlaps, and
   a click on one selects it. Overlaps never block Apply.
 
+As built (#1198):
+
+- The pairs are e3-ui-components' `scheduleOverlaps`
+  (`src/shared/schedule/overlaps.ts`), which the Calendar's built-in conflict
+  (#1155) shares. Events pair within a group — on a Plan, each kind whose
+  `overlaps` is `warn`, so events of two kinds never pair — per resource, its
+  kind and its key together. Spans are half-open, as the lanes' are: two
+  events that only meet never pair, and nor does an instant, an event with no
+  time or one on no resource. The pairs come earliest first: by the earlier
+  event's start, then the later's, then their keys, each compared as East
+  compares it. The footer's counts sweep the window's events (#1193).
+- The ring is `data-overlap` on each mark an event draws — a bar, a tile, a
+  card chip, a milestone and a mark's icon — and the Plan recipe's 1.5px warn
+  ring (`PLAN_OVERLAP_RING`, `slot-recipes/plan/focus.ts`). A confirmed mark
+  keeps its inset brand ring inside it, and a danger tile its own ring, the
+  worse. An exception's triangle is the warn mark already, and draws none.
+  The selected outline and a keyboard focus's ring are outlines, and ride over
+  it.
+- The chip is the toolbar's warn chip (the `chip` recipe's `warn` tone: the
+  warning wash, a `status.warn` edge, `fg.warning` ink), at the row's end after
+  the summary: `⚠ 3 overlaps`, folding to `⚠ 3` at the summary's rank, a 44px
+  target by its halo on a coarse pointer. Its click selects both events of the
+  first pair, opens the folded groups over their row and the resource grain,
+  scrolls the row into view and puts the tab stop on it, and the live region
+  says how many events are selected. In the narrow layout it opens the Rows
+  tab at the row's group, shows the row's page and scrolls its card into view.
+- One event's banner sits under its head, outside the fieldset its edits are
+  drawn in, so a line selects while the edits are disabled: each event it
+  overlaps, its span and its title. A row's banner lists its resource's pairs,
+  each over when the two overlap, from the later start to the earlier end; a
+  click selects the pair.
+- An overlap raises no issue and no banner of the session's, and Apply stays
+  on.
+
 ### 9.11 Windowed reads (owner: windowed reads)
 
 - **PB54.** A kind with a `window` (a `Data.bindPaged` over its day index,

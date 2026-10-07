@@ -141,8 +141,10 @@ export interface PlanScrollTarget {
     targetKey: string | undefined;
     /** The keyboard's target item (`bodyItemKey`), how to bring it into view,
      *  and a nonce per move — so moving back onto a row the user has since
-     *  scrolled away from scrolls to it again. */
-    nav: { key: string; align: PlanNavAlign; seq: number } | undefined;
+     *  scrolled away from scrolls to it again. `row` names the row itself
+     *  when a selection made outside the canvas asks for it (#1198): the
+     *  narrow layout, which has no grid to scroll, brings its card into view. */
+    nav: { key: string; align: PlanNavAlign; seq: number; row?: RowKey | undefined } | undefined;
 }
 
 /**
@@ -216,6 +218,16 @@ export interface PlanController {
     setWords(words: PlanWords): void;
     /** An interaction — the transition, then its effects. */
     dispatch(e: PlanEvent): void;
+    /**
+     * Select events from outside the canvas (#1198) — the overlaps chip's
+     * first pair, a peer the inspector's banner names: the selection replaced
+     * by them, on `row`, the row that draws them, which is brought into view
+     * as a host's `focus` request brings one — its folded ancestors and the
+     * group grain opened, scrolled to and made the tab stop, DOM focus left
+     * where it is. With no row (the viewer hid the series that draws them),
+     * the events are selected and nothing scrolls.
+     */
+    selectEvents(keys: readonly string[], row: RowKey | null): void;
     /** An element click — reported to the root's `onElementClick` (#824). */
     elementClick(ref: PlanElementRefValue): void;
     /** An element's popover / hover card wants to open or close. Opening runs
@@ -929,6 +941,30 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     const after = currentScale(value)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
                 }
+            });
+        },
+        selectEvents(keys, row) {
+            batch(() => {
+                const before = store.ui;
+                const current = rows();
+                const at = row !== null ? current.find((r) => r.key === row) : undefined;
+                // Opened first: a grain change clears the selection.
+                if (at !== undefined) reveal(at, new Map(current.map((r) => [r.key, r])));
+                const e: PlanEvent = { t: "elements.select", keys, row };
+                step(e);
+                if (at !== undefined) {
+                    // Into view, and the tab stop — DOM focus stays on the
+                    // control that asked, as a host's focus request leaves it.
+                    const item = rowItemKey(at.key);
+                    navSeq += 1;
+                    nav = { ...nav, active: item };
+                    scroll = { ...scroll, owner: "nav", nav: { key: item, align: "auto", seq: navSeq, row: at.key } };
+                }
+                persistToggles();
+                syncHeights();
+                // The selection is what the reader asked for: the folds and the
+                // grain it took are said by the canvas as it draws them.
+                say(announcementOf(e, before, store.ui, labelOf, words));
             });
         },
         focusItem(key, align) {

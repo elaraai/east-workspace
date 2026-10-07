@@ -16,7 +16,10 @@
  * edit. A row: its resource's name and line, its events in the window, and
  * its measures at the bucket a click on it named. Nothing: the window's counts
  * and three hints. The edit controls sit in one fieldset, disabled while the
- * event kinds take no edit (#1194).
+ * event kinds take no edit (#1194). Under one event's head, and a row's, the
+ * overlaps banner (#1198): the shared `Banner` in its guard tone, a line per
+ * event the event overlaps — or per pair on the row — each a button that
+ * selects it.
  *
  * The parts it lays out as the Sheet's inspector does are the inspector's
  * shared parts (`inspector.ts`); this adds the Plan's own. Its words take the
@@ -38,6 +41,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         "verdict", "verdictWord",
         "list", "listItem", "listText", "listTitle", "listWhen",
         "shift", "edits", "custom", "measures",
+        "overlaps", "overlapList", "overlapLine", "overlapItem", "overlapWhen", "overlapTitle",
     ],
     base: {
         ...inspectorBase,
@@ -114,5 +118,36 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         custom: { display: "flex", flexDirection: "column", gap: "{spacing.2}", minWidth: 0 },
         /* A row's measures at the bucket a click named. */
         measures: { ...INSPECTOR_SECTION, gap: "{spacing.2}" },
+        /* The overlaps banner (#1198, the Calendar's §8): its section padded 12px 16px. */
+        overlaps: { ...INSPECTOR_SECTION, paddingY: "{spacing.3}" },
+        /* Its lines, under the banner's title. */
+        overlapList: { display: "flex", flexDirection: "column", gap: "{spacing.1}", margin: "0", padding: "0", paddingTop: "{spacing.1}", listStyle: "none" },
+        overlapLine: { display: "flex", minWidth: 0 },
+        /* A line: when, then what — a button that selects it. On a coarse pointer
+         * each is a 44px row, as the lines stack (#346). */
+        overlapItem: {
+            display: "flex",
+            alignItems: "baseline",
+            gap: "{spacing.2}",
+            minWidth: 0,
+            padding: "0",
+            border: "0",
+            background: "transparent",
+            textAlign: "start",
+            cursor: "pointer",
+            textStyle: "body.sm",
+            color: "fg.strong",
+            _hover: { color: "fg" },
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
+            _coarse: { minHeight: "44px", alignItems: "center" },
+        },
+        overlapWhen: { textStyle: "mono.xs", color: "fg.muted", flexShrink: "0" },
+        overlapTitle: {
+            minWidth: 0,
+            overflowWrap: "anywhere",
+            textDecoration: "underline",
+            textDecorationColor: "border.strong",
+            textUnderlineOffset: "2px",
+        },
     },
 });

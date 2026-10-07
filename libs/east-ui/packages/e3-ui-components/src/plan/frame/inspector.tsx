@@ -10,19 +10,22 @@
  * what is selected.
  *
  * - **one event** (PB38): its kind's icon and name, its title, when it runs
- *   and its status; its resource, its start and end or its instant, its lane,
- *   its state and its quantity; its verdict, with Approve and Reject, when its
- *   kind is reviewed; its kind's fields through `FieldForm`, the fields its
- *   roles read left to their own lines — or, when the kind has its own
- *   inspector, what that returns for the event in place of the form (PB60);
- *   then Duplicate and Delete;
+ *   and its status; the overlaps banner when it overlaps another (#1198,
+ *   PB53), a line per event it overlaps whose click selects that event; its
+ *   resource, its start and end or its instant, its lane, its state and its
+ *   quantity; its verdict, with Approve and Reject, when its kind is reviewed;
+ *   its kind's fields through `FieldForm`, the fields its roles read left to
+ *   their own lines — or, when the kind has its own inspector, what that
+ *   returns for the event in place of the form (PB60); then Duplicate and
+ *   Delete;
  * - **several events** (PB39): how many, each kind's count, the list, and the
  *   bulk edit — the state, the resource, a shift in time and the verdict;
- * - **a row** (PB40): a resource's name and lines, its group, its events in
- *   the window — how many, how long, how much of each unit — and its measures
- *   at the bucket a click on its plot named; an event kind's Unassigned row,
- *   the kind's events on no resource; any other row, what it draws at that
- *   bucket;
+ * - **a row** (PB40): a resource's name and lines, its group, its overlaps —
+ *   the pairs on the resource in the window, each line selecting its pair
+ *   (#1198) — its events in the window — how many, how long, how much of each
+ *   unit — and its measures at the bucket a click on its plot named; an event
+ *   kind's Unassigned row, the kind's events on no resource; any other row,
+ *   what it draws at that bucket;
  * - **nothing** (PB41): the window's counts and three hints.
  *
  * Each event is read through its kind's own seam (`planEvent`), tracked, so a
@@ -49,8 +52,9 @@ import {
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { ScheduleEventRefType, ScheduleResourceRefType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
+    BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
+import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { stateText } from "../a11y.js";
 import type { PlanSnapshot } from "../controller/index.js";
 import { usePlanSelector } from "../controller/react.js";
@@ -259,10 +263,69 @@ function whenText(item: PlanEventItemValue, instant: boolean, w: PlanWords): str
     const start = getSomeorUndefined(item.start);
     const end = getSomeorUndefined(item.end);
     if (start === undefined || end === undefined) return w.m.inspectorUnscheduled();
+    if (instant) return w.m.inspectorWhen({ day: w.weekdayDate(start), from: w.time(start), endDay: undefined, to: undefined });
+    return spanText(start, end, w);
+}
+
+/**
+ * A span as the inspector says it — its day and times, its end's day too
+ * when it ends on another.
+ *
+ * @param start - When it starts
+ * @param end - When it ends
+ * @param w - The Plan's words
+ * @returns `Tue, Oct 20, 2026 · 10:00–12:00`
+ */
+function spanText(start: Date, end: Date, w: PlanWords): string {
     const day = w.weekdayDate(start);
-    if (instant) return w.m.inspectorWhen({ day, from: w.time(start), endDay: undefined, to: undefined });
     const endDay = w.weekdayDate(end);
     return w.m.inspectorWhen({ day, from: w.time(start), endDay: stringEqual(endDay, day) ? undefined : endDay, to: w.time(end) });
+}
+
+// ============================================================================
+// Overlaps (#1198, PB53)
+// ============================================================================
+
+/** The glyph an overlaps banner leads with. */
+const OVERLAP_ICON = { prefix: "fas", name: "triangle-exclamation" } as const;
+
+/** One line of an overlaps banner: the events it selects, when, and what. */
+interface OverlapLine {
+    /** The events a click selects, by their elements' keys. */
+    readonly keys: readonly string[];
+    /** When: the event's span, or the pair's overlap. */
+    readonly when: string;
+    /** What: the event's title, or the pair's. */
+    readonly title: string;
+}
+
+/**
+ * An overlaps banner — the shared `Banner` in its guard tone, as the
+ * Calendar's inspector draws it (§8): its title, and a line per event or pair,
+ * each a button that selects what it names and brings it into view.
+ */
+function OverlapsBanner({ styles, title, lines, onSelect }: {
+    styles: Styles; title: string; lines: readonly OverlapLine[]; onSelect: (keys: readonly string[]) => void;
+}) {
+    return (
+        <Box css={styles.overlaps} data-inspector-overlaps="">
+            <BannerView status="guard" icon={OVERLAP_ICON} title={title} description={(
+                <Box as="ul" css={styles.overlapList}>
+                    {lines.map((line) => {
+                        const at = line.keys.join(" ");
+                        return (
+                            <Box as="li" key={at} css={styles.overlapLine}>
+                                <chakra.button type="button" css={styles.overlapItem} data-inspector-overlap={at} onClick={() => onSelect(line.keys)}>
+                                    <Box as="span" css={styles.overlapWhen}>{line.when}</Box>
+                                    <Box as="span" css={styles.overlapTitle}>{line.title}</Box>
+                                </chakra.button>
+                            </Box>
+                        );
+                    })}
+                </Box>
+            )} />
+        </Box>
+    );
 }
 
 /**
@@ -305,13 +368,15 @@ function Fact({ styles, label, value, fact }: { styles: Styles; label: string; v
     );
 }
 
-/** One event: its head, its facts, its verdict, its fields or its kind's own inspector, and its gestures. */
-function OneEvent({ event, resources, keys, words, styles }: OneEventProps) {
+/** One event: its head, its overlaps, its facts, its verdict, its fields or its kind's own inspector, and its gestures. */
+function OneEvent({ event, resources, keys, words, styles, counts, chrome }: OneEventProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const { kind } = event;
     const item = event.item;
     const roles = kind.roles;
+    // What it overlaps (#1198, PB53): its kind's events on its resource at once — a line each, which selects it.
+    const peers = counts?.overlaps.peers.get(event.key) ?? [];
     const start = getSomeorUndefined(item.start);
     const end = getSomeorUndefined(item.end);
     const lane = getSomeorUndefined(item.lane);
@@ -361,6 +426,14 @@ function OneEvent({ event, resources, keys, words, styles }: OneEventProps) {
                     </Box>
                 )}
             </Box>
+            {/* Under the head, as the Calendar's inspector has it (§8) — and out
+                of the edits' fieldset, so its lines select while that is disabled. */}
+            {peers.length > 0 && chrome !== undefined && (
+                <OverlapsBanner styles={styles}
+                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, resources, words) })}
+                    lines={peers.map((peer) => ({ keys: [scheduleEventKey(peer)], when: whenText(peer, kind.instant, words), title: peer.title }))}
+                    onSelect={chrome.selectEvents} />
+            )}
             <Box as="dl" css={styles.facts} data-inspector-facts="">
                 <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, resources, words)} />
                 {start !== undefined && end !== undefined && (kind.instant
@@ -609,14 +682,17 @@ interface RowProps extends BodyProps {
     at: PlanInstantValue | null;
 }
 
-/** A row: a resource's name, lines and group, its events in the window and its measures at a bucket — or an Unassigned row's events, or what any other row draws at a bucket. */
-function RowView({ rowKey, at, kinds, resources, chrome, words, styles }: RowProps) {
+/** A row: a resource's name, lines and group, its overlaps, its events in the window and its measures at a bucket — or an Unassigned row's events, or what any other row draws at a bucket. */
+function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }: RowProps) {
     const { m } = words;
     const { inspect, scale } = chrome;
     const row = inspect.row(rowKey)!;
     const id = row.id.value;
     const target = useMemo(() => targetOf(id.series, id.path, kinds, resources), [id, kinds, resources]);
     const facts = useWindowFacts(target, kinds, scale);
+    // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
+    const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
+    const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
     const resource = target.kind === "resource" ? target.resources.rows.find((r) => stringEqual(r.key, target.key)) : undefined;
     const group = resource !== undefined ? getSomeorUndefined(resource.group) : undefined;
     const lines = resource !== undefined ? [getSomeorUndefined(resource.sub), getSomeorUndefined(resource.meta)].filter((line): line is string => line !== undefined) : [];
@@ -645,6 +721,16 @@ function RowView({ rowKey, at, kinds, resources, chrome, words, styles }: RowPro
                     </Box>
                 )}
             </Box>
+            {pairs.length > 0 && (
+                <OverlapsBanner styles={styles}
+                    title={m.inspectorRowOverlaps({ n: pairs.length, count: words.number(pairs.length) })}
+                    lines={pairs.map((pair) => ({
+                        keys: [scheduleEventKey(pair.first), scheduleEventKey(pair.second)],
+                        when: spanText(pair.from, pair.to, words),
+                        title: m.inspectorOverlapPair({ first: pair.first.title, second: pair.second.title }),
+                    }))}
+                    onSelect={chrome.selectEvents} />
+            )}
             {facts !== undefined && (
                 <Box as="dl" css={styles.facts} data-inspector-window="">
                     <Fact styles={styles} fact="events" label={m.inspectorFact({ fact: "events" })} value={words.number(facts.events)} />

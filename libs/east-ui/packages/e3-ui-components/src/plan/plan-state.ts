@@ -39,7 +39,9 @@
  *   click on its plot named — or events on the canvas. An event's click
  *   selects it and its row, Shift / ⌘ / Ctrl adding or removing it; selecting
  *   a row takes the events away; the esc ladder's deselect rung clears all of
- *   it at once.
+ *   it at once. Events selected from outside the canvas — the overlaps chip's
+ *   pair, a peer the inspector's banner names (#1198) — replace the selection
+ *   whole, on their row.
  *
  * The hover CURSOR (hairline + ruler chip) is NOT machine state: it is
  * display-only chrome written straight to the DOM by the canvas's cursor
@@ -86,6 +88,13 @@ export type PlanEvent =
     | { t: "row.select"; key: RowKey; at?: PlanInstantValue | undefined }
     /** An event's element selected on its row (#1197) — `additive` adds or removes it (Shift, ⌘ or Ctrl). */
     | { t: "element.select"; key: string; row: RowKey; additive: boolean }
+    /**
+     * Events selected from outside the canvas (#1198) — the overlaps chip's
+     * pair, a peer the inspector's banner names — by their elements' keys: the
+     * selection replaced by them, on the row that draws them, or on none when
+     * none does (the viewer hid the series).
+     */
+    | { t: "elements.select"; keys: readonly string[]; row: RowKey | null }
     | { t: "chart.toggle"; key: RowKey }
     | { t: "brush.down" }
     | { t: "brush.commit"; min: PlanInstantValue; max: PlanInstantValue }
@@ -204,6 +213,17 @@ export function planReducer(
             return {
                 state: { ...s, selected: e.row, selectedAt: null, elements },
                 effects: s.selected === e.row ? [] : [{ t: "emit.select", key: e.row }],
+            };
+        }
+        case "elements.select": {
+            // The overlaps chip's pair, a banner's peer (#1198): the selection
+            // replaced whole, the same list kept when it already is the one.
+            const same = e.keys.length === s.elements.length && e.keys.every((k, i) => k === s.elements[i]);
+            const elements = same ? s.elements : e.keys.length === 0 ? NO_ELEMENTS : [...e.keys];
+            if (s.selected === e.row && s.selectedAt === null && elements === s.elements) return { state: s, effects: [] };
+            return {
+                state: { ...s, selected: e.row, selectedAt: null, elements },
+                effects: e.row === null || s.selected === e.row ? [] : [{ t: "emit.select", key: e.row }],
             };
         }
         case "chart.toggle":

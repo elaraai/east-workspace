@@ -9,6 +9,12 @@
  * them too when nothing is selected, with how long the events run (#1197,
  * PB41).
  *
+ * The same read finds the overlaps among the window's events (#1198, PB51):
+ * two events of a kind that warns of them, on one resource at once — what the
+ * toolbar's chip counts, the inspector's banner lists, and each event in a
+ * pair wears a warn ring for. A kind whose overlaps are allowed is never in a
+ * pair.
+ *
  * @packageDocumentation
  */
 
@@ -16,10 +22,17 @@ import { useCallback, useMemo, useRef } from "react";
 import { DateTimeType, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { scheduleOverlaps, type ScheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import type { PlanScale } from "../scale.js";
 
 /** One event kind, as the Plan's payload carries it (#1190). */
 export type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
+
+/** One event as Plan draws it, as a kind's `planItems` reads it. */
+export type PlanEventItemValue = Extract<ReturnType<PlanEventKindValue["planItems"]>, { type: "some" }>["value"][number];
+
+/** The overlaps among the window's events (#1198). */
+export type PlanOverlaps = ScheduleOverlaps<PlanEventItemValue>;
 
 /** What the footer counts of the event kinds. */
 export interface PlanEventCounts {
@@ -33,6 +46,8 @@ export interface PlanEventCounts {
     readonly toReview: number | undefined;
     /** The newest commit to any kind's record; `undefined` while there is none. */
     readonly saved: Date | undefined;
+    /** The overlaps among the events in the window: two events of a kind that warns of them, on one resource at once (#1198, PB51). */
+    readonly overlaps: PlanOverlaps;
 }
 
 /** One kind's drafts, by entry id, as its seams take them. */
@@ -68,9 +83,12 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
         let backlog: number | undefined;
         let toReview: number | undefined;
         let saved: Date | undefined;
+        // Each kind that warns of its overlaps: two of its events are a pair (PB51).
+        const warned: (readonly PlanEventItemValue[])[] = [];
         for (const kind of kinds) {
             const items = kind.planItems(new Date(from), new Date(to), NO_DRAFTS);
             if (items.type === "none") return READING;
+            if (kind.overlaps.type === "warn") warned.push(items.value);
             events += items.value.length;
             for (const item of items.value) minutes += Number(item.minutes);
             if (kind.roles.review.type === "some") {
@@ -85,7 +103,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             const newest = commits.type === "some" ? commits.value[0]?.at : undefined;
             if (newest !== undefined && (saved === undefined || compareDateTime(newest, saved) > 0)) saved = newest;
         }
-        return { events, minutes, backlog, toReview, saved };
+        return { events, minutes, backlog, toReview, saved, overlaps: scheduleOverlaps(warned) };
     }, [kinds, from, to]);
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.

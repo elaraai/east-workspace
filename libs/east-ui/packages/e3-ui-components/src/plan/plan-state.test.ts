@@ -103,6 +103,29 @@ describe('planReducer', () => {
             expect(planReducer(plain.state, { t: "element.select", key: "e2", row: "r2", additive: false }).state).toBe(plain.state);
         });
 
+        it('events selected from outside the canvas replace the selection whole, on their row; the same again holds; with no row, the events alone (#1198)', () => {
+            const at = variant("time", new Date("2026-10-14T00:00:00Z")) as never;
+            const before = run(init(),
+                { t: "element.select", key: "e1", row: "r1", additive: false },
+                { t: "row.select", key: "r9", at });
+            // The overlaps chip's pair: both events, their row, no bucket.
+            const pair = run(before.state, { t: "elements.select", keys: ["e2", "e3"], row: "r2" });
+            expect([pair.state.selected, pair.state.elements, pair.state.selectedAt]).toEqual(["r2", ["e2", "e3"], null]);
+            expect(pair.effects).toEqual([{ t: "emit.select", key: "r2" }]);
+            // The same pair again: nothing moves.
+            const again = planReducer(pair.state, { t: "elements.select", keys: ["e2", "e3"], row: "r2" });
+            expect(again.state).toBe(pair.state);
+            expect(again.effects).toEqual([]);
+            // A banner's peer on the same row: the one event, and the row's callback does not fire again.
+            const peer = run(pair.state, { t: "elements.select", keys: ["e3"], row: "r2" });
+            expect([peer.state.selected, peer.state.elements]).toEqual(["r2", ["e3"]]);
+            expect(peer.effects).toEqual([]);
+            // No row draws them (the viewer hid the series): the events are selected, no row, and no row's callback.
+            const hidden = run(pair.state, { t: "elements.select", keys: ["e4", "e5"], row: null });
+            expect([hidden.state.selected, hidden.state.elements]).toEqual([null, ["e4", "e5"]]);
+            expect(hidden.effects).toEqual([]);
+        });
+
         it('selecting a row takes the events away; one esc clears the row, its bucket and the events', () => {
             const at = variant("time", new Date("2026-10-14T00:00:00Z")) as never;
             const events = run(init(),

@@ -9,17 +9,21 @@
  * toolbar (`BuilderFrame`'s), in this order: the slice's narrowing (cohort ·
  * filter · search), the scope badge, the key search, the GROUP · RESOURCE
  * grain, the slice's range, the resolution, the diagnostics; then, at the
- * row's end, the summary, the review's summary with Approve all and Reject
- * all, and the history item. The GROUP · RESOURCE strip is the canvas's own
- * (#632): a canvas with a root group mounts it, slice or no slice. There is
- * no Series button: the library's Series tab holds the series (#1195).
+ * row's end, the summary, the overlaps chip, the review's summary with
+ * Approve all and Reject all, and the history item. The GROUP · RESOURCE strip
+ * is the canvas's own (#632): a canvas with a root group mounts it, slice or
+ * no slice. There is no Series button: the library's Series tab holds the
+ * series (#1195). The overlaps chip (#1198, PB52) counts the pairs of events
+ * that overlap in the window; a click selects the first pair, earliest first,
+ * and brings it into view.
  *
  * They fold on one ladder (#952): the slice rail's two clusters first — the
  * narrowing affordances and the range, merged in the rail's order — then the
  * Plan's own items (the user's decision, 2026-09-27): the summary shortens to
- * its count and the review's summary goes, leaving its buttons — words give
- * way before a control does — then the resolution segment folds into a
- * one-chip menu, then the grain segment does, and the summary hides. On a row
+ * its count, the overlaps chip to its glyph and its count, and the review's
+ * summary goes, leaving its buttons — words give way before a control does —
+ * then the resolution segment folds into a one-chip menu, then the grain
+ * segment does, and the summary hides. On a row
  * narrower still the review's buttons fold into one menu, and the key search
  * into its icon, which opens the box in a popover (#1193): with those, a
  * phone's row holds every item. The history item folds last, to its buttons.
@@ -28,6 +32,8 @@
 
 import { useMemo, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import {
     HOST_RANK, coarseHitArea, useSliceToolbarItems, railAffordanceKinds, radioGroupKey, reviewToolbarItem,
 } from "@elaraai/east-ui-components/internal";
@@ -40,6 +46,8 @@ import { transportLabel } from "./transport.js";
 import { usePlanWords } from "../words.js";
 import { PlanDiagnosticChips, hasDiagnostics } from "./Diagnostics.js";
 import type { PlanChrome } from "../root/chrome.js";
+import type { PlanOverlaps } from "../frame/counts.js";
+import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 
 /** Narrowing affordances whose meaning CHANGES on a paged canvas: they narrow
  *  whatever the host fed, which is the prefix that happened to land. `search`
@@ -48,13 +56,15 @@ import type { PlanChrome } from "../root/chrome.js";
 const NARROWING_KINDS = new Set(["filter", "cohort", "presets", "breakdown", "search"]);
 
 /** The Plan's own fold ranks, after every step of the slice rail's (#952):
- *  the summary shortens and the review's summary goes (one rank: the summary
- *  first, in the row's order), the resolution then the grain segment fold
- *  into their menus, the summary hides, the review's buttons fold into their
- *  menu and the key search into its icon. The history item's step
- *  (`DEFAULT_RANK`) comes after all of them. */
+ *  the summary shortens, the overlaps chip keeps its glyph and its count, and
+ *  the review's summary goes (one rank: the summary first, in the row's
+ *  order), the resolution then the grain segment fold into their menus, the
+ *  summary hides, the review's buttons fold into their menu and the key
+ *  search into its icon. The history item's step (`DEFAULT_RANK`) comes after
+ *  all of them. */
 const PLAN_RANK = {
     summaryShort: HOST_RANK,
+    overlapsShort: HOST_RANK,
     reviewSummary: HOST_RANK,
     resolution: HOST_RANK + 1,
     grain: HOST_RANK + 2,
@@ -146,6 +156,34 @@ export function SegMenu<K extends string>({ label, name, items, active, onPick }
     );
 }
 
+/** Props of {@link OverlapsChip}. */
+interface OverlapsChipProps {
+    /** How many pairs overlap. */
+    readonly n: number;
+    /** Only its glyph and its count: the form a row short of room keeps. */
+    readonly short: boolean;
+    /** Selects the first pair and brings it into view. */
+    readonly onSelect: () => void;
+}
+
+/**
+ * The overlaps chip (#1198, PB52): the warn chip with its glyph and the pairs
+ * it counts — `3 overlaps`, or `3` on a row short of room — whose click
+ * selects the first pair. A 44px target on a coarse pointer, by its halo (#346).
+ */
+function OverlapsChip({ n, short, onSelect }: OverlapsChipProps) {
+    const chip = useRecipe({ key: "chip" });
+    const words = usePlanWords();
+    const count = words.number(n);
+    return (
+        <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
+            data-plan-overlaps={short ? "short" : ""} aria-label={words.m.overlapsLabel({ n, count })} onClick={onSelect}>
+            <Box as="span" data-chip-icon="" aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
+            {short ? words.m.overlapsShort({ n, count }) : words.m.overlaps({ n, count })}
+        </chakra.button>
+    );
+}
+
 /**
  * The Plan's toolbar items, in §7.1's order and on its fold ladder (see the
  * module docs) — for its frame's one toolbar. Read inside the canvas's
@@ -153,9 +191,10 @@ export function SegMenu<K extends string>({ label, name, items, active, onPick }
  * controller.
  *
  * @param chrome - What the canvas's chrome is drawn from; `undefined` with no window
+ * @param overlaps - The overlaps among the window's events (#1198): the chip shows while there is a pair; `undefined` for a Plan without event kinds
  * @returns The items, a falsy entry for each the Plan has no use for — none with no window
  */
-export function usePlanToolbarItems(chrome: PlanChrome | undefined): ReadonlyArray<ToolbarItem | false | undefined> {
+export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: PlanOverlaps | undefined): ReadonlyArray<ToolbarItem | false | undefined> {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     const slice = chrome?.slice;
@@ -224,9 +263,14 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined): ReadonlyArr
     }, [showSummary, slice, transport, sliceVersion, words]);
 
     if (chrome === undefined) return [];
-    const { styles, grain, diagnostics, review, history } = chrome;
+    const { styles, grain, diagnostics, review, history, selectEvents } = chrome;
     const resolution = chrome.scale.resolution ?? "";
     const summaryLine = (text: string) => <Box css={styles.footerItem} data-slot="toolbarSummary">{text}</Box>;
+    // The first pair, earliest first — what the chip's click selects (PB52).
+    const first = overlaps?.pairs[0];
+    const selectFirst = () => {
+        if (first !== undefined) selectEvents([scheduleEventKey(first.first), scheduleEventKey(first.second)]);
+    };
     return [
         rail.find((it) => it.key === "cluster"),
         scoped && { key: "scope", forms: [<Box css={styles.footerItem} data-slot="scopeBadge">{words.m.scopeBadge()}</Box>] },
@@ -268,6 +312,17 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined): ReadonlyArr
             ...(summary.short !== undefined
                 ? { rank: [PLAN_RANK.summaryShort, PLAN_RANK.summaryHide], forms: [summaryLine(summary.full), summaryLine(summary.short), null] }
                 : { rank: PLAN_RANK.summaryHide, forms: [summaryLine(summary.full), null] }),
+        },
+        // The pairs of events that overlap in the window (#1198, PB52): shown
+        // while there is one.
+        overlaps !== undefined && overlaps.pairs.length > 0 && {
+            key: "overlaps",
+            side: "end",
+            rank: PLAN_RANK.overlapsShort,
+            forms: [
+                <OverlapsChip n={overlaps.pairs.length} short={false} onSelect={selectFirst} />,
+                <OverlapsChip n={overlaps.pairs.length} short onSelect={selectFirst} />,
+            ],
         },
         // Approve all and Reject all, moved here from the review foot: a
         // verdict is a draft of the editing session (#880).

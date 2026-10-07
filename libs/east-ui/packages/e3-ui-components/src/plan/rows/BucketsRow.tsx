@@ -36,6 +36,7 @@ import { resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
+import { usePlanElementOverlap } from "./element-overlap.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
@@ -90,6 +91,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
     const ref = variant("event", { row: rowId, event: ev.key }) as PlanElementRefValue;
     // An event's tile selects its event (#1197); any other tile, its row.
     const select = usePlanElementSelect(rowKey, ev.key, ref);
+    // An event in an overlap pair wears the warn ring (#1198).
+    const overlap = usePlanElementOverlap(ev.key);
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     // A tile has one instant — its extent is that instant twice.
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
@@ -116,6 +119,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
+            data-overlap={overlap ? "" : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}
             // Stretch is a style PROP and outranks the recipe: in a strip

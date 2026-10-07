@@ -17,7 +17,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
 import { East, IntegerType, StringType, StructType, toEastTypeValue, variant, some, none } from "@elaraai/east";
 import { Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
@@ -28,6 +28,8 @@ import { sliceConfig } from "@elaraai/east-ui-components/testing";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { usePlanToolbarItems } from "./shell/Toolbar.js";
 import type { PlanChrome } from "./root/chrome.js";
+import type { PlanEventItemValue, PlanOverlaps } from "./frame/counts.js";
+import { scheduleEventKey, scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { PlanReview } from "./shell/Review.js";
 import type { PlanEntryRef } from "./use-plan-editing.js";
 import type { PlanScale } from "./scale.js";
@@ -49,6 +51,7 @@ const FORM_PX: Record<string, readonly number[]> = {
     range: [200, 80],
     resolution: [150, 80],
     summary: [260, 120],
+    overlaps: [110, 50],
     review: [280, 190, 40],
     history: [220, 140],
 };
@@ -129,11 +132,22 @@ function historyProps(): HistoryBarProps<PlanEntryRef> {
     return { session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop };
 }
 
+/** Two jobs on Press B2 at once on Tuesday 20 October, and the one pair they make (#1198). */
+function onePair(): PlanOverlaps {
+    const job = (key: string, from: number, to: number): PlanEventItemValue => ({
+        kind: "job", key, title: `${key} title`,
+        start: some(new Date(Date.UTC(2026, 9, 20, from))), end: some(new Date(Date.UTC(2026, 9, 20, to))),
+        resource: some({ kind: "presses", key: "b2" }), status: none, minutes: 60n, due: none,
+        state: variant("confirmed", null), quantity: none, lane: none, verdict: none,
+    });
+    return scheduleOverlaps([[job("J-1018", 6, 12), job("J-1019", 10, 13)]]);
+}
+
 /** What a canvas's chrome hands the toolbar — nothing but the styles, until a test gives it more. */
 type ChromeParts = Partial<Omit<PlanChrome, "styles">>;
 
-/** The Plan's items on the frame's one row, as its frame lays them out. */
-function Harness({ parts }: { parts: ChromeParts }) {
+/** The Plan's items on the frame's one row, as its frame lays them out — with the overlaps among its events, when a test gives them. */
+function Harness({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlaps }) {
     const styles = useSlotRecipe({ key: "plan" })() as unknown as Record<string, Record<string, unknown>>;
     const chrome: PlanChrome = {
         words: PLAN_WORDS, styles, storageKey: "plan.toolbar", scale: WEEKLY,
@@ -142,9 +156,11 @@ function Harness({ parts }: { parts: ChromeParts }) {
         history: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
+        // The overlaps chip's selection (#1198): its own test hears it.
+        selectEvents: () => {},
         ...parts,
     };
-    return <Toolbar items={usePlanToolbarItems(chrome)} />;
+    return <Toolbar items={usePlanToolbarItems(chrome, overlaps)} />;
 }
 
 /** A canvas with a root group, a bound slice, every chrome affordance, a review and editing. */
@@ -269,6 +285,26 @@ describe("the Plan's toolbar items (#952, #1193)", () => {
         }} /></ChakraProvider>);
         expect(stateOf(container).get("summary")).toBe(1);
         expect(container.querySelector("[data-slot='toolbarSummary']")!.textContent).toBe("2 of 2");
+    });
+
+    test("the overlaps chip shortens to its glyph and its count, its name the whole words; a click selects both events of the first pair (#1198, PB52)", () => {
+        const pair = onePair();
+        const selected: (readonly string[])[] = [];
+        const parts: ChromeParts = { selectEvents: (keys) => { selected.push(keys); } };
+        const chip = () => ui.container.querySelector<HTMLElement>("[data-plan-overlaps]")!;
+        row.px = 110;
+        const ui = render(<ChakraProvider value={system}><Harness parts={parts} overlaps={pair} /></ChakraProvider>);
+        expect(stateOf(ui.container).get("overlaps")).toBe(0);
+        expect(chip().getAttribute("data-plan-overlaps")).toBe("");
+        expect(chip().textContent).toBe("1 overlap");
+        row.px = 109;
+        ui.rerender(<ChakraProvider value={system}><Harness parts={parts} overlaps={pair} /></ChakraProvider>);
+        expect(stateOf(ui.container).get("overlaps")).toBe(1);
+        expect(chip().getAttribute("data-plan-overlaps")).toBe("short");
+        expect(chip().textContent).toBe("1");
+        expect(chip().getAttribute("aria-label")).toBe("1 overlap — select the first pair");
+        fireEvent.click(chip());
+        expect(selected).toEqual([[scheduleEventKey(pair.pairs[0]!.first), scheduleEventKey(pair.pairs[0]!.second)]]);
     });
 
     test("a canvas with no slice, no group to fold, no review and no editing has no items", () => {

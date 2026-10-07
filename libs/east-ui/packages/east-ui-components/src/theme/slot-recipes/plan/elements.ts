@@ -16,7 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
-import { planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
@@ -60,6 +60,10 @@ export const elementsBase = {
         }),
         // over-dwell / flagged — the warn ring rides any state.
         "&[data-stuck]": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
+        // An event in an overlap pair (#1198) — the same warn ring; a
+        // confirmed bar keeps its inset brand ring inside it.
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
         // runs past the window — mask-fade right, never a fabricated end.
         "&[data-runoff]": {
             maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
@@ -299,10 +303,14 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "5px", height: "5px"},
+        // An event in an overlap pair (#1198): the warn ring, round the dot.
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
     },
+    // An exception's triangle draws no overlap ring: it is the warn mark
+    // already, and a ring round a border-drawn triangle is its square box.
     exceptionTri: {
         position: "absolute",
         width: 0,
@@ -342,6 +350,9 @@ export const elementsBase = {
         // (see `EventsRow`) and this element never mounts collapsed. The
         // rule stays as a backstop for any path that does mount one.
         "&[data-ctx]": { display: "none" },
+        // An event's mark wears its kind's icon (#1192): in an overlap pair
+        // (#1198), the warn ring round it.
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
