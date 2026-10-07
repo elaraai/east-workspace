@@ -363,11 +363,13 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
-// The Flowchart (#1243, #1244, #1245): `<Flowchart>` with its namespace, the
-// payload the renderer takes through the `Flowchart` carrier — its canvas, its
-// source of flows and its library's wire — its shared keys, and the types a
-// flowchart is written with. `Flowchart` here is the internal namespace — the
-// public one, `Flowchart.Payload`, `Flowchart.Component` and the payload's types.
+// The Flowchart (#1243, #1244, #1245, #1246): `<Flowchart>` with its
+// namespace, the payload the renderer takes through the `Flowchart` carrier —
+// its canvas, its source of flows with the editing session's Apply over a
+// record, and its library's wire — its shared keys, its library's tabs, and
+// the types a flowchart is written with. `Flowchart` here is the internal
+// namespace — the public one, `Flowchart.Payload`, `Flowchart.Component` and
+// the payload's types.
 export {
     FlowchartInternal as Flowchart,
     FlowchartTag,
@@ -377,6 +379,12 @@ export {
     FlowchartSourceType,
     FlowchartDataType,
     FlowchartFlowsHandleType,
+    FlowchartSessionApplyType,
+    FlowchartLibraryFactories,
+    libraryFlows,
+    type FlowchartLibrary,
+    type FlowchartLibraryTab,
+    type FlowchartOneFlowLibraryTab,
     FlowchartFlowsApplyType,
     FlowchartFlowApplyType,
     FlowchartHistoryType,

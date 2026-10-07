@@ -816,7 +816,8 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
 
 /** The Flowchart's own order (#1245, FB9): the freshness chip goes, LR · TD
  *  folds into its chip, find state into its icon, and the history item folds
- *  last, to its buttons, once the flowchart edits through its session (#1247). */
+ *  last, to its buttons, where the flowchart edits through its session — over
+ *  a record of flows (#1246; `flowchart-flows.spec.ts` sweeps that row). */
 const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
 
 /** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the

@@ -13,10 +13,16 @@
  * cards are 116×40 r6
  * with a mono 12/700 code line and a 10.5px muted label; the hover-card SHELL
  * is paper / rule-strong / r6, with no shadow (its body is dev-defined UI).
- * The frame's own regions are the `builderFrame` recipe's.
+ * The Flows tab (#1246) is the shared `library` recipe's cards over a foot
+ * holding "+ New flow" — the Library's own foot and add action, its plus a
+ * Font Awesome icon, a 44px target on a coarse pointer by its halo, which the
+ * foot holds whole — and a flowchart with no flow is the shared empty state,
+ * centred in its box. The frame's own regions are the `builderFrame`
+ * recipe's.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 export const flowchartSlotRecipe = defineSlotRecipe({
     className: "elara-flowchart",
@@ -29,6 +35,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
         "minimap",
         "footer", "footerFlow", "footerStrong", "footerNeg", "footerSplit",
         "hoverCard",
+        "flowsTab", "flowsList", "flowsFoot", "newFlow", "noFlows",
     ],
     base: {
         /* Fills the box it is given and draws no border: the frame inside it
@@ -301,6 +308,70 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             borderRadius: "6px",
             padding: "10px 12px",
             pointerEvents: "auto",
+        },
+
+        /* ── the Flows tab — its cards, and "+ New flow" under them (#1246) ── */
+        /* The tab's body: the cards filling the pane, the foot under them. */
+        flowsTab: {
+            flex: "1 1 0%",
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+        },
+        /* The cards: the shared Library, filling what the foot leaves. */
+        flowsList: {
+            flex: "1 1 0%",
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+        },
+        /* The foot: the Library's own — its rule over it — holding "+ New flow" at its end.
+         * It sits on the pane's bottom edge, which clips: on a coarse pointer it is
+         * as tall as the button's 44px halo and its rule, so the halo is whole. */
+        flowsFoot: {
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            paddingX: "14px",
+            paddingY: "10px",
+            borderTopWidth: "1px",
+            borderTopColor: "border.subtle",
+            _coarse: { minHeight: "45px" },
+        },
+        /* "+ New flow": the Library's add action — mono caps in the brand ink,
+         * named by the design system's tokens (the 10px label, semibold, the
+         * label's 0.14em tracking) — its plus a Font Awesome icon; a 44px target
+         * on a coarse pointer, by its halo. */
+        newFlow: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "1.5",
+            fontFamily: "mono",
+            fontSize: "label.sm",
+            fontWeight: "semibold",
+            letterSpacing: "label",
+            lineHeight: "normal",
+            textTransform: "uppercase",
+            color: "brand.solid",
+            cursor: "pointer",
+            background: "transparent",
+            border: "none",
+            padding: "0",
+            _hover: { color: "brand.fg" },
+            ...coarseHitArea({ position: true }),
+        },
+        /* No flow: the shared empty state, centred in its box — the tab's, or main. */
+        noFlows: {
+            flex: "1 1 0%",
+            minWidth: 0,
+            minHeight: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "auto",
         },
     },
 });

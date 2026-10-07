@@ -493,8 +493,10 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, readOn
         return [...solid, ...dashed, ...selected];
     }, [layout, linksByKey, selectedLink]);
 
-    // An empty flow draws nothing; its box stays, measured, for the flow that comes.
-    const empty = model.nodes.length === 0 && model.links.length === 0;
+    // A flow with nothing in it — no lane, no state, no transition — draws
+    // nothing; its box stays, measured, for the flow that comes. A flow of
+    // lanes alone, a new one among them (#1246), draws its lanes.
+    const empty = model.blank;
     const body = (
         <Box ref={bodyRef} css={styles.body} data-flowchart-body="">
             {layout !== null && !empty && (

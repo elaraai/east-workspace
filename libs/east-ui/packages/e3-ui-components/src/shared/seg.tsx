@@ -7,8 +7,9 @@
  * A builder toolbar's segment strip, and the one chip it folds into (#632,
  * #952): the Plan's grain and resolution, and the Flowchart's LR · TD
  * (#1245). The strip is a radio group on the `seg` recipe, one tab stop on the
- * checked segment; folded, it is one chip naming the checked segment, whose
- * menu holds every segment. On a coarse pointer a segment is a 44px target by
+ * checked segment; folded, it is one chip naming the checked segment, its
+ * caret Font Awesome's solid caret-down, which the `chip` recipe sizes, and
+ * its menu holding every segment. On a coarse pointer a segment is a 44px target by
  * its halo on the block axis, never taking a tap meant for the segment beside
  * it, and the chip by its halo; neither grows the row (#346, #1221).
  *
@@ -20,6 +21,8 @@
 
 import { useMemo, type KeyboardEvent } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { coarseHitArea, radioGroupKey } from "@elaraai/east-ui-components/internal";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -77,10 +80,10 @@ export function Seg<K extends string>({ label, name, data, items, active, onPick
 }
 
 /**
- * A segment strip folded into one chip (#952) — the checked segment and a
- * caret, opening a menu of every segment; picking one does what the strip's
- * press does. A toolbar's segments take this form once the row is short of
- * room.
+ * A segment strip folded into one chip (#952) — the checked segment and Font
+ * Awesome's caret, opening a menu of every segment; picking one does what the
+ * strip's press does. A toolbar's segments take this form once the row is
+ * short of room.
  *
  * @param props - The strip's name, its segments, the checked one and what a pick does
  * @returns The chip, and its menu while open
@@ -99,7 +102,8 @@ export function SegMenu<K extends string>({ label, name, data, items, active, on
                 <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]} data-slot="segMenu"
                     {...own} aria-label={label}>
                     {current?.label ?? active}
-                    <Box as="span" data-chip-caret="">{"▾"}</Box>
+                    {/* The chip recipe sizes the caret by its slot (`data-chip-caret`). */}
+                    <Box as="span" data-chip-caret=""><FontAwesomeIcon icon={faCaretDown} aria-hidden /></Box>
                 </chakra.button>
             </ChakraMenu.Trigger>
             <Portal>

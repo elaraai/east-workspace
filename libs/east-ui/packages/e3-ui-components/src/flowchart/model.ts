@@ -91,6 +91,8 @@ export interface FlowchartModel {
     links: ReadonlyArray<ModelLink>;
     triggers: ReadonlyMap<string, ModelTrigger>;
     counts: { total: number; planned: number; observed: number; unresolved: number };
+    /** The flow holds no lane, no state and no transition: there is nothing to draw (#1246). A flow of lanes alone — a new one — draws its lanes. */
+    blank: boolean;
 }
 
 /**
@@ -254,5 +256,6 @@ export function buildModel(value: {
         links,
         triggers,
         counts: { total: links.length, planned, observed, unresolved },
+        blank: value.lanes.length === 0 && value.states.length === 0 && value.links.length === 0,
     };
 }

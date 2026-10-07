@@ -7,8 +7,8 @@
  * The Flowchart's toolbar items (#1245, `Flowchart Builder Spec.md` §7.1,
  * FB8, FB9) — every control the flowchart has, as items of its frame's one
  * toolbar, in this order: find state, LR · TD and the freshness chip at the
- * row's start; the slice's rail over `data` at its end, where the history
- * item joins it once the flowchart edits through its session (#1247). The
+ * row's start; the slice's rail over `data` at its end, and last the history
+ * item over the open flow's session, where the flowchart edits (#1246). The
  * canvas draws no eyebrow of its own.
  *
  * They fold on one ladder: the rail first, in its own order (#952) — its
@@ -16,9 +16,9 @@
  * the freshness chip goes, LR · TD folds into one chip naming the
  * orientation, whose menu holds both, and find state's box folds to its icon,
  * which opens the box in the edit popover. The history item's step
- * (`DEFAULT_RANK`) will come after all of them. Nothing wraps, scrolls or
- * goes to a second row, and on a coarse pointer every control is a 44px
- * target by its box or by its halo, the row's height its own.
+ * (`DEFAULT_RANK`) comes after all of them. Nothing wraps, scrolls or goes
+ * to a second row, and on a coarse pointer every control is a 44px target by
+ * its box or by its halo, the row's height its own.
  *
  * @packageDocumentation
  */
@@ -41,8 +41,7 @@ export type FlowchartOrientation = "LR" | "TD";
 /**
  * The Flowchart's own fold ranks, after every step of the slice rail's
  * (#952): the freshness chip goes, LR · TD folds into its chip, find state
- * into its icon. The history item's step (`DEFAULT_RANK`, #1247) comes after
- * them.
+ * into its icon. The history item's step (`DEFAULT_RANK`) comes after them.
  */
 export const FLOWCHART_RANK = {
     freshness: HOST_RANK,
@@ -82,6 +81,8 @@ export interface FlowchartToolbarProps {
     readonly affordances: readonly string[];
     /** The formatters the chip's date prints with, in the app's locale. */
     readonly words: Formatters;
+    /** The history item over the open flow's session (`historyToolbarItem`) — where the flowchart edits; `undefined` where it does not. */
+    readonly history?: ToolbarItem | undefined;
 }
 
 /**
@@ -91,7 +92,7 @@ export interface FlowchartToolbarProps {
  * @param props - What the items show and drive
  * @returns The items, a falsy entry for each the flowchart has no use for
  */
-export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, slice, affordances, words }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useFlowchartToolbarItems({ styles, find, orientation, onOrientation, freshness, slice, affordances, words, history }: FlowchartToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // Find state: its box, or its icon, which opens the box, on a row short of room.
     const seek = useKeySearchToolbarItem(find, { rank: FLOWCHART_RANK.seek, label: "Find state" });
     // The slice's rail, at the row's end.
@@ -117,5 +118,6 @@ export function useFlowchartToolbarItems({ styles, find, orientation, onOrientat
         },
         chip !== undefined && { key: "freshness", rank: FLOWCHART_RANK.freshness, forms: [chip, null] },
         rail,
+        history,
     ];
 }

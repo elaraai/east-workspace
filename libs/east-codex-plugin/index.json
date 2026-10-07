@@ -41536,7 +41536,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/flowchart/flowchart.examples.tsx",
       "suite": "",
-      "test": "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first",
+      "test": "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first and the Flows tab listing every flow",
       "keywords": [
         "Flowchart",
         "record",
@@ -41545,7 +41545,10 @@
         "Record.bind",
         "flow",
         "many flows",
-        "e3.record"
+        "e3.record",
+        "Flowchart.library.flows",
+        "Flows tab",
+        "New flow"
       ],
       "imports": [
         "import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
@@ -41556,7 +41559,7 @@
       "languages": [
         "tsx"
       ],
-      "source": "// A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first\n// inputs: []\nexport const depotFlows = e3.record(\"flowchart_depot_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Inbound parcels\": {\n        description: \"From the trailer to the van\",\n        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"load\", label: \"Load\" }],\n        states: [\n            { key: \"ARV\", label: \"Arrived\", lane: \"intake\" },\n            { key: \"SCN\", label: \"Scanned\", lane: \"intake\" },\n            { key: \"CH*\", label: \"Sort chutes\", lane: \"sort\", members: 12n },\n            { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        ],\n        links: [\n            { from: \"ARV\", to: \"SCN\" },\n            { from: \"SCN\", to: \"CH*\", trigger: \"route\" },\n            { from: \"CH*\", to: \"LDD\" },\n            { from: \"SCN\", to: \"SCN\", kind: \"observed\" },\n        ],\n        triggers: [{ key: \"route\", label: \"route\", owner: \"sort-planner\" }],\n    },\n    \"Returns\": {\n        description: \"From the counter back to the sender\",\n        lanes: [{ key: \"counter\", label: \"Counter\" }, { key: \"check\", label: \"Check\" }, { key: \"out\", label: \"Out\" }],\n        states: [\n            { key: \"RCV\", label: \"Received\", lane: \"counter\" },\n            { key: \"INS\", label: \"Inspected\", lane: \"check\" },\n            { key: \"RSD\", label: \"Resent\", lane: \"out\" },\n        ],\n        links: [{ from: \"RCV\", to: \"INS\" }, { from: \"INS\", to: \"RSD\" }, { from: \"INS\", to: \"BIN\", kind: \"observed\" }],\n    },\n}));\n\nexport const depotFlowsPatch = e3.mutation.patch(depotFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));\n            return <Box height=\"500px\"><Flowchart record={flows} flow=\"Inbound parcels\" /></Box>;\n        }}</Reactive>\n    ))"
+      "source": "// A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first and the Flows tab listing every flow\n// inputs: []\nexport const depotFlows = e3.record(\"flowchart_depot_flows\", Flowchart.Types.Flows, Flowchart.values({\n    \"Inbound parcels\": {\n        description: \"From the trailer to the van\",\n        lanes: [{ key: \"intake\", label: \"Intake\" }, { key: \"sort\", label: \"Sort\" }, { key: \"load\", label: \"Load\" }],\n        states: [\n            { key: \"ARV\", label: \"Arrived\", lane: \"intake\" },\n            { key: \"SCN\", label: \"Scanned\", lane: \"intake\" },\n            { key: \"CH*\", label: \"Sort chutes\", lane: \"sort\", members: 12n },\n            { key: \"LDD\", label: \"Loaded\", lane: \"load\" },\n        ],\n        links: [\n            { from: \"ARV\", to: \"SCN\" },\n            { from: \"SCN\", to: \"CH*\", trigger: \"route\" },\n            { from: \"CH*\", to: \"LDD\" },\n            { from: \"SCN\", to: \"SCN\", kind: \"observed\" },\n        ],\n        triggers: [{ key: \"route\", label: \"route\", owner: \"sort-planner\" }],\n    },\n    \"Returns\": {\n        description: \"From the counter back to the sender\",\n        lanes: [{ key: \"counter\", label: \"Counter\" }, { key: \"check\", label: \"Check\" }, { key: \"out\", label: \"Out\" }],\n        states: [\n            { key: \"RCV\", label: \"Received\", lane: \"counter\" },\n            { key: \"INS\", label: \"Inspected\", lane: \"check\" },\n            { key: \"RSD\", label: \"Resent\", lane: \"out\" },\n        ],\n        links: [{ from: \"RCV\", to: \"INS\" }, { from: \"INS\", to: \"RSD\" }, { from: \"INS\", to: \"BIN\", kind: \"observed\" }],\n    },\n}));\n\nexport const depotFlowsPatch = e3.mutation.patch(depotFlows);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));\n            return (\n                <Box height=\"500px\">\n                    <Flowchart record={flows} flow=\"Inbound parcels\" library={[Flowchart.library.flows()]} />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:flowchart.examples.tsx:flowchartHandover",

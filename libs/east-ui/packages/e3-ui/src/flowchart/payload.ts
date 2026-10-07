@@ -13,12 +13,18 @@
  * Its flows come from one of two sources:
  * - `record`, an e3 record of `Flowchart.Types.Flows` — flows by name — bound
  *   with its patch mutation. The handle crosses the payload as the query
- *   builder's does: its `read`, its `history` and its patch write. A record
- *   always holds flows by name (ruled 2026-10-07: e3's patch mutation writes
- *   only keyed records), so a lone flow is a one-entry record, or the host's;
+ *   builder's does: its `read`, its `history` and its patch write — and, for
+ *   the editing session over the flows (#1246), its Apply: the session's keyed
+ *   batch committed through the patch mutation by `Record.onApply(record, {
+ *   keyed: true })`. A record always holds flows by name (ruled 2026-10-07:
+ *   e3's patch mutation writes only keyed records), so a lone flow is a
+ *   one-entry record, or the host's;
  * - `data`, the host's flows by name or one flow — a value, an expression or a
  *   bind handle — the value's type picking the arm, with the host's `onApply`
  *   when its edits are committed.
+ *
+ * Its library's tabs are the `Flowchart.library.*` calls `library` lists
+ * (`library.ts`), on the wire in that order.
  *
  * @packageDocumentation
  */
@@ -26,6 +32,7 @@
 import {
     ArrayType,
     AsyncFunctionType,
+    BlobType,
     BooleanType,
     East,
     Expr,
@@ -49,8 +56,9 @@ import {
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EastUI, Editing } from "@elaraai/east-ui";
-import { RecordOutcomeType } from "../bind/record.js";
+import { Record as RecordBind, RecordOutcomeType } from "../bind/record.js";
 import { buildCanvas, FlowchartCanvasType, type FlowchartCanvasOptions, type FlowchartSliceOptions } from "./canvas.js";
+import type { FlowchartLibraryTab } from "./library.js";
 import { FlowchartPatchTypeFor } from "./patch.js";
 import {
     FlowchartFlowType,
@@ -183,6 +191,19 @@ export const FlowchartHistoryType = FunctionType([], OptionType(ArrayType(Record
 export type FlowchartHistoryType = typeof FlowchartHistoryType;
 
 /**
+ * The editing session's Apply over a record of flows (#1246, FB14): the
+ * session's keyed batch — a flow's insert, update or delete by name — as the
+ * session hands it, bytes of `Editing.Types.ChangeSet(Flowchart.Types.Flow,
+ * String)`, committed as one patch through the record's patch mutation by
+ * `Record.onApply(record, { keyed: true })`, and answered as the session's
+ * Apply is.
+ */
+export const FlowchartSessionApplyType = AsyncFunctionType([BlobType], Editing.Types.ApplyResult);
+
+/** Type representing {@link FlowchartSessionApplyType}. */
+export type FlowchartSessionApplyType = typeof FlowchartSessionApplyType;
+
+/**
  * A record of flows by name, bound with its patch mutation — what the
  * renderer reads the flows from and commits to, as the query builder's
  * `QueriesHandleType` is the saved queries record's.
@@ -190,11 +211,13 @@ export type FlowchartHistoryType = typeof FlowchartHistoryType;
  * @property read - The record's flows
  * @property history - Its commits, newest first
  * @property commit - Its patch write, awaited: a request id and the patch, answered by the outcome
+ * @property apply - The editing session's Apply through that patch write ({@link FlowchartSessionApplyType})
  */
 export const FlowchartFlowsHandleType = StructType({
     read: FunctionType([], FlowchartFlowsType),
     history: FlowchartHistoryType,
     commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(FlowchartFlowsType)], RecordOutcomeType) }),
+    apply: FlowchartSessionApplyType,
 });
 
 /** Type representing {@link FlowchartFlowsHandleType}. */
@@ -283,11 +306,14 @@ export const FlowchartComponent = EastUI.component("Flowchart", FlowchartPayload
 
 /**
  * The names a flowchart keeps its viewer's state under, by its `name`: its
- * frame's panes — their open tab and collapsed state (#1245).
+ * frame's panes — their open tab and collapsed state (#1245) — the flow open
+ * in it, its library's id, and LR · TD (#1246).
  *
  * @remarks
  * As the Plan's `planKeys` and the Sheet's `sheetKeys`: two flowcharts on one
- * surface keep apart only when each is named.
+ * surface keep apart only when each is named, and two of one name open one
+ * flow together, and turn together, as the query builder's open query is
+ * shared by its id.
  *
  * @param name - The flowchart's name, when a surface holds more than one; omitted, the one flowchart
  * @returns The keys
@@ -295,9 +321,20 @@ export const FlowchartComponent = EastUI.component("Flowchart", FlowchartPayload
 export function flowchartKeys(name: string | undefined): {
     /** The frame's storage key: each pane's open tab and collapsed state. */
     frame: string;
+    /** The open flow's UI store key: the name of the flow open in the flowchart, so a remount opens it again (FB12). */
+    flow: string;
+    /** The library's id: what its tabs' cards are drawn from. */
+    library: string;
+    /** LR · TD's UI store key: the orientation the viewer picked, so a remount keeps it (FB43). */
+    orientation: string;
 } {
     const suffix = name === undefined ? "" : `.${name}`;
-    return { frame: `flowchart${suffix}.frame` };
+    return {
+        frame: `flowchart${suffix}.frame`,
+        flow: `flowchart${suffix}.flow`,
+        library: `flowchart.library${suffix}`,
+        orientation: `flowchart${suffix}.orientation`,
+    };
 }
 
 // ============================================================================
@@ -350,6 +387,7 @@ type FlowchartAnyProps = {
     data?: unknown;
     onApply?: unknown;
     flow?: SubtypeExprOrValue<StringType>;
+    library?: unknown;
     slice?: FlowchartSliceOptions["slice"];
     affordances?: FlowchartSliceOptions["affordances"];
     inspector?: unknown;
@@ -381,10 +419,10 @@ function fieldOf(type: EastType | undefined, name: string): EastType | undefined
 
 /**
  * The record arm: a `Record.bind` handle over flows by name, bound with its
- * patch mutation, crossing the payload as its read, its history and its patch
- * write. A record of one flow is refused: e3's patch mutation writes only
- * keyed records (ruled 2026-10-07), so a lone flow is a one-entry record, or
- * the host's `data`.
+ * patch mutation, crossing the payload as its read, its history, its patch
+ * write and the editing session's Apply through it. A record of one flow is
+ * refused: e3's patch mutation writes only keyed records (ruled 2026-10-07),
+ * so a lone flow is a one-entry record, or the host's `data`.
  */
 function recordArm(record: unknown): FlowchartArm {
     if (!(record instanceof Expr)) throw new Error(UNBOUND);
@@ -408,9 +446,18 @@ function recordArm(record: unknown): FlowchartArm {
         throw new Error(`${UNBOUND}, and this binding ${door === undefined ? "has no `patch`" : "has a `patch` that takes another patch than the record's"}`);
     }
     const handle = record as unknown as { read: unknown; history: unknown; commit: { patch: unknown } };
+    // The session's Apply (#1246): its keyed batch, decoded at its own type
+    // and committed as it is — each flow's insert, update or delete by name —
+    // through the patch door, by Record.onApply's keyed form.
+    const keyed = RecordBind.onApply(record as never, { keyed: true }) as unknown as ExprType<AsyncFunctionType<[EastType], typeof Editing.Types.ApplyResult>>;
+    const batchType = Editing.Types.ChangeSet(FlowchartFlowType, StringType);
+    const apply = East.asyncFunction([BlobType], Editing.Types.ApplyResult, ($, blob) => {
+        const commit = $.const(keyed);
+        return commit(blob.decodeBeast(batchType, "v2"));
+    });
     return {
         many: true,
-        source: variant("record", { read: handle.read, history: handle.history, commit: { patch: handle.commit.patch } }),
+        source: variant("record", { read: handle.read, history: handle.history, commit: { patch: handle.commit.patch }, apply }),
     };
 }
 
@@ -451,6 +498,39 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
     return { many, source: variant("data", variant(many ? "flows" : "flow", { value, onApply: apply })) };
 }
 
+/** How a tab names itself in a refusal. */
+function tabName(tab: FlowchartLibraryTab): string {
+    return `Flowchart.library.${tab.kind}()`;
+}
+
+/**
+ * The library pane on the wire (`Flowchart Builder Spec.md` §4.2, FB16): its
+ * tabs in the order `library` lists them; none when it is left out.
+ *
+ * @param library - The tabs, each a `Flowchart.library.*` call
+ * @param many - Whether the flowchart holds flows by name, rather than one flow
+ * @returns The tabs on the wire
+ * @throws {Error} Naming the tab and the remedy: a `library` that is no list
+ *   of `Flowchart.library.*` calls, a tab listed twice, and the Flows tab over
+ *   one flow
+ */
+function buildLibrary(library: unknown, many: boolean): ValueTypeOf<FlowchartLibraryTabType>[] {
+    if (library === undefined) return [];
+    const LIST = "Flowchart: `library` lists the library pane's tabs, each a Flowchart.library.* call — library={[Flowchart.library.flows()]}";
+    if (!Array.isArray(library)) throw new Error(LIST);
+    const seen = new Set<string>();
+    return (library as unknown[]).map((given): ValueTypeOf<FlowchartLibraryTabType> => {
+        const tab = given as FlowchartLibraryTab | null | undefined;
+        if (tab === null || tab === undefined || tab.kind !== "flows") throw new Error(LIST);
+        if (seen.has(tab.kind)) throw new Error(`Flowchart: the library lists ${tabName(tab)} twice — each tab once`);
+        seen.add(tab.kind);
+        if (!many) {
+            throw new Error(`Flowchart: ${tabName(tab)} lists flows by name, and this \`data\` is one flow, Flowchart.Types.Flow — leave the Flows tab out of \`library\`, or pass the flows by name`);
+        }
+        return variant("flows", null);
+    });
+}
+
 /**
  * Creates the flowchart's payload alone — what `<Flowchart>` returns through
  * the `Flowchart` carrier — for the tests and the renderer's fixtures, which
@@ -464,12 +544,13 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  *   than `Flowchart.Types.Flows`, or not bound with its patch mutation; `data`
  *   of neither flow type; an `onApply` that does not take the patch of
  *   `data`'s type; `"brush"` among the affordances; a table or row mapper,
- *   which `Flowchart.over` takes; and `height` or `maxHeight`, which the box
- *   the flowchart fills sets
+ *   which `Flowchart.over` takes; `height` or `maxHeight`, which the box the
+ *   flowchart fills sets; and a `library` that lists a tab twice, or the Flows
+ *   tab over one flow
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
-    const { record, data, onApply, flow, slice, affordances, inspector, readOnly, name, ...canvas } = props as FlowchartAnyProps;
+    const { record, data, onApply, flow, library, slice, affordances, inspector, readOnly, name, ...canvas } = props as FlowchartAnyProps;
     for (const table of TABLES) {
         if (table in canvas) {
             throw new Error(`Flowchart: \`${table}\` is one of the tables, or the row mappers, Flowchart.over builds a flow from — pass data={Flowchart.over(states, { … })}, or bind a record of flows as \`record\``);
@@ -503,6 +584,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     if (flow !== undefined && !arm.many) {
         throw new Error("Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart.Types.Flow — leave `flow` out");
     }
+    const tabs = buildLibrary(library, arm.many);
     return East.value({
         canvas: buildCanvas(canvas as FlowchartCanvasOptions, {
             ...(slice === undefined ? {} : { slice }),
@@ -510,7 +592,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
         }),
         source: arm.source,
         open: flow === undefined ? none : some(flow),
-        library: [],
+        library: tabs,
         inspector: inspector === true,
         readOnly: readOnly ?? false,
         name: name === undefined ? none : some(name),
