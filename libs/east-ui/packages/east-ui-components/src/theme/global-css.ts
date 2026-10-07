@@ -40,7 +40,9 @@
  */
 
 import { defineGlobalStyles, type SystemStyleObject } from "@chakra-ui/react";
+import { faBan } from "@fortawesome/free-solid-svg-icons";
 import { headingStyles } from "./text-styles.js";
+import { iconMask } from "./icon-mask.js";
 
 /* Reduced-motion reset. Built via `Record<string, SystemStyleObject>` and
  * then narrowed to `SystemStyleObject`. Chakra v3's `SystemStyleObject` is
@@ -343,9 +345,9 @@ export const globalCss = defineGlobalStyles({
         outlineOffset: "-3px",
     },
     /* A connected-but-vetoed cell (duplicate person, host `canAssign` veto)
-     * while hovered — red frame + the circle-with-cross badge, and the
-     * not-allowed cursor, per the Schematic connect-tool danger treatment.
-     * Outranks both stages above: a refusal must never read as an invitation. */
+     * while hovered — red frame + the ban badge, and the not-allowed cursor,
+     * per the Schematic connect-tool danger treatment. Outranks both stages
+     * above: a refusal must never read as an invitation. */
     "[data-drag-cell][data-drop-invalid]::before": {
         borderWidth: "2px",
         borderStyle: "solid",
@@ -354,15 +356,14 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-cell][data-drop-invalid]": {
         background: "bg.danger.subtle",
         cursor: "not-allowed",
-        /* The ⊘ is a mark: the valence base, as the state icons are. */
+        /* The badge is Font Awesome's solid ban, never a text glyph — the
+         * canvas's fonts lack one, and a fallback font drew it malformed
+         * (#1261). It is a mark: the valence base, as the state icons are. */
         "&::after": {
-            content: '"⊘"',
+            ...iconMask(faBan, "14px", "status.neg"),
             position: "absolute",
             top: "2px",
             right: "6px",
-            fontSize: "14px",
-            lineHeight: "1",
-            color: "status.neg",
             pointerEvents: "none",
             zIndex: 5,
         },
