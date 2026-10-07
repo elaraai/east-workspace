@@ -16,8 +16,10 @@
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
  * - `<Flowchart>` — the state-transition flowchart: states in ordered phase
- *   lanes, H/V-routed transitions, decision triggers and evidence, from flat
- *   tables, with its row and event types on `Flowchart.Types`.
+ *   lanes, H/V-routed transitions, decision triggers and evidence, over a
+ *   record of flows or the host's flow, with the values, patches and types it
+ *   is written with on `Flowchart` (`Flowchart.values`, `Flowchart.value`,
+ *   `Flowchart.over`, `Flowchart.patch`, `Flowchart.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`).
  * - `<Diff>` — review pending changes for any combination of bindings.
@@ -159,14 +161,19 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
-// The Flowchart (#1243): the state-transition flowchart a solution mounts,
-// `<Flowchart>` — states in ordered phase lanes, H/V-routed transitions,
-// decision triggers and evidence-weighted strokes, from flat tables — its row,
-// closed-set and event types on `Flowchart.Types`, and its props.
+// The Flowchart (#1243, #1244): the state-transition flowchart a solution
+// mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
+// transitions, decision triggers and evidence-weighted strokes, over a record
+// of flows or the host's flow — the values, patches and East types it is
+// written with (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+// `Flowchart.patch`, `Flowchart.Types`), and its props.
 export {
-    Flowchart, type FlowchartNamespace, type FlowchartConfig, type FlowchartStateFields, type FlowchartLinkFields,
-    type FlowchartLaneFields, type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartFreshnessInput,
-    type FlowchartLaneLiteral, type FlowchartLinkKindLiteral, type FlowchartOrientationLiteral, type FlowchartLinkModeLiteral,
+    Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
+    type FlowchartCanvasOptions, type FlowchartSliceOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
+    type FlowchartLinkModeLiteral, type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
+    type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,
+    type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
+    type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
 } from './flowchart/index.js';
 
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and

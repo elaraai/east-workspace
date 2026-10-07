@@ -114,10 +114,11 @@ Each wire changed under this rule, with the kind it is.
   under the other: packages are re-exported, and the dataflow computes each UI
   task's output again under the new type. As with the EmptyState's glyph, no
   repository upgrade step ships with it.
-- **east-ui's `UIComponentType` loses its `Flowchart` arm (#1243)** —
+- **east-ui's `UIComponentType` loses its `Flowchart` arm (#1243, #1244)** —
   package-borne. The flowchart is e3-ui's `<Flowchart>`, carried as the
-  `Flowchart` extension, its payload the flowchart's root, with the fields the
-  arm had. As with the Plan's and the Sheet's arms, every case after
-  `Flowchart` moves down one, so a UI value encoded under either type does not
-  decode under the other: packages are re-exported, and the dataflow computes
-  each UI task's output again under the new type.
+  `Flowchart` extension, its payload its canvas, where its flows come from — a
+  record of flows or the host's — and its panes. As with the Plan's and the
+  Sheet's arms, every case after `Flowchart` moves down one, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type.

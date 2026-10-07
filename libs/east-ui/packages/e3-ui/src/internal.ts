@@ -5,7 +5,7 @@
 
 /**
  * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Diff` / `Ontology`
- * **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Flowchart.Root(…)`,
+ * **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Flowchart.Payload(…)`,
  * `Diff.Root(…)`, `Diff.Component`) plus `Data`, the manifest type and
  * derivation, and types.
  *
@@ -363,32 +363,67 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
-// The Flowchart (#1243): `<Flowchart>` with its namespace, the root the
-// renderer takes through the `Flowchart` carrier, and the types a flowchart is
-// written with. `Flowchart` here is the internal namespace — the public one,
-// `Flowchart.Root`, `Flowchart.Payload` and `Flowchart.Component`.
+// The Flowchart (#1243, #1244): `<Flowchart>` with its namespace, the payload
+// the renderer takes through the `Flowchart` carrier — its canvas, its source
+// of flows and its library's wire — and the types a flowchart is written with.
+// `Flowchart` here is the internal namespace — the public one,
+// `Flowchart.Payload`, `Flowchart.Component` and the payload's types.
 export {
     FlowchartInternal as Flowchart,
     FlowchartTag,
     FlowchartComponent,
-    FlowchartRootType,
-    FlowchartTypes,
+    FlowchartPayloadType,
+    FlowchartCanvasType,
+    FlowchartSourceType,
+    FlowchartDataType,
+    FlowchartFlowsHandleType,
+    FlowchartFlowsApplyType,
+    FlowchartFlowApplyType,
+    FlowchartHistoryType,
+    FlowchartLibraryTabType,
+    FlowchartLandsType,
+    FlowchartCardType,
+    FlowchartStateCardType,
+    FlowchartTransitionCardType,
+    FlowchartLaneCardType,
+    FlowchartDecisionCardType,
+    FlowchartPatchTypeFor,
+    buildCanvas,
     createFlowchartPayload,
-    createFlowchartRoot,
+    flowchartOver,
+    flowchartPatch,
+    flowchartValue,
+    flowchartValues,
     type FlowchartTagType,
     type FlowchartNamespace,
     type FlowchartInternalNamespace,
-    type FlowchartConfig,
+    type FlowchartTypes,
+    type FlowchartCommon,
+    type FlowchartRecordHandle,
+    type FlowchartBindHandle,
+    type FlowchartCanvasOptions,
+    type FlowchartSliceOptions,
+    type FlowchartFreshnessInput,
+    type FlowchartOrientationLiteral,
+    type FlowchartLinkModeLiteral,
+    type RowElement,
+    type FlowchartTables,
     type FlowchartStateFields,
     type FlowchartLinkFields,
     type FlowchartLaneFields,
     type FlowchartTriggerFields,
     type FlowchartEvidenceFields,
-    type FlowchartFreshnessInput,
     type FlowchartLaneLiteral,
+    type FlowchartFlowInput,
+    type FlowchartLaneInput,
+    type FlowchartStateInput,
+    type FlowchartLinkInput,
+    type FlowchartEvidenceInput,
+    type FlowchartTriggerInput,
     type FlowchartLinkKindLiteral,
-    type FlowchartOrientationLiteral,
-    type FlowchartLinkModeLiteral,
+    type FlowchartRowType,
+    type FlowchartPatchOf,
+    type FlowchartPatchInput,
 } from './flowchart/index.js';
 export * from './flowchart/types.js';
 // Schedule (#1218, #1190): the kinds the Calendar and Plan's builder share,

@@ -6,6 +6,7 @@
 import {
     ArrayType,
     DateTimeType,
+    DictType,
     FloatType,
     IntegerType,
     NullType,
@@ -236,6 +237,54 @@ export const FlowchartTriggerType = StructType({
  * Type representing flowchart triggers.
  */
 export type FlowchartTriggerType = typeof FlowchartTriggerType;
+
+/**
+ * One flow — a whole flowchart: its lanes, its states, the transitions
+ * between them and the decisions that govern them (#1244, `Flowchart Builder
+ * Spec.md` §5.1).
+ *
+ * @remarks
+ * A record of flows holds one per name ({@link FlowchartFlowsType}), and a
+ * lone flow is a record of one entry, or the host's `data`. `Flowchart.value`
+ * writes one from a literal, and `Flowchart.over` builds one from an app's
+ * own tables. A record's entries are flows, so it is a stored form.
+ *
+ * @property description - One sentence about the flow: the line its card in the Flows tab shows
+ * @property lanes - Its lanes, in band order
+ * @property states - Its states, each in one of its lanes
+ * @property links - Its transitions; one naming a state the flow does not have draws as the unresolved ghost
+ * @property triggers - Its decisions, each named by the transitions it governs
+ */
+export const FlowchartFlowType = StructType({
+    /** One sentence about the flow: the line its card in the Flows tab shows */
+    description: OptionType(StringType),
+    /** Its lanes, in band order */
+    lanes: ArrayType(FlowchartLaneType),
+    /** Its states, each in one of its lanes */
+    states: ArrayType(FlowchartStateType),
+    /** Its transitions; one naming a state the flow does not have draws as the unresolved ghost */
+    links: ArrayType(FlowchartLinkType),
+    /** Its decisions, each named by the transitions it governs */
+    triggers: ArrayType(FlowchartTriggerType),
+});
+
+/**
+ * Type representing one flow.
+ */
+export type FlowchartFlowType = typeof FlowchartFlowType;
+
+/**
+ * A record of flows, by name — the record a flowchart is bound to (#1244,
+ * `Flowchart Builder Spec.md` §5.1): a record always holds flows by name, e3's
+ * patch mutation writing only keyed records. A name is the flow's key in the
+ * record. `Flowchart.values` writes one from literals.
+ */
+export const FlowchartFlowsType = DictType(StringType, FlowchartFlowType);
+
+/**
+ * Type representing a record of flows.
+ */
+export type FlowchartFlowsType = typeof FlowchartFlowsType;
 
 /**
  * Eyebrow freshness chip content.
