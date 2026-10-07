@@ -39,11 +39,16 @@
  * controls. A host may draw a field's control itself (`renderControl`), what
  * no input shows — the field keeps its label, key and help line.
  *
+ * Every field is one column (#1220): its label, its control's line and its
+ * help line, the control filling the line and an Option's Set or Clear at its
+ * end, centred on it. Each input is the design system's Input size, 32px, so
+ * every kind lands on one line.
+ *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
- * `data-dirty`) and geometry only.
+ * `data-dirty`, `data-field-line`, `data-field-side`) and geometry only.
  *
  * @packageDocumentation
  */
@@ -61,6 +66,7 @@ import {
     Checkbox, Field, FieldEditorType, Input, Select, TagsInput, spellOut, type FieldEditorValue, type FieldSpecValue,
 } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { EastChakraComponent } from "../../component";
 import { useFormatters } from "../../format/index.js";
 import { useValueSync } from "../../hooks/useValueSync.js";
 import { EastChakraField, type FieldValue } from "../field/index.js";
@@ -121,11 +127,11 @@ const CHECKBOX = defaultValue<typeof Checkbox.Types.Checkbox>(Checkbox.Types.Che
 const SELECT = defaultValue<typeof Select.Types.Root>(Select.Types.Root);
 const TAGS = defaultValue<typeof TagsInput.Types.Root>(TagsInput.Types.Root);
 
-/** The inputs' size in a form: Studio's inspector's. */
-const SMALL = some(variant("sm", null));
-const INPUT_STYLE = some({ ...defaultValue<typeof Input.Types.Style>(Input.Types.Style), size: SMALL });
-const SELECT_STYLE = some({ ...defaultValue<typeof Select.Types.Root.fields.style.cases.some>(Select.Types.Root.fields.style.cases.some), size: SMALL });
-const TAGS_STYLE = some({ ...defaultValue<typeof TagsInput.Types.Style>(TagsInput.Types.Style), size: SMALL });
+/** The inputs' size in a form: the design system's Input, one 32px line whatever the field's kind (#1220). */
+const SIZE = some(variant("md", null));
+const INPUT_STYLE = some({ ...defaultValue<typeof Input.Types.Style>(Input.Types.Style), size: SIZE });
+const SELECT_STYLE = some({ ...defaultValue<typeof Select.Types.Root.fields.style.cases.some>(Select.Types.Root.fields.style.cases.some), size: SIZE });
+const TAGS_STYLE = some({ ...defaultValue<typeof TagsInput.Types.Style>(TagsInput.Types.Style), size: SIZE });
 
 const stringEqual = equalFor(StringType);
 const compareStrings = compareFor(StringType);
@@ -288,7 +294,7 @@ export const FieldForm = memo(function FieldForm({ specs, value, baseline, optio
             {sections.map((section) => (section.group === undefined ? section.specs.map(row) : (
                 <Box key={`group\u001f${section.group}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
                     <Box as="span" css={styles.groupHead}>{section.group}</Box>
-                    {section.specs.map(row)}
+                    <Box css={styles.groupFields}>{section.specs.map(row)}</Box>
                 </Box>
             )))}
         </Box>
@@ -309,7 +315,7 @@ interface FieldRowProps {
     renderControl: FieldFormProps["renderControl"];
 }
 
-/** One field: the shared `Field` around its input, a checklist's items, and an Option's Set or Clear. */
+/** One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a checklist's items. */
 const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -511,44 +517,14 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     // Beside an input that cannot show none: Set while it holds no value, and an Option's Clear while it does.
     const side = own !== undefined || printed || readOnly || editor.type === "text" || editor.type === "select" || editor.type === "reference" ? undefined
         : held === undefined ? "set" : spec.optional ? "clear" : undefined;
-
-    return (
-        <Box css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
-            onBlur={onBlur} onKeyDown={onKeyDown}>
-            <Box css={styles.main}>
-                <Box ref={fieldRef}>
-                    <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={own} />
-                </Box>
-                {checklist !== undefined && items.length > 0 && (
-                    <Box css={styles.items} data-checklist-items="">
-                        {items.map((item, i) => {
-                            const text = item[checklist.text] as string;
-                            return (
-                                <Box key={i} css={styles.item} data-checklist-item="">
-                                    <EastChakraCheckbox value={{
-                                        ...CHECKBOX,
-                                        checked: item[checklist.done] as boolean,
-                                        label: some(text),
-                                        disabled: readOnly ? some(true) : none,
-                                        onChange: some((next: boolean) => {
-                                            emit(items.map((it, j) => (j === i ? { ...it, [checklist.done]: next } : it)));
-                                            return null;
-                                        }),
-                                    }} />
-                                    {!readOnly && (
-                                        <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.removeItem({ text })}
-                                            title={m.removeItem({ text })} data-checklist-remove="" onClick={() => emit(items.filter((_item, j) => j !== i))}>
-                                            <FontAwesomeIcon icon={faXmark} />
-                                        </chakra.button>
-                                    )}
-                                </Box>
-                            );
-                        })}
-                    </Box>
-                )}
+    // The control's line: the control filling it — the host's own, or the input — and the Set or Clear at its end.
+    const line = (
+        <Box css={styles.line} data-field-line="">
+            <Box ref={fieldRef} css={styles.control}>
+                {own ?? <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />}
             </Box>
             {side !== undefined && (
-                <Box css={styles.side}>
+                <Box css={styles.side} data-field-side={side}>
                     {side === "set" ? (
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-field-set=""
                             onClick={() => emit(startOf(inner, editor))}>
@@ -560,6 +536,40 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                             <FontAwesomeIcon icon={faXmark} />
                         </chakra.button>
                     )}
+                </Box>
+            )}
+        </Box>
+    );
+
+    return (
+        <Box css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
+            onBlur={onBlur} onKeyDown={onKeyDown}>
+            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} />
+            {checklist !== undefined && items.length > 0 && (
+                <Box css={styles.items} data-checklist-items="">
+                    {items.map((item, i) => {
+                        const text = item[checklist.text] as string;
+                        return (
+                            <Box key={i} css={styles.item} data-checklist-item="">
+                                <EastChakraCheckbox value={{
+                                    ...CHECKBOX,
+                                    checked: item[checklist.done] as boolean,
+                                    label: some(text),
+                                    disabled: readOnly ? some(true) : none,
+                                    onChange: some((next: boolean) => {
+                                        emit(items.map((it, j) => (j === i ? { ...it, [checklist.done]: next } : it)));
+                                        return null;
+                                    }),
+                                }} />
+                                {!readOnly && (
+                                    <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.removeItem({ text })}
+                                        title={m.removeItem({ text })} data-checklist-remove="" onClick={() => emit(items.filter((_item, j) => j !== i))}>
+                                        <FontAwesomeIcon icon={faXmark} />
+                                    </chakra.button>
+                                )}
+                            </Box>
+                        );
+                    })}
                 </Box>
             )}
         </Box>

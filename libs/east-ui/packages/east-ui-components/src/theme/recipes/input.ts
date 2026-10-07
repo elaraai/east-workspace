@@ -13,11 +13,17 @@
  *  - `flushed` — borderless strip for the command-palette input.
  *  Always paired with a static `<label>` above; no floating labels.
  *
+ * Each size is one line of {@link fieldHeights} (#1220), its text centred in
+ * it. Chakra's default input recipe deep-merges beneath this one, and its
+ * sizes carry a `textStyle` (14px on 20px) that outranks a size's own
+ * `fontSize`: each size clears it, as the numberInput recipe's does, so the
+ * design system's sizes hold.
+ *
  * @packageDocumentation
  */
 
 import { defineRecipe } from "@chakra-ui/react";
-import { fieldChrome, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldHeights, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 
 export const inputRecipe = defineRecipe({
     className: "elara-input",
@@ -52,9 +58,9 @@ export const inputRecipe = defineRecipe({
             },
         },
         size: {
-            sm: { fontSize: "{fontSizes.body.sm}" /* 12.5 */, paddingX: "{spacing.2}", paddingY: "{spacing.1}", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
-            md: { fontSize: "{fontSizes.body}" /* 13 */, paddingX: "10px", paddingY: "7px", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
-            lg: { fontSize: "{fontSizes.body.lg}" /* 14 */, paddingX: "{spacing.4}", paddingY: "{spacing.3}" },
+            sm: { textStyle: "none", fontSize: "{fontSizes.body.sm}" /* 12.5 */, height: fieldHeights.sm, paddingX: "{spacing.2}", paddingY: "0", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            md: { textStyle: "none", fontSize: "{fontSizes.body}" /* 13 */, height: fieldHeights.md, paddingX: "10px", paddingY: "0", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            lg: { textStyle: "none", fontSize: "{fontSizes.body.lg}" /* 14 */, height: fieldHeights.lg, paddingX: "{spacing.4}", paddingY: "0" },
         },
     },
     defaultVariants: {

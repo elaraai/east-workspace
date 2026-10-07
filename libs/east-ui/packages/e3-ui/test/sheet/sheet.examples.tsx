@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
+    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
 import {
@@ -31,12 +31,14 @@ import e3 from "@elaraai/e3";
 // - `sheetBatches`, one entry's groups in the planner's order, dragged and
 //   moved (#1187), with their sub rows;
 // - `sheetLoose`, loose rows between the groups (#846);
-// - `sheetPaged`, a record read a window at a time.
+// - `sheetPaged`, a record read a window at a time;
+// - `sheetUpkeep`, the inspector's every field kind (#1220).
 //
 // Its panes are optional props, and the examples show each combination:
 // none (`sheetBasic`, `sheetVariants`, `sheetStress`, `sheetLoose`,
 // `sheetPaged`), a library (`sheetLibrary`), an inspector (`sheetWeeks`, its
-// Details the author's own), and both (`sheetWorkshop`, `sheetBatches`).
+// Details the author's own; `sheetUpkeep`, its form), and both
+// (`sheetWorkshop`, `sheetBatches`).
 //
 // Every sheet binds its rows from e3, so each runs on e3-web in the showcase
 // (#1180): a record seeded with an authored literal (§2a), whose patch door
@@ -1297,6 +1299,126 @@ export const sheetPaged = example({
                             start: Sheet.column.date(SheetJob, { header: "Start", width: "96px" }),
                             qty:   Sheet.column.quantity(SheetJob, { header: "Qty", width: "96px" }),
                         }}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// sheetUpkeep — the inspector's every field kind (#1220)
+// ============================================================================
+
+/** A machine's family — the kind of machine it is. */
+export const UpkeepFamily = VariantType({ beam_saw: NullType, edge_bander: NullType, cnc_router: NullType, spray_booth: NullType });
+/** One check of a service — what is checked, and whether it was done. */
+export const UpkeepCheck = StructType({ text: StringType, done: BooleanType });
+/** Who supplies a machine's parts. */
+export const UpkeepSupplier = StructType({ name: StringType, phone: StringType });
+/** A machine's upkeep — one field of each kind the inspector's form edits. */
+export const MachineUpkeep = StructType({
+    name:          StringType,                 // a text column
+    bay:           StringType,                 // a reference column: a key of the bays
+    hours:         IntegerType,                // an integer column: a number with its unit and bounds
+    family:        UpkeepFamily,               // a select of the variant's cases
+    wear:          OptionType(FloatType),      // a number with its unit, bounds and step, cleared to none
+    crew:          OptionType(StringType),     // a text, emptied to none
+    tickets:       SetType(StringType),        // tags, the tickets offered as they are typed
+    checks:        ArrayType(UpkeepCheck),     // a checklist
+    supplier:      UpkeepSupplier,             // a nested struct: its fields under its name
+    in_service:    BooleanType,                // a checkbox
+    guard_checked: OptionType(BooleanType),    // a checkbox, cleared to none: not recorded
+    serviced:      DateTimeType,               // a date and a time
+    next_service:  OptionType(DateTimeType),   // a date and a time, set or cleared
+    serial:        StringType,                 // a stamped column: read only
+});
+/** The machines' upkeep, keyed by machine code. */
+export const sheetMachineUpkeep = e3.record("sheet_machine_upkeep", DictType(StringType, MachineUpkeep), new Map([
+    ["S101", { name: "Beam saw", bay: "Bay 1", hours: 1240n, family: variant("beam_saw", null), wear: some(35.5), crew: some("Cutting crew"),
+        tickets: new Set(["Panel saw ticket", "Dust extraction"]),
+        checks: [{ text: "Blade sharpened", done: true }, { text: "Fence squared", done: true }, { text: "Extraction cleaned", done: false }],
+        supplier: { name: "Kestrelmoor Saw Works", phone: "01632 960 118" },
+        in_service: true, guard_checked: some(true),
+        serviced: new Date("2026-09-28T07:30:00Z"), next_service: some(new Date("2026-11-09T07:30:00Z")), serial: "BS-4410-0193" }],
+    ["E201", { name: "Edge bander", bay: "Bay 2", hours: 860n, family: variant("edge_bander", null), wear: none, crew: none,
+        tickets: new Set<string>(), checks: [], supplier: { name: "", phone: "" },
+        in_service: true, guard_checked: none,
+        serviced: new Date("2026-08-17T06:00:00Z"), next_service: none, serial: "EB-2207-0457" }],
+    ["R301", { name: "CNC router", bay: "Bay 3", hours: 2210n, family: variant("cnc_router", null), wear: some(62.0), crew: some("Machining crew"),
+        tickets: new Set(["Router ticket"]),
+        checks: [{ text: "Spindle greased", done: true }, { text: "Bed vacuum tested", done: false }],
+        supplier: { name: "Brindlecote Tooling", phone: "01632 960 342" },
+        in_service: false, guard_checked: some(false),
+        serviced: new Date("2026-07-06T13:15:00Z"), next_service: none, serial: "CR-5120-0088" }],
+    ["F401", { name: "Spray booth", bay: "Bay 4", hours: 540n, family: variant("spray_booth", null), wear: none, crew: some("Finishing crew"),
+        tickets: new Set(["Spray ticket", "First aid"]),
+        checks: [{ text: "Filters changed", done: true }],
+        supplier: { name: "Fennimarsh Coatings", phone: "01632 960 775" },
+        in_service: true, guard_checked: some(true),
+        serviced: new Date("2026-10-01T08:00:00Z"), next_service: some(new Date("2026-12-01T08:00:00Z")), serial: "SB-0391-0017" }],
+]));
+/** The upkeep's patch door — every Apply commits through it. */
+export const sheetMachineUpkeepPatch = e3.mutation.patch(sheetMachineUpkeep);
+
+/**
+ * The inspector's every field kind (#1220) — the workshop's machines' upkeep,
+ * a record keyed by machine code. The grid shows four columns: a machine's
+ * name, its bay, the hours it has run and its serial, stamped by its maker.
+ * The inspector pane shows every field of the selected machine through
+ * `Fields`' form: a column's field through its column's kind, a field no
+ * column shows by its type, each hinted with `Sheet.field.*` where its type
+ * cannot say enough — a number with its unit, bounds and step, a select of a
+ * variant's cases, a reference to the bays, a text emptied to none, tags
+ * offered from a list, a checklist, a nested struct's fields under its name,
+ * a checkbox, a date and a time, and Options set and cleared. The hinted
+ * fields lead, in hint order, and the rest follow in declared order. A
+ * machine out of service needs its next service booked before Apply. It is
+ * given no library.
+ */
+export const sheetUpkeep = example({
+    keywords: ["Sheet", "BuilderFrame", "inspector", "fields", "Sheet.field", "Fields", "form", "text", "placeholder", "number", "unit", "min", "max", "step", "select", "labels", "reference", "register", "checkbox", "datetime", "Option", "Set", "Clear", "tags", "options", "checklist", "nested", "struct", "stamped", "readonly", "integer", "ready", "row", "Readiness", "record"],
+    description: "A sheet whose inspector pane edits one field of every kind over the workshop's machines' upkeep — a number with its unit and bounds, a select of a variant's cases, a reference, a text emptied to none, tags, a checklist, a nested struct's fields under its name, a checkbox, a date and a time, Options set and cleared, and a stamped code read only — the hinted fields leading, with a row rule's issue",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const upkeep = $.let(Record.bind(sheetMachineUpkeep, [sheetMachineUpkeepPatch]));
+            const bays = $.let(["Bay 1", "Bay 2", "Bay 3", "Bay 4", "Bay 7"], ArrayType(StringType));
+            // A machine out of service needs its next service booked.
+            const readyMachine = $.const(East.function([Sheet.Types.Draft(MachineUpkeep), Sheet.Types.DraftContext(MachineUpkeep)], Sheet.Types.Readiness, ($, row) => {
+                const out = $.const(row.in_service.match({ value: (_$2, on) => on.not() }, () => false));
+                const unbooked = $.const(row.next_service.match({ value: (_$2, next) => next.hasTag("none") }, () => false));
+                $.if(out.and(() => unbooked), $ => {
+                    $.return(East.value(variant("incomplete", [{ field: "next_service", message: "Out of service — book its next service" }]), Sheet.Types.Readiness));
+                });
+                return East.value(variant("ready", null), Sheet.Types.Readiness);
+            }));
+            return (
+                <Box height="640px">
+                    <Sheet
+                        record={upkeep}
+                        name="upkeep"
+                        registers={{ bays: Sheet.register.members(bays, { kind: "bay", key: b => b, label: b => b }) }}
+                        columns={{
+                            name:   Sheet.column.text(MachineUpkeep, { header: "Machine", width: "200px" }),
+                            bay:    Sheet.column.reference(MachineUpkeep, "bays", { header: "Bay", width: "96px" }),
+                            hours:  Sheet.column.integer(MachineUpkeep, { header: "Hours", sub: "run since new", width: "96px" }),
+                            serial: Sheet.column.stamped(MachineUpkeep, { header: "Serial", sub: "on the maker's plate", owner: "Maker", width: "140px" }),
+                        }}
+                        // The inspector pane: every field of a machine — the hinted ones first, in this order.
+                        inspector
+                        fields={{
+                            name:     Sheet.field.text({ placeholder: "Its name on the floor" }),
+                            bay:      Sheet.field.reference({ of: "bays", help: "Where it stands" }),
+                            hours:    Sheet.field.number({ unit: "h", min: 0n, step: 10n }),
+                            family:   Sheet.field.select({ labels: { beam_saw: "Beam saw", edge_bander: "Edge bander", cnc_router: "CNC router", spray_booth: "Spray booth" } }),
+                            wear:     Sheet.field.number({ label: "Blade wear", unit: "%", min: 0, max: 100, step: 0.5 }),
+                            crew:     Sheet.field.text({ placeholder: "Which crew runs it" }),
+                            tickets:  Sheet.field.tags({ options: ["Panel saw ticket", "Router ticket", "Spray ticket", "Dust extraction", "First aid"] }),
+                            checks:   Sheet.field.checklist({ help: "Signed off at the last service" }),
+                            supplier: { name: Sheet.field.text({ placeholder: "Who supplies its parts" }), phone: Sheet.field.text({ placeholder: "01632 960 000" }) },
+                        }}
+                        ready={{ row: readyMachine }}
                     />
                 </Box>
             );

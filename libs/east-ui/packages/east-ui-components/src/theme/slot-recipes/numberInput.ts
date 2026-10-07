@@ -13,14 +13,17 @@
  * Chakra's default numberInput recipe deep-merges beneath this one, so the
  * styles here explicitly override its layout decisions — the absolutely
  * positioned control, the `--stepper-width` sizing vars, the 1em trigger
- * icons, and the `size` variants. Small fields use the same padding and
- * typography as the shared input recipe.
+ * icons, and the `size` variants. Each size is the shared input's: its
+ * typography and its padding, and its one-line height (`fieldHeights`,
+ * #1220) on the bordered root, the input stretched to it with its text
+ * centred — so a number lands on the line a text of its size does. On a
+ * coarse pointer the root is the 44px touch height, as the plain input is.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, fieldFocusRing, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldFocusRing, fieldHeights, numericChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { inputRecipe } from "../recipes/input.js";
 
 /** One stepper chevron — both triggers share this shape. */
@@ -58,8 +61,8 @@ const sizeOverride = {
         paddingX: "10px",
         paddingY: "7px",
         "--input-height": "auto",
-        /* Touch (#348): 44px row + 16px text (iOS zoom-on-focus guard). */
-        _coarse: { fontSize: TOUCH_FONT_FLOOR, minHeight: "44px" },
+        /* Touch (#348): 16px text (iOS zoom-on-focus guard); the 44px row is the root's. */
+        _coarse: { fontSize: TOUCH_FONT_FLOOR },
     },
     control: {
         fontSize: "inherit",
@@ -87,6 +90,9 @@ export const numberInputSlotRecipe = defineSlotRecipe({
             width: "100%",
             position: "relative",
             _focusWithin: fieldFocusRing,
+            /* Touch (#346): the 44px floor is the bordered box's, as the plain
+             * input's is — the input inside stretches to it. */
+            _coarse: { minHeight: "44px" },
         },
         input: {
             ...numericChrome,
@@ -141,10 +147,12 @@ export const numberInputSlotRecipe = defineSlotRecipe({
             },
         },
         size: {
-            xs: { ...sizeOverride, root: { minHeight: "20px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.sm, paddingY: "0" }, control: { ...sizeOverride.control, width: "18px" } },
-            sm: { ...sizeOverride, root: { minHeight: "24px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.sm }, control: { ...sizeOverride.control, width: "20px" } },
-            md: { ...sizeOverride, root: { minHeight: "32px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.md } },
-            lg: { ...sizeOverride, root: { minHeight: "44px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.lg } },
+            // The input takes the shared size's type and inline padding, and
+            // stretches to the root's line (`height: auto`, no block padding).
+            xs: { ...sizeOverride, root: { minHeight: "20px" }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.sm, height: "auto", paddingY: "0" }, control: { ...sizeOverride.control, width: "18px" } },
+            sm: { ...sizeOverride, root: { height: fieldHeights.sm }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.sm, height: "auto", paddingY: "0" }, control: { ...sizeOverride.control, width: "20px" } },
+            md: { ...sizeOverride, root: { height: fieldHeights.md }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.md, height: "auto", paddingY: "0" } },
+            lg: { ...sizeOverride, root: { height: fieldHeights.lg }, input: { ...sizeOverride.input, ...inputRecipe.variants!.size!.lg, height: "auto", paddingY: "0" } },
         },
     },
     defaultVariants: { variant: "default", size: "md" },

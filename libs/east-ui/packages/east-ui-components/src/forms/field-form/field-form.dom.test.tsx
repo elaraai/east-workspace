@@ -468,6 +468,50 @@ describe("FieldForm — a draft's missing field, a date's precision, and a host'
         // Every other field is the form's own.
         expect(field("task").getAttribute("data-editor")).toBe("text");
     });
+
+    test("Enter on a missing checklist's Set gives it its start: the Enter that adds an item is its box's alone (#1220)", async () => {
+        const { field, edits } = mountDraft({ task: "Hang doors", bench: none, note: none, batch: none });
+        const user = userEvent.setup();
+        const set = within(field("steps")).getByRole("button", { name: "Set" });
+        act(() => { set.focus(); });
+        await user.keyboard("{Enter}");
+        await settle();
+        expectEdit(edits, "steps", equalFor(ArrayType(Step)), []);
+    });
+});
+
+describe("FieldForm — one column: each field's control on its line, an Option's Set or Clear at the line's end (#1220)", () => {
+    test("every field's control sits on its line, right after its label; a Set or a Clear is the line's own, after the control", async () => {
+        const { container, field } = mount();
+        for (const el of container.querySelectorAll<HTMLElement>("[data-field]")) {
+            const line = el.querySelector(":scope > [data-scope=field][data-part=root] > [data-field-line]");
+            expect(line, el.getAttribute("data-field")!).not.toBeNull();
+            expect(line!.previousElementSibling!.getAttribute("data-part")).toBe("label");
+        }
+        // Each input on its line: a text's box, a number, a date's segments, a select, tags, a checkbox.
+        const lineOf = (key: string) => field(key).querySelector<HTMLElement>("[data-field-line]")!;
+        expect(within(lineOf("task")).getByRole("textbox")).toBeTruthy();
+        expect(lineOf("crew").querySelector("[data-scope=number-input]")).not.toBeNull();
+        expect(within(lineOf("due")).getAllByRole("spinbutton").length).toBeGreaterThan(0);
+        expect(lineOf("status").querySelector("[data-scope=select][data-part=trigger]")).not.toBeNull();
+        expect(lineOf("finishes").querySelector("[data-scope=tags-input]")).not.toBeNull();
+        expect(lineOf("rush").querySelector("[data-scope=checkbox]")).not.toBeNull();
+        // An empty Option's Set, then the Clear of the value it gives, at the end of its line.
+        const side = (key: string) => lineOf(key).querySelector<HTMLElement>(":scope > [data-field-side]");
+        expect(side("batch")!.getAttribute("data-field-side")).toBe("set");
+        expect(side("batch")!.previousElementSibling!.contains(within(lineOf("batch")).getByRole("textbox"))).toBe(true);
+        await act(async () => { fireEvent.click(within(side("batch")!).getByRole("button", { name: "Set" })); });
+        await settle();
+        expect(side("batch")!.getAttribute("data-field-side")).toBe("clear");
+        expect(within(side("batch")!).getByRole("button", { name: "Clear Batch" })).toBeTruthy();
+        expect(side("batch")!.previousElementSibling!.querySelector("[data-scope=number-input]")).not.toBeNull();
+        // A text, a select and a reference clear themselves, and a required field holding its value has neither.
+        for (const key of ["task", "note", "status", "bench", "crew"]) expect(side(key)).toBeNull();
+        // A nested struct's fields sit together under its head.
+        const site = screen.getByRole("group", { name: "Site" });
+        expect(site.children[0]!.textContent).toBe("Site");
+        expect([...site.children[1]!.querySelectorAll("[data-field]")].map((f) => f.getAttribute("data-field"))).toEqual(["site.room", "site.floor"]);
+    });
 });
 
 /** A select's chosen words — its placeholder while it holds no value. */

@@ -217,6 +217,7 @@ describeEast("Sheet", (test) => {
         sheetBatches: ex.sheetBatches,
         sheetLoose: ex.sheetLoose,
         sheetPaged: ex.sheetPaged,
+        sheetUpkeep: ex.sheetUpkeep,
     });
 
     test("the examples evaluate to a Sheet under a Reactive root", $ => {
