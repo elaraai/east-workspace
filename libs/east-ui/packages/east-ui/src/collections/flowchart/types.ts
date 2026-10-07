@@ -90,18 +90,18 @@ export type FlowchartLinkModeType = typeof FlowchartLinkModeType;
  * `measuredAt` surface in hover cards and the inspector provenance block.
  *
  * @property volume - Total measured volume behind the arrow
- * @property count - Event count behind the arrow (e.g. transfers)
+ * @property count - Event count behind the arrow (e.g. cage moves)
  * @property measuredAt - When the evidence was measured
- * @property unit - Volume unit suffix for badges ("kt")
+ * @property unit - Volume unit suffix for badges ("parcels")
  */
 export const FlowchartEvidenceType = StructType({
     /** Total measured volume behind the arrow */
     volume: OptionType(FloatType),
-    /** Event count behind the arrow (e.g. transfers) */
+    /** Event count behind the arrow (e.g. cage moves) */
     count: OptionType(IntegerType),
     /** When the evidence was measured */
     measuredAt: OptionType(DateTimeType),
-    /** Volume unit suffix for badges ("kt") */
+    /** Volume unit suffix for badges ("parcels") */
     unit: OptionType(StringType),
 });
 
@@ -120,14 +120,14 @@ export type FlowchartEvidenceType = typeof FlowchartEvidenceType;
  * `×N` badge). In-place transitions (`from == to` links) collapse to the
  * `↻ n` badge on the node and never route through handles.
  *
- * @property key - Short mono code — the node identity ("RCT")
+ * @property key - Short mono code — the node identity ("IND")
  * @property label - Display label under the code
  * @property lane - The lane (ordered phase) this state belongs to
  * @property members - State-class member count → the ×N badge
  * @property notes - Free-text notes surfaced on hover / inspector
  */
 export const FlowchartStateType = StructType({
-    /** Short mono code — the node identity ("RCT") */
+    /** Short mono code — the node identity ("IND") */
     key: StringType,
     /** Display label under the code */
     label: OptionType(StringType),
@@ -211,24 +211,24 @@ export type FlowchartLaneType = typeof FlowchartLaneType;
  * governs (plus queue and outcome nodes).
  *
  * @property key - Trigger identity referenced by links
- * @property label - Decision name ("press")
+ * @property label - Decision name ("route")
  * @property letter - Diamond letter (default: first letter of the label)
- * @property owner - Owning role / system ("press-scheduler")
+ * @property owner - Owning role / system ("sort-planner")
  * @property queue - State keys queued at the decision
- * @property outcomes - Outcome summary line ("P* (×14 slots)")
+ * @property outcomes - Outcome summary line ("CH* (×14 chutes)")
  */
 export const FlowchartTriggerType = StructType({
     /** Trigger identity referenced by links */
     key: StringType,
-    /** Decision name ("press") */
+    /** Decision name ("route") */
     label: StringType,
     /** Diamond letter (default: first letter of the label) */
     letter: OptionType(StringType),
-    /** Owning role / system ("press-scheduler") */
+    /** Owning role / system ("sort-planner") */
     owner: OptionType(StringType),
     /** State keys queued at the decision */
     queue: OptionType(ArrayType(StringType)),
-    /** Outcome summary line ("P* (×14 slots)") */
+    /** Outcome summary line ("CH* (×14 chutes)") */
     outcomes: OptionType(StringType),
 });
 

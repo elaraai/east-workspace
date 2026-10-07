@@ -43,16 +43,16 @@ const link = (from: string, to: string, kind: "planned" | "observed" = "planned"
     from,
     to,
     kind: some(variant(kind, null)),
-    trigger: from === "RCT" ? some("press") : none,
-    evidence: some({ volume: some(199.5), count: some(13866n), measuredAt: some(new Date("2026-06-30T00:00:00Z")), unit: some("kt") }),
+    trigger: from === "IND" ? some("route") : none,
+    evidence: some({ volume: some(17350.0), count: some(386n), measuredAt: some(new Date("2026-06-30T00:00:00Z")), unit: some("parcels") }),
 });
 
 function mkValue(): FlowchartValue {
     return {
-        states: [state("RCT", "reaction"), state("P*", "press", 14n), state("PRD", "press")],
-        links: [link("RCT", "P*"), link("P*", "PRD", "observed"), link("RCT", "RCT"), link("PRD", "GONE")],
-        lanes: [{ key: "reaction", label: some("Reaction") }, { key: "press", label: none }],
-        triggers: [{ key: "press", label: "press", letter: none, owner: some("press-scheduler"), queue: some(["RCT"]), outcomes: none }],
+        states: [state("IND", "induct"), state("CH*", "sort", 14n), state("SRD", "sort")],
+        links: [link("IND", "CH*"), link("CH*", "SRD", "observed"), link("IND", "IND"), link("SRD", "GONE")],
+        lanes: [{ key: "induct", label: some("Induct") }, { key: "sort", label: none }],
+        triggers: [{ key: "route", label: "route", letter: none, owner: some("sort-planner"), queue: some(["IND"]), outcomes: none }],
         orientation: some(variant("LR", null)),
         freshness: some({ label: "evidence-2026.06", date: some(new Date("2026-06-30T00:00:00Z")) }),
         minimap: none,

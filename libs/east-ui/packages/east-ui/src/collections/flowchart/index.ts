@@ -169,7 +169,7 @@ export type FlowchartLinkModeLiteral = "draw" | "connect";
  * Fields the `state` mapper returns — one state node, before defaults.
  */
 export interface FlowchartStateFields {
-    /** Short mono code — the node identity ("RCT"). */
+    /** Short mono code — the node identity ("IND"). */
     key: SubtypeExprOrValue<StringType>;
     /** Optional display label under the code. */
     label?: SubtypeExprOrValue<StringType>;
@@ -188,11 +188,11 @@ export interface FlowchartStateFields {
 export interface FlowchartEvidenceFields {
     /** Total measured volume behind the arrow (drives stroke weight + badge). */
     volume?: SubtypeExprOrValue<OptionType<FloatTypeAlias>>;
-    /** Event count behind the arrow (e.g. transfers). */
+    /** Event count behind the arrow (e.g. cage moves). */
     count?: SubtypeExprOrValue<OptionType<IntegerType>>;
     /** When the evidence was measured. */
     measuredAt?: SubtypeExprOrValue<OptionType<DateTimeType>>;
-    /** Volume unit suffix for badges ("kt"). */
+    /** Volume unit suffix for badges ("parcels"). */
     unit?: SubtypeExprOrValue<StringType>;
 }
 
@@ -233,15 +233,15 @@ export interface FlowchartLaneFields {
 export interface FlowchartTriggerFields {
     /** Trigger identity referenced by links. */
     key: SubtypeExprOrValue<StringType>;
-    /** Decision name ("press"). */
+    /** Decision name ("route"). */
     label: SubtypeExprOrValue<StringType>;
     /** Optional diamond letter (default: first letter of the label). */
     letter?: SubtypeExprOrValue<StringType>;
-    /** Optional owning role / system ("press-scheduler"). */
+    /** Optional owning role / system ("sort-planner"). */
     owner?: SubtypeExprOrValue<StringType>;
     /** Optional state keys queued at the decision. */
     queue?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Optional outcome summary line ("P* (×14 slots)"). */
+    /** Optional outcome summary line ("CH* (×14 chutes)"). */
     outcomes?: SubtypeExprOrValue<StringType>;
 }
 
@@ -526,13 +526,13 @@ function buildRoot(
  *
  * const example = East.function([], UIComponentType, _$ =>
  *     Flowchart.Root(
- *         [{ code: "RMI", name: "Raw intake", phase: "prep" },
- *          { code: "CUT", name: "Cut blanks", phase: "prep" }],
+ *         [{ code: "ARV", name: "Arrived", phase: "intake" },
+ *          { code: "SCN", name: "Scanned", phase: "intake" }],
  *         {
  *             state: s => ({ key: s.code, label: s.name, lane: s.phase }),
- *             links: [{ src: "RMI", dst: "CUT" }],
+ *             links: [{ src: "ARV", dst: "SCN" }],
  *             link: l => ({ from: l.src, to: l.dst }),
- *             lanes: [{ key: "prep", label: "Prep" }],
+ *             lanes: [{ key: "intake", label: "Intake" }],
  *         },
  *     ),
  * );

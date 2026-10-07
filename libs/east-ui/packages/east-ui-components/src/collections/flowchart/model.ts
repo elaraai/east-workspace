@@ -57,7 +57,7 @@ export interface ModelLink {
     evidence: FlowchartEvidenceValue | undefined;
     /** Stroke weight from evidence volume — log scale 1.6 / 2 / 2.5, floor 1.4. */
     weight: number;
-    /** Pre-formatted evidence badge ("199.5 kt · 13,866"); undefined ⇒ no badge. */
+    /** Pre-formatted evidence badge ("17,350 parcels · 386"); undefined ⇒ no badge. */
     badgeText: string | undefined;
 }
 
