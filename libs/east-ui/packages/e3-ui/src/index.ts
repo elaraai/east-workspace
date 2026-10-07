@@ -18,9 +18,10 @@
  * - `<Flowchart>` — the state-transition flowchart: states in ordered phase
  *   lanes, H/V-routed transitions, decision triggers and evidence, over a
  *   record of flows or the host's flow, rendered in its frame with its panes
- *   as optional props, with the values, patches and types it is written with
- *   on `Flowchart` (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
- *   `Flowchart.patch`, `Flowchart.Types`).
+ *   as optional props, with the values, patches, library tabs and types it is
+ *   written with on `Flowchart` (`Flowchart.values`, `Flowchart.value`,
+ *   `Flowchart.over`, `Flowchart.patch`, `Flowchart.library`,
+ *   `Flowchart.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`).
  * - `<Diff>` — review pending changes for any combination of bindings.
@@ -162,15 +163,16 @@ export {
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
-// The Flowchart (#1243, #1244, #1245): the state-transition flowchart a
+// The Flowchart (#1243, #1244, #1245, #1246): the state-transition flowchart a
 // solution mounts, `<Flowchart>` — states in ordered phase lanes, H/V-routed
 // transitions, decision triggers and evidence-weighted strokes, over a record
 // of flows or the host's flow, in its frame, its library and inspector panes
-// optional props — the values, patches and East types it is written with
-// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`, `Flowchart.patch`,
-// `Flowchart.Types`), and its props.
+// optional props — the values, patches, library tabs and East types it is
+// written with (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+// `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
+    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab,
     type FlowchartCanvasOptions, type FlowchartSliceOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
     type FlowchartLinkModeLiteral, type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
     type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,

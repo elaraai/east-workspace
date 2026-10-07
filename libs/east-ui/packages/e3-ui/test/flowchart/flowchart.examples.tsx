@@ -60,12 +60,16 @@ export const handoverFlow = e3.input("flowchart_handover", Flowchart.Types.Flow,
 })));
 
 export const flowchartFlows = example({
-    keywords: ["Flowchart", "record", "Flows", "Flowchart.values", "Record.bind", "flow", "many flows", "e3.record"],
-    description: "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first",
+    keywords: ["Flowchart", "record", "Flows", "Flowchart.values", "Record.bind", "flow", "many flows", "e3.record", "Flowchart.library.flows", "Flows tab", "New flow"],
+    description: "A record of flows by name — the depot's inbound parcels and its returns — bound with its patch mutation, the inbound flow opened first and the Flows tab listing every flow",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
-            return <Box height="500px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+            return (
+                <Box height="500px">
+                    <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
+                </Box>
+            );
         }}</Reactive>
     )),
     inputs: [],

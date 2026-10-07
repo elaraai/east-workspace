@@ -34,7 +34,8 @@
  * folded into their chips — LR · TD's menu turning the canvas, find state's
  * popover picking a state — and on the wide screen its row unfolded, a query
  * in find state stepped through its matches and cleared, then the frame
- * narrowed until LR · TD and find state fold.
+ * narrowed until LR · TD and find state fold; and over a record of flows
+ * (#1246) its row ending with the history item.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -168,6 +169,8 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
         }],
     },
     { name: "sheetBatches", hash: "e3/sheet/sheet/sheetBatches" },
+    // Over a record of flows, the history item ends the Flowchart's row (#1246).
+    { name: "flowchartFlows", hash: "e3/flowchart/flowchart/flowchartFlows" },
 ];
 
 /** Open an example's page at rest and return its entry. */
