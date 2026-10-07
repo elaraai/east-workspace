@@ -11,6 +11,7 @@ import { none, some, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -284,10 +285,12 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                     size="lg"
                     footActions={foot.actions}
                     trigger={
-                        <Box css={chip({ tone: "dashed", numeric: true })} cursor="pointer">
+                        // A button the keyboard reaches; a 44px touch target on a coarse pointer, by its halo (#1231).
+                        <chakra.button type="button" css={[chip({ tone: "dashed", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                            data-slice-add="cohort" aria-label="New cohort">
                             <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                             <Box as="span">cohort</Box>
-                        </Box>
+                        </chakra.button>
                     }
                 >
                     {draft !== null && draft.editId === null ? editor : null}

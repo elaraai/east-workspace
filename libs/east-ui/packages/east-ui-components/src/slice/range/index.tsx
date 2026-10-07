@@ -11,6 +11,7 @@ import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { boundRangeDomain } from "../../platform/slice/index.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { useFormatters } from "../../format/index.js";
 import { EastChakraDateTimeInput } from "../../forms/input/index.js";
 import { SliceEditPopover } from "../edit";
@@ -242,7 +243,9 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             footLeft={compareTag !== null ? <chakra.button type="button" css={edit.footLink} onClick={() => setCompareTag(null)}>Clear compare</chakra.button> : undefined}
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(false)}>Done</chakra.button>}
             trigger={
-                <Box css={chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true })} cursor="pointer">
+                // A button the keyboard reaches; a 44px touch target on a coarse pointer, by its halo (#1231).
+                <chakra.button type="button" css={[chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                    data-slice-range="">
                     {!framed && <FontAwesomeIcon icon={faCalendar} data-chip-icon="" />}
                     {/* The range's own bounds — both inclusive, as a slice
                         range is — with an en dash between them (#949):
@@ -255,7 +258,7 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
                             : numericField ? "All" : "All time"}</Box>
                     {dayCount !== undefined && <Box as="span" data-chip-meta="">{`${dayCount}d`}</Box>}
                     <FontAwesomeIcon icon={faChevronDown} data-chip-caret="" />
-                </Box>
+                </chakra.button>
             }
         >
             <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">

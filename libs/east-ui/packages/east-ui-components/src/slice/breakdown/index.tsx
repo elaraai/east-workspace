@@ -11,6 +11,7 @@ import { IntegerType, type ValueTypeOf, none, parseFor, printFor, some } from "@
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
+import { coarseHitArea } from "../../style/hit-area.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -104,10 +105,12 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                         label="Split by"
                         footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setPickOpen(false)}>Done</chakra.button>}
                         trigger={
-                            <Box css={chip({ tone: "dashed", numeric: true, caps: true })} cursor="pointer">
+                            // A button the keyboard reaches; a 44px touch target on a coarse pointer, by its halo (#1231).
+                            <chakra.button type="button" css={[chip({ tone: "dashed", numeric: true, caps: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                                data-slice-add="dimension" aria-label="Add dimension">
                                 <FontAwesomeIcon icon={faPlus} style={{ fontSize: "9px" }} />
                                 <Box as="span">dimension</Box>
-                            </Box>
+                            </chakra.button>
                         }
                     >
                         {pickOpen && (

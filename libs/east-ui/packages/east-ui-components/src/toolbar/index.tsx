@@ -30,7 +30,11 @@
  *
  * An item holding an open overlay (a popover or menu hanging from a trigger
  * inside it) keeps its form, and the row folds around it; so does an item an
- * author marks `held`.
+ * author marks `held`. An overlay's trigger turns its `data-state` in the
+ * overlay's own render, after the toolbar has chosen, so the toolbar watches
+ * its triggers' state and chooses again, before paint, when one opens or
+ * closes (#1231): a row left folded around an overlay that has closed would
+ * not be the configuration for its width.
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -73,6 +77,9 @@ export interface ToolbarProps {
 
 /** An open overlay inside an item: a Zag popover's or menu's trigger, open. */
 const OPEN_OVERLAY = '[data-part="trigger"][data-state="open"]';
+
+/** An overlay's trigger, whose `data-state` says whether it hangs open. */
+const OVERLAY_TRIGGER = '[data-part="trigger"]';
 
 /** The most measure-and-choose passes one change may take — each measures a
  *  form it had not, so a real toolbar settles in a few. */
@@ -167,9 +174,18 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         });
         observer.current = ro;
         if (rowRef.current !== null) ro.observe(rowRef.current);
+        // An overlay opening or closing inside an item moves what holds its
+        // form: chosen again before this frame paints, as a width change is.
+        const triggers = typeof MutationObserver === "undefined" ? null : new MutationObserver((records) => {
+            if (records.some((r) => r.target instanceof Element && r.target.matches(OVERLAY_TRIGGER))) flushSync(() => setTick((t) => t + 1));
+        });
+        if (triggers !== null && rowRef.current !== null) {
+            triggers.observe(rowRef.current, { subtree: true, attributes: true, attributeFilter: ["data-state"] });
+        }
         const seen = observed.current;
         return () => {
             ro.disconnect();
+            triggers?.disconnect();
             observer.current = null;
             seen.clear();
             if (frame.current !== 0) cancelAnimationFrame(frame.current);

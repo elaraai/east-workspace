@@ -234,6 +234,154 @@ async function touchFaults(entry: Locator): Promise<string[]> {
     });
 }
 
+// ── The builders' rails filtered (#1231) ───────────────────────────────────
+
+/** The slice's edit popover, open: a compact trigger's editor, or the rail's sectioned one. */
+const openEditor = (page: Page) => page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
+
+/**
+ * A filter on the first field the open editor's clause builder offers — the
+ * workshop's activity, the plan's task — its value typed, then Add (not
+ * `+ filter`, named Add filter): `<field> contains <word>`.
+ */
+async function buildFilter(page: Page, word: string): Promise<void> {
+    const editor = openEditor(page);
+    await editor.locator("[data-clause-stacked]").getByRole("textbox").fill(word);
+    await editor.getByRole("button", { name: "Add", exact: true }).tap();
+}
+
+/** The row's clause chip, by its words. */
+const clauseChip = (entry: Locator, words: string) => entry.locator("[data-frame-slot='toolbar']").getByText(words);
+
+/** Sizes the box a builder frame fills: its nearest ancestor that lays out — the Plan's `display: contents` wrapper does not. */
+async function sizeFrame(entry: Locator, width: number): Promise<void> {
+    await entry.locator("[data-builder-frame]").first().evaluate((frame, w) => {
+        let box = frame.parentElement;
+        while (box !== null && getComputedStyle(box).display === "contents") box = box.parentElement;
+        if (box !== null) box.style.width = `${w}px`;
+    }, width);
+}
+
+/**
+ * The builders' rails filtered (#1231): every clause chip and `+N more` one
+ * button, and every control in the row still a 44px tap target. The
+ * workshop's rail is filtered on the phone in its editor — the trigger the
+ * editor hangs from keeping its form while it is open, the row folding back
+ * once it closes — and the clause then removed from its own editor, a touch
+ * screen drawing its chip no ×; on the wide screen from its `+ filter`, the
+ * row, short of room once the lens's context switch and count join it,
+ * folding the chips into `+2 more` first (#952). The slice-chrome plan's row
+ * has the room for clause chips: the one it starts with, a second set from
+ * `+ filter`, then the frame narrowed until one folds into `+N more`.
+ */
+const FILTERED: ReadonlyArray<{ name: string; hash: string; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
+    {
+        name: "sheetWorkshop", hash: "e3/sheet/sheet/sheetWorkshop",
+        phone: [
+            {
+                what: "a filter set from the rail's editor",
+                run: async (entry, page) => {
+                    const editor = openEditor(page);
+                    const trigger = entry.locator("[data-frame-slot='toolbar'] [data-slot='railTrigger']");
+                    await trigger.tap();
+                    const folds = await trigger.locator("[data-slice-fold]").count();
+                    await editor.locator("[data-slice-add='filter']").tap();
+                    await buildFilter(page, "Panel");
+                    await expect(editor.getByText("contains Panel")).toBeVisible();
+                    // The rail its open editor holds keeps its form: the trigger the editor hangs from folds as it did.
+                    await expect(trigger.locator("[data-slice-fold]")).toHaveCount(folds);
+                    await editor.getByRole("button", { name: "Done" }).tap();
+                    await expect(openEditor(page)).toHaveCount(0);
+                    await settled(page);
+                },
+            },
+            {
+                what: "the filter removed from its clause's editor — a touch screen draws its chip no ×",
+                run: async (entry, page) => {
+                    const editor = openEditor(page);
+                    await entry.locator("[data-frame-slot='toolbar'] [data-slot='railTrigger']").tap();
+                    const clause = editor.getByText("contains Panel");
+                    await expect(clause).toBeVisible();
+                    await expect(editor.locator("[data-chip-remove]")).toHaveCount(0);
+                    await clause.tap();
+                    await editor.getByRole("button", { name: "Remove filter" }).tap();
+                    await expect(clause).toHaveCount(0);
+                    await editor.getByRole("button", { name: "Done" }).tap();
+                    await expect(openEditor(page)).toHaveCount(0);
+                    await settled(page);
+                },
+            },
+        ],
+        wide: [
+            {
+                what: "two filters set from the rail's + filter",
+                run: async (entry, page) => {
+                    const toolbar = entry.locator("[data-frame-slot='toolbar']");
+                    for (const word of ["Panel", "Edge"]) {
+                        await toolbar.locator("[data-slice-add='filter']").tap();
+                        await buildFilter(page, word);
+                        await expect(openEditor(page)).toHaveCount(0);
+                    }
+                    // The row short of room folds the clause chips first (rank 0), into `+2 more`.
+                    await expect(toolbar.getByText("+2 more", { exact: true })).toBeVisible();
+                    await settled(page);
+                },
+            },
+        ],
+    },
+    {
+        name: "slicePlanChrome", hash: `${PLAN_EXAMPLES}/slicePlanChrome`,
+        phone: [],
+        wide: [
+            {
+                what: "a second filter set from the rail's + filter",
+                run: async (entry, page) => {
+                    await entry.locator("[data-frame-slot='toolbar'] [data-slice-add='filter']").tap();
+                    await buildFilter(page, "Design");
+                    await expect(openEditor(page)).toHaveCount(0);
+                    await expect(clauseChip(entry, "contains Design")).toBeVisible();
+                    await expect(clauseChip(entry, "owner = Team A")).toBeVisible();
+                    await settled(page);
+                },
+            },
+            {
+                what: "the frame narrowed until a clause folds into +N more",
+                run: async (entry, page) => {
+                    const more = entry.locator("[data-frame-slot='toolbar']").getByText(/^\+\d+ more$/);
+                    for (let width = 960; width >= 360 && !(await more.isVisible()); width -= 40) {
+                        await sizeFrame(entry, width);
+                        await settled(page);
+                    }
+                    await expect(more).toBeVisible();
+                    await expect(entry.locator("[data-frame-slot='toolbar'] [data-slice-clause]")).not.toHaveCount(0);
+                },
+            },
+        ],
+    },
+];
+
+test.describe("the builders' rails filtered, under a touch pointer (#1231)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    for (const { name, hash, phone, wide } of FILTERED) {
+        for (const { where, width, gestures } of [
+            { where: "at the phone's width", width: undefined, gestures: phone },
+            { where: "on a touch screen 1920px wide", width: 1920, gestures: wide },
+        ]) {
+            const what = gestures.length === 0 ? "at rest" : `with ${gestures.map((g) => g.what).join(", then ")}`;
+            test(`${name}, filtered, ${where}, ${what}: one row in its band, every control a 44px tap target`, async ({ page }) => {
+                if (width !== undefined) await page.setViewportSize({ width, height: 1000 });
+                const entry = await openToolbar(page, hash);
+                await expect.poll(() => touchFaults(entry)).toEqual([]);
+                for (const gesture of gestures) {
+                    await gesture.run(entry, page);
+                    await expect.poll(() => touchFaults(entry), { message: `with ${gesture.what}` }).toEqual([]);
+                }
+            });
+        }
+    }
+});
+
 test.describe("the builders' toolbars under a touch pointer (#1221)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 

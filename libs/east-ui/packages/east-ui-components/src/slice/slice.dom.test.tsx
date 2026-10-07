@@ -16,7 +16,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -34,7 +34,7 @@ import { EastChakraSliceBreakdown } from "./breakdown/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
-import { EastChakraSliceRail, affordanceDescriptor, rangeBounds, rangeOfWindow } from "./rail/index.js";
+import { EastChakraSliceRail, affordanceDescriptor, rangeBounds, rangeOfWindow, useSliceToolbarItems } from "./rail/index.js";
 import { railAffordanceKinds } from "./rail-kinds.js";
 import { EastChakraSliceRange } from "./range/index.js";
 import { EastChakraSliceSearch } from "./search/index.js";
@@ -377,15 +377,6 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         expect(filters[0].value.fieldId).toBe("scenario");
         expect(filters[0].value.op.type).toBe("isEmpty");
         expect(filters[0].value.op.value).toBe(null);
-    });
-
-    test("remove chip calls removeFilter", () => {
-        const slice = fakeSlice({ filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })] });
-        const value: any = { slice, unit: none, density: none, editOpen: none };
-        ui(<EastChakraSliceFilter value={value} />);
-
-        fireEvent.click(screen.getByLabelText("Remove filter"));
-        expect(slice.read().filters.length).toBe(0);
     });
 
     // #161 — the Filter "Save as cohort" path must dedup the derived id against
@@ -1188,5 +1179,235 @@ describe("rail summary descriptors — capability when idle, active when narrowi
     test("breakdown: 'Split' idle, dimension label active", () => {
         expect(affordanceDescriptor("breakdown", base as never, dims)).toMatchObject({ text: "Split", active: false });
         expect(affordanceDescriptor("breakdown", { ...base, breakdown: some({ fieldId: "region" }) } as never, dims)).toMatchObject({ text: "Region", active: true });
+    });
+});
+
+// ============================================================================
+// #1231 — every compact trigger by the keyboard; a clause on a touch screen
+// ============================================================================
+
+/** Tab from the page's start until the focus is on `target`: whether it gets there. */
+async function tabTo(user: ReturnType<typeof userEvent.setup>, target: Element): Promise<boolean> {
+    for (let i = 0; i < 40 && document.activeElement !== target; i++) await user.tab();
+    return document.activeElement === target;
+}
+
+/** The trigger a compact affordance's editor hangs from: the element carrying its popover's `aria-haspopup`. */
+const triggerOf = (el: Element): HTMLElement => el.closest<HTMLElement>("[aria-haspopup]")!;
+
+describe("the compact slice triggers — each a button the keyboard reaches and opens (#1231)", () => {
+    const compact = some(variant("compact", null));
+    const clause = variant("integer", { fieldId: "sessions", op: variant("gte", 20n) });
+
+    // The `+N more` case lays every element out 100px wide against a 0-wide
+    // row, so every clause folds — jsdom lays nothing out (see #161's test).
+    let offsetWidth: PropertyDescriptor | undefined;
+    afterEach(() => {
+        if (offsetWidth === undefined) return;
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidth);
+        offsetWidth = undefined;
+    });
+    function foldEveryClause() {
+        offsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return 100; } });
+    }
+
+    /** The rail's cluster at its narrowest form — the icon — as the shared toolbar draws it. */
+    function FoldedRail({ slice }: { slice: unknown }) {
+        const forms = useSliceToolbarItems(slice as never, [{ key: "rail", kinds: ["filter", "search"] }])[0]!.forms;
+        return <>{forms[forms.length - 1]}</>;
+    }
+
+    /** Each compact trigger, mounted: the element its editor hangs from. */
+    const TRIGGERS: ReadonlyArray<{ name: string; mount: () => HTMLElement }> = [
+        {
+            name: "a filter's clause chip",
+            mount: () => {
+                ui(<EastChakraSliceFilter value={{ slice: fakeSlice({ filters: [clause] }), unit: none, density: compact, editOpen: none } as never} />);
+                return triggerOf(screen.getByText(/sessions ≥ 20/));
+            },
+        },
+        {
+            name: "the filter's + filter",
+            mount: () => {
+                const { container } = ui(<EastChakraSliceFilter value={{ slice: fakeSlice(), unit: none, density: compact, editOpen: none } as never} />);
+                return triggerOf(container.querySelector("[data-slice-add='filter']")!);
+            },
+        },
+        {
+            name: "the filter's +N more",
+            mount: () => {
+                foldEveryClause();
+                const filters = [clause, variant("string", { fieldId: "region", op: variant("eq", "EU") })];
+                ui(<EastChakraSliceFilter value={{ slice: fakeSlice({ filters }), unit: none, density: compact, editOpen: none } as never} />);
+                return triggerOf(screen.getByText("+2 more"));
+            },
+        },
+        {
+            name: "the cohort's + cohort",
+            mount: () => {
+                ui(<EastChakraSliceCohort value={{ slice: fakeSlice(), createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: none } as never} />);
+                return triggerOf(screen.getByText("cohort"));
+            },
+        },
+        {
+            name: "the breakdown's + dimension",
+            mount: () => {
+                ui(<EastChakraSliceBreakdown value={{ slice: fakeSlice(), density: compact } as never} />);
+                return triggerOf(screen.getByText("dimension"));
+            },
+        },
+        {
+            name: "the range chip",
+            mount: () => {
+                const { container } = ui(<EastChakraSliceRange value={{ slice: fakeSlice(), editOpen: none } as never} />);
+                return triggerOf(container.querySelector("[data-slice-range-label]")!);
+            },
+        },
+        {
+            name: "the rail's folded trigger",
+            mount: () => {
+                const { container } = ui(<FoldedRail slice={fakeSlice({ filters: [clause] })} />);
+                return triggerOf(container.querySelector("[data-slot='railTrigger']")!);
+            },
+        },
+    ];
+
+    for (const { name, mount } of TRIGGERS) {
+        test(`${name}: a tab stop, its editor opened by Enter`, async () => {
+            const trigger = mount();
+            const user = userEvent.setup();
+            expect(await tabTo(user, trigger)).toBe(true);
+            expect(screen.queryByRole("dialog")).toBeNull();
+            await user.keyboard("{Enter}");
+            expect(await screen.findByRole("dialog")).toBeTruthy();
+        });
+
+        test(`${name}: its editor opened by Space`, async () => {
+            const trigger = mount();
+            const user = userEvent.setup();
+            expect(await tabTo(user, trigger)).toBe(true);
+            await user.keyboard(" ");
+            expect(await screen.findByRole("dialog")).toBeTruthy();
+        });
+    }
+});
+
+describe("a clause chip — removed by its × with a mouse, by Delete, by its editor's Remove filter, and on a touch screen by its editor alone (#1231)", () => {
+    const cfg = sliceConfig({
+        scenario: variant("string",  { label: "Scenario", accessor: (r: { scenario: string }) => r.scenario, format: none }),
+        sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+    });
+    const clauses = [
+        variant("string", { fieldId: "scenario", op: variant("contains", "v") }),
+        variant("integer", { fieldId: "sessions", op: variant("gte", 20n) }),
+    ];
+    const rows = [{ scenario: "v3", sessions: 42n }, { scenario: "v2", sessions: 12n }];
+
+    /** The filter over a REAL slice handle — its store re-renders the chips as clauses go. */
+    function mountClauses(key: string) {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle(key, cfg, {
+            range: none, compare: none, filters: clauses, cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        }, rows, none);
+        const utils = ui(<EastChakraSliceFilter value={{ slice: handle, unit: none, density: some(variant("compact", null)), editOpen: none } as never} />);
+        return { handle, ...utils };
+    }
+    /** A clause's chip, by its words. */
+    const chip = (words: RegExp) => triggerOf(screen.getByText(words));
+
+    test("a click on its × removes the clause and opens no editor — not the one of the clause that takes its place", async () => {
+        const { handle } = mountClauses("clause.mouse");
+        const user = userEvent.setup();
+        await user.click(within(chip(/scenario contains v/)).getByText("×"));
+        expect(handle.read().filters.length).toBe(1);
+        expect(predEqual(handle.read().filters[0], clauses[1])).toBe(true);
+        // A click that reached the chip would open the editor of the clause now in its place.
+        await expect(screen.findByRole("dialog", undefined, { timeout: 300 })).rejects.toThrow();
+    });
+
+    test("Delete on a focused clause removes it, the focus on the clause that takes its place, then on + filter", async () => {
+        const { handle, container } = mountClauses("clause.delete");
+        const user = userEvent.setup();
+        expect(await tabTo(user, chip(/scenario contains v/))).toBe(true);
+        await user.keyboard("{Delete}");
+        expect(handle.read().filters.length).toBe(1);
+        expect(predEqual(handle.read().filters[0], clauses[1])).toBe(true);
+        expect(document.activeElement).toBe(chip(/sessions ≥ 20/));
+        await user.keyboard("{Delete}");
+        expect(handle.read().filters.length).toBe(0);
+        expect(document.activeElement).toBe(triggerOf(container.querySelector("[data-slice-add='filter']")!));
+        expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    test("Remove filter in a clause's editor removes the clause and closes the editor", async () => {
+        const { handle } = mountClauses("clause.editor");
+        const user = userEvent.setup();
+        await user.click(screen.getByText(/sessions ≥ 20/));
+        const dialog = await screen.findByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: "Remove filter" }));
+        expect(handle.read().filters.length).toBe(1);
+        expect(predEqual(handle.read().filters[0], clauses[0])).toBe(true);
+        expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    test("with a mouse a clause chip draws its × beside its words; on a coarse pointer it draws none, and the chip opens its editor, Remove filter in its foot", async () => {
+        const fine = mountClauses("clause.fine");
+        expect(within(chip(/sessions ≥ 20/)).getByText("×")).toBeTruthy();
+        fine.unmount();
+
+        vi.stubGlobal("matchMedia", (query: string) => ({
+            matches: query === "(pointer: coarse)", media: query, onchange: null,
+            addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
+        }));
+        try {
+            const { handle } = mountClauses("clause.coarse");
+            expect(within(chip(/scenario contains v/)).queryByText("×")).toBeNull();
+            expect(within(chip(/sessions ≥ 20/)).queryByText("×")).toBeNull();
+            const user = userEvent.setup();
+            await user.click(screen.getByText(/sessions ≥ 20/));
+            const dialog = await screen.findByRole("dialog");
+            await user.click(within(dialog).getByRole("button", { name: "Remove filter" }));
+            expect(handle.read().filters.length).toBe(1);
+            expect(predEqual(handle.read().filters[0], clauses[0])).toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+});
+
+describe("the rail's cluster, held by its open editor, keeps its forms (#1231)", () => {
+    const cfg = sliceConfig({
+        sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+    });
+
+    test("a clause added in the open editor adds no fold step under the held form; closed, the cluster takes it", async () => {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle("rail.held", cfg, {
+            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        }, [{ sessions: 42n }], none);
+        const seen: { forms: number; held: boolean | undefined }[] = [];
+        function Probe() {
+            const item = useSliceToolbarItems(handle, [{ key: "rail", kinds: ["filter", "search"] }])[0]!;
+            seen.push({ forms: item.forms.length, held: item.held });
+            // The cluster at its narrowest: the icon, its editor's trigger.
+            return <>{item.forms[item.forms.length - 1]}</>;
+        }
+        const { container } = ui(<Probe />);
+        const atRest = seen[seen.length - 1]!;
+        expect(atRest.held).toBe(false);
+        const user = userEvent.setup();
+        await user.click(container.querySelector("[data-slot='railTrigger']")!);
+        expect(await screen.findByRole("dialog")).toBeTruthy();
+        expect(seen[seen.length - 1]!.held).toBe(true);
+        // A clause added while the editor is open: the held cluster's forms stay as they were.
+        act(() => { handle.addFilter(variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })); });
+        expect(handle.read().filters.length).toBe(1);
+        expect(seen[seen.length - 1]).toEqual({ forms: atRest.forms, held: true });
+        // Closed, the cluster takes the clause's fold step.
+        await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Done" }));
+        expect(seen[seen.length - 1]).toEqual({ forms: atRest.forms + 1, held: false });
     });
 });
