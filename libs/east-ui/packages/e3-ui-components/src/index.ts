@@ -24,6 +24,7 @@ import './query/builder.js';              // → implementUIComponent(QueryBuild
 import './query/library.js';              // → implementUIComponent(QueryLibraryComponent, EastChakraQueryLibrary)
 import './plan/index.js';                 // → implementUIComponent(PlanComponent, EastChakraPlanPayload)
 import './sheet/frame/index.js';          // → implementUIComponent(SheetComponent, EastChakraSheet)
+import './flowchart/index.js';            // → implementUIComponent(Flowchart.Component, EastChakraFlowchart)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -156,6 +157,10 @@ export {
     type SheetScopeWord,
     type SheetToneWord,
 } from './sheet/messages.js';
+
+// The Flowchart (#1243) — its renderer registers itself against the Flowchart
+// extension on import; its slot recipe is east-ui-components' theme's.
+export { EastChakraFlowchart, type EastChakraFlowchartProps, type FlowchartValue } from './flowchart/index.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

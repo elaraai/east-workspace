@@ -7,16 +7,17 @@
 
 /**
  * Flowchart renderer mount smoke test — proves the hook graph (declaration
- * order / TDZ) and that every root field decodes. jsdom has no layout, so
- * the ResizeObserver stub keeps `size` null and the canvas path off; the
- * chrome (eyebrow / footer) renders and the value-replace path re-renders.
+ * order / TDZ) and that every root field decodes. jsdom has no layout: the
+ * body measures 0×0 once as it mounts and the ResizeObserver stub reports
+ * nothing after, so the canvas lays out at that size; the chrome (eyebrow /
+ * footer) renders and the value-replace path re-renders.
  */
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { some, none, variant } from "@elaraai/east";
-import { system } from "../../theme/index.js";
+import { system } from "@elaraai/east-ui-components";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
 
 beforeAll(() => {
@@ -47,10 +48,12 @@ const link = (from: string, to: string, kind: "planned" | "observed" = "planned"
     evidence: some({ volume: some(17350.0), count: some(386n), measuredAt: some(new Date("2026-06-30T00:00:00Z")), unit: some("parcels") }),
 });
 
-function mkValue(): FlowchartValue {
+const LINKS: FlowchartValue["links"] = [link("IND", "CH*"), link("CH*", "SRD", "observed"), link("IND", "IND"), link("SRD", "GONE")];
+
+function mkValue(links: FlowchartValue["links"] = LINKS): FlowchartValue {
     return {
         states: [state("IND", "induct"), state("CH*", "sort", 14n), state("SRD", "sort")],
-        links: [link("IND", "CH*"), link("CH*", "SRD", "observed"), link("IND", "IND"), link("SRD", "GONE")],
+        links,
         lanes: [{ key: "induct", label: some("Induct") }, { key: "sort", label: none }],
         triggers: [{ key: "route", label: "route", letter: none, owner: some("sort-planner"), queue: some(["IND"]), outcomes: none }],
         orientation: some(variant("LR", null)),
@@ -79,7 +82,7 @@ function mkValue(): FlowchartValue {
         onEditState: none,
         onMoveState: none,
         readOnly: none,
-    } as unknown as FlowchartValue;
+    };
 }
 
 describe("EastChakraFlowchart", () => {
@@ -109,8 +112,7 @@ describe("EastChakraFlowchart", () => {
                 <EastChakraFlowchart value={first} storageKey="test.flowchart" />
             </ChakraProvider>,
         );
-        const next = mkValue();
-        (next as { links: unknown[] }).links = first.links.slice(0, 2);
+        const next = mkValue(first.links.slice(0, 2));
         rerender(
             <ChakraProvider value={system}>
                 <EastChakraFlowchart value={next} storageKey="test.flowchart" />

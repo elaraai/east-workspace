@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search); typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search); typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply), (14) The Flowchart — <Flowchart>, the state-transition flowchart: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, from flat tables with row mappers, with hover cards, selection, path tracing and authoring callbacks (connect, lanes, states) — its types on Flowchart.Types."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -13,7 +13,7 @@ and commit / discard, a view becomes a place a user commits a decision with its
 evidence — not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
-(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>` and `<Sheet>`, the `Data` and `Func`
+(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>`, `<Sheet>` and `<Flowchart>`, the `Data` and `Func`
 binding helpers, `Studio` and `Query` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
 `<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
@@ -150,6 +150,13 @@ Task → What do you need?
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                        → data={paged}, a Data.bindPaged handle
     │   └─ Drafts checked as they are made, one checked Save   → onUpdate | onApply, ready, newRow
+    │
+    ├─ Draw a state-transition or process flow — the Flowchart (see The Flowchart below)
+    │   ├─ States in ordered phase lanes, the transitions between them → <Flowchart states={…} links={…} lanes={…} />
+    │   ├─ The app's own tables                                       → state / link / lane / trigger row mappers
+    │   ├─ Decision triggers and evidence on the transitions          → triggers + trigger, a link's trigger / evidence
+    │   ├─ Hover cards, selection, ⌥-click path tracing               → stateHover / linkHover / triggerHover, onSelect*, onTracePath
+    │   └─ Connect states, add and edit lanes and states              → linkMode + onCreateLink / onDeleteLink / canConnect, onAddLane …, onAddState …
     │
     ├─ Render deployed surfaces in a React app (@elaraai/e3-ui-components)
     │   ├─ Which e3, and how requests reach it → <E3Provider config={{ apiUrl, repo, workspace, token, fetch }}>
@@ -1592,6 +1599,79 @@ Removed with #1216: `<Sheet.View>` and `<Sheet.Builder>` (both `<Sheet>`), a
 builder's `id` (`name`), `onViewsChange` (`views` is a bind handle) and
 `style.height` / `maxHeight` (the sheet fills its box).
 
+### The Flowchart — `<Flowchart>`
+
+`<Flowchart>` is the state-transition flowchart: states as nodes in ORDERED
+phase lanes — its layout derived from the lanes and the links, never from
+coordinates — H/V-routed transition arrows, optional per-link decision
+triggers (lettered diamonds) and evidence-weighted strokes, all from flat
+tables. The dim-ladder highlight, hover cards and the selection grammar are
+built in; hover content is the author's (an East function of a key, as the
+Schematic's is), and view lenses are saved slice cohorts. Where east-ui's
+`<Schematic>` places items at world coordinates, the Flowchart lays its
+states out itself, for reading a process flow.
+
+The tag and its types — `Flowchart.Types` — come from `@elaraai/e3-ui`, and
+the tags around it from `@elaraai/east-ui`. It moved here from east-ui
+(#1243): a surface that wrote east-ui's `<Flowchart>` imports `Flowchart`
+from `@elaraai/e3-ui`, its props as they were.
+
+```tsx
+/** @jsxImportSource @elaraai/e3-ui */
+import { East, variant } from '@elaraai/east';
+import { UIComponentType } from '@elaraai/east-ui';
+import { Flowchart } from '@elaraai/e3-ui';
+
+const flowchart = East.function([], UIComponentType, ($) => {
+    const states = $.const([
+        { code: "ARV", name: "Arrived", phase: "intake" },
+        { code: "SRT", name: "Sorting", phase: "sort" },
+        { code: "LDD", name: "Loaded", phase: "dispatch" },
+    ]);
+    const links = $.const([
+        { src: "ARV", dst: "SRT", kind: variant("planned", null) },
+        { src: "SRT", dst: "LDD", kind: variant("observed", null) },
+    ]);
+    return (
+        <Flowchart
+            states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
+            links={links} link={l => ({ from: l.src, to: l.dst, kind: l.kind })}
+            lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }]}
+        />
+    );
+});
+```
+
+```
+<Flowchart states={…} links={…} lanes={…} /> — state-transition flowchart: states as nodes in ORDERED phase lanes (layout derived — no coordinates), H/V-routed transition arrows, optional per-link decision triggers (lettered diamonds); dim-ladder highlight built in; hover content is DEV-DEFINED (the Schematic contract); view lenses are saved slice cohorts
+├─ Props:
+│   ├─ states + links + lanes (required) — the three tables (lanes accept a literal [{ key, label? }] array; array order = band order)
+│   ├─ state / link / lane / trigger (optional) — row mappers to { key, label?, lane, members?, notes? } / { key?, from, to, kind?, trigger?, evidence? } / { key, label? } / { key, label, letter?, owner?, queue?, outcomes? }; omit when rows are already Flowchart.Types.*
+│   ├─ triggers (optional) — decision registry; a link's `trigger` names one (0..1 per link ⇒ the lettered diamond at the longest-run midpoint; clicking it highlights governed links)
+│   ├─ link `kind` "planned" (solid, default) | "observed" (dashed 5/4); DERIVED marks: a from/to ref with no state row ⇒ the neg-dashed ghost "No state row" node (unresolved, counted in the footer); from == to folds to the `↻ n` badge (never routed); `members` ⇒ the ×N state-class badge
+│   ├─ link `evidence` { volume?, count?, measuredAt?, unit? } — stroke weight (log 1.6 / 2 / 2.5 px, floor 1.4) + paper-filled run badges whose chrome inherits the link class (imported, never hand-authored)
+│   ├─ stateHover / linkHover / triggerHover (optional) — hover-card content builders (East fn key => UIComponent, evaluated lazily on hover in the standard 400ms shell); absent ⇒ no hover card; detail drills through the click callbacks (open a <Drawer> in the handler)
+│   ├─ orientation (optional) — "LR" (default) | "TD" initial; the eyebrow segment toggles it (view state, never a filter chip; TD swaps the handle axes); freshness (optional) — eyebrow chip { label, date? }
+│   ├─ legend / minimap (optional) — legend default true (reserves canvas space); minimap auto at ≥ 25 states
+│   ├─ slice + affordances (optional) — bound slice chrome at compact density (default ["filter","search"]; search = "⌕ find state"; "brush" is a build-time error — no continuous 1D axis); the footer derives `N links · narrowed from M · −%` + the planned/observed split
+│   ├─ onSelectState / onSelectLink / onSelectTrigger / onTracePath (optional) — click / ⌥-click callbacks (entity keys); Esc restores everything instantly
+│   ├─ linkMode + onCreateLink + onDeleteLink + canConnect (optional) — drag-to-connect authoring from ANY handle ("draw" | "connect"; links join at the closest FACING handle pair; canConnect(from, to) vetoes BEFORE the draft snaps and fails OPEN; dropping on the SOURCE node commits an ↻ in-place transition; the drag previews the spec-compliant H/V route; Del deletes the selected link)
+│   ├─ onAddLane (optional) — its presence renders the dashed full-height "+ LANE" tail affordance (click fires it); absent ⇒ no affordance
+│   ├─ onRenameLane + onDeleteLane (optional) — lane editing: headers become click-to-edit (Enter/blur commits → { key, label }); × beside each header deletes (lane key). The HOST owns the cascade — the canvas stays safe either way: states referencing a missing lane fall into the LAST lane, dangling links render as neg-dashed ghosts (orphans stay visible)
+│   ├─ onAddState + onEditState + onMoveState (optional) — state editing: hovering a lane band reveals the dashed node-footprint "+ STATE" ghost parked one row below its last node (click → inline editor, code auto-focused + label; ⏎ commits { lane, key, label }, esc/blur-empty dismisses; the committed state starts unconnected); double-click a node opens the same editor ({ key, code, label } — rekeying links is the host's call); dragging a node across lanes highlights candidate bands and drops fire { key, lane }
+│   ├─ readOnly (optional) — runtime edit gate: true suppresses every authoring affordance (connect gesture, Del, + LANE) WITHOUT unwiring callbacks (feed a permission / published-mode flag); read-only is otherwise the DEFAULT — each edit channel exists only when its callback / mode is provided; selection + hover always stay (inspecting isn't editing)
+│   └─ density / height / maxHeight (optional) — rhythm + uniform sizing (#320); default content-sized
+└─ Factories: (tables are plain rows + mappers; closed-set fields are typed values via Flowchart.Types.* — State, Link, Lane, Trigger, Evidence, Kind, Orientation, LinkMode, LinkCreateEvent)
+```
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `<Flowchart states={…} state={…} links={…} link={…} lanes={…} />` | States in ordered phase lanes and the transitions between them, from the app's own tables through their row mappers. | `flowchartMinimal` |
+| `triggers` + `trigger`, a link's `trigger` / `evidence`, `slice` + `affordances`, `freshness` | Decision diamonds, evidence-weighted strokes and badges, a bound slice's rail at compact density, the freshness chip. | `flowchartDepot` |
+| `affordances: ["brush"]` **❗** | Refused at build: a flowchart has no continuous 1D axis. | — |
+| `linkMode` + `onCreateLink` / `onDeleteLink` / `canConnect`, `onAddLane` / `onRenameLane` / `onDeleteLane`, `onAddState` / `onEditState` / `onMoveState` | Authoring: each channel exists only while its callback is given; the host owns the data. | `flowchartBuilder` |
+| `stateHover` / `linkHover` / `triggerHover`, `onSelectState` / `onSelectLink` / `onSelectTrigger` | Hover cards a key builds, and clicks the host hears — a click that opens a `<Drawer>`, say. | `flowchartDetail` |
+
 ## Rendering surfaces in an app — `<E3Provider>`
 
 A deployed `ui()` task renders in a React app through
@@ -1744,6 +1824,12 @@ Tested examples live in `test/*.examples.tsx`:
   `Sheet.link.print`.
 - `sheet/sheet-transactions.examples.ts` — `Sheet.apply` over rows, and over
   entries of groups and loose rows.
+- `flowchart/flowchart.examples.tsx` — `<Flowchart>`: the smallest
+  (`flowchartMinimal`); the parcel depot's, with decision triggers, evidence,
+  a ×14 state class, an in-place loop, an unresolved ghost, a bound slice and
+  hover cards (`flowchartDepot`); the authoring loop over State — lanes,
+  states and links added, edited, moved and deleted (`flowchartBuilder`); and
+  hover glances beside clicks that open a drawer (`flowchartDetail`).
 - `query/query.examples.tsx` — queries as a solution writes them: the shared
   fixture's datasets; the saved queries record, its value seven queries from
   `Query.value`; the builder open on three of them and over an empty record; an

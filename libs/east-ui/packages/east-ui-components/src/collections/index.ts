@@ -76,11 +76,6 @@ export {
     type EastChakraSchematicProps,
 } from "./schematic";
 export {
-    EastChakraFlowchart,
-    type FlowchartValue,
-    type EastChakraFlowchartProps,
-} from "./flowchart";
-export {
     EastChakraMap,
     type MapValue,
     type MapAreaValue,

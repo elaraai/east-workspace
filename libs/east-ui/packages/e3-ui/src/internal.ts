@@ -4,9 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Diff` / `Ontology` **factories**
- * (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Diff.Root(…)`, `Diff.Component`) plus
- * `Data`, the manifest type and derivation, and types.
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Diff` / `Ontology`
+ * **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Flowchart.Root(…)`,
+ * `Diff.Root(…)`, `Diff.Component`) plus `Data`, the manifest type and
+ * derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -362,6 +363,34 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
+// The Flowchart (#1243): `<Flowchart>` with its namespace, the root the
+// renderer takes through the `Flowchart` carrier, and the types a flowchart is
+// written with. `Flowchart` here is the internal namespace — the public one,
+// `Flowchart.Root`, `Flowchart.Payload` and `Flowchart.Component`.
+export {
+    FlowchartInternal as Flowchart,
+    FlowchartTag,
+    FlowchartComponent,
+    FlowchartRootType,
+    FlowchartTypes,
+    createFlowchartPayload,
+    createFlowchartRoot,
+    type FlowchartTagType,
+    type FlowchartNamespace,
+    type FlowchartInternalNamespace,
+    type FlowchartConfig,
+    type FlowchartStateFields,
+    type FlowchartLinkFields,
+    type FlowchartLaneFields,
+    type FlowchartTriggerFields,
+    type FlowchartEvidenceFields,
+    type FlowchartFreshnessInput,
+    type FlowchartLaneLiteral,
+    type FlowchartLinkKindLiteral,
+    type FlowchartOrientationLiteral,
+    type FlowchartLinkModeLiteral,
+} from './flowchart/index.js';
+export * from './flowchart/types.js';
 // Schedule (#1218, #1190): the kinds the Calendar and Plan's builder share,
 // the checks a builder makes across its slots, and the kinds' wire, the
 // Calendar's and Plan's. `Schedule` here is the internal namespace — the

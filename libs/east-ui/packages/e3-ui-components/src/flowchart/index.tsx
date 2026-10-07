@@ -8,9 +8,13 @@
  * design spec. The dimensional contract (node 116×40 r6, 7px handle
  * rings, fixed 6.5px arrowheads butting the rings, dim ladder
  * 1.0 / 0.45 / 0.15, eyebrow 44px, footer 38px, hover 400ms) lives in
- * `layout.ts` + the `flowchart` slot recipe. Colours resolve through the
- * recipe's `--fc-*` variables (theme-aware, dark-mode overrides), whose
- * values mirror the spec's literal DS tokens.
+ * `layout.ts` + the `flowchart` slot recipe, which stays in
+ * east-ui-components' theme. Colours resolve through the recipe's `--fc-*`
+ * variables (theme-aware, dark-mode overrides), whose values mirror the
+ * spec's literal DS tokens.
+ *
+ * The Flowchart is e3-ui's (#1243): the renderer registers itself against
+ * the `Flowchart` extension (`Flowchart.Component`) as the module loads.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -18,15 +22,18 @@ import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faArrowDown, faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
-import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined } from "../../utils";
-import { EastChakraComponent } from "../../component";
-import { useFormatters } from "../../format/index.js";
-import { SliceRailCluster } from "../../slice/rail";
-import { SliceDensityContext } from "../../slice/density";
-import { parseCssSize } from "../../style/parse-size.js";
-import { useSliceReactivity } from "../../slice/use-slice-reactivity";
-import { useDataStable } from "../../hooks/useDataStable";
+import { Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
+import { Flowchart } from "@elaraai/e3-ui/internal";
+import {
+    EastChakraComponent,
+    SliceRailCluster,
+    getSomeorUndefined,
+    implementUIComponent,
+    useDataStable,
+    useFormatters,
+    useSliceReactivity,
+} from "@elaraai/east-ui-components";
+import { SliceDensityContext, parseCssSize } from "@elaraai/east-ui-components/internal";
 import {
     buildModel, type FlowchartModel, type FlowchartValue, type ModelLink,
 } from "./model.js";
@@ -1175,3 +1182,9 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
         </Box>
     );
 }, (prev, next) => flowchartEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+// =============================================================================
+// Side-effect — register the renderer for the Flowchart extension on module load.
+// =============================================================================
+
+implementUIComponent(Flowchart.Component, EastChakraFlowchart);

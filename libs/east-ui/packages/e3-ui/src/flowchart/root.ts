@@ -23,11 +23,8 @@ import {
     StructType,
 } from "@elaraai/east";
 
-import { UIComponentType } from "../../component.js";
-import { mapRows } from "../../shared/reify.js";
-import { DensityType, type DensityLiteral } from "../../style/interaction.js";
-import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
-import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
+import { DensityType, EastUI, UIComponentType, type DensityLiteral } from "@elaraai/east-ui";
+import { SliceAffordanceType, SliceBindType, SliceChromeType, mapRows, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import {
     FlowchartLinkKindType,
     FlowchartOrientationType,
@@ -64,9 +61,9 @@ export {
 } from "./types.js";
 
 /**
- * East type for the Flowchart root — the resolved mirror of the inline
- * `Flowchart` struct in `component.ts`. Keep the two spellings in sync
- * field-for-field.
+ * East type for the Flowchart root — the payload `<Flowchart>` returns
+ * through the `Flowchart` carrier ({@link FlowchartComponent}), and what the
+ * renderer draws.
  *
  * @remarks
  * Per-field docs live on {@link FlowchartConfig}; events and collection
@@ -140,6 +137,14 @@ export const FlowchartRootType: StructType<{
  * Type representing the flowchart root.
  */
 export type FlowchartRootType = typeof FlowchartRootType;
+
+/**
+ * The `Flowchart` carrier: `<Flowchart>` builds a {@link FlowchartRootType}
+ * and returns it through this {@link EastUI.component}. The React renderer
+ * registers against it in `@elaraai/e3-ui-components` via
+ * `implementUIComponent`.
+ */
+export const FlowchartComponent = EastUI.component("Flowchart", FlowchartRootType, { optional: true });
 
 /**
  * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>`.
@@ -373,7 +378,7 @@ function buildRoot(
     links: SubtypeExprOrValue<ArrayType<StructType>>,
     lanes: SubtypeExprOrValue<ArrayType<StructType>> | readonly FlowchartLaneLiteral[],
     config: FlowchartConfig<StructType, StructType, StructType, StructType>,
-): ExprType<UIComponentType> {
+): ExprType<FlowchartRootType> {
     const stateMapper = config.state;
     const resolvedStates = stateMapper === undefined
         ? East.value(states as SubtypeExprOrValue<ArrayType<FlowchartStateType>>, ArrayType(FlowchartStateType))
@@ -462,7 +467,7 @@ function buildRoot(
         }, SliceChromeType)
         : undefined;
 
-    return East.value(variant("Flowchart", {
+    return East.value({
         states: resolvedStates,
         links: resolvedLinks,
         lanes: resolvedLanes,
@@ -504,11 +509,13 @@ function buildRoot(
         onEditState: config.onEditState !== undefined ? some(config.onEditState) : none,
         onMoveState: config.onMoveState !== undefined ? some(config.onMoveState) : none,
         readOnly: config.readOnly !== undefined ? some(config.readOnly) : none,
-    }), UIComponentType);
+    }, FlowchartRootType);
 }
 
 /**
- * Creates a Flowchart — a self-contained state-transition flowchart.
+ * Creates the flowchart's root alone — what `<Flowchart>` returns through the
+ * `Flowchart` carrier — for the tests and the renderer's fixtures, which read
+ * it whole.
  *
  * @typeParam S - The states-table input
  * @typeParam L - The links-table input
@@ -517,28 +524,44 @@ function buildRoot(
  * @param states - The state rows (nodes)
  * @param config - The Flowchart configuration ({@link FlowchartConfig}) plus
  *   the `links` / `lanes` (required) and `triggers` (optional) tables
- * @returns An East expression of `UIComponentType`
- *
- * @example
- * ```ts
- * import { East } from "@elaraai/east";
- * import { Flowchart, UIComponentType } from "@elaraai/east-ui";
- *
- * const example = East.function([], UIComponentType, _$ =>
- *     Flowchart.Root(
- *         [{ code: "ARV", name: "Arrived", phase: "intake" },
- *          { code: "SCN", name: "Scanned", phase: "intake" }],
- *         {
- *             state: s => ({ key: s.code, label: s.name, lane: s.phase }),
- *             links: [{ src: "ARV", dst: "SCN" }],
- *             link: l => ({ from: l.src, to: l.dst }),
- *             lanes: [{ key: "intake", label: "Intake" }],
- *         },
- *     ),
- * );
- * ```
+ * @returns An East expression of {@link FlowchartRootType}
+ * @throws {Error} When `affordances` lists `"brush"` — a flowchart has no
+ *   continuous 1D axis
+ * @internal
  */
-function createFlowchart<
+export function createFlowchartPayload<
+    S extends SubtypeExprOrValue<ArrayType<StructType>>,
+    L extends SubtypeExprOrValue<ArrayType<StructType>>,
+    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+    T extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+>(
+    states: S,
+    config: FlowchartConfig<RowElement<S>, RowElement<L>, RowElement<N>, RowElement<T>>
+        & { links: L; lanes: N | readonly FlowchartLaneLiteral[]; triggers?: T },
+): ExprType<FlowchartRootType> {
+    const { links, lanes, ...rest } = config;
+    return buildRoot(states, links, lanes, rest as unknown as FlowchartConfig<StructType, StructType, StructType, StructType>);
+}
+
+/**
+ * Creates a Flowchart — a self-contained state-transition flowchart: its root
+ * ({@link createFlowchartPayload}), returned through the `Flowchart` carrier.
+ * The factory `<Flowchart>` maps to.
+ *
+ * @typeParam S - The states-table input
+ * @typeParam L - The links-table input
+ * @typeParam N - The lanes-table input
+ * @typeParam T - The triggers-table input
+ * @param states - The state rows (nodes)
+ * @param config - The Flowchart configuration ({@link FlowchartConfig}) plus
+ *   the `links` / `lanes` (required) and `triggers` (optional) tables
+ * @returns An East expression of `UIComponentType` — the `Flowchart`
+ *   extension over the root
+ * @throws {Error} When `affordances` lists `"brush"` — a flowchart has no
+ *   continuous 1D axis
+ * @internal
+ */
+export function createFlowchartRoot<
     S extends SubtypeExprOrValue<ArrayType<StructType>>,
     L extends SubtypeExprOrValue<ArrayType<StructType>>,
     N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
@@ -548,73 +571,51 @@ function createFlowchart<
     config: FlowchartConfig<RowElement<S>, RowElement<L>, RowElement<N>, RowElement<T>>
         & { links: L; lanes: N | readonly FlowchartLaneLiteral[]; triggers?: T },
 ): ExprType<UIComponentType> {
-    const { links, lanes, ...rest } = config;
-    return buildRoot(states, links, lanes, rest as unknown as FlowchartConfig<StructType, StructType, StructType, StructType>);
+    return FlowchartComponent.Root(createFlowchartPayload(states, config));
 }
 
 // ============================================================================
-// Namespace export
+// The types a flowchart is written with
 // ============================================================================
 
 /**
- * Flowchart component namespace.
- *
- * @remarks
- * `Flowchart.Root(states, config)` builds the flowchart from up to four
- * flat tables (states, links, lanes, triggers); closed-set fields in data
- * (`kind`, `orientation`, `linkMode`) are typed variant values
- * (`Flowchart.Types.*`).
+ * East types for flowchart rows, closed-set fields and events — the
+ * namespace's `Flowchart.Types`.
  */
-export const Flowchart = {
+export const FlowchartTypes = {
     /**
-     * Creates a Flowchart — a self-contained state-transition flowchart.
+     * East StructType for the Flowchart component.
      *
      * @remarks
-     * See {@link FlowchartConfig} for per-field docs. States render as
-     * nodes in ordered phase lanes; links as H/V-routed arrows; triggers
-     * as lettered diamonds. Hover cards, the inspector and the highlight
-     * grammar are built-in surfaces derived from core + declared fields.
+     * See {@link FlowchartRootType} for per-field docs.
      */
-    Root: createFlowchart,
-
-    /**
-     * East types for flowchart rows, closed-set fields and events.
-     */
-    Types: {
-        /**
-         * East StructType for the Flowchart component.
-         *
-         * @remarks
-         * See {@link FlowchartRootType} for per-field docs.
-         */
-        Flowchart: FlowchartRootType,
-        /** One state node ({@link FlowchartStateType}). */
-        State: FlowchartStateType,
-        /** One transition ({@link FlowchartLinkType}). */
-        Link: FlowchartLinkType,
-        /** One ordered phase band ({@link FlowchartLaneType}). */
-        Lane: FlowchartLaneType,
-        /** One decision trigger ({@link FlowchartTriggerType}). */
-        Trigger: FlowchartTriggerType,
-        /** Imported link evidence ({@link FlowchartEvidenceType}). */
-        Evidence: FlowchartEvidenceType,
-        /** Link kind — planned | observed ({@link FlowchartLinkKindType}). */
-        Kind: FlowchartLinkKindType,
-        /** Canvas orientation — LR | TD ({@link FlowchartOrientationType}). */
-        Orientation: FlowchartOrientationType,
-        /** Link-authoring mode — draw | connect ({@link FlowchartLinkModeType}). */
-        LinkMode: FlowchartLinkModeType,
-        /** Eyebrow freshness chip ({@link FlowchartFreshnessType}). */
-        Freshness: FlowchartFreshnessType,
-        /** Link-creation event ({@link FlowchartLinkCreateEventType}). */
-        LinkCreateEvent: FlowchartLinkCreateEventType,
-        /** Lane-rename event ({@link FlowchartLaneRenameEventType}). */
-        LaneRenameEvent: FlowchartLaneRenameEventType,
-        /** State-add event ({@link FlowchartStateAddEventType}). */
-        StateAddEvent: FlowchartStateAddEventType,
-        /** State-edit event ({@link FlowchartStateEditEventType}). */
-        StateEditEvent: FlowchartStateEditEventType,
-        /** State-move event ({@link FlowchartStateMoveEventType}). */
-        StateMoveEvent: FlowchartStateMoveEventType,
-    },
+    Flowchart: FlowchartRootType,
+    /** One state node ({@link FlowchartStateType}). */
+    State: FlowchartStateType,
+    /** One transition ({@link FlowchartLinkType}). */
+    Link: FlowchartLinkType,
+    /** One ordered phase band ({@link FlowchartLaneType}). */
+    Lane: FlowchartLaneType,
+    /** One decision trigger ({@link FlowchartTriggerType}). */
+    Trigger: FlowchartTriggerType,
+    /** Imported link evidence ({@link FlowchartEvidenceType}). */
+    Evidence: FlowchartEvidenceType,
+    /** Link kind — planned | observed ({@link FlowchartLinkKindType}). */
+    Kind: FlowchartLinkKindType,
+    /** Canvas orientation — LR | TD ({@link FlowchartOrientationType}). */
+    Orientation: FlowchartOrientationType,
+    /** Link-authoring mode — draw | connect ({@link FlowchartLinkModeType}). */
+    LinkMode: FlowchartLinkModeType,
+    /** Eyebrow freshness chip ({@link FlowchartFreshnessType}). */
+    Freshness: FlowchartFreshnessType,
+    /** Link-creation event ({@link FlowchartLinkCreateEventType}). */
+    LinkCreateEvent: FlowchartLinkCreateEventType,
+    /** Lane-rename event ({@link FlowchartLaneRenameEventType}). */
+    LaneRenameEvent: FlowchartLaneRenameEventType,
+    /** State-add event ({@link FlowchartStateAddEventType}). */
+    StateAddEvent: FlowchartStateAddEventType,
+    /** State-edit event ({@link FlowchartStateEditEventType}). */
+    StateEditEvent: FlowchartStateEditEventType,
+    /** State-move event ({@link FlowchartStateMoveEventType}). */
+    StateMoveEvent: FlowchartStateMoveEventType,
 } as const;

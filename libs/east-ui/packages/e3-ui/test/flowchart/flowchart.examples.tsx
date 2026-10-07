@@ -2,9 +2,10 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-/** @jsxImportSource @elaraai/east-ui */
+/** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Drawer, Flowchart, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Drawer, Meter, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Flowchart } from "@elaraai/e3-ui";
 
 export const flowchartMinimal = example({
     keywords: ["Flowchart", "states", "links", "lanes", "minimal", "planned", "observed"],
