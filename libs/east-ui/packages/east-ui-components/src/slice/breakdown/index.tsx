@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faFilter } from "@fortawesome/free-solid-svg-icons";
@@ -12,6 +12,7 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -39,9 +40,19 @@ const readLimit = parseFor(IntegerType);
  * footer whose `<select>` sets the top-N cut. Selecting a dimension writes
  * `state.breakdown`; the `×` clears it. Dimensions + groups come from the bound
  * slice; swatch colours are assigned by position.
+ *
+ * **Compact**, the active dimension's chip is a button, as a clause chip is
+ * (#1231, #1253): it opens its editor, which switches the dimension and whose
+ * foot clears it (Clear breakdown). Its × is the pointer's — with a mouse it
+ * clears the breakdown, the keyboard clears it with Delete on the chip, the
+ * focus handed to `+ dimension` — and on a coarse pointer it is not drawn: the
+ * chip is one target, 44px by its halo. **Focused**, on a coarse pointer each
+ * dimension's chip is one 44px target with no ×, a tap on the active one
+ * clearing it.
  */
 export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({ value }: EastChakraSliceBreakdownProps) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const edit = useSlotRecipe({ key: "sliceEdit" })();
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const selectCss = useRecipe({ key: "input" })({ size: "sm" });
@@ -81,8 +92,31 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     };
 
     const [pickOpen, setPickOpen] = useState(false);
+    // The active dimension's editor (#1253). The breakdown cleared from
+    // anywhere — the rail's Clear all, the host — takes its editor with it, so
+    // the next split never opens one unasked.
+    const [editOpen, setEditOpen] = useState(false);
+    useEffect(() => { if (active === undefined) setEditOpen(false); }, [active]);
     const setBreakdown = (fieldId: string) => slice.setBreakdown(some({ fieldId, limit: none }));
     const clearBreakdown = () => slice.setBreakdown(none);
+    // On a touch screen the active dimension's chip draws no × (#1253).
+    const coarse = useCoarsePointer();
+
+    // Delete on the active dimension's chip clears the breakdown and hands the
+    // focus to `+ dimension` once it draws, as a clause's removal does (#1231).
+    const focusAdd = useRef<Element | null>(null);
+    useLayoutEffect(() => {
+        const row = focusAdd.current;
+        if (row === null) return;
+        focusAdd.current = null;
+        row.querySelector<HTMLElement>("[data-slice-add='dimension']")?.focus();
+    });
+    const onChipKey = (e: KeyboardEvent<HTMLElement>) => {
+        if (e.key !== "Delete") return;
+        e.preventDefault();
+        focusAdd.current = e.currentTarget.closest("[data-slice-breakdown-row]");
+        clearBreakdown();
+    };
 
     // Compact (chart-frame eyebrow): "SPLIT BY" + the ACTIVE dimension chip (if
     // any) + a dashed `+ dimension` picker. The full dimensions / resulting-series
@@ -91,12 +125,40 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
         const activeDim = dimensions.find(d => d.fieldId === active);
         const inactive = dimensions.filter(d => d.fieldId !== active);
         return (
-            <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" flexShrink="0">
+            <Box display="flex" gap="{spacing.2}" alignItems="center" flexWrap="nowrap" flexShrink="0" data-slice-breakdown-row="">
                 {activeDim !== undefined && (
-                    <Box css={chip({ tone: "brand", numeric: true })}>
-                        <Box as="span">{activeDim.label}</Box>
-                        <chakra.button type="button" cursor="pointer" color="link" onClick={clearBreakdown} aria-label="Clear breakdown">×</chakra.button>
-                    </Box>
+                    <SliceEditPopover
+                        open={editOpen}
+                        onOpenChange={setEditOpen}
+                        label={<>{"Split by · "}<Box as="span" css={edit.clauseField}>{activeDim.label}</Box></>}
+                        footLeft={<chakra.button type="button" css={edit.footDanger} onClick={() => { setEditOpen(false); clearBreakdown(); }}>Clear breakdown</chakra.button>}
+                        footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setEditOpen(false)}>Done</chakra.button>}
+                        trigger={
+                            // One button opening its editor; a 44px touch target on a coarse pointer, by its halo (#1253).
+                            <chakra.button type="button" css={[chip({ tone: "brand", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                                data-slice-breakdown={activeDim.fieldId} aria-label={`Split by ${activeDim.label}`} onKeyDown={onChipKey}>
+                                <Box as="span">{activeDim.label}</Box>
+                                {/* The pointer's clear; the keyboard's is Delete on the chip. */}
+                                {!coarse && (
+                                    <Box as="span" data-chip-remove="" aria-hidden="true" title="Clear breakdown"
+                                        onClick={(e: MouseEvent) => { e.stopPropagation(); clearBreakdown(); }}>
+                                        ×
+                                    </Box>
+                                )}
+                            </chakra.button>
+                        }
+                    >
+                        {/* Another dimension switches the split; the foot clears it. */}
+                        {editOpen && (
+                            <Box display="flex" flexDirection="column" gap="{spacing.1}">
+                                {inactive.map(d => (
+                                    <chakra.button key={d.fieldId} type="button" css={styles.footerAction} textAlign="left" onClick={() => { setBreakdown(d.fieldId); setEditOpen(false); }}>
+                                        {d.label}
+                                    </chakra.button>
+                                ))}
+                            </Box>
+                        )}
+                    </SliceEditPopover>
                 )}
                 {inactive.length > 0 && (
                     <SliceEditPopover
@@ -146,6 +208,14 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                 <Box display="flex" gap="{spacing.2}" flexWrap="wrap" alignItems="center">
                     {dimensions.map(d => {
                         const on = d.fieldId === active;
+                        // On a touch screen a dimension's chip is one 44px target, by its halo, with no × —
+                        // a tap on the active one clears it (#1253).
+                        if (coarse) return (
+                            <chakra.button key={d.fieldId} type="button" css={[chip({ tone: on ? "brand" : "neutral" }), coarseHitArea({ position: true })]} cursor="pointer"
+                                aria-pressed={on} onClick={() => (on ? clearBreakdown() : setBreakdown(d.fieldId))}>
+                                {d.label}
+                            </chakra.button>
+                        );
                         return (
                             <Box key={d.fieldId} css={chip({ tone: on ? "brand" : "neutral" })}>
                                 <chakra.button type="button" cursor="pointer" onClick={() => (on ? clearBreakdown() : setBreakdown(d.fieldId))}>

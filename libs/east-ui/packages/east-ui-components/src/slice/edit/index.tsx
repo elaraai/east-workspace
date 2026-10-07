@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useEffect, useId, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
@@ -37,6 +37,13 @@ export type SliceEditPopoverAnchor =
          */
         anchor: ReactNode;
     };
+
+/** What the sectioned editor's disclosure sets on its trigger (#1253). */
+interface DisclosureTriggerProps {
+    onClick?: ((e: MouseEvent<HTMLElement>) => void) | undefined;
+    "aria-expanded"?: boolean;
+    "aria-controls"?: string;
+}
 
 /** Props of {@link SliceEditPopover}: what it hangs from, and the rest. */
 export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
@@ -80,7 +87,9 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
  * The trigger is the affordance's own button, the popover's trigger props
  * merged onto it (#1231): a tab stop that Enter or Space opens, its
  * `aria-expanded` the popover's. A popover something else opens — a toolbar
- * chip's menu item (#1229) — hangs from an `anchor` instead.
+ * chip's menu item (#1229) — hangs from an `anchor` instead. Inside the
+ * sectioned editor the same button opens an inline disclosure, its
+ * `aria-expanded` the disclosure's (#1253).
  */
 export function SliceEditPopover({
     open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
@@ -90,6 +99,7 @@ export function SliceEditPopover({
     const anchored = trigger === undefined;
     const anchorRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const regionId = useId();
     // An anchored popover has no trigger for Zag to give the focus back to: as
     // it closes, the focus goes back to its anchor's first control — unless it
     // went to a control of its own choosing (a click on another).
@@ -108,12 +118,28 @@ export function SliceEditPopover({
     if (density === "editor") {
         // Inside the sectioned editor the popover is forbidden — the editor
         // is the terminal surface. The same trigger toggles an inline
-        // disclosure in flow instead (the editor body scrolls as it grows).
+        // disclosure in flow instead (the editor body scrolls as it grows):
+        // the trigger is the button itself, its own click kept, so Enter and
+        // Space open it and it says it expands (#1253).
+        const own = trigger as ReactElement<DisclosureTriggerProps> | undefined;
+        const toggle = own === undefined ? anchor : cloneElement(own, {
+            "aria-expanded": open,
+            ...(open && { "aria-controls": regionId }),
+            onClick: (e: MouseEvent<HTMLElement>) => {
+                own.props.onClick?.(e);
+                onOpenChange(!open);
+            },
+        });
+        // The trigger keeps its own width; the disclosure under it spans the
+        // column. On a touch screen its row is 44px tall, the trigger in its
+        // middle: the triggers the editor stacks one to a row each keep a whole
+        // 44px target, which their halos fill (#1253).
         return (
-            <Box display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="0" width="full">
-                {anchored ? anchor : <chakra.span display="inline-flex" onClick={() => onOpenChange(!open)}>{trigger}</chakra.span>}
+            <Box display="flex" flexDirection="column" alignItems="flex-start" justifyContent="center" minHeight={{ _coarse: "44px" }}
+                gap="{spacing.1.5}" minWidth="0" width="full">
+                {toggle}
                 {open && (
-                    <Box borderTopWidth="1px" borderColor="border.subtle" paddingTop="{spacing.2}">
+                    <Box id={regionId} alignSelf="stretch" borderTopWidth="1px" borderColor="border.subtle" paddingTop="{spacing.2}">
                         <Box as="span" textStyle="caption.eyebrow" color="fg.subtle">{label}</Box>
                         <Box css={styles.body} padding="0" paddingTop="{spacing.2}" maxHeight="none">{children}</Box>
                         {(footLeft !== undefined || footActions !== undefined) && (

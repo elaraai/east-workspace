@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useState } from "react";
+import { memo, useState, type ReactElement } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPen } from "@fortawesome/free-solid-svg-icons";
@@ -12,6 +12,7 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useFormatters } from "../../format/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -35,6 +36,8 @@ interface CohortDraft {
     /** The family, as typed — empty = a standalone cohort. */
     group: string;
     clauses: PredicateValue[];
+    /** The state its editor's On / Off set (#1253) — Apply then keeps it — else `undefined`. */
+    on?: boolean | undefined;
 }
 
 /**
@@ -93,14 +96,23 @@ export function cohortFamilies(cohorts: ReadonlyArray<CohortValue>, only: string
  * never renders inline, so the surface never re-flows. Apply commits via
  * `slice.updateCohort` / `defineCohort` and activates the cohort; `Remove
  * cohort` drops it.
+ *
+ * On a touch screen a chip is one 44px target by its halo (#1253): in
+ * `manage` mode it opens the cohort's editor, whose foot turns the cohort on
+ * or off (On · Off, one press, beside Remove cohort) — Apply then keeps the
+ * state it set — and on a preset bar it toggles. With a mouse nothing
+ * changes: a click toggles, the pencil edits.
  */
 export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value }: EastChakraSliceCohortProps) {
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
     const edit = useSlotRecipe({ key: "sliceEdit" })({ size: "lg" });
+    const seg = useSlotRecipe({ key: "seg" })();
     // Counts compact in the app's locale (#850) — `2400` is `2.4K`, `380` stays `380`.
     const words = useFormatters();
+    // On a touch screen a chip is one target (#1253).
+    const coarse = useCoarsePointer();
     const { slice } = value;
     useSliceReactivity(slice.key);
 
@@ -144,7 +156,8 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
         const group = draft.group.trim() === "" ? none : some(draft.group.trim());
         if (draft.editId !== null) {
             slice.updateCohort(draft.editId, { id: draft.editId, name: draft.name.trim(), filters: draft.clauses, group });
-            if (!activeCohorts.has(draft.editId)) slice.toggleCohort(draft.editId);
+            // Apply turns the cohort on, unless its editor's On · Off set its state (#1253).
+            if (draft.on === undefined && !activeCohorts.has(draft.editId)) slice.toggleCohort(draft.editId);
         } else {
             const id = uniqueSlug(draft.name, cohorts.map(c => c.id));
             slice.defineCohort({ id, name: draft.name.trim(), filters: draft.clauses, group });
@@ -202,9 +215,34 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
         </>
     );
 
+    // On a touch screen an existing cohort's editor turns it on or off (#1253),
+    // at once, in one press: the `seg` strip's On · Off.
+    const onOff = (id: string) => {
+        const on = activeCohorts.has(id);
+        return (
+            <Box css={seg.root} role="group" aria-label="Cohort state" data-slice-cohort-state="">
+                {[true, false].map(state => (
+                    <chakra.button key={state ? "on" : "off"} type="button" css={seg.item}
+                        data-state={state === on ? "on" : "off"} aria-pressed={state === on}
+                        onClick={() => {
+                            if (state !== on) slice.toggleCohort(id);
+                            setDraft(d => d && { ...d, on: state });
+                        }}>
+                        {state ? "On" : "Off"}
+                    </chakra.button>
+                ))}
+            </Box>
+        );
+    };
+
     const foot = {
         left: draft?.editId != null
-            ? <chakra.button type="button" css={edit.footDanger} onClick={() => { slice.removeCohort(draft.editId!); setDraft(null); }}>Remove cohort</chakra.button>
+            ? (
+                <>
+                    {coarse && onOff(draft.editId)}
+                    <chakra.button type="button" css={edit.footDanger} onClick={() => { slice.removeCohort(draft.editId!); setDraft(null); }}>Remove cohort</chakra.button>
+                </>
+            )
             : undefined,
         actions: (
             <>
@@ -217,12 +255,51 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
     // One cohort's chip: the primary on/off toggle (#163 — the previously-dead
     // deactivate path) and, in manage mode, the demoted edit pencil that opens
     // the authoring popover. The swatch keeps the cohort's palette slot across
-    // the whole registry, whatever family it sits in.
+    // the whole registry, whatever family it sits in. On a touch screen the
+    // chip is one target instead (#1253).
     const chipOf = (c: CohortValue, i: number) => {
         const on = activeCohorts.has(c.id);
         const count = counts?.get(c.id);
+        const face = (
+            <>
+                <Box as="span" width="8px" height="8px" borderRadius="full" background={on ? SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length] : "border.strong"} />
+                <Box as="span">{c.name}</Box>
+                {count !== undefined && <Box as="span" color="fg.muted">{`· ${words.compact(Number(count))}`}</Box>}
+            </>
+        );
+        const editorFrom = (trigger: ReactElement) => (
+            <SliceEditPopover
+                key={c.id}
+                open={draft?.editId === c.id}
+                onOpenChange={open => setDraft(open ? draftOf(c) : null)}
+                label={<>{"Edit cohort · "}<Box as="span" css={edit.clauseField}>{c.name}</Box></>}
+                size="lg"
+                footLeft={foot.left}
+                footActions={foot.actions}
+                trigger={trigger}
+            >
+                {draft?.editId === c.id ? editor : null}
+            </SliceEditPopover>
+        );
+        if (coarse) {
+            // The chip at its own size, a 44px target by its halo (#1253): it
+            // opens the cohort's editor — on a preset bar it toggles.
+            const whole = [chip({ tone: on ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })];
+            return manage
+                ? editorFrom(
+                    <chakra.button type="button" css={whole} data-slice-cohort={c.id} data-state={on ? "on" : "off"} aria-label={`Edit cohort ${c.name}`}>
+                        {face}
+                    </chakra.button>,
+                )
+                : (
+                    <chakra.button key={c.id} type="button" css={whole} data-slice-cohort={c.id}
+                        onClick={() => slice.toggleCohort(c.id)} aria-pressed={on} aria-label={`Toggle cohort ${c.name}`}>
+                        {face}
+                    </chakra.button>
+                );
+        }
         return (
-            <Box key={c.id} css={chip({ tone: on ? "brand" : "neutral", numeric: true })}>
+            <Box key={c.id} css={chip({ tone: on ? "brand" : "neutral", numeric: true })} data-slice-cohort={c.id}>
                 <chakra.button
                     type="button"
                     css={edit.chipToggle}
@@ -230,26 +307,12 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                     aria-pressed={on}
                     aria-label={`Toggle cohort ${c.name}`}
                 >
-                    <Box as="span" width="8px" height="8px" borderRadius="full" background={on ? SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length] : "border.strong"} />
-                    <Box as="span">{c.name}</Box>
-                    {count !== undefined && <Box as="span" color="fg.muted">{`· ${words.compact(Number(count))}`}</Box>}
+                    {face}
                 </chakra.button>
-                {manage && (
-                    <SliceEditPopover
-                        open={draft?.editId === c.id}
-                        onOpenChange={open => setDraft(open ? draftOf(c) : null)}
-                        label={<>{"Edit cohort · "}<Box as="span" css={edit.clauseField}>{c.name}</Box></>}
-                        size="lg"
-                        footLeft={foot.left}
-                        footActions={foot.actions}
-                        trigger={
-                            <chakra.button type="button" css={edit.chipEdit} aria-label={`Edit cohort ${c.name}`}>
-                                <FontAwesomeIcon icon={faPen} />
-                            </chakra.button>
-                        }
-                    >
-                        {draft?.editId === c.id ? editor : null}
-                    </SliceEditPopover>
+                {manage && editorFrom(
+                    <chakra.button type="button" css={edit.chipEdit} aria-label={`Edit cohort ${c.name}`}>
+                        <FontAwesomeIcon icon={faPen} />
+                    </chakra.button>,
                 )}
             </Box>
         );
