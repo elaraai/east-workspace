@@ -4,11 +4,12 @@
  */
 
 /**
- * The canvas's keyboard focus (#819) — ONE ring for the grid's rows and ONE
- * for the marks inside them, shared by every part of the Plan recipe that
+ * The canvas's rings. Keyboard focus (#819) is ONE ring for the grid's rows and
+ * ONE for the marks inside them, shared by every part of the Plan recipe that
  * takes focus, so a row, a band, a bar and a cell all say "you are here" the
  * same way. Keyboard focus only (`:focus-visible`): a click that focuses a row
- * paints nothing new.
+ * paints nothing new. A selected event (#1197) is ONE ring too, on every mark
+ * an event draws.
  *
  * @packageDocumentation
  */
@@ -29,4 +30,12 @@ export const planRowFocus = {
  *  ring (the confirmed outline, the stuck warn ring). */
 export const planElementFocus = {
     _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "1px" },
+} satisfies SystemStyleObject;
+
+/** A selected event's mark (#1197) — a 1.5px brand ring just outside it (the
+ *  Calendar's B10). An outline, so it rides every lifecycle look, ring and
+ *  dash, and never moves the mark; spread BEFORE {@link planElementFocus}, so
+ *  a keyboard focus on a selected mark draws its own ring in its place. */
+export const planElementSelected = {
+    "&[data-selected]": { outline: "1.5px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
 } satisfies SystemStyleObject;

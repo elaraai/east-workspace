@@ -31,16 +31,13 @@
 
 import {
     ArrayType,
-    BlobType,
     BooleanType,
     East,
-    Expr,
     FunctionType,
     NullType,
     OptionType,
     StringType,
     StructType,
-    isTypeEqual,
     none,
     some,
     type DictType,
@@ -61,6 +58,7 @@ import { buildTemplates, SheetTemplateWireType, type SheetTemplate, type SheetTe
 import { buildLibrary, SheetLibraryTabType, type SheetLibraryTab } from "./library.js";
 import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
+import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 
 // ============================================================================
 // The sheet's shared keys
@@ -104,9 +102,10 @@ export function sheetKeys(name: string | undefined): {
 /**
  * An author's own Details on the wire (SB58): the row as bytes, and the
  * writer that takes the edited row back as bytes, to what Details shows in
- * place of the form. The sheet wraps the author's typed function in it.
+ * place of the form. The sheet wraps the author's typed function in it — an
+ * inspector's own UI for one row, as a Plan event kind's is.
  */
-export const SheetInspectorType = FunctionType([BlobType, FunctionType([BlobType], NullType)], UIComponentType);
+export const SheetInspectorType = RowInspectorType;
 
 /** Type representing {@link SheetInspectorType}. */
 export type SheetInspectorType = typeof SheetInspectorType;
@@ -422,20 +421,8 @@ export function buildInspectorPane(
  * @internal
  */
 export function buildInspector(fn: unknown, rowType: StructType): ExprType<SheetInspectorType> {
-    const update = FunctionType([rowType], NullType);
-    const author = East.value(fn as SubtypeExprOrValue<FunctionType>) as ExprType<FunctionType>;
-    const t = Expr.type(author as unknown as Expr) as { type: string; inputs?: EastType[]; output?: EastType };
-    const fits = t.type === "Function" && t.inputs?.length === 2 && isTypeEqual(t.inputs[0]!, rowType) && isTypeEqual(t.inputs[1]!, update)
-        && t.output !== undefined && isTypeEqual(t.output, UIComponentType);
-    if (!fits) {
-        throw new Error("Sheet: `inspector` is given alone, for the selected row's Details form, or as an East.function over the row and its writer — East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), the row a grouped sheet's line");
-    }
-    return East.function([BlobType, FunctionType([BlobType], NullType)], UIComponentType, ($, bytes, write) => {
-        const draw = $.const(author as unknown as ExprType<FunctionType<[StructType, FunctionType<[StructType], NullType>], UIComponentType>>);
-        const row = $.const(bytes.decodeBeast(rowType, "v2"));
-        const typed = $.const(East.function([rowType], NullType, ($2, edited) => { $2(write(East.Blob.encodeBeast(edited, "v2"))); }));
-        return draw(row, typed);
-    });
+    return rowInspector(fn, rowType,
+        "Sheet: `inspector` is given alone, for the selected row's Details form, or as an East.function over the row and its writer — East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), the row a grouped sheet's line");
 }
 
 // ============================================================================

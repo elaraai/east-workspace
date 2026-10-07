@@ -15,7 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
-import { planElementFocus } from "./focus.js";
+import { planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const cellsSlots = [
@@ -222,6 +222,7 @@ export const cellsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementSelected,
         ...planElementFocus,
     },
     // A labelled tile's text — its own flex item, so a label wider than
@@ -307,6 +308,7 @@ export const cellsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1), padding 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementSelected,
         ...planElementFocus,
     },
     // ── Table cells (K5) — mono numerals per bucket, CENTRED in their

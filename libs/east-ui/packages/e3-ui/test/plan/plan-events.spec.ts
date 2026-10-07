@@ -8,7 +8,8 @@
  * Spec.md` §3.2, §3.3, §4.3, §5.2, PB8–PB11): the examples run, and their
  * payloads are built over the print works' records in memory — the canvas
  * whole beside the resource kinds and event kinds as a Plan takes them — and
- * every refusal at build names itself. The resources' rows over a window are
+ * every refusal at build names itself; and `inspector` gives the Plan its
+ * inspector pane (#1197). The resources' rows over a window are
  * `plan-event-rows.spec.ts`'s (#1192), and the frame the renderer draws a Plan
  * in is #1193's.
  */
@@ -16,12 +17,13 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType,
-    StructType, compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
+    ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap,
+    StringType, StructType, compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ApprovalStateType, Chart, DragEventType, Paged, UIComponentType } from "@elaraai/east-ui";
+import { Text } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanPayloadType, Record, Schedule, planKeys } from "@elaraai/e3-ui/internal";
 import { Plan as PublicPlan } from "@elaraai/e3-ui";
 import { memoryData, memoryRecords } from "../schedule/memory-records.js";
@@ -431,6 +433,34 @@ describe("the payload (PB8, PB11)", () => {
         assert.deepEqual([overData.canDrop.type, overData.plan.canDrop.type], ["none", "some"]);
     });
 
+    test("`inspector` gives the Plan its inspector pane, and each kind's own inspector rides on its kind; left out, or `false`, no pane (#1197)", () => {
+        const withPane = (inspector: boolean | undefined) => payloadOf(($) => {
+            const presses = $.let(Record.bind(ex.planPrintPresses, []));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            return Plan.Payload({
+                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
+                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                events: {
+                    job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
+                    stop: Schedule.events(stops, {
+                        name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" },
+                        inspector: East.function([ex.PrintStop, FunctionType([ex.PrintStop], NullType)], UIComponentType, (_$2, stop) => Text.Root(stop.title)),
+                    }),
+                },
+                ...(inspector === undefined ? {} : { inspector }),
+            });
+        });
+        const given = withPane(true);
+        assert.equal(given.inspector, true);
+        assert.deepEqual(given.events.map((k) => [k.key, k.inspector.type]), [["job", "none"], ["stop", "some"]]);
+        assert.equal(withPane(false).inspector, false);
+        assert.equal(withPane(undefined).inspector, false);
+        // A Plan of no event kinds has none.
+        const overRows = payloadOf(() => Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), rows: [Plan.events({ key: "ms", label: "Milestones" })] }));
+        assert.equal(overRows.inspector, false);
+    });
+
     test("the keys a Plan keeps its viewer's state under follow its `id`", () => {
         assert.deepEqual(planKeys(undefined), { frame: "plan.frame", series: "plan.series", library: "plan.library", surface: "plan.surface" });
         assert.deepEqual(planKeys("ops"), { frame: "plan.ops.frame", series: "plan.ops.series", library: "plan.library.ops", surface: "plan.ops.surface" });
@@ -528,6 +558,20 @@ describe("the Plan's refusals (PB8)", () => {
             /^Plan: `applyMode` is "batch" or "auto" — and it is "sometimes"$/);
         assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], applyMode: "auto" })),
             /^Plan: `applyMode` says when the event kinds' drafts go, and this Plan has none — `data`'s session takes `editing\.mode`$/);
+    });
+});
+
+describe("the inspector's refusals (#1197)", () => {
+    const axis = Plan.axis({ window: WINDOW, resolution: "day" });
+
+    test("an `inspector` on a Plan with no event kinds, or one that is not a boolean, naming the kind's own", () => {
+        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], inspector: true })),
+            /^Plan: `inspector` shows the event kinds' events and the resources' rows, and this Plan has no event kinds — declare `events` \(Schedule\.events\), or leave `inspector` out$/);
+        const own = East.function([ex.PrintJob, FunctionType([ex.PrintJob], NullType)], UIComponentType, (_$2, job) => Text.Root(job.title));
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, inspector: own as never })),
+            /^Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule\.events' `inspector`$/);
+        // An `inspector: false` asks for nothing: it passes with no event kinds.
+        assert.equal(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], inspector: false })), "");
     });
 });
 

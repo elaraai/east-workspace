@@ -25,6 +25,7 @@ import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
+import type { PlanCanvasInspect } from "./inspect.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -69,6 +70,8 @@ export interface PlanChrome {
     id: string | undefined;
     /** Whether the canvas draws its narrow layout (§10): the footer's items then wrap. */
     narrow: boolean;
+    /** What the inspector reads of the rows (#1197): a row by its key, and what a measure draws at a bucket. */
+    inspect: PlanCanvasInspect;
 }
 
 /** What the canvas hands the frame it renders in. */

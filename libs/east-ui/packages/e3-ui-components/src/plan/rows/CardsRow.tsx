@@ -21,8 +21,9 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/e3-ui/internal";
-import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
+import { usePlanElementSelect } from "./element-select.js";
 import { chipName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -52,15 +53,15 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
     rowKey: string; rowId: PlanRowId; styles: Styles; ctx: boolean | undefined; move: PlanRowMove | undefined;
 }) {
     const scale = usePlanScale();
-    const dispatch = usePlanDispatch();
     const words = usePlanWords();
-    const { onElementClick } = usePlanResolvers();
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
         ? { rowKey, key: chip.key, label: chip.label, kind: "chip", span: { start: chip.from, end: chip.to }, items: move.items, resize: move.resize }
         : undefined), [move, rowKey, chip]);
     const { handle, edges, carried } = usePlanMovable(movable);
     const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
     const ref = variant("chip", { row: rowId, chip: chip.key }) as PlanElementRefValue;
+    // An event's chip selects its event (#1197); any other chip, its row.
+    const select = usePlanElementSelect(rowKey, chip.key, ref);
     return (
         <Box css={styles.cardChip}
             data-ctx={ctx === true ? "" : undefined}
@@ -77,11 +78,9 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
-            onClick={(e) => {
-                e.stopPropagation();
-                dispatch({ t: "row.select", key: rowKey });
-                onElementClick?.(ref);
-            }}
+            data-selected={select.selected ? "" : undefined}
+            aria-pressed={select.selectable ? select.selected : undefined}
+            onClick={select.onClick}
         >
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
             <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{chip.label}</Box>

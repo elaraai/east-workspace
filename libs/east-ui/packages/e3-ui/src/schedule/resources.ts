@@ -183,6 +183,8 @@ export function scheduleResources<K extends EastType, R extends EastType>(
     const measures = config.measures ?? [];
     const collection = DictType(keyType, rowType);
     const keys = new Set<string>();
+    // The measures' keys, in the order the kind lists them.
+    const measureKeys: string[] = [];
     measures.forEach((series, i) => {
         const at = `${where}: measures[${i}]`;
         let facts;
@@ -208,6 +210,7 @@ export function scheduleResources<K extends EastType, R extends EastType>(
             throw new Error(`${at}, ${named}, repeats the key "${facts.key}" — a measure row's id is its series' key and its resource's path, so each measure has a key of its own`);
         }
         keys.add(facts.key);
+        measureKeys.push(facts.key);
     });
     let window: ExprType<EastType> | undefined;
     if (config.window !== undefined) {
@@ -286,6 +289,7 @@ export function scheduleResources<K extends EastType, R extends EastType>(
                 name: config.name,
                 icon: config.icon,
                 rollup,
+                measures: measureKeys,
                 rows: (source as unknown as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
                     const resolve = $.const(planRow);
                     return resolve(row as never, key as never);

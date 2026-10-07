@@ -33,8 +33,9 @@ import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { resolveColor } from "@elaraai/east-ui-components/internal";
-import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
+import { usePlanElementSelect } from "./element-select.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
@@ -83,12 +84,12 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
     /** How it moves (#825). */
     move: PlanRowMove | undefined;
 }) {
-    const dispatch = usePlanDispatch();
-    const { onElementClick } = usePlanResolvers();
     const system = useChakraContext();
     const scale = usePlanScale();
     const words = usePlanWords();
     const ref = variant("event", { row: rowId, event: ev.key }) as PlanElementRefValue;
+    // An event's tile selects its event (#1197); any other tile, its row.
+    const select = usePlanElementSelect(rowKey, ev.key, ref);
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     // A tile has one instant — its extent is that instant twice.
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
@@ -128,11 +129,9 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
-            onClick={(e) => {
-                e.stopPropagation();
-                dispatch({ t: "row.select", key: rowKey });
-                onElementClick?.(ref);
-            }}
+            data-selected={select.selected ? "" : undefined}
+            aria-pressed={select.selectable ? select.selected : undefined}
+            onClick={select.onClick}
         >
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
             {label !== undefined ? <Box as="span" css={styles.tileLabel}>{label}</Box>

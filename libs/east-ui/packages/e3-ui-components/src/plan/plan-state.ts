@@ -35,6 +35,11 @@
  *   returns it.
  * - **Grain changes rows, never the axis**: `grain.set` clears `selected`,
  *   keeps `expanded` / the window.
+ * - **One selection** (#1197, the Calendar's B15): a row — at the bucket a
+ *   click on its plot named — or events on the canvas. An event's click
+ *   selects it and its row, Shift / ⌘ / Ctrl adding or removing it; selecting
+ *   a row takes the events away; the esc ladder's deselect rung clears all of
+ *   it at once.
  *
  * The hover CURSOR (hairline + ruler chip) is NOT machine state: it is
  * display-only chrome written straight to the DOM by the canvas's cursor
@@ -44,7 +49,7 @@
  * @packageDocumentation
  */
 
-import type { PlanInstantValue } from "./instant.js";
+import { instantKey, type PlanInstantValue } from "./instant.js";
 
 /** A row's stable key (never an index — the flat row array reorders). */
 export type RowKey = string;
@@ -61,6 +66,10 @@ export interface PlanUiState {
     collapsed: ReadonlySet<RowKey>;
     /** The selected row, if any (`--brand-tint`, the one selection colour). */
     selected: RowKey | null;
+    /** The bucket a click on the selected row's plot named — its start instant — or `null`: what an inspector reads the row's measures at (#1197). */
+    selectedAt: PlanInstantValue | null;
+    /** The selected events, by their elements' keys (#1197, the Calendar's B15): a click selects one, Shift, ⌘ or Ctrl adds or removes one. */
+    elements: readonly string[];
     /** Chart rows toggled from spark to expanded. */
     chartsExpanded: ReadonlySet<RowKey>;
     /** Whether a horizon-brush drag is in flight (esc-ladder rung). */
@@ -73,7 +82,10 @@ export interface PlanUiState {
 export type PlanEvent =
     | { t: "grain.set"; grain: PlanGrain }
     | { t: "group.toggle"; key: RowKey }
-    | { t: "row.select"; key: RowKey }
+    /** A row selected — `at`, the bucket a click on its plot named (#1197). */
+    | { t: "row.select"; key: RowKey; at?: PlanInstantValue | undefined }
+    /** An event's element selected on its row (#1197) — `additive` adds or removes it (Shift, ⌘ or Ctrl). */
+    | { t: "element.select"; key: string; row: RowKey; additive: boolean }
     | { t: "chart.toggle"; key: RowKey }
     | { t: "brush.down" }
     | { t: "brush.commit"; min: PlanInstantValue; max: PlanInstantValue }
@@ -112,6 +124,8 @@ export function initialPlanState(
         grain,
         collapsed: new Set(collapsedKeys),
         selected: null,
+        selectedAt: null,
+        elements: NO_ELEMENTS,
         chartsExpanded: new Set(),
         brush: null,
         focus: null,
@@ -123,6 +137,19 @@ function toggled(set: ReadonlySet<RowKey>, key: RowKey): ReadonlySet<RowKey> {
     if (next.has(key)) next.delete(key);
     else next.add(key);
     return next;
+}
+
+/** No event selected — one shared list. */
+const NO_ELEMENTS: readonly string[] = [];
+
+/** Whether two bucket instants are the same — `null` for none. */
+function sameAt(a: PlanInstantValue | null, b: PlanInstantValue | null): boolean {
+    return a === null || b === null ? a === b : instantKey(a) === instantKey(b);
+}
+
+/** Nothing selected: no row, no bucket, no event. */
+function deselected(s: PlanUiState): PlanUiState {
+    return { ...s, selected: null, selectedAt: null, elements: NO_ELEMENTS };
 }
 
 /**
@@ -142,7 +169,7 @@ export function planReducer(
             // Grain changes rows, never the axis: selection resets,
             // collapsed / window survive.
             return {
-                state: { ...s, grain: e.grain, selected: null, focus: null },
+                state: { ...deselected(s), grain: e.grain, focus: null },
                 effects: [{ t: "emit.grainChange", grain: e.grain }],
             };
         }
@@ -154,11 +181,29 @@ export function planReducer(
             };
         }
         case "row.select": {
-            // Selection is idempotent — re-clicking the selected row holds.
-            if (s.selected === e.key) return { state: s, effects: [] };
+            // Selection is idempotent — re-clicking the selected row holds. A
+            // row selected is the selection: the events selected on it go. A
+            // click that names no bucket keeps the one its row has: the plot
+            // names it first, and what was clicked in it selects the row after.
+            const at = e.at ?? (s.selected === e.key ? s.selectedAt : null);
+            if (s.selected === e.key && s.elements.length === 0 && sameAt(s.selectedAt, at)) return { state: s, effects: [] };
             return {
-                state: { ...s, selected: e.key },
-                effects: [{ t: "emit.select", key: e.key }],
+                state: { ...s, selected: e.key, selectedAt: at, elements: NO_ELEMENTS },
+                effects: s.selected === e.key ? [] : [{ t: "emit.select", key: e.key }],
+            };
+        }
+        case "element.select": {
+            // The Calendar's B15 (#1197): a click selects the one event, and
+            // Shift, ⌘ or Ctrl adds it to the selection or takes it out. Its
+            // row is the selected row, as an element's click always made it.
+            const has = s.elements.includes(e.key);
+            const elements = e.additive
+                ? (has ? s.elements.filter((k) => k !== e.key) : [...s.elements, e.key])
+                : (has && s.elements.length === 1 ? s.elements : [e.key]);
+            if (s.selected === e.row && s.selectedAt === null && elements === s.elements) return { state: s, effects: [] };
+            return {
+                state: { ...s, selected: e.row, selectedAt: null, elements },
+                effects: s.selected === e.row ? [] : [{ t: "emit.select", key: e.row }],
             };
         }
         case "chart.toggle":
@@ -220,7 +265,8 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
             // flight is the shared drag LAYER's escape, not the machine's.)
             if (s.brush !== null) return { state: { ...s, brush: null }, effects: [] };
             if (s.focus !== null) return { state: { ...s, focus: null }, effects: [] };
-            if (s.selected !== null) return { state: { ...s, selected: null }, effects: [] };
+            // One rung clears the selection whole: the row, its bucket and the events.
+            if (s.selected !== null || s.elements.length > 0) return { state: deselected(s), effects: [] };
             return { state: s, effects: [] };
         }
         case "n":
@@ -232,7 +278,7 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
         case "g": {
             const next = PLAN_GRAINS[(PLAN_GRAINS.indexOf(s.grain) + 1) % PLAN_GRAINS.length]!;
             return {
-                state: { ...s, grain: next, selected: null, focus: null },
+                state: { ...deselected(s), grain: next, focus: null },
                 effects: [{ t: "emit.grainChange", grain: next }],
             };
         }
@@ -449,9 +495,16 @@ export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep
             const focus = !grainChanged && store.ui.focus !== null && lives(store.ui.focus.key)
                 ? store.ui.focus : null;
             const grain = grainChanged ? a.declaredGrain : store.ui.grain;
+            // The bucket a click named goes with its row; a changed grain takes
+            // the selected events too. Otherwise they stay: an event's element
+            // may sit on a row not resident yet, and what is gone is the
+            // inspector's to leave out (#1197).
+            const selectedAt = selected === null ? null : store.ui.selectedAt;
+            const elements = grainChanged ? NO_ELEMENTS : store.ui.elements;
             const seeded = grown(a.complete ? pruned(store.seeded, alive) : store.seeded, fresh);
             const uiSame = collapsed === store.ui.collapsed && chartsExpanded === store.ui.chartsExpanded
-                && selected === store.ui.selected && focus === store.ui.focus && grain === store.ui.grain;
+                && selected === store.ui.selected && selectedAt === store.ui.selectedAt && elements === store.ui.elements
+                && focus === store.ui.focus && grain === store.ui.grain;
             if (uiSame && seeded === store.seeded && overrides === store.overrides && !grainChanged) {
                 return { store, effects: NO_EFFECTS };
             }
@@ -461,7 +514,7 @@ export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep
                     seeded,
                     overrides,
                     declaredGrain: a.declaredGrain,
-                    ui: uiSame ? store.ui : { ...store.ui, collapsed, chartsExpanded, selected, focus, grain },
+                    ui: uiSame ? store.ui : { ...store.ui, collapsed, chartsExpanded, selected, selectedAt, elements, focus, grain },
                 },
                 effects: NO_EFFECTS,
             };
@@ -497,8 +550,13 @@ export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep
                 && chartsExpanded === store.ui.chartsExpanded && selected === store.ui.selected) {
                 return { store, effects: NO_EFFECTS };
             }
+            // The host selecting another row selects the row: no bucket, no events (#1197).
+            const moved = selected !== store.ui.selected;
+            const ui = moved
+                ? { ...store.ui, collapsed, chartsExpanded, selected, selectedAt: null, elements: NO_ELEMENTS }
+                : { ...store.ui, collapsed, chartsExpanded };
             return {
-                store: { ...store, overrides, ui: { ...store.ui, collapsed, chartsExpanded, selected } },
+                store: { ...store, overrides, ui },
                 effects: NO_EFFECTS,
             };
         }

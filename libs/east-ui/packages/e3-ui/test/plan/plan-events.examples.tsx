@@ -10,6 +10,7 @@ import {
     DictType,
     East,
     FloatType,
+    FunctionType,
     NullType,
     OptionType,
     StringType,
@@ -20,7 +21,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { ApprovalStateType, Chart, EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+import { ApprovalStateType, Chart, EventStateType, Format, Reactive, SegmentGroup, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -282,11 +283,13 @@ export const planEvents = example({
  * by hall, three event kinds drawn three ways — jobs as bars, stops as marks
  * at their instants, shifts as chips — review on jobs, a utilisation heat row
  * under each press, and a pinned chart of the sheets printed each day. Each
- * kind declares its templates, and a job's customer, stock and sheets are
- * hinted for an inspector's form. Its library (#1195) lists every kind's
+ * kind declares its templates. Its library (#1195) lists every kind's
  * templates, the backlog, the series a viewer shows and hides, and the
  * customers, a card apiece that sets the customer of the job it is dropped
- * on; it is given no inspector.
+ * on. Its inspector (#1197) shows what is selected: a job through the form
+ * its customer, stock and sheets are hinted for, and a stop through the
+ * stop kind's own inspector, which chooses a plate change or a service on a
+ * segment.
  */
 export const planPrintWorks = example({
     keywords: [
@@ -294,10 +297,10 @@ export const planPrintWorks = example({
         "presses", "crews", "jobs", "stops", "shifts", "draw", "span", "marks", "cards", "at", "instant", "group",
         "hall", "sub", "measures", "utilisation", "heat", "state", "review", "verdict", "quantity", "backlog",
         "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "library",
-        "Plan.library", "customers", "Schedule.patch", "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191",
-        "#1195",
+        "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
+        "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197",
     ],
-    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle, sheets and verdict, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, a pinned chart of the sheets printed each day, and its library: the templates, the backlog, the series and the customers",
+    description: "The print works — presses and crews grouped by hall, print jobs as bars with their lifecycle, sheets and verdict, stops as marks, shifts as chips, each kind's templates, a utilisation row under each press, a pinned chart of the sheets printed each day, its library (the templates, the backlog, the series and the customers) and its inspector, where a stop shows the stop kind's own",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(planPrintPresses, []));
@@ -322,6 +325,25 @@ export const planPrintWorks = example({
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            // A stop's own inspector: its title, and whether it is a plate change or a
+            // service, chosen on a segment — the edited stop goes back through `update`.
+            const StopKindType = PrintStop.fields.kind;
+            const inspectStop = $.const(East.function([PrintStop, FunctionType([PrintStop], NullType)], UIComponentType, ($2, stop, update) => {
+                const setKind = $2.const(East.function([StringType], NullType, ($3, picked) => {
+                    const kind = $3.const(picked.equal("service").ifElse(
+                        () => East.value(variant("service", null), StopKindType),
+                        () => East.value(variant("plate_change", null), StopKindType)));
+                    // East has no struct spread: the stop, rebuilt with its new kind.
+                    $3(update({ title: stop.title, at: stop.at, press: stop.press, kind }));
+                }));
+                return (
+                    <VStack gap="3" align="stretch">
+                        <Text>{stop.title}</Text>
+                        <SegmentGroup value={stop.kind.getTag()} onChange={setKind} size="sm"
+                            items={[SegmentGroup.Item("plate_change", "Plate change"), SegmentGroup.Item("service", "Service")]} />
+                    </VStack>
+                );
             }));
             return (
                 <Plan
@@ -374,6 +396,7 @@ export const planPrintWorks = example({
                             name: "Stop", icon: "screwdriver-wrench", draw: "marks",
                             title: "title", at: "at",
                             resource: { field: "press", of: "presses" },
+                            inspector: inspectStop,
                             templates: [
                                 { key: "plates", name: "Plate change", group: "Stops",
                                   values: { title: "Plate change", kind: variant("plate_change", null) } },
@@ -414,6 +437,7 @@ export const planPrintWorks = example({
                             drop: c => Schedule.patch(PrintJob, { customer: c.name }),
                         }),
                     ]}
+                    inspector
                 />
             );
         }}</Reactive>

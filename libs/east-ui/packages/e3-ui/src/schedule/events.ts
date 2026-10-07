@@ -17,9 +17,10 @@
  * Plan's options sit beside the Calendar's (#1190, `Plan Builder Spec.md`
  * §4.1): how the kind draws (`draw`), an instant kind's one time (`at`, in
  * place of `start` and `end`), the fields its events' lifecycle, quantity,
- * lane and verdict are read from (`state`, `quantity`, `lane`, `review`), and
+ * lane and verdict are read from (`state`, `quantity`, `lane`, `review`),
  * whether two of its events on one resource at once are a conflict
- * (`overlaps`).
+ * (`overlaps`), and the kind's own inspector for one event (`inspector`,
+ * #1197).
  *
  * The kind closes the record behind East functions over beast2 bytes
  * ({@link ScheduleKindType}): its events over a window and its backlog, each
@@ -41,18 +42,19 @@
 import {
     ArrayType, BlobType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, StringType, StructType,
     isTypeEqual, none, printType, some, toEastTypeValue, variant,
-    type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue, type VariantType,
+    type EastType, type ExprType, type FunctionType, type NullType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import { ApprovalStateType, EventStateType } from "@elaraai/east-ui";
+import { ApprovalStateType, EventStateType, type UIComponentType } from "@elaraai/east-ui";
 import {
     EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingReadinessType, EditingType,
     EditingWireApplyType, Fields, FieldSpecType, TickFormatType, type FieldHints,
 } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import type { PlanDrawLiteral } from "../plan/types.js";
+import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import {
-    PlanEventItemType, PlanEventKindType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType,
+    PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType,
     ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleStatusCasesFor, ScheduleStatusType,
     ScheduleWriteType, type ScheduleStatusCasesType,
 } from "./types.js";
@@ -260,6 +262,16 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     review?: ScheduleVerdictField<R>;
     /** Whether two events of the kind on one resource at once are a conflict (`"warn"`, the default) or run in parallel (`"allow"`). */
     overlaps?: ScheduleOverlapsLiteral;
+    /**
+     * Plan: the kind's own inspector for one event (PB60) — an East function
+     * over the event's row and a writer of the edited row,
+     * `(row, update) => UIComponentType`, passed through untouched (never
+     * called at build), capturing only data and bind handles. A Plan's
+     * inspector pane shows what it returns for one event of the kind, in place
+     * of the kind's form over `fields`; `update(edited)` writes the edited
+     * event back as one transaction. Omitted, the form.
+     */
+    inspector?: SubtypeExprOrValue<FunctionType<[R, FunctionType<[R], NullType>], UIComponentType>>;
 }
 
 /**
@@ -371,6 +383,7 @@ interface AnyConfig {
     lane?: string;
     review?: string;
     overlaps?: string;
+    inspector?: unknown;
 }
 
 // ============================================================================
@@ -448,7 +461,8 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  *   `backlog` without Option times; a template key repeated, a span kind's template without a duration, or values of
  *   another type; `fields` naming a field the row does not have, or hinting one it cannot; a window over another index;
  *   a `draw` that is not a way to draw, or draws two ends of an instant; a `state`, `quantity`, `lane` or `review` field of
- *   another type; and an `overlaps` that is neither `"warn"` nor `"allow"`
+ *   another type; an `overlaps` that is neither `"warn"` nor `"allow"`; and an `inspector` that is not an East function
+ *   `(row, update) => UIComponentType` over the row
  * @example
  * ```tsx
  * import { DateTimeType, DictType, East, NullType, OptionType, StringType, StructType, VariantType, variant } from "@elaraai/east";
@@ -636,6 +650,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const quantityField = role("quantity.field", config.quantity === undefined ? undefined : config.quantity.field, FloatType, "a Float field, the quantity a bar prints");
     const laneField = role("lane", config.lane, StringType, "a String field, the lane a tile sits in");
     const reviewField = role("review", config.review, ApprovalStateType, "an ApprovalStateType field, the verdict a review writes");
+    // The kind's own inspector, checked against the row now and carried over bytes.
+    const inspector = config.inspector === undefined ? undefined : rowInspector(config.inspector, rowType,
+        `${where}: \`inspector\` is the kind's own inspector for one event — an East.function over the event's row and its writer: ` +
+        "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
 
     // The templates: unique keys, a span kind's duration, and values of the row less what a drop places.
     const placed = new Set([startField, endField, ...(resource === undefined ? [] : [resource.field])]);
@@ -1076,6 +1094,20 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     verdict: reviewField === undefined ? none : some(fieldOf(row, reviewField)),
                 } as never, PlanEventItemType);
             }) as unknown as ExprType<FunctionType<[EastType], EastType>>;
+            // One event by its id, the drafts in place: as Plan draws it, and its row as bytes.
+            const planEvent = East.function([StringType, ScheduleDraftsType], OptionType(PlanEventReadType), ($, id, drafts) => {
+                const held = $.const(readAll());
+                const parse = $.const(keyOf);
+                const draft = $.const(drafted);
+                const make = $.const(planItemOf);
+                const key = $.const(parse(id));
+                const row = $.let(held.tryGet(key) as never, OptionType(rowType));
+                $.if(drafts.has(id), ($2) => { $2.assign(row, draft(drafts.get(id), row as never) as never); });
+                return row.match({
+                    some: (_$2, r) => East.value(some({ item: make({ id, key, row: r }), row: East.Blob.encodeBeast(r, "v2") }) as never, OptionType(PlanEventReadType)),
+                    none: (_$2) => East.value(none, OptionType(PlanEventReadType)),
+                });
+            });
             const name = (field: string | undefined) => (field === undefined ? none : some(field));
             return East.value({
                 ...parts.fields,
@@ -1085,6 +1117,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 roles: { state: name(stateField), quantity: name(quantityField), lane: name(laneField), review: name(reviewField) },
                 planItems: windowOf(PlanEventItemType, planItemOf),
                 planUnscheduled: backlogOf(PlanEventItemType, planItemOf),
+                planEvent,
+                inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : East.value(some(inspector), OptionType(RowInspectorType)),
             } as never, PlanEventKindType);
         },
     };

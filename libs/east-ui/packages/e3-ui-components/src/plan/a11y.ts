@@ -326,9 +326,15 @@ export function announcementOf(
     const focusGone = before.focus !== null && after.focus === null;
     switch (e.t) {
         case "row.select":
-            return after.selected !== null && after.selected !== before.selected
+            // Another row, or this row in place of the events selected on it (#1197).
+            return after.selected !== null && (after.selected !== before.selected || before.elements.length > 0)
                 ? w.m.announceSelected({ label: label(after.selected) })
                 : undefined;
+        case "element.select":
+            // The element's own name says what it is; the live region, how many are selected (#1197).
+            return after.elements === before.elements
+                ? undefined
+                : w.m.announceEvents({ n: after.elements.length, count: w.number(after.elements.length) });
         case "group.toggle":
             if (after.collapsed === before.collapsed) return undefined;
             return after.collapsed.has(e.key)
@@ -350,7 +356,8 @@ export function announcementOf(
             switch (e.key) {
                 case "esc":
                     if (focusGone) return w.m.announceAllRows();
-                    return before.selected !== null && after.selected === null ? w.m.announceCleared() : undefined;
+                    return (before.selected !== null || before.elements.length > 0) && after.selected === null && after.elements.length === 0
+                        ? w.m.announceCleared() : undefined;
                 case "g":
                     return after.grain !== before.grain ? w.m.announceGrain({ grain: after.grain }) : undefined;
                 case "n": case "[": case "]":

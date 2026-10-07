@@ -134,6 +134,8 @@ import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
 import { originOf, unmoved, usePlanCarry } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
+import { PlanSelectableContext, elementKeyOf, selectableOf } from "./rows/element-select.js";
+import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -191,6 +193,8 @@ export interface PlanCanvasArgs {
     hidden?: readonly string[] | undefined;
     /** What those ids hide of the Plan's own `rows`, which the canvas leaves out; `undefined` when they hide none. */
     rowsHidden?: PlanRowsHidden | undefined;
+    /** The event kinds' slots (#1197): an element of theirs selects its event, as the Calendar's do (B15). */
+    eventKinds?: readonly string[] | undefined;
 }
 
 /**
@@ -202,7 +206,7 @@ export interface PlanCanvasArgs {
  * @param args - The root, its storage key, the event kinds' rows, and what the viewer hides
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
-export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden }: PlanCanvasArgs): PlanCanvasParts {
+export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
@@ -617,6 +621,16 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     const resolvers = useMemo<PlanResolvers>(
         () => ({ onElementClick: clickable ? controller.elementClick : undefined }),
         [clickable, controller]);
+    // What the elements select by (#1197): an event kind's element, its event.
+    const selectable = useMemo(() => selectableOf(eventKinds), [eventKinds]);
+    // What the inspector reads of the rows (#1197): a row, and what it draws at a bucket — as the canvas draws it.
+    const inspect = useMemo<PlanCanvasInspect>(() => ({
+        row: (key) => index.byKey.get(key),
+        valueAt: (key, at) => {
+            const row = index.byKey.get(key);
+            return row === undefined || scale === undefined ? undefined : rowValueAt(row, derived, scale, words, at);
+        },
+    }), [index, derived, scale, words]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -781,11 +795,13 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             <PlanDispatchContext.Provider value={controller.dispatch}>
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
+            <PlanSelectableContext.Provider value={selectable}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
                 {children}
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
+            </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
             </PlanCursorContext.Provider>
             </PlanDispatchContext.Provider>
@@ -877,13 +893,20 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
         }
     };
     // An element's activation from the keyboard does what its click does:
-    // the popover, the row's selection, the author's element callback.
-    const activateElement = (el: HTMLElement) => {
+    // the popover, the selection, the author's element callback.
+    const activateElement = (el: HTMLElement, additive: boolean) => {
         const ref = refOfElement(el);
         if (ref === undefined) return;
         overlayHandlers.openAt(el);
-        // A link belongs to no one row — it selects none.
-        if (ref.type !== "link") controller.dispatch({ t: "row.select", key: rowKeyOf(ref.value.row) });
+        // A link belongs to no one row — it selects none. An event's element
+        // selects its event, Shift adding it (#1197); any other, its row.
+        if (ref.type !== "link") {
+            const key = elementKeyOf(ref);
+            const row = rowKeyOf(ref.value.row);
+            controller.dispatch(key !== undefined && selectable(key)
+                ? { t: "element.select", key, row, additive }
+                : { t: "row.select", key: row });
+        }
         controller.elementClick(ref);
     };
     /** A key in the grid — `true` when it was the grid's. */
@@ -954,9 +977,9 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
                 if (!isElement) return false;
                 e.preventDefault();
                 // Space picks up an element that moves (#825); Enter keeps
-                // doing what its click does.
+                // doing what its click does — Shift adding an event to the selection.
                 if (e.key === " " && carry.start(widget)) return true;
-                activateElement(widget);
+                activateElement(widget, e.shiftKey);
                 return true;
             default:
                 return false;
@@ -1175,6 +1198,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,
+            inspect,
         },
     };
 }

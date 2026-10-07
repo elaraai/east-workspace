@@ -35,6 +35,7 @@ import { usePlanWords } from "../words.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
+import { usePlanElementSelect } from "./element-select.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SpanKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "span" }>["value"];
@@ -81,9 +82,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
     move: PlanRowMove | undefined;
 }) {
     const scale = usePlanScale();
-    const dispatch = usePlanDispatch();
     const words = usePlanWords();
-    const { onElementClick } = usePlanResolvers();
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
         ? { rowKey, key: run.key, label: run.label, kind: "run", span: { start: run.start, end: run.end }, items: move.items, resize: move.resize }
         : undefined), [move, rowKey, run]);
@@ -95,6 +94,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
     const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
     const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
     const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
+    // An event's bar selects its event (#1197); any other bar, its row.
+    const select = usePlanElementSelect(rowKey, run.key, ref);
     return (
         <Box
             css={styles.bar}
@@ -119,11 +120,9 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
-            onClick={(e) => {
-                e.stopPropagation();
-                dispatch({ t: "row.select", key: rowKey });
-                onElementClick?.(ref);
-            }}
+            data-selected={select.selected ? "" : undefined}
+            aria-pressed={select.selectable ? select.selected : undefined}
+            onClick={select.onClick}
         >
             <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{run.label}</Box>
             {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}

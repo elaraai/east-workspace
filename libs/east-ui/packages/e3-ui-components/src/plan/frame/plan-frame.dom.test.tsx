@@ -12,104 +12,33 @@
  * installs; Plans that edit are the editing canvas the #880 tests mount.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
-import {
-    East, PatchType, applyFor, encodeBeast2For, none, some, variant, type EastIR, type ValueTypeOf,
-} from "@elaraai/east";
+import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    EastChakraComponent, StateRuntime, UIStore, formatters, getRegisteredPlatformImplementations, system,
-} from "@elaraai/east-ui-components";
+import { UIStore, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi,
-} from "../../platform/index.js";
 import { EastChakraPlan, usePlanCanvas, type PlanRootValue } from "../index.js";
 import { PlanFooter } from "../shell/Footer.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
 import {
     SEED, banner, decide, history, mountCanvas, releaseCanvases, statusLine, verdictOf,
 } from "../plan-editing.test-utils.js";
+import { mount, planHarness, programOf, settle, slot } from "./harness.test-utils.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-
-const WORKSPACE = "plan-frame";
-const WORDS = formatters("en-US");
-
-let cache: ReactiveDatasetCache;
-
-/** A record of the examples', in memory, its patch door applying each patch with East's checks. */
-function patchable<T extends { name: string; type: Parameters<typeof applyFor>[0]; default?: unknown }>(record: T) {
-    const applyPatch = applyFor(record.type);
-    return {
-        name: record.name, stateType: record.type, initial: record.default!,
-        mutations: [{ name: "patch", argTypes: [PatchType(record.type)], reduce: (state: unknown, patch: unknown) => applyPatch(state as never, patch as never) }],
-    };
-}
-
-beforeEach(() => {
-    StateRuntime.initializeStore(new UIStore());
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    initializeRecordApi(createInMemoryRecordApi(cache, WORKSPACE, [patchable(ex.planPrintPresses), patchable(ex.planPrintJobs)]), cache, WORKSPACE);
-});
+const h = planHarness();
+// The canvases the #880 tests mount go after the DOM they drew.
 afterEach(() => {
     cleanup();
     releaseCanvases();
-    localStorage.clear();
 });
 
-/** Let the records' reads and the renders settle. */
-async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 8; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
-}
+const WORDS = formatters("en-US");
 
-/** A record's state as a commit to it leaves it: its dataset's new bytes. */
-async function commit<T extends { name: string; type: Parameters<typeof encodeBeast2For>[0] }>(record: T, state: unknown) {
-    await act(async () => {
-        await cache.write(WORKSPACE, [variant("field", "records"), variant("field", record.name)], encodeBeast2For(record.type)(state as never));
-    });
-    await settle();
-}
-
-/** Mount a compiled UI value through the dispatcher, as a surface does. */
-function mount(program: () => ValueTypeOf<typeof UIComponentType>) {
-    return render(
-        <ChakraProvider value={system}>
-            <EastChakraComponent value={program()} storageKey="plan-frame" />
-        </ChakraProvider>,
-    );
-}
-
-/** An example's program — its `fn` erases its output type at the package boundary; the Plan's are UI components. */
-const programOf = (example: { fn: { toIR(): unknown } }) =>
-    (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
-
-/** A region of the frame, if it draws it. */
-const slot = (c: HTMLElement, name: string) => c.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`);
 /** A footer count's words, if the footer says it. */
 const count = (c: HTMLElement, key: string) => slot(c, "footer")?.querySelector(`[data-plan-count="${key}"]`)?.textContent ?? null;
 
@@ -266,7 +195,7 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
 
 describe("the footer (PB23)", () => {
     test("it counts the event kinds' events in the window, their backlog and the events to review, and says when a record was last saved; a commit moves the counts", async () => {
-        await commit(ex.planPrintJobs, COUNTED);
+        await h.commit(ex.planPrintJobs, COUNTED);
         const { container } = mount(reviewedJobs);
         await settle();
         expect(count(container, "events")).toBe("2 events");
@@ -280,7 +209,7 @@ describe("the footer (PB23)", () => {
         const next = new Map(COUNTED as unknown as Map<string, Job>);
         next.set("J-3", job("Posters", { start: "2026-10-12T08:00:00Z", end: "2026-10-12T16:00:00Z", press: "a3", verdict: "pending" }));
         next.set("J-4", job("Labels", { start: "2026-10-13T08:00:00Z", end: "2026-10-13T12:00:00Z", press: "a1", verdict: "approved" }));
-        await commit(ex.planPrintJobs, next);
+        await h.commit(ex.planPrintJobs, next);
         expect(count(container, "events")).toBe("4 events");
         expect(count(container, "backlog")).toBe("0 in backlog");
         expect(count(container, "review")).toBe("2 to review");
@@ -293,7 +222,7 @@ describe("the footer (PB23)", () => {
         try {
             const footer = (saved: Date) => render(
                 <ChakraProvider value={system}>
-                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, backlog: undefined, toReview: undefined, saved }} />
+                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, toReview: undefined, saved }} />
                 </ChakraProvider>,
             ).container;
             const earlier = new Date("2026-10-06T09:15:00Z");

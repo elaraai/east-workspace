@@ -17,69 +17,29 @@
  *
  * Only the layout is the inspector's own: its words take the theme's text
  * styles, its controls are the shared `button` and `iconButton`, its form is
- * `fieldForm`'s and a link cell the `sheet` recipe's. The pane — its tab row,
- * its collapse control and its rail — is the Dock's.
+ * `fieldForm`'s and a link cell the `sheet` recipe's. What it lays out as the
+ * Plan's inspector does — its sections, its head, its chip, its fields, its
+ * gestures, the counts, the hints and the empty state — is the inspector's
+ * shared parts (`inspector.ts`). The pane — its tab row, its collapse control
+ * and its rail — is the Dock's.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-
-/** One of the body's sections, ruled off from the next. */
-const SECTION = {
-    display: "flex",
-    flexDirection: "column",
-    padding: "{spacing.4}",
-    borderBottomWidth: "1px",
-    borderBottomStyle: "solid",
-    borderBottomColor: "border.subtle",
-    minWidth: 0,
-} as const;
+import { INSPECTOR_SECTION, inspectorBase, inspectorSlots } from "./inspector.js";
 
 export const sheetInspectorSlotRecipe = defineSlotRecipe({
     className: "elara-sheet-inspector",
     slots: [
-        "root", "head", "eyebrow", "name", "marks", "chip", "lock",
-        "issues", "sectionHead", "issue", "issueField", "issueText",
-        "fields", "link", "linkCell", "subRows", "subRow", "subRowCode", "subRowName", "subRowFacts",
-        "actions", "bulk", "summary",
-        "stats", "stat", "statValue", "statLabel", "commit", "hints", "hint",
-        "issueList", "issueItem", "issueWhere", "issueMessage", "empty", "emptyTitle", "emptyHint",
+        ...inspectorSlots, "lock",
+        "issues", "issue", "issueField", "issueText",
+        "link", "linkCell", "subRows", "subRow", "subRowCode", "subRowName", "subRowFacts",
+        "commit",
+        "issueList", "issueItem", "issueWhere", "issueMessage",
     ],
     base: {
-        root: {
-            flex: 1,
-            minHeight: 0,
-            display: "flex",
-            flexDirection: "column",
-            background: "bg.surface",
-        },
-        /* What is selected: its number, its id, and its marks. */
-        head: { ...SECTION, gap: "5px" },
-        eyebrow: { textStyle: "caption.eyebrow" },
-        name: { textStyle: "title.card.md", color: "fg", overflowWrap: "anywhere" },
-        marks: {
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: "6px",
-            "&:empty": { display: "none" },
-        },
-        /* A draft's chip: Pending (changed since the record held it), New (never applied). */
-        chip: {
-            textStyle: "mono.xs",
-            display: "inline-flex",
-            alignItems: "center",
-            paddingX: "6px",
-            paddingY: "1px",
-            borderRadius: "{radii.sm}",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            "&[data-state=pending]": { background: "brandTint", borderColor: "brandTint", color: "brand.solid" },
-            "&[data-state=new]": { background: "bg.subtle", borderColor: "border.strong", color: "fg.strong" },
-        },
+        ...inspectorBase,
         /* A row the upstream system owns. */
         lock: {
             textStyle: "mono.xs",
@@ -90,8 +50,7 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
             "& svg": { fontSize: "9px" },
         },
         /* Its issues, each its field and what is wrong. */
-        issues: { ...SECTION, gap: "6px" },
-        sectionHead: { textStyle: "caption.eyebrow" },
+        issues: { ...INSPECTOR_SECTION, gap: "6px" },
         issue: { display: "flex", flexDirection: "column", gap: "1px", minWidth: 0 },
         issueField: { textStyle: "mono.xs", color: "fg.subtle", textTransform: "uppercase", letterSpacing: "0.06em" },
         issueText: {
@@ -100,46 +59,17 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
             overflowWrap: "anywhere",
             "&[data-kind=invalid]": { color: "fg.danger" },
         },
-        /* Its fields: the form, and a link's halves under their label with Edit in sheet. */
-        fields: { ...SECTION, gap: "{spacing.3}" },
+        /* A link's halves under their label, with Edit in sheet. */
         link: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "6px", minWidth: 0, width: "100%" },
         linkCell: { width: "100%", minWidth: 0 },
         /* The read-only rows under it (#844). */
-        subRows: { ...SECTION, gap: "{spacing.2}" },
+        subRows: { ...INSPECTOR_SECTION, gap: "{spacing.2}" },
         subRow: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
         subRowCode: { textStyle: "mono.xs", color: "fg.subtle" },
         subRowName: { textStyle: "body.sm", color: "fg", overflowWrap: "anywhere" },
         subRowFacts: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
-        /* Its gestures. */
-        actions: {
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "{spacing.2}",
-            padding: "{spacing.4}",
-        },
-        /* Several rows: how many, and an edit across them. */
-        bulk: { ...SECTION, gap: "{spacing.3}" },
-        summary: { textStyle: "title.card.md", color: "fg" },
-        /* Nothing selected: the counts, the last save, and what to do. */
-        stats: {
-            ...SECTION,
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gap: "{spacing.3}",
-        },
-        stat: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
-        statValue: { textStyle: "num", color: "fg" },
-        statLabel: { textStyle: "caption.eyebrow" },
-        commit: { ...SECTION, textStyle: "mono.xs", color: "fg.subtle" },
-        hints: {
-            display: "flex",
-            flexDirection: "column",
-            gap: "{spacing.2}",
-            margin: "0",
-            padding: "{spacing.4}",
-            paddingLeft: "calc({spacing.4} + 14px)",
-        },
-        hint: { textStyle: "body.sm", color: "fg.muted", textWrap: "pretty" },
+        /* Nothing selected: the last save. */
+        commit: { ...INSPECTOR_SECTION, textStyle: "mono.xs", color: "fg.subtle" },
         /* The Issues tab: every issue of the batch by row, each a control. */
         issueList: { display: "flex", flexDirection: "column", minWidth: 0, margin: "0", padding: "0", listStyle: "none" },
         issueItem: {
@@ -166,17 +96,5 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
             overflowWrap: "anywhere",
             "&[data-kind=invalid]": { color: "fg.danger" },
         },
-        empty: {
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "{spacing.2}",
-            padding: "{spacing.6}",
-            textAlign: "center",
-        },
-        emptyTitle: { textStyle: "caption.eyebrow" },
-        emptyHint: { textStyle: "body.sm", maxWidth: "220px", color: "fg.muted", textWrap: "pretty" },
     },
 });

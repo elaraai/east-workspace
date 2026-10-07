@@ -5,7 +5,9 @@
  * What the Plan's footer counts of its event kinds (#1193, PB23): the events
  * in the window, the backlog, the events to review, and when a kind's record
  * was last saved — read from the kinds' own seams, every kind's drafts in
- * place, and read again when a record they read commits.
+ * place, and read again when a record they read commits. The inspector shows
+ * them too when nothing is selected, with how long the events run (#1197,
+ * PB41).
  *
  * @packageDocumentation
  */
@@ -23,6 +25,8 @@ export type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][n
 export interface PlanEventCounts {
     /** The events in the window, every kind's. */
     readonly events: number;
+    /** How long they run, in minutes — a month counting 30 days, as a kind counts it. */
+    readonly minutes: number;
     /** The unscheduled events — every backlog kind's; `undefined` when no kind has a backlog. */
     readonly backlog: number | undefined;
     /** The events in the window whose verdict waits on a call; `undefined` when no kind is reviewed. */
@@ -60,6 +64,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
     const read = useCallback((): PlanEventCounts | typeof READING | undefined => {
         if (kinds === undefined || kinds.length === 0 || from === undefined || to === undefined) return undefined;
         let events = 0;
+        let minutes = 0;
         let backlog: number | undefined;
         let toReview: number | undefined;
         let saved: Date | undefined;
@@ -67,6 +72,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             const items = kind.planItems(new Date(from), new Date(to), NO_DRAFTS);
             if (items.type === "none") return READING;
             events += items.value.length;
+            for (const item of items.value) minutes += Number(item.minutes);
             if (kind.roles.review.type === "some") {
                 toReview = (toReview ?? 0) + items.value.filter((item) => item.verdict.type === "some" && item.verdict.value.type === "pending").length;
             }
@@ -79,7 +85,7 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             const newest = commits.type === "some" ? commits.value[0]?.at : undefined;
             if (newest !== undefined && (saved === undefined || compareDateTime(newest, saved) > 0)) saved = newest;
         }
-        return { events, backlog, toReview, saved };
+        return { events, minutes, backlog, toReview, saved };
     }, [kinds, from, to]);
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.

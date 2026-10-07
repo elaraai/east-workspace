@@ -7,20 +7,20 @@
  * `Schedule`'s Plan options (#1190, `Plan Builder Spec.md` §4.1, §4.2,
  * PB4–PB7), over the print works' records (§3.1): each option resolved — how
  * a kind draws, an instant kind's `at`, the lifecycle, quantity, lane and
- * verdict its events carry, a resource kind's groups, nesting, gutter, fold,
- * rollup, measures and window — the Calendar's kinds unchanged with Plan's
- * options present, each refusal at build, and each mistyped name failing to
- * compile.
+ * verdict its events carry, the kind's own inspector (PB60, #1197), a resource
+ * kind's groups, nesting, gutter, fold, rollup, measures and window — the
+ * Calendar's kinds unchanged with Plan's options present, each refusal at
+ * build, and each mistyped name failing to compile.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType,
-    compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
+    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, FunctionType, NullType, OptionType, SortedMap, StringType, StructType,
+    VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { ApprovalStateType, EventStateType, Format, StatusValueType } from "@elaraai/east-ui";
-import { TickFormatType } from "@elaraai/east-ui/internal";
+import { ApprovalStateType, EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { EditingDraftFieldType, Text, TickFormatType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { memoryRecords } from "./memory-records.js";
@@ -138,6 +138,23 @@ const stopKind = East.compile(East.function([], Schedule.Types.PlanKind, ($) => 
     }).buildPlan("stop");
 }), PLATFORM)() as PlanKind;
 
+/** A stop's own inspector: its title, and a button that marks it checked through its writer. */
+const stopInspector = East.function([StopType, FunctionType([StopType], NullType)], UIComponentType, ($, stop, update) => {
+    $(update({ title: stop.title.concat(" — checked"), at: stop.at, press: stop.press, kind: stop.kind }));
+    return Text.Root(stop.title);
+});
+
+/** The stop kind with its own inspector. */
+const inspectedStopKind = East.compile(East.function([], Schedule.Types.PlanKind, ($) => {
+    const stops = $.let(Record.bind(stopsRecord, [stopsPatch]));
+    return Schedule.events(stops, {
+        name: "Stop", icon: "screwdriver-wrench", draw: "marks",
+        title: "title", at: "at",
+        resource: { field: "press", of: "presses" },
+        inspector: stopInspector,
+    }).buildPlan("stop");
+}), PLATFORM)() as PlanKind;
+
 /** The delivery kind: instants drawn as tiles in their lanes, which may share a press at once. */
 const deliveryKind = East.compile(East.function([], Schedule.Types.PlanKind, ($) => {
     const deliveries = $.let(Record.bind(deliveriesRecord, [deliveriesPatch]));
@@ -227,6 +244,31 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         assert.deepEqual([early!.quantity.type, early!.lane.type, early!.verdict.type], ["none", "none", "none"]);
     });
 
+    test("reads one event by its key — as Plan draws it, and its row — with its draft in place; none for a key there is no event of (#1197)", () => {
+        const read = jobKind.planEvent("j1", NO_DRAFTS);
+        if (read.type !== "some") assert.fail("expected the job read");
+        const [run] = onTheFifth(jobKind);
+        assert.ok(itemEqual(read.value.item, run!));
+        assert.ok(equalFor(JobType)(decodeBeast2For(JobType)(read.value.row), JOBS.get("j1")!));
+        assert.equal(jobKind.planEvent("j9", NO_DRAFTS).type, "none");
+        // A draft in place: an edited job reads as drafted, a deleted one as none, and one drafted new as itself.
+        const encodeDraft = encodeBeast2For(EditingDraftFieldType(JobType));
+        const reprint = { ...JOBS.get("j1")!, title: "Brochure reprint" };
+        const drafts = new SortedMap<string, Uint8Array>([
+            ["j1", encodeDraft(variant("value", reprint))],
+            ["j2", encodeDraft(variant("missing", null))],
+            ["j3", encodeDraft(variant("value", { ...reprint, title: "Leaflet run" }))],
+        ], compareFor(StringType));
+        const edited = jobKind.planEvent("j1", drafts);
+        if (edited.type !== "some") assert.fail("expected the drafted job");
+        assert.equal(edited.value.item.title, "Brochure reprint");
+        assert.ok(equalFor(JobType)(decodeBeast2For(JobType)(edited.value.row), reprint));
+        assert.equal(jobKind.planEvent("j2", drafts).type, "none");
+        const added = jobKind.planEvent("j3", drafts);
+        if (added.type !== "some") assert.fail("expected the job drafted new");
+        assert.deepEqual([added.value.item.key, added.value.item.title], ["j3", "Leaflet run"]);
+    });
+
     test("a kind drawn as chips reads its lifecycle from its own field", () => {
         assert.equal(shiftKind.draw.type, "cards");
         const [early] = onTheFifth(shiftKind);
@@ -274,12 +316,31 @@ describe("Schedule.events — an instant kind (`at`)", () => {
     });
 });
 
+describe("Schedule.events — the kind's own inspector (PB60)", () => {
+    test("a kind given none has none: the inspector shows its form", () => {
+        assert.equal(jobKind.inspector.type, "none");
+        assert.equal(stopKind.inspector.type, "none");
+    });
+
+    test("given one, the event arrives as its own row, its UI is what the author's function returns, and its writer takes the edited row back", () => {
+        if (inspectedStopKind.inspector.type !== "some") assert.fail("expected the kind's own inspector");
+        const written: Uint8Array[] = [];
+        const ui = inspectedStopKind.inspector.value(encodeBeast2For(StopType)(STOPS.get("s1")!), (bytes: Uint8Array) => { written.push(bytes); return null; });
+        assert.ok(equalFor(UIComponentType)(ui, East.compile(East.function([], UIComponentType, () => Text.Root("Plate change")), [])()));
+        assert.equal(written.length, 1, "one write");
+        assert.ok(equalFor(StopType)(decodeBeast2For(StopType)(written[0]!), { ...STOPS.get("s1")!, title: "Plate change — checked" }));
+    });
+});
+
 describe("Schedule.events — the Calendar's kind with Plan's options present (PB5)", () => {
     /** The job kind as the Calendar takes it, with or without Plan's options. */
     const calendarJobs = (withPlan: boolean) => East.compile(East.function([], Schedule.Types.Kind, ($) => {
         const jobs = $.let(Record.bind(jobsRecord, [jobsPatch]));
         const plan = withPlan
-            ? { draw: "span" as const, state: "state" as const, review: "verdict" as const, quantity: { field: "sheets" as const, unit: "sheets" }, overlaps: "allow" as const }
+            ? {
+                draw: "span" as const, state: "state" as const, review: "verdict" as const, quantity: { field: "sheets" as const, unit: "sheets" }, overlaps: "allow" as const,
+                inspector: East.function([JobType, FunctionType([JobType], NullType)], UIComponentType, (_$2, job) => Text.Root(job.title)),
+            }
             : {};
         return Schedule.events(jobs, {
             name: "Print job", icon: "file-lines",
@@ -336,6 +397,7 @@ describe("Schedule.resources — Plan's options (PB5)", () => {
         }), [])();
         assert.equal(presses.key, "presses");
         assert.equal(presses.rollup.type, "sum");
+        assert.deepEqual(presses.measures, []);
         const [pa, pb, pc] = presses.rows;
         assert.ok(planRowEqual(pa!, { key: "pa", label: "Press A", meta: none, group: some("Hall 1"), parent: none, sub: some("Press A"), value: some("pa"), status: status("success"), collapsed: true }));
         assert.ok(planRowEqual(pb!, { key: "pb", label: "Press B", meta: none, group: some("Hall 1"), parent: some("pa"), sub: some("Press B"), value: some("pb"), status: none, collapsed: true }));
@@ -376,6 +438,14 @@ describe("Schedule.resources — Plan's options (PB5)", () => {
             assert.ok(presses.window !== undefined);
             assert.equal(Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name }).window, undefined);
         });
+        // On the wire, the measures' keys in order: each lays its row out at its resource's path (#1197).
+        const built = East.compile(East.function([], Schedule.Types.PlanResources, ($) => {
+            const rows = $.const(PRESSES, Presses);
+            const util = Plan.series.heat(PressType, { key: "util", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }) });
+            const output = Plan.series.table(PressType, { key: "output", title: "Output", label: () => "Output" });
+            return Schedule.resources(rows, { name: "Presses", icon: "print", label: (p) => p.name, measures: [util, output] }).buildPlan("presses");
+        }), [])();
+        assert.deepEqual(built.measures, ["util", "output"]);
     });
 });
 
@@ -413,6 +483,12 @@ describe("Schedule.events — Plan's options refused at build (PB6)", () => {
         assert.throws(() => kindOver(jobsRecord, { ...times, lane: "sheets" }), /`lane` names a String field, the lane a tile sits in — "sheets" holds \.Float/);
         assert.throws(() => kindOver(jobsRecord, { ...times, review: "state" }), /`review` names an ApprovalStateType field, the verdict a review writes — "state" holds \.Variant/);
         assert.throws(() => kindOver(jobsRecord, { ...times, review: "approval" }), /`review` names "approval", a field the row does not have/);
+    });
+
+    test("an `inspector` over another row, or with no writer", () => {
+        const refusal = /`inspector` is the kind's own inspector for one event — an East\.function over the event's row and its writer/;
+        assert.throws(() => kindOver(jobsRecord, { ...times, inspector: stopInspector }), refusal);
+        assert.throws(() => kindOver(stopsRecord, { at: "at", inspector: East.function([StopType], UIComponentType, (_$2, stop) => Text.Root(stop.title)) }), refusal);
     });
 
     test("a backlog on an instant, a span kind's template with no length, and an instant's template with one", () => {
@@ -523,6 +599,8 @@ export function planScheduleTypeChecks(): void {
     Schedule.events(stops, { name: "Stop", icon: "i", title: "title", at: "at", draw: "span" });
     // @ts-expect-error — an instant kind has no backlog
     Schedule.events(stops, { name: "Stop", icon: "i", title: "title", at: "at", backlog: { duration: () => variant("hours", 1) } });
+    // @ts-expect-error — the kind's own inspector is a function over its own row, and a stop is not a job
+    Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", inspector: stopInspector });
     // @ts-expect-error — an instant kind's template has no duration
     Schedule.events(stops, { name: "Stop", icon: "i", title: "title", at: "at", templates: [{ key: "p", name: "P", duration: variant("hours", 1), values: { title: "P", press: "pa", kind: variant("plate_change", null) } }] });
     // @ts-expect-error — `group` is a String, and a press's speed is a Float
