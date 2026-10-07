@@ -11,55 +11,55 @@ export const flowchartMinimal = example({
     description: "Minimal flowchart — six states across three phase lanes, one observed transition",
     fn: East.function([], UIComponentType, ($) => {
         const states = $.const([
-            { code: "RMI", name: "Raw intake", phase: "prep" },
-            { code: "CUT", name: "Cut blanks", phase: "prep" },
-            { code: "WLD", name: "Welding", phase: "build" },
-            { code: "ASM", name: "Assembled", phase: "build" },
-            { code: "QAP", name: "QA passed", phase: "dispatch" },
-            { code: "SHP", name: "Shipped", phase: "dispatch" },
+            { code: "ARV", name: "Arrived", phase: "intake" },
+            { code: "SCN", name: "Scanned", phase: "intake" },
+            { code: "SRT", name: "Sorting", phase: "sort" },
+            { code: "SRD", name: "Sorted", phase: "sort" },
+            { code: "LDD", name: "Loaded", phase: "dispatch" },
+            { code: "DSP", name: "Dispatched", phase: "dispatch" },
         ]);
         const planned = variant("planned", null);
         const observed = variant("observed", null);
         const links = $.const([
-            { src: "RMI", dst: "CUT", kind: planned },
-            { src: "CUT", dst: "WLD", kind: planned },
-            { src: "WLD", dst: "ASM", kind: planned },
-            { src: "ASM", dst: "QAP", kind: planned },
-            { src: "QAP", dst: "SHP", kind: observed },
+            { src: "ARV", dst: "SCN", kind: planned },
+            { src: "SCN", dst: "SRT", kind: planned },
+            { src: "SRT", dst: "SRD", kind: planned },
+            { src: "SRD", dst: "LDD", kind: planned },
+            { src: "LDD", dst: "DSP", kind: observed },
         ]);
         return (
             <Flowchart
                 states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                 links={links} link={l => ({ from: l.src, to: l.dst, kind: l.kind })}
-                lanes={[{ key: "prep", label: "Prep" }, { key: "build", label: "Build" }, { key: "dispatch", label: "Dispatch" }]}
+                lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }]}
             />
         );
     }),
     inputs: [],
 });
 
-export const flowchartPlant = example({
+export const flowchartDepot = example({
     keywords: ["Flowchart", "triggers", "evidence", "slice", "hover", "linkHover", "state class", "in-place", "unresolved", "freshness", "onAddLane"],
-    description: "Batch-plant flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice, dev-defined hover cards on states, links AND trigger diamonds, and the + LANE affordance",
+    description: "Parcel-depot flowchart — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice, dev-defined hover cards on states, links AND trigger diamonds, and the + LANE affordance",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const KindType = Flowchart.Types.Kind;
             const LinkRow = StructType({
                 id: StringType, src: StringType, dst: StringType, kind: KindType,
-                trigger: OptionType(StringType), vol: OptionType(FloatType), n: OptionType(IntegerType),
-                at: DateTimeType, grade: StringType, vessels: ArrayType(StringType),
+                trigger: OptionType(StringType), parcels: OptionType(FloatType), n: OptionType(IntegerType),
+                at: DateTimeType, service: StringType, units: ArrayType(StringType),
             });
             const states = $.const(East.value([
-                { code: "FDS", name: "Feedstock", phase: "infeed", slots: none },
-                { code: "STL", name: "Settled feed", phase: "infeed", slots: none },
-                { code: "RCT", name: "Reacting", phase: "reaction", slots: none },
-                { code: "RCD", name: "Reacted", phase: "reaction", slots: none },
-                { code: "P*", name: "Press slots (class)", phase: "press", slots: some(14n) },
-                { code: "PRD", name: "Pressed", phase: "press", slots: none },
-                { code: "CUR", name: "Curing", phase: "curing", slots: none },
-                { code: "BLD", name: "Blend", phase: "curing", slots: none },
-                { code: "RTP", name: "Ready to pack", phase: "packaging", slots: none },
-                { code: "PKD", name: "Packed", phase: "packaging", slots: none },
+                { code: "ARV", name: "Arrived", phase: "intake", slots: none },
+                { code: "SCN", name: "Scanned", phase: "intake", slots: none },
+                { code: "IND", name: "Inducting", phase: "induct", slots: none },
+                { code: "LBL", name: "Labelled", phase: "induct", slots: none },
+                { code: "CH*", name: "Sort chutes (class)", phase: "sort", slots: some(14n) },
+                { code: "SRD", name: "Sorted", phase: "sort", slots: none },
+                { code: "HLD", name: "Held", phase: "hold", slots: none },
+                { code: "CLR", name: "Cleared", phase: "hold", slots: none },
+                { code: "LDD", name: "Loaded", phase: "dispatch", slots: none },
+                { code: "DSP", name: "Dispatched", phase: "dispatch", slots: none },
             ], ArrayType(StructType({
                 code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType),
             }))));
@@ -67,26 +67,26 @@ export const flowchartPlant = example({
             const planned = variant("planned", null);
             const observed = variant("observed", null);
             const links = $.const(East.value([
-                { id: "l1", src: "FDS", dst: "STL", kind: planned, trigger: none, vol: some(210.3), n: some(24911n), at: stamp, grade: "A", vessels: ["R"] },
-                { id: "l2", src: "STL", dst: "RCT", kind: planned, trigger: none, vol: some(88.1), n: some(6210n), at: stamp, grade: "A", vessels: ["R"] },
-                { id: "l3", src: "RCT", dst: "RCT", kind: planned, trigger: none, vol: none, n: some(2n), at: stamp, grade: "A", vessels: ["R"] },
-                { id: "l4", src: "RCT", dst: "P*", kind: planned, trigger: some("press"), vol: some(199.5), n: some(13866n), at: stamp, grade: "A", vessels: ["R", "T"] },
-                { id: "l5", src: "P*", dst: "PRD", kind: planned, trigger: none, vol: some(197.9), n: some(13791n), at: stamp, grade: "A", vessels: ["T"] },
-                { id: "l6", src: "PRD", dst: "CUR", kind: observed, trigger: none, vol: some(12.4), n: some(512n), at: stamp, grade: "B", vessels: ["T"] },
-                { id: "l7", src: "CUR", dst: "BLD", kind: planned, trigger: some("blend"), vol: some(96.0), n: some(4403n), at: stamp, grade: "A", vessels: ["T"] },
-                { id: "l8", src: "BLD", dst: "RTP", kind: planned, trigger: none, vol: some(94.7), n: some(4350n), at: stamp, grade: "A", vessels: ["T"] },
-                { id: "l9", src: "RTP", dst: "PKD", kind: planned, trigger: none, vol: some(93.8), n: some(4311n), at: stamp, grade: "A", vessels: [] },
-                { id: "l10", src: "PKD", dst: "TFP", kind: planned, trigger: none, vol: none, n: none, at: stamp, grade: "A", vessels: [] },
+                { id: "l1", src: "ARV", dst: "SCN", kind: planned, trigger: none, parcels: some(18460.0), n: some(412n), at: stamp, service: "standard", units: ["C"] },
+                { id: "l2", src: "SCN", dst: "IND", kind: planned, trigger: none, parcels: some(7720.0), n: some(171n), at: stamp, service: "standard", units: ["C"] },
+                { id: "l3", src: "IND", dst: "IND", kind: planned, trigger: none, parcels: none, n: some(2n), at: stamp, service: "standard", units: ["C"] },
+                { id: "l4", src: "IND", dst: "CH*", kind: planned, trigger: some("route"), parcels: some(17350.0), n: some(386n), at: stamp, service: "standard", units: ["C", "T"] },
+                { id: "l5", src: "CH*", dst: "SRD", kind: planned, trigger: none, parcels: some(17210.0), n: some(383n), at: stamp, service: "standard", units: ["T"] },
+                { id: "l6", src: "SRD", dst: "HLD", kind: observed, trigger: none, parcels: some(1080.0), n: some(24n), at: stamp, service: "express", units: ["T"] },
+                { id: "l7", src: "HLD", dst: "CLR", kind: planned, trigger: some("customs"), parcels: some(8350.0), n: some(186n), at: stamp, service: "standard", units: ["T"] },
+                { id: "l8", src: "CLR", dst: "LDD", kind: planned, trigger: none, parcels: some(8240.0), n: some(183n), at: stamp, service: "standard", units: ["T"] },
+                { id: "l9", src: "LDD", dst: "DSP", kind: planned, trigger: none, parcels: some(8160.0), n: some(181n), at: stamp, service: "standard", units: [] },
+                { id: "l10", src: "DSP", dst: "DLV", kind: planned, trigger: none, parcels: none, n: none, at: stamp, service: "standard", units: [] },
             ], ArrayType(LinkRow)));
             const cfg = Slice.config(LinkRow, {
                 fields: {
-                    grade: { label: "Grade" },
+                    service: { label: "Service" },
                     src: { label: "From" },
                     dst: { label: "To" },
                 },
                 searchFieldIds: ["src", "dst"],
             });
-            const slice = $.let(Slice.bind([LinkRow], "flowchart-plant", cfg, Slice.state({}), links, none));
+            const slice = $.let(Slice.bind([LinkRow], "flowchart-depot", cfg, Slice.state({}), links, none));
             // Hover content is DEV-DEFINED (the Schematic contract): the
             // builder receives the hovered key and returns arbitrary UI.
             const linkHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
@@ -94,7 +94,7 @@ export const flowchartPlant = example({
                 return (
                     <VStack gap="1" align="stretch">
                         <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`${row.src} → ${row.dst}`}</Text>
-                        <Text textStyle="caption" color="fg.muted">{East.str`grade ${row.grade} · ${row.vessels.length()} vessels`}</Text>
+                        <Text textStyle="caption" color="fg.muted">{East.str`service ${row.service} · ${row.units.length()} units`}</Text>
                     </VStack>
                 );
             }));
@@ -102,8 +102,8 @@ export const flowchartPlant = example({
                 <Text fontFamily="mono" textStyle="body-sm">{East.str`state ${key}`}</Text>
             )));
             const triggers = $.const([
-                { id: "press", name: "press", who: "press-scheduler" },
-                { id: "blend", name: "blend", who: "blend-planner" },
+                { id: "route", name: "route", who: "sort-planner" },
+                { id: "customs", name: "customs", who: "customs-desk" },
             ]);
             const triggerHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
                 const row = $.let(triggers.filter(($, t) => East.equal(t.id, key)).get(0n));
@@ -122,12 +122,12 @@ export const flowchartPlant = example({
                     links={Slice.rows([LinkRow], slice)}
                     link={l => ({
                         key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
-                        evidence: { volume: l.vol, count: l.n, measuredAt: some(l.at), unit: "kt" },
+                        evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
                     })}
                     lanes={[
-                        { key: "infeed", label: "Infeed" }, { key: "reaction", label: "Reaction" },
-                        { key: "press", label: "Press" }, { key: "curing", label: "Curing" },
-                        { key: "packaging", label: "Packaging" },
+                        { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
+                        { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
+                        { key: "dispatch", label: "Dispatch" },
                     ]}
                     triggers={triggers}
                     trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
@@ -253,17 +253,17 @@ export const flowchartDetail = example({
     description: "Hover glances + click-to-drill on one canvas — stateHover/linkHover/triggerHover cards plus onSelectState/onSelectLink opening a programmatic Drawer",
     fn: East.function([], UIComponentType, ($) => {
         const StateRow = StructType({ code: StringType, name: StringType, phase: StringType, util: FloatType });
-        const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, vol: FloatType, n: IntegerType, decision: OptionType(StringType) });
+        const LinkRow = StructType({ id: StringType, src: StringType, dst: StringType, parcels: FloatType, n: IntegerType, decision: OptionType(StringType) });
         const states = $.const([
-            { code: "MIX", name: "Mixing", phase: "prep", util: 72.0 },
-            { code: "FIL", name: "Filling", phase: "line", util: 91.0 },
-            { code: "CAP", name: "Capping", phase: "line", util: 64.0 },
-            { code: "PAL", name: "Palletised", phase: "out", util: 38.0 },
+            { code: "UNL", name: "Unloading", phase: "intake", util: 68.0 },
+            { code: "IND", name: "Inducting", phase: "sort", util: 87.0 },
+            { code: "SRT", name: "Sorting", phase: "sort", util: 59.0 },
+            { code: "LDG", name: "Loading", phase: "out", util: 41.0 },
         ], ArrayType(StateRow));
         const links = $.const([
-            { id: "m-f", src: "MIX", dst: "FIL", vol: 182.4, n: 9210n, decision: some("release") },
-            { id: "f-c", src: "FIL", dst: "CAP", vol: 180.9, n: 9184n, decision: none },
-            { id: "c-p", src: "CAP", dst: "PAL", vol: 179.7, n: 9102n, decision: none },
+            { id: "u-i", src: "UNL", dst: "IND", parcels: 15860.0, n: 352n, decision: some("release") },
+            { id: "i-s", src: "IND", dst: "SRT", parcels: 15730.0, n: 349n, decision: none },
+            { id: "s-l", src: "SRT", dst: "LDG", parcels: 15630.0, n: 347n, decision: none },
         ], ArrayType(LinkRow));
         // --- hover glances: dev-defined cards in the standard 400ms shell ---
         const stateHover = $.const(East.function([StringType], UIComponentType, ($, key) => {
@@ -280,14 +280,14 @@ export const flowchartDetail = example({
             return (
                 <VStack gap="1" align="stretch">
                     <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`${row.src} → ${row.dst}`}</Text>
-                    <Text textStyle="caption" color="fg.muted">{East.str`${row.vol} kt · ${row.n} transfers`}</Text>
+                    <Text textStyle="caption" color="fg.muted">{East.str`${row.parcels} parcels · ${row.n} cage moves`}</Text>
                 </VStack>
             );
         }));
         const triggerHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (
             <VStack gap="1" align="stretch">
                 <Text fontFamily="mono" fontWeight="bold" textStyle="body-sm">{East.str`decision · ${key}`}</Text>
-                <Text textStyle="caption" color="fg.muted">owner · line-scheduler</Text>
+                <Text textStyle="caption" color="fg.muted">owner · dock-scheduler</Text>
             </VStack>
         )));
         // --- click-to-drill: the same entities open a host-owned Drawer ---
@@ -296,8 +296,8 @@ export const flowchartDetail = example({
             $(Drawer.open(East.value({
                 body: [
                     <VStack gap="3" align="stretch">
-                        <Text textStyle="body-sm">{East.str`Volume ${row.vol} kt across ${row.n} transfers.`}</Text>
-                        <Meter value={row.vol} max={200.0} tone="success" label={<Text textStyle="caption" color="fg.muted">share of line cap</Text>} />
+                        <Text textStyle="body-sm">{East.str`${row.parcels} parcels across ${row.n} cage moves.`}</Text>
+                        <Meter value={row.parcels} max={18000.0} tone="success" label={<Text textStyle="caption" color="fg.muted">share of sorter capacity</Text>} />
                     </VStack>,
                 ],
                 eyebrow: some("Transition"),
@@ -326,9 +326,9 @@ export const flowchartDetail = example({
                 states={states} state={s => ({ key: s.code, label: s.name, lane: s.phase })}
                 links={links}
                 link={l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
-                    evidence: { volume: some(l.vol), count: some(l.n), unit: "kt" } })}
-                lanes={[{ key: "prep", label: "Prep" }, { key: "line", label: "Line" }, { key: "out", label: "Outbound" }]}
-                triggers={[{ id: "release", name: "release", who: "line-scheduler" }]}
+                    evidence: { volume: some(l.parcels), count: some(l.n), unit: "parcels" } })}
+                lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "out", label: "Outbound" }]}
+                triggers={[{ id: "release", name: "release", who: "dock-scheduler" }]}
                 trigger={t => ({ key: t.id, label: t.name, owner: t.who })}
                 stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
                 onSelectLink={onSelectLink} onSelectState={onSelectState}

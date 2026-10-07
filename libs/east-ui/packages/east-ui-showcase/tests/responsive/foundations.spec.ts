@@ -481,7 +481,7 @@ test.describe("Foundations — radii, shadows and motion", () => {
     for (const mode of MODES) {
         test(`S1 (${mode}): nothing casts a shadow — frames, cards, chips and the overlays separate by rules (tokens/layout.css)`, async ({ page }) => {
             const bad: string[] = [];
-            for (const hash of ["container/card/cardBasic", "collections/deck/deckBasic", "collections/library/libraryLarge", "collections/schematic/schematicSlice", "collections/flowchart/flowchartPlant", "e3/sheet/sheet/sheetStress"]) {
+            for (const hash of ["container/card/cardBasic", "collections/deck/deckBasic", "collections/library/libraryLarge", "collections/schematic/schematicSlice", "collections/flowchart/flowchartDepot", "e3/sheet/sheet/sheetStress"]) {
                 await open(page, mode, hash);
                 bad.push(...(await castShadows(page)).map((b) => `${hash} ${b}`));
             }
