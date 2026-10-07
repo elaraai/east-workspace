@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { type ReactNode } from "react";
+import { type ReactElement, type ReactNode } from "react";
 import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
@@ -15,8 +15,13 @@ export interface SliceEditPopoverProps {
     open: boolean;
     /** Fired on Esc / click-outside / trigger toggle. Apply / Cancel call this with `false`. */
     onOpenChange: (open: boolean) => void;
-    /** The compact trigger (chip / pill) the popover anchors to. */
-    trigger: ReactNode;
+    /**
+     * The compact trigger the popover anchors to: ONE button — a chip, a
+     * pill, an icon — that the popover's trigger props land on (#1231), so the
+     * keyboard reaches it and Enter or Space opens it. It holds no other
+     * control: a clause chip's ×, which is the pointer's alone, is a span.
+     */
+    trigger: ReactElement;
     /** Mono head label naming the edit target. */
     label: ReactNode;
     /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors. */
@@ -49,6 +54,10 @@ export interface SliceEditPopoverProps {
  * head + foot stay pinned. Floats over content — opening it never resizes the
  * parent. Styled entirely by the `sliceEdit` slot recipe; only the foot's
  * action grammar varies per edit case. See `design/slice.html#slice-edit`.
+ *
+ * The trigger is the affordance's own button, the popover's trigger props
+ * merged onto it (#1231): a tab stop that Enter or Space opens, its
+ * `aria-expanded` the popover's.
  */
 export function SliceEditPopover({
     open, onOpenChange, trigger, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
@@ -91,9 +100,7 @@ export function SliceEditPopover({
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
         >
-            <ChakraPopover.Trigger asChild>
-                <chakra.span display="inline-flex">{trigger}</chakra.span>
-            </ChakraPopover.Trigger>
+            <ChakraPopover.Trigger asChild>{trigger}</ChakraPopover.Trigger>
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content css={styles.content} padding="0" minWidth="0" maxWidth="none" width={size === "lg" ? "380px" : "320px"}>

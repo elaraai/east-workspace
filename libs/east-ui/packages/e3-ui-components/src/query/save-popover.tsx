@@ -35,7 +35,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useId, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useId, useState, type ChangeEvent, type KeyboardEvent, type ReactElement } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { OptionType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
 import { useValueSync } from "@elaraai/east-ui-components";
@@ -58,8 +58,8 @@ export interface QuerySavePopoverProps {
     open: boolean;
     /** Opens or closes it — its trigger, ×, Esc, a click outside, Cancel, or a save that was made. */
     onOpenChange: (open: boolean) => void;
-    /** The button it hangs from — the toolbar's Save…, which its host renders. */
-    trigger: ReactNode;
+    /** The one button it hangs from — the toolbar's Save…, which its host renders. */
+    trigger: ReactElement;
     /** The open query's name — its head names it, and its name field offers it each time it opens. */
     name: string;
     /** The names the other saved queries hold; the open query's own saved name is not among them. */

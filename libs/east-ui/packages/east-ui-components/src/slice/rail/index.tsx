@@ -34,7 +34,11 @@
  * the host never changes height. The editor is the terminal surface: nothing
  * folds inside it and nothing opens a further popover. While it is open the
  * cluster is held: the popover hangs from its trigger, so the toolbar keeps
- * the cluster's form and folds the rest of the row around it.
+ * the cluster's form and folds the rest of the row around it. A held cluster
+ * keeps the forms it had as its editor opened (#1231): a clause added there
+ * would put a chip's fold step before the held form, and the form it holds
+ * would be another one — the trigger growing under its popover. Its trigger
+ * is one button (#1231), named for what it folds.
  */
 
 import { useEffect, useState, memo, type ReactNode } from "react";
@@ -218,10 +222,12 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
     const btn = useRecipe({ key: "button" });
     // Every slice change can move what the rail shows — the chips, their words.
     const version = useSliceReactivity(slice?.key);
-    // The cluster whose sectioned editor is open. The editor is the terminal
-    // surface: every affordance of the cluster flat, in `editor` density,
-    // complete however far the cluster has folded.
-    const [open, setOpen] = useState<string | null>(null);
+    // The cluster whose sectioned editor is open, and how many clause chips
+    // its filter had as it opened: its forms keep that many chip steps while
+    // it is held (#1231). The editor is the terminal surface: every affordance
+    // of the cluster flat, in `editor` density, complete however far the
+    // cluster has folded.
+    const [open, setOpen] = useState<{ key: string; chips: number } | null>(null);
     if (slice === undefined) return [];
 
     const state = slice.read();
@@ -242,7 +248,9 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
         const foldOrder = kinds
             .map((kind, i) => ({ i, rank: COLLAPSE_RANK[kind] ?? 3 }))
             .sort((a, b) => a.rank - b.rank || a.i - b.i);
-        const chipCount = kinds.includes("filter") ? state.filters.length : 0;
+        const liveChips = kinds.includes("filter") ? state.filters.length : 0;
+        const held = open !== null && open.key === cluster.key;
+        const chipCount = held ? open.chips : liveChips;
         const forms: RailForm[] = [{ folded: 0, chips: 0, show: "chips" }];
         const ranks: number[] = [];
         for (let c = 1; c <= chipCount; c++) {
@@ -260,6 +268,15 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
             ranks.push(RAIL_RANK.icon);
         }
 
+        // The folded families, in the order the trigger shows them: their
+        // summary chips in fold order; merged, every family, the active first.
+        const folded = (form: RailForm): AffordanceDescriptor[] => form.show === "chips"
+            ? foldOrder.slice(0, form.folded).map((o) => affordanceDescriptor(kinds[o.i]!, state, dimensions))
+            : kinds
+                .map((kind, idx) => ({ d: affordanceDescriptor(kind, state, dimensions), idx }))
+                .sort((a, b) => (b.d.active ? 1 : 0) - (a.d.active ? 1 : 0) || a.idx - b.idx)
+                .map((o) => o.d);
+
         // What the folded families show: their summary chips in fold order;
         // at the terminal form one chip that NAMES the cluster's contents
         // (active families first, so an engaged narrowing leads); past it the
@@ -271,10 +288,7 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
                     return summaryChip(`fold-${d.kind}-${o.i}`, d);
                 });
             }
-            const descriptors = kinds
-                .map((kind, idx) => ({ d: affordanceDescriptor(kind, state, dimensions), idx }))
-                .sort((a, b) => (b.d.active ? 1 : 0) - (a.d.active ? 1 : 0) || a.idx - b.idx)
-                .map((o) => o.d);
+            const descriptors = folded(form);
             const labels = descriptors.map((d) => d.text);
             const anyActive = descriptors.some((d) => d.active);
             const icon = descriptors[0]?.icon ?? faFilter;
@@ -293,8 +307,8 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
 
         const editor = (form: RailForm): ReactNode => (
             <SliceEditPopover
-                open={open === cluster.key}
-                onOpenChange={(o) => setOpen(o ? cluster.key : null)}
+                open={held}
+                onOpenChange={(o) => setOpen(o ? { key: cluster.key, chips: liveChips } : null)}
                 label={<>Narrowing · <Box as="span" css={styles.railActiveCount}>{`${activeCount} active`}</Box></>}
                 size="lg"
                 footActions={
@@ -303,10 +317,12 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
                     </chakra.button>
                 }
                 trigger={
-                    <Box css={styles.railTrigger} data-slot="railTrigger" onClick={() => setOpen(cluster.key)}>
+                    // One button, named for what it folds (#1231) — the icon alone draws no words.
+                    <chakra.button type="button" css={styles.railTrigger} data-slot="railTrigger"
+                        aria-label={`Narrowing: ${folded(form).map((d) => d.text).join(" · ")}`}>
                         {trigger(form)}
                         <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />
-                    </Box>
+                    </chakra.button>
                 }
             >
                 <SliceDensityContext.Provider value="editor">
@@ -353,7 +369,7 @@ export function useSliceToolbarItems(slice: SliceBindValue | undefined, clusters
             forms: forms.map(render),
             rank: ranks,
             version,
-            held: open === cluster.key,
+            held,
         };
     });
 }

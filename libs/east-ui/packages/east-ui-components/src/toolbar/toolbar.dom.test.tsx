@@ -151,6 +151,22 @@ describe("the toolbar's one ladder", () => {
         expect(shown(container)).toEqual(["rail-live", "tabs-folded", "history"]);
     });
 
+    test("an overlay that closes in its own render releases its item: the row folds again, with no render of the toolbar's (#1231)", async () => {
+        const list = items({
+            rail: { forms: [<span data-w={300} data-form-name="rail-live"><span data-part="trigger" data-state="open" /></span>, form("rail-chip", 120), form("rail-icon", 40)] },
+        });
+        const { container } = mount(list, 620);
+        resize(430);
+        expect(shown(container)).toEqual(["rail-live", "tabs-folded", "history"]);
+        // The overlay closes as its own machine renders it: only its trigger's state turns.
+        await act(async () => {
+            container.querySelector("[data-part='trigger']")!.setAttribute("data-state", "closed");
+            await Promise.resolve();
+        });
+        // 120 + 90 + 100 + 20 = 330 fits 430 — the chip (rank 1) and the tabs (rank 3) fold.
+        expect(shown(container)).toEqual(["rail-chip", "tabs-folded", "history"]);
+    });
+
     test("an item marked held keeps its form", () => {
         const { container } = mount(items({ tabs: { held: true } }), 620);
         resize(300);

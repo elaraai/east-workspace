@@ -19,8 +19,9 @@
  * so a value never reads as the loudest text beside its body-type siblings.
  *
  * A chip's own parts are styled here, by attribute, never inline: a leading
- * icon (`data-chip-icon`), the disclosure caret (`data-chip-caret`) and a
- * muted meta word such as a day count (`data-chip-meta`).
+ * icon (`data-chip-icon`), the disclosure caret (`data-chip-caret`), a
+ * muted meta word such as a day count (`data-chip-meta`), and a clause's
+ * remove (`data-chip-remove`) — the pointer's ×, in the link's ink (#1231).
  */
 
 import { defineRecipe } from "@chakra-ui/react";
@@ -50,6 +51,7 @@ export const chipRecipe = defineRecipe({
         "& [data-chip-icon]": { fontSize: "10px" },
         "& [data-chip-caret]": { fontSize: "8px" },
         "& [data-chip-meta]": { color: "fg.muted" },
+        "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0" },
     },
     variants: {
         tone: {

@@ -28,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type ReactElement, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { SliceEditPopover } from "@elaraai/east-ui-components";
 
@@ -40,8 +40,8 @@ export interface NamePopoverProps {
     open: boolean;
     /** Opens or closes it — its trigger, ×, Esc, a click outside, Cancel, or a write that was made. */
     onOpenChange: (open: boolean) => void;
-    /** The button it hangs from, whatever opens it. */
-    trigger: ReactNode;
+    /** The one button it hangs from, whatever opens it: the popover's trigger props land on it (#1231). */
+    trigger: ReactElement;
     /** Its head — what it makes, and where. */
     label: ReactNode;
     /** The name field's placeholder, and its accessible name. */
