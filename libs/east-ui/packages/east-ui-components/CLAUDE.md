@@ -226,7 +226,13 @@ component, nothing in east-ui.
   fold into one menu) and the key search over a keyed source's `seek`
   (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
   edit popover, and keeps its form while a query is typed; `focusKeySearch`
-  brings a host's key for it, the Sheet's ⌘F, to it in either form). On a
+  brings a host's key for it, the Sheet's ⌘F, to it in either form). Controls
+  that fold into one chip (#1229) fold into the shared `ChipMenu`, whose menu
+  does what they do: their steps and the chip's share a `bundle`, so the chip
+  draws in the step that hides them, and a popover one of them opens hangs
+  from the chip (`SliceEditPopover`'s `anchor`), its item `held` while it is
+  open — as the SnapGrid editor's View chip and Studio's and the query
+  builder's ⋯ chips do. On a
   coarse pointer a control in the row is a 44px tap target by its box or by its
   halo (`coarseHitArea`, #346), never by growing the row (#1193, #1221): a
   segment whose neighbours sit edge to edge takes the halo on the block axis

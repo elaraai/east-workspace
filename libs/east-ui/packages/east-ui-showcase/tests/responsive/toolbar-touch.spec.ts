@@ -387,6 +387,142 @@ test.describe("the builders' rails filtered, under a touch pointer (#1231)", () 
     }
 });
 
+// ── Studio's builder, the SnapGrid editor and the query builder folded into chips (#1229) ──
+
+/** A chip's menu, open. */
+const openChipMenu = (page: Page) => page.locator("[data-scope='menu'][data-part='content'][data-state='open']");
+
+/** A popover, open: Save as template's, or the query's save popover. */
+const openPopover = (page: Page) => page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
+
+/** A toolbar control by its selector, in the entry's builder frame's row. */
+const inRow = (entry: Locator, selector: string) => entry.locator(`[data-builder-frame] > [data-frame-slot='toolbar'] ${selector}`).first();
+
+/**
+ * The frame narrowed, 20px at a time, until what `selector` names is drawn in
+ * the row.
+ */
+async function narrowUntil(entry: Locator, page: Page, selector: string): Promise<void> {
+    const target = inRow(entry, selector);
+    for (let width = 1400; width >= 360 && !(await target.isVisible()); width -= 20) {
+        await sizeFrame(entry, width);
+        await settled(page);
+    }
+    await expect(target).toBeVisible();
+}
+
+/** The frame narrowed until the design widths fold to their icons: two segments of an icon each, edge to edge, which the edge check reaches. */
+const widthsToIcons: Gesture = {
+    what: "the frame narrowed until the widths fold to their icons",
+    run: async (entry, page) => {
+        await narrowUntil(entry, page, "[data-toolbar-item='widths'][data-toolbar-form='1']");
+        await expect.poll(() => inRow(entry, "[data-snap-grid-widths]").evaluate((strip) => {
+            const segments = [...strip.querySelectorAll("button")];
+            const [a, b] = segments.map((s) => s.getBoundingClientRect());
+            return {
+                icons: segments.map((s) => [s.getAttribute("aria-label"), s.textContent, s.querySelectorAll("svg").length]),
+                apart: Math.abs(Math.round((b!.left - a!.right) * 10) / 10),
+            };
+        })).toEqual({ icons: [["Desktop", "", 1], ["Tablet", "", 1]], apart: 0 });
+    },
+};
+
+/** A chip's menu, tapped open, then an item tapped. */
+async function tapItem(entry: Locator, page: Page, chip: string, item: string): Promise<void> {
+    await inRow(entry, chip).tap();
+    await openChipMenu(page).getByRole("menuitem", { name: item, exact: true }).tap();
+}
+
+/**
+ * The View chip's menu, by touch: Zoom in — the menu staying open — then
+ * Tablet, a choice of one, which closes it.
+ */
+const viewByTouch: Gesture = {
+    what: "the View chip's Zoom in, then its Tablet",
+    run: async (entry, page) => {
+        await tapItem(entry, page, "[data-snap-grid-view]", "Zoom in");
+        await expect(openChipMenu(page).locator("[data-snap-grid-view-zoom]")).toHaveText("110%");
+        await openChipMenu(page).getByRole("menuitemradio", { name: "Tablet" }).tap();
+        await expect(openChipMenu(page)).toHaveCount(0);
+        await expect(entry.locator("[data-snap-grid-canvas]").first()).toHaveCSS("max-width", "1024px");
+        await settled(page);
+    },
+};
+
+/** A ⋯ chip's item that opens its popover, by touch: the popover hangs from the chip — still in the row, in the popover's anchor — and Cancel closes it. */
+function popoverFromChip(chip: string, item: string): Gesture {
+    return {
+        what: `the ⋯ chip's ${item}, its popover hung from the chip, then cancelled`,
+        run: async (entry, page) => {
+            await tapItem(entry, page, chip, item);
+            await expect(openPopover(page)).toBeVisible();
+            await expect(inRow(entry, chip)).toBeVisible();
+            await expect(inRow(entry, chip).locator("xpath=..")).toHaveAttribute("data-part", "anchor");
+            await openPopover(page).getByRole("button", { name: "Cancel" }).tap();
+            await expect(openPopover(page)).toHaveCount(0);
+            await settled(page);
+        },
+    };
+}
+
+/**
+ * The builders whose rows fold into chips (#1229), each with the chips its
+ * row draws at the phone's width — Studio's View chip and ⋯ chip, the SnapGrid
+ * editor's View chip, the query builder's ⋯ chip — and the gestures that use
+ * them by touch there; on the wide touch screen, where the rows unfold, the
+ * frame narrowed until the design widths fold to their icons, which the edge
+ * check reaches, and then until the chips draw.
+ */
+const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[]; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
+    {
+        name: "studioBuilder", hash: "e3/studio/studio/studioBuilder",
+        chips: ["[data-snap-grid-view]", "[data-studio-more]"],
+        phone: [viewByTouch, popoverFromChip("[data-studio-more]", "Save as template…")],
+        wide: [
+            widthsToIcons,
+            { what: "the frame narrowed until the ⋯ chip draws", run: (entry, page) => narrowUntil(entry, page, "[data-studio-more]") },
+        ],
+    },
+    {
+        name: "snapGridEditor", hash: "layout/snap-grid/snapGridEditor",
+        chips: ["[data-snap-grid-view]"],
+        phone: [viewByTouch],
+        wide: [
+            widthsToIcons,
+            { what: "the frame narrowed until the View chip draws", run: (entry, page) => narrowUntil(entry, page, "[data-snap-grid-view]") },
+        ],
+    },
+    {
+        name: "queryBuilder", hash: "e3/query/query/queryBuilder",
+        chips: ["[data-query-more]"],
+        phone: [popoverFromChip("[data-query-more]", "Save…")],
+        wide: [{ what: "the frame narrowed until the ⋯ chip draws", run: (entry, page) => narrowUntil(entry, page, "[data-query-more]") }],
+    },
+];
+
+test.describe("the builders' toolbars folded into chips, under a touch pointer (#1229)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    for (const { name, hash, chips, phone, wide } of CHIPS) {
+        for (const { where, width, gestures } of [
+            { where: "at the phone's width", width: undefined, gestures: phone },
+            { where: "on a touch screen 1920px wide", width: 1920, gestures: wide },
+        ]) {
+            test(`${name}, ${where}, at rest${gestures.map((g) => `, then ${g.what}`).join("")}: one row in its 44px band, nothing past its edge, every control a 44px tap target`, async ({ page }) => {
+                if (width !== undefined) await page.setViewportSize({ width, height: 1000 });
+                const entry = await openToolbar(page, hash);
+                await expect.poll(() => touchFaults(entry)).toEqual([]);
+                // On the phone the row fits by folding into its chips.
+                if (width === undefined) for (const chip of chips) await expect(inRow(entry, chip)).toBeVisible();
+                for (const gesture of gestures) {
+                    await gesture.run(entry, page);
+                    await expect.poll(() => touchFaults(entry), { message: `with ${gesture.what}` }).toEqual([]);
+                }
+            });
+        }
+    }
+});
+
 test.describe("the builders' toolbars under a touch pointer (#1221)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 

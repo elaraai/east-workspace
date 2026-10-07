@@ -3,25 +3,47 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
-export interface SliceEditPopoverProps {
+/** A control the focus can go back to, in an anchored popover's anchor. */
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
+export type SliceEditPopoverAnchor =
+    | {
+        /**
+         * The compact trigger the popover anchors to: ONE button — a chip, a
+         * pill, an icon — that the popover's trigger props land on (#1231), so the
+         * keyboard reaches it and Enter or Space opens it. It holds no other
+         * control: a clause chip's ×, which is the pointer's alone, is a span.
+         */
+        trigger: ReactElement;
+        anchor?: undefined;
+    }
+    | {
+        trigger?: undefined;
+        /**
+         * What it hangs from when something other than a trigger opens it — the
+         * chip whose menu item opened it (#1229): wrapped in an element of its
+         * own, the popover's anchor, and given none of a trigger's props, so a
+         * menu's trigger in it stays the menu's. Its host opens it and holds the
+         * toolbar item it sits in while it is open; as it closes, the focus goes
+         * back to the first control in it.
+         */
+        anchor: ReactNode;
+    };
+
+/** Props of {@link SliceEditPopover}: what it hangs from, and the rest. */
+export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
     /** Controlled open state (seeded from the affordance's `editOpen` IR flag). */
     open: boolean;
     /** Fired on Esc / click-outside / trigger toggle. Apply / Cancel call this with `false`. */
     onOpenChange: (open: boolean) => void;
-    /**
-     * The compact trigger the popover anchors to: ONE button — a chip, a
-     * pill, an icon — that the popover's trigger props land on (#1231), so the
-     * keyboard reaches it and Enter or Space opens it. It holds no other
-     * control: a clause chip's ×, which is the pointer's alone, is a span.
-     */
-    trigger: ReactElement;
     /** Mono head label naming the edit target. */
     label: ReactNode;
     /** `sm` (320px) for chip / range editors, `lg` (380px) for predicate editors. */
@@ -46,7 +68,7 @@ export interface SliceEditPopoverProps {
     initialFocusEl?: (() => HTMLElement | null) | undefined;
     /** The editor body. */
     children: ReactNode;
-}
+};
 
 /**
  * The single overlay shape every compact `Slice.*` affordance opens to edit.
@@ -57,20 +79,39 @@ export interface SliceEditPopoverProps {
  *
  * The trigger is the affordance's own button, the popover's trigger props
  * merged onto it (#1231): a tab stop that Enter or Space opens, its
- * `aria-expanded` the popover's.
+ * `aria-expanded` the popover's. A popover something else opens — a toolbar
+ * chip's menu item (#1229) — hangs from an `anchor` instead.
  */
 export function SliceEditPopover({
-    open, onOpenChange, trigger, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
+    open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
 }: SliceEditPopoverProps) {
     const styles = useSlotRecipe({ key: "sliceEdit" })({ size, ...(flush === true && { flush: true }) });
     const density = useSliceDensity();
+    const anchored = trigger === undefined;
+    const anchorRef = useRef<HTMLDivElement | null>(null);
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    // An anchored popover has no trigger for Zag to give the focus back to: as
+    // it closes, the focus goes back to its anchor's first control — unless it
+    // went to a control of its own choosing (a click on another).
+    const wasOpen = useRef(open);
+    useEffect(() => {
+        const opened = wasOpen.current;
+        wasOpen.current = open;
+        if (!anchored || open || !opened) return undefined;
+        const frame = requestAnimationFrame(() => {
+            const active = document.activeElement;
+            if (active !== null && active !== document.body && contentRef.current?.contains(active) !== true) return;
+            anchorRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [open, anchored]);
     if (density === "editor") {
         // Inside the sectioned editor the popover is forbidden — the editor
         // is the terminal surface. The same trigger toggles an inline
         // disclosure in flow instead (the editor body scrolls as it grows).
         return (
             <Box display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="0" width="full">
-                <chakra.span display="inline-flex" onClick={() => onOpenChange(!open)}>{trigger}</chakra.span>
+                {anchored ? anchor : <chakra.span display="inline-flex" onClick={() => onOpenChange(!open)}>{trigger}</chakra.span>}
                 {open && (
                     <Box borderTopWidth="1px" borderColor="border.subtle" paddingTop="{spacing.2}">
                         <Box as="span" textStyle="caption.eyebrow" color="fg.subtle">{label}</Box>
@@ -100,10 +141,12 @@ export function SliceEditPopover({
                 if (target?.closest?.('[data-scope="select"], [data-scope="combobox"]')) e.preventDefault();
             }}
         >
-            <ChakraPopover.Trigger asChild>{trigger}</ChakraPopover.Trigger>
+            {anchored
+                ? <ChakraPopover.Anchor ref={anchorRef} display="inline-flex">{anchor}</ChakraPopover.Anchor>
+                : <ChakraPopover.Trigger asChild>{trigger}</ChakraPopover.Trigger>}
             <Portal>
                 <ChakraPopover.Positioner>
-                    <ChakraPopover.Content css={styles.content} padding="0" minWidth="0" maxWidth="none" width={size === "lg" ? "380px" : "320px"}>
+                    <ChakraPopover.Content ref={contentRef} css={styles.content} padding="0" minWidth="0" maxWidth="none" width={size === "lg" ? "380px" : "320px"}>
                         <ChakraPopover.Arrow>
                             <ChakraPopover.ArrowTip />
                         </ChakraPopover.Arrow>

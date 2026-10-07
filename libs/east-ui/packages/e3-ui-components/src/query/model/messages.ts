@@ -454,6 +454,8 @@ export interface QueryMessages {
     runKeys: () => string;
     /** Run's tooltip. */
     runTip: () => string;
+    /** The ⋯ chip a row short of room folds Copy jq and Save… into (#1229) — its accessible name. */
+    more: () => string;
     /** The steps' list, for a screen reader. */
     stepsLabel: () => string;
     /** A step's place, before its title — `1`. */
@@ -1217,6 +1219,7 @@ export const queryMessages: QueryMessages = {
     running: () => "Running",
     runKeys: () => "⌘⏎",
     runTip: () => "Run · ⌘⏎",
+    more: () => "More",
     stepsLabel: () => "Steps",
     stepNumber: ({ n }) => n,
     moveUp: () => "Move up",

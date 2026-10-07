@@ -683,7 +683,10 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box;
  * a Plan with a review and editing over a keyed paged source (#1193) folds its
  * review's buttons into their menu and its key search into its icon, through
- * the narrow layout, its history last.
+ * the narrow layout, its history last. The SnapGrid editor and Studio's
+ * builder fold their zoom into the View chip as their widths hide, and Studio
+ * its Save as template, Preview and Publish into the ⋯ chip, each one move
+ * (#1229).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
@@ -698,6 +701,8 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
     { name: "Flowchart", route: "collections/flowchart/flowchartPlant", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
+    { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
 ];
 
 /** What the toolbar says it folded: each item's form of its forms (`data-toolbar-state`). */
@@ -730,6 +735,22 @@ function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number
  *  filter fold to their icons, then the grouping does, and last the search
  *  box narrows and drops its key cap. */
 const LIBRARY_LADDER: ReadonlyArray<readonly [string, number]> = [["hint", 1], ["dims", 1], ["filter", 1], ["group", 1], ["search", 1], ["search", 2]];
+
+/** The SnapGrid editor's own order (#1229): the grid chip goes, then the width
+ *  readout, the widths fold to their icons, then the zoom folds into the View
+ *  chip as the widths hide into its menu — one move — then the example's start
+ *  item goes, and the history item folds last. */
+const SNAP_GRID_LADDER: ReadonlyArray<readonly [string, number]> = [
+    ["grid", 1], ["readout", 1], ["widths", 1], ["zoom", 1], ["widths", 2], ["start-0", 1], ["history", 1],
+];
+
+/** Studio's builder's own order (#1229): its canvas's steps, then Save as
+ *  template, Preview and Publish fold into the ⋯ chip — one move — then the
+ *  page's status goes, and the history item folds last. */
+const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
+    ["grid", 1], ["readout", 1], ["widths", 1], ["zoom", 1], ["widths", 2],
+    ["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1], ["status", 1], ["history", 1],
+];
 
 /** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
  *  count goes, the context label, the strip's `+ TAB` label and whole-sheet

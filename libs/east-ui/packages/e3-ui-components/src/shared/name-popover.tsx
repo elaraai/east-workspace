@@ -25,23 +25,24 @@
  * table. Its layout is the `sliceEdit` recipe's `form` and `field` slots, and
  * its field the `input` recipe's.
  *
+ * It hangs from its trigger — the one button that opens it — or, opened from
+ * a toolbar chip's menu (#1229), from that chip, as its anchor.
+ *
  * @packageDocumentation
  */
 
-import { useId, useState, type ReactElement, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Box, Button as ChakraButton, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { SliceEditPopover } from "@elaraai/east-ui-components";
+import { SliceEditPopover, type SliceEditPopoverAnchor } from "@elaraai/east-ui-components";
 
 type Styles = Record<string, SystemStyleObject>;
 
-/** Props of {@link NamePopover}. */
-export interface NamePopoverProps {
+/** Props of {@link NamePopover}: the button it hangs from (`trigger`) or its `anchor`, and the rest. */
+export type NamePopoverProps = SliceEditPopoverAnchor & {
     /** Whether it is open. */
     open: boolean;
     /** Opens or closes it — its trigger, ×, Esc, a click outside, Cancel, or a write that was made. */
     onOpenChange: (open: boolean) => void;
-    /** The one button it hangs from, whatever opens it: the popover's trigger props land on it (#1231). */
-    trigger: ReactElement;
     /** Its head — what it makes, and where. */
     label: ReactNode;
     /** The name field's placeholder, and its accessible name. */
@@ -62,17 +63,17 @@ export interface NamePopoverProps {
     children?: ReactNode;
     /** Makes the thing under the name — resolves to what refused it, or `undefined` once it is made. */
     onConfirm: (name: string) => Promise<string | undefined>;
-}
+};
 
 /**
  * Renders the popover — see the module docs.
  *
  * @param props - What it names, in its host's words, and what it does with the name
- * @returns The trigger, and the popover while open
+ * @returns The trigger or the anchor, and the popover while open
  */
-export function NamePopover({
-    open, onOpenChange, trigger, label, placeholder, initial, taken, missing, nameTaken, confirm, cancel, children, onConfirm,
-}: NamePopoverProps) {
+export function NamePopover(props: NamePopoverProps) {
+    const { open, onOpenChange, label, placeholder, initial, taken, missing, nameTaken, confirm, cancel, children, onConfirm } = props;
+    const hangs: SliceEditPopoverAnchor = props.trigger !== undefined ? { trigger: props.trigger } : { anchor: props.anchor };
     const edit = useSlotRecipe({ key: "sliceEdit" })() as Styles;
     const input = useRecipe({ key: "input" })({}) as SystemStyleObject;
     const id = useId();
@@ -109,9 +110,9 @@ export function NamePopover({
 
     return (
         <SliceEditPopover
+            {...hangs}
             open={open}
             onOpenChange={onOpenChange}
-            trigger={trigger}
             label={label}
             footActions={
                 <>
