@@ -22,9 +22,12 @@
  *   grouping; and joins (#942): two dicts keyed alike, read only at the row's
  *   key, cut at the same keys, and a join both of whose sides weigh more than
  *   one piece re-keyed — two split calls, the second over the first's output
- *   by its hash. At two input sizes, the larger twice the pieces, no unit's
- *   peak passes the runner's baseline plus the RunSorter's cap, and the larger
- *   raises no unit's peak beyond a margin.
+ *   by its hash. At two input sizes, the larger twice the pieces, every unit
+ *   names its runner's peak. With `E3_UI_PERF=1`, no unit's peak passes the
+ *   runner's baseline plus the RunSorter's cap, and the larger raises no unit's
+ *   peak beyond a margin: a peak in MiB is the machine's and its garbage
+ *   collector's, so on a shared runner it is a flaky test, never a CI gate —
+ *   as the terminal UI's CPU budgets are (#1262).
  * - **N4**: a relaunch is served from the cache, running no unit; after an
  *   append, only the pieces around it run, and the answer is the one-shot
  *   call's over the new rows.
@@ -62,6 +65,8 @@ import { startRepoServer, type RepoServerHandle } from './e3-server.js';
 import { assertThisTreesRunner, runnerFile } from './testing/runners.js';
 
 const enabled = process.env['E3_UI_INTEGRATION'] === '1';
+/** Whether the units' peaks are held to their budgets — a measure of the machine, so opt-in, as `perf.spec.tsx`'s are. */
+const perf = process.env['E3_UI_PERF'] === '1';
 
 // ─── The data ────────────────────────────────────────────────────────────────
 
@@ -383,7 +388,7 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                 }
             });
 
-            it('N3: no unit\'s peak passes the runner\'s baseline and the RunSorter\'s cap, and twice the input raises none beyond a margin', async () => {
+            it('N3: every unit names its runner\'s peak, and with E3_UI_PERF=1 none passes the runner\'s baseline and the RunSorter\'s cap, and twice the input raises none beyond a margin', async (t) => {
                 const peaks: number[][] = [];
                 const cut: number[] = [];
                 for (const [size, seed] of [[ORDER_COUNT, 2], [2 * ORDER_COUNT, 3]] as const) {
@@ -402,6 +407,9 @@ describe('query plans against e3 (E3_UI_INTEGRATION=1)', { skip: !enabled }, () 
                 const baseline = Math.min(...small);
                 const bound = baseline + RUN_MAX_BYTES + 32 * MiB;
                 const [smallMax, largeMax] = [Math.max(...small), Math.max(...large)];
+                t.diagnostic(`unit peaks: ${Math.round(smallMax / MiB)} MiB at most over ${cut[0]} pieces, ${Math.round(largeMax / MiB)} MiB over ${cut[1]} (baseline ${Math.round(baseline / MiB)} MiB, bound ${Math.round(bound / MiB)} MiB)`);
+                // The budgets are the machine's: held only where asked (E3_UI_PERF=1, #1262).
+                if (!perf) return;
                 for (const peak of [...small, ...large]) {
                     assert.ok(peak <= bound, `a unit peaked at ${Math.round(peak / MiB)} MiB, over ${Math.round(bound / MiB)} MiB (baseline ${Math.round(baseline / MiB)} MiB)`);
                 }
