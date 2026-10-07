@@ -271,7 +271,7 @@ function flowValue(flow: FlowchartFlowInput, where: string): FlowValue {
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const handover = $.let(Data.bind(handoverFlow));
- *         return <Box height="420px"><Flowchart data={handover} /></Box>;
+ *         return <Box height="500px"><Flowchart data={handover} /></Box>;
  *     }}</Reactive>
  * ));
  * ```
@@ -333,7 +333,7 @@ export function flowchartValue(flow: FlowchartFlowInput): FlowValue {
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
- *         return <Box height="480px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+ *         return <Box height="500px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
  *     }}</Reactive>
  * ));
  * ```

@@ -4,11 +4,11 @@
  */
 
 /**
- * The Flowchart (#1243, #1244): the state-transition flowchart, e3-ui's as the
- * Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows from
- * an e3 record of flows by name, or from the host — flows by name, or one
+ * The Flowchart (#1243, #1244, #1245): the state-transition flowchart, e3-ui's
+ * as the Plan (#1177) and the Sheet (#1179) are. `<Flowchart>` takes its flows
+ * from an e3 record of flows by name, or from the host — flows by name, or one
  * flow — and returns its payload through the `Flowchart` carrier, which
- * e3-ui-components' renderer draws.
+ * e3-ui-components' renderer draws in its builder frame.
  *
  * - `types.ts` — the flow, the record of flows, and the row, closed-set and
  *   event types (`Flowchart.Types.*`).
@@ -17,7 +17,8 @@
  * - `over.ts` — `Flowchart.over`, one flow from an app's own tables.
  * - `patch.ts` — `Flowchart.patch`, a patch over one of a flow's rows.
  * - `canvas.ts` — the canvas: what the flowchart draws its flow with.
- * - `payload.ts` — the payload, its carrier, the props and their refusals.
+ * - `payload.ts` — the payload, its carrier, the shared keys, the props and
+ *   their refusals.
  * - `flowchart.ts` — the tag.
  *
  * @packageDocumentation
@@ -101,6 +102,7 @@ export {
     FlowchartStateCardType,
     FlowchartTransitionCardType,
     createFlowchartPayload,
+    flowchartKeys,
     type FlowchartBindHandle,
     type FlowchartCommon,
     type FlowchartRecordHandle,
@@ -139,7 +141,7 @@ export interface FlowchartTypes {
     Orientation: typeof FlowchartOrientationType;
     /** Link-authoring mode — draw | connect ({@link FlowchartLinkModeType}). */
     LinkMode: typeof FlowchartLinkModeType;
-    /** Eyebrow freshness chip ({@link FlowchartFreshnessType}). */
+    /** The toolbar's freshness chip ({@link FlowchartFreshnessType}). */
     Freshness: typeof FlowchartFreshnessType;
     /** Link-creation event ({@link FlowchartLinkCreateEventType}). */
     LinkCreateEvent: typeof FlowchartLinkCreateEventType;
@@ -209,6 +211,12 @@ const MEMBERS = {
  * cards, the selection and the pointer-highlight grammar are built in.
  *
  * @remarks
+ * - **Its frame**: it renders in its builder frame wherever it is used — one
+ *   toolbar (find state, LR · TD, the freshness chip and, over `data`, the
+ *   slice's rail), the canvas filling main and scrolling both ways inside it,
+ *   and the footer's counts; a library pane when `library` lists tabs, and an
+ *   inspector pane when given `inspector`. It fills the box it is given and
+ *   draws no border: give it a box of its own height.
  * - **Its flows** are an e3 record's (`record`): `Flowchart.Types.Flows`,
  *   flows by name, bound with its patch mutation, the canvas showing `flow`,
  *   else the first by name. A record always holds flows by name (ruled
@@ -230,7 +238,8 @@ const MEMBERS = {
  *   remedy: flows from both `record` and `data`, or neither; `onApply`,
  *   `slice` or `affordances` over a record; `flow` over one flow; a record of
  *   one flow, or of another type, or not bound with its patch mutation;
- *   `"brush"` among the affordances.
+ *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
+ *   it fills sets.
  *
  * The closed-set fields in data (`kind`, `orientation`, `linkMode`) are typed
  * variant values, `Flowchart.Types.*`.
@@ -277,7 +286,7 @@ const MEMBERS = {
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
- *         return <Box height="480px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+ *         return <Box height="500px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
  *     }}</Reactive>
  * ));
  * ```

@@ -29,7 +29,12 @@
  * blurred to nothing — the phone's keyboard dismissed — leaves its list open,
  * as a desktop does, and a Tab from there closes it. And in the rail's
  * sectioned editor the cohort's chip and the breakdown's are each one 44px
- * target (#1253), every chip there keeping its own width.
+ * target (#1253), every chip there keeping its own width. And the
+ * Flowchart's frame (#1245): on the phone its rail, LR · TD and find state
+ * folded into their chips — LR · TD's menu turning the canvas, find state's
+ * popover picking a state — and on the wide screen its row unfolded, a query
+ * in find state stepped through its matches and cleared, then the frame
+ * narrowed until LR · TD and find state fold.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -469,13 +474,74 @@ function popoverFromChip(chip: string, item: string): Gesture {
     };
 }
 
+/** The Flowchart's lane headers' anchors (#1245): middle across the top in LR, start down the side in TD. */
+const laneAnchors = (entry: Locator) => entry.locator("[data-flowchart-lane]").evaluateAll((els) => els.map((el) => el.getAttribute("text-anchor")));
+
+/** LR · TD's chip, by touch (#1245): its menu's TD turns the canvas, and the chip names it. */
+const orientationByTouch: Gesture = {
+    what: "LR · TD's chip, its TD",
+    run: async (entry, page) => {
+        await tapItem(entry, page, "[data-flowchart-segmenu]", "TD");
+        await expect(openChipMenu(page)).toHaveCount(0);
+        await expect(inRow(entry, "[data-flowchart-segmenu]")).toContainText("TD");
+        await expect.poll(() => laneAnchors(entry)).toEqual(Array.from({ length: 5 }, () => "start"));
+        await settled(page);
+    },
+};
+
+/** Find state's icon, by touch (#1245): its popover's box finds a state, and a pick selects it. */
+const findByTouch: Gesture = {
+    what: "find state's icon, a state found in its popover and picked",
+    run: async (entry, page) => {
+        await inRow(entry, "[data-toolbar-item='seek'] [data-key-search='icon']").tap();
+        const box = page.locator("[data-key-search='popover'] input");
+        await expect(box).toBeFocused();
+        await box.fill("dsp");
+        await page.getByRole("option", { name: "DSP · Dispatched" }).tap();
+        await expect(entry.locator("[data-flowchart-node='DSP']")).toHaveAttribute("data-selected", "true");
+        await inRow(entry, "[data-toolbar-item='seek'] [data-key-search='icon']").tap();
+        await expect(openPopover(page)).toHaveCount(0);
+        await settled(page);
+    },
+};
+
+/** A query in find state's box on the wide screen (#1245): its matches stepped, then the query cleared. */
+const findStepped: Gesture = {
+    what: "a query in find state, its matches stepped, then cleared",
+    run: async (entry, page) => {
+        const box = inRow(entry, "[data-toolbar-item='seek'] input");
+        await box.fill("s");
+        await expect(entry.getByRole("button", { name: "Next match" })).toBeVisible();
+        await box.press("Escape");
+        await entry.getByRole("button", { name: "Next match" }).tap();
+        await expect(entry.locator("[data-flowchart-node][data-selected]")).toHaveCount(1);
+        await entry.getByRole("button", { name: "Clear search" }).tap();
+        await expect(box).toHaveValue("");
+        await settled(page);
+    },
+};
+
+/** The frame narrowed until find state folds to its icon (#1245): past the phone's width the row still holds its box, so the frame narrows below it. */
+const findToIcon: Gesture = {
+    what: "the frame narrowed until find state folds to its icon",
+    run: async (entry, page) => {
+        const icon = inRow(entry, "[data-toolbar-item='seek'] [data-key-search='icon']");
+        for (let width = 420; width >= 260 && !(await icon.isVisible()); width -= 10) {
+            await sizeFrame(entry, width);
+            await settled(page);
+        }
+        await expect(icon).toBeVisible();
+    },
+};
+
 /**
  * The builders whose rows fold into chips (#1229), each with the chips its
  * row draws at the phone's width — Studio's View chip and ⋯ chip, the SnapGrid
- * editor's View chip, the query builder's ⋯ chip — and the gestures that use
- * them by touch there; on the wide touch screen, where the rows unfold, the
- * frame narrowed until the design widths fold to their icons, which the edge
- * check reaches, and then until the chips draw.
+ * editor's View chip, the query builder's ⋯ chip, the Flowchart's LR · TD chip
+ * and find state's icon (#1245) — and the gestures that use them by touch
+ * there; on the wide touch screen, where the rows unfold, the frame narrowed
+ * until the design widths fold to their icons, which the edge check reaches,
+ * and then until the chips draw.
  */
 const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[]; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
     {
@@ -501,6 +567,16 @@ const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[
         chips: ["[data-query-more]"],
         phone: [popoverFromChip("[data-query-more]", "Save…")],
         wide: [{ what: "the frame narrowed until the ⋯ chip draws", run: (entry, page) => narrowUntil(entry, page, "[data-query-more]") }],
+    },
+    {
+        name: "flowchartDepot", hash: "e3/flowchart/flowchart/flowchartDepot",
+        chips: ["[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']", "[data-toolbar-item='rail'] [data-slot='railTrigger']"],
+        phone: [orientationByTouch, findByTouch],
+        wide: [
+            findStepped,
+            { what: "the frame narrowed until LR · TD folds into its chip", run: (entry, page) => narrowUntil(entry, page, "[data-flowchart-segmenu]") },
+            findToIcon,
+        ],
     },
 ];
 
