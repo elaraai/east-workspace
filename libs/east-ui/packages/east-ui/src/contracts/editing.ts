@@ -106,7 +106,7 @@ export const EditingBatchReadinessType = VariantType({
  * @property remove - An entry removed
  * @property resize - An element's extent changed (#879 — a Plan run's start or end)
  * @property drop - Something dropped onto the collection from elsewhere (#879)
- * @property verdict - A review verdict (#879 — Approve, Reject, and their "all" forms)
+ * @property verdict - A review verdict (#879). No collection makes one since the Plan's review went (#1260); the case stays so a journal of earlier events still reads
  * @property undo - Undo
  * @property redo - Redo
  * @property discard - Drafts discarded

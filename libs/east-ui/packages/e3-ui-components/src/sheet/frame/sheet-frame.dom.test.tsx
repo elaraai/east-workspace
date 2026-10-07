@@ -9,7 +9,7 @@
  * surface installs, over the in-memory stand-in records, whose patch door
  * applies each patch with East's own checks (`harness.test-utils.tsx`): the
  * frame's regions and the panes it is given — none, a library, an inspector,
- * or both — the sheet's items in the frame's one toolbar, an Apply's banners
+ * or both — the sheet's items in the frame's one toolbar, a Save's banners
  * — a conflict, a write with no answer and its Retry, the out-of-date notice
  * and its Discard — the footer's last save, a week the record does not hold,
  * and the panes' open tab and collapsed state kept under the sheet's name.
@@ -136,21 +136,21 @@ test("the toolbar is the frame's one row, the sheet's items in §7.1's order; th
     expect(slot(container, "toolbar")!.contains(document.activeElement)).toBe(true);
 });
 
-test("an Apply's conflict is a banner naming its row and who changed the record last, then the out-of-date notice, both gone with Discard (SB23)", async () => {
+test("a Save's conflict is a banner naming its row and who changed the record last, then the out-of-date notice, both gone with Discard (SB23)", async () => {
     const { container, getByRole } = mount(ex.sheetBasic);
     await settle();
     await typeTask(container, 0, "Panel cutting, oak");
     expect(banners(container)).toEqual([]);
-    // Another write moves the job just as Apply goes.
+    // Another write moves the job just as Save goes.
     const moved = encodeBeast2For(JobsPatch)(diffFor(JOBS.type)(readJobs(), withTask(readJobs(), "J-0001", "Panel cutting, walnut")));
     await act(async () => {
         void harness.memory.mutate(WORKSPACE, JOBS.name, "patch", { args: [moved] });
-        press(getByRole("button", { name: "Apply changes" }));
+        press(getByRole("button", { name: "Save" }));
     });
     await settle();
     expect(banners(container)).toEqual(["conflict", "stale"]);
     const conflict = slot(container, "banners")!.querySelector('[data-session-banner="conflict"]')!;
-    expect(conflict.textContent).toContain("Apply stopped — 1 conflict with the source");
+    expect(conflict.textContent).toContain("Save stopped — 1 conflict with the source");
     expect(conflict.textContent).toContain("J-0001: Changed since this edit began — last changed by memory");
     // The history item says nothing under its buttons: the toolbar keeps one row.
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
@@ -167,11 +167,11 @@ test("a write with no answer is a banner with Retry, which sends the same reques
     await typeTask(container, 1, "Edge banding, both edges");
     // The write goes out and nothing comes back.
     initializeRecordApi({ ...harness.memory, mutate: async () => { throw new Error("The connection closed"); } }, harness.cache, WORKSPACE);
-    await act(async () => { press(getByRole("button", { name: "Apply changes" })); });
+    await act(async () => { press(getByRole("button", { name: "Save" })); });
     await settle();
     expect(banners(container)).toEqual(["unknown"]);
     const unknown = slot(container, "banners")!.querySelector('[data-session-banner="unknown"]')!;
-    expect(unknown.textContent).toContain("No answer from the source — the changes may have been applied");
+    expect(unknown.textContent).toContain("No answer from the source — the changes may have been saved");
     expect(unknown.textContent).toContain("The connection closed");
     expect(slot(container, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
 

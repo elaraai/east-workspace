@@ -101,7 +101,7 @@ describe("the Plan geometry table (#817)", () => {
             key: "r", parent: none,
             gutter: { label: "R", id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
             kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
-            collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+            collapsed: false, pinned: false, height: none, status: none, expand: none,
         } as unknown as PlanRowValue;
         const at = (dense: boolean) => rowHeight({ row, depth: 0, collapsed: false }, dense, new Set());
         expect(at(false)).toBe(PLAN_GEOMETRY.default.row);

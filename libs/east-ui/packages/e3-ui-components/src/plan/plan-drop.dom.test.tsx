@@ -167,7 +167,7 @@ describe("Plan drop target (#880)", () => {
         test(`a ${axis} axis: the job lands at the start of the bucket it was dropped in, on the axis's arm`, async () => {
             const canvas = await mountCanvas({ arm: "inline", axis });
             await dropJob(canvas, "job-1", "p1");
-            await history(canvas, "Apply changes");
+            await history(canvas, "Save");
             const jobs = canvas.stored().get("p1")!.jobs;
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             // jsdom's zero-width rect puts the pointer in the FIRST bucket.
@@ -292,7 +292,7 @@ describe("Plan drop target by keyboard (#608)", () => {
             expect(jobsDrawn(c, "p2")).toEqual(["job-1"]);
             expect(marks(c)).toEqual({ p2: "pending" });
             expect(canvas.patches.map((p) => p.label)).toEqual(["Drop job-1 on Press 2"]);
-            await history(canvas, "Apply changes");
+            await history(canvas, "Save");
             const jobs = canvas.stored().get("p2")!.jobs;
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             expect(sameInstant(jobs[0]!.at, variant("time", W28))).toBe(true);

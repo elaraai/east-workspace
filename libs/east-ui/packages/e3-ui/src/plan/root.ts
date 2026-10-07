@@ -5,8 +5,8 @@
 
 /**
  * The Plan's canvas — `Plan.Root`, which assembles the canvas's root
- * ({@link PlanRootType}): its rows over `data`, its axis, links, review,
- * editing session and the rest. `<Plan>` carries it in its payload (#1191),
+ * ({@link PlanRootType}): its rows over `data`, its axis, links, editing
+ * session and the rest. `<Plan>` carries it in its payload (#1191),
  * beside the event kinds and their resources.
  *
  * @packageDocumentation
@@ -87,7 +87,7 @@ import {
     type PlanAxisKindLiteral,
     type PlanAxisInput,
 } from "./types.js";
-import { PlanReviewType, PlanRootType } from "./ir.js";
+import { PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES } from "./builders.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
@@ -101,43 +101,16 @@ const DEFAULT_PLAN_AFFORDANCES: SliceAffordanceLiteral[] =
     ["cohort", "filter", "search", "range", "resolution", "brush", "summary"];
 
 /**
- * The Plan's review chrome (#880) — the decision column and the batch foot.
- *
- * @remarks
- * A verdict is a gesture of the editing session, not a callback: the series
- * whose rows are reviewed names the entry field a verdict writes
- * (`review: { verdict: "approval" }`), Approve / Reject on a row and Approve
- * all / Reject all at the foot draft its entries, and Apply sends them as one
- * checked batch (`editing`). Rerun changes no data, so it stays a callback.
- *
- * @property columnLabel - The decision column's header (default `"Decision"`)
- * @property summary - The foot's eyebrow — a host-composed component
- * @property onRerun - Rerun (absent ⇒ no Rerun button)
- * @property rerunLabel - The Rerun button's label (default `"Rerun"`)
- */
-export interface PlanReviewConfig {
-    /** The decision column's header (default `"Decision"`). */
-    columnLabel?: SubtypeExprOrValue<StringType> | string;
-    /** The foot's eyebrow — a host-composed component. */
-    summary?: SubtypeExprOrValue<UIComponentType>;
-    /** Rerun (absent ⇒ no Rerun button) — it changes no data, so it stays a callback. */
-    onRerun?: SubtypeExprOrValue<FunctionType<[], NullType>>;
-    /** The Rerun button's label (default `"Rerun"`). */
-    rerunLabel?: SubtypeExprOrValue<StringType> | string;
-}
-
-/**
  * The Plan's editing session (#880) — the Sheet's, over the canvas's entries:
- * every verdict, every dropped card and every moved or resized element (#825)
- * is a DRAFT of the entry it was made on, each gesture one undoable
- * transaction, and Apply one checked, idempotent batch against the base the
- * drafts began from.
+ * every dropped card and every moved or resized element (#825) is a DRAFT of
+ * the entry it was made on, each gesture one undoable transaction, and Save
+ * one checked, idempotent batch against the base the drafts began from.
  *
  * @remarks
  * The entries are `data`'s top-level entries: a gesture on a row at any depth
  * drafts the entry its row came from (the whole subtree rides in it), and the
  * canvas draws a draft by deriving the entry's rows again — exactly what
- * Apply leaves. The callbacks are East functions over the canvas's own entry
+ * Save leaves. The callbacks are East functions over the canvas's own entry
  * type `R` and key type `K`:
  *
  * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`
@@ -150,12 +123,12 @@ export interface PlanReviewConfig {
  *   retries. Exclusive with `onApply`.
  * - `onPatch(Plan.Types.PatchEvent(R))` observes every gesture.
  * - `ready(R, K) → Editing.Types.Readiness` is the author's check over one
- *   drafted entry; a refusal blocks Apply and names the entry.
+ *   drafted entry; a refusal holds Save and names the entry.
  *
  * @property onApply - Commit one checked batch (sync or async)
  * @property onUpdate - The inline adapter's writer — the whole collection with the batch applied (requires `data={liveHandle}`)
  * @property onPatch - Observe every gesture
- * @property mode - `"batch"` (Apply sends) or `"auto"` (each ready gesture goes at once)
+ * @property mode - `"batch"` (Save sends) or `"auto"` (each ready gesture goes at once)
  * @property ready - The author's readiness check over a drafted entry
  */
 export interface PlanEditingConfig {
@@ -165,7 +138,7 @@ export interface PlanEditingConfig {
     onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(Plan.Types.PatchEvent(R)) → Null`. */
     onPatch?: ExprType<EastType>;
-    /** When a ready batch goes: on Apply (`"batch"`, the default), or at once (`"auto"`). */
+    /** When a ready batch goes: on Save (`"batch"`, the default), or at once (`"auto"`). */
     mode?: "batch" | "auto";
     /** The author's check over one drafted entry — `Fn(R, K) → Editing.Types.Readiness`. */
     ready?: ExprType<EastType>;
@@ -205,8 +178,7 @@ export interface PlanBindHandle {
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row's id)
  * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row's id)
- * @property review - The review chrome (decision column + batch foot); a verdict is a gesture of `editing`
- * @property editing - The editing session (#880) — every verdict, dropped card, move and resize a draft, applied as one checked batch
+ * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
  * @property id - DnD target identity (omit ⇒ the canvas is no drop target)
@@ -289,11 +261,8 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  their place once the row has the canvas. Called with the same row id
      *  as `expandRender`. */
     expandGutter?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], UIComponentType>>;
-    /** The review chrome (decision column + batch foot, #880). A verdict is a gesture of `editing`, written into
-     *  the field the reviewed series names (`review: { verdict }` on the series). */
-    review?: PlanReviewConfig;
-    /** The editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: the
-     *  decision buttons are disabled, no card lands and nothing moves. */
+    /** The editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: no card
+     *  lands and nothing moves. */
     editing?: PlanEditingConfig;
     /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
     slice?: {
@@ -385,8 +354,8 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  * @remarks
  * Window and resolution have no callbacks by design: they are slice writes
  * (`setRange` / `setResolution`) — hosts observe the slice. A change to the
- * data — a verdict, a dropped card, a moved or resized element — is a draft of
- * the `editing` session, applied as one checked batch (#880, #825).
+ * data — a dropped card, a moved or resized element — is a draft of the
+ * `editing` session, saved as one checked batch (#880, #825).
  */
 export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<PlanRootType> {
     return buildPlanRoot(config, undefined);
@@ -425,13 +394,10 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the `editing` session: declare " +
             "`edit: { items, create }` on the series it lands on, and commit with `editing.onApply` (or `onUpdate`)");
     }
-    const removedVerbs = ["onApprove", "onReject", "onApproveAll", "onRejectAll"]
-        .filter((k) => config.review !== undefined && k in (config.review as object));
-    if (removedVerbs.length > 0) {
+    if ("review" in (config as object)) {
         throw new Error(
-            `Plan: review.${removedVerbs.join(" / review.")} ${removedVerbs.length > 1 ? "are" : "is"} removed (#880) — a verdict is a ` +
-            "draft of the `editing` session: name the field it writes on the reviewed series (`review: { verdict: \"approval\" }`), " +
-            "and commit with `editing.onApply` (or `onUpdate`)");
+            "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
+            "`editing` session, undone, redone, discarded or saved together");
     }
     if (config.data === undefined) {
         for (const prop of ["series", "pick", "editing"] as const) {
@@ -550,12 +516,6 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         expandGutter: config.expandGutter !== undefined
             ? some(East.value(config.expandGutter, FunctionType([PlanRowIdType], UIComponentType)))
             : none,
-        review:   config.review !== undefined ? some(East.value({
-            columnLabel: config.review.columnLabel ?? "Decision",
-            summary:     config.review.summary !== undefined ? some(config.review.summary) : none,
-            onRerun:     config.review.onRerun !== undefined ? some(config.review.onRerun) : none,
-            rerunLabel:  config.review.rerunLabel ?? "Rerun",
-        }, PlanReviewType)) : none,
         editing:  editing !== undefined ? some(editing) : none,
         // The library rides as chrome, like the slice rail: the non-generic
         // contract only, since the payload must stay a closed East type.

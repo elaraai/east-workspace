@@ -13,13 +13,12 @@
  *   and its status; the overlaps banner when it overlaps another (#1198,
  *   PB53), a line per event it overlaps whose click selects that event; its
  *   resource, its start and end or its instant, its lane, its state and its
- *   quantity; its verdict, with Approve and Reject, when its kind is reviewed;
- *   its kind's fields through `FieldForm`, the fields its roles read left to
- *   their own lines — or, when the kind has its own inspector, what that
- *   returns for the event in place of the form (PB60); then Duplicate and
- *   Delete;
+ *   quantity; its kind's fields through `FieldForm`, the fields its roles
+ *   read left to their own lines — or, when the kind has its own inspector,
+ *   what that returns for the event in place of the form (PB60); then
+ *   Duplicate and Delete;
  * - **several events** (PB39): how many, each kind's count, the list, and the
- *   bulk edit — the state, the resource, a shift in time and the verdict;
+ *   bulk edit — the state, the resource and a shift in time;
  * - **a row** (PB40): a resource's name and lines, its group, its overlaps —
  *   the pairs on the resource in the window, each line selecting its pair
  *   (#1198) — its events in the window — how many, how long, how much of each
@@ -30,9 +29,9 @@
  *
  * Each event is read through its kind's own seam (`planEvent`), tracked, so a
  * commit to its record reads it again, and an event no longer there is left
- * out. The edit controls — the form's fields, the verdict's buttons, the bulk
- * edit, Duplicate and Delete, and a kind's own inspector — are drawn in one
- * disabled fieldset: the event kinds take their edits with #1194.
+ * out. The edit controls — the form's fields, the bulk edit, Duplicate and
+ * Delete, and a kind's own inspector — are drawn in one disabled fieldset:
+ * the event kinds take their edits with #1194.
  *
  * Styles are the `planInspector` recipe's, the form's `fieldForm`'s and the
  * buttons the shared `button`'s; the pane — its collapse control and its rail
@@ -368,7 +367,7 @@ function Fact({ styles, label, value, fact }: { styles: Styles; label: string; v
     );
 }
 
-/** One event: its head, its overlaps, its facts, its verdict, its fields or its kind's own inspector, and its gestures. */
+/** One event: its head, its overlaps, its facts, its fields or its kind's own inspector, and its gestures. */
 function OneEvent({ event, resources, keys, words, styles, counts, chrome }: OneEventProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -382,7 +381,6 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome }: One
     const lane = getSomeorUndefined(item.lane);
     const quantity = getSomeorUndefined(item.quantity);
     const status = getSomeorUndefined(item.status);
-    const verdict = roles.review.type === "some" ? getSomeorUndefined(item.verdict) : undefined;
 
     // Its row, held by its data: a read that brings the same row again draws nothing new.
     const row = useDataStable(event.row, blobEqual);
@@ -390,7 +388,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome }: One
     const value = useMemo(() => decodeBeast2For(rowType)(row), [rowType, row]);
     // The kind's form, but the fields its roles read: each has its own line here.
     const specs = useMemo(() => {
-        const roleFields = [roles.state, roles.quantity, roles.lane, roles.review].flatMap((field) => (field.type === "some" ? [field.value] : []));
+        const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
         return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
     }, [kind.fields, roles]);
     // The kind's own inspector (PB60): what it returns for the event, in place of the form.
@@ -449,13 +447,6 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome }: One
                 {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} value={quantityText(quantity, words)} />}
             </Box>
             <chakra.fieldset css={styles.edits} disabled data-inspector-edits="">
-                {verdict !== undefined && (
-                    <Box css={styles.verdict} data-inspector-verdict={verdict.type}>
-                        <Box as="span" css={styles.verdictWord} data-verdict={verdict.type}>{m.inspectorVerdict({ verdict: verdict.type })}</Box>
-                        <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="reject">{m.reject()}</chakra.button>
-                        <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="approve">{m.approve()}</chakra.button>
-                    </Box>
-                )}
                 {own !== undefined ? (
                     <Box css={styles.fields} data-inspector-fields="custom">
                         <Box css={styles.custom}>
@@ -498,7 +489,6 @@ function SeveralEvents({ events, kinds, resources, words, styles }: SeveralProps
         .map((kind) => ({ kind, n: events.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
         .filter(({ n }) => n > 0);
     const selectedKinds = counted.map(({ kind }) => kind);
-    const reviewed = selectedKinds.some((kind) => kind.roles.review.type === "some");
     // The bulk edit's state and resource, as the form draws a choice and a reference.
     const specs = useMemo((): FieldSpecValue[] => {
         const out: FieldSpecValue[] = [];
@@ -560,12 +550,6 @@ function SeveralEvents({ events, kinds, resources, words, styles }: SeveralProps
                             </chakra.button>
                         ))}
                     </Box>
-                    {reviewed && (
-                        <Box css={styles.shift} data-inspector-bulk-verdict="">
-                            <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="reject">{m.reject()}</chakra.button>
-                            <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="approve">{m.approve()}</chakra.button>
-                        </Box>
-                    )}
                 </Box>
                 <Box css={styles.actions} data-inspector-actions="">
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled data-inspector-action="duplicate">
@@ -770,7 +754,6 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
         { stat: "events" as const, n: counts.events, text: words.number(counts.events) },
         { stat: "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) },
         ...(counts.backlog !== undefined ? [{ stat: "backlog" as const, n: counts.backlog, text: words.number(counts.backlog) }] : []),
-        ...(counts.toReview !== undefined ? [{ stat: "review" as const, n: counts.toReview, text: words.number(counts.toReview) }] : []),
     ];
     return (
         <Box css={styles.root} data-plan-inspector="none">

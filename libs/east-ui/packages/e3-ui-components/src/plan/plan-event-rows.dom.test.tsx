@@ -27,7 +27,7 @@ import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId, type PlanWireRow } from "./model.js";
 import { NO_EDITS } from "./plan.test-utils.js";
-import { PENDING, decide, mountCanvas, pressRow, releaseCanvases, verdictOf, type PressValue } from "./plan-editing.test-utils.js";
+import { dropJob, jobsDrawn, mountCanvas, pressRow, releaseCanvases, type PressValue } from "./plan-editing.test-utils.js";
 import type { PlanEventRows } from "./root/events.js";
 import { el, elementKey, entry, mount, planHarness, programOf, rowAt, settle } from "./frame/harness.test-utils.js";
 
@@ -53,10 +53,10 @@ function jobsWith(key: string, change: (job: ValueTypeOf<typeof ex.PrintJob>) =>
 }
 
 // ============================================================================
-// The print works (PB12–PB16, PB18)
+// The print works (PB12–PB16)
 // ============================================================================
 
-describe("the print works' rows (PB12–PB16, PB18)", () => {
+describe("the print works' rows (PB12–PB16)", () => {
     test("each press its bars, its stops' marks and its utilisation, under its hall's strip; each crew its shifts' chips; every element its event, keyed by its kind and key", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
@@ -81,17 +81,6 @@ describe("the print works' rows (PB12–PB16, PB18)", () => {
         expect(bars.textContent).toContain("Press A1");
         expect(container.querySelector(rowAt(entry("presses.marks", "Hall A", "a1")))!.textContent).toContain("Stop");
         expect(container.querySelector(stripAt(entry("presses.group", "Hall B")))!.textContent).toContain("Hall B");
-    });
-
-    test("a reviewed kind's rows carry its events' verdict in the decision column — a decision the kinds will draft (#1194) — and a row with no reviewed event has none", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
-        await settle();
-        const cell = container.querySelector(`${rowAt(entry("presses.span", "Hall A", "a1"))} [data-slot="decisionCell"]`)!;
-        // J-1005 awaits a call.
-        expect(cell.getAttribute("data-verdict")).toBe("pending");
-        expect((cell.querySelector("[data-plan-approve]") as HTMLButtonElement).disabled).toBe(true);
-        expect(container.querySelector(`${rowAt(entry("presses.marks", "Hall A", "a1"))} [data-slot="decisionCell"]`)).toBeNull();
-        expect(container.querySelector(`${rowAt(entry("crews.cards", "Hall A", "c1"))} [data-slot="decisionCell"]`)).toBeNull();
     });
 
     test("the rows are read over the range the canvas draws — its window and the periods it lays out beyond each edge", async () => {
@@ -394,13 +383,13 @@ describe("the event kinds' rows beside `data`'s editing session (#880)", () => {
 
     /** 201 presses: the last, `p200`, is the first entry of the source's second window. */
     const MANY = new Map(Array.from({ length: 201 }, (_u, i): [string, PressValue] =>
-        [`p${String(i).padStart(3, "0")}`, { label: `Press ${i}`, approval: PENDING, jobs: [] }]));
+        [`p${String(i).padStart(3, "0")}`, { label: `Press ${i}`, crew: none, jobs: [] }]));
     /** A machine's row, keyed as a press is. */
     const machine = (key: string): PlanWireRow => ({
         id: entry("machines.span", key), parent: none,
         gutter: { label: `Machine ${key}`, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none, edits: NO_EDITS,
+        collapsed: false, pinned: false, height: none, status: none, expand: none, edits: NO_EDITS,
     }) as unknown as PlanWireRow;
     /** Event rows leading every window — one resource kind's block, then the Unassigned rows' — its machine keyed `p200`. */
     const LEAD: PlanEventRows = {
@@ -408,13 +397,12 @@ describe("the event kinds' rows beside `data`'s editing session (#880)", () => {
         blocks: () => some([{ fixed: true, parent: none, rows: [machine("p200")] }, { fixed: true, parent: none, rows: [] }]),
     };
 
-    test("a verdict on a paged entry is drafted from the window its own row came from — never from an event row whose path names its key", async () => {
+    test("a job dropped on a paged entry is drafted from the window its own row came from — never from an event row whose path names its key", async () => {
         const canvas = await mountCanvas({ arm: "paged", seed: MANY, events: LEAD });
         const c = canvas.container;
         expect(c.querySelector(rowAt(entry("machines.span", "p200")))).toBeTruthy();
-        expect(verdictOf(c, "p200")).toBe("pending");
-        await decide(c, "p200", "approve");
-        expect(verdictOf(c, "p200")).toBe("approved");
+        await dropJob(canvas, "job-1", "p200");
+        expect(jobsDrawn(c, "p200")).toEqual(["job-1"]);
         expect(pressRow(c, "p200").textContent).toContain("Press 200");
         expect(canvas.patches.map((p) => p.draftChanges.map((d) => d.id))).toEqual([["p200"]]);
     }, 30_000);

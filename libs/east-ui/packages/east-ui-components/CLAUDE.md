@@ -221,9 +221,11 @@ component, nothing in east-ui.
   the query builder's status line).
 - **Shared toolbar items.** The items more than one builder's toolbar takes
   live here, each with a narrower form for a row short of room: the history
-  item (`historyToolbarItem`, folding last, to its buttons), the review's batch
-  verbs (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons
-  fold into one menu) and the key search over a keyed source's `seek`
+  item (`historyToolbarItem`, folding last, to its buttons; its commit reads
+  Save in every builder, #1260), the review's batch verbs
+  (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons fold
+  into one menu — no builder takes it since the Plan's review went, #1260) and
+  the key search over a keyed source's `seek`
   (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
   edit popover, and keeps its form while a query is typed; `focusKeySearch`
   brings a host's key for it, the Sheet's ⌘F, to it in either form). Controls

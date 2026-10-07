@@ -145,9 +145,6 @@ export interface RowShellProps {
      *  scroll position and the status dot survive, and the strip itself is
      *  the return click target. */
     ctx?: boolean | undefined;
-    /** The trailing review cell, when the canvas carries review chrome — the
-     *  third track `gridTemplate` grows by (#569). */
-    decision?: ReactNode;
     /** DnD drop registration for this row's plot. Absent ⇒ the row registers
      *  no cell, so it is never a destination and never lights up. */
     drop?: PlanRowDrop | undefined;
@@ -171,7 +168,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, ctx, decision, drop, draft, children,
+    controls, focusTag, axisMode, ctx, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -547,7 +544,6 @@ export function RowShell({
                 {ctx !== true && <Box css={styles.cursorLine} data-plan-cursorline />}
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline data-plan-now />}
             </Box>
-            {decision}
         </Box>
     );
 }

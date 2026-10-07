@@ -424,7 +424,7 @@ export const studioPagesPatch = e3.mutation.patch(studioPages);
 export const studioBuilder = example({
     keywords: [
         "Studio", "Studio.Builder", "builder", "canvas", "palette", "inspector", "publish preview", "Preview", "Publish",
-        "SnapGrid", "toolbar", "history", "Undo", "Apply", "Save as template", "Record.bind", "patch", "e3.record",
+        "SnapGrid", "toolbar", "history", "Undo", "Save", "Save as template", "Record.bind", "patch", "e3.record",
         "e3.mutation.patch", "Studio.component", "components", "pages", "Desktop", "Tablet", "env", "audience", "rollout",
     ],
     description: "The builder over the pages record: the Ops console's Overview on the canvas under one toolbar — its status, the zoom, the history item, Desktop · Tablet, Save as template, Preview and Publish — the palette of the seven components before it and the inspector after it; Preview and Publish open the publish preview in the canvas's place, its two changes since v3 and the logic banner, and Exit returns",

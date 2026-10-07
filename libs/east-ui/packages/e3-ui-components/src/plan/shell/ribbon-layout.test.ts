@@ -51,7 +51,7 @@ function spanRow(key: string, opts?: { parent?: string; sub?: boolean }): PlanRo
             value: none, meta: none, stacked: false, swatches: [],
         },
         kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
     } as unknown as PlanWireRow])[0]!;
 }
 const rowItem = (r: PlanRowValue, collapsed = false): PlanBodyItem =>

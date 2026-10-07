@@ -42,12 +42,10 @@ export interface PlanRulerProps {
      *  DIRECTLY by the canvas's cursor controller (#609): label, position and
      *  visibility are DOM writes, so a pointermove renders nothing. */
     cursorChipRef?: React.Ref<HTMLDivElement>;
-    /** The trailing cell for the review decision column (#569). */
-    trailing?: React.ReactNode;
 }
 
 /** The 28px ruler band. */
-export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, trailing }: PlanRulerProps) {
+export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef }: PlanRulerProps) {
     const scale = usePlanScale();
     const words = usePlanWords();
     const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
@@ -77,7 +75,6 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, traili
                         data-plan-cursorchip style={{ display: "none" }} />
                 )}
             </Box>
-            {trailing}
         </Box>
     );
 }

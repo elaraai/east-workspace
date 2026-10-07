@@ -21,7 +21,7 @@ export const narrowSlots = [
     "narrowRoot", "narrowTabCount", "narrowRuler", "narrowRulerTrack",
     "narrowRulerTick", "narrowSection", "narrowSectionTitle", "narrowSectionGo", "narrowScope",
     "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList", "narrowCard",
-    "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody", "narrowCardFoot",
+    "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
     "narrowRender", "narrowTicks", "narrowMore", "narrowEmpty",
 ] as const;
 
@@ -269,11 +269,6 @@ export const narrowBase = {
         margin: "0 12px 10px",
         overflow: "hidden",
         minWidth: 0,
-    },
-    narrowCardFoot: {
-        display: "flex",
-        justifyContent: "flex-end",
-        padding: "0 12px 10px",
     },
     // A drilled card's render region (§10: ~148pt in place).
     narrowRender: {

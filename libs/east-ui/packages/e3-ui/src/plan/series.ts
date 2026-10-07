@@ -67,7 +67,7 @@ import {
     none,
 } from "@elaraai/east";
 
-import { ApprovalStateType, IconType, StatusValueType, type StatusValueLiteral } from "@elaraai/east-ui";
+import { IconType, StatusValueType, type StatusValueLiteral } from "@elaraai/east-ui";
 import { TableAggregateType, TickFormatType, reifyAccessor, resolveTag, type TableAggregateLiteral } from "@elaraai/east-ui/internal";
 import {
     PlanAggregateType,
@@ -162,7 +162,7 @@ export type PlanSeriesArm =
  * It carries its writer too (#880), `write: Fn(R, K, RowId, Gesture,
  * Ref<Option<Blob>>) → Option<R>` — a gesture on one of its rows written into
  * the entry the row came from, through the fields the series declares
- * (`review.verdict`, `edit`), at whatever depth the row sits; `none` when no
+ * (`edit`), at whatever depth the row sits; `none` when no
  * series in its tree takes the gesture on that row. The `Ref` is the item a
  * move to another row carries (#825): the source row's write takes the item
  * out of its list into it, as bytes, and the target row's write puts it into
@@ -378,16 +378,6 @@ export type PlanEntryFields<R extends EastType> =
         : R extends StructType<infer F> ? F : never;
 
 /**
- * An entry field that holds a review verdict — an `ApprovalStateType` field,
- * what a series' `review.verdict` names.
- *
- * @typeParam R - The entry type
- */
-export type PlanVerdictField<R extends EastType> = {
-    [K in keyof PlanEntryFields<R> & string]: PlanEntryFields<R>[K] extends ApprovalStateType ? K : never;
-}[keyof PlanEntryFields<R> & string];
-
-/**
  * An entry field that holds a list of items — an `Array` field, what a
  * series' `edit.items` names.
  *
@@ -440,17 +430,6 @@ export type PlanItemInstantType = DateTimeType | FloatType | IntegerType | Strin
 export type PlanItemInstantField<T extends EastType> = {
     [K in keyof PlanItemFields<T> & string]: PlanItemFields<T>[K] extends PlanItemInstantType ? K : never;
 }[keyof PlanItemFields<T> & string];
-
-/**
- * What a review verdict writes on a series' rows (#880).
- *
- * @typeParam R - The entry type
- * @property verdict - The entry's `ApprovalStateType` field a verdict writes; the row shows it as its `approval`
- */
-export interface PlanReviewInput<R extends EastType> {
-    /** The entry's `ApprovalStateType` field a verdict writes — the row shows it as its `approval`. */
-    verdict: PlanVerdictField<R>;
-}
 
 /**
  * What the gestures on a run or chip series' rows write (#880, #825) — one arm
@@ -566,24 +545,6 @@ export interface PlanSeriesRowConfig<R extends EastType, KT extends EastType = S
     value?: PlanAccessor<R, OptionType<StringType>, KT>;
     /** Per-row status-dot accessor — returns the field's `Option`. */
     status?: PlanAccessor<R, OptionType<StatusValueType>, KT>;
-    /**
-     * Per-row review-verdict accessor, READ-ONLY — returns the field's
-     * `Option`.
-     *
-     * @remarks
-     * Shows a verdict the canvas cannot change — one decided elsewhere, or
-     * derived (`deriveApproval(r.flagged)`); the row's Approve / Reject stay
-     * disabled. A verdict the canvas TAKES is declared with `review.verdict`,
-     * which the row shows as its approval instead — give one or the other.
-     */
-    approval?: PlanAccessor<R, OptionType<ApprovalStateType>, KT>;
-    /**
-     * What a review verdict writes (#880) — the entry's `ApprovalStateType`
-     * field. The row shows the field as its approval, and Approve / Reject on
-     * it (or Approve all / Reject all over the canvas) draft the entry with the
-     * field set, as one undoable gesture of the root's `editing` session.
-     */
-    review?: PlanReviewInput<R>;
     /** Per-row expand-in-place accessor — returns the field's `Option`. */
     expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT>;
     /**
@@ -831,7 +792,7 @@ interface PlanSeriesSpec {
     /** This series' writer for entries of `collection` (#880) — `undefined` when nothing in its tree takes a gesture. */
     writer(collection: EastType, where: string): WriteFn | undefined;
     /** A data series' own edit for entries keyed by `key` (#880; `views` dispatches its members' by key) —
-     *  `undefined` when it declares neither `review` nor `edit`. */
+     *  `undefined` when it declares no `edit`. */
     ownFor?(key: EastType): OwnEditFn | undefined;
 }
 
@@ -1207,26 +1168,23 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const onEntry = (accessor: (v: ExprType<EastType>, k: ExprType<EastType>) => Expr) =>
         (v: ExprType<EastType>, k: ExprType<EastType>): Expr => accessor(nodeOf(v), k);
 
-    // What a gesture writes (#880, #825) — a verdict into `review.verdict`, a
-    // dropped card into `edit.items`, a moved element into its item's fields
-    // — each a FIELD of the entry (its node, when recursive) or of its items,
-    // checked here so a misnamed field fails the build.
-    const review = cfg.review as { verdict: string } | undefined;
+    // The removed verdict, named (#1260) — a plain JS caller would otherwise
+    // lose it silently.
+    for (const removed of ["review", "approval"] as const) {
+        if (removed in (cfg as object)) {
+            throw new Error(`${where}: \`${removed}\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the root's \`editing\` session`);
+        }
+    }
+    // What a gesture writes (#880, #825) — a dropped card into `edit.items`, a
+    // moved element into its item's fields — each a FIELD of the entry (its
+    // node, when recursive) or of its items, checked here so a misnamed field
+    // fails the build.
     const edit = recipe.edit;
     const nodeType = (recursive ? (rowType as RecursiveType<EastType>).node : rowType) as { type: string; fields?: Record<string, EastType> };
-    if ((review !== undefined || edit !== undefined) && nodeType.type !== "Struct") {
-        throw new Error(`${where}: \`review\` and \`edit\` write a field of the entry — its entries must be structs (a recursive entry's node included)`);
+    if (edit !== undefined && nodeType.type !== "Struct") {
+        throw new Error(`${where}: \`edit\` writes a field of the entry — its entries must be structs (a recursive entry's node included)`);
     }
     const entryFields = nodeType.fields ?? {};
-    if (review !== undefined) {
-        if (cfg.approval !== undefined) {
-            throw new Error(`${where}: give \`review.verdict\` (the field a verdict writes, which the row shows) or \`approval\` (a verdict the canvas only shows) — not both`);
-        }
-        const t = entryFields[review.verdict];
-        if (t === undefined || !isTypeEqual(t, ApprovalStateType)) {
-            throw new Error(`${where}: \`review.verdict\` names "${review.verdict}", which is not an ApprovalStateType field of the entry`);
-        }
-    }
     let itemType: EastType | undefined;
     let move: MoveFields | undefined;
     if (edit !== undefined) {
@@ -1237,10 +1195,9 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         itemType = t.value;
         move = moveFieldsOf(edit, itemType!, recipe.arm, where);
     }
-    const edits = review !== undefined || edit !== undefined
+    const edits = edit !== undefined
         ? {
-            verdict: review !== undefined,
-            drop: edit?.create !== undefined,
+            drop: edit.create !== undefined,
             move: move !== undefined ? some(move.edits) : none,
         }
         : undefined;
@@ -1272,11 +1229,6 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                 collapsed,
                 ...(recipe.pinned !== undefined ? { pinned: recipe.pinned(entry, key) } : {}),
                 ...(cfg.status !== undefined ? { status: cfg.status(entry, key) } : {}),
-                // A verdict the canvas takes shows from its field (#880) — so
-                // a drafted verdict draws where it was made.
-                ...(review !== undefined
-                    ? { approval: some((entry as unknown as Record<string, ExprType<ApprovalStateType>>)[review.verdict]!) }
-                    : cfg.approval !== undefined ? { approval: cfg.approval(entry, key) } : {}),
                 ...(cfg.expand !== undefined ? { expand: cfg.expand(entry, key) } : {}),
                 ...(edits !== undefined ? { edits } : {}),
             });
@@ -1392,22 +1344,10 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     // ── Writing a gesture back (#880) ─────────────────────────────────────
     // The entry a writer is handed is DETACHED (the series value's `write`
     // copies it), so a nested entry is written in place in its collection and
-    // a dropped card's item joins its list in place: only an entry whose OWN
-    // field changes — a verdict — is rebuilt.
+    // a dropped card's item joins its list in place.
     const owns = new ByType<OwnEditFn | undefined>();
     const writers = new ByType<WriteFn | undefined>();
     const entryAccess = (value: ExprType<EastType>) => nodeOf(value) as unknown as Record<string, ExprType<EastType>>;
-
-    /** The entry with its verdict field set — rebuilt, every other field as it was. */
-    const withVerdict = review === undefined ? undefined : East.function([rowType, ApprovalStateType], rowType, ($, value, verdict) => {
-        const node = recursive ? $.let(nodeOf(value)) : value;
-        const read = node as unknown as Record<string, ExprType<EastType>>;
-        const rebuilt = East.value(
-            Object.fromEntries(Object.keys(entryFields).map((f) => [f, f === review.verdict ? verdict : read[f]!])) as unknown as SubtypeExprOrValue<EastType>,
-            nodeType as EastType,
-        ) as ExprType<EastType>;
-        return recursive ? East.wrapRecursive(rebuilt, rowType as RecursiveType<EastType>) as ExprType<EastType> : rebuilt;
-    });
 
     /** The item a dropped card becomes, for entries keyed by `kt`. */
     const createFor = (kt: EastType, create: NonNullable<AnyEditInput["create"]>) => building(where, kt, () => East.function(
@@ -1465,23 +1405,18 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
 
     /**
      * This series' own edit on one of its entries — the row at `path` is its
-     * own: a verdict into its field, a dropped card's item into its list, and
-     * a moved element's item re-timed where it is, taken out of the list, or
-     * put into it (#825).
+     * own: a dropped card's item into its list, and a moved element's item
+     * re-timed where it is, taken out of the list, or put into it (#825).
      */
     const ownFor = (kt: EastType): OwnEditFn | undefined => owns.get(kt, () => {
-        if (review === undefined && edit === undefined) return undefined;
-        const create = edit?.create !== undefined ? createFor(kt, edit.create) : undefined;
+        if (edit === undefined) return undefined;
+        const create = edit.create !== undefined ? createFor(kt, edit.create) : undefined;
         return East.function([rowType, kt, PathType, PlanGestureType, PlanCarriedType], OptionType(rowType),
             ($, value, key, path, gesture, carried) => {
-                const setVerdict = withVerdict === undefined ? undefined : $.const(withVerdict);
                 const make = create === undefined ? undefined : $.const(create);
                 const place = placed === undefined ? undefined : $.const(placed);
                 const result = $.let(none, OptionType(rowType));
                 $.match(gesture, {
-                    verdict: ($2, verdict) => {
-                        if (setVerdict !== undefined) $2.assign(result, some(setVerdict(value, verdict)));
-                    },
                     drop: ($2, drop) => {
                         if (make === undefined || edit === undefined) return;
                         const list = $2.let(entryAccess(value)[edit.items]! as unknown as ExprType<ArrayType<EastType>>);
@@ -2350,7 +2285,7 @@ export function checkSeries(series: PlanSeriesInput, where: string): void {
  * @property key - Its key
  * @property title - Its title
  * @property nests - Whether it declares `children`
- * @property writes - Whether anything in its tree takes a gesture over the collection: a `review.verdict` or an `edit`
+ * @property writes - Whether anything in its tree takes a gesture over the collection: an `edit`
  */
 export interface PlanSeriesFacts {
     readonly arm: PlanSeriesArm;

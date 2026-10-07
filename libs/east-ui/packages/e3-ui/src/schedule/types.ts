@@ -17,7 +17,7 @@ import {
     StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { ApprovalStateType, EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
+import { EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
 import { PlanDrawType, PlanQuantityType, PlanRollupType } from "../plan/types.js";
 import { RowInspectorType } from "../utils/row-inspector.js";
@@ -325,19 +325,17 @@ export type ScheduleOverlapsType = typeof ScheduleOverlapsType;
 
 /**
  * One event as Plan draws it: what every view draws ({@link ScheduleItemType}),
- * with its lifecycle, its quantity, its lane and its verdict.
+ * with its lifecycle, its quantity and its lane.
  *
  * @property state - The lifecycle it wears, from its kind's `state` field; confirmed when the kind has none
  * @property quantity - Its kind's `quantity` field, with the kind's unit and format: what a bar prints and a parent's rollup sums
  * @property lane - The lane its tile sits in, from its kind's `lane` field
- * @property verdict - Its review verdict, from its kind's `review` field
  */
 export const PlanEventItemType = StructType({
     ...ScheduleItemType.fields,
     state: EventStateType,
     quantity: OptionType(PlanQuantityType),
     lane: OptionType(StringType),
-    verdict: OptionType(ApprovalStateType),
 });
 
 /** Type representing {@link PlanEventItemType}. */
@@ -362,13 +360,11 @@ export type PlanEventReadType = typeof PlanEventReadType;
  * @property state - The `EventStateType` field
  * @property quantity - The `Float` quantity field
  * @property lane - The `String` lane field
- * @property review - The `ApprovalStateType` field a verdict writes
  */
 export const PlanEventRolesType = StructType({
     state: OptionType(StringType),
     quantity: OptionType(StringType),
     lane: OptionType(StringType),
-    review: OptionType(StringType),
 });
 
 /** Type representing {@link PlanEventRolesType}. */

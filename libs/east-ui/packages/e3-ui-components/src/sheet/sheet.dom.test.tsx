@@ -804,11 +804,11 @@ function brokenRow(row: SheetRowValue): SheetRowValue {
  * A held paged source (#853): `n` jobs served a window at a time, while the
  * test decides what the source does — which windows are in flight or throw,
  * whether it is down, whether its count or a single entry's read (the
- * read-back after an Apply) throws, which row the renderer is handed broken.
+ * read-back after a Save) throws, which row the renderer is handed broken.
  * The Sheet is built by its own factory over it, so the projection, the base
  * reads and every author context read through it. Every read tracks
  * {@link HELD_KEY}, so `touch` reaches the reads that saw the source, as a
- * real source's channel does; an Apply writes the jobs and moves the
+ * real source's channel does; a Save writes the jobs and moves the
  * revision, as a real write does.
  */
 function heldSheet(n: number) {
@@ -822,7 +822,7 @@ function heldSheet(n: number) {
         failing: new Map<number, string>(),
         inFlight: new Set<number>(),
         broken: undefined as string | undefined,
-        /** What happens to the source once an Apply's batch is written. */
+        /** What happens to the source once a Save's batch is written. */
         afterApply: undefined as (() => void) | undefined,
         refreshes: 0,
         /** The window of every page read. */
@@ -1231,7 +1231,7 @@ describe("failure is local (#853)", () => {
         }
     });
 
-    test("a confirmation read that throws keeps the Apply waiting, with its reason and Retry in the frame's banner and Retry on the history bar; a Retry that fails again says so again; one that gets through confirms it", async () => {
+    test("a confirmation read that throws keeps the Save waiting, with its reason and Retry in the frame's banner and Retry on the history bar; a Retry that fails again says so again; one that gets through confirms it", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             // The edited row sits after a failed window: it is read back at its own position.
@@ -1252,10 +1252,10 @@ describe("failure is local (#853)", () => {
             const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
             // The read-back's reason is the frame's banner, with its Retry; the history item says nothing under its buttons.
             const confirm = () => container.querySelector<HTMLElement>('[data-frame-slot="banners"] [data-session-banner="confirm"]');
-            fireEvent.click(within(bar).getByRole("button", { name: "Apply changes" }));
+            fireEvent.click(within(bar).getByRole("button", { name: "Save" }));
             await waitFor(() => expect(confirm()?.textContent).toContain("read-back refused"));
             expect(within(bar).queryByRole("alert")).toBeNull();
-            expect(within(bar).getByRole("status").textContent).toBe("Applied — loading the confirmed revision…");
+            expect(within(bar).getByRole("status").textContent).toBe("Saved — loading the confirmed revision…");
             expect(within(bar).getByRole("button", { name: "1 issue" })).toBeTruthy();
             expect(held.state.refreshes).toBe(1);
             // Retry asks the source again — the bar's, and then the banner's; the read fails again each time, and the banner says so again.
@@ -1267,7 +1267,7 @@ describe("failure is local (#853)", () => {
             await flush();
             expect(held.state.refreshes).toBe(3);
             expect(confirm()?.textContent).toContain("read-back refused");
-            // The read gets through: the Apply is confirmed, and the banner leaves.
+            // The read gets through: the Save is confirmed, and the banner leaves.
             held.state.entryError = undefined;
             held.touch();
             await waitFor(() => expect(confirm()).toBeNull());
@@ -1344,7 +1344,7 @@ describe("failure is local (#853)", () => {
             expect(status().textContent).toBe("C400");
             const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
             expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
-            expect(within(bar).getByRole("button", { name: "Apply changes" }).hasAttribute("disabled")).toBe(false);
+            expect(within(bar).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
         } finally {
             logged.mockRestore();
         }

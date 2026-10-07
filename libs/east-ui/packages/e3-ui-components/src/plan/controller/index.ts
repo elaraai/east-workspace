@@ -237,10 +237,6 @@ export interface PlanController {
     overlayIntent(kind: "popover" | "hover", ref: PlanElementRefValue, open: boolean): void;
     /** A labelled mark's tooltip opens, or closes (`null`). */
     tooltipIntent(tip: PlanTooltip | null): void;
-    /** Rerun — the root's `review.onRerun`. A verdict and a dropped card are
-     *  drafts of the editing session (#880), not the controller's to report;
-     *  Rerun changes no data, so it stays a callback. */
-    rerun(): void;
     /** The paged source's content moved under the same source — a drafted
      *  canvas's windows, derived with new drafts (#880): read its windows
      *  again at the revision it names now, the rows it has standing in until
@@ -300,8 +296,6 @@ const refEqual = equalFor(Plan.Types.ElementRef);
 const uiStateEqual = equalFor(Plan.Types.UiState);
 /** A String key's `.east` literal — how an exact key search names it. */
 const printString = printFor(StringType);
-
-type PlanReviewValue = ValueTypeOf<typeof Plan.Types.Review>;
 
 /**
  * The declared-collapsed row keys among `rows`.
@@ -1028,12 +1022,6 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (overlay.tooltip?.key === tip.key && overlay.tooltip.text === tip.text) return;
                 overlay = { ...overlay, tooltip: tip };
             });
-        },
-        rerun() {
-            // The LATEST root's, after the handler (#569).
-            const review: PlanReviewValue | undefined = value !== undefined ? getSomeorUndefined(value.review) : undefined;
-            const fn = review !== undefined ? getSomeorUndefined(review.onRerun) : undefined;
-            if (fn !== undefined) queueMicrotask(() => fn());
         },
         refreshSource() {
             batch(() => paging.refresh());

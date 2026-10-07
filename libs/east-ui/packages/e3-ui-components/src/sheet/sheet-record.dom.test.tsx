@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * A Sheet over the host's rows, read from one entry of an e3 record (#1180):
- * the configurator's sheet, its rows `data` read with `Record.bind`, and Apply
+ * the configurator's sheet, its rows `data` read with `Record.bind`, and Save
  * handing the checked batch to `onApply` — `Record.onApply` over the entry's
  * rows, which commits it through the record's patch door. The example itself
  * is mounted, in its frame (#1216), under the record runtime a surface
@@ -90,7 +90,7 @@ function readRecord(): Plans {
     return decodeBeast2For(PLANS.type)(bytes);
 }
 
-test("an edited task, applied, is one commit through the record's patch door, and the drafts retire", async () => {
+test("an edited task, saved, is one commit through the record's patch door, and the drafts retire", async () => {
     // An example's `fn` erases its output type at the package boundary; the
     // Sheet's examples are UI components (as the showcase's `exampleIr` narrows).
     const program = (ex.sheetVariants.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
@@ -111,12 +111,12 @@ test("an edited task, applied, is one commit through the record's patch door, an
     await settle();
     fireEvent.keyDown(input, { key: "Enter" });
     await settle();
-    const apply = utils.getByRole("button", { name: "Apply changes" });
-    expect((apply as HTMLButtonElement).disabled).toBe(false);
+    const save = utils.getByRole("button", { name: "Save" });
+    expect((save as HTMLButtonElement).disabled).toBe(false);
     expect(row().hasAttribute("data-draft")).toBe(true);
     await act(async () => {
-        fireEvent.mouseDown(apply, { button: 0 });
-        fireEvent.click(apply);
+        fireEvent.mouseDown(save, { button: 0 });
+        fireEvent.click(save);
     });
     await settle();
 
@@ -130,10 +130,10 @@ test("an edited task, applied, is one commit through the record's patch door, an
     const { commits } = await memory.history(WORKSPACE, PLANS.name, undefined);
     expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
 
-    // The drafts retired against the rows the record read back: no error, Apply
+    // The drafts retired against the rows the record read back: no error, Save
     // off, and the cell shows the record's task, no longer a draft over it.
     expect(utils.queryByRole("alert")).toBeNull();
-    expect((utils.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((utils.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(task().textContent).toContain("Spraying");
     expect(row().hasAttribute("data-draft")).toBe(false);
 });

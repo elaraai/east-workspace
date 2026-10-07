@@ -30,7 +30,7 @@ function row(key: string, kind: unknown, parent?: string): PlanRowValue {
         parent: parent !== undefined ? some(parent) : none,
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
         duplicateOf: undefined,
     } as unknown as PlanRowValue;
 }

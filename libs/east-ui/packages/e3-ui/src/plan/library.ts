@@ -247,7 +247,7 @@ export function librarySeries(): PlanLibraryTab {
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
- * import { ApprovalStateType, EventStateType, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { EventStateType, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
@@ -259,7 +259,6 @@ export function librarySeries(): PlanLibraryTab {
  *     press: OptionType(StringType),
  *     state: EventStateType,
  *     sheets: FloatType,
- *     verdict: ApprovalStateType,
  *     customer: StringType,
  *     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
  *     due: OptionType(DateTimeType),
@@ -292,12 +291,12 @@ export function librarySeries(): PlanLibraryTab {
  *     ["orchard-market", { name: "Orchard Street Market", district: "Old Town", trade: "Markets" }],
  * ]));
  * export const planLibraryJobs = e3.record("plan_library_jobs", DictType(StringType, PrintJob), new Map([
- *     ["J-3001", { title: "Shop catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 64000.0, verdict: variant("approved", null), customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
- *     ["J-3002", { title: "Gallery guide", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T10:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 32000.0, verdict: variant("approved", null), customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
- *     ["J-3003", { title: "Term timetable", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, verdict: variant("pending", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
- *     ["J-3004", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, verdict: variant("pending", null), customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
- *     ["J-3005", { title: "Gift tags", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
- *     ["J-3006", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 4000.0, verdict: variant("pending", null), customer: "Meridian Monthly", stock: variant("board", null), due: none }],
+ *     ["J-3001", { title: "Shop catalogue", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T14:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 64000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-15T00:00:00Z")) }],
+ *     ["J-3002", { title: "Gallery guide", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T10:00:00Z")), press: some("b1"), state: variant("confirmed", null), sheets: 32000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-3003", { title: "Term timetable", start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a2"), state: variant("proposed", variant("recommended", null)), sheets: 24000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-19T00:00:00Z")) }],
+ *     ["J-3004", { title: "Price lists", start: none, end: none, press: none, state: variant("estimated", null), sheets: 16000.0, customer: "Northwind Outfitters", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-3005", { title: "Gift tags", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-22T00:00:00Z")) }],
+ *     ["J-3006", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 4000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
  * ]));
  * export const planLibraryJobsPatch = e3.mutation.patch(planLibraryJobs);
  *
@@ -325,7 +324,7 @@ export function librarySeries(): PlanLibraryTab {
  *                         templates: [
  *                             { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
  *                               values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
- *                                         verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } },
+ *                                         customer: "", stock: variant("coated", null), due: none } },
  *                         ],
  *                     }),
  *                 }}

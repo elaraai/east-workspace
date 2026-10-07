@@ -9,9 +9,9 @@
  * count), `end: true` right-aligns.
  *
  * It leads with the Plan's own counts (PB23): its event kinds' events in the
- * window, their backlog, the changes waiting on Apply, the events to review,
- * and when a kind's record was last saved — `64 events · 9 in backlog · 4
- * pending · 2 to review · saved 14:02` — then the author's items.
+ * window, their backlog, the changes waiting on Save, and when a kind's record
+ * was last saved — `64 events · 9 in backlog · 4 pending · saved 14:02` — then
+ * the author's items.
  *
  * On a PAGED canvas the footer also carries the component's own transport line
  * (#567 D9) — `N loaded of M · Loading…`, right-aligned and marked
@@ -40,7 +40,7 @@ export interface PlanFooterProps {
     transport?: PlanTransport | undefined;
     /** The event kinds' counts (#1193, PB23) — omitted for a Plan without event kinds. */
     counts?: PlanEventCounts | undefined;
-    /** The changes waiting on Apply — omitted for a Plan that does not edit. */
+    /** The changes waiting on Save — omitted for a Plan that does not edit. */
     pending?: number | undefined;
     /** Whether the canvas draws its narrow layout: the items then wrap. */
     narrow?: boolean | undefined;
@@ -55,7 +55,6 @@ export function PlanFooter({ styles, items, transport, counts, pending, narrow }
     if (counts !== undefined) own.push({ key: "events", text: m.footerEvents({ n: counts.events, count: words.number(counts.events) }) });
     if (counts?.backlog !== undefined) own.push({ key: "backlog", text: m.footerBacklog({ n: counts.backlog, count: words.number(counts.backlog) }) });
     if (pending !== undefined) own.push({ key: "pending", text: m.footerPending({ n: pending, count: words.number(pending) }) });
-    if (counts?.toReview !== undefined) own.push({ key: "review", text: m.footerToReview({ n: counts.toReview, count: words.number(counts.toReview) }) });
     const saved = counts?.saved;
     if (saved !== undefined) {
         // Its time when it was today, its date and time otherwise.

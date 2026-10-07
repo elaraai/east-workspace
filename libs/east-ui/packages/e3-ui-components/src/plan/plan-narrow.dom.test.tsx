@@ -83,7 +83,7 @@ function planRow(key: string, kind: unknown, opts?: { id?: PlanRowId; parent?: s
         gutter: opts?.gutter ?? gutter(key),
         kind,
         collapsed: opts?.collapsed === true,
-        pinned: false, height: none, status: none, approval: none,
+        pinned: false, height: none, status: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
         edits: NO_EDITS,
     } as unknown as PlanWireRow;
@@ -109,11 +109,9 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
             format: none,
         }),
         grain: none,
-       
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
-        review: none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],

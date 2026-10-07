@@ -24,7 +24,7 @@ import { blocksSource, itemSel, oneBlock, rowId, rowSel } from "./plan.test-util
 import { PlanMessagesProvider, planMessages, type PlanMessages } from "./messages.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import type { PlanInstantValue } from "./instant.js";
-import { mountCanvas, pressRow, releaseCanvases } from "./plan-editing.test-utils.js";
+import { mountCanvas, releaseCanvases } from "./plan-editing.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -54,7 +54,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: s
         kind,
         collapsed: false, pinned: false, height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
-        approval: none, expand: none,
+        expand: none,
     } as unknown as PlanWireRow;
 }
 const group = (): PlanWireRow["kind"] => variant("group", { summary: variant("none", null) });
@@ -82,7 +82,7 @@ const heat = (cells: [Date, number][], aggregate?: string) => variant("heat", {
 });
 
 function planRoot(rows: PlanWireRow[], opts: {
-    source?: unknown; resolution?: string; window?: { min: Date; max: Date } | null; links?: unknown[]; review?: unknown;
+    source?: unknown; resolution?: string; window?: { min: Date; max: Date } | null; links?: unknown[];
 } = {}): PlanRootValue {
     const window = opts.window === null ? none : some(opts.window ?? { min: W27, max: W39 });
     return {
@@ -93,7 +93,7 @@ function planRoot(rows: PlanWireRow[], opts: {
             resolutions: [], now: some(NOW), format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none,
-        review: opts.review !== undefined ? some(opts.review) : none, pick: none, slice: none, footer: [],
+        pick: none, slice: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
@@ -252,19 +252,14 @@ describe("one message table (#820)", () => {
         allMarked(words(container.querySelector("[data-plan-announce]")!));
     });
 
-    // A canvas that takes verdicts (#880) — the factory's, compiled over a
-    // source the test holds, its words the marked table's.
+    // A canvas that edits (#880) — the factory's, compiled over a source the
+    // test holds, its words the marked table's.
     for (const arm of ["inline", "paged"] as const) {
-        test(`${arm} review: a row's Approve and Reject, the toolbar's review item's, and the history bar's`, async () => {
+        test(`${arm} editing: the history bar's words, its commit Save (#1260)`, async () => {
             const { container } = await mountCanvas({ arm, wrap: marked });
-            expect(words(pressRow(container, "p1").querySelector("[data-slot='decisionCell']")!)).toEqual(["⟦Approve", "⟦Reject"]);
-            // On a paged canvas the batch buttons say how many rows they cover — the loaded ones.
-            expect(words(container.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='review']")!)).toEqual(arm === "paged"
-                ? ["⟦Reject 3 loaded", "⟦Approve 3 loaded"]
-                : ["⟦Reject all", "⟦Approve all"]);
             // The history bar speaks through its buttons' names.
             const names = [...container.querySelectorAll("[data-slot='history'] button")].map((b) => b.getAttribute("aria-label") ?? "");
-            expect(names).toEqual(["⟦0 issues", "⟦Undo", "⟦Redo", "⟦Discard", "⟦Apply changes"]);
+            expect(names).toEqual(["⟦0 issues", "⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]);
         }, 30_000);
     }
 

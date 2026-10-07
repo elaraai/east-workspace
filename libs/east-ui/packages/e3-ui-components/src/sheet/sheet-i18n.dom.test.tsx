@@ -233,7 +233,7 @@ describe("one message table (#861)", () => {
         expect(attrs(gutter, "aria-label", "title")).toEqual(["⟦Row 1", "⟦Select whole row — delete removes it"]);
         expect(gutter.querySelector('[data-slot="checkbox"]')!.getAttribute("aria-label")).toBe("⟦Select row 1");
         expect(q('[data-slot="footerHint"]')!.textContent).toBe("⟦⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel");
-        for (const name of ["⟦Undo", "⟦Redo", "⟦Discard", "⟦Apply changes"]) expect(getByRole("button", { name })).toBeTruthy();
+        for (const name of ["⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]) expect(getByRole("button", { name })).toBeTruthy();
         expect(q('[data-slot="historyIssues"] button')!.getAttribute("aria-label")).toBe("⟦0 issues");
         // An empty date field: what it accepts, in the strip.
         fireEvent.doubleClick(q('[data-row-id="a"] [data-slot="cell"][data-key="start"]')!);
@@ -319,7 +319,7 @@ describe("SheetMessagesProvider (#861)", () => {
         expect(getByRole("button", { name: "Rückgängig" })).toBeTruthy();
         expect(getByRole("button", { name: "Wiederholen" })).toBeTruthy();
         // Whatever neither overrides is the default table's.
-        expect(getByRole("button", { name: "Apply changes" })).toBeTruthy();
+        expect(getByRole("button", { name: "Save" })).toBeTruthy();
         expect(q('[data-row-id="a"] [data-slot="gutter"]')!.getAttribute("aria-label")).toBe("Row 1");
     });
 

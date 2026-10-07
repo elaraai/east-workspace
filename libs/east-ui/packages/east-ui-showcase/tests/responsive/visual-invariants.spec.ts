@@ -64,7 +64,7 @@ async function paintedLines(page: Page, at: Box): Promise<number[]> {
 const RULED = [
     "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
     "planFold", "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planPick",
-    "planLibraryDnd", "planRowDrop", "planFill", "planReview", "planEditing", "planUiState", "planExpand",
+    "planLibraryDnd", "planRowDrop", "planFill", "planEditing", "planUiState", "planExpand",
     "planNumberAxis", "planOrdinalAxis",
 ];
 
@@ -681,16 +681,15 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * host's own range: the Plan's wide layout holds down to 850px (below it the
  * showcase's column is under its narrow breakpoint), its resolution folding
  * into its menu under 900; its narrow layout is `planNarrow`'s phone-width box;
- * a Plan with a review and editing over a keyed paged source (#1193) folds its
- * review's buttons into their menu and its key search into its icon, through
- * the narrow layout, its history last. The SnapGrid editor and Studio's
+ * a Plan with editing over a keyed paged source (#1193) folds its key search
+ * into its icon, through the narrow layout, its history last. The SnapGrid editor and Studio's
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
  * (#1229).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
-    { name: "Plan (review, editing)", route: `${PLAN_EXAMPLES}/planEditing`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planEditing`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planNarrow`, widths: [1600, 1200, 900], nudge: [1200] },
     { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
@@ -712,20 +711,16 @@ type ToolbarState = ReadonlyMap<string, { form: number; forms: number }>;
 type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
 
 /** The Plan's own order (the user's decision, #952; its frame's toolbar,
- *  #1193, PB21): the summary shortens to its count and the review's summary
- *  goes, the resolution then the grain segment fold into their menus, the
- *  summary hides, the review's buttons fold into their menu and the key
- *  search into its icon, and the history item folds last, to its buttons —
+ *  #1193, PB21): the summary shortens to its count, the resolution then the
+ *  grain segment fold into their menus, the summary hides, the key search
+ *  folds into its icon, and the history item folds last, to its buttons —
  *  each step where its item has it to take. */
 function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const summary = state.get("summary")?.forms ?? 0;
-    const review = state.get("review")?.forms ?? 0;
     return [
         ...(summary === 3 ? [["summary", 1] as const] : []),
-        ...(review === 3 ? [["review", 1] as const] : []),
         ["resolution", 1], ["grain", 1],
         ...(summary > 1 ? [["summary", summary - 1] as const] : []),
-        ...(review > 1 ? [["review", review - 1] as const] : []),
         ["seek", 1],
         ["history", 1],
     ];

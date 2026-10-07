@@ -4,14 +4,14 @@
  */
 
 /**
- * Events into rows (#1192, `Plan Builder Spec.md` §9.4, PB12–PB18): the
+ * Events into rows (#1192, `Plan Builder Spec.md` §9.4, PB12–PB17): the
  * resources' rows a Plan of event kinds draws over a window — the payload's
  * `blocks` — over the print works' records in memory. A resource is a row per
  * way its kinds draw, then its measures; resources nest by parent and sit
  * under group strips; a row's id is its series' key and its path; an event no
  * resource holds draws on its kind's Unassigned row; every kind's drafts are
- * in place; a reviewed kind's rows carry their events' verdict; and what the
- * viewer hides in the library's Series tab stays out (PB29, #1195).
+ * in place, each event wearing its own lifecycle; and what the viewer hides in
+ * the library's Series tab stays out (PB29, #1195).
  */
 
 import { describe, test } from "node:test";
@@ -41,7 +41,7 @@ function valueOf(source: unknown): unknown {
     return s.value;
 }
 
-/** A job of the tests' own: on a press, in a lane, with a status a review never writes. */
+/** A job of the tests' own: on a press, in a lane, with a status. */
 const LaneJob = StructType({
     title: StringType,
     start: DateTimeType,
@@ -135,7 +135,6 @@ const sameIds = equalFor(ArrayType(Plan.Types.RowId));
 const sameInstant = equalFor(Plan.Types.Instant);
 const sameQuantity = equalFor(OptionType(Plan.Types.Quantity));
 const sameStates = equalFor(ArrayType(Plan.Types.Run.fields.state));
-const sameApproval = equalFor(OptionType(Plan.Types.Row.fields.approval.cases.some));
 const draftOf = encodeBeast2For(EditingDraftFieldType(ex.PrintJob));
 
 /** A row's id by its series and path. */
@@ -217,7 +216,7 @@ function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures
                 name: "Print job", icon: "file-lines", draw: "span",
                 title: "title", start: "start", end: "end",
                 resource: { field: "press", of: "presses" },
-                state: "state", review: "verdict", quantity: { field: "sheets", unit: "sheets" },
+                state: "state", quantity: { field: "sheets", unit: "sheets" },
             }),
             stop: Schedule.events(stops, {
                 name: "Stop", icon: "screwdriver-wrench", draw: "marks", title: "title", at: "at", resource: { field: "press", of: "presses" },
@@ -227,7 +226,6 @@ function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures
                 title: "title", start: "start", end: "end", resource: { field: "crew", of: "crews" }, state: "state",
             }),
         },
-        review: { columnLabel: "Decision" },
     });
 }
 
@@ -558,7 +556,7 @@ describe("the Unassigned rows (PB16)", () => {
 // ============================================================================
 
 describe("drafts in place (PB17)", () => {
-    test("a draft moving an event between presses draws where Apply would leave it; one deleting it draws nowhere", () => {
+    test("a draft moving an event between presses draws where Save would leave it; one deleting it draws nowhere", () => {
         const payload = payloadOf(($) => printWorks($));
         const drafts = jobDrafts([
             ["J-1001", draftOf(variant("value", { ...job("J-1001"), press: some("b3") }))],
@@ -582,6 +580,22 @@ describe("drafts in place (PB17)", () => {
         states.set(ex.planPrintJobs.name, jobs);
         const week1 = blocksOf(payload, FIRST, WEEK2);
         assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall A", "a3"))), [elementKey("job", "J-1001"), elementKey("job", "J-1010")]);
+    });
+
+    test("each event wears its own lifecycle, a draft's in place", () => {
+        const payload = payloadOf(($) => printWorks($));
+        const statesOf = (blocks: Blocks, id: RowId) => {
+            const row = rowAt(blocks, id);
+            return row.kind.type === "span" ? row.kind.value.runs.map((r) => r.state) : [];
+        };
+        const week3 = blocksOf(payload, WEEK3, WEEK4);
+        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall A", "a2")), [variant("proposed", variant("added", null))]));
+        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall B", "b2")), [variant("confirmed", null), variant("proposed", variant("added", null))]));
+        // Drafted confirmed, the proposal wears it.
+        const drafted = blocksOf(payload, WEEK3, WEEK4, jobDrafts([
+            ["J-1008", draftOf(variant("value", { ...job("J-1008"), state: variant("confirmed", null) }))],
+        ]));
+        assert.ok(sameStates(statesOf(drafted, entry("presses.span", "Hall A", "a2")), [variant("confirmed", null)]));
     });
 
     test("while a kind's read is in flight, the rows are to come", () => {
@@ -671,64 +685,6 @@ describe("what the viewer hides (PB29, #1195)", () => {
         // A duplicate is one id.
         const twice = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["measures.util", "measures.util"]);
         assert.ok(sameIds(twice[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks")));
-    });
-});
-
-// ============================================================================
-// Review (PB18)
-// ============================================================================
-
-describe("review (PB18)", () => {
-    const payload = payloadOf(($) => printWorks($));
-    const approvalOf = (blocks: Blocks, id: RowId) => rowAt(blocks, id).approval;
-    const statesOf = (blocks: Blocks, id: RowId) => {
-        const row = rowAt(blocks, id);
-        return row.kind.type === "span" ? row.kind.value.runs.map((r) => r.state) : [];
-    };
-
-    test("a reviewed kind's row carries its events' verdict: pending while any awaits a call, else rejected if any was declined, else approved — and none where it has no reviewed event", () => {
-        const week3 = blocksOf(payload, WEEK3, WEEK4);
-        const expect = (id: RowId, v: "approved" | "pending" | "rejected" | undefined) =>
-            assert.ok(sameApproval(approvalOf(week3, id), v === undefined ? none : some(variant(v, null))), `${printId(id)} ${v}`);
-        expect(entry("presses.span", "Hall A", "a1"), "approved");
-        expect(entry("presses.span", "Hall A", "a2"), "pending");
-        expect(entry("presses.span", "Hall B", "b2"), "pending");
-        expect(entry("presses.span", "Hall B", "b1"), undefined);
-        // Stops are not reviewed.
-        expect(entry("presses.marks", "Hall A", "a1"), undefined);
-        // Decided in drafts: J-1008 approved, J-1019 declined beside J-1018's approval.
-        const decided = blocksOf(payload, WEEK3, WEEK4, jobDrafts([
-            ["J-1008", draftOf(variant("value", { ...job("J-1008"), verdict: variant("approved", null) }))],
-            ["J-1019", draftOf(variant("value", { ...job("J-1019"), verdict: variant("rejected", null) }))],
-        ]));
-        assert.ok(sameApproval(approvalOf(decided, entry("presses.span", "Hall A", "a2")), some(variant("approved", null))));
-        assert.ok(sameApproval(approvalOf(decided, entry("presses.span", "Hall B", "b2")), some(variant("rejected", null))));
-        // A declined event beside one still awaiting a call: the row awaits it.
-        const split = blocksOf(payload, WEEK3, WEEK4, jobDrafts([
-            ["J-1018", draftOf(variant("value", { ...job("J-1018"), verdict: variant("rejected", null) }))],
-        ]));
-        assert.ok(sameApproval(approvalOf(split, entry("presses.span", "Hall B", "b2")), some(variant("pending", null))));
-        // The row takes no gesture yet: its verdicts are the kinds' to draft (#1194).
-        assert.equal(rowAt(decided, entry("presses.span", "Hall A", "a2")).edits.verdict, false);
-    });
-
-    test("an event's verdict shows in the lifecycle its element wears: an approved estimate or proposal confirmed, a declined one rejected, a proposed removal and what happened as they were", () => {
-        const at = (key: string, state: ValueTypeOf<typeof ex.PrintJob>["state"], verdict: "approved" | "rejected") =>
-            [key, draftOf(variant("value", { ...job(key), state, verdict: variant(verdict, null) }))] as const;
-        const week3 = blocksOf(payload, WEEK3, WEEK4, jobDrafts([
-            at("J-1008", variant("proposed", variant("added", null)), "approved"),
-            at("J-1012", variant("estimated", null), "approved"),
-            at("J-1022", variant("proposed", variant("removed", null)), "approved"),
-            at("J-1004", variant("confirmed", null), "rejected"),
-        ]));
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall A", "a2")), [variant("confirmed", null)]));
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall A", "a3")), [variant("confirmed", null)]));
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall B", "b3")), [variant("proposed", variant("removed", null))]));
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall A", "a1")), [variant("rejected", null)]));
-        // Pending, a proposal wears its own; declined, what happened keeps its own.
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall B", "b2")), [variant("confirmed", null), variant("proposed", variant("added", null))]));
-        const week1 = blocksOf(payload, FIRST, WEEK2, jobDrafts([at("J-1001", variant("actual", null), "rejected")]));
-        assert.ok(sameStates(statesOf(week1, entry("presses.span", "Hall A", "a1")), [variant("actual", null), variant("actual", null)]));
     });
 });
 

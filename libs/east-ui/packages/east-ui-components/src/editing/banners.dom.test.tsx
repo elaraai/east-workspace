@@ -5,7 +5,7 @@
  *
  * The session's banners (#1184): what the history bar says under its buttons,
  * for a host that leaves it to its banners. Each is driven from a real
- * session put in its state — an Apply's conflicts and its refusal, a write
+ * session put in its state — a Save's conflicts and its refusal, a write
  * with no answer, a confirmation read that failed, drafts the source moved
  * under — and each leaves when its state does, without the host rendering
  * again.
@@ -35,7 +35,7 @@ const place = some(variant("ordered", variant("start", null)));
 const version = (run: RunValue): EntryVersion<string> => ({ draft: liftDraft(Draft, run), wire: run.id, place });
 const issue = (entry: string, message: string): EditIssue => ({ entry, row: none, field: none, message });
 
-/** A session over one run, its first gesture drafted, its Apply answering as given. */
+/** A session over one run, its first gesture drafted, its Save answering as given. */
 function drafted(overrides: Partial<EditSessionBinding<string>> = {}): EditSession<string> {
     const session = new EditSession<string>({
         sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
@@ -64,14 +64,14 @@ test("a session with nothing to report shows no banner", () => {
     expect(kinds(container)).toEqual([]);
 });
 
-test("an Apply's conflict names each issue's place, the first three of them and a count of the rest, in the collection's words", async () => {
+test("a Save's conflict names each issue's place, the first three of them and a count of the rest, in the collection's words", async () => {
     const issues = ["a", "b", "c", "d", "e"].map((id) => issue(id, `Changed since this edit began — last changed by ops`));
     const session = drafted({ apply: () => variant("conflict", issues) });
     await act(() => session.apply());
     const { container } = mount(session, { where: (i) => `Run ${i.entry}`, issueText: (message) => message.toUpperCase() });
     expect(kinds(container)).toEqual(["conflict"]);
     const conflict = banner(container, "conflict")!;
-    expect(conflict.textContent).toContain("Apply stopped — 5 conflicts with the source");
+    expect(conflict.textContent).toContain("Save stopped — 5 conflicts with the source");
     expect([...conflict.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
         "Run a: CHANGED SINCE THIS EDIT BEGAN — LAST CHANGED BY OPS",
         "Run b: CHANGED SINCE THIS EDIT BEGAN — LAST CHANGED BY OPS",
@@ -95,13 +95,13 @@ test("a write with no answer says so with its error, and its Retry sends the sam
     await act(() => session.apply());
     const { container, actions } = mount(session);
     expect(kinds(container)).toEqual(["unknown"]);
-    expect(banner(container, "unknown")!.textContent).toContain("No answer from the source — the changes may have been applied");
+    expect(banner(container, "unknown")!.textContent).toContain("No answer from the source — the changes may have been saved");
     expect(banner(container, "unknown")!.textContent).toContain("The write got no answer");
     fireEvent.click(banner(container, "unknown")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["apply"]);
 });
 
-test("an Apply whose result could not be read back says why, and its Retry reads it again", async () => {
+test("a Save whose result could not be read back says why, and its Retry reads it again", async () => {
     const session = drafted();
     await act(() => session.apply());
     expect(session.status).toBe("reconciling");
@@ -110,7 +110,7 @@ test("an Apply whose result could not be read back says why, and its Retry reads
     expect(kinds(container)).toEqual([]);
     act(() => session.confirmFailed("The record could not be read"));
     expect(kinds(container)).toEqual(["confirm"]);
-    expect(banner(container, "confirm")!.textContent).toContain("Applied — the result could not be read back");
+    expect(banner(container, "confirm")!.textContent).toContain("Saved — the result could not be read back");
     expect(banner(container, "confirm")!.textContent).toContain("The record could not be read");
     fireEvent.click(banner(container, "confirm")!.querySelector("[data-banner-action]")!);
     expect(actions).toEqual(["refresh"]);

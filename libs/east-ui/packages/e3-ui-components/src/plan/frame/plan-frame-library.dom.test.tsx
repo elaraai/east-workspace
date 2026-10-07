@@ -470,11 +470,11 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
                 id: rowId("m1"), parent: none,
                 gutter: { label: "Row", id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
                 kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
-                collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+                collapsed: false, pinned: false, height: none, status: none, expand: none,
             }] as never)),
             links: [],
             axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: some(pick), slice: none, footer: [],
+            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: some(pick), slice: none, footer: [],
             id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
             style: none,
         } as unknown as PlanRootValue;

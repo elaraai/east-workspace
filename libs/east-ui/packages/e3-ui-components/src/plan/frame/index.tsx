@@ -15,28 +15,27 @@
  * - **the toolbar** — the Plan's items (`usePlanToolbarItems`) on the frame's
  *   one folding row, in §7.1's order: the slice's narrowing, the scope badge,
  *   the key search, the grain, the slice's range, the resolution and the
- *   diagnostics; at the row's end the summary, the review — its summary with
- *   Reject all, Rerun and Approve all, moved here from the review foot — and
- *   the history item, which leaves its error to the banners. A Plan with none
+ *   diagnostics; at the row's end the summary, the overlaps chip and the
+ *   history item, which leaves its error to the banners. A Plan with none
  *   of them has no toolbar. ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in
  *   the frame, never while typing;
- * - **the banners** — the editing session's (`SessionBanners`): an Apply's
+ * - **the banners** — the editing session's (`SessionBanners`): a Save's
  *   conflict, naming its rows; a refusal, with its reasons; a write with no
- *   answer, with Retry; an Apply whose result could not be read back, with
+ *   answer, with Retry; a Save whose result could not be read back, with
  *   Retry; and the drafts the source moved under, with Discard. Each leaves
  *   when what it reports does;
  * - **main** — the canvas, unchanged: the horizon brush, the ruler and the
  *   now line, the pinned rows, the rows — or, below 480px of main, the
  *   narrow layout's tabs and cards — the links and the overlays;
  * - **the footer** — the event kinds' counts (the events in the window, the
- *   backlog, the events to review, and when a kind's record was last saved),
- *   the changes waiting on Apply, the author's items, and a paged canvas's
+ *   backlog, and when a kind's record was last saved), the changes waiting on
+ *   Save, the author's items, and a paged canvas's
  *   transport line;
  * - **the overlaps** (#1198, PB51–PB53) — read with the counts: two events of
  *   a kind that warns of them, on one resource at once. Each event in a pair
  *   wears the warn ring on the canvas, the toolbar's chip counts the pairs and
  *   selects the first, and the inspector's banner lists what the selected
- *   event overlaps. They never block Apply;
+ *   event overlaps. They never block Save;
  * - **the panes** — the library in the start pane when the Plan's `library`
  *   lists a tab (#1195, `library.tsx`), and the inspector in the end pane when
  *   it is given `inspector` — what is selected on the canvas (#1197,
@@ -249,7 +248,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         event.preventDefault();
         onAction(action);
     }, [onAction]);
-    // A Plan with no control to show — no slice, no search, no group to fold, no review, no editing — draws no toolbar.
+    // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
     const banners = chrome !== undefined && history !== undefined && session !== undefined
         ? <SessionBanners session={session} words={chrome.words} onAction={history.onAction} where={chrome.where} />

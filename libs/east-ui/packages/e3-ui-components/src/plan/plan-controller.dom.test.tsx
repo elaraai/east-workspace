@@ -54,7 +54,7 @@ function planRow(key: string, kind: unknown = span()): PlanWireRow {
         parent: none,
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
     } as unknown as PlanWireRow;
 }
 /** A stream without one row. */
@@ -69,7 +69,7 @@ function planRoot(rows: PlanWireRow[], opts: { source?: unknown; links?: unknown
             resolutions: [], now: none, format: none,
         }),
         grain: none, popover: opts.popover !== undefined ? some(opts.popover) : none,
-        hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
+        hover: none, expandRender: none, expandGutter: none, pick: none,
         slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;

@@ -34,7 +34,7 @@ const EVENT_REFS = new WeakMap<object, string>();
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, some, variant } from "@elaraai/east";
- * import { ApprovalStateType, EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
@@ -46,7 +46,6 @@ const EVENT_REFS = new WeakMap<object, string>();
  *     press: OptionType(StringType),
  *     state: EventStateType,
  *     sheets: FloatType,
- *     verdict: ApprovalStateType,
  *     customer: StringType,
  *     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
  *     due: OptionType(DateTimeType),
@@ -61,10 +60,10 @@ const EVENT_REFS = new WeakMap<object, string>();
  *     ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
  * ]));
  * export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), new Map([
- *     ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
- *     ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, verdict: variant("approved", null), customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
- *     ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
- *     ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, verdict: variant("pending", null), customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
+ *     ["J-2001", { title: "Handbook covers", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T08:00:00Z")), press: some("b3"), state: variant("confirmed", null), sheets: 12000.0, customer: "Elmway College", stock: variant("board", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
+ *     ["J-2002", { title: "Course handbook", start: some(new Date("2026-10-13T06:00:00Z")), end: some(new Date("2026-10-13T18:00:00Z")), press: some("a1"), state: variant("confirmed", null), sheets: 144000.0, customer: "Elmway College", stock: variant("uncoated", null), due: some(new Date("2026-10-16T00:00:00Z")) }],
+ *     ["J-2003", { title: "Box sleeves", start: some(new Date("2026-10-20T06:00:00Z")), end: some(new Date("2026-10-20T09:00:00Z")), press: some("b3"), state: variant("proposed", variant("recommended", null)), sheets: 18000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
+ *     ["J-2004", { title: "Gift boxes", start: some(new Date("2026-10-27T06:00:00Z")), end: some(new Date("2026-10-27T12:00:00Z")), press: some("a1"), state: variant("proposed", variant("recommended", null)), sheets: 48000.0, customer: "Juniper Toys", stock: variant("board", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
  * ]));
  * export const planLinkJobsPatch = e3.mutation.patch(planLinkJobs);
  * export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([

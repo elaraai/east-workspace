@@ -32,8 +32,8 @@ import { openExample, rowId, rowSel } from "./plan-page";
  *  bound ui state (#824). */
 const EXAMPLES = [
     "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
-    "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planReview",
-    "planExpand", "planNumberAxis", "planOrdinalAxis", "planFold", "planUiState",
+    "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planExpand",
+    "planNumberAxis", "planOrdinalAxis", "planFold", "planUiState",
 ];
 
 /** Every body item whose rendered height is not the model's. */

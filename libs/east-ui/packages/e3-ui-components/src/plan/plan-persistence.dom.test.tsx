@@ -78,7 +78,7 @@ function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolea
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
         collapsed: collapsed === true,
-        pinned: false, height: none, status: none, approval: none, expand: none,
+        pinned: false, height: none, status: none, expand: none,
     } as unknown as PlanWireRow;
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
@@ -108,7 +108,7 @@ function planRoot(body: PlanWireRow[], opts?: { source?: unknown; slice?: unknow
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: opts?.resolutions ?? [], now: none, format: none,
         }),
-        grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
+        grain: none, popover: none, hover: none, expandRender: none, pick: none,
         slice: opts?.slice ?? none, footer: [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,

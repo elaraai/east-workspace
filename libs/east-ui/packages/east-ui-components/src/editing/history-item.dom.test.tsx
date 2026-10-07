@@ -104,7 +104,7 @@ test("the history item sits at the row's end, and folds to the buttons alone onl
     const folded = mount(309);
     expect(formOf(folded.container)).toBe("buttons");
     expect(folded.container.querySelector('[data-slot="historyIssues"]')).toBeNull();
-    for (const name of ["Undo", "Redo", "Discard", "Apply changes"]) {
+    for (const name of ["Undo", "Redo", "Discard", "Save"]) {
         expect(folded.container.querySelector(`button[aria-label="${name}"]`)).not.toBeNull();
     }
 });

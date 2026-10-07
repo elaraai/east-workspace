@@ -16,7 +16,7 @@ import {
     ArrayType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
     decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { ApprovalStateType, Editing, EditingRequestStore, Paged } from "@elaraai/east-ui/internal";
+import { Editing, EditingRequestStore, Paged } from "@elaraai/east-ui/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -30,42 +30,39 @@ const END = new Date("2026-09-21T00:00:00Z");
 // ── The canvas: halls holding presses — a gesture on a press drafts its hall ──
 
 const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-const Press = StructType({ approval: ApprovalStateType, jobs: ArrayType(Job) });
+const Press = StructType({ jobs: ArrayType(Job) });
 const Hall = StructType({ name: StringType, presses: DictType(StringType, Press) });
 const Halls = DictType(StringType, Hall);
 type HallValue = ValueTypeOf<typeof Hall>;
 type JobValue = ValueTypeOf<typeof Job>;
-type Verdict = ValueTypeOf<typeof ApprovalStateType>;
 type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
 type Gesture = ValueTypeOf<typeof Plan.Types.Gesture>;
 
-const PENDING: Verdict = variant("pending", null);
-const APPROVED: Verdict = variant("approved", null);
-const REJECTED: Verdict = variant("rejected", null);
 const J4642: JobValue = { key: "j4642", start: W28, end: W31 };
 // A job card dropped at W29 becomes a fortnight's job, keyed by the card and the list's size.
 const POSTER: JobValue = { key: "poster-1", start: W29, end: W31 };
+// One dropped on Hall 2's P11, which holds none yet.
+const LEAFLET: JobValue = { key: "leaflet-0", start: W29, end: W31 };
 
-const hall1 = (p03: Verdict = PENDING, p03Jobs: JobValue[] = [J4642], p04: Verdict = APPROVED): HallValue => ({
+const hall1 = (p03Jobs: JobValue[] = [J4642], p04Jobs: JobValue[] = []): HallValue => ({
     name: "Hall 1",
-    presses: new Map([["P03", { approval: p03, jobs: p03Jobs }], ["P04", { approval: p04, jobs: [] }]]),
+    presses: new Map([["P03", { jobs: p03Jobs }], ["P04", { jobs: p04Jobs }]]),
 });
-const hall2 = (p11: Verdict = PENDING): HallValue => ({
+const hall2 = (p11Jobs: JobValue[] = []): HallValue => ({
     name: "Hall 2",
-    presses: new Map([["P11", { approval: p11, jobs: [] }]]),
+    presses: new Map([["P11", { jobs: p11Jobs }]]),
 });
 const SEED: Map<string, HallValue> = new Map([["H1", hall1()], ["H2", hall2()]]);
 
 const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
 
-/** The halls, their presses stepped down into through a plain field — reviewed, taking dropped jobs, and moving them (#825). */
+/** The halls, their presses stepped down into through a plain field — taking dropped jobs, and moving them (#825). */
 const SERIES = [
     Plan.series.span(Hall, {
         key: "halls", title: "Halls", label: (l) => l.name, runs: (_l) => [],
         children: Plan.children((l) => l.presses, [
             Plan.series.span(Press, {
                 key: "presses", title: "Presses", label: (_m, k) => k,
-                review: { verdict: "approval" },
                 runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
                 edit: {
                     items: "jobs",
@@ -85,7 +82,6 @@ const SERIES = [
 
 const press = (hall: string, m: string): RowId => variant("entry", { series: "presses", path: [hall, m] });
 const hallRow = (hall: string): RowId => variant("entry", { series: "halls", path: [hall] });
-const verdict = (v: Verdict): Gesture => variant("verdict", v);
 const dropOf = (card: string, row: RowId, at: Date): Gesture =>
     variant("drop", { from: { library: "jobs", key: card }, row, at: variant("time", at), duplicate: false });
 const moveOf = (key: string, from: RowId, to: RowId, start: Date, end: Date): Gesture =>
@@ -96,7 +92,6 @@ const decodeHall = decodeBeast2For(Hall);
 const sameHall = equalFor(Hall);
 const sameIds = equalFor(ArrayType(Plan.Types.RowId));
 const sameBlocks = equalFor(Plan.Types.Blocks);
-const sameApproval = equalFor(OptionType(ApprovalStateType));
 
 /** A canvas's editing declaration — of the root `Plan.Root` builds, compiled. */
 function editingOf(root: ValueTypeOf<typeof Plan.Types.Root>) {
@@ -119,38 +114,21 @@ const inlineRoot = East.function([], Plan.Types.Root, ($) => {
 }).toIR().compile([])();
 const inline = editingOf(inlineRoot);
 
-test("a verdict on a press writes its HALL — the press's field set, every other field as it was", () => {
-    const written = writeOne(inline, "H1", hall1(), [press("H1", "P03")], verdict(APPROVED));
-    assert.ok(written !== undefined && sameHall(written, hall1(APPROVED)));
-});
-
-test("a card dropped on a press joins its jobs as `create` builds it — from the card, the bucket's instant and the entry", () => {
+test("a card dropped on a press writes its HALL — the press's jobs joined by the job `create` builds from the card, the bucket's instant and the entry, every other field as it was", () => {
     const written = writeOne(inline, "H1", hall1(), [press("H1", "P03")], dropOf("poster", press("H1", "P03"), W29));
-    assert.ok(written !== undefined && sameHall(written, hall1(PENDING, [J4642, POSTER])));
-});
-
-test("Approve all is one request per entry over each of its rows, and every verdict lands in that one entry", () => {
-    const outs = inline.write([
-        { id: "H1", entry: encodeHall(hall1()), rows: [press("H1", "P03"), press("H1", "P04")], gesture: verdict(REJECTED) },
-        { id: "H2", entry: encodeHall(hall2()), rows: [press("H2", "P11")], gesture: verdict(REJECTED) },
-    ]);
-    const [one, two] = outs.map((o) => (o.type === "some" ? decodeHall(o.value) : undefined));
-    assert.equal(outs.length, 2);
-    assert.ok(one !== undefined && sameHall(one, hall1(REJECTED, [J4642], REJECTED)));
-    assert.ok(two !== undefined && sameHall(two, hall2(REJECTED)));
+    assert.ok(written !== undefined && sameHall(written, hall1([J4642, POSTER])));
 });
 
 test("a row no series takes the gesture on writes nothing — the hall's own row, a press the hall lacks, another hall's row", () => {
     const entry = encodeHall(hall1());
     const outs = inline.write([
-        { id: "H1", entry, rows: [hallRow("H1")], gesture: verdict(APPROVED) },
-        { id: "H1", entry, rows: [press("H1", "P99")], gesture: verdict(APPROVED) },
-        // Hall 2's P03 — a key Hall 1 also holds — is not Hall 1's row.
-        { id: "H1", entry, rows: [press("H2", "P03")], gesture: verdict(APPROVED) },
         // The halls series declares no `edit`, so a card finds no list there.
         { id: "H1", entry, rows: [hallRow("H1")], gesture: dropOf("poster", hallRow("H1"), W29) },
+        { id: "H1", entry, rows: [press("H1", "P99")], gesture: dropOf("poster", press("H1", "P99"), W29) },
+        // Hall 2's P03 — a key Hall 1 also holds — is not Hall 1's row.
+        { id: "H1", entry, rows: [press("H2", "P03")], gesture: dropOf("poster", press("H2", "P03"), W29) },
     ]);
-    assert.deepEqual(outs.map((o) => o.type), ["none", "none", "none", "none"]);
+    assert.deepEqual(outs.map((o) => o.type), ["none", "none", "none"]);
 });
 
 // ── Moves and resizes (#825) — the item's instants, and the list it is in ───
@@ -162,20 +140,16 @@ const P11 = press("H2", "P11");
 const J4642_LATER: JobValue = { key: "j4642", start: W29, end: W32 };
 
 test("a move along its row sets the job's instants where it is — every other job and field as they were", () => {
-    const moved = writeOne(inline, "H1", hall1(PENDING, [J4642, POSTER]), [P03], moveOf("j4642", P03, P03, W29, W32));
-    assert.ok(moved !== undefined && sameHall(moved, hall1(PENDING, [J4642_LATER, POSTER])));
+    const moved = writeOne(inline, "H1", hall1([J4642, POSTER]), [P03], moveOf("j4642", P03, P03, W29, W32));
+    assert.ok(moved !== undefined && sameHall(moved, hall1([J4642_LATER, POSTER])));
     // A resize is the same gesture with one end moved.
     const resized = writeOne(inline, "H1", hall1(), [P03], moveOf("j4642", P03, P03, W28, W33));
-    assert.ok(resized !== undefined && sameHall(resized, hall1(PENDING, [{ key: "j4642", start: W28, end: W33 }])));
+    assert.ok(resized !== undefined && sameHall(resized, hall1([{ key: "j4642", start: W28, end: W33 }])));
 });
 
 test("a move to another press of the same hall is ONE request, source row first: the job leaves P03 and joins P04", () => {
     const moved = writeOne(inline, "H1", hall1(), [P03, P04], moveOf("j4642", P03, P04, W29, W32));
-    const expected: HallValue = {
-        name: "Hall 1",
-        presses: new Map([["P03", { approval: PENDING, jobs: [] }], ["P04", { approval: APPROVED, jobs: [J4642_LATER] }]]),
-    };
-    assert.ok(moved !== undefined && sameHall(moved, expected));
+    assert.ok(moved !== undefined && sameHall(moved, hall1([], [J4642_LATER])));
 });
 
 test("a move to a press of another hall is two requests in order — the job leaves one hall and joins the other", () => {
@@ -185,9 +159,8 @@ test("a move to a press of another hall is two requests in order — the job lea
         { id: "H2", entry: encodeHall(hall2()), rows: [P11], gesture },
     ]);
     const [one, two] = outs.map((o) => (o.type === "some" ? decodeHall(o.value) : undefined));
-    assert.ok(one !== undefined && sameHall(one, hall1(PENDING, [])));
-    const joined: HallValue = { name: "Hall 2", presses: new Map([["P11", { approval: PENDING, jobs: [J4642_LATER] }]]) };
-    assert.ok(two !== undefined && sameHall(two, joined));
+    assert.ok(one !== undefined && sameHall(one, hall1([])));
+    assert.ok(two !== undefined && sameHall(two, hall2([J4642_LATER])));
 });
 
 test("a move that lands nowhere is refused whole — a job is never taken without being put", () => {
@@ -218,28 +191,21 @@ test("a press's jobs keep their keys unique — a move onto a press already hold
     // would leave P04 two jobs one key names, so it puts the job nowhere, and
     // the move is refused whole.
     const J4642_ELSEWHERE: JobValue = { key: "j4642", start: W31, end: W33 };
-    const clash: HallValue = {
-        name: "Hall 1",
-        presses: new Map([["P03", { approval: PENDING, jobs: [J4642] }], ["P04", { approval: APPROVED, jobs: [J4642_ELSEWHERE] }]]),
-    };
+    const clash = hall1([J4642], [J4642_ELSEWHERE]);
     const [sameHallMove] = inline.write([{ id: "H1", entry: encodeHall(clash), rows: [P03, P04], gesture: moveOf("j4642", P03, P04, W29, W32) }]);
     assert.equal(sameHallMove?.type, "none");
     // Across halls: the target hall refuses it, so the source hall gives nothing up.
-    const h2Clash: HallValue = { name: "Hall 2", presses: new Map([["P11", { approval: PENDING, jobs: [J4642_ELSEWHERE] }]]) };
     const across = inline.write([
         { id: "H1", entry: encodeHall(hall1()), rows: [P03], gesture: moveOf("j4642", P03, P11, W29, W32) },
-        { id: "H2", entry: encodeHall(h2Clash), rows: [P11], gesture: moveOf("j4642", P03, P11, W29, W32) },
+        { id: "H2", entry: encodeHall(hall2([J4642_ELSEWHERE])), rows: [P11], gesture: moveOf("j4642", P03, P11, W29, W32) },
     ]);
     assert.deepEqual(across.map((o) => o.type), ["none", "none"]);
     // `create` keys a card by the card and the list's size: on a press holding
     // one poster job already, a second poster card mints "poster-1" again — refused.
-    assert.equal(writeOne(inline, "H1", hall1(PENDING, [POSTER]), [P03], dropOf("poster", P03, W29)), undefined);
+    assert.equal(writeOne(inline, "H1", hall1([POSTER]), [P03], dropOf("poster", P03, W29)), undefined);
     // Along its own row the key is its own, so a move there is untouched by the rule.
     const along = writeOne(inline, "H1", clash, [P04], moveOf("j4642", P04, P04, W29, W32));
-    assert.ok(along !== undefined && sameHall(along, {
-        name: "Hall 1",
-        presses: new Map([["P03", { approval: PENDING, jobs: [J4642] }], ["P04", { approval: APPROVED, jobs: [J4642_LATER] }]]),
-    }));
+    assert.ok(along !== undefined && sameHall(along, hall1([J4642], [J4642_LATER])));
 });
 
 // Every instant field type (#825): a number axis's Integer field and a Plan.Types.Instant field, and an ordinal
@@ -323,9 +289,9 @@ test("an ordinal axis's move writes its values into String fields", () => {
 test("derive draws each draft in its entry's place — with none it is the canvas's own blocks, and a draft derives like data", () => {
     const plain = inline.derive(0n, 0n, new Map());
     assert.ok(plain.type === "some" && inlineRoot.rows.type === "inline" && sameBlocks(plain.value, inlineRoot.rows.value));
-    const grown: HallValue = { name: "Hall 2", presses: new Map([["P11", { approval: PENDING, jobs: [] }], ["P12", { approval: PENDING, jobs: [] }]]) };
+    const grown: HallValue = { name: "Hall 2", presses: new Map([["P11", { jobs: [] }], ["P12", { jobs: [] }]]) };
     const drafted = inline.derive(0n, 0n, new Map([
-        ["H1", encodeHall(hall1(APPROVED, [J4642, POSTER]))],
+        ["H1", encodeHall(hall1([J4642, POSTER]))],
         ["H2", encodeHall(grown)],
     ]));
     assert.equal(drafted.type, "some");
@@ -336,9 +302,9 @@ test("derive draws each draft in its entry's place — with none it is the canva
         hallRow("H1"), press("H1", "P03"), press("H1", "P04"), hallRow("H2"), press("H2", "P11"), press("H2", "P12"),
     ]));
     const p03 = rows[1]!;
-    assert.ok(sameApproval(p03.approval, some(APPROVED)));
     assert.equal(p03.kind.type === "span" ? p03.kind.value.runs.length : -1, 2);
-    assert.ok(sameApproval(rows[4]!.approval, some(PENDING)));
+    const p11 = rows[4]!;
+    assert.equal(p11.kind.type === "span" ? p11.kind.value.runs.length : -1, 0);
 });
 
 test("deriveEntry derives one entry's rows — what a draft is compared by, where it was made", () => {
@@ -406,11 +372,11 @@ test("a paged canvas edits the windows it pages — derive and entryIds read the
     const page = root.rows.type === "paged" ? root.rows.value.page(0n, 200n) : undefined;
     const plain = wire.derive(0n, 200n, new Map());
     assert.ok(page?.type === "some" && plain.type === "some" && sameBlocks(plain.value, page.value));
-    const drafted = wire.derive(0n, 200n, new Map([["H2", encodeHall(hall2(APPROVED))]]));
+    const drafted = wire.derive(0n, 200n, new Map([["H2", encodeHall(hall2([LEAFLET]))]]));
     assert.equal(drafted.type, "some");
     if (drafted.type !== "some") return;
     const p11 = drafted.value.flatMap((b) => b.rows).find((r) => equalFor(Plan.Types.RowId)(r.id, press("H2", "P11")));
-    assert.ok(p11 !== undefined && sameApproval(p11.approval, some(APPROVED)));
+    assert.equal(p11 !== undefined && p11.kind.type === "span" ? p11.kind.value.runs.length : -1, 1);
     // Read-only here, and a paged batch's base is the source's revision, so no
     // snapshot rides the wire; the session is the handle's, by its id.
     assert.equal(wire.onApply.type, "none");
@@ -437,7 +403,7 @@ test("ready checks each drafted entry in one call, in order — a check that thr
     assert.equal(wire.ready.type, "some");
     if (wire.ready.type !== "some") return;
     const results = wire.ready.value([
-        { id: "H1", entry: encodeHall(hall1(PENDING, [J4642, POSTER])) },
+        { id: "H1", entry: encodeHall(hall1([J4642, POSTER])) },
         { id: "H2", entry: encodeHall(hall2()) },
         { id: "H9", entry: encodeHall(hall2()) },
     ]);
@@ -465,20 +431,20 @@ test("onPatch hears each gesture at Plan.Types.PatchEvent(R) — whole-entry dra
     const PatchEvent = Plan.Types.PatchEvent(Hall);
     const draftDiff = diffFor(OptionType(Editing.Types.DraftField(Hall)));
     wire.onPatch.value(encodeBeast2For(PatchEvent)({
-        transactionId: "t1", origin: variant("verdict", null), label: "Approve H1-P03",
-        draftChanges: [{ id: "H1", patch: draftDiff(none, some(variant("value", hall1(APPROVED)))), place: none }],
+        transactionId: "t1", origin: variant("drop", null), label: "Drop on H1-P03",
+        draftChanges: [{ id: "H1", patch: draftDiff(none, some(variant("value", hall1([J4642, POSTER])))), place: none }],
         domainChanges: none, readiness: variant("ready", null),
     }));
-    assert.deepEqual(heard.log(), ["verdict · Approve H1-P03 · 1"]);
+    assert.deepEqual(heard.log(), ["drop · Drop on H1-P03 · 1"]);
 });
 
 const Batch = Editing.Types.ChangeSet(Hall, StringType);
 type BatchValue = ValueTypeOf<typeof Batch>;
 const encodeBatch = encodeBeast2For(Batch);
 const hallDiff = diffFor(OptionType(Hall));
-const approveM03 = (requestId: string, base: BatchValue["base"]): BatchValue => ({
-    requestId, base, label: "Approve H1-P03",
-    changes: [{ id: "H1", patch: hallDiff(some(hall1()), some(hall1(APPROVED))), place: none }],
+const dropOnP03 = (requestId: string, base: BatchValue["base"]): BatchValue => ({
+    requestId, base, label: "Drop on H1-P03",
+    changes: [{ id: "H1", patch: hallDiff(some(hall1()), some(hall1([J4642, POSTER]))), place: none }],
 });
 
 test("onApply receives the change set at the canvas's own entry and key types — sync, or async", async () => {
@@ -491,7 +457,7 @@ test("onApply receives the change set at the canvas's own entry and key types �
     assert.equal(sync.mode.type, "auto");
     assert.ok(sync.onApply.type === "some" && sync.onApply.value.type === "sync");
     if (sync.onApply.type === "some" && sync.onApply.value.type === "sync") {
-        const result = sync.onApply.value.value(encodeBatch(approveM03("r1", variant("snapshot", SEED))));
+        const result = sync.onApply.value.value(encodeBatch(dropOnP03("r1", variant("snapshot", SEED))));
         assert.deepEqual(result, variant("applied", { revision: some("r1") }));
     }
     const later = editingOf(East.function([], Plan.Types.Root, ($) => {
@@ -502,8 +468,8 @@ test("onApply receives the change set at the canvas's own entry and key types �
     }).toIR().compile([])());
     assert.ok(later.onApply.type === "some" && later.onApply.value.type === "async");
     if (later.onApply.type === "some" && later.onApply.value.type === "async") {
-        const result = await later.onApply.value.value(encodeBatch(approveM03("r2", variant("snapshot", SEED))));
-        assert.deepEqual(result, variant("applied", { revision: some("Approve H1-P03") }));
+        const result = await later.onApply.value.value(encodeBatch(dropOnP03("r2", variant("snapshot", SEED))));
+        assert.deepEqual(result, variant("applied", { revision: some("Drop on H1-P03") }));
     }
 });
 
@@ -551,21 +517,21 @@ test("onUpdate applies a batch through the live handle — checked against the s
     if (wire.snapshot.type !== "some") return assert.fail("an inline session carries its snapshot");
     // The base is the snapshot the canvas was drawn from.
     const base: BatchValue["base"] = variant("snapshot", decodeBeast2For(Halls)(wire.snapshot.value));
-    const first = encodeBatch(approveM03("r1", base));
+    const first = encodeBatch(dropOnP03("r1", base));
     assert.deepEqual(apply(first), variant("applied", { revision: none }));
-    assert.ok(sameHall(saved.get("H1")!, hall1(APPROVED)));
+    assert.ok(sameHall(saved.get("H1")!, hall1([J4642, POSTER])));
     assert.ok(sameHall(saved.get("H2")!, hall2()));
     assert.equal(writes, 1);
     // The canvas reads the handle live: the entry read back is the applied one.
     const read = wire.readEntry("H1", 0n);
-    assert.ok(read.type === "some" && sameHall(decodeHall(read.value), hall1(APPROVED)));
+    assert.ok(read.type === "some" && sameHall(decodeHall(read.value), hall1([J4642, POSTER])));
     // A replay answers from the ledger — nothing is written twice.
     assert.deepEqual(apply(first), variant("applied", { revision: none }));
     assert.equal(writes, 1);
     // A new batch from the old base is refused, never rebased: the source moved under it.
     const stale = encodeBatch({
-        requestId: "r2", base, label: "Approve H2-P11",
-        changes: [{ id: "H2", patch: hallDiff(some(hall2()), some(hall2(APPROVED))), place: none }],
+        requestId: "r2", base, label: "Drop on H2-P11",
+        changes: [{ id: "H2", patch: hallDiff(some(hall2()), some(hall2([LEAFLET]))), place: none }],
     });
     assert.equal(apply(stale).type, "conflict");
     assert.ok(sameHall(saved.get("H2")!, hall2()));

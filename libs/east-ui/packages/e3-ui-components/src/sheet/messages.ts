@@ -551,7 +551,7 @@ export interface SheetMessages extends EditingMessages {
     inspectorTab: (p: { tab: SheetInspectorTabWord }) => string;
     /** What the inspector shows — `row 3`, `line 2 of WO-2201`, `order 4` — over its fields, and on the collapsed rail (#1188, SB46). */
     inspectorWhat: (p: { what: SheetInspectWord; number: string; title: string | undefined; noun: string }) => string;
-    /** A draft's chip: changed since the record held it, or never applied (SB47). */
+    /** A draft's chip: changed since the record held it, or never saved (SB47). */
     inspectorChip: (p: { state: "pending" | "new" }) => string;
     /** The lock on a row the upstream system owns, and its title. */
     inspectorOwned: () => string;
@@ -876,9 +876,9 @@ export const sheetMessages: SheetMessages = {
     inspectorLastCommit: ({ when, by }) => (when === undefined ? "Not saved yet" : by !== undefined && by !== "" ? `saved ${when} by ${by}` : `saved ${when}`),
     inspectorHint: ({ n }) => (n === 1 ? "Click a cell to see its row's every field here"
         : n === 2 ? "Click a row number to select it — shift-click to select several"
-            : "Changes stay drafts until Apply; the history item undoes each one"),
+            : "Changes stay drafts until Save; the history item undoes each one"),
     inspectorReading: () => "Reading the row…",
-    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every draft is complete — nothing stands in the way of Apply."),
+    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every draft is complete — nothing stands in the way of Save."),
     inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
     savedAt: ({ when }) => `saved ${when}`,
     entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,

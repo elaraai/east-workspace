@@ -11,7 +11,7 @@
  * the placed component (B4), a card's click and the drag source (B5), the
  * Pages tab (B6), what is hidden and narrowed (B7). The canvas (#995): the one
  * toolbar and the page's status (B8), the selection bar (B9), the grid panel
- * (B10), a dropped card's cell (B11), Apply as one patch commit and a conflict
+ * (B10), a dropped card's cell (B11), Save as one patch commit and a conflict
  * (B12), the panes (B13), Preview, Publish, Desktop and Tablet (B14). The
  * inspector (#996): its pane and rail (B15), the selected placement
  * (B16–B18), its layout edits (B20, B12), nothing selected (B21), and the
@@ -453,7 +453,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await waitFor(() => expect(tile(container, "c-trend").textContent).toBe("7 pages"));
     }, 30_000);
 
-    test("B11: a component dropped from the palette becomes a cell at its span, storing its fingerprint — Apply saves it", async () => {
+    test("B11: a component dropped from the palette becomes a cell at its span, storing its fingerprint — Save commits it", async () => {
         const { container } = await mountBuilder();
         const end = container.querySelector<HTMLElement>("[data-snap-grid-end]")!;
         await act(async () => {
@@ -467,30 +467,30 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect(rows).toHaveLength(3);
         const dropped = rows[2]![0]!;
         expect(spanOf(container, dropped)).toBe("6");
-        await press("Apply changes");
+        await press("Save");
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         const cell = overview.value.draft.cells.at(-1)!;
         expect([cell.key, cell.component, cell.span, cell.fingerprint]).toEqual([dropped, "orders_by_week", 6n, ordersPrint]);
     }, 30_000);
 
-    test("B12: Apply is one patch commit on the page, and the toolbar says when it saved", async () => {
+    test("B12: Save is one patch commit on the page, and the toolbar says when it saved", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "]" });
         expect(spanOf(container, "c-trend")).toBe("9");
-        await press("Apply changes");
+        await press("Save");
         expect(await commits()).toEqual(["patch", "$init"]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 9n]]);
         expect(container.querySelector("[data-snap-grid-saved]")!.textContent).toMatch(/^Saved · \d\d:\d\d$/);
-        expect((screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     }, 30_000);
 
     test("B12: a save another landed first is a conflict, in the history item's words — and the other save stands", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "[" });
-        // Another operator's save lands between this Apply's read and its commit.
+        // Another operator's save lands between this Save's read and its commit.
         const other = await readRecord();
         const before = other.get(OVERVIEW)!;
         if (before.type !== "page") throw new Error("expected a page");
@@ -505,10 +505,10 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
             }
             return forward(ws, record, mutation, request);
         };
-        await press("Apply changes");
+        await press("Save");
         // The commit is refused, and the canvas, reading the page back, finds its source moved under its drafts.
         expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
-        expect((screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
         expect(await commits()).toEqual(["patch", "$init"]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
@@ -653,12 +653,12 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         expect(screen.getByRole("button", { name: "Center" }).getAttribute("aria-pressed")).toBe("true");
     }, 30_000);
 
-    test("B12: the inspector's edits are drafts of the page's session — Apply commits them in the page's one patch", async () => {
+    test("B12: the inspector's edits are drafts of the page's session — Save commits them in the page's one patch", async () => {
         const { container } = await mountBuilder();
         await select(container, "c-trend");
         await press("Increase span");
         await press("Stretch");
-        await press("Apply changes");
+        await press("Save");
         expect(await commits()).toEqual(["patch", "$init"]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
@@ -693,7 +693,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
 
     test("D7: it names a template — offering the page's title — and saves the open page, as last saved, in one commit", async () => {
         const { container } = await mountBuilder();
-        // A draft not yet applied is not what it saves.
+        // A draft the canvas has not saved is not what it saves.
         await keyOn(container, "c-trend", { key: "]" });
         const popover = await openPopover();
         // The design system's edit popover, hanging from the button: its head names the page it saves.
@@ -708,7 +708,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.title).toBe("Overview template");
         expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
-        // The page's draft is still the canvas's to apply.
+        // The page's draft is still the canvas's to save.
         expect(spanOf(container, "c-trend")).toBe("9");
     }, 30_000);
 
@@ -910,7 +910,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(part(container, "versions")!.textContent).toBe("Regional · v4 live");
     }, 30_000);
 
-    test("E6: with drafts on the canvas, the page shown is the drafted one; Publish applies them first — the canvas's own commit — then publishes them", async () => {
+    test("E6: with drafts on the canvas, the page shown is the drafted one; Publish saves them first — the canvas's own commit — then publishes them", async () => {
         const { container } = await mountBuilder();
         await openPage("f-regional");
         await keyOn(container, "p-trend", { key: "[" });
@@ -930,7 +930,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         expect(saveButton(container).disabled).toBe(true);
     }, 30_000);
 
-    test("E6: Save as draft is the canvas's Apply alone — one commit to the draft, nothing published", async () => {
+    test("E6: Save as draft is the canvas's Save alone — one commit to the draft, nothing published", async () => {
         const { container } = await mountBuilder();
         await openPage("f-regional");
         await keyOn(container, "p-trend", { key: "[" });

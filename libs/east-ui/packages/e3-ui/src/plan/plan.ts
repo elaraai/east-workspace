@@ -118,7 +118,7 @@ export type PlanEventCanDropType = typeof PlanEventCanDropType;
 /**
  * How a Plan's event kinds behave beside its canvas.
  *
- * @property applyMode - When the event kinds' ready drafts go: on Apply (`batch`), or as each gesture lands (`auto`)
+ * @property applyMode - When the event kinds' ready drafts go: on Save (`batch`), or as each gesture lands (`auto`)
  * @property date - The date brought into view first; `none`, the axis's window from its start
  */
 export const PlanSettingsType = StructType({
@@ -132,7 +132,7 @@ export type PlanSettingsType = typeof PlanSettingsType;
 /**
  * The `Plan` renderer's payload: the Plan's interface.
  *
- * @property plan - The canvas whole: its axis, its rows over `data` followed by `rows`, its links, review, editing session and the rest
+ * @property plan - The canvas whole: its axis, its rows over `data` followed by `rows`, its links, editing session and the rest
  * @property resources - The resource kinds, in the order `resources` lists them, their rows resolved
  * @property events - The event kinds, in the order `events` lists them, each closed behind its seams
  * @property blocks - The resources' rows over a window, every kind's drafts in place; `none` while the Plan has no event kinds
@@ -196,7 +196,7 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> 
     events?: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>;
     /** Read-only rows: hand-built rows (`Plan.chart({ … })`) and `Plan.over(data, [series…])`. Pinned rows sit under the ruler; the rest follow the resources and `data`'s rows. */
     rows?: readonly PlanRowsItem<NoInfer<K>>[];
-    /** When the event kinds' ready drafts go: on Apply (`"batch"`, the default), or as each gesture lands (`"auto"`). `data`'s session takes `editing.mode`. */
+    /** When the event kinds' ready drafts go: on Save (`"batch"`, the default), or as each gesture lands (`"auto"`). `data`'s session takes `editing.mode`. */
     applyMode?: "batch" | "auto";
     /** The date brought into view first; omitted, the axis's window from its start. */
     date?: SubtypeExprOrValue<DateTimeType>;

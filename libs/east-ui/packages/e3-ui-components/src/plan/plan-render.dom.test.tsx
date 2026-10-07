@@ -73,7 +73,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         gutter: opts?.gutter ?? gutter(key),
         kind,
         collapsed: opts?.collapsed === true,
-        pinned: false, height: none, status: none, approval: none,
+        pinned: false, height: none, status: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
@@ -98,11 +98,9 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
             format: none,
         }),
         grain: none,
-       
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
-        review: none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
@@ -235,8 +233,8 @@ describe("Plan overscan (#619)", () => {
 });
 
 describe("Plan ephemeral UI state survives a data commit (#610)", () => {
-    // A Reactive write the series read — an approval, a committed drop — makes
-    // a NEW decoded value. The canvas RECONCILES its ephemeral state against
+    // A Reactive write the series read — a Save among them — makes a NEW
+    // decoded value. The canvas RECONCILES its ephemeral state against
     // the new rows instead of resetting it: only the entries whose rows
     // vanished drop, and declared collapse seeds ONCE, never again.
     const band: PlanWireRow["kind"] = variant("group", { summary: variant("none", null) });

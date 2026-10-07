@@ -27,7 +27,7 @@ import { PlanFooter } from "../shell/Footer.js";
 import { scheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
 import {
-    SEED, banner, decide, history, mountCanvas, releaseCanvases, statusLine, verdictOf,
+    SEED, banner, dropJob, history, historyButton, jobsDrawn, mountCanvas, releaseCanvases, statusLine,
 } from "../plan-editing.test-utils.js";
 import { mount, planHarness, programOf, settle, slot } from "./harness.test-utils.js";
 
@@ -52,7 +52,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 const at = (text: string) => new Date(text);
 
 /** A job on a press, or in the backlog with no press and no times. */
-function job(title: string, opts: { start?: string; end?: string; press?: string; verdict: "pending" | "approved" | "rejected" }): Job {
+function job(title: string, opts: { start?: string; end?: string; press?: string } = {}): Job {
     return {
         title,
         start: opts.start !== undefined ? some(at(opts.start)) : none,
@@ -60,23 +60,22 @@ function job(title: string, opts: { start?: string; end?: string; press?: string
         press: opts.press !== undefined ? some(opts.press) : none,
         state: variant("confirmed", null),
         sheets: 16000.0,
-        verdict: variant(opts.verdict, null),
         customer: "",
         stock: variant("coated", null),
         due: none,
     } as Job;
 }
 
-/** Two jobs in the window (one awaiting a call), one after it, one in the backlog. */
+/** Two jobs in the window, one after it, one in the backlog. */
 const COUNTED = new Map<string, Job>([
-    ["J-1", job("Leaflets", { start: "2026-10-06T08:00:00Z", end: "2026-10-06T16:00:00Z", press: "a1", verdict: "pending" })],
-    ["J-2", job("Catalogue", { start: "2026-10-07T08:00:00Z", end: "2026-10-08T16:00:00Z", press: "a2", verdict: "approved" })],
-    ["J-3", job("Posters", { start: "2026-12-01T08:00:00Z", end: "2026-12-01T16:00:00Z", press: "a3", verdict: "pending" })],
-    ["J-4", job("Labels", { verdict: "approved" })],
+    ["J-1", job("Leaflets", { start: "2026-10-06T08:00:00Z", end: "2026-10-06T16:00:00Z", press: "a1" })],
+    ["J-2", job("Catalogue", { start: "2026-10-07T08:00:00Z", end: "2026-10-08T16:00:00Z", press: "a2" })],
+    ["J-3", job("Posters", { start: "2026-12-01T08:00:00Z", end: "2026-12-01T16:00:00Z", press: "a3" })],
+    ["J-4", job("Labels")],
 ]) as unknown as Jobs;
 
-/** A Plan of the presses and their jobs, reviewed, with a backlog. */
-const reviewedJobs = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+/** A Plan of the presses and their jobs, with a backlog. */
+const countedJobs = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -86,7 +85,7 @@ const reviewedJobs = East.compile(East.function([], UIComponentType, (_$) => Rea
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
-                resource: { field: "press", of: "presses" }, state: "state", review: "verdict",
+                resource: { field: "press", of: "presses" }, state: "state",
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
             }),
         },
@@ -101,13 +100,13 @@ function canvasOf(n: number, style?: { height?: string; maxHeight?: string }): P
         id: rowId(`r${i}`), parent: none,
         gutter: { label: `Row ${i}`, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
     }));
     return {
         rows: variant("inline", oneBlock(rows as never)),
         links: [],
         axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none, slice: none, footer: [],
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
         style: style !== undefined
             ? some({
@@ -144,9 +143,9 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
         const main = slot(container, "main")!;
         expect(main.querySelector(":scope > [data-plan-body] [role='treegrid']")).not.toBeNull();
         expect(main.querySelector("[data-plan-header] [data-slot='ruler']")).not.toBeNull();
-        // The canvas draws no toolbar, review foot or footer of its own.
-        expect(main.querySelector("[data-toolbar], [data-slot='reviewFoot'], [data-slot='footer']")).toBeNull();
-        // No slice, no search, no group to fold, no review, no editing: nothing for a toolbar to hold.
+        // The canvas draws no toolbar or footer of its own.
+        expect(main.querySelector("[data-toolbar], [data-slot='footer']")).toBeNull();
+        // No slice, no search, no group to fold, no overlaps, no editing: nothing for a toolbar to hold.
         expect(slot(container, "toolbar")).toBeNull();
         // No `library`, no `inspector`: no pane (#1195, #1197).
         expect(slot(container, "start")).toBeNull();
@@ -199,25 +198,25 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
 });
 
 describe("the footer (PB23)", () => {
-    test("it counts the event kinds' events in the window, their backlog and the events to review, and says when a record was last saved; a commit moves the counts", async () => {
+    test("it counts the event kinds' events in the window and their backlog, and says when a record was last saved; a commit moves the counts", async () => {
         await h.commit(ex.planPrintJobs, COUNTED);
-        const { container } = mount(reviewedJobs);
+        const { container } = mount(countedJobs);
         await settle();
         expect(count(container, "events")).toBe("2 events");
         expect(count(container, "backlog")).toBe("1 in backlog");
-        expect(count(container, "review")).toBe("1 to review");
+        // A Plan approves and rejects nothing (#1260): there is nothing to review.
+        expect(count(container, "review")).toBeNull();
         // The records in memory commit at the epoch.
         expect(count(container, "saved")).toBe(`saved ${WORDS.dateTime(new Date(0))}`);
         // No editing yet for the event kinds (#1194): nothing pending to count.
         expect(count(container, "pending")).toBeNull();
-        // The posters come into the window, awaiting a call; the labels are scheduled.
+        // The posters come into the window; the labels are scheduled.
         const next = new Map(COUNTED as unknown as Map<string, Job>);
-        next.set("J-3", job("Posters", { start: "2026-10-12T08:00:00Z", end: "2026-10-12T16:00:00Z", press: "a3", verdict: "pending" }));
-        next.set("J-4", job("Labels", { start: "2026-10-13T08:00:00Z", end: "2026-10-13T12:00:00Z", press: "a1", verdict: "approved" }));
+        next.set("J-3", job("Posters", { start: "2026-10-12T08:00:00Z", end: "2026-10-12T16:00:00Z", press: "a3" }));
+        next.set("J-4", job("Labels", { start: "2026-10-13T08:00:00Z", end: "2026-10-13T12:00:00Z", press: "a1" }));
         await h.commit(ex.planPrintJobs, next);
         expect(count(container, "events")).toBe("4 events");
         expect(count(container, "backlog")).toBe("0 in backlog");
-        expect(count(container, "review")).toBe("2 to review");
     });
 
     test("the last save reads as its time when it was made today, and as its date and time before", () => {
@@ -227,7 +226,7 @@ describe("the footer (PB23)", () => {
         try {
             const footer = (saved: Date) => render(
                 <ChakraProvider value={system}>
-                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, toReview: undefined, saved, overlaps: scheduleOverlaps([]) }} />
+                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, saved, overlaps: scheduleOverlaps([]) }} />
                 </ChakraProvider>,
             ).container;
             const earlier = new Date("2026-10-06T09:15:00Z");
@@ -240,13 +239,13 @@ describe("the footer (PB23)", () => {
         }
     });
 
-    test("a Plan that edits counts its changes waiting on Apply; one of no event kinds counts no events", async () => {
+    test("a Plan that edits counts its changes waiting on Save; one of no event kinds counts no events", async () => {
         const canvas = await mountCanvas({ arm: "inline" });
         const c = canvas.container;
         expect(count(c, "pending")).toBe("0 pending");
         expect(count(c, "events")).toBeNull();
-        await decide(c, "p1", "approve");
-        await decide(c, "p2", "reject");
+        await dropJob(canvas, "job-1", "p1");
+        await dropJob(canvas, "job-2", "p2");
         expect(count(c, "pending")).toBe("2 pending");
         await history(canvas, "Undo");
         expect(count(c, "pending")).toBe("1 pending");
@@ -254,15 +253,15 @@ describe("the footer (PB23)", () => {
 });
 
 describe("the banners and the keys (PB20, PB24)", () => {
-    test("an Apply that meets another writer's commit is a conflict banner, the toolbar's line kept to one row — and it leaves with the drafts", async () => {
+    test("a Save that meets another writer's commit is a conflict banner, the toolbar's line kept to one row — and it leaves with the drafts", async () => {
         const canvas = await mountCanvas({ arm: "paged" });
         const c = canvas.container;
-        await decide(c, "p1", "approve");
+        await dropJob(canvas, "job-1", "p1");
         expect(banner(c, "conflict")).toBeNull();
-        // Another writer rejects Press 1, and the canvas does not see it before Apply.
-        canvas.race(new Map([...SEED, ["p1", { ...SEED.get("p1")!, approval: variant("rejected", null) }]]));
-        await history(canvas, "Apply changes");
-        expect(banner(c, "conflict")!.textContent).toContain("Apply stopped — 1 conflict with the source");
+        // Another writer puts a job on Press 1, and the canvas does not see it before Save.
+        canvas.race(new Map([...SEED, ["p1", { ...SEED.get("p1")!, jobs: [{ key: "job-9", at: variant("time", new Date("2026-07-06T00:00:00Z")) }] }]]));
+        await history(canvas, "Save");
+        expect(banner(c, "conflict")!.textContent).toContain("Save stopped — 1 conflict with the source");
         expect(slot(c, "toolbar")!.querySelector('[role="alert"]')).toBeNull();
         expect(statusLine(canvas)).not.toBeNull();
         await history(canvas, "Discard");
@@ -284,14 +283,14 @@ describe("the banners and the keys (PB20, PB24)", () => {
     test("a field typed into keeps its own undo: ⌘Z in it leaves the drafts as they are", async () => {
         const canvas = await mountCanvas({ arm: "inline" });
         const c = canvas.container;
-        await decide(c, "p1", "approve");
+        await dropJob(canvas, "job-1", "p1");
         // A field in the frame, as the key search's box or a pane's form is.
         const field = document.createElement("input");
         slot(c, "toolbar")!.appendChild(field);
         try {
             await act(async () => { fireEvent.keyDown(field, { key: "z", metaKey: true }); });
             await settle();
-            expect(verdictOf(c, "p1")).toBe("approved");
+            expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
         } finally {
             field.remove();
         }
@@ -300,15 +299,14 @@ describe("the banners and the keys (PB20, PB24)", () => {
     test("⌘Z and ⇧⌘Z from anywhere in the frame — a toolbar control's included — do what the history item does", async () => {
         const canvas = await mountCanvas({ arm: "inline" });
         const c = canvas.container;
-        await decide(c, "p1", "approve");
-        expect(verdictOf(c, "p1")).toBe("approved");
-        // The review item's Approve all, in the frame's toolbar, outside the canvas.
-        const outside = slot(c, "toolbar")!.querySelector<HTMLElement>('[data-review-batch="approve"]')!;
-        await act(async () => { fireEvent.keyDown(outside, { key: "z", metaKey: true }); });
+        await dropJob(canvas, "job-1", "p1");
+        expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
+        // The keys on the history item's buttons, in the frame's toolbar, outside the canvas: Discard, then Redo.
+        await act(async () => { fireEvent.keyDown(historyButton(canvas, "Discard"), { key: "z", metaKey: true }); });
         await settle();
-        expect(verdictOf(c, "p1")).toBe("pending");
-        await act(async () => { fireEvent.keyDown(outside, { key: "z", metaKey: true, shiftKey: true }); });
+        expect(jobsDrawn(c, "p1")).toEqual([]);
+        await act(async () => { fireEvent.keyDown(historyButton(canvas, "Redo"), { key: "z", metaKey: true, shiftKey: true }); });
         await settle();
-        expect(verdictOf(c, "p1")).toBe("approved");
+        expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
     });
 });

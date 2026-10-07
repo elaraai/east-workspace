@@ -133,8 +133,8 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
             }],
             decisions: [], ports: [], rollup: none,
         }),
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
-        edits: { verdict: false, drop: false, move: none },
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
+        edits: { drop: false, move: none },
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
@@ -169,7 +169,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [], now: none, format: none,
         }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none,
         slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
@@ -238,7 +238,7 @@ function sheetOver(handle: Record<string, unknown>): SheetValue {
     return East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never);
 }
 
-/** The same Sheet with an Apply of the host's, so a gesture drafts (#1217). */
+/** The same Sheet with an `onApply` of the host's, so a gesture drafts (#1217). */
 const editedProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, ($, machines) => {
     const apply = $.const(East.function([Sheet.Types.ChangeSet(Machine)], Sheet.Types.ApplyResult, (_$, _batch) => variant("applied", { revision: none })));
     return Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0, onApply: apply });
@@ -298,10 +298,10 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
         fireEvent.keyDown(input, { key: "Enter" });
         await settle();
 
-        // Drafted: the row marked, its cell the edit, Apply on.
+        // Drafted: the row marked, its cell the edit, Save on.
         expect(container.querySelector('[data-row-id="m1"][data-draft]')).not.toBeNull();
         expect(container.querySelector('[data-row-id="m1"] [data-key="label"]')!.textContent).toBe("A-M1, checked");
-        expect((screen.getByRole("button", { name: "Apply changes" }) as HTMLButtonElement).disabled).toBe(false);
+        expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
         // The service was asked for the sheet's window, and for nothing since.
         expect(server.requests).toEqual(asked);
     });

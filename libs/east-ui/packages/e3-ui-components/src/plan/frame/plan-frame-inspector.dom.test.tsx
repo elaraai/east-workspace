@@ -231,17 +231,19 @@ function plotBoxes(): () => void {
 }
 
 describe("the inspector (#1197, PB38–PB41, PB60)", () => {
-    test("nothing selected: the window's events, how long they run, the backlog and the events to review — then three hints (PB41)", async () => {
+    test("nothing selected: the window's events, how long they run and the backlog — then three hints (PB41)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         expect(pane(container).getAttribute("data-frame-slot")).toBe("end");
         expect(showing(container)).toBe("none");
         // 22 jobs, 6 stops and 24 shifts in the four weeks: the jobs run 135 h and the shifts 192 h.
-        expect(["events", "hours", "backlog", "review"].map((name) => stat(container, name))).toEqual(["52", "327", "8", "8"]);
+        expect(["events", "hours", "backlog"].map((name) => stat(container, name))).toEqual(["52", "327", "8"]);
+        // A Plan approves and rejects nothing (#1260): nothing to review.
+        expect(stat(container, "review")).toBeNull();
         expect(pane(container).querySelectorAll("li")).toHaveLength(3);
     });
 
-    test("one event: its kind, its title, when it runs, its facts, its verdict and its kind's form, the fields its roles read left to their lines — every edit control drawn disabled (PB38)", async () => {
+    test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its roles read left to their lines — every edit control drawn disabled (PB38)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         fireEvent.click(job(container, "J-1001"));
@@ -255,9 +257,9 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(factNames(container, "[data-inspector-facts]")).toEqual(["resource", "start", "end", "state", "quantity"]);
         expect(["resource", "start", "end", "state", "quantity"].map((name) => fact(container, name)))
             .toEqual(["Press A1", "Oct 5, 2026, 06:00", "Oct 5, 2026, 14:00", "actual", "96,000 sheets"]);
-        // Reviewed: its verdict, and the review's two buttons.
-        expect(pane(container).querySelector("[data-inspector-verdict]")!.getAttribute("data-inspector-verdict")).toBe("approved");
-        // The kind's form: the customer, the stock and the due date — its state, sheets and verdict have their own lines.
+        // A Plan approves and rejects nothing (#1260): no verdict, no Approve or Reject.
+        expect(pane(container).querySelector("[data-inspector-verdict]")).toBeNull();
+        // The kind's form: the customer, the stock and the due date — its state and sheets have their own lines.
         const form = pane(container).querySelector("[data-inspector-fields='form']")!;
         expect([...form.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["customer", "stock", "due"]);
         expect(form.querySelector<HTMLInputElement>("[data-field='customer'] input")!.value).toBe("Alder & Finch");
@@ -265,7 +267,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(edits(container).disabled).toBe(true);
         expect(edits(container).contains(form)).toBe(true);
         const actions = [...edits(container).querySelectorAll<HTMLButtonElement>("button[data-inspector-action]")];
-        expect(actions.map((b) => b.getAttribute("data-inspector-action"))).toEqual(["reject", "approve", "duplicate", "delete"]);
+        expect(actions.map((b) => b.getAttribute("data-inspector-action"))).toEqual(["duplicate", "delete"]);
         expect(actions.every((b) => b.disabled)).toBe(true);
     });
 
@@ -278,8 +280,6 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(pane(container).querySelector("[data-inspector-when]")!.textContent).toBe("Wed, Oct 7, 2026 · 12:00");
         expect(factNames(container, "[data-inspector-facts]")).toEqual(["resource", "at"]);
         expect(fact(container, "at")).toBe("Oct 7, 2026, 12:00");
-        // No verdict: stops are not reviewed.
-        expect(pane(container).querySelector("[data-inspector-verdict]")).toBeNull();
         const own = pane(container).querySelector("[data-inspector-fields='custom']")!;
         expect(pane(container).querySelector("[data-inspector-fields='form']")).toBeNull();
         expect(own.textContent).toContain("Plate change");
@@ -289,7 +289,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(edits(container).disabled).toBe(true);
     });
 
-    test("several events: how many, each kind's count, the list in the order they were selected, and the bulk edit — the state, the resource, a shift and the verdict — drawn disabled (PB39)", async () => {
+    test("several events: how many, each kind's count, the list in the order they were selected, and the bulk edit — the state, the resource and a shift — drawn disabled (PB39)", async () => {
         const { container } = mount(programOf(ex.planPrintWorks));
         await settle();
         fireEvent.click(job(container, "J-1001"));
@@ -305,7 +305,6 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         const bulk = pane(container).querySelector("[data-inspector-bulk]")!;
         expect([...bulk.querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["state", "resource"]);
         expect([...bulk.querySelectorAll("[data-inspector-shift] button")].map((b) => b.textContent)).toEqual(["−1 d", "−1 h", "+1 h", "+1 d"]);
-        expect(bulk.querySelector("[data-inspector-bulk-verdict]")).not.toBeNull();
         expect(edits(container).contains(bulk)).toBe(true);
         expect([...edits(container).querySelectorAll<HTMLButtonElement>("button[data-inspector-action]")].every((b) => b.disabled)).toBe(true);
     });

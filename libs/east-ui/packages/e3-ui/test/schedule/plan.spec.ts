@@ -6,11 +6,12 @@
 /**
  * `Schedule`'s Plan options (#1190, `Plan Builder Spec.md` §4.1, §4.2,
  * PB4–PB7), over the print works' records (§3.1): each option resolved — how
- * a kind draws, an instant kind's `at`, the lifecycle, quantity, lane and
- * verdict its events carry, the kind's own inspector (PB60, #1197), a resource
- * kind's groups, nesting, gutter, fold, rollup, measures and window — the
- * Calendar's kinds unchanged with Plan's options present, each refusal at
- * build, and each mistyped name failing to compile.
+ * a kind draws, an instant kind's `at`, the lifecycle, quantity and lane its
+ * events carry, the kind's own inspector (PB60, #1197), a resource kind's
+ * groups, nesting, gutter, fold, rollup, measures and window — the Calendar's
+ * kinds unchanged with Plan's options present, each refusal at build, the
+ * removed `review` among them (#1260), and each mistyped name failing to
+ * compile.
  */
 
 import { test, describe } from "node:test";
@@ -19,7 +20,7 @@ import {
     ArrayType, BlobType, DateTimeType, DictType, East, FloatType, FunctionType, NullType, OptionType, SortedMap, StringType, StructType,
     VariantType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { ApprovalStateType, EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import { EditingDraftFieldType, Text, TickFormatType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
@@ -38,7 +39,6 @@ const JobType = StructType({
     press: OptionType(StringType),
     state: EventStateType,
     sheets: FloatType,
-    verdict: ApprovalStateType,
     customer: StringType,
     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
     due: OptionType(DateTimeType),
@@ -47,12 +47,9 @@ const StopType = StructType({ title: StringType, at: DateTimeType, press: String
 const ShiftType = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, crew: StringType, state: EventStateType });
 // A delivery is one instant at a press, in the morning's lane or the afternoon's.
 const DeliveryType = StructType({ title: StringType, at: DateTimeType, press: StringType, slot: StringType });
-// A press whose rows carry a verdict, for a measure that would write one.
-const ReviewedPressType = StructType({ name: StringType, hall: StringType, verdict: ApprovalStateType });
 
 const Presses = DictType(StringType, PressType);
 const Crews = DictType(StringType, CrewType);
-const ReviewedPresses = DictType(StringType, ReviewedPressType);
 
 type Press = ValueTypeOf<typeof PressType>;
 type Job = ValueTypeOf<typeof JobType>;
@@ -69,13 +66,12 @@ const PRESSES = new SortedMap<string, Press>([
     ["pc", { name: "Press C", hall: "Hall 2", sheets_per_hour: 15000 }],
 ], compareFor(StringType));
 const CREWS = new SortedMap([["c1", { name: "Crew 1", hall: "Hall 1" }]], compareFor(StringType));
-const REVIEWED_PRESSES = new SortedMap([["pa", { name: "Press A", hall: "Hall 1", verdict: variant("pending", null) }]], compareFor(StringType));
 const JOBS = new SortedMap<string, Job>([
     ["j1", { title: "Brochure run", start: some(at("2026-10-05T06:00:00Z")), end: some(at("2026-10-05T12:00:00Z")), press: some("pa"),
-        state: variant("proposed", variant("added", null)), sheets: 40000, verdict: variant("pending", null), customer: "Harbour Lane Books",
+        state: variant("proposed", variant("added", null)), sheets: 40000, customer: "Harbour Lane Books",
         stock: variant("coated", null), due: none }],
     ["j2", { title: "Catalogue run", start: none, end: none, press: none,
-        state: variant("estimated", null), sheets: 24000, verdict: variant("approved", null), customer: "Fernhill Garden Club",
+        state: variant("estimated", null), sheets: 24000, customer: "Fernhill Garden Club",
         stock: variant("uncoated", null), due: some(at("2026-10-09T00:00:00Z")) }],
 ], compareFor(StringType));
 const STOPS = new SortedMap<string, Stop>([
@@ -114,14 +110,14 @@ type Kind = ValueTypeOf<typeof Schedule.Types.Kind>;
 /** How a job's sheets print: whole numbers. */
 const SHEETS_FORMAT = East.compile(East.function([], TickFormatType, (_$) => Format.Number({ maximumFractionDigits: 0n })), [])();
 
-/** The print job kind as Plan takes it: bars, its lifecycle, its sheets, its verdict and its backlog. */
+/** The print job kind as Plan takes it: bars, its lifecycle, its sheets and its backlog. */
 const jobKind = East.compile(East.function([], Schedule.Types.PlanKind, ($) => {
     const jobs = $.let(Record.bind(jobsRecord, [jobsPatch]));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", draw: "span",
         title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
-        state: "state", review: "verdict",
+        state: "state",
         quantity: { field: "sheets", unit: "sheets", format: Format.Number({ maximumFractionDigits: 0n }) },
         backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
     }).buildPlan("job");
@@ -210,10 +206,10 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         assert.equal(jobKind.draw.type, "span");
         assert.equal(jobKind.instant, false);
         assert.equal(jobKind.overlaps.type, "warn");
-        assert.ok(rolesEqual(jobKind.roles, { state: some("state"), quantity: some("sheets"), lane: none, review: some("verdict") }));
+        assert.ok(rolesEqual(jobKind.roles, { state: some("state"), quantity: some("sheets"), lane: none }));
     });
 
-    test("draws each event with the lifecycle it wears, its quantity in its unit and format, and its verdict", () => {
+    test("draws each event with the lifecycle it wears and its quantity in its unit and format", () => {
         const [run] = onTheFifth(jobKind);
         assert.ok(itemEqual(run!, {
             kind: "job", key: "j1", title: "Brochure run",
@@ -221,7 +217,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
             resource: some({ kind: "presses", key: "pa" }), status: none, minutes: 360n, due: none,
             state: variant("proposed", variant("added", null)),
             quantity: some({ value: 40000, unit: some("sheets"), format: some(SHEETS_FORMAT), text: none }),
-            lane: none, verdict: some(variant("pending", null)),
+            lane: none,
         }));
     });
 
@@ -232,16 +228,15 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         const [waiting] = read.value;
         assert.equal(waiting!.minutes, 180n);
         assert.ok(equalFor(EventStateType)(waiting!.state, variant("estimated", null)));
-        assert.ok(equalFor(OptionType(ApprovalStateType))(waiting!.verdict, some(variant("approved", null))));
     });
 
     test("a kind with none of Plan's options draws bars, warns of overlaps, and its events wear confirmed", () => {
         assert.equal(plainShiftKind.draw.type, "span");
         assert.equal(plainShiftKind.overlaps.type, "warn");
-        assert.ok(rolesEqual(plainShiftKind.roles, { state: none, quantity: none, lane: none, review: none }));
+        assert.ok(rolesEqual(plainShiftKind.roles, { state: none, quantity: none, lane: none }));
         const [early] = onTheFifth(plainShiftKind);
         assert.ok(equalFor(EventStateType)(early!.state, variant("confirmed", null)));
-        assert.deepEqual([early!.quantity.type, early!.lane.type, early!.verdict.type], ["none", "none", "none"]);
+        assert.deepEqual([early!.quantity.type, early!.lane.type], ["none", "none"]);
     });
 
     test("reads one event by its key — as Plan draws it, and its row — with its draft in place; none for a key there is no event of (#1197)", () => {
@@ -273,7 +268,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
         assert.equal(shiftKind.draw.type, "cards");
         const [early] = onTheFifth(shiftKind);
         assert.ok(equalFor(EventStateType)(early!.state, variant("confirmed", null)));
-        assert.ok(rolesEqual(shiftKind.roles, { state: some("state"), quantity: none, lane: none, review: none }));
+        assert.ok(rolesEqual(shiftKind.roles, { state: some("state"), quantity: none, lane: none }));
     });
 });
 
@@ -312,7 +307,7 @@ describe("Schedule.events — an instant kind (`at`)", () => {
         assert.equal(deliveryKind.overlaps.type, "allow");
         const [van] = onTheFifth(deliveryKind);
         assert.ok(equalFor(OptionType(StringType))(van!.lane, some("AM")));
-        assert.ok(rolesEqual(deliveryKind.roles, { state: none, quantity: none, lane: some("slot"), review: none }));
+        assert.ok(rolesEqual(deliveryKind.roles, { state: none, quantity: none, lane: some("slot") }));
     });
 });
 
@@ -338,7 +333,7 @@ describe("Schedule.events — the Calendar's kind with Plan's options present (P
         const jobs = $.let(Record.bind(jobsRecord, [jobsPatch]));
         const plan = withPlan
             ? {
-                draw: "span" as const, state: "state" as const, review: "verdict" as const, quantity: { field: "sheets" as const, unit: "sheets" }, overlaps: "allow" as const,
+                draw: "span" as const, state: "state" as const, quantity: { field: "sheets" as const, unit: "sheets" }, overlaps: "allow" as const,
                 inspector: East.function([JobType, FunctionType([JobType], NullType)], UIComponentType, (_$2, job) => Text.Root(job.title)),
             }
             : {};
@@ -349,7 +344,7 @@ describe("Schedule.events — the Calendar's kind with Plan's options present (P
             backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
             templates: [{ key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
                 values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                    verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } }],
+                    customer: "", stock: variant("coated", null), due: none } }],
             ...plan,
         }).build("job");
     }), PLATFORM)() as Kind;
@@ -477,12 +472,17 @@ describe("Schedule.events — Plan's options refused at build (PB6)", () => {
         assert.throws(() => kindOver(jobsRecord, { ...times, overlaps: "sometimes" }), /`overlaps` is "warn" or "allow" — and it is "sometimes"/);
     });
 
-    test("a `state`, `quantity`, `lane` or `review` field of another type", () => {
-        assert.throws(() => kindOver(jobsRecord, { ...times, state: "verdict" }), /`state` names an EventStateType field, the lifecycle an event wears — "verdict" holds \.Variant/);
+    test("a `state`, `quantity` or `lane` field of another type", () => {
+        assert.throws(() => kindOver(jobsRecord, { ...times, state: "stock" }), /`state` names an EventStateType field, the lifecycle an event wears — "stock" holds \.Variant/);
         assert.throws(() => kindOver(jobsRecord, { ...times, quantity: { field: "title" } }), /`quantity\.field` names a Float field, the quantity a bar prints — "title" holds \.String/);
         assert.throws(() => kindOver(jobsRecord, { ...times, lane: "sheets" }), /`lane` names a String field, the lane a tile sits in — "sheets" holds \.Float/);
-        assert.throws(() => kindOver(jobsRecord, { ...times, review: "state" }), /`review` names an ApprovalStateType field, the verdict a review writes — "state" holds \.Variant/);
-        assert.throws(() => kindOver(jobsRecord, { ...times, review: "approval" }), /`review` names "approval", a field the row does not have/);
+    });
+
+    test("a `review`, which is removed (#1260), whatever it names", () => {
+        const removed = /Schedule\.events: "Kind": `review` is removed \(#1260\) — a Plan approves and rejects nothing: its changes are drafts of its session, saved together$/;
+        assert.throws(() => kindOver(jobsRecord, { ...times, review: "state" }), removed);
+        assert.throws(() => kindOver(jobsRecord, { ...times, review: "approval" }), removed);
+        assert.throws(() => kindOver(stopsRecord, { at: "at", review: "at" }), removed);
     });
 
     test("an `inspector` over another row, or with no writer", () => {
@@ -514,13 +514,6 @@ describe("Schedule.resources — Plan's options refused at build (PB7)", () => {
 
     test("a `rollup` that is not a way to roll up", () => {
         assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ rollup: "average" })), /`rollup` is "union", "byStatus" or "sum" — and it is "average"/);
-    });
-
-    test("a measure that declares `review`, naming Schedule.events", () => {
-        assert.throws(() => resourcesOver(REVIEWED_PRESSES, ReviewedPresses, () => ({ measures: [
-            Plan.series.heat(ReviewedPressType, { key: "util", title: "Utilisation", label: () => "Utilisation",
-                cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }), review: { verdict: "verdict" } }),
-        ] })), /measures\[0\], heat "Utilisation", declares `review` — a measure is read only, and a builder's edits go through its event kinds \(Schedule\.events\)/);
     });
 
     test("a measure that is not a heat, table or chart series, nests, is not written in place, is over other rows, or repeats a key", () => {
@@ -563,12 +556,12 @@ export function planScheduleTypeChecks(): void {
         name: "Print job", icon: "file-lines", draw: "span",
         title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
-        state: "state", review: "verdict",
+        state: "state",
         quantity: { field: "sheets", unit: "sheets" },
         backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
         templates: [{ key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
             values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0,
-                verdict: variant("pending", null), customer: "", stock: variant("coated", null), due: none } }],
+                customer: "", stock: variant("coated", null), due: none } }],
     });
     Schedule.events(stops, {
         name: "Stop", icon: "screwdriver-wrench", draw: "marks",
@@ -585,13 +578,13 @@ export function planScheduleTypeChecks(): void {
     });
     // @ts-expect-error — `at` is a plain DateTime field, and a job's start is an Option
     Schedule.events(jobs, { name: "Job", icon: "i", title: "title", at: "start" });
-    // @ts-expect-error — `state` is an EventStateType field, and "verdict" is an ApprovalStateType one
-    Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", state: "verdict" });
+    // @ts-expect-error — `state` is an EventStateType field, and "stock" is a variant of its own
+    Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", state: "stock" });
     // @ts-expect-error — `quantity.field` is a Float field, and "title" is a String one
     Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", quantity: { field: "title" } });
     // @ts-expect-error — `lane` is a String field, and "sheets" is a Float one
     Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", lane: "sheets" });
-    // @ts-expect-error — `review` is an ApprovalStateType field, and "state" is an EventStateType one
+    // @ts-expect-error — `review` is removed (#1260): a Plan approves and rejects nothing
     Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", review: "state" });
     // @ts-expect-error — `overlaps` is "warn" or "allow"
     Schedule.events(jobs, { name: "Job", icon: "i", title: "title", start: "start", end: "end", overlaps: "sometimes" });

@@ -108,7 +108,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: 
             value: none, meta: none, stacked: false, swatches: [],
         },
         kind,
-        collapsed: false, pinned: false, height: none, status: none, approval: none,
+        collapsed: false, pinned: false, height: none, status: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
@@ -135,7 +135,7 @@ function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknow
         expandRender: opts?.expandRender === true
             ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
-        review: none, pick: none, slice: none, footer: [],
+        pick: none, slice: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none,

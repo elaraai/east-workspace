@@ -6,8 +6,8 @@
 /**
  * Shared review chrome — the renderer half of the review contract
  * (`contracts/review.ts` in `@elaraai/east-ui`), extracted from the Planner's
- * review rendering (PR #76) so every adopter (Table, Roster, Board, Plan)
- * composes the same pieces:
+ * review rendering (PR #76) so every adopter (Table, Roster, Board) composes
+ * the same pieces:
  *
  * - {@link useReviewController} — the optimistic per-row decisions state
  *   (the mandatory interactive-state pattern: local `useState`, re-synced on
@@ -71,9 +71,9 @@ function initialDecisions(approvals: readonly (ApprovalOptionValue | undefined)[
  * What the batch foot needs — deliberately narrower than {@link ReviewController}.
  *
  * The foot's verbs are batch-level: none of them names a row. Splitting this
- * out lets a surface whose per-row verdicts are NOT index-keyed (the Plan,
- * whose rows are addressed by key — #568) reuse the foot without inventing an
- * index-keyed controller it has no use for.
+ * out lets a surface whose per-row verdicts are NOT index-keyed — its rows
+ * addressed by key — reuse the foot without inventing an index-keyed
+ * controller it has no use for.
  */
 export interface ReviewFootModel {
     /** Whether the batch foot has anything to show. */
@@ -87,7 +87,7 @@ export interface ReviewFootModel {
     hasRejectAll: boolean;
     hasRerun: boolean;
     /** Whether Approve all / Reject all cannot act now — a surface whose
-     *  verdicts are drafts (the Plan, #880) while its session takes no
+     *  verdicts are drafts of an editing session while the session takes no
      *  gesture. Absent ⇒ they can. */
     batchDisabled?: boolean | undefined;
     /** Approve every subject. */
@@ -220,8 +220,8 @@ export function DecisionButtons({ rowIndex, controller }: {
 }
 
 /** The batch foot's button words — a surface that speaks its own message
- *  table (the Plan, #820) passes them; English otherwise. The Rerun button's
- *  label is the author's (`review.rerunLabel`). */
+ *  table passes them; English otherwise. The Rerun button's label is the
+ *  author's (`review.rerunLabel`). */
 export interface ReviewFootLabels {
     /** The approve-all button. */
     approveAll: string;

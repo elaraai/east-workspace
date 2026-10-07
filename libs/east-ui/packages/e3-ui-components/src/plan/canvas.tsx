@@ -49,9 +49,9 @@
  * source or search failure, a truncated axis. Nothing a row or a source does
  * replaces the canvas.
  *
- * All eight row kinds render (`rows/*`); review chrome, the drag-target
- * role, element clicks and the keyboard rungs are wired — the reducer's
- * events and the component's dispatches are a closed loop (#569). Every
+ * All eight row kinds render (`rows/*`); the drag-target role, element
+ * clicks and the keyboard rungs are wired — the reducer's events and the
+ * component's dispatches are a closed loop (#569). Every
  * element's popover, hover card and tooltip come from ONE overlay layer the
  * body delegates to (#816, `root/overlays.tsx`).
  *
@@ -101,7 +101,6 @@ import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { elementInstants, ribbonBody, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
-import { planReviewModel, DECISION_WIDTH } from "./shell/Review.js";
 import type { PlanTransport } from "./shell/transport.js";
 import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
@@ -252,10 +251,11 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     const lead = usePlanEventBlocks(events, scale, hidden);
 
     // ── The editing session (#880) ────────────────────────────────────────
-    // Every verdict and dropped card is a DRAFT of the entry its row came
-    // from, and the canvas draws the ROOT WITH THE DRAFTS IN PLACE — derived
-    // again, so a draft looks exactly as Apply will leave it. Everything
-    // below reads that root: `value` and `data` are the drafted pair.
+    // Every dropped card, move and resize is a DRAFT of the entry its row
+    // came from, and the canvas draws the ROOT WITH THE DRAFTS IN PLACE —
+    // derived again, so a draft looks exactly as Save will leave it.
+    // Everything below reads that root: `value` and `data` are the drafted
+    // pair.
     // A row's name, for a transaction's label — read off the canvas below.
     const indexRef = useRef<PlanRowIndex | undefined>(undefined);
     const labelOf = useCallback(
@@ -354,27 +354,9 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
         return row !== undefined && scale !== undefined ? elementInstants(row, runKey, scale) : undefined;
     }, [index, scale]);
 
-    // ── Chrome: review, transport, search ─────────────────────────────────
+    // ── Chrome: transport, search ─────────────────────────────────────────
     // The series library (#590) is the library pane's Series tab (#1195): the
     // Plan feeds ITSELF the picked series, and the frame has no Series button.
-    // Review chrome (#569) — a verdict is a DRAFT of the editing session
-    // (#880): Approve / Reject draft the row's entry with the field its series
-    // names, and Approve all / Reject all every row the canvas holds that
-    // takes one — on a paged canvas, the loaded rows. The canvas draws the
-    // draft, so the buttons and the canvas cannot disagree. Rerun changes no
-    // data: it is the controller's, which fires the LATEST root's callback.
-    const verdictRows = useMemo(() => index.rows.filter((r) => r.edits.verdict), [index]);
-    const verdictRowsRef = useRef(verdictRows);
-    verdictRowsRef.current = verdictRows;
-    const takesVerdicts = editing.enabled && verdictRows.length > 0;
-    const { verdict: draftVerdict, verdictAll: draftVerdictAll } = editing;
-    const review = useMemo(
-        () => planReviewModel(getSomeorUndefined(data.review), {
-            verdict: draftVerdict,
-            verdictAll: (v) => draftVerdictAll(v, verdictRowsRef.current),
-            rerun: controller.rerun,
-        }, { writable: editing.available, verdictRows: takesVerdicts }),
-        [data.review, draftVerdict, draftVerdictAll, controller, editing.available, takesVerdicts]);
     // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
     // the number `total()` reports — never canvas rows, since a series can
     // emit any number of rows per element; the count is the block the
@@ -473,7 +455,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     // percentage must fall back to the default, never silently become that
     // many pixels (#615).
     const gutterW = (style !== undefined && style.gutterWidth.type === "some" ? pxOf(style.gutterWidth.value) : undefined) ?? GUTTER_W;
-    const gridTemplate = `${gutterW}px 1fr${review !== undefined ? ` ${DECISION_WIDTH}` : ""}`;
+    const gridTemplate = `${gutterW}px 1fr`;
     const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
     // A declared bound is the whole Plan's: it goes on the WRAPPER around its
@@ -647,26 +629,15 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop, marks, groupEnds,
+        canExpand, expandBody, expandGutterBody, partial: transport?.partial, rowDrop, marks, groupEnds,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop, marks,
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, rowDrop, marks,
         groupEnds]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
-    // The review item's buttons, in the canvas's words (#820) — on a paged
-    // canvas they cover the loaded rows, and say how many (#880).
-    const loadedVerdicts = verdictRows.length;
-    const reviewLabels = useMemo(
-        () => (paged
-            ? {
-                approveAll: words.m.approveLoaded({ n: loadedVerdicts, count: words.number(loadedVerdicts) }),
-                rejectAll: words.m.rejectLoaded({ n: loadedVerdicts, count: words.number(loadedVerdicts) }),
-            }
-            : { approveAll: words.m.approveAll(), rejectAll: words.m.rejectAll() }),
-        [words, paged, loadedVerdicts]);
     // The history (#880): the frame's history item (#988) and its banners. An
     // issue takes the reader to its entry's first row on the canvas — one its
     // entry placed — and a banner names it by that row.
@@ -846,7 +817,6 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             slice={slice} affordances={affordances} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
-            reviewLabel={review?.columnLabel}
             pinned={pinned.map((v) => (
                 <Box key={v.row.key} background="bg.surface">{renderPlanRow(v, rowCtx)}</Box>
             ))}
@@ -938,7 +908,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             runMove(move, itemKey);
             return true;
         }
-        // A widget of the row: an element, a control, a review button.
+        // A widget of the row: an element or a control.
         const widget = e.target as HTMLElement;
         const isElement = widget.matches(PLAN_ELEMENT_SELECTOR);
         switch (e.key) {
@@ -1086,7 +1056,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             {narrow ? (
                 <PlanNarrow
                     styles={styles} index={index} derived={derived} view={view}
-                    dense={dense} storageKey={storageKey} review={review}
+                    dense={dense} storageKey={storageKey}
                     expandBody={expandBody} expandGutterBody={expandGutterBody}
                     canExpand={canExpand} partial={transport?.partial} fill={frameFills}
                     failures={paging.failures} onRetry={controller.retry}
@@ -1143,7 +1113,6 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
                             <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
                                 body={ribbonRows} beyond={beyond} scale={scale} runDates={runDates}
                                 gutterPx={gutterW}
-                                trailingPx={review !== undefined ? pxOf(DECISION_WIDTH) ?? 0 : 0}
                                 frame={frameFills ? frameRefs : undefined} />
                         </PlanPartBoundary>
                     ) : null}
@@ -1201,7 +1170,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             // narrow layout's Groups · Rows tabs own them, so nothing is left
             // for the segment to do there.
             grain: hasRootGroup && !narrow ? grain : undefined,
-            transport, search, diagnostics, review, reviewLabels,
+            transport, search, diagnostics,
             history: historyProps, where,
             footer: data.footer,
             id: getSomeorUndefined(data.id),

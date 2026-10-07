@@ -39,8 +39,8 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
         parent: parent !== undefined ? some(rowId(parent, series)) : none,
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
-        edits: { verdict: false, drop: false, move: none },
+        collapsed: false, pinned: false, height: none, status: none, expand: none,
+        edits: { drop: false, move: none },
     } as unknown as PlanWireRow;
 }
 
@@ -57,7 +57,7 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [variant("week", null), variant("day", null)], now: none, format: none,
         }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, editing: none, pick: none,
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, editing: none, pick: none,
         slice: none, footer: [], id: none, sources: [], canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
         ...opts,
@@ -315,16 +315,13 @@ describe("the author's callbacks", () => {
         expect(calls).toEqual(["event", "run", "link t1"]);
     });
 
-    test("Rerun reaches the LATEST root's review.onRerun after the handler — the one review verb that stays a callback (#880)", async () => {
+    test("a click reaches the LATEST root's onElementClick — a closure-only change swaps the callback", async () => {
         const calls: string[] = [];
-        const reviewOf = (tag: string) => some({
-            columnLabel: "Decision", summary: none, rerunLabel: "Rerun",
-            onRerun: some(() => { calls.push(tag); }),
-        });
-        const first = root(ROWS, { review: reviewOf("first") });
+        const clickOf = (tag: string) => some(() => { calls.push(tag); });
+        const first = root(ROWS, { onElementClick: clickOf("first") });
         const { c } = show(first);
-        c.setValue(root(ROWS, { review: reviewOf("latest") }), first);
-        c.rerun();
+        c.setValue(root(ROWS, { onElementClick: clickOf("latest") }), first);
+        c.elementClick(variant("run", { row: rowId("r1"), run: "x1" }) as never);
         expect(calls).toEqual([]);
         await microtasks();
         expect(calls).toEqual(["latest"]);

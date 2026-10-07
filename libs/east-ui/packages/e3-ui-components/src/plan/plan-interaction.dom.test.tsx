@@ -78,7 +78,7 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         gutter: opts?.gutter ?? gutter(key),
         kind,
         collapsed: opts?.collapsed === true,
-        pinned: false, height: none, status: none, approval: none,
+        pinned: false, height: none, status: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
@@ -103,11 +103,9 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
             format: none,
         }),
         grain: none,
-       
         popover: opts?.popover !== undefined ? some(opts.popover) : none,
         hover: opts?.hover !== undefined ? some(opts.hover) : none,
         expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
-        review: none,
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
@@ -352,7 +350,7 @@ describe("The toolbar's grain segment (#632)", () => {
 
     test("a canvas with a root group mounts it, slice or no slice; without one there is nothing to fold, and no segment", () => {
         const { container } = renderPlan(planRoot(grouped()), "plan-632-mount");
-        // No slice, no search, no review: the segment alone gives the frame its toolbar.
+        // No slice and no search: the segment alone gives the frame its toolbar.
         expect(container.querySelector("[data-frame-slot='toolbar']")).not.toBeNull();
         const seg = segment(container)!;
         expect(seg.getAttribute("role")).toBe("radiogroup");

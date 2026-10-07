@@ -134,8 +134,8 @@ const MEASURES: readonly string[] = ["heat", "table", "chart"];
  * @param config - Its name, its icon, each resource's label and second line, and Plan's options
  * @returns The kind, for a builder's `resources`
  * @throws {Error} When `rows` is not a `Dict`; a `rollup` that is not a way to roll up; a measure that is not a
- *   `Plan.series.heat`, `table` or `chart` over the resources' rows written in place, that nests, that takes a
- *   gesture (`review`), or whose key another measure has; and a `window` over another collection
+ *   `Plan.series.heat`, `table` or `chart` over the resources' rows written in place, that nests, or whose key
+ *   another measure has; and a `window` over another collection
  * @example
  * ```tsx
  * import { DictType, East, StringType, StructType, some } from "@elaraai/east";
@@ -202,9 +202,6 @@ export function scheduleResources<K extends EastType, R extends EastType>(
         }
         if (facts.nests) {
             throw new Error(`${at}, ${named}, declares \`children\` — a measure is one row under each resource`);
-        }
-        if (facts.writes) {
-            throw new Error(`${at}, ${named}, declares \`review\` — a measure is read only, and a builder's edits go through its event kinds (Schedule.events)`);
         }
         if (keys.has(facts.key)) {
             throw new Error(`${at}, ${named}, repeats the key "${facts.key}" — a measure row's id is its series' key and its resource's path, so each measure has a key of its own`);

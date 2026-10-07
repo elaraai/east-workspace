@@ -34,7 +34,7 @@ function row(id: PlanRowId, kind: unknown): PlanWireRow {
     return {
         id, parent: none,
         gutter: { label: "row", id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
-        kind, collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none, edits: NO_EDITS,
+        kind, collapsed: false, pinned: false, height: none, status: none, expand: none, edits: NO_EDITS,
     } as unknown as PlanWireRow;
 }
 

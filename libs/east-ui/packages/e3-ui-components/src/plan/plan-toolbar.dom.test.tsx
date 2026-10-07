@@ -8,19 +8,18 @@
  * #1193, PB20, PB21): one ladder over its items — the slice rail's two
  * clusters first, in the rail's order (search, the range, the filter builder,
  * the terminal chip, the icon), then the Plan's own (the user's decision): the
- * summary shortens to its count and the review's summary goes, leaving its
- * buttons; the resolution segment folds into its menu, then the grain segment,
- * the summary hides; the review's buttons fold into its menu and the key
- * search into its icon; the history item folds last, to its buttons. jsdom
- * lays nothing out, so each item's width is stubbed by the form it shows,
- * every fold giving room back; the gap is 10px.
+ * summary shortens to its count; the resolution segment folds into its menu,
+ * then the grain segment, the summary hides; the key search folds into its
+ * icon; the history item folds last, to its buttons. jsdom lays nothing out,
+ * so each item's width is stubbed by the form it shows, every fold giving room
+ * back; the gap is 10px.
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
-import { East, IntegerType, StringType, StructType, toEastTypeValue, variant, some, none } from "@elaraai/east";
-import { Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { IntegerType, StringType, StructType, toEastTypeValue, variant, some, none } from "@elaraai/east";
+import { Editing } from "@elaraai/east-ui/internal";
 import {
     system, formatters, EditSession, editingMessages, buildSliceHandle, UIStore, Toolbar, type HistoryBarProps,
 } from "@elaraai/east-ui-components";
@@ -30,7 +29,6 @@ import { usePlanToolbarItems } from "./shell/Toolbar.js";
 import type { PlanChrome } from "./root/chrome.js";
 import type { PlanEventItemValue, PlanOverlaps } from "./frame/counts.js";
 import { scheduleEventKey, scheduleOverlaps } from "../shared/schedule/overlaps.js";
-import type { PlanReview } from "./shell/Review.js";
 import type { PlanEntryRef } from "./use-plan-editing.js";
 import type { PlanScale } from "./scale.js";
 import { PLAN_WORDS } from "./words.js";
@@ -52,7 +50,6 @@ const FORM_PX: Record<string, readonly number[]> = {
     resolution: [150, 80],
     summary: [260, 120],
     overlaps: [110, 50],
-    review: [280, 190, 40],
     history: [220, 140],
 };
 
@@ -105,16 +102,6 @@ function sliceHandle(): PlanChrome["slice"] {
 /** The scale the toolbar reads its resolution from — the only part of it the items read. */
 const WEEKLY = { resolution: "week" } as unknown as PlanScale;
 
-/** The host-composed review summary: a UI component, as `review.summary` decodes to. */
-const SUMMARY = East.compile(East.function([], UIComponentType, () => Text.Root("2 to review")), [])();
-
-/** A review over rows that take verdicts, with its summary. */
-const REVIEW: PlanReview = {
-    columnLabel: "Decision", writable: true, approveRow: () => {}, rejectRow: () => {},
-    summary: SUMMARY, rerunLabel: "Rerun", showFoot: true, hasApproveAll: true, hasRejectAll: true, hasRerun: false,
-    batchDisabled: false, approveAll: () => {}, rejectAll: () => {}, rerun: () => {},
-};
-
 /** A key search over a seekable source's String keys — the toolbar mounts it; nothing here searches. */
 const SEARCH: NonNullable<PlanChrome["search"]> = {
     resetKey: "r1", keyType: toEastTypeValue(StringType),
@@ -138,7 +125,7 @@ function onePair(): PlanOverlaps {
         kind: "job", key, title: `${key} title`,
         start: some(new Date(Date.UTC(2026, 9, 20, from))), end: some(new Date(Date.UTC(2026, 9, 20, to))),
         resource: some({ kind: "presses", key: "b2" }), status: none, minutes: 60n, due: none,
-        state: variant("confirmed", null), quantity: none, lane: none, verdict: none,
+        state: variant("confirmed", null), quantity: none, lane: none,
     });
     return scheduleOverlaps([[job("J-1018", 6, 12), job("J-1019", 10, 13)]]);
 }
@@ -152,7 +139,7 @@ function Harness({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverl
     const chrome: PlanChrome = {
         words: PLAN_WORDS, styles, storageKey: "plan.toolbar", scale: WEEKLY,
         slice: undefined, affordances: [], resolutions: [], grain: undefined, transport: undefined, search: undefined,
-        diagnostics: { skipped: 0 }, review: undefined, reviewLabels: { approveAll: "Approve all", rejectAll: "Reject all" },
+        diagnostics: { skipped: 0 },
         history: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
@@ -163,11 +150,11 @@ function Harness({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverl
     return <Toolbar items={usePlanToolbarItems(chrome, overlaps)} />;
 }
 
-/** A canvas with a root group, a bound slice, every chrome affordance, a review and editing. */
+/** A canvas with a root group, a bound slice, every chrome affordance and editing. */
 function everything(slice: PlanChrome["slice"]): ChromeParts {
     return {
         slice, affordances: ["filter", "search", "range", "resolution", "summary"], resolutions: ["week", "day"], grain: "group",
-        review: REVIEW, history: historyProps(),
+        history: historyProps(),
     };
 }
 
@@ -184,12 +171,12 @@ function stateOf(container: HTMLElement): Map<string, number> {
  *  builder, the terminal chip, the icon), then the Plan's own, the history last. */
 const LADDER: ReadonlyArray<readonly [string, number]> = [
     ["cluster", 1], ["range", 1], ["cluster", 2], ["cluster", 3], ["cluster", 4],
-    ["summary", 1], ["review", 1], ["resolution", 1], ["grain", 1], ["summary", 2], ["review", 2], ["history", 1],
+    ["summary", 1], ["resolution", 1], ["grain", 1], ["summary", 2], ["history", 1],
 ];
 
-/** A seekable canvas's ladder, its key search in it: the review's two steps,
- *  the key search's, then the history's. */
-const SEEK_LADDER: ReadonlyArray<readonly [string, number]> = [["review", 1], ["review", 2], ["seek", 1], ["history", 1]];
+/** A seekable canvas's ladder, its key search in it: the key search's step,
+ *  then the history's. */
+const SEEK_LADDER: ReadonlyArray<readonly [string, number]> = [["seek", 1], ["history", 1]];
 
 /** Walks a ladder: each configuration on it holds in exactly the row it needs,
  *  and a pixel less takes the next step — and only that one. */
@@ -222,16 +209,14 @@ function needs(forms: ReadonlyMap<string, number>): number {
 }
 
 describe("the Plan's toolbar items (#952, #1193)", () => {
-    test("they are one row in §7.1's order: the rail's narrowing, the grain, the range, the resolution; at the end the summary, the review and the history (PB20)", () => {
+    test("they are one row in §7.1's order: the rail's narrowing, the grain, the range, the resolution; at the end the summary and the history (PB20)", () => {
         row.px = 4000;
         const { container } = render(<ChakraProvider value={system}><Harness parts={everything(sliceHandle())} /></ChakraProvider>);
-        expect([...stateOf(container).keys()]).toEqual(["cluster", "grain", "range", "resolution", "summary", "review", "history"]);
+        expect([...stateOf(container).keys()]).toEqual(["cluster", "grain", "range", "resolution", "summary", "history"]);
         const end = [...container.querySelectorAll("[data-toolbar-item][data-toolbar-end]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(end).toEqual(["summary"]);
-        // The review: its summary, then Reject all and Approve all, moved here from the review foot.
-        const review = container.querySelector('[data-toolbar-item="review"]')!;
-        expect(review.querySelector('[data-slot="reviewSummary"]')!.textContent).toBe("2 to review");
-        expect([...review.querySelectorAll("[data-review-batch]")].map((b) => b.textContent)).toEqual(["Reject all", "Approve all"]);
+        // A Plan approves and rejects nothing (#1260): no review item, no batch verbs.
+        expect(container.querySelector('[data-toolbar-item="review"], [data-review-batch]')).toBeNull();
         // The history item leaves the session's error to the frame's banners.
         const history = historyProps();
         history.session.error = "Refused by the host";
@@ -241,34 +226,30 @@ describe("the Plan's toolbar items (#952, #1193)", () => {
         expect(errored.container.querySelector('[role="alert"]')).toBeNull();
     });
 
-    test("a narrowing row folds the rail first, in its order, then the summary shortens and the review's summary goes, the resolution then the grain fold into menus, the summary hides, the review's buttons fold into their menu, and the history folds last (PB21)", () => {
-        const start = new Map([["cluster", 0], ["grain", 0], ["range", 0], ["resolution", 0], ["summary", 0], ["review", 0], ["history", 0]]);
+    test("a narrowing row folds the rail first, in its order, then the summary shortens, the resolution then the grain fold into menus, the summary hides, and the history folds last (PB21)", () => {
+        const start = new Map([["cluster", 0], ["grain", 0], ["range", 0], ["resolution", 0], ["summary", 0], ["history", 0]]);
         const c = walk(everything(sliceHandle()), start, LADDER);
         // Folded all the way: the rail's icon, the range's chip, both segments
-        // as menus, no summary, the review's menu and the history's buttons
-        // alone — the menu named in the Plan's words.
+        // as menus, no summary, and the history's buttons alone.
         expect(c.querySelector("[data-toolbar-item='cluster'] [data-rail-rung='icon']")).not.toBeNull();
         expect(c.querySelector("[data-plan-segmenu='resolution']")!.textContent).toContain("WEEK");
         expect(c.querySelector("[data-plan-segmenu='grain']")!.textContent).toContain("GROUP");
         expect(c.querySelector("[data-plan-seg]")).toBeNull();
         expect(c.querySelector("[data-slot='toolbarSummary']")).toBeNull();
-        expect(c.querySelector("[data-toolbar-item='review'] [data-slot='reviewMenu']")!.getAttribute("aria-label")).toBe("Review");
-        expect(c.querySelector("[data-review-batch]")).toBeNull();
-        expect(c.querySelector("[data-slot='reviewSummary']")).toBeNull();
         expect(c.querySelector("[data-history-form='buttons']")).not.toBeNull();
     });
 
-    test("on a seekable source the key search replaces the rail's search; it folds to its icon after the review's menu, before the history (PB21)", () => {
+    test("on a seekable source the key search replaces the rail's search; it folds to its icon after the summary hides, before the history (PB21)", () => {
         const seekable = { ...everything(sliceHandle()), search: SEARCH };
         row.px = 4000;
         const wide = render(<ChakraProvider value={system}><Harness parts={seekable} /></ChakraProvider>);
         // After the rail's narrowing and before the grain, in §7.1's order; its box with room.
-        expect([...stateOf(wide.container).keys()]).toEqual(["cluster", "seek", "grain", "range", "resolution", "summary", "review", "history"]);
+        expect([...stateOf(wide.container).keys()]).toEqual(["cluster", "seek", "grain", "range", "resolution", "summary", "history"]);
         expect(wide.container.querySelector('[data-toolbar-item="seek"] [data-part="dataset-key-search"]')).not.toBeNull();
         // The rail no longer offers a search of its own: one word, one meaning.
         expect(wide.container.querySelector('[data-toolbar-item="cluster"] [data-slice-fold="search"], [data-toolbar-item="cluster"] [title="Search"]')).toBeNull();
         cleanup();
-        const c = walk({ search: SEARCH, review: REVIEW, history: historyProps() }, new Map([["seek", 0], ["review", 0], ["history", 0]]), SEEK_LADDER);
+        const c = walk({ search: SEARCH, history: historyProps() }, new Map([["seek", 0], ["history", 0]]), SEEK_LADDER);
         // The key search's icon, named in the Plan's words; no box.
         expect(c.querySelector("[data-toolbar-item='seek'] [data-key-search='icon']")!.getAttribute("aria-label")).toBe("Search keys");
         expect(c.querySelector("[data-part='dataset-key-search']")).toBeNull();
@@ -307,7 +288,7 @@ describe("the Plan's toolbar items (#952, #1193)", () => {
         expect(selected).toEqual([[scheduleEventKey(pair.pairs[0]!.first), scheduleEventKey(pair.pairs[0]!.second)]]);
     });
 
-    test("a canvas with no slice, no group to fold, no review and no editing has no items", () => {
+    test("a canvas with no slice, no group to fold, no overlaps and no editing has no items", () => {
         row.px = 4000;
         const { container } = render(<ChakraProvider value={system}><Harness parts={{}} /></ChakraProvider>);
         expect(container.querySelector("[data-toolbar-item]")).toBeNull();

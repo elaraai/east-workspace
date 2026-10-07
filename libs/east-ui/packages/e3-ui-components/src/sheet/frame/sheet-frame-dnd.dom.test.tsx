@@ -10,7 +10,7 @@
  * a template dropped on a seam, a group's start or end, or the blank tail; a
  * group template between the groups, and on a keyed record where its key
  * sorts; an author's card setting its cells on a row or a band; a row, a line
- * and a group moved by their grips, and committed by one Apply; every refusal
+ * and a group moved by their grips, and committed by one Save; every refusal
  * the ghost says in red; ⏎ on a card; and one transaction per drop, undone in
  * one step.
  */
@@ -129,7 +129,7 @@ async function openTab(c: HTMLElement, name: string) {
 }
 
 /** Clicks a history button in the toolbar, as a pointer does. */
-async function history(c: HTMLElement, name: "Undo" | "Redo" | "Apply changes") {
+async function history(c: HTMLElement, name: "Undo" | "Redo" | "Save") {
     const button = within(slot(c, "toolbar")!).getByRole("button", { name });
     await act(async () => { fireEvent.mouseDown(button, { button: 0 }); fireEvent.click(button); });
     await settle();
@@ -209,7 +209,7 @@ test("a row template dropped on a seam inserts its row there, selected, as one t
     expect(drafted(container)).toBe(0);
 });
 
-test("on a grouped sheet a row template lands as a line of the group under the pointer — beside a line, at a band's start, at a group's end — and a group template between the groups; one Apply commits them (SB39, SB40)", async () => {
+test("on a grouped sheet a row template lands as a line of the group under the pointer — beside a line, at a band's start, at a group's end — and a group template between the groups; one Save commits them (SB39, SB40)", async () => {
     const { container } = mount(ex.sheetBatches, { drag: true });
     await settle();
     const before = [
@@ -257,8 +257,8 @@ test("on a grouped sheet a row template lands as a line of the group under the p
     for (let i = 0; i < 4; i++) await history(container, "Undo");
     expect(sheetText(container)).toEqual(before);
     for (let i = 0; i < 4; i++) await history(container, "Redo");
-    // One Apply commits them all: the day as the drops left it.
-    await history(container, "Apply changes");
+    // One Save commits them all: the day as the drops left it.
+    await history(container, "Save");
     expect(readDays().get("2026-10-12")!.batches.map((batch) => [batch.name, batch.steps.map((step) => step.task)])).toEqual([
         ["Doors, oak", ["Cut doors", "Sand", "Band doors", "Spray doors"]],
         ["Finishing", ["Sand", "Seal", "Spray"]],
@@ -358,14 +358,14 @@ test("a card whose patch is over the group type lands on a band, setting the gro
     await release();
     expect(announced()).toBe("RELEASED was dropped on order 2.");
     expect(bandOf(container, "WO-2202").hasAttribute("data-draft")).toBe(true);
-    // Its Apply commits the order's status.
-    await history(container, "Apply changes");
+    // Its Save commits the order's status.
+    await history(container, "Save");
     expect(readOrders().get("WO-2202")!.status).toBe("RELEASED");
 });
 
 // ── Moves (SB44) ──────────────────────────────────────────────────────────
 
-test("a grip moves a step within its batch or into another, and a whole batch to another seam — each one transaction — and one Apply commits them all (SB44)", async () => {
+test("a grip moves a step within its batch or into another, and a whole batch to another seam — each one transaction — and one Save commits them all (SB44)", async () => {
     const { container } = mount(ex.sheetBatches, { drag: true });
     await settle();
     const before = sheetText(container);
@@ -409,8 +409,8 @@ test("a grip moves a step within its batch or into another, and a whole batch to
     for (let i = 0; i < 3; i++) await history(container, "Undo");
     expect(sheetText(container)).toEqual(before);
     for (let i = 0; i < 3; i++) await history(container, "Redo");
-    // Apply carries every placement in one commit: the day as the moves left it.
-    await history(container, "Apply changes");
+    // Save carries every placement in one commit: the day as the moves left it.
+    await history(container, "Save");
     const day = readDays().get("2026-10-12")!;
     expect(day.batches.map((batch) => [batch.id, batch.steps.map((step) => step.task)])).toEqual([
         ["B-103", ["Drill carcasses", "Cut shelves", "Sand shelves"]],
@@ -433,7 +433,7 @@ test("a flat row moves by its grip to another seam, or the end, in the planner's
     expect(caption()).toEqual({ text: "before row 1", refused: false });
     await release("top");
     expect(sheetText(container)).toEqual(["Route the door panels", "Band the carcass edges", "Cut the kitchen carcasses"]);
-    await history(container, "Apply changes");
+    await history(container, "Save");
     expect(readPlans().get("2026-W42")!.rows.map((row) => row.id)).toEqual(["w42-3", "w42-2", "w42-1"]);
 });
 

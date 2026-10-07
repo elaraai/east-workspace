@@ -30,8 +30,8 @@
  * # Widgets
  *
  * Tab from a row walks its widgets in reading order — its controls, its
- * elements in time order, the author's render, its review buttons — and past
- * the last, out of the canvas. ← / → step between the elements in time order
+ * elements in time order, the author's render — and past the last, out of
+ * the canvas. ← / → step between the elements in time order
  * (Home / End to the first / last), and Esc returns to the row.
  *
  * @packageDocumentation
@@ -295,12 +295,12 @@ export function resolveNavIntent(items: readonly PlanNavItem[], intent: PlanNavI
 
 // ── The DOM side: which item a node is in, and a row's widgets ─────────────
 
-/** Native widgets a row can hold — its controls, review buttons, Retry, and
- *  whatever the author's render mounts. */
+/** Native widgets a row can hold — its controls, Retry, and whatever the
+ *  author's render mounts. */
 const WIDGET_SELECTOR = "button, a[href], input, select, textarea, [tabindex]";
 /** The canvas's own row widgets — out of the tab order (`tabIndex=-1`), reached
  *  through the row's Tab walk instead. */
-const OWN_WIDGET_SELECTOR = "[data-plan-control], [data-plan-approve], [data-plan-reject], [data-plan-retry]";
+const OWN_WIDGET_SELECTOR = "[data-plan-control], [data-plan-retry]";
 
 /**
  * The grid item (row, band) a node belongs to in THIS canvas — a canvas nested
@@ -349,8 +349,8 @@ export function plotElements(row: HTMLElement, body: HTMLElement): HTMLElement[]
 
 /**
  * A row's widgets in reading order, cell by cell — the gutter's controls, the
- * plot's elements in time order then anything the author's render mounts, the
- * review buttons. The Tab walk through a row.
+ * plot's elements in time order then anything the author's render mounts. The
+ * Tab walk through a row.
  *
  * @param row - The row element
  * @param body - The canvas body

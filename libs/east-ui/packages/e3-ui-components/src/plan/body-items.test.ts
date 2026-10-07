@@ -32,7 +32,7 @@ function wire(key: string, kind: unknown, opts?: { parent?: string; status?: str
         kind,
         collapsed: false, pinned: false, height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
-        approval: none, expand: none,
+        expand: none,
     } as unknown as PlanWireRow;
 }
 
