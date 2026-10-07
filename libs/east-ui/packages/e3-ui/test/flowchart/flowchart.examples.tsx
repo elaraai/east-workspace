@@ -65,7 +65,7 @@ export const flowchartFlows = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
-            return <Box height="480px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
+            return <Box height="500px"><Flowchart record={flows} flow="Inbound parcels" /></Box>;
         }}</Reactive>
     )),
     inputs: [],
@@ -77,7 +77,7 @@ export const flowchartHandover = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const handover = $.let(Data.bind(handoverFlow));
-            return <Box height="420px"><Flowchart data={handover} /></Box>;
+            return <Box height="500px"><Flowchart data={handover} /></Box>;
         }}</Reactive>
     )),
     inputs: [],
@@ -105,13 +105,15 @@ export const flowchartMinimal = example({
             { src: "LDD", dst: "DSP", kind: observed },
         ]);
         return (
-            <Flowchart
-                data={Flowchart.over(states, {
-                    state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-                    links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
-                    lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
-                })}
-            />
+            <Box height="500px">
+                <Flowchart
+                    data={Flowchart.over(states, {
+                        state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                        links, link: l => ({ from: l.src, to: l.dst, kind: l.kind }),
+                        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "dispatch", label: "Dispatch" }],
+                    })}
+                />
+            </Box>
         );
     }),
     inputs: [],
@@ -195,27 +197,29 @@ export const flowchartDepot = example({
             }));
             const onAddLane = $.const(East.function([], NullType, (_$) => null));
             return (
-                <Flowchart
-                    data={Flowchart.over(states, {
-                        state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
-                        links: Slice.rows([LinkRow], slice),
-                        link: l => ({
-                            key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
-                            evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
-                        }),
-                        lanes: [
-                            { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
-                            { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
-                            { key: "dispatch", label: "Dispatch" },
-                        ],
-                        triggers,
-                        trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
-                    })}
-                    linkHover={linkHover} stateHover={stateHover} triggerHover={triggerHover}
-                    onAddLane={onAddLane}
-                    slice={slice} affordances={["filter", "search"]}
-                    freshness={{ label: "evidence-2026.06", date: stamp }}
-                />
+                <Box height="600px">
+                    <Flowchart
+                        data={Flowchart.over(states, {
+                            state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
+                            links: Slice.rows([LinkRow], slice),
+                            link: l => ({
+                                key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
+                                evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
+                            }),
+                            lanes: [
+                                { key: "intake", label: "Intake" }, { key: "induct", label: "Induct" },
+                                { key: "sort", label: "Sort" }, { key: "hold", label: "Hold" },
+                                { key: "dispatch", label: "Dispatch" },
+                            ],
+                            triggers,
+                            trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
+                        })}
+                        linkHover={linkHover} stateHover={stateHover} triggerHover={triggerHover}
+                        onAddLane={onAddLane}
+                        slice={slice} affordances={["filter", "search"]}
+                        freshness={{ label: "evidence-2026.06", date: stamp }}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),
@@ -305,7 +309,7 @@ export const flowchartBuilder = example({
             const canConnect = $.const(East.function([StringType, StringType], BooleanType,
                 (_$, _from, to) => East.equal(to, "S1").not()));
             return (
-                <VStack gap="3" align="stretch">
+                <Box height="420px">
                     <Flowchart
                         data={Flowchart.over(states.read(), {
                             state: s => ({ key: s.code, label: s.name, lane: s.phase }),
@@ -317,7 +321,7 @@ export const flowchartBuilder = example({
                         onAddState={addState} onEditState={editState} onMoveState={moveState}
                         onCreateLink={onCreate} onDeleteLink={onDelete} canConnect={canConnect}
                     />
-                </VStack>
+                </Box>
             );
         }}</Reactive>
     )),
@@ -404,19 +408,21 @@ export const flowchartDetail = example({
             }, Drawer.Types.OpenInput)));
         }));
         return (
-            <Flowchart
-                data={Flowchart.over(states, {
-                    state: s => ({ key: s.code, label: s.name, lane: s.phase }),
-                    links,
-                    link: l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
-                        evidence: { volume: some(l.parcels), count: some(l.n), unit: "parcels" } }),
-                    lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "out", label: "Outbound" }],
-                    triggers: [{ id: "release", name: "release", who: "dock-scheduler" }],
-                    trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
-                })}
-                stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
-                onSelectLink={onSelectLink} onSelectState={onSelectState}
-            />
+            <Box height="500px">
+                <Flowchart
+                    data={Flowchart.over(states, {
+                        state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+                        links,
+                        link: l => ({ key: l.id, from: l.src, to: l.dst, trigger: l.decision,
+                            evidence: { volume: some(l.parcels), count: some(l.n), unit: "parcels" } }),
+                        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "out", label: "Outbound" }],
+                        triggers: [{ id: "release", name: "release", who: "dock-scheduler" }],
+                        trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
+                    })}
+                    stateHover={stateHover} linkHover={linkHover} triggerHover={triggerHover}
+                    onSelectLink={onSelectLink} onSelectState={onSelectState}
+                />
+            </Box>
         );
     }),
     inputs: [],

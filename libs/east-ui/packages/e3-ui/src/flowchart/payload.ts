@@ -278,6 +278,29 @@ export type FlowchartPayloadType = typeof FlowchartPayloadType;
 export const FlowchartComponent = EastUI.component("Flowchart", FlowchartPayloadType, { optional: true });
 
 // ============================================================================
+// The flowchart's shared keys
+// ============================================================================
+
+/**
+ * The names a flowchart keeps its viewer's state under, by its `name`: its
+ * frame's panes — their open tab and collapsed state (#1245).
+ *
+ * @remarks
+ * As the Plan's `planKeys` and the Sheet's `sheetKeys`: two flowcharts on one
+ * surface keep apart only when each is named.
+ *
+ * @param name - The flowchart's name, when a surface holds more than one; omitted, the one flowchart
+ * @returns The keys
+ */
+export function flowchartKeys(name: string | undefined): {
+    /** The frame's storage key: each pane's open tab and collapsed state. */
+    frame: string;
+} {
+    const suffix = name === undefined ? "" : `.${name}`;
+    return { frame: `flowchart${suffix}.frame` };
+}
+
+// ============================================================================
 // <Flowchart>'s props
 // ============================================================================
 
@@ -336,6 +359,9 @@ type FlowchartAnyProps = {
 
 /** The tables and row mappers the flowchart took before it held flows, which `Flowchart.over` takes now. */
 const TABLES = ["states", "links", "lanes", "triggers", "state", "link", "lane", "trigger"] as const;
+
+/** The sizes the flowchart took before it filled the box it is given (#1245). */
+const SIZES = ["height", "maxHeight"] as const;
 
 /** The refusal of a record not bound with its patch mutation. */
 const UNBOUND = "Flowchart: `record` is an e3 record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])";
@@ -437,8 +463,9 @@ function dataArm(data: unknown, onApply: unknown): FlowchartArm {
  *   record; `flow` over one flow; a record of one flow, or of another type
  *   than `Flowchart.Types.Flows`, or not bound with its patch mutation; `data`
  *   of neither flow type; an `onApply` that does not take the patch of
- *   `data`'s type; `"brush"` among the affordances; and a table or row mapper,
- *   which `Flowchart.over` takes
+ *   `data`'s type; `"brush"` among the affordances; a table or row mapper,
+ *   which `Flowchart.over` takes; and `height` or `maxHeight`, which the box
+ *   the flowchart fills sets
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
@@ -446,6 +473,11 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     for (const table of TABLES) {
         if (table in canvas) {
             throw new Error(`Flowchart: \`${table}\` is one of the tables, or the row mappers, Flowchart.over builds a flow from — pass data={Flowchart.over(states, { … })}, or bind a record of flows as \`record\``);
+        }
+    }
+    for (const size of SIZES) {
+        if (size in canvas) {
+            throw new Error(`Flowchart: \`${size}\` is not a prop — the flowchart fills the box it is given; give it a box of its own height: <Box height="560px"><Flowchart … /></Box>`);
         }
     }
     if (record !== undefined && data !== undefined) {

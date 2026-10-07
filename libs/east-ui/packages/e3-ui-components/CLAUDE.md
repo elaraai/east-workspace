@@ -14,7 +14,12 @@ Sheet. Both build on east-ui-components' shared parts through its
 `./internal` entry, and their tests on `./testing`; their slot recipes
 stay in east-ui-components' theme. The Flowchart's renderer
 (`src/flowchart/`, #1243) registers against its `Flowchart` extension the
-same way, builds on the same parts, and keeps its slot recipe there too.
+same way, renders in its `BuilderFrame` too (#1245) — its canvas
+(`canvas.tsx`), its toolbar's items (`toolbar.tsx`), its footer
+(`footer.tsx`) and find state (`find.ts`) laid out by `index.tsx` — builds
+on the same parts, and keeps its slot recipe there too. The segment strip
+and the one chip it folds into, which the Plan's and the Flowchart's
+toolbars share, are `src/shared/seg.tsx`.
 The time parts the Plan shares with the Calendar are in `src/shared/time/`
 (#1148): the scale (its engine and
 time arm), the move, draw and slot arithmetic, the now line, lane packing

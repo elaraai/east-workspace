@@ -750,7 +750,9 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * fold no less than they did wider, its history last. The SnapGrid editor and Studio's
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
- * (#1229).
+ * (#1229). The Flowchart's frame (#1245) folds its slice's rail first, then
+ * its freshness chip goes, LR · TD folds into its chip and find state into its
+ * icon.
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900, 870], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
@@ -763,7 +765,7 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
-    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
+    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["rail"], ladder: () => FLOWCHART_LADDER },
     { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
@@ -812,6 +814,11 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
     ["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1], ["status", 1], ["history", 1],
 ];
 
+/** The Flowchart's own order (#1245, FB9): the freshness chip goes, LR · TD
+ *  folds into its chip, find state into its icon, and the history item folds
+ *  last, to its buttons, once the flowchart edits through its session (#1247). */
+const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
+
 /** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
  *  count goes, the context label, the strip's `+ TAB` label and whole-sheet
  *  count, its names cap, it closes up and the context switch goes; and last
@@ -827,7 +834,7 @@ function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, numbe
 }
 
 /** The first toolbar in an example: the shared toolbar's row, or (before it) a host's own band. */
-const TOOLBAR = "[data-toolbar], [data-slot='toolbar'], [data-flowchart-eyebrow]";
+const TOOLBAR = "[data-toolbar], [data-slot='toolbar']";
 
 /** One sample of what a toolbar painted: its row's width, and what it showed. */
 interface Painted { row: number; sig: string }
