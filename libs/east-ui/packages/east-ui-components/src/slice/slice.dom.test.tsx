@@ -16,7 +16,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -1017,6 +1017,83 @@ describe("Slice.Search — combobox drives the query", () => {
         const search = slice.read().search;
         expect(search.type).toBe("some");
         expect(search.value).toBe("SKU");
+    });
+
+    // #1228 — on a touch screen Zag hears no focus move outside an open list,
+    // so the search hears it, as Zag does on a desktop, and closes its own; a
+    // blur to nothing moves the focus nowhere, and closes nothing.
+    describe("on a touch screen (#1228)", () => {
+        beforeEach(() => { Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true }); });
+        afterEach(() => { delete (navigator as { maxTouchPoints?: number }).maxTouchPoints; });
+
+        const matches = () => [
+            { id: "SKU-1", label: "Oak board", meta: none },
+            { id: "SKU-2", label: "Ash board", meta: none },
+        ];
+        /** The list, while it is open. */
+        const openContent = () => document.querySelector('[data-scope="combobox"][data-part="content"][data-state="open"]');
+        /** Two animation frames: the search looks at a focus a frame after it moves, as Zag does. */
+        const frames = () => act(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+
+        /** The search — compact, or focused — beside a control outside it, its list open over two matches. */
+        async function openSearch(density: "compact" | "focused") {
+            const slice = fakeSlice({}, { matches });
+            const value: any = { slice, recent: [], density: some(variant(density, null)) };
+            ui(<><EastChakraSliceSearch value={value} /><button type="button">Elsewhere</button></>);
+            const user = userEvent.setup();
+            // Pasted in one event: the fake slice re-renders nothing as its search changes, so
+            // the box, re-synced from it a render late, would drop a key typed between.
+            await user.click(screen.getByPlaceholderText("Search…"));
+            await user.paste("board");
+            await Promise.resolve();
+            expect(openContent()).not.toBeNull();
+            // The list open a moment: Zag's own focus, into the box a frame after the list opens, has landed.
+            await frames();
+            return { slice, user };
+        }
+
+        for (const density of ["compact", "focused"] as const) {
+            test(`${density}: a focus moved to a control outside the list closes it, the query kept and the focus where it went`, async () => {
+                const { slice } = await openSearch(density);
+                act(() => { screen.getByRole("button", { name: "Elsewhere" }).focus(); });
+                await waitFor(() => expect(openContent()).toBeNull());
+                expect((screen.getByPlaceholderText("Search…") as HTMLInputElement).value).toBe("board");
+                expect(slice.read().search).toEqual(some("board"));
+                // A close that put the focus back in the box would do so a frame later.
+                await frames();
+                expect(screen.getByRole("button", { name: "Elsewhere" })).toBe(document.activeElement);
+            });
+        }
+
+        test("compact: the box blurred to nothing — the phone's keyboard dismissed — leaves the list open, the query kept; a focus moved outside after it closes the list", async () => {
+            const { slice } = await openSearch("compact");
+            act(() => { (screen.getByPlaceholderText("Search…") as HTMLInputElement).blur(); });
+            await frames();
+            expect(openContent()).not.toBeNull();
+            expect((screen.getByPlaceholderText("Search…") as HTMLInputElement).value).toBe("board");
+            expect(slice.read().search).toEqual(some("board"));
+            act(() => { screen.getByRole("button", { name: "Elsewhere" }).focus(); });
+            await waitFor(() => expect(openContent()).toBeNull());
+            expect((screen.getByPlaceholderText("Search…") as HTMLInputElement).value).toBe("board");
+            expect(slice.read().search).toEqual(some("board"));
+        });
+
+        test("a focus moved onto the combobox's trigger or into the list keeps it open; a suggestion tapped is still taken", async () => {
+            const { slice } = await openSearch("focused");
+            const setSearch = vi.spyOn(slice, "setSearch");
+            act(() => { document.querySelector<HTMLElement>('[data-scope="combobox"][data-part="trigger"]')!.focus(); });
+            await frames();
+            expect(openContent()).not.toBeNull();
+            const item = screen.getByText("Ash board").closest<HTMLElement>('[data-part="item"]')!;
+            act(() => { item.focus(); });
+            await frames();
+            expect(openContent()).not.toBeNull();
+            fireEvent.pointerDown(item, { pointerType: "touch", button: 0 });
+            fireEvent.click(item);
+            // The pick commits its id as the query.
+            await waitFor(() => expect(setSearch).toHaveBeenCalledWith(some("SKU-2")));
+            expect(openContent()).toBeNull();
+        });
     });
 });
 
