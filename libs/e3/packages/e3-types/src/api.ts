@@ -276,6 +276,16 @@ export const WorkspaceCreateRequestType = StructType({
 });
 
 /**
+ * Request to copy a workspace within its repository.
+ *
+ * @property to - The workspace the copy makes, or replaces whole: it becomes
+ *   the workspace copied as it is now
+ */
+export const WorkspaceCopyRequestType = StructType({
+  to: StringType,
+});
+
+/**
  * Workspace summary information.
  *
  * @property name - Workspace name
@@ -307,10 +317,29 @@ export const SchemaPolicyType = VariantType({
 });
 
 /**
+ * What a deploy does with an input someone set: one whose value in the
+ * workspace is not the value the deployed package gave it.
+ *
+ * - `reset`: give it the new package's value, as every other input takes
+ * - `keep-edited`: keep it while its type is the new package's; one whose type
+ *   changed takes the new package's value, and the plan says it was reset
+ *
+ * An input the new package takes from a file takes its file under either. One
+ * the deployed package took from a file takes the new package's value under
+ * either, since a value set since cannot be told from the file's, and so does
+ * one the new package declares as a dataset people do not set.
+ */
+export const InputPolicyType = VariantType({
+  'keep-edited': NullType,
+  reset: NullType,
+});
+
+/**
  * Request to deploy a package to a workspace.
  *
  * @property packageRef - Package reference in format "name" or "name@version"
  * @property schema - What the deploy does with a record it cannot keep as it is
+ * @property inputs - What the deploy does with an input someone set
  * @property allowDropRecords - Whether a record the package no longer declares
  *   may be dropped, with its state and history
  * @property plan - Say what the deploy would do, and write nothing
@@ -318,6 +347,7 @@ export const SchemaPolicyType = VariantType({
 export const WorkspaceDeployRequestType = StructType({
   packageRef: StringType,
   schema: SchemaPolicyType,
+  inputs: InputPolicyType,
   allowDropRecords: BooleanType,
   plan: BooleanType,
 });
@@ -366,6 +396,39 @@ export const RecordIndexPlanType = StructType({
     build: NullType,
     drop: NullType,
     keep: NullType,
+  }),
+});
+
+/**
+ * What a deploy decided for one input: a dataset its package marks writable,
+ * which people set.
+ *
+ * @property input - The input's dataset ref path
+ * @property action - What the deploy does to it:
+ *   - `package`: it takes the new package's value: the workspace holds the
+ *     value the deployed package gave it, or does not hold the input
+ *   - `keep`: kept as the workspace holds it: someone set it, and its type is
+ *     the new package's (`keep-edited`)
+ *   - `reset`: it takes the new package's value in place of one someone may
+ *     have set, and why: its type changed; the deployed package took it from a
+ *     file, so a value set since cannot be told from the file's; the new
+ *     package no longer marks it as an input; or the deploy resets what people
+ *     set (`reset`), when `policy` is true, which `keep-edited` would keep
+ *   - `file`: it takes the file the new package names, as every deploy does:
+ *     the deploy takes it in, or, when `taken` is false, reads no file
+ *     (`resolveFileSources: false`, as a server deploying for a client does)
+ *     and leaves it unassigned for the client to complete over the dataset
+ *     transfer protocol
+ *   - `drop`: the new package does not declare it, so it goes, with its value
+ */
+export const InputPlanType = StructType({
+  input: StringType,
+  action: VariantType({
+    package: NullType,
+    keep: NullType,
+    reset: StructType({ reason: StringType, policy: BooleanType }),
+    file: StructType({ path: StringType, taken: BooleanType }),
+    drop: NullType,
   }),
 });
 
@@ -419,12 +482,15 @@ export const DeployProgressType = StructType({
  *
  * @property records - What it decided for each record
  * @property indexes - What it decided for each index of the records it keeps
+ * @property inputs - What it decided for each input, the package's first and
+ *   then each it drops
  * @property warnings - The inputs it left unassigned, and why: a server never
  *   reads a `file` source, whose path is on the client's machine
  */
 export const WorkspaceDeployResultType = StructType({
   records: ArrayType(RecordPlanType),
   indexes: ArrayType(RecordIndexPlanType),
+  inputs: ArrayType(InputPlanType),
   warnings: ArrayType(StringType),
 });
 
@@ -1481,11 +1547,15 @@ export type PackageInfo = ValueTypeOf<typeof PackageInfoType>;
 export type PackageDetails = ValueTypeOf<typeof PackageDetailsType>;
 export type WorkspaceInfo = ValueTypeOf<typeof WorkspaceInfoType>;
 export type WorkspaceCreateRequest = ValueTypeOf<typeof WorkspaceCreateRequestType>;
+export type WorkspaceCopyRequest = ValueTypeOf<typeof WorkspaceCopyRequestType>;
 export type WorkspaceDeployRequest = ValueTypeOf<typeof WorkspaceDeployRequestType>;
 /** A {@link SchemaPolicyType} by its name, as a deploy's options take it. */
 export type SchemaPolicy = ValueTypeOf<typeof SchemaPolicyType>['type'];
+/** An {@link InputPolicyType} by its name, as a deploy's options take it. */
+export type InputPolicy = ValueTypeOf<typeof InputPolicyType>['type'];
 export type RecordPlan = ValueTypeOf<typeof RecordPlanType>;
 export type RecordIndexPlan = ValueTypeOf<typeof RecordIndexPlanType>;
+export type InputPlan = ValueTypeOf<typeof InputPlanType>;
 export type RecordDeployStep = ValueTypeOf<typeof RecordDeployStepType>;
 export type RecordDeployState = ValueTypeOf<typeof RecordDeployStateType>;
 export type DeployProgress = ValueTypeOf<typeof DeployProgressType>;

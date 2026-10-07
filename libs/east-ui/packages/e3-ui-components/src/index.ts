@@ -55,7 +55,14 @@ export { EastChakraExperiment, type EastChakraExperimentProps } from './experime
 // Decision queue renderer — registers itself against the DecisionQueue extension on import.
 export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps } from './decision/queue.js';
 export { EastChakraDecisionJournal, type EastChakraDecisionJournalProps } from './decision/journal.js';
-export { useDecisionHandle, type UseDecisionHandleResult, type DecisionHandleValue } from './decision/handle-runtime.js';
+// `Decision.bind`'s implementation, for a host that renders UI functions
+// outside `UITaskPreview` and lists the platforms it lists (#1222).
+export {
+    useDecisionHandle,
+    DecisionBindPlatform,
+    type UseDecisionHandleResult,
+    type DecisionHandleValue,
+} from './decision/handle-runtime.js';
 
 // Studio renderers — each registers itself against its extension on import: the builder,
 // the page library and one page — and the Studio's words.

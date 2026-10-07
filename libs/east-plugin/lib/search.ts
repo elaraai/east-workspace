@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import MiniSearch from "minisearch";
+import { EAST_GUIDANCE } from "./search-guidance.js";
 
 // The example index (#654): every East program example stored as its IR with
 // the TypeScript and python printed from it, UI and hand-written examples as
@@ -66,8 +67,32 @@ export async function buildSearchIndex(indexPath: string): Promise<ExampleIndex>
 
 /** The index over `indexPath`, with its package names. */
 export async function loadIndex(indexPath: string): Promise<LoadedIndex> {
-  const raw = await readFile(indexPath, "utf-8");
-  const data = JSON.parse(raw) as IndexData;
+  return loadIndexes([indexPath]);
+}
+
+/**
+ * One search over several index files: a plugin that builds on East's serves
+ * East's corpus and its own together, the package filter knowing both. An id
+ * is the example's package, file and export, so two corpora never share one;
+ * an id found in two files is refused, naming both, rather than one shadowing
+ * the other.
+ *
+ * @param indexPaths - The `index.json` files, East's (`EAST_INDEX_PATH`) among them to answer its corpus too
+ * @returns The index over every file's entries, with their package names
+ */
+export async function loadIndexes(indexPaths: readonly string[]): Promise<LoadedIndex> {
+  const entries: IndexEntry[] = [];
+  const fileOf = new Map<string, string>();
+  for (const indexPath of indexPaths) {
+    const data = JSON.parse(await readFile(indexPath, "utf-8")) as IndexData;
+    for (const entry of data.entries) {
+      const first = fileOf.get(entry.id);
+      if (first !== undefined) throw new Error(`example id "${entry.id}" is in both ${first} and ${indexPath}`);
+      fileOf.set(entry.id, indexPath);
+      entries.push(entry);
+    }
+  }
+  const data: IndexData = { entries };
 
   const miniSearch = new MiniSearch<SearchDocument>({
     idField: "id",
@@ -92,16 +117,32 @@ export async function loadIndex(indexPath: string): Promise<LoadedIndex> {
   return { search: miniSearch, packages: [...new Set(data.entries.map((e) => e.package))].sort() };
 }
 
-/** A package filter as the index names packages: `@elaraai/east-node-io` and `east-node-io` are the same package. */
-export function normalizePackage(filter: string): string {
-  return filter.trim().toLowerCase().replace(/^@elaraai\//, "");
+/** The npm scopes East's packages are installed under. */
+export const EAST_SCOPES: readonly string[] = [EAST_GUIDANCE.scope];
+
+/**
+ * A package filter as the index names packages: `@elaraai/east-node-io` and
+ * `east-node-io` are the same package, and so are a downstream corpus's
+ * packages with and without its own scope.
+ *
+ * @param filter - The package filter, as the agent wrote it
+ * @param scopes - The npm scopes the corpus's packages are installed under
+ *   (default East's)
+ * @returns The bare package name, lowercased
+ */
+export function normalizePackage(filter: string, scopes: readonly string[] = EAST_SCOPES): string {
+  const name = filter.trim().toLowerCase();
+  const scope = scopes.find((s) => name.startsWith(`${s.toLowerCase()}/`));
+  return scope === undefined ? name : name.slice(scope.length + 1);
 }
 
 export interface SearchRequest {
   query: string;
   limit: number;
-  /** A package or skill name; the `@elaraai/` scope is accepted and ignored. */
+  /** A package or skill name; a scope of the corpus's is accepted and ignored. */
   package?: string | undefined;
+  /** The npm scopes the corpus's packages are installed under (default East's). */
+  scopes?: readonly string[] | undefined;
 }
 
 export interface SearchResult {
@@ -120,7 +161,7 @@ export interface SearchResult {
 export function searchExamples(index: LoadedIndex, request: SearchRequest): SearchResult {
   const known = index.packages;
   const filter = request.package;
-  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter) : undefined;
+  const pkg = typeof filter === "string" && filter.trim() !== "" ? normalizePackage(filter, request.scopes) : undefined;
   if (pkg !== undefined && typeof filter === "string" && !known.includes(pkg)) {
     return { entries: [], unknownPackage: filter, known };
   }
@@ -158,8 +199,19 @@ export function codeOf(entry: IndexEntry, language: Language): { code: string; f
   return null;
 }
 
+/** What the tools' words call the corpus and its fetch tool. */
+export interface CorpusNames {
+  /** The corpus, as in "East example(s)". */
+  corpus: string;
+  /** The tool that fetches one example in full. */
+  getTool: string;
+}
+
+/** East's names. */
+export const EAST_CORPUS: CorpusNames = { corpus: "East", getTool: "get_east_example" };
+
 /** One line per hit: id, description, signature, keywords, the example's inputs and result. */
-export function formatSummary(entries: IndexEntry[], language: Language): string {
+export function formatSummary(entries: IndexEntry[], language: Language, names: CorpusNames = EAST_CORPUS): string {
   const lines = entries.map((e) => {
     const parts = [`- \`${e.id}\` — ${e.test}`, `  ${signatureOf(e)}`];
     if (e.keywords.length > 0) parts.push(`  keywords: ${clip(e.keywords.join(", "), 160)}`);
@@ -170,7 +222,7 @@ export function formatSummary(entries: IndexEntry[], language: Language): string
   });
   return [
     "<east-examples>",
-    `## ${entries.length} East example(s) — fetch one in full with get_east_example(id, language: "${language}")`,
+    `## ${entries.length} ${names.corpus} example(s) — fetch one in full with ${names.getTool}(id, language: "${language}")`,
     "",
     ...lines,
     "</east-examples>",
@@ -203,8 +255,8 @@ export function formatFull(entries: IndexEntry[], language: Language): string {
 }
 
 /** Search results as the tool renders them. */
-export function formatResults(entries: IndexEntry[], language: Language, format: Format): string {
-  return format === "full" ? formatFull(entries, language) : formatSummary(entries, language);
+export function formatResults(entries: IndexEntry[], language: Language, format: Format, names: CorpusNames = EAST_CORPUS): string {
+  return format === "full" ? formatFull(entries, language) : formatSummary(entries, language, names);
 }
 
 /** The index entry with `id`, or null. */

@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1250,
-    "totalFiles": 205,
+    "totalEntries": 1243,
+    "totalFiles": 202,
     "packages": {
       "east": 569,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 339,
+      "east-ui": 332,
       "e3-ui": 99,
       "e3": 17,
       "e3-ui-cli": 8,
@@ -37928,96 +37928,6 @@
       "source": "// Left-column subnav that sticks at top: 0 while the main content scrolls\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        return (\n            <Box overflowY=\"auto\" height=\"300px\" borderColor=\"border.subtle\" borderWidth=\"thin\">\n                <HStack gap=\"4\" align=\"flex-start\">\n                    <Sticky offset=\"0\" boundary=\"parent\">\n                        <VStack gap=\"2\" padding=\"3\" background=\"bg.subtle\" borderColor=\"border.subtle\" borderWidth=\"thin\" borderRadius=\"md\">\n                            <Text>Overview</Text>\n                            <Text>Details</Text>\n                            <Text>Audit</Text>\n                            <Text>Settings</Text>\n                        </VStack>\n                    </Sticky>\n                    <VStack gap=\"3\" padding=\"3\">\n                        {Array.from({ length: 20 }, (_, i) => <Text>{`Paragraph ${i + 1}`}</Text>)}\n                    </VStack>\n                </HStack>\n            </Box>\n        );\n    })"
     },
     {
-      "id": "east-ui:app.examples.tsx:appBasic",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
-      "suite": "",
-      "test": "Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle",
-      "keywords": [
-        "App",
-        "app shell",
-        "Navigation",
-        "rail",
-        "breadcrumb",
-        "Pages",
-        "logo",
-        "collapsible",
-        "sidebar"
-      ],
-      "imports": [
-        "import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// Application shell — collapsible config-driven rail + breadcrumb + routed body from one nav handle\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const LOGO =\n            \"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%233a7780'/%3E%3C/svg%3E\";\n        const LineRow = StructType({ id: StringType, line: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" }, badge: \"3\" },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n            settings: { value: NullType, label: \"Settings\", section: \"Manage\", icon: { prefix: \"fas\", name: \"gear\" } },\n            // Deep route — no `section`, so it's hidden from the rail (reached from Overview).\n            line: { value: LineRow, label: \"Line\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"app.example.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const openLine = $.const(East.function([], NullType, $ => {\n                        $(nav.go.line(East.value({ id: \"L-1\", line: \"A\" }, LineRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — production lines</Text>\n                            <Button onClick={openLine}>Open line L-1</Button>\n                        </VStack>\n                    );\n                }));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const settingsPage = $.const(East.function([], UIComponentType, (_$) => <Text>Settings</Text>));\n                const linePage = $.const(East.function([LineRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Line ${row.id} · ${row.line}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                return (\n                    <App\n                        nav={nav}\n                        config={routes}\n                        title=\"Acme Operations\"\n                        logo={Image.dataUri(LOGO)}\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                            settings: () => settingsPage(),\n                            line: (_$, row) => linePage(row),\n                        }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "east-ui:app.examples.tsx:appRail",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
-      "suite": "",
-      "test": "App shell whose rail is data — one route keyed by page, a rail row per page mapped from an array, and a breadcrumb naming the open page",
-      "keywords": [
-        "App",
-        "app shell",
-        "rail",
-        "breadcrumb",
-        "NavList",
-        "Breadcrumb",
-        "data",
-        "rows",
-        "payload",
-        "Navigation",
-        "navigateTo"
-      ],
-      "imports": [
-        "import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// App shell whose rail is data — one route keyed by page, a rail row per page mapped from an array, and a breadcrumb naming the open page\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const routes = Navigation.config({ page: { value: StringType, label: \"Page\" } });\n        return (\n            <Reactive>{$ => {\n                const pages = $.const([\n                    { key: \"overview\", title: \"Overview\" },\n                    { key: \"weekly\", title: \"Weekly\" },\n                    { key: \"detail\", title: \"Detail\" },\n                ], ArrayType(StructType({ key: StringType, title: StringType })));\n                const nav = $.let(Navigation.bind(routes, \"app.rail.route\", [routes.Page.page(\"overview\")]));\n                const open = $.let(nav.current().match({ page: (_$2, key) => key }));\n                const select = $.const(East.function([StringType], NullType, ($2, key) => {\n                    $2(nav.navigateTo([variant(\"page\", key)]));\n                }));\n                const sections = $.let([{\n                    label: none,\n                    items: pages.map((_$2, page) => East.value({\n                        key: page.key, label: page.title, icon: none, badge: none, active: some(page.key.equal(open)),\n                    }, NavList.Types.Item)),\n                }], ArrayType(NavList.Types.Section));\n                const crumbs = $.let(pages\n                    .filter((_$2, page) => page.key.equal(open))\n                    .map((_$2, page) => East.value({ label: page.title, current: some(true), onClick: none }, Breadcrumb.Types.Item)));\n                return (\n                    <App nav={nav} config={routes} title=\"Acme Operations\"\n                        rail={<NavList sections={sections} surface=\"shell\" onSelect={select} />}\n                        breadcrumb={<Breadcrumb items={crumbs} leadingSeparator />}\n                        pages={{ page: (_$2, key) => <Text>{East.str`The ${key} page`}</Text> }} />\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "east-ui:app.examples.tsx:appVariants",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/app.examples.tsx",
-      "suite": "",
-      "test": "App-shell configurator — a density axis (comfortable / compact / condensed) over one live shell",
-      "keywords": [
-        "App",
-        "app shell",
-        "density",
-        "comfortable",
-        "compact",
-        "condensed",
-        "app bar",
-        "Navigation",
-        "Reactive",
-        "State",
-        "SegmentGroup",
-        "Configurator",
-        "configurator"
-      ],
-      "imports": [
-        "import { ArrayType, East, NullType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { App, Breadcrumb, Configurator, NavList, Navigation, Reactive, SegmentGroup, State, VStack, Style, Text, Button, Image } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// App-shell configurator — a density axis (comfortable / compact / condensed) over one live shell\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const LOGO =\n            \"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%233a7780'/%3E%3C/svg%3E\";\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"gauge-high\" } },\n            throughput: { value: NullType, label: \"Throughput\", section: \"Analyse\", icon: { prefix: \"fas\", name: \"chart-line\" } },\n            audit: { value: NullType, label: \"Audit\", section: \"Manage\", icon: { prefix: \"fas\", name: \"list-check\" } },\n        });\n        return (\n            <Reactive>{$ => {\n                const densities = $.const([\n                    variant(\"comfortable\", null), variant(\"compact\", null), variant(\"condensed\", null),\n                ], ArrayType(Style.Types.Density));\n                const densityBind = $.let(State.bind([StringType], \"app_density\", \"comfortable\"));\n                const dKey = $.let(densityBind.read());\n                const onDensity = $.const(East.function([StringType], NullType, ($, next) => { $(densityBind.write(next)); }));\n\n                const nav = $.let(Navigation.bind(routes, \"app.variants.route\", [routes.Page.overview()]));\n                const overviewPage = $.const(East.function([], UIComponentType, (_$) => <Text>Overview — production lines</Text>));\n                const throughputPage = $.const(East.function([], UIComponentType, (_$) => <Text>Throughput trend</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n\n                // density feeds as an expression — ONE shell over the nav handle.\n                const densitySel = $.let(densities.filter((_$, v) => v.getTag().equal(dKey)).get(0n));\n                const preview = $.const(\n                    <App nav={nav} config={routes} title=\"Acme Operations\" logo={Image.dataUri(LOGO)} density={densitySel}\n                        pages={{\n                            overview: () => overviewPage(),\n                            throughput: () => throughputPage(),\n                            audit: () => auditPage(),\n                        }} />,\n                );\n\n                return (\n                    <Configurator\n                        controls={[\n                            Configurator.Control(\"Density\", dKey,\n                                <SegmentGroup value={dKey} onChange={onDensity} size=\"sm\"\n                                    items={densities.map((_$, v) => SegmentGroup.Item(v.getTag(), <Text>{v.getTag().upperCase()}</Text>))} />),\n                        ]}\n                        preview={preview}\n                        spec={[\n                            Configurator.Spec(\"App bar\", dKey.equal(\"condensed\").ifElse(_$ => \"one 44px row\", _$ => \"two rows\")),\n                        ]}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
       "id": "east-ui:breadcrumb.examples.tsx:breadcrumbBasic",
       "skill": "east-ui",
       "package": "east-ui",
@@ -38162,115 +38072,6 @@
         "tsx"
       ],
       "source": "// NavList configurator — a structure-preset axis plus icons and shell-surface switches driving one live nav list; the aside routes onSelect through State and reads it back\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const NAV_LIST_FLAT_SECTIONS = [\n            {\n                items: [\n                    { key: \"dashboard\", label: \"Dashboard\", active: true },\n                    { key: \"orders\", label: \"Orders\", badge: \"12\" },\n                    { key: \"settings\", label: \"Settings\" },\n                ],\n            },\n        ];\n        const NAV_LIST_FLAT_ICON_SECTIONS = [\n            {\n                items: [\n                    { key: \"dashboard\", label: \"Dashboard\", icon: { prefix: \"fas\", name: \"gauge\" }, active: true },\n                    { key: \"orders\", label: \"Orders\", icon: { prefix: \"fas\", name: \"list\" }, badge: \"12\" },\n                    { key: \"settings\", label: \"Settings\", icon: { prefix: \"fas\", name: \"gear\" } },\n                ],\n            },\n        ];\n        const NAV_LIST_GROUPED_SECTIONS = [\n            {\n                label: \"Account\",\n                items: [\n                    { key: \"profile\", label: \"Profile\", active: true },\n                    { key: \"security\", label: \"Security\" },\n                    { key: \"billing\", label: \"Billing\" },\n                ],\n            },\n            {\n                label: \"Workspace\",\n                items: [\n                    { key: \"members\", label: \"Members\", badge: \"3\" },\n                    { key: \"integrations\", label: \"Integrations\" },\n                ],\n            },\n            {\n                label: \"Help\",\n                items: [\n                    { key: \"docs\", label: \"Documentation\" },\n                    { key: \"contact\", label: \"Contact support\" },\n                ],\n            },\n        ];\n        const NAV_LIST_GROUPED_ICON_SECTIONS = [\n            {\n                label: \"Account\",\n                items: [\n                    { key: \"profile\", label: \"Profile\", icon: { prefix: \"fas\", name: \"user\" }, active: true },\n                    { key: \"security\", label: \"Security\", icon: { prefix: \"fas\", name: \"shield-halved\" } },\n                    { key: \"billing\", label: \"Billing\", icon: { prefix: \"fas\", name: \"credit-card\" } },\n                ],\n            },\n            {\n                label: \"Workspace\",\n                items: [\n                    { key: \"members\", label: \"Members\", icon: { prefix: \"fas\", name: \"users\" }, badge: \"3\" },\n                    { key: \"integrations\", label: \"Integrations\", icon: { prefix: \"fas\", name: \"plug\" } },\n                ],\n            },\n            {\n                label: \"Help\",\n                items: [\n                    { key: \"docs\", label: \"Documentation\", icon: { prefix: \"fas\", name: \"book\" } },\n                    { key: \"contact\", label: \"Contact support\", icon: { prefix: \"fas\", name: \"headset\" } },\n                ],\n            },\n        ];\n        return (\n            <Reactive>{$ => {\n                // The NavList factory takes TS section-input arrays, so each\n                // structure preset carries its four pre-built lists — plain /\n                // icons × card / shell — and the switches pick among them (the\n                // chip-rail labeled-mode precedent).\n                const structures = $.const([\n                    {\n                        label: \"flat\", sections: 1n,\n                        plain: <NavList sections={NAV_LIST_FLAT_SECTIONS} />,\n                        icons: <NavList sections={NAV_LIST_FLAT_ICON_SECTIONS} />,\n                        shellPlain: <NavList surface=\"shell\" background=\"bg.subtle\" sections={NAV_LIST_FLAT_SECTIONS} />,\n                        shellIcons: <NavList surface=\"shell\" background=\"bg.subtle\" sections={NAV_LIST_FLAT_ICON_SECTIONS} />,\n                    },\n                    {\n                        label: \"grouped\", sections: 3n,\n                        plain: <NavList sections={NAV_LIST_GROUPED_SECTIONS} />,\n                        icons: <NavList sections={NAV_LIST_GROUPED_ICON_SECTIONS} />,\n                        shellPlain: <NavList surface=\"shell\" background=\"bg.subtle\" sections={NAV_LIST_GROUPED_SECTIONS} />,\n                        shellIcons: <NavList surface=\"shell\" background=\"bg.subtle\" sections={NAV_LIST_GROUPED_ICON_SECTIONS} />,\n                    },\n                ], ArrayType(StructType({ label: StringType, sections: IntegerType, plain: UIComponentType, icons: UIComponentType, shellPlain: UIComponentType, shellIcons: UIComponentType })));\n\n                const structureBind = $.let(State.bind([StringType], \"navlist_structure\", \"grouped\"));\n                const iconsBind     = $.let(State.bind([BooleanType], \"navlist_icons\", false));\n                const shellBind     = $.let(State.bind([BooleanType], \"navlist_shell\", false));\n                // The aside is the reactive row — clicking an item writes its\n                // key to State, which re-renders the active highlight and the\n                // readout (the old reactive example's key).\n                const activeBind    = $.let(State.bind([StringType], \"navlist.example.active\", \"profile\"));\n\n                const sKey    = $.let(structureBind.read());\n                const iconsOn = $.let(iconsBind.read());\n                const shell   = $.let(shellBind.read());\n                const active  = $.let(activeBind.read(), StringType);\n\n                const onStructure = $.const(East.function([StringType], NullType, ($, next) => { $(structureBind.write(next)); }));\n                const onIcons     = $.const(East.function([BooleanType], NullType, ($, next) => { $(iconsBind.write(next)); }));\n                const onShell     = $.const(East.function([BooleanType], NullType, ($, next) => { $(shellBind.write(next)); }));\n                const onSelect    = $.const(East.function([StringType], NullType, ($, key) => { $(activeBind.write(key)); }));\n\n                // Each selection is a lookup into the same array the control renders.\n                const structure = $.let(structures.filter((_$, o) => o.label.equal(sKey)).get(0n));\n                const list = $.let(shell.ifElse(\n                    _$ => iconsOn.ifElse(_$ => structure.shellIcons, _$ => structure.shellPlain),\n                    _$ => iconsOn.ifElse(_$ => structure.icons, _$ => structure.plain),\n                ));\n\n                return (\n                    <Configurator\n                        controls={[\n                            Configurator.Control(\"Structure\", sKey,\n                                <SegmentGroup value={sKey} onChange={onStructure} size=\"sm\"\n                                    items={structures.map((_$, o) => SegmentGroup.Item(o.label, <Text>{o.label.upperCase()}</Text>))} />),\n                            // A Slot, not a Control: the two switches report as the\n                            // Icons / Surface spec rows below rather than as one\n                            // value.\n                            Configurator.Slot(\"Treatment\",\n                                <HStack gap=\"5\" align=\"center\" wrap=\"wrap\">\n                                    <Switch checked={iconsOn} label=\"Icons\" onChange={onIcons} />\n                                    <Switch checked={shell} label=\"Shell surface\" onChange={onShell} />\n                                </HStack>),\n                        ]}\n                        preview={list}\n                        aside={{\n                            label: \"Selection · Reactive\",\n                            body: (\n                                <VStack gap=\"3\" align=\"flex-start\">\n                                    <NavList\n                                        sections={[\n                                            {\n                                                label: \"Settings\",\n                                                items: [\n                                                    { key: \"profile\", label: \"Profile\", active: active.equals(\"profile\") },\n                                                    { key: \"security\", label: \"Security\", active: active.equals(\"security\") },\n                                                    { key: \"billing\", label: \"Billing\", active: active.equals(\"billing\"), badge: \"Trial\" },\n                                                ],\n                                            },\n                                        ]}\n                                        onSelect={onSelect}\n                                    />\n                                    <Text textStyle=\"body-sm\" color=\"fg.muted\">{East.str`Selected: ${active}`}</Text>\n                                </VStack>\n                            ),\n                        }}\n                        spec={[\n                            Configurator.Spec(\"Sections\", East.print(structure.sections)),\n                            Configurator.Spec(\"Icons\", iconsOn.ifElse(_$ => \"leading\", _$ => \"none\")),\n                            Configurator.Spec(\"Surface\", shell.ifElse(_$ => \"shell · bg.subtle\", _$ => \"card\")),\n                        ]}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "east-ui:pages.examples.tsx:pagesBasic",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/pages.examples.tsx",
-      "suite": "",
-      "test": "Two-page navigation — overview opens a typed detail page; back pops the stack",
-      "keywords": [
-        "Navigation",
-        "Pages",
-        "navigate",
-        "route",
-        "stack",
-        "go",
-        "pop",
-        "content-switcher"
-      ],
-      "imports": [
-        "import { East, NullType, StringType, IntegerType, StructType, some, example } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Navigation, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// Two-page navigation — overview opens a typed detail page; back pops the stack\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const ItemRow = StructType({ id: StringType, value: IntegerType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            detail: { value: ItemRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"ops.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures — they navigate via the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const open = $.const(East.function([], NullType, $ => {\n                        $(nav.go.detail(East.value({ id: \"item-1\", value: 42n }, ItemRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — pick an item</Text>\n                            <Button onClick={open}>Open item-1</Button>\n                        </VStack>\n                    );\n                }));\n                const detailPage = $.const(East.function([ItemRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Item ${row.id} — value ${East.print(row.value)}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                return (\n                    <VStack gap=\"4\" align=\"stretch\">\n                        <Text fontWeight=\"bold\">{East.str`Ops console · depth ${East.print(nav.depth())}`}</Text>\n                        <Pages nav={nav} pages={{\n                            overview: () => overviewPage(),\n                            detail: (_$, row) => detailPage(row),\n                        }} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "east-ui:pages.examples.tsx:pagesAppShell",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/pages.examples.tsx",
-      "suite": "",
-      "test": "App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three",
-      "keywords": [
-        "Navigation",
-        "Pages",
-        "NavList",
-        "Breadcrumb",
-        "navigateTo",
-        "path",
-        "app shell",
-        "rail",
-        "breadcrumb"
-      ],
-      "imports": [
-        "import { East, NullType, StringType, IntegerType, StructType, some, example } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Navigation, Pages, Reactive, VStack, HStack, Box, Text, Button, NavList, Breadcrumb } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// App shell — NavList rail + breadcrumb app bar from nav.path() + Pages content; navigateTo drives all three\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const DetailRow = StructType({ id: StringType, group: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            scenarios: { value: NullType, label: \"Scenarios\" },\n            audit: { value: NullType, label: \"Audit\" },\n            detail: { value: DetailRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"shell.route\", [routes.Page.overview()]));\n\n                // Page bodies as $.const closures capturing the shared handle.\n                const overviewPage = $.const(East.function([], UIComponentType, ($) => {\n                    const open = $.const(East.function([], NullType, $ => {\n                        $(nav.go.detail(East.value({ id: \"item-1\", group: \"A\" }, DetailRow)));\n                    }));\n                    return (\n                        <VStack gap=\"3\" align=\"stretch\">\n                            <Text>Overview — item list</Text>\n                            <Button onClick={open}>Open item-1</Button>\n                        </VStack>\n                    );\n                }));\n                const scenariosPage = $.const(East.function([], UIComponentType, (_$) => <Text>Scenarios</Text>));\n                const auditPage = $.const(East.function([], UIComponentType, (_$) => <Text>Audit trail</Text>));\n                const detailPage = $.const(East.function([DetailRow], UIComponentType, ($, row) => {\n                    const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                    return (\n                        <VStack gap=\"2\" align=\"stretch\">\n                            <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                            <Button onClick={back}>← Back</Button>\n                        </VStack>\n                    );\n                }));\n\n                // Breadcrumb items derived live from the path: label via a per-route\n                // match, current = is-leaf, onClick = navigate back to that prefix.\n                const crumbs = nav.path().map(($, seg, i) => {\n                    const label = seg.match({\n                        overview: (_$, _v) => \"Overview\",\n                        scenarios: (_$, _v) => \"Scenarios\",\n                        audit: (_$, _v) => \"Audit\",\n                        detail: (_$, r) => East.str`Item ${r.id}`,\n                    });\n                    const prefixLen = $.let(i.add(1n));\n                    const isLeaf = $.let(East.equal(i, nav.path().size().subtract(1n)));\n                    const jump = $.const(East.function([], NullType, $ => {\n                        $(nav.navigateTo(nav.path().slice(0n, prefixLen)));\n                    }));\n                    const item = $.const({ label, current: some(isLeaf), onClick: some(jump) }, Breadcrumb.Types.Item);\n                    return item;\n                });\n\n                // The rail navigates to a top-level (argless) route by key.\n                const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                    $.if(East.equal(key, \"scenarios\"), $ => { $(nav.navigateTo([routes.Page.scenarios()])); });\n                    $.if(East.equal(key, \"audit\"), $ => { $(nav.navigateTo([routes.Page.audit()])); });\n                    $.if(East.equal(key, \"overview\"), $ => { $(nav.navigateTo([routes.Page.overview()])); });\n                }));\n\n                return (\n                    <VStack gap=\"0\" align=\"stretch\">\n                        <Box padding=\"3\">\n                            <Breadcrumb items={crumbs} />\n                        </Box>\n                        <HStack gap=\"4\" align=\"stretch\">\n                            <NavList\n                                sections={[{ items: [\n                                    { key: \"overview\", label: \"Overview\" },\n                                    { key: \"scenarios\", label: \"Scenarios\" },\n                                    { key: \"audit\", label: \"Audit\" },\n                                ] }]}\n                                onSelect={onSelect}\n                            />\n                            <Pages nav={nav} pages={{\n                                overview: () => overviewPage(),\n                                scenarios: () => scenariosPage(),\n                                audit: () => auditPage(),\n                                detail: (_$, row) => detailPage(row),\n                            }} />\n                        </HStack>\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "east-ui:route.examples.tsx:routeBasic",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/route.examples.tsx",
-      "suite": "",
-      "test": "A Route slot hosts a per-route widget — typed payload per route, remounts on navigation",
-      "keywords": [
-        "Route",
-        "Navigation",
-        "nav",
-        "routes",
-        "hosting slot",
-        "remount",
-        "navigate",
-        "widget"
-      ],
-      "imports": [
-        "import { East, NullType, StringType, IntegerType, StructType, example } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Navigation, Route, Pages, Reactive, VStack, HStack, Box, Text, Button } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A Route slot hosts a per-route widget — typed payload per route, remounts on navigation\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const ItemRow = StructType({ id: StringType, value: IntegerType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            detail: { value: ItemRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"route.basic\", [routes.Page.overview()]));\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-1\", value: 42n }, ItemRow)));\n                }));\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <VStack gap=\"3\" align=\"stretch\">\n                        <HStack gap=\"2\">\n                            <Button onClick={open}>Open item-1</Button>\n                            <Button onClick={back}>← Back</Button>\n                        </HStack>\n                        <Route nav={nav} routes={{\n                            overview: () => <Text>Overview widget</Text>,\n                            detail: (_$, row) => <Text>{East.str`Item ${row.id} — value ${East.print(row.value)}`}</Text>,\n                        }} />\n                    </VStack>\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "east-ui:route.examples.tsx:routeSidebarSlot",
-      "skill": "east-ui",
-      "package": "east-ui",
-      "file": "east-ui/packages/east-ui/test/navigation/route.examples.tsx",
-      "suite": "",
-      "test": "A sidebar Route slot beside the body Pages — one nav handle drives both, each remounts its own slot on navigation",
-      "keywords": [
-        "Route",
-        "Pages",
-        "Navigation",
-        "sidebar",
-        "slot",
-        "lockstep",
-        "app shell",
-        "remount"
-      ],
-      "imports": [
-        "import { East, NullType, StringType, IntegerType, StructType, example } from \"@elaraai/east\";",
-        "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Navigation, Route, Pages, Reactive, VStack, HStack, Box, Text, Button } from \"@elaraai/east-ui\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A sidebar Route slot beside the body Pages — one nav handle drives both, each remounts its own slot on navigation\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const DetailRow = StructType({ id: StringType, group: StringType });\n        const routes = Navigation.config({\n            overview: { value: NullType, label: \"Overview\" },\n            detail: { value: DetailRow, label: \"Item\" },\n        });\n        return (\n            <Reactive>{$ => {\n                const nav = $.let(Navigation.bind(routes, \"route.shell\", [routes.Page.overview()]));\n                const open = $.const(East.function([], NullType, $ => {\n                    $(nav.go.detail(East.value({ id: \"item-7\", group: \"B\" }, DetailRow)));\n                }));\n                const back = $.const(East.function([], NullType, $ => { $(nav.pop()); }));\n                return (\n                    <HStack gap=\"4\" align=\"stretch\">\n                        <Box padding=\"3\">\n                            <Route nav={nav} routes={{\n                                overview: () => <Text>No selection</Text>,\n                                detail: (_$, row) => <Text>{East.str`Selected: ${row.id} · ${row.group}`}</Text>,\n                            }} />\n                        </Box>\n                        <Pages nav={nav} pages={{\n                            overview: () => (\n                                <VStack gap=\"2\" align=\"stretch\">\n                                    <Text>Overview — item list</Text>\n                                    <Button onClick={open}>Open item-7</Button>\n                                </VStack>\n                            ),\n                            detail: (_$, row) => (\n                                <VStack gap=\"2\" align=\"stretch\">\n                                    <Text>{East.str`Item ${row.id} · group ${row.group}`}</Text>\n                                    <Button onClick={back}>← Back</Button>\n                                </VStack>\n                            ),\n                        }} />\n                    </HStack>\n                );\n            }}</Reactive>\n        );\n    })"
     },
     {
       "id": "east-ui:command-palette.examples.tsx:commandPaletteBasic",

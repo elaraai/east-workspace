@@ -95,7 +95,7 @@ async function start(app: Hono, packageRef = 'planrecords@1.0.0', ws = WS): Prom
     method: 'POST',
     headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
     body: encodeBeast2For(WorkspaceDeployRequestType)({
-      packageRef, schema: variant('migrate', null), allowDropRecords: false, plan: false,
+      packageRef, schema: variant('migrate', null), inputs: variant('reset', null), allowDropRecords: false, plan: false,
     }),
   });
   return decodeStarted(new Uint8Array(await response.arrayBuffer()));

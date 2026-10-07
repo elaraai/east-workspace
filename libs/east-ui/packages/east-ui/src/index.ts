@@ -149,18 +149,10 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 // Feedback
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./runtime/feedback/index.js";
 
-// Navigation
-export { App, Breadcrumb, NavList, Pages, Route } from "./runtime/navigation/index.js";
+// Navigation within a page; an app's own navigation is its host's (#1227)
+export { Breadcrumb, NavList } from "./runtime/navigation/index.js";
 export { NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
-export type { NavListStyle, NavSectionInput, NavItemInput, AppInput } from "./navigation/index.js";
-// First-class navigation: the Navigation config/bind handle API (like State / Slice).
-// `Pages` is the `<Pages nav pages>` JSX tag (re-exported above); its `.Root`
-// factory takes `{ nav, pages }` and `Pages.Types.Handle(routes)` is the handle
-// type builder (namespaced — never bare-exported).
-export { Navigation } from "./navigation/index.js";
-export type {
-    NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors,
-} from "./navigation/index.js";
+export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
 
 // Display
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail } from "./runtime/display/index.js";

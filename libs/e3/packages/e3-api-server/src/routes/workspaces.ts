@@ -11,6 +11,7 @@ import { PackageJobResponseType } from '@elaraai/e3-types';
 import {
   listWorkspaces,
   createWorkspace,
+  copyWorkspace,
   getWorkspace,
   getWorkspaceStatus,
   getWorkspaceLockStatus,
@@ -20,7 +21,7 @@ import {
 } from '../handlers/workspaces.js';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
+import { WorkspaceCopyRequestType, WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
 import type { GetRunner } from './functions.js';
 import { pathsQuery } from './query.js';
 
@@ -85,6 +86,16 @@ export function createWorkspaceRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     return getWorkspaceLockStatus(storage, repoPath, ws);
+  });
+
+  // POST /api/repos/:repo/workspaces/:ws/copy - Copy the workspace to another,
+  // made or replaced whole
+  app.post('/:ws/copy', async (c) => {
+    const repo = c.req.param('repo')!;
+    const repoPath = getRepoPath(repo);
+    const ws = c.req.param('ws')!;
+    const body = await decodeBody(c, WorkspaceCopyRequestType);
+    return copyWorkspace(storage, repoPath, ws, body.to);
   });
 
   // DELETE /api/repos/:repo/workspaces/:ws - Remove a workspace

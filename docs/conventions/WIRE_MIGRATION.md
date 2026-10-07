@@ -98,3 +98,21 @@ Each wire changed under this rule, with the kind it is.
   every case after `Sheet` moves down one, so a UI value encoded under either
   type does not decode under the other: packages are re-exported, and the
   dataflow computes each UI task's output again under the new type.
+- **e3-types' `LockOperationType` gains `workspace_copy` (#1224)** — stored
+  state: a lock's record names the operation that took it, and a workspace's
+  copy takes both its locks as one. The case is named to sort after every case
+  before it, so its tag is the last: a lock an earlier release wrote reads as
+  itself, since a header whose variant holds the first cases of the asked
+  type's reads as it, and no upgrade step is shipped. An earlier release
+  refuses a copy's lock, naming both types, as it refuses any form it does not
+  read.
+- **east-ui's `UIComponentType` loses its `App`, `Pages` and `Route` arms
+  (#1227)** — package-borne. An app's navigation is its host's; a page's own
+  is its `Breadcrumb` and `NavList`, which stay. `App` sorts third among the
+  cases, so nearly every case moves down, by one, two or three, and a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. Until a package is re-exported, a reader that decodes its UI
+  outputs against the type the package declares, as `UITaskPreview` does,
+  still reads them, and one holding `App`, `Pages` or `Route` fails as it
+  renders: the `nav_*` platform functions they call are gone.

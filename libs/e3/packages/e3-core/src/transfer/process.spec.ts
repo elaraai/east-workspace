@@ -73,6 +73,7 @@ describe('a deploy job run over several calls', () => {
       packageName: pkg.name,
       packageVersion: pkg.version,
       schema: variant('migrate', null),
+      inputs: variant('reset', null),
       allowDropRecords: false,
       plan: false,
       status: variant('processing', variant('pending', null)),

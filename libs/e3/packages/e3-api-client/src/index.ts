@@ -25,8 +25,10 @@ export type {
   PackageImportResult,
   WorkspaceInfo,
   SchemaPolicy,
+  InputPolicy,
   RecordPlan,
   RecordIndexPlan,
+  InputPlan,
   WorkspaceDeployResult,
   WorkspaceDeployProgress,
   WorkspaceDeployStatus,
@@ -124,6 +126,7 @@ export {
 export {
   workspaceList,
   workspaceCreate,
+  workspaceCopy,
   workspaceGet,
   workspaceStatus,
   workspaceLockStatus,

@@ -54,7 +54,6 @@ import { EastChakraTable } from "./collections/table";
 import { EastChakraTreeView } from "./collections/tree-view";
 import { EastChakraBreadcrumb } from "./navigation/breadcrumb";
 import { EastChakraNavList } from "./navigation/nav-list";
-import { EastChakraApp } from "./navigation/app";
 import { EastChakraIcon } from "./display/icon";
 import { EastChakraBadge } from "./display/badge";
 import { EastChakraTag } from "./display/tag";
@@ -123,7 +122,6 @@ import {
 import { EastChakraHotkey } from "./platform/hotkey";
 import { EastReactiveComponent } from "./reactive";
 import { EastChakraMatch } from "./reactive/match.js";
-import { EastChakraPages } from "./navigation/pages.js";
 import { EastChakraExtension } from "./extension/index.js";
 
 // The memo comparer is `equivalentFor`, not `equalFor` (#809): equalFor treats
@@ -214,17 +212,6 @@ export const EastChakraComponent = memo(function EastChakraComponent({ value, st
             // Navigation
             Breadcrumb: (v) => <EastChakraBreadcrumb value={v} />,
             NavList: (v) => <EastChakraNavList value={v} />,
-            // Pages — the content-switcher. `render()` reads nav.current() (tracked) and
-            // matches the active route. EastChakraPages keys the reactive subtree by the
-            // route's store version so the active page REMOUNTS on navigation (#114) — a
-            // new route mounts fresh, never inheriting the previous page's local state.
-            Pages: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Pages")} />,
-            // Route — Pages generalized to any slot (#333): identical payload +
-            // remount mechanism, so it reuses the Pages renderer.
-            Route: (v) => <EastChakraPages value={v as never} storageKey={childKey(storageKey, "Route")} />,
-            // App — the application shell (#367): lays out the pre-built rail /
-            // breadcrumb / body nodes into the bsys shell chrome + host slots.
-            App: (v) => <EastChakraApp value={v as never} storageKey={childKey(storageKey, "App")} />,
 
             // Display
             Icon: (v) => <EastChakraIcon value={v} />,

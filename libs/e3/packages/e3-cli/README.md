@@ -41,14 +41,16 @@ e3 package remove <repo> <pkg>            # Remove a package
 
 ```bash
 e3 workspace create <repo> <name>                            # Create empty workspace
+e3 workspace copy <repo> <from> <to>                         # Make <to> what <from> is now: made, or replaced whole
 e3 workspace deploy <repo> <ws> <pkg>[@<ver>]                # Deploy a package
 e3 workspace deploy <repo> <ws> --from-zip <path.zip>        # Import + create + deploy in one shot
 e3 workspace deploy <repo> <ws> --from-source <file.ts>      # Bundle a TypeScript source into a package, then import + create + deploy
 e3 workspace deploy <repo> <ws> … --skip-file-sources        # Leave `file`-source inputs unset
 e3 workspace deploy <repo> <ws> … --functions <path...>      # Function manifests for East.importFunction packages built elsewhere
 e3 workspace deploy <repo> <ws> … --schema <policy>          # A record that cannot be kept as it is: migrate (default), fail, or reset
+e3 workspace deploy <repo> <ws> … --inputs <policy>          # An input someone set: reset (default) or keep-edited
 e3 workspace deploy <repo> <ws> … --allow-drop-records       # Drop a record the package no longer declares, with its state and history
-e3 workspace deploy <repo> <ws> … --plan                     # Say what the deploy would do to each record and index; write nothing
+e3 workspace deploy <repo> <ws> … --plan                     # Say what the deploy would do to each record, index and input; write nothing
 e3 workspace deploy <repo> <ws> … --quiet                    # Errors only: no progress
 e3 workspace export <repo> <ws> <zip>                        # Export workspace as a package
 e3 workspace list <repo>                                     # List workspaces
@@ -69,6 +71,20 @@ and writes nothing. From a zip or a source it imports nothing: it reads the
 package from the zip where it is. A server plans only a package it holds, so
 there it is refused: `e3 package import` the zip, then plan the package by
 name.
+
+Each input takes the new package's value, and so does one someone set, unless
+`--inputs keep-edited`, which keeps it while its type is the new package's. One
+whose type changed takes the new package's value, and the deploy says why. An
+input the new package takes from a file takes its file, and one the package no
+longer declares goes. A deploy prints each input it keeps, resets or drops, and
+`--plan` prints every input's fate.
+
+`workspace copy` makes `<to>` the workspace `<from>` is now — its package and
+every input, record and task output, so nothing needs to run again — writing
+refs only, so its cost follows the number of datasets, never their size. A
+`<to>` that exists is replaced whole, its runs going with it, and a write to
+either afterwards leaves the other as it was. It is refused while a dataflow
+runs in `<to>` or a deploy, a removal or an export holds `<from>`.
 
 A deploy takes the package's `file` sources in on this machine, locally `-j` at
 a time. A collection is taken in by intake units on the runners — east-c, or
@@ -209,11 +225,12 @@ writes nothing to the repository.
 ### Watch / live development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--schema <policy>] [-j <n>] [--memory <size>] [--abort-on-change] [--functions <path...>]
+e3 watch <source.ts> <repo> <ws> [--start] [--schema <policy>] [--inputs <policy>] [-j <n>] [--memory <size>] [--abort-on-change] [--functions <path...>]
 ```
 
-`--schema` is the deploy's (`e3 workspace deploy`); a record whose type changes
-with no migration stops the watch, naming `--schema=reset`.
+`--schema` and `--inputs` are the deploy's (`e3 workspace deploy`); a record
+whose type changes with no migration stops the watch, naming `--schema=reset`,
+and each save says which inputs someone set it resets.
 
 ### Authentication
 

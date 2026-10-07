@@ -45,7 +45,7 @@ import {
   EastTypeValueType,
   decodeBeast2ElementsFor,
   encodeBeast2FenceFor,
-  isTypeValueEqual,
+  isTypeValueStructurallyEqual,
   isVariant,
   printFor,
   readBeast2Type,
@@ -203,8 +203,11 @@ export async function storeCollectionThrough<S extends object>(
   const fenceOf = keyType === null ? null : encodeBeast2FenceFor(keyType);
   const printType = printFor(EastTypeValueType);
 
+  // Read by structure: a source another build wrote can carry a recursive
+  // type that differs inside under the id the collection's type gives its
+  // own, which isTypeValueEqual takes as one type unread (#1233).
   const checkType = (source: string, wire: EastTypeValue): void => {
-    if (!isTypeValueEqual(wire, typeValue)) {
+    if (!isTypeValueStructurallyEqual(wire, typeValue)) {
       throw new Error(`store: ${source} holds ${printType(wire)}, not ${printType(typeValue)}`);
     }
   };

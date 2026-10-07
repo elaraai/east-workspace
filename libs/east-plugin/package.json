@@ -1,9 +1,38 @@
 {
   "name": "@elaraai/east-plugin",
-  "version": "0.0.1",
+  "version": "1.0.84",
   "license": "AGPL-3.0-or-later",
-  "private": true,
   "type": "module",
+  "description": "East's agent plugin runtime — the example index generator, the example search and its MCP tools, the search-first hooks and the Codex skill adapter — for a Claude Code or Codex plugin that builds on East's.",
+  "files": [
+    "dist/lib",
+    "dist/hooks",
+    "dist/daemon",
+    "dist/mcp",
+    "dist/status",
+    "dist/scripts",
+    "scripts/render-python.py",
+    "index.json",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "bin": {
+    "east-plugin-generate-index": "./dist/scripts/generate-index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elaraai/east-workspace.git",
+    "directory": "libs/east-plugin"
+  },
+  "keywords": [
+    "east",
+    "elara",
+    "claude-code",
+    "codex",
+    "plugin",
+    "mcp"
+  ],
+  "author": "Elara AI Pty Ltd",
   "scripts": {
     "build": "tsc",
     "generate-index": "npm run build && node dist/scripts/generate-index.js --base-dir .. && uv run --project ../east-py python scripts/render-python.py index.json && node scripts/sync-assets.mjs",
@@ -12,23 +41,28 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
   "dependencies": {
     "@elaraai/east": "workspace:*",
     "@elaraai/east-diagnostics": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
-    "minisearch": "^7.1.2"
+    "minisearch": "^7.1.2",
+    "zod": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.18.1",
     "esbuild": "^0.27.3",
-    "typescript": "~5.9.2",
-    "zod": "^3.0.0"
+    "typescript": "~5.9.2"
   },
   "exports": {
     "./lib/*": "./dist/lib/*.js",
     "./hooks/*": "./dist/hooks/*.js",
     "./daemon/*": "./dist/daemon/*.js",
     "./mcp/*": "./dist/mcp/*.js",
-    "./status/*": "./dist/status/*.js"
+    "./status/*": "./dist/status/*.js",
+    "./scripts/*": "./dist/scripts/*.js",
+    "./index.json": "./index.json"
   }
 }

@@ -1259,3 +1259,106 @@ export function compareFor(type: EastTypeValue | EastType, typeCtx: TypeContext 
     throw new Error(`Unhandled type ${(type satisfies never as EastTypeValue).type}`);
   }
 }
+
+/**
+ * Whether two type values are one type, read by their structure: the
+ * comparison for types two builds made, such as a record's type in the package
+ * a workspace has deployed and in the package deployed over it, or the type a
+ * dataset declares and the type of a value written to it.
+ *
+ * @remarks
+ * {@link isTypeValueEqual} takes two recursive types with one id as one type,
+ * without reading them. That is right within one build, whose process numbers
+ * each recursive type once, by its structure, and it keeps the type checker
+ * fast over a type as large as a UI component's. Two builds number their
+ * recursive types by their own counters, though, so a recursive type edited
+ * between two exports can keep its id. Here the two types are walked together:
+ * each pair of wrappers is numbered by where it stands, as `canonicalTypeValue`
+ * renames a type, and each ref by the wrapper it names, so a difference inside
+ * a recursive type is a difference. For two whole types, each ref inside its
+ * wrapper, the answer is the one comparing them renamed canonically gives,
+ * read in one pass that copies neither type: under a millisecond for a type as
+ * large as a UI component's, so a door checks every write by it.
+ *
+ * @param t1 - First type value
+ * @param t2 - Second type value
+ * @returns `true` when the two have one structure
+ *
+ * @example
+ * ```ts
+ * // A record's type, as the deployed package and the new one declare it
+ * if (!isTypeValueStructurallyEqual(held, declared)) {
+ *   throw new Error("the record changed type with no migration");
+ * }
+ * ```
+ */
+export function isTypeValueStructurallyEqual(t1: EastTypeValue, t2: EastTypeValue): boolean {
+  if (t1 === t2) return true;
+  // The wrappers each side has entered, innermost last: the id it gives the
+  // wrapper, and where the pair stands, numbered in preorder from 0.
+  const scope1: [id: bigint, at: number][] = [];
+  const scope2: [id: bigint, at: number][] = [];
+  let next = 0;
+  const at = (scope: [bigint, number][], id: bigint): number | undefined => {
+    for (let i = scope.length - 1; i >= 0; i--) {
+      if (scope[i]![0] === id) return scope[i]![1];
+    }
+    return undefined;
+  };
+  const same = (a: EastTypeValue, b: EastTypeValue): boolean => {
+    if (a.type !== b.type) return false;
+    const other = b as any;
+    switch (a.type) {
+      case "Never": case "Null": case "Boolean": case "Integer":
+      case "Float": case "String": case "DateTime": case "Blob":
+        return true;
+      case "Ref": case "Array": case "Set": case "Vector": case "Matrix":
+        return same(a.value, other.value);
+      case "Dict":
+        return same(a.value.key, other.value.key) && same(a.value.value, other.value.value);
+      case "Struct": case "Variant": {
+        const xs = a.value as { name: string; type: EastTypeValue }[];
+        const ys = other.value as { name: string; type: EastTypeValue }[];
+        if (xs.length !== ys.length) return false;
+        for (let i = 0; i < xs.length; i++) {
+          if (xs[i]!.name !== ys[i]!.name || !same(xs[i]!.type, ys[i]!.type)) return false;
+        }
+        return true;
+      }
+      case "Function": case "AsyncFunction": {
+        const xs = a.value.inputs as EastTypeValue[];
+        const ys = other.value.inputs as EastTypeValue[];
+        if (xs.length !== ys.length) return false;
+        for (let i = 0; i < xs.length; i++) {
+          if (!same(xs[i]!, ys[i]!)) return false;
+        }
+        return same(a.value.output, other.value.output);
+      }
+      case "Recursive": {
+        const p = a.value;
+        const q = other.value as typeof p;
+        if (p.type !== q.type) return false;
+        if (p.type === "ref") {
+          const x = at(scope1, p.value);
+          const y = at(scope2, q.value as bigint);
+          // A ref no wrapper of its side names keeps its id, as the rename
+          // leaves it.
+          return x === undefined && y === undefined ? p.value === q.value : x === y;
+        }
+        const w = q.value as { id: bigint; inner: EastTypeValue };
+        const pair = next++;
+        scope1.push([p.value.id, pair]);
+        scope2.push([w.id, pair]);
+        try {
+          return same(p.value.inner, w.inner);
+        } finally {
+          scope1.pop();
+          scope2.pop();
+        }
+      }
+      default:
+        return false;
+    }
+  };
+  return same(t1, t2);
+}

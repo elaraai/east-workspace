@@ -24,14 +24,22 @@
  *
  * **Equality, not assignability.** A runner decodes the object *by the declared
  * type* and beast2 decoding is type-directed, so a blob that is merely a
- * subtype still decodes wrong. `isTypeValueEqual` is the relation.
+ * subtype still decodes wrong.
+ *
+ * **Read by structure.** The bytes may come from another build than the
+ * package's — an app's UI deployed apart from its package, any client — and
+ * each build numbers its recursive types by its own counter, so a recursive
+ * type edited between two builds can keep its id. `isTypeValueEqual` takes one
+ * id as one type without reading it; `isTypeValueStructurallyEqual`, the
+ * relation here, reads it, at under a millisecond for a type as large as a UI
+ * component's.
  *
  * @packageDocumentation
  */
 
 import {
   diffTypeValues,
-  isTypeValueEqual,
+  isTypeValueStructurallyEqual,
   isVariant,
   printTypeValueSummary,
   renderTypeDiff,
@@ -85,7 +93,7 @@ export function checkDatasetType(
 ): DatasetTypeMismatch | null {
   const declaredValue = asTypeValue(declared);
   const givenValue = asTypeValue(given);
-  if (isTypeValueEqual(declaredValue, givenValue)) return null;
+  if (isTypeValueStructurallyEqual(declaredValue, givenValue)) return null;
 
   // Equality failed, so a diff normally localizes it — except where the two are
   // assignable but unequal (a subtype, or the same struct fields in another

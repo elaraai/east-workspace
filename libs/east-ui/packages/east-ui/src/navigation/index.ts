@@ -13,23 +13,3 @@ export {
     type NavSectionInput,
     type NavItemInput,
 } from "./nav-list/index.js";
-export { App, type AppInput } from "./app/index.js";
-export {
-    Navigation,
-    Pages,
-    Route,
-    NavBindHandleType,
-    navBindPlatformFn,
-    NavBindPrimitives,
-    routeVariantType,
-    type NavRoutes,
-    type NavRouteConfig,
-    type NavConfig,
-    type RouteVariantOf,
-    type NavHandleType,
-    type BoundNav,
-    type PageConstructors,
-    type PagesHandlers,
-    type PagesInput,
-    type RouteInput,
-} from "./pages/index.js";

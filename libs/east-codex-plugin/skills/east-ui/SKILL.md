@@ -5,7 +5,7 @@ description: "Type-safe UI component library for the East language, authored as 
 
 ## Detailed skill scope
 
-Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, or a rail and breadcrumb the author passes, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props.
+Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Calendar>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation within a page with <Breadcrumb> and <NavList> (an app's own navigation is its host's), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props.
 
 # East UI
 
@@ -954,43 +954,18 @@ Task → Which tag?
 │           ├─ moreLabel / lessLabel (optional) — trigger copy
 │           └─ color / triggerColor (optional)
 │
-├─ Navigation
+├─ Navigation — within a page; an app's own navigation is its host's (#1227)
 │   ├─ <Breadcrumb items={…}> — ancestor trail with '/' separators
 │   │   └─ Props:
 │   │       ├─ items (required) — [{ label, current (Option Bool), onClick (Option fn) }] trail entries
 │   │       ├─ leadingSeparator (optional) — adds a leading '/' so it reads as a path (/ workspace / page)
 │   │       └─ runAnchor (optional) — trailing run stamp pinned after a vertical rule
-│   ├─ <NavList sections={…}> — sidebar nav
-│   │   └─ Props:
-│   │       ├─ sections (required) — [{ label?, items: [{ key, label, icon?, badge?, active? }] }], or an East `Array<NavList.Types.Section>` computed from data (items built with `East.value({…}, NavList.Types.Item)`) — a rail of the pages a record holds
-│   │       ├─ onSelect (optional) — fn(key) => Null
-│   │       ├─ surface (optional) — "card" (default, bordered) | "shell" (drops the card chrome so the list reads as one surface with a host app-shell rail)
-│   │       └─ background (optional) — surface background token (bg.subtle)
-│   ├─ <Pages nav={nav} pages={{…}}> — route-stack page host (first-class navigation)
-│   │   ├─ Props:
-│   │   │   ├─ nav (required) — the binding from Navigation.bind, bound in the enclosing <Reactive>
-│   │   │   └─ pages (required) — one body per route: { route: ($, payload, nav) => <…/> }; renders ONLY the active route (leaf-only) and remounts on change; the nav handle fixes the route types
-│   │   └─ Factories:
-│   │       ├─ Navigation.config({ route: { value: T, label, icon?, section?, badge? } }) — typed registry (config.Route variant type, config.Page.<route>(payload) constructors); icon `{ prefix, name }` / section / badge drive the <App> rail row (single source of truth)
-│   │       └─ Navigation.bind(config, key, [config.Page.home()]) — reactive path-stack handle { path, current, depth, canPop, pop, go.<route>(payload), navigateTo([…]) } — go/navigateTo are typed per route (the Record.bind pattern); pair <Breadcrumb>/<NavList> on the same key to drive/derive chrome from nav.path()
-│   ├─ <Route nav={nav} routes={{…}}> — <Pages> generalized to any slot (#333)
-│   │   └─ Props:
-│   │       ├─ nav (required) — the same nav handle
-│   │       └─ routes (required) — one body per route; renders only the active route's body and REMOUNTS it on navigation, but placeable anywhere (a header widget, a sidebar, a drawer body). The body <Pages> and any number of <Route> slots bind the SAME nav handle — lockstep, each remounts its own slot. Use it to swap a STATEFUL component (its own <Reactive>/binds) by route; each case is self-contained and rebuilds fresh. For a non-route key use <Match>
-│   └─ <App nav={nav} config={routes} pages={{…}}> — the application shell (#367): composes the primitives into one surface — a collapsible nav rail (from the config), a breadcrumb app bar (from nav.path()), an optional brand logo, app-bar slots, and the routed body. Author it INSIDE the <Reactive> that binds nav.
-│       ├─ Props:
-│       │   ├─ nav (required) — the Navigation.bind handle (drives rail + breadcrumb + body)
-│       │   ├─ config (required) — the Navigation.config value (labels / rail icon / section / badge — the handle carries no labels)
-│       │   ├─ pages (required) — one body per route (same registry <Pages> takes)
-│       │   ├─ title (optional) — header surface title / wordmark (also the logo alt)
-│       │   ├─ logo / logoCollapsed (optional) — ImageSource (Image.url / Image.dataUri / Image.blob); the shell renders + sizes the <Image>
-│       │   ├─ collapsible (optional, default true) — rail collapses (`[` hotkey + chevron above the list)
-│       │   ├─ themeToggle (optional) — built-in dark/light app-bar button (pure-East surfaces; hosts normally inject via AppProvider)
-│       │   ├─ density (optional, default comfortable) — app-bar density: comfortable (2 rows) | compact (tighter 2 rows) | condensed (breadcrumb + title on ONE row, ~40px shorter); only the app bar changes (rail + body constant); falls back to inherited density
-│       │   ├─ barStart / barEnd (optional) — app-bar UIComponent nodes (leading / trailing)
-│       │   ├─ rail (optional) — a UIComponent in place of the rail the config derives: a <NavList> over rows that are data (a route per row of a record, which a static config cannot list), its `onSelect` navigating through the same nav
-│       │   └─ breadcrumb (optional) — a UIComponent in place of the breadcrumb nav.path() derives, for routes whose static labels do not name what their payload is
-│       └─ Rail: routes with a `section` become rail rows (grouped, icon + badge, active = current route, click → navigate); routes WITHOUT a section are reachable but hidden (deep pages). Host React apps inject chrome (avatar / theme / logout / search) via the east-ui-components `AppProvider` (barStart/barCenter/barEnd/logo/railFooter/bannerTop React slots)
+│   └─ <NavList sections={…}> — sidebar nav
+│       └─ Props:
+│           ├─ sections (required) — [{ label?, items: [{ key, label, icon?, badge?, active? }] }], or an East `Array<NavList.Types.Section>` computed from data (items built with `East.value({…}, NavList.Types.Item)`) — a rail of the pages a record holds
+│           ├─ onSelect (optional) — fn(key) => Null
+│           ├─ surface (optional) — "card" (default, bordered) | "shell" (drops the card chrome so the list reads as one surface with a host app-shell rail)
+│           └─ background (optional) — surface background token (bg.subtle)
 │
 ├─ Overlays (floating content) — `trigger` is a UIComponent prop; body is children
 │   ├─ <Dialog> — the one modal: a confirmation step before a destructive or irreversible act, naming it, with Cancel and the act's own verb — never a form (a form that makes or names something is a <Popover> from its trigger)
@@ -1120,7 +1095,7 @@ Task → Which tag?
 │   └─ <Match on={bind.read()} cases={{…}}> — hosting slot over a variant (#333), the component-level twin of variant.match
 │       └─ Props:
 │           ├─ on (required) — the variant expression selecting the active case; pass the READING expression (bind.read()) — a $.let snapshot freezes the slot
-│           └─ cases (required) — one handler per case name, exhaustive; each gets that case's typed payload. Mounts ONLY the active case and REMOUNTS it on tag change (same-tag payload churn re-renders in place) — use it to swap a STATEFUL component (its own <Reactive>/binds) at one slot; a plain variant.match over mounted components keeps the first one mounted (function-blind reconciliation). A nav-route key is <Route>
+│           └─ cases (required) — one handler per case name, exhaustive; each gets that case's typed payload. Mounts ONLY the active case and REMOUNTS it on tag change (same-tag payload churn re-renders in place) — use it to swap a STATEFUL component (its own <Reactive>/binds) at one slot; a plain variant.match over mounted components keeps the first one mounted (function-blind reconciliation)
 │
 └─ State (typed reactive store)
     └─ State.bind([T], key, defaultValue) → { read, write, has } closures;
@@ -1538,58 +1513,6 @@ tier so they stay subordinate to tags at every density.
     <Badge>WK 12</Badge>
     <Meter value={72.0} tone="success" />
 </HStack>
-```
-
-### App shell — `<App>` in East + host-injected chrome via `AppProvider`
-
-`<App>` composes the nav primitives into one shell from a single
-`Navigation.bind` handle — the rail is derived from the config's
-`icon` / `section` / `badge`, the breadcrumb from `nav.path()`, and the routed
-body from `pages`. Author it **inside** the `<Reactive>` that binds `nav`.
-`density` (`comfortable` / `compact` / `condensed`) resizes only the app bar.
-
-When the rows are data — a route per row of a record, which a static config
-cannot list — pass the rail yourself: a `<NavList>` whose sections are an East
-array mapped from the rows, its `onSelect` navigating through the same `nav`.
-Pass `breadcrumb` too when the route's label does not name what its payload is.
-
-A host React app injects its own app-bar / rail chrome (avatar, theme toggle,
-logout, search) by wrapping the renderer in **`AppProvider`** (from
-`@elaraai/east-ui-components`). Pass bar items as a **Fragment of individual
-elements** — not a `<Flex gap>` wrapper — so each shares the bar's single gap
-with the built-in theme toggle. With no provider, `<App>` renders standalone
-(its IR slots + default logo), so e3 `ui()` tasks keep working.
-
-```tsx
-// East side — author the shell (inside the <Reactive> that binds nav).
-const routes = Navigation.config({
-    overview: { value: NullType, label: "Overview", section: "Analyse", icon: { prefix: "fas", name: "gauge-high" } },
-    audit:    { value: NullType, label: "Audit",    section: "Manage",  icon: { prefix: "fas", name: "list-check" } },
-});
-const shell = East.function([], UIComponentType, _$ => (
-    <Reactive>{$ => {
-        const nav = $.let(Navigation.bind(routes, "app.route", [routes.Page.overview()]));
-        return (
-            <App nav={nav} config={routes} title="Acme Ops" density="comfortable"
-                logo={Image.dataUri(LOGO_SVG)}
-                pages={{ overview: () => <OverviewPage/>, audit: () => <AuditPage/> }} />
-        );
-    }}</Reactive>
-));
-```
-
-```tsx
-// Host React side (@elaraai/east-ui-components) — inject chrome + render the value.
-import { AppProvider, EastChakraComponent } from "@elaraai/east-ui-components";
-
-<AppProvider
-    barEnd={<><NotificationsButton/><AvatarMenu/></>}   // Fragment — one bar rhythm, not a nested <Flex gap>
-    barCenter={<GlobalSearch/>}
-    railFooter={<AccountCard/>}
-    logo={<BrandLogo/>}                                  // React node — overrides the IR logo
->
-    <EastChakraComponent value={compiledShellValue} />
-</AppProvider>
 ```
 
 ### Picking between similar components

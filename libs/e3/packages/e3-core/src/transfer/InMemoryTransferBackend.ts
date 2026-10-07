@@ -409,7 +409,7 @@ class InMemoryWorkspaceDeployStore implements WorkspaceDeployStore {
 
     if (!this.storage || !this.getRepoPath) {
       // Mock fallback for tests that don't provide storage
-      await this.updateStatus(id, variant('completed', { records: [], indexes: [], warnings: [] }));
+      await this.updateStatus(id, variant('completed', { records: [], indexes: [], inputs: [], warnings: [] }));
       this.executing.delete(id);
       return;
     }

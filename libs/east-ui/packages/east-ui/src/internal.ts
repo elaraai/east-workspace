@@ -87,11 +87,6 @@ export { Input, Checkbox, RadioGroup, RadioCardGroup, TimeRangeInput, DateRangeI
 export { Progress, Banner, EmptyState, Skeleton, Status } from "./feedback/index.js";
 export { Breadcrumb, NavList, NavListType, NavSectionType, NavItemType } from "./navigation/index.js";
 export type { NavListStyle, NavSectionInput, NavItemInput } from "./navigation/index.js";
-export { App, Navigation, Pages, Route, NavBindHandleType, navBindPlatformFn, NavBindPrimitives, routeVariantType } from "./navigation/index.js";
-export type { AppInput } from "./navigation/index.js";
-export type {
-    NavRoutes, NavRouteConfig, NavConfig, RouteVariantOf, NavHandleType, BoundNav, PageConstructors, PagesHandlers, PagesInput, RouteInput,
-} from "./navigation/index.js";
 export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, Meter, SegmentedMeter, BarStrip, AvatarGroup, Trace, ChipRail, type IconName } from "./display/index.js";
 export { Card } from "./container/index.js";
 export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Roster, Board, Calendar, Schematic, Flowchart, Map, Blend } from "./collections/index.js";
@@ -110,7 +105,7 @@ export { Reactive } from "./reactive/index.js";
 export { Match, type MatchCases, type MatchInput } from "./reactive/match.js";
 
 // Component / extension / platform
-export { UIComponentType, AppValueType } from "./component.js";
+export { UIComponentType } from "./component.js";
 export {
     EastUI,
     component,

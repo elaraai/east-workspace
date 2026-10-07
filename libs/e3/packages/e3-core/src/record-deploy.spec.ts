@@ -18,24 +18,28 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
-  DictType, East, EastTypeType, IntegerType, OptionType, SetType, SortedMap, StringType, StructType, compareFor, decodeBeast2For,
-  encodeBeast2For, equalFor, none, some, toEastTypeValue, variant, type ValueTypeOf,
+  ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, RecursiveType, SetType, SortedMap, StringType, StructType,
+  canonicalTypeValue, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeValueEqual, none, some, toEastTypeValue, variant,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
 import {
-  RecordMigrationAppliedType, type DeployProgress, type RecordIndexPlan, type RecordMigrationApplied, type RecordPlan, type TreePath,
+  PackageObjectType, RecordMigrationAppliedType, decodePackageObject, type DeployProgress, type RecordIndexPlan,
+  type RecordMigrationApplied, type RecordPlan, type Structure, type TreePath,
 } from '@elaraai/e3-types';
 import {
   appliedMigrations, readRecordState, recordCompact, recordDescribe, recordHistory, recordMutate, recordReindex, recordSystemCommit,
-  type RecordHistoryEntry, type RecordSystemCommitOptions, type RecordSystemCommitTarget,
+  resolveRecord, type RecordHistoryEntry, type RecordSystemCommitOptions, type RecordSystemCommitTarget,
 } from './records.js';
 import { storeDatasetBytes } from './store-collection.js';
 import { readDatasetWhole } from './dataset-open.js';
 import { repoGc } from './gc.js';
 import { RecordDeployRefusedError } from './errors.js';
-import { workspaceGetDataset } from './trees.js';
+import { workspaceGetDataset, workspaceResolveDataset, workspaceSetDataset } from './trees.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage, type WorkspaceDeployOptions } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
@@ -113,6 +117,33 @@ function v3(): PackageDef<Record<string, unknown>> {
       ($, _id, row) => ({ key: row.title, value: row })),
     { after: addOwner(plans) });
   return e3.package('planning', '3.0.0', plans, byTitle, ...v2Declarations(plans));
+}
+
+/** A release of `trees`, a record and an input of a tree type, exported by a
+ *  process of its own, as each release is built. Each process numbers the tree
+ *  type by its own counter, so both releases' trees carry one id, though 2.0.0
+ *  gives each node an owner. */
+const RELEASE = `
+const [eastUrl, e3Url, version, zip] = process.argv.slice(2);
+const { ArrayType, RecursiveType, StringType, StructType, variant } = await import(eastUrl);
+const { default: e3 } = await import(e3Url);
+const owned = version === '2.0.0';
+const Tree = RecursiveType((self) => StructType(owned
+  ? { title: StringType, owner: StringType, kids: ArrayType(self) }
+  : { title: StringType, kids: ArrayType(self) }));
+const root = owned ? { title: 'root', owner: '', kids: [] } : { title: 'root', kids: [] };
+await e3.export(e3.package('trees', version, e3.record('tree', Tree, root), e3.input('pinned', Tree, variant('value', root))), zip);
+`;
+
+/** A package object with each dataset's type renumbered from 0, as a build
+ *  that numbers its recursive types as a header numbers them would export it. */
+function renumbered(bytes: Uint8Array): Uint8Array {
+  const pkg = decodePackageObject(bytes);
+  const renumber = (structure: Structure): Structure => structure.type === 'value'
+    ? variant('value', { type: canonicalTypeValue(structure.value.type), writable: structure.value.writable })
+    : variant('struct', new SortedMap([...structure.value].map(([name, child]): [string, Structure] => [name, renumber(child)]),
+      compareFor(StringType)));
+  return encodeBeast2For(PackageObjectType)({ ...pkg, data: { ...pkg.data, structure: renumber(pkg.data.structure) } });
 }
 
 describe('a deploy\'s record migrations', () => {
@@ -559,6 +590,36 @@ describe('a deploy\'s record migrations', () => {
     assert.deepEqual((await history()).slice(0, 2), ['$restore', 'add']);
   });
 
+  it("refuses a restored state whose tree differs inside, under the id the record's type gives its own (#1233)", async () => {
+    const Tree = RecursiveType((self) => StructType({ title: StringType, kids: ArrayType(self) }));
+    const Owned = RecursiveType((self) => StructType({ title: StringType, owner: StringType, kids: ArrayType(self) }));
+    await deploy(e3.package('trees', '1.0.0', e3.record('trees', DictType(StringType, Tree), new Map())));
+    // The package as a build that numbers its trees from 0 would export it. A
+    // state's manifest numbers its tree from 0 too, so one id names both.
+    const { hash } = await workspaceGetPackage(storage, repo, ws);
+    const objects = storage.objects;
+    const read = objects.read.bind(objects);
+    objects.read = async (r: string, h: string) => h === hash ? renumbered(await read(r, h)) : read(r, h);
+    const resolved = await resolveRecord(storage, repo, ws, 'trees');
+    assert.ok(resolved !== null);
+    assert.ok(isTypeValueEqual(resolved.type, canonicalTypeValue(toEastTypeValue(DictType(StringType, Owned)))),
+      'one id names both trees, which isTypeValueEqual does not read');
+
+    const restore = (state: string) => recordSystemCommit(storage, runner, repo, ws, 'trees',
+      { name: '$restore', target: { state, applied: [] }, actor: 'ops:test' });
+    const owned = await storeDatasetBytes(storage, repo, encodeBeast2For(DictType(StringType, Owned))(
+      new SortedMap([['t', { title: 'T', owner: 'O', kids: [] }]], compareFor(StringType))));
+    const refused = await restore(owned);
+    assert.equal(refused.kind, 'invalid', JSON.stringify(refused));
+    assert.match((refused as { message: string }).message, /is declared as .*, and the state [0-9a-f]+ holds /);
+
+    const plain = await storeDatasetBytes(storage, repo, encodeBeast2For(DictType(StringType, Tree))(
+      new SortedMap([['t', { title: 'T', kids: [] }]], compareFor(StringType))));
+    const restored = await restore(plain);
+    objects.read = read;
+    assert.equal(restored.kind, 'committed', JSON.stringify(restored));
+  });
+
   it('builds the indexes a state was not built under, and refuses a name of its own or a head it did not expect', async () => {
     await deploy(v2());
     const added = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('a')], { actor: 'cli:test' });
@@ -722,5 +783,38 @@ describe('a deploy\'s record migrations', () => {
     const { primary } = await readRecordState(storage, repo, stateHash);
     await storage.datasets.write(repo, ws, 'records/plans', variant('value', { hash: primary, versions }));
     assert.deepEqual(await built(), [['by_owner', false]], 'not held at all');
+  });
+
+  it("asks for a migration when a record's type changes inside a recursive type two builds gave one id, and resets an input whose type did", async () => {
+    const script = join(tempDir, 'release.mjs');
+    writeFileSync(script, RELEASE);
+    for (const version of ['1.0.0', '2.0.0']) {
+      const zip = join(tempDir, `trees-${version}.zip`);
+      const child = spawnSync(process.execPath,
+        [script, import.meta.resolve('@elaraai/east'), import.meta.resolve('@elaraai/e3'), version, zip], { encoding: 'utf8' });
+      assert.equal(child.status, 0, child.stderr);
+      await packageImport(storage, repo, zip);
+    }
+    const pinned: TreePath = [variant('field', 'inputs'), variant('field', 'pinned')];
+    await workspaceDeploy(storage, repo, ws, 'trees', '1.0.0', { runner });
+    const other = 'other';
+    await workspaceCreate(storage, repo, other);
+    await workspaceDeploy(storage, repo, other, 'trees', '2.0.0', { runner });
+    assert.ok(isTypeValueEqual((await workspaceResolveDataset(storage, repo, ws, pinned)).type, (await workspaceResolveDataset(storage, repo, other, pinned)).type),
+      'each build numbered its tree alike: one id names both trees, which isTypeValueEqual does not read');
+
+    // Someone pins a tree of their own, at 1.0.0's type
+    const Tree = RecursiveType((self) => StructType({ title: StringType, kids: ArrayType(self) }));
+    await workspaceSetDataset(storage, repo, ws, pinned, { title: 'mine', kids: [] }, Tree);
+
+    await assert.rejects(workspaceDeploy(storage, repo, ws, 'trees', '2.0.0', { runner }), (err: unknown) => {
+      assert.ok(err instanceof RecordDeployRefusedError);
+      assert.match(err.message, /record 'records\/tree' changed type with no migration/);
+      return true;
+    });
+    await workspaceDeploy(storage, repo, ws, 'trees', '2.0.0', { runner, schema: 'reset', inputs: 'keep-edited' });
+    assert.deepEqual((await recordHistory(storage, repo, ws, 'tree')).map((entry) => entry.commit.mutation), ['$reset']);
+    assert.deepEqual(await workspaceGetDataset(storage, repo, ws, pinned), { title: 'root', owner: '', kids: [] },
+      'the tree pinned at 1.0.0\'s type takes 2.0.0\'s value');
   });
 });

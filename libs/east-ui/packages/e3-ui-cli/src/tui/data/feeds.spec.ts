@@ -7,8 +7,8 @@
  * Feed specs — which pollers a view mounts, the execution event cursor,
  * the repositories view's lazy facts, the workspaces view's summaries and
  * last runs, and
- * what holds a workspace a first deploy is deploying, all over the in-memory
- * API and fake timers.
+ * what holds a workspace a first deploy is deploying or a copy is replacing,
+ * all over the in-memory API and fake timers.
  */
 
 import { test, describe } from 'node:test';
@@ -298,6 +298,31 @@ describe('feeds', () => {
         assert.deepEqual(api.calls.slice(before).sort(), [
             'datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceLock scratch', 'workspaceStatus scratch',
         ]);
+        feeds.stop();
+    });
+
+    test('a copy onto the workspace that lets go has the title, the tasks and the inputs read again at once, as a deploy does', async () => {
+        const api = fakeRepo();
+        const command = 'e3 workspace copy . production scratch';
+        const copying = {
+            state: { operation: variant('workspace_copy', null), holder: variant('process', { pid: 4242n, bootId: 'boot', startTime: 1n, command }), acquiredAt: new Date(0), expiresAt: none },
+            progress: none,
+        };
+        api.workspace('scratch', { lock: { pid: 4242, acquiredAt: new Date(0).toISOString(), command }, lockStatus: copying as never });
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        store.dispatch({ type: 'view/root', view: { kind: 'dashboard', ws: 'scratch', list: { sel: 0, top: 0 } } });
+        const feeds = createFeeds({ store, api: () => api, clock: fakeClock() });
+        feeds.start();
+        await settle();
+        assert.equal(store.getState().data.lock['scratch'], copying);
+        // The copy lets go: what the title, the tasks and the inputs show is read again at once.
+        Object.assign(api.workspace('scratch'), { lock: undefined, lockStatus: undefined });
+        const before = api.calls.length;
+        feeds.fire('status:scratch');
+        await settle();
+        assert.equal(store.getState().data.lock['scratch'], null);
+        assert.deepEqual(api.calls.slice(before).sort(), ['datasetList scratch', 'taskList scratch', 'workspaceGet scratch', 'workspaceList', 'workspaceStatus scratch']);
         feeds.stop();
     });
 

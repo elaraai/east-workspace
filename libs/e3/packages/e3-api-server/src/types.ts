@@ -46,6 +46,7 @@ export {
   PackageDetailsType,
   // Workspaces
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   WorkspaceDeployRequestType,
   WorkspaceExportRequestType,
@@ -147,6 +148,7 @@ export type {
   PackageDetails,
   WorkspaceInfo,
   WorkspaceCreateRequest,
+  WorkspaceCopyRequest,
   WorkspaceDeployRequest,
   LockStatus,
   DatasetStatus,
@@ -238,6 +240,7 @@ import {
   PackageInfoType,
   PackageDetailsType,
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   WorkspaceDeployRequestType,
   WorkspaceExportRequestType,
@@ -340,6 +343,7 @@ export const ApiTypes = {
 
   // Workspaces
   WorkspaceCreateRequestType,
+  WorkspaceCopyRequestType,
   WorkspaceInfoType,
   WorkspaceDeployRequestType,
   WorkspaceExportRequestType,
