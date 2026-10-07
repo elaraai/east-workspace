@@ -426,7 +426,7 @@ export interface PlanQuantityOptions {
 /**
  * Builds a quantity — a number with its unit and how it prints (#824). A run
  * carries one as its `quantity` (its bar prints it; a parent's rollup band sums
- * its runs' per unit), and so does a link (its ribbon's share and caption).
+ * its runs' per unit), and so does a link (its weight and its caption).
  *
  * @param value - The amount (a number or `FloatType` expression)
  * @param options - Its unit, format and caption override ({@link PlanQuantityOptions})
@@ -770,7 +770,7 @@ export function createUiState(init?: PlanUiStateInput): ExprType<PlanUiStateType
  * @property fromRun - The source run key (the ribbon leaves this run's end edge); none with an event
  * @property to - The destination row's id, or an event
  * @property toRun - The destination run key (the ribbon lands on this run's start edge); none with an event
- * @property quantity - The moved quantity (`Plan.quantity(34, { unit: "k sheets" })`) — the ribbon's share, opacity and caption
+ * @property quantity - The moved quantity (`Plan.quantity(34, { unit: "k sheets" })`) — the link's weight and caption
  */
 export interface PlanLinkInput {
     /** The link's identity — what the `link` element ref a ribbon click reports names it by (#824). */
@@ -783,8 +783,9 @@ export interface PlanLinkInput {
     to: SubtypeExprOrValue<PlanRowIdType> | ExprType<PlanRunRefType>;
     /** The destination run key (the ribbon lands on this run's start edge) — with a row's id; an event names its own. */
     toRun?: SubtypeExprOrValue<StringType>;
-    /** The moved quantity — `Plan.quantity(34, { unit: "k sheets" })`: its value weighs the ribbon's share of the
-     *  family's largest, and its caption prints on the ribbon. Omit ⇒ the faintest ribbon, no caption. */
+    /** The moved quantity — `Plan.quantity(34, { unit: "k sheets" })`: its value's third of the family's largest
+     *  sets the link's weight (2, 4 or 8), and its caption prints on the link, on a paper knockout. Omit ⇒ the
+     *  thinnest link (1.5), no caption. */
     quantity?: SubtypeExprOrValue<PlanQuantityType>;
 }
 

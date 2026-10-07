@@ -45,6 +45,7 @@ import { appendAll } from "../reductions.js";
 import { tileName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
+import { PLAN_CELL_INSET } from "../geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -219,14 +220,15 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
         return out;
     };
 
-    // Cell geometry — 2px horizontal / per-lane vertical insets approximating
-    // the Planner's 1px 2px cell margins + 3px lane padding.
+    // Cell geometry — the cell inset each side, horizontally and per lane,
+    // approximating the Planner's 1px 2px cell margins + 3px lane padding; a
+    // link meets the cell by the same inset (#1258).
     const cellX = (b: PlanBucket) => (
-        { left: `calc(${b.x0 * 100}% + 2px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 4px)` }
+        { left: `calc(${b.x0 * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${(b.x1 - b.x0) * 100}% - ${2 * PLAN_CELL_INSET}px)` }
     );
     const laneY = (li: number, span: number = 1) => ({
-        top: `calc(${(li / laneCount) * 100}% + 2px)`,
-        height: `calc(${(span / laneCount) * 100}% - 4px)`,
+        top: `calc(${(li / laneCount) * 100}% + ${PLAN_CELL_INSET}px)`,
+        height: `calc(${(span / laneCount) * 100}% - ${2 * PLAN_CELL_INSET}px)`,
     });
 
     const renderCell = (b: PlanBucket, li: number | undefined, events: BucketEventValue[], span: number = 1) => {

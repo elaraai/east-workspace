@@ -17,6 +17,9 @@ import { settled } from "./settle";
  *  section's `e3/` prefix — and drawn once the e3 the page runs has started. */
 export const PLAN_EXAMPLES = "e3/plan/plan";
 
+/** The examples file of the Plan of event kinds (#1191) in the catalog. */
+export const PLAN_EVENT_EXAMPLES = "e3/plan/plan-events";
+
 /** A row id's canonical text (#822), printed by East as the canvas prints it. */
 export const printId = printFor(Plan.Types.RowId);
 

@@ -295,42 +295,26 @@ export const rowsBase = {
         "&[data-ctx]": { width: "5px", height: "5px" },
     },
     // ── Row focus (R1 links / R2 expand) — the row-scoped controls
-    //    (`Plan links.html`, #1258): sm ghost buttons on a pill in the row's
-    //    surface, 8 from the gutter's edge, covering the meta. They show on
-    //    the row's hover or keyboard focus, always on touch, and stay while
-    //    one is pressed; never in a strip. ──
+    //    (`Plan links.html`, #1258): sm ghost buttons at the end of the row's
+    //    gutter line, after its value and status. They are always shown —
+    //    ruled by the user over the spec's hover reveal, so a row says it has
+    //    links before it is hovered — and a pressed one wears the brand tint.
+    //    Never in a strip. ──
     rowControls: {
-        position: "absolute",
-        right: "8px",
-        top: "50%",
-        transform: "translateY(-50%)",
         display: "flex",
         alignItems: "center",
         gap: 0,
-        paddingLeft: "8px",
-        // The row's own surface — no ring: the pill is the row, covering the meta.
-        background: "bg.surface",
-        "[data-plan-row][data-selected] &, [data-plan-row][data-expanded] &": { background: "{colors.brandTint}" },
-        "[data-plan-row][data-draft] &": { background: "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surface})" },
-        "[data-plan-row][data-invalid] &": { background: "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
-        opacity: 0,
-        transition: "opacity {durations.fast}",
-        // Over the links (z 5).
+        flexShrink: 0,
+        // At the line's end: pushed there by its own margin, or the line's
+        // gap after the right cluster that already is.
+        marginLeft: "auto",
+        "[data-plan-gutter='right'] + &": { marginLeft: 0 },
+        // Over the links (z 5): a loopback turning in the gutter passes under them.
+        position: "relative",
         zIndex: 6,
-        "[data-plan-row]:hover &": { opacity: 1 },
-        "&:has([data-active])": { opacity: 1 },
-        "@media (hover: none)": { opacity: 1 },
-        // A keyboard reader sees them too: on the focused row, and while one
-        // of them has focus (the row's Tab walk, #819).
-        "[data-plan-row]:focus-visible &": { opacity: 1 },
-        "&:focus-within": { opacity: 1 },
         // A strip is one click target — returning. Row controls inside it
         // would compete with that, and there is no room for them anyway.
         "&[data-ctx]": { display: "none" },
-        // An expanded row's gutter is TALL, and `top: 50%` in a tall cell
-        // parks the control halfway down a mostly-empty column, detached
-        // from the name it belongs to. Pin it to the row's own line.
-        "&[data-expanded]": { top: "9px", transform: "none" },
     },
     // An sm ghost icon button: 24px, the muted ink; hovered the subtle paper
     // and the ink; pressed the brand tint and the brand's pressed ink.
@@ -416,8 +400,9 @@ export const rowsBase = {
         },
     },
     // ── R1 links (`Plan links.html`, #1258) — drawn over the rows in
-    //    their own coordinates (the frame's overlay box), under the now line
-    //    and the row controls; they fade in once the rows have gathered.
+    //    their own coordinates (the frame's overlay box, in the rows' own
+    //    stacking context), under the now line and the row controls; they
+    //    fade in once the rows have gathered.
     //    Geometry is the only thing the renderer writes: the paths and each
     //    link's weight. ──
     ribbons: {

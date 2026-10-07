@@ -86,7 +86,6 @@ import { planGeometry, planGeometryStyle } from "./geometry.js";
 import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
-import type { PlanInstantValue } from "./instant.js";
 import type { PlanEvent } from "./plan-state.js";
 import type { PlanPart } from "./messages.js";
 import {
@@ -99,7 +98,7 @@ import { entryOf, usePlanEditing } from "./use-plan-editing.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
-import { elementInstants, ribbonBody, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
 import {
@@ -346,12 +345,13 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
     const derived = useStableDerived(fresh);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
-    // A link end's instants by (row, element) — where its ribbon meets the
-    // row, and the ribbons' off-window resolution: a run, or an event's
-    // element however it draws (#1192).
-    const runDates = useCallback((rowKey: string, runKey: string): { start: PlanInstantValue; end: PlanInstantValue } | undefined => {
+    // The element a link's end names, by (row, element) — where its ribbon
+    // meets the row, as the element draws (#1258), and the ribbons'
+    // off-window resolution: a run, or an event's element however it draws
+    // (#1192).
+    const linkedElementOf = useCallback((rowKey: string, runKey: string): LinkedElement | undefined => {
         const row = index.byKey.get(rowKey);
-        return row !== undefined && scale !== undefined ? elementInstants(row, runKey, scale) : undefined;
+        return row !== undefined && scale !== undefined ? linkedElement(row, runKey, scale) : undefined;
     }, [index, scale]);
 
     // ── Chrome: transport, search ─────────────────────────────────────────
@@ -1111,7 +1111,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
                     overlay={ribbonRows !== undefined && focusVisibleKeys !== undefined ? (
                         <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
                             <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
-                                body={ribbonRows} beyond={beyond} scale={scale} runDates={runDates}
+                                body={ribbonRows} beyond={beyond} scale={scale} element={linkedElementOf}
                                 gutterPx={gutterW}
                                 frame={frameFills ? frameRefs : undefined} />
                         </PlanPartBoundary>

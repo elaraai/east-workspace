@@ -42,6 +42,11 @@ describe("the Plan geometry table (#817)", () => {
         expect(style["--plan-strip-mark-h"]).toBe("7px");
         expect(style["--plan-heat-inset-h"]).toBe("3px");
         expect(planGeometryStyle(PLAN_GEOMETRY.dense)["--plan-row-h"]).toBe("24px");
+        // A width — its key ends `Width` — is written `-w` (#1258).
+        expect(style["--plan-bar-min-w"]).toBe("18px");
+        expect(style["--plan-mark-dot-w"]).toBe("10px");
+        expect(style["--plan-mark-triangle-h"]).toBe("9px");
+        expect([planGeometryVar("chipMinWidth"), planGeometryVar("markTriangle")]).toEqual(["--plan-chip-min-w", "--plan-mark-triangle-h"]);
     });
 
     test("every geometry variable the recipe reads is one the canvas writes", () => {
@@ -81,6 +86,22 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("footer").minHeight).toBe(v("footer"));
         // The unloaded run's rule reads as rows — one rule per row height.
         expect(String(slot("windowBand").backgroundImage)).toContain(v("row"));
+    });
+
+    test("each width a link's end meets an element by is drawn from its variable, never a pixel literal (#1258)", () => {
+        // The narrowest bar, chip and cell.
+        expect(slot("bar").minWidth).toBe(v("barMinWidth"));
+        expect(slot("cardChip").minWidth).toBe(v("chipMinWidth"));
+        expect(slot("cell").minWidth).toBe(v("cellMinWidth"));
+        // Each mark's glyph: the dot, an event row's diamond, the triangle (its
+        // borders are its size), and the icon's box.
+        expect([slot("milestoneDot").width, slot("milestoneDot").height]).toEqual([v("markDotWidth"), v("markDotWidth")]);
+        const markDiamond = slot("diamond")["&[data-mark]"] as Record<string, unknown>;
+        expect([markDiamond.width, markDiamond.height]).toEqual([v("markDiamondWidth"), v("markDiamondWidth")]);
+        const half = `calc(${v("markTriangleWidth")} / 2)`;
+        expect([slot("exceptionTri").borderLeftWidth, slot("exceptionTri").borderRightWidth, slot("exceptionTri").borderBottomWidth])
+            .toEqual([half, half, v("markTriangle")]);
+        expect([slot("markIcon").width, slot("markIcon").height]).toEqual([v("markIconWidth"), v("markIconWidth")]);
     });
 
     test("density is geometry — the recipe carries no density variant", () => {

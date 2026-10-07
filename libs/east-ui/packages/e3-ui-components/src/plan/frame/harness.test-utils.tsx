@@ -121,6 +121,8 @@ export function planHarness(): PlanHarness {
         harness.memory = createInMemoryRecordApi(harness.cache, WORKSPACE, [
             patchable(ex.planPrintPresses), patchable(ex.planPrintCrews), patchable(ex.planPrintJobs), patchable(ex.planPrintStops),
             patchable(ex.planPrintShifts), patchable(ex.planPrintCustomers), patchable(ex.planLibraryJobs), patchable(ex.planLinkJobs),
+            patchable(ex.planLinkSetters), patchable(ex.planLinkLines), patchable(ex.planLinkBays), patchable(ex.planLinkPlates),
+            patchable(ex.planLinkCaseJobs), patchable(ex.planLinkBindings), patchable(ex.planLinkDeliveries),
         ]);
         initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
         seed(harness.cache, ex.planPrintUtilisation);

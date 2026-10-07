@@ -12,25 +12,33 @@
  * link's casing lies under every link's ink; the lit link is drawn last, over
  * the others. A caption sits on a paper knockout 12 tall, 4 either side of its
  * text: on an S's riser, a loopback's lane, or above a one-row link's source.
+ * Nothing of the layer leaves the plot (ruled by the user): no route crosses
+ * into the gutter, the canvas's first column, or past the plot's end
+ * (`routeRibbon`'s drop and lift), a caption near an edge moves in, and the
+ * plot clips what a halo or a casing would carry over its edge.
  *
  * Every endpoint comes from the MODEL (#818, `ribbon-layout.ts`): a row's
  * place is the body's own height arithmetic — or, for a row in an evicted
- * paged window, that window's offset in its block's band (#823) — its bar the
- * geometry table's, a run's x its window fraction across the plot. The layer is drawn inside the
- * frame's rows (`VirtualRows`' `overlay`), in their coordinates, so it scrolls
- * with them natively and re-lays out in the same render as they do — a
- * collapse, a chart toggle, a window landing. Nothing is measured but the
+ * paged window, that window's offset in its block's band (#823) — and an
+ * element's extent its window fraction across the plot, drawn as the geometry
+ * table draws it (a bar at least its narrowest, a chip and a cell in by their
+ * inset, a mark across its glyph, #1258). The layer is drawn inside the
+ * frame's rows (`VirtualRows`' `overlay`), in their coordinates and their
+ * stacking context, so it scrolls with them natively, re-lays out in the same
+ * render as they do — a collapse, a chart toggle, a window landing — and lies
+ * under the row controls and the now line. Nothing is measured but the
  * layer's own width (the plot's px) and, in a bounded frame, the view: how far
  * it has scrolled and how tall it is, which is what clamps an endpoint past an
  * edge to it, with a stub pointing toward its row.
  *
- * A linked run OUTSIDE the time window lands on its row's plot edge in a
- * dashed slot as tall as its bar, open toward the edge. Edges whose rows the
- * focus rails are not drawn.
+ * A linked element OUTSIDE the time window lands on its row's plot edge in a
+ * dashed slot as tall as it draws, open toward the edge. Edges whose rows the
+ * focus rails are not drawn. Each link names the figure it draws
+ * (`data-plan-route`: `s`, `loop`, `feed`, `runoff`, `stub` or `band`).
  *
  * Each link is hit-testable along its centerline (its stroke and 5 either
  * side): hovering one lights it — the strong ink, drawn over the others — and
- * haloes the two runs it joins, 1px four outside them, and the canvas's one
+ * haloes the two elements it joins, 1px four outside them, and the canvas's one
  * tooltip shows its quantity caption (`root/overlays.tsx`, the labelled-mark
  * path) — a link with no quantity has no caption and no tooltip.
  * A click reports the link's element ref (`{ key, from, to }`, #824) to the
@@ -39,14 +47,15 @@
  * element's.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant } from "@elaraai/east";
-import { RIBBON_SLOT_W, layoutRibbons, type LaidRibbon, type RibbonBeyond, type RibbonBody } from "./ribbon-layout.js";
+import {
+    RIBBON_CAPTION_PAD, RIBBON_SLOT_W, layoutRibbons, type LaidRibbon, type LinkedElement, type RibbonBeyond, type RibbonBody,
+} from "./ribbon-layout.js";
 import type { RibbonEnd } from "./ribbon-geometry.js";
 import { rowKeyOf, type PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
-import type { PlanInstantValue } from "../instant.js";
 import { usePlanResolvers, type PlanElementRefValue } from "../context.js";
 import { usePlanWords } from "../words.js";
 import { useElementHeight, useElementWidth } from "../use-element-height.js";
@@ -57,10 +66,11 @@ type Styles = Record<string, Record<string, unknown>>;
 const HIT_REACH = 5;
 /** The paper either side of a link's ink — its casing (px). */
 const CASING = 1;
-/** A caption's knockout: its height, the space either side of its text, and
- *  how far above the text's baseline it starts (px). */
+/** A caption's knockout: its height, the space either side of its text (the
+ *  layout's, which keeps it inside the plot), and how far above the text's
+ *  baseline it starts (px). */
 const KNOCKOUT_H = 12;
-const KNOCKOUT_PAD = 4;
+const KNOCKOUT_PAD = RIBBON_CAPTION_PAD;
 const KNOCKOUT_RISE = 9.5;
 /** A lit link's halo: how far outside a run it is drawn (the middle of its
  *  1px line), and its corner — a run's corner, 4 out (px). */
@@ -84,8 +94,8 @@ export interface LinksOverlayProps {
     beyond: (key: string) => RibbonBeyond | undefined;
     /** The shared scale. */
     scale: PlanScale;
-    /** A run's instants by `(rowKey, runKey)`. */
-    runDates: (rowKey: string, runKey: string) => { start: PlanInstantValue; end: PlanInstantValue } | undefined;
+    /** The element a link's end names, by `(rowKey, runKey)` (`linkedElement`). */
+    element: (rowKey: string, runKey: string) => LinkedElement | undefined;
     /** The grid's fixed track before the plot: the gutter (px). */
     gutterPx: number;
     /** A bounded frame's scroll element and the sticky chrome above its rows —
@@ -111,7 +121,7 @@ function useScrollTop(ref: RefObject<HTMLElement | null>, active: boolean): numb
     return useSyncExternalStore(subscribe, () => (active ? ref.current?.scrollTop ?? 0 : 0), () => 0);
 }
 
-/** The halo round a run a lit link joins — 1px, four outside it; in view only. */
+/** The halo round an element a lit link joins — 1px, four outside it as it draws; in view only. */
 function RunHalo({ end, side }: { end: RibbonEnd; side: "from" | "to" }) {
     if (end.off !== undefined) return null;
     return (
@@ -132,21 +142,28 @@ function Casing({ r }: { r: LaidRibbon }) {
     );
 }
 
-/** Size each caption's knockout to its text: 4 either side of it. */
-function fitKnockouts(svg: SVGSVGElement | null): void {
+/**
+ * Size each caption's knockout to its text, 4 either side of it, and keep the
+ * two inside the plot: a caption the layout centred near an edge moves in
+ * (`data-x` holds where the layout centred it).
+ */
+function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): void {
     if (svg === null) return;
     for (const text of svg.querySelectorAll<SVGTextElement>("[data-plan-ribbon-caption]")) {
         const knockout = text.previousElementSibling;
         if (knockout === null || knockout.tagName.toLowerCase() !== "rect") continue;
         const width = typeof text.getComputedTextLength === "function" ? text.getComputedTextLength() : 0;
-        knockout.setAttribute("x", String(Number(text.getAttribute("x")) - width / 2 - KNOCKOUT_PAD));
-        knockout.setAttribute("width", String(width + 2 * KNOCKOUT_PAD));
+        const half = width / 2 + KNOCKOUT_PAD;
+        const x = Math.max(left + half, Math.min(right - half, Number(text.getAttribute("data-x"))));
+        text.setAttribute("x", String(x));
+        knockout.setAttribute("x", String(x - half));
+        knockout.setAttribute("width", String(2 * half));
     }
 }
 
 /** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
 export function LinksOverlay({
-    styles, links, visibleKeys, body, beyond, scale, runDates, gutterPx, frame,
+    styles, links, visibleKeys, body, beyond, scale, element, gutterPx, frame,
 }: LinksOverlayProps) {
     const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
@@ -168,29 +185,38 @@ export function LinksOverlay({
         : undefined;
     const layout = useMemo(() => (plotWidth > 0
         ? layoutRibbons({
-            links, visibleKeys, body, beyond, runDates, scale,
+            links, visibleKeys, body, beyond, element, scale,
             plot: { left: gutterPx, width: plotWidth },
             viewport: viewTop !== undefined && viewBottom !== undefined ? { top: viewTop, bottom: viewBottom } : undefined,
             words,
         })
-        : NO_LAYOUT), [links, visibleKeys, body, beyond, runDates, scale, gutterPx, plotWidth, viewTop, viewBottom, words]);
+        : NO_LAYOUT), [links, visibleKeys, body, beyond, element, scale, gutterPx, plotWidth, viewTop, viewBottom, words]);
     // The link under the pointer — lit, drawn over the others, its runs haloed.
     const [lit, setLit] = useState<number | null>(null);
     // A lit link that is gone (the focus moved on) lights nothing.
     useLayoutEffect(() => {
         if (lit !== null && !layout.ribbons.some((r) => r.link === lit)) setLit(null);
     }, [lit, layout]);
-    // Each caption's knockout is as wide as its text: measured after every
-    // render, and again once the fonts have come in.
+    // Each caption's knockout is as wide as its text, the two inside the
+    // plot: measured after every render, and again once the fonts have come in.
     const svgRef = useRef<SVGSVGElement | null>(null);
-    useLayoutEffect(() => { fitKnockouts(svgRef.current); });
+    const plotEdges = useRef({ left: 0, right: 0 });
+    useLayoutEffect(() => {
+        plotEdges.current = { left: gutterPx, right: gutterPx + plotWidth };
+        fitKnockouts(svgRef.current, gutterPx, gutterPx + plotWidth);
+    });
     useEffect(() => {
         const fonts = typeof document !== "undefined" ? document.fonts : undefined;
         if (fonts === undefined) return undefined;
-        const refit = () => fitKnockouts(svgRef.current);
+        const refit = () => fitKnockouts(svgRef.current, plotEdges.current.left, plotEdges.current.right);
         fonts.addEventListener("loadingdone", refit);
         return () => fonts.removeEventListener("loadingdone", refit);
     }, []);
+    // Nothing of the layer leaves the plot — not into the gutter, the
+    // canvas's first column, nor past the plot's end (ruled by the user): the
+    // routes keep inside it, and the plot clips what a halo or a casing would
+    // carry over its edge.
+    const clipId = `plan-links-${useId().replace(/[^\w-]/g, "")}`;
 
     const { ribbons, edgeSlots } = layout;
     // The lit link last: its casing and ink over every other link's.
@@ -204,58 +230,65 @@ export function LinksOverlay({
         <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons aria-hidden="true">
             {(ribbons.length > 0 || edgeSlots.length > 0) && (
                 <svg ref={svgRef} width={width} height={body.height}>
-                    {/* An end past the window lands in a dashed slot as tall as
-                        its bar, open toward the plot's edge. */}
-                    {edgeSlots.map((s, i) => {
-                        const inner = s.side === "right" ? s.x - RIBBON_SLOT_W : s.x + RIBBON_SLOT_W;
-                        return (
-                            <path key={`slot-${i}`} data-plan-linkslot={s.side}
-                                d={`M ${s.x} ${s.y} H ${inner} V ${s.y + s.h} H ${s.x}`} />
-                        );
-                    })}
-                    {/* Every link's casing, under every link's ink — the lit
-                        link's comes with it, over the rest. */}
-                    {ordered.map((r) => (r.link === lit ? null : <Casing key={`casing-${r.link}`} r={r} />))}
-                    {ordered.map((r) => {
-                        const l = links[r.link]!;
-                        const isLit = lit === r.link;
-                        return (
-                            <g key={r.link} data-plan-link={r.link} data-lit={isLit ? "" : undefined}>
-                                {isLit && <Casing r={r} />}
-                                <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
-                                <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
-                                {r.tail !== "" && <path data-plan-ribbon-head d={r.tail} data-plan-stub={r.from.off} />}
-                                {isLit && (
-                                    <>
-                                        <RunHalo end={r.from} side="from" />
-                                        <RunHalo end={r.to} side="to" />
-                                    </>
-                                )}
-                                {/* The hit area — the stroke and 5 either side
-                                    of it. Its caption is the canvas's tooltip;
-                                    it names the link's ref, so a click opens
-                                    the root's popover for it (`refOfElement`)
-                                    and reports it. */}
-                                <path data-link={r.link} aria-label={r.label}
-                                    data-link-key={l.key}
-                                    data-link-from={rowKeyOf(l.from.row)} data-link-from-run={l.from.run}
-                                    data-link-to={rowKeyOf(l.to.row)} data-link-to-run={l.to.run}
-                                    d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
-                                    onClick={() => onElementClick?.(
-                                        variant("link", { key: l.key, from: l.from, to: l.to }) as PlanElementRefValue)}
-                                    onPointerEnter={() => setLit(r.link)}
-                                    onPointerLeave={() => setLit((now) => (now === r.link ? null : now))} />
+                    <defs>
+                        <clipPath id={clipId}>
+                            <rect x={gutterPx} y={0} width={Math.max(0, plotWidth)} height={body.height} />
+                        </clipPath>
+                    </defs>
+                    <g data-plan-clip clipPath={`url(#${clipId})`}>
+                        {/* An end past the window lands in a dashed slot as tall as
+                            its element, open toward the plot's edge. */}
+                        {edgeSlots.map((s, i) => {
+                            const inner = s.side === "right" ? s.x - RIBBON_SLOT_W : s.x + RIBBON_SLOT_W;
+                            return (
+                                <path key={`slot-${i}`} data-plan-linkslot={s.side}
+                                    d={`M ${s.x} ${s.y} H ${inner} V ${s.y + s.h} H ${s.x}`} />
+                            );
+                        })}
+                        {/* Every link's casing, under every link's ink — the lit
+                            link's comes with it, over the rest. */}
+                        {ordered.map((r) => (r.link === lit ? null : <Casing key={`casing-${r.link}`} r={r} />))}
+                        {ordered.map((r) => {
+                            const l = links[r.link]!;
+                            const isLit = lit === r.link;
+                            return (
+                                <g key={r.link} data-plan-link={r.link} data-plan-route={r.route} data-lit={isLit ? "" : undefined}>
+                                    {isLit && <Casing r={r} />}
+                                    <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
+                                    <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
+                                    {r.tail !== "" && <path data-plan-ribbon-head d={r.tail} data-plan-stub={r.from.off} />}
+                                    {isLit && (
+                                        <>
+                                            <RunHalo end={r.from} side="from" />
+                                            <RunHalo end={r.to} side="to" />
+                                        </>
+                                    )}
+                                    {/* The hit area — the stroke and 5 either side
+                                        of it. Its caption is the canvas's tooltip;
+                                        it names the link's ref, so a click opens
+                                        the root's popover for it (`refOfElement`)
+                                        and reports it. */}
+                                    <path data-link={r.link} aria-label={r.label}
+                                        data-link-key={l.key}
+                                        data-link-from={rowKeyOf(l.from.row)} data-link-from-run={l.from.run}
+                                        data-link-to={rowKeyOf(l.to.row)} data-link-to-run={l.to.run}
+                                        d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
+                                        onClick={() => onElementClick?.(
+                                            variant("link", { key: l.key, from: l.from, to: l.to }) as PlanElementRefValue)}
+                                        onPointerEnter={() => setLit(r.link)}
+                                        onPointerLeave={() => setLit((now) => (now === r.link ? null : now))} />
+                                </g>
+                            );
+                        })}
+                        {/* The captions, over every link: each on its paper
+                            knockout, sized to its text once drawn. */}
+                        {ribbons.map((r) => (r.label === undefined ? null : (
+                            <g key={`label-${r.link}`} data-plan-ribbon-label={r.link}>
+                                <rect data-plan-ribbon-knockout x={r.lx} y={r.ly - KNOCKOUT_RISE} width={0} height={KNOCKOUT_H} />
+                                <text data-plan-ribbon-caption data-x={r.lx} x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
                             </g>
-                        );
-                    })}
-                    {/* The captions, over every link: each on its paper
-                        knockout, sized to its text once drawn. */}
-                    {ribbons.map((r) => (r.label === undefined ? null : (
-                        <g key={`label-${r.link}`} data-plan-ribbon-label={r.link}>
-                            <rect data-plan-ribbon-knockout x={r.lx} y={r.ly - KNOCKOUT_RISE} width={0} height={KNOCKOUT_H} />
-                            <text data-plan-ribbon-caption x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
-                        </g>
-                    )))}
+                        )))}
+                    </g>
                 </svg>
             )}
         </Box>

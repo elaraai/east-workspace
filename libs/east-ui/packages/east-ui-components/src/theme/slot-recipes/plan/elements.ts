@@ -39,11 +39,14 @@ export const elementsBase = {
     // parent's rollup bar (`data-rolled`). It is a size container, so its
     // text's line is exactly the height inside its border as the page draws
     // it (`100cqh`) — a lifecycle look's 1.5px dash is drawn 1px at 1×.
+    // A run too short for its padding draws the canvas's narrowest bar from
+    // its start, and a link leaves it where it ends as drawn (#1258).
     bar: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
         height: "var(--plan-bar-h)",
+        minWidth: "var(--plan-bar-min-w)",
         "&[data-rolled]": { height: "var(--plan-roll-bar-h)" },
         containerType: "size",
         borderRadius: "2px",
@@ -183,9 +186,10 @@ export const elementsBase = {
         zIndex: 4,
         "&[data-applied]": { background: "{colors.brand.solid}" },
         // An EVENT-ROW decision mark (K7 — the diamond carries `data-mark`)
-        // is 11px, the §8 sheet's "◇/◆ 11px rotate-45 r1"; a span row's
-        // decision diamond on a run transition stays the 9px above.
-        "&[data-mark]": { width: "11px", height: "11px" },
+        // is the canvas's mark diamond, the §8 sheet's "◇/◆ 11px rotate-45
+        // r1" — a link meets its corners (#1258); a span row's decision
+        // diamond on a run transition stays the 9px above.
+        "&[data-mark]": { width: "var(--plan-mark-diamond-w)", height: "var(--plan-mark-diamond-w)" },
         // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
         // Milestone / decision / exception are told apart BY OUTLINE, so
         // the outline is the payload: shrink it, never make it
@@ -257,14 +261,12 @@ export const elementsBase = {
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
-        // An EXPANDED row's pill of controls stays shown, pinned to the
-        // band's top (`rowControls[data-expanded]`, #1258) — exactly where
-        // a 32px band's ticks sit. The ticks step left of its footprint, so
-        // the axis stays legible while the row has the canvas (#591): the
-        // pill's 8px inset, its 24px buttons and 8px lead, and a 4px gap.
-        // At rest the pill shows only on hover, over the gutter's end.
-        "[data-expanded][data-plan-controls='1'] &": { right: "44px" },
-        "[data-expanded][data-plan-controls='2'] &": { right: "68px" },
+        // A row's controls are always shown, at its gutter line's end
+        // (`rowControls`, #1258) — where the ticks sit. The ticks step left
+        // of them, so the axis stays legible (#591): the cell's 12px padding,
+        // the 24px buttons and a 4px gap.
+        "[data-plan-controls='1'] &": { right: "40px" },
+        "[data-plan-controls='2'] &": { right: "64px" },
     },
     chartTickRight: {
         position: "absolute",
@@ -319,10 +321,12 @@ export const elementsBase = {
         "&[data-kind='scatter']": { color: "accent.purple" },
     },
     // ── Event marks (K7) — ● milestone · ◇◆ decision (diamond slot) · ▲ exception ──
+    // Each glyph's size is the canvas's (`--plan-mark-…`), so a link meets a
+    // mark at the glyph's edges (#1258).
     milestoneDot: {
         position: "absolute",
-        width: "10px",
-        height: "10px",
+        width: "var(--plan-mark-dot-w)",
+        height: "var(--plan-mark-dot-w)",
         borderRadius: "full",
         background: "{colors.brand.solid}",
         transform: "translate(-50%, -50%)",
@@ -345,9 +349,16 @@ export const elementsBase = {
         position: "absolute",
         width: 0,
         height: 0,
-        borderLeft: "5px solid transparent",
-        borderRight: "5px solid transparent",
-        borderBottom: "9px solid {colors.status.warn}",
+        // The borders ARE the triangle: half its base either side, its height below.
+        borderLeftWidth: "calc(var(--plan-mark-triangle-w) / 2)",
+        borderLeftStyle: "solid",
+        borderLeftColor: "transparent",
+        borderRightWidth: "calc(var(--plan-mark-triangle-w) / 2)",
+        borderRightStyle: "solid",
+        borderRightColor: "transparent",
+        borderBottomWidth: "var(--plan-mark-triangle-h)",
+        borderBottomStyle: "solid",
+        borderBottomColor: "{colors.status.warn}",
         transform: "translate(-50%, -50%)",
         top: "50%",
         zIndex: 3,
@@ -362,13 +373,20 @@ export const elementsBase = {
         ...planElementSelected,
         ...planElementFocus,
     },
-    // K7 icon swap — hosts choose the glyph, never the geometry
-    // (12px, kind-coloured: brand default, warn for exceptions).
+    // K7 icon swap — hosts choose the glyph, never the geometry: the icon
+    // fits the canvas's square icon box (`--plan-mark-icon-w`), whatever its
+    // own proportions, so a link meets the box's edges (#1258);
+    // kind-coloured: brand default, warn for exceptions.
     markIcon: {
         position: "absolute",
         top: "50%",
         transform: "translate(-50%, -50%)",
-        fontSize: "12px",
+        width: "var(--plan-mark-icon-w)",
+        height: "var(--plan-mark-icon-w)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        "& svg": { width: "100%", height: "100%" },
         lineHeight: 1,
         color: "{colors.brand.solid}",
         zIndex: 3,

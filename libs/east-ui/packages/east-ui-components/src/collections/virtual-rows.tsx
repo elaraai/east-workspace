@@ -166,6 +166,12 @@ interface VirtualRowsBaseProps {
      * within that box. Omitted, the frame's DOM is unchanged; a collection whose
      * overlay comes and goes passes `null` while it has none, so the rows' box
      * — and every row mounted in it — stays put as the overlay appears.
+     *
+     * Over fixed rows (`measureRows: false`) it shares their stacking context
+     * in every mode, so its z-index sorts with theirs: an element a row raises
+     * above the overlay's paints over it (#1258). In a virtual window the box
+     * the frame draws it in takes no pointer (`pointer-events` inherits
+     * `none`), so the content says what does.
      */
     overlay?: ReactNode | undefined;
     /**
@@ -988,6 +994,16 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // Rows are translated inside the items container, less the scroll margin
     // their starts carry.
     const total = virtualized ? virtualizer.getTotalSize() : 0;
+    // The fixed-row window's ONE column, translated to its first row. An
+    // overlay is drawn INSIDE it, offset back to the rows' own origin: the
+    // column's transform makes it a stacking context, so an overlay beside it
+    // would paint over everything the rows draw, whatever their z-index, and
+    // inside it what the overlay draws interleaves with what the rows draw —
+    // the Plan's links under its row controls and its now line (#1258).
+    // Measured rows are translated one by one, a context apiece, so beside
+    // them, and while no row is mounted, the overlay stays the rows' sibling.
+    const columnTop = items.length > 0 ? items[0]!.start - margin : 0;
+    const overlayInColumn = !measureRows && items.length > 0;
     const virtualWindow = () => (
         <Box ref={setRows} position="relative" height={`${total}px`} minWidth={minWidth}
             // The extent, as data: the height compiles to a class, which jsdom
@@ -1022,16 +1038,25 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                     top="0"
                     left="0"
                     width="100%"
-                    style={{ transform: `translateY(${items[0]!.start - margin}px)` }}
+                    style={{ transform: `translateY(${columnTop}px)` }}
                 >
                     {items.map((item) => (
                         <Box key={item.key} data-index={item.index}>
                             {renderRow(item.index)}
                         </Box>
                     ))}
+                    {overlay !== undefined && overlay !== null && (
+                        // The rows' box, in the column: back at the rows' top,
+                        // as tall as all of them. It takes no pointer — what the
+                        // overlay draws says what does.
+                        <Box position="absolute" left="0" width="100%" pointerEvents="none" data-virtual-overlay=""
+                            style={{ top: `${-columnTop}px`, height: `${total}px` }}>
+                            {overlay}
+                        </Box>
+                    )}
                 </Box>
             )}
-            {overlay}
+            {!overlayInColumn && overlay}
         </Box>
     );
     const reporter = onRangeChange !== undefined && virtualized && (

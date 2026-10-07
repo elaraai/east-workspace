@@ -4,8 +4,8 @@
  */
 
 /**
- * The Plan's geometry — every row and slot height, per density, in ONE table
- * (#817).
+ * The Plan's geometry — every row and slot height, and the widths its
+ * elements draw at, per density, in ONE table (#817).
  *
  * The model computes row heights from it (`rowHeight`, the virtualizer's sizes
  * and the paging ledger's window heights), and the canvas writes it once, on
@@ -14,10 +14,22 @@
  * == rendered px" invariant rests on the two agreeing; before this they were
  * three hand-kept copies (model constants, recipe pixels, inline heights).
  *
+ * The widths are the narrowest a bar, a chip and a bucket cell draw, and each
+ * mark's glyph across (`--plan-bar-min-w`, …): a link's end meets an element
+ * where it draws (#1258), so the ribbons lay out from the same numbers the
+ * recipe draws the elements at.
+ *
  * @packageDocumentation
  */
 
-/** Every row and slot height the canvas lays out from, in px. */
+/**
+ * How far a bucket cell sits in from its bucket's edges and its lane's, and a
+ * cards chip from its own ends, each side (px). The renderers place both by it,
+ * and a link meets either where it draws (#1258).
+ */
+export const PLAN_CELL_INSET = 2;
+
+/** Every row and slot height the canvas lays out from, and the widths its elements draw at, in px. */
 export interface PlanGeometry {
     /** Span / buckets / cards / table rows — the shared default row. */
     row: number;
@@ -84,6 +96,25 @@ export interface PlanGeometry {
     /** The shortest a failed window's band renders (#811) — its reason and its
      *  Retry stay legible even in a short last window. */
     failedBandMin: number;
+    /** An exception mark's triangle, its point to its base. */
+    markTriangle: number;
+    // ── Widths (#1258) — a key ending `Width` is written `--plan-…-w` ──
+    /** The narrowest a span bar draws, its padding and its look's ring
+     *  inside it: a run shorter than this draws this wide from its start. */
+    barMinWidth: number;
+    /** The narrowest a cards chip draws, its padding and ring inside it. */
+    chipMinWidth: number;
+    /** The narrowest a bucket cell draws, its padding inside it. */
+    cellMinWidth: number;
+    /** A milestone's dot, across and down. */
+    markDotWidth: number;
+    /** A decision's diamond, each side before it turns 45° — its corners then
+     *  reach √2 times this across and down. */
+    markDiamondWidth: number;
+    /** An exception's triangle, across its base. */
+    markTriangleWidth: number;
+    /** The box an event mark's icon fits in, across and down. */
+    markIconWidth: number;
 }
 
 const DEFAULT: PlanGeometry = {
@@ -100,6 +131,11 @@ const DEFAULT: PlanGeometry = {
     brush: 38, ruler: 28, footer: 28, lens: 6, brushBar: 23,
     narrowStrip: 24,
     failedBandMin: 64,
+    markTriangle: 9,
+    // A bar's padding is 7 each side and its look's dashed ring 1.5 (17); a
+    // chip's 9 and 1.5 (21); a cell's 6 each side (12).
+    barMinWidth: 18, chipMinWidth: 22, cellMinWidth: 12,
+    markDotWidth: 10, markDiamondWidth: 11, markTriangleWidth: 10, markIconWidth: 12,
 };
 
 /** The two densities' tables. Dense tightens the shared row — the heat row
@@ -120,14 +156,17 @@ export function planGeometry(dense: boolean): Readonly<PlanGeometry> {
 }
 
 /**
- * The CSS variable a geometry entry is written as — `row` → `--plan-row-h`,
- * `heatInset` → `--plan-heat-inset-h`.
+ * The CSS variable a geometry entry is written as — a height `row` →
+ * `--plan-row-h`, `heatInset` → `--plan-heat-inset-h`; a width, its key ending
+ * `Width`, `barMinWidth` → `--plan-bar-min-w`.
  *
  * @param key - The entry
  * @returns The variable's name
  */
-export function planGeometryVar(key: keyof PlanGeometry): `--plan-${string}-h` {
-    return `--plan-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}-h`;
+export function planGeometryVar(key: keyof PlanGeometry): `--plan-${string}-${"h" | "w"}` {
+    const width = key.endsWith("Width");
+    const name = (width ? key.slice(0, -"Width".length) : key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+    return `--plan-${name}-${width ? "w" : "h"}`;
 }
 
 /**
