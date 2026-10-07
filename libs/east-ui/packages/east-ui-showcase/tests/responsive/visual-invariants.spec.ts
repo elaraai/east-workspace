@@ -733,13 +733,15 @@ const LIBRARY_LADDER: ReadonlyArray<readonly [string, number]> = [["hint", 1], [
 
 /** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
  *  count goes, the context label, the strip's `+ TAB` label and whole-sheet
- *  count, its names cap, and last it closes up and the context switch goes. */
+ *  count, its names cap, it closes up and the context switch goes; and last
+ *  the strip folds into one chip, the open view's tab (#1221, SB20). */
 function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const tabs = state.get("tabs");
-    const maxFold = tabs === undefined ? 0 : tabs.forms - 4;
+    const maxFold = tabs === undefined ? 0 : tabs.forms - 5;
     return [
         ...Array.from({ length: maxFold }, (_x, k) => ["tabs", k + 1] as const),
         ["count", 1], ["context", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3], ["context", 2],
+        ["tabs", maxFold + 4],
     ];
 }
 
