@@ -16,6 +16,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
+import { useState } from "react";
 import { render, screen, fireEvent, cleanup, act, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -32,6 +33,8 @@ import { UIStore } from "../platform/state-store.js";
 import { system } from "../theme/index.js";
 import { EastChakraSliceBreakdown } from "./breakdown/index.js";
 import { EastChakraSliceCohort } from "./cohort/index.js";
+import { SliceDensityContext } from "./density.js";
+import { SliceEditPopover } from "./edit/index.js";
 import { EastChakraSliceFilter } from "./filter/index.js";
 import { EastChakraSliceLegend } from "./legend/index.js";
 import { EastChakraSliceRail, affordanceDescriptor, rangeBounds, rangeOfWindow, useSliceToolbarItems } from "./rail/index.js";
@@ -1518,5 +1521,259 @@ describe("the rail's cluster, held by its open editor, keeps its forms (#1231)",
         // Closed, the cluster takes the clause's fold step.
         await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Done" }));
         expect(seen[seen.length - 1]).toEqual({ forms: atRest.forms + 1, held: false });
+    });
+});
+
+// ============================================================================
+// #1253 — the cohort's and the breakdown's chips on a touch screen, and the
+// sectioned editor's disclosures
+// ============================================================================
+
+/** A coarse primary pointer, as a touch screen reports it. */
+function coarsePointer() {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+        matches: query === "(pointer: coarse)", media: query, onchange: null,
+        addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
+    }));
+}
+
+describe("a cohort chip on a touch screen — one target opening its editor, On · Off in its foot (#1253)", () => {
+    const cfg = sliceConfig({
+        region:   variant("string",  { label: "Region",   accessor: (r: { region: string }) => r.region, format: none }),
+        sessions: variant("integer", { label: "Sessions", accessor: (r: { sessions: bigint }) => r.sessions, format: none }),
+    });
+    const cohorts = [{ id: "eu", name: "EU", group: none, filters: [variant("string", { fieldId: "region", op: variant("eq", "EU") })] }];
+    const rows = [{ region: "EU", sessions: 42n }, { region: "NA", sessions: 12n }];
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    /** The cohort surface over a REAL slice handle — its store re-renders the chip as the cohort turns on and off. */
+    function mountCohorts(key: string, on: boolean, mode: "manage" | "toggle" = "manage") {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle(key, cfg, {
+            range: none, compare: none, filters: [], cohorts, activeCohorts: new Set<string>(on ? ["eu"] : []),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        }, rows, none);
+        ui(<EastChakraSliceCohort value={{ slice: handle, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: none, mode: some(variant(mode, null)) } as never} />);
+        return { handle, isOn: (): boolean => handle.read().activeCohorts.has("eu") };
+    }
+
+    test("with a mouse the chip holds its toggle and its pencil; on a touch screen it is one button, its words in it, whose tap opens the editor and toggles nothing", async () => {
+        const fine = mountCohorts("cohort.fine", false);
+        expect(screen.getByRole("button", { name: "Toggle cohort EU" }).hasAttribute("data-slice-cohort")).toBe(false);
+        expect(screen.getByRole("button", { name: "Edit cohort EU" }).textContent).toBe("");
+        expect(fine.isOn()).toBe(false);
+        cleanup();
+
+        coarsePointer();
+        const { isOn } = mountCohorts("cohort.coarse", false);
+        expect(screen.queryByRole("button", { name: "Toggle cohort EU" })).toBeNull();
+        const chip = screen.getByRole("button", { name: "Edit cohort EU" });
+        expect(chip.hasAttribute("data-slice-cohort")).toBe(true);    // the chip is the button
+        expect(chip.textContent).toContain("EU");
+        const user = userEvent.setup();
+        await user.click(chip);
+        const dialog = await screen.findByRole("dialog");
+        expect(within(dialog).getByRole("button", { name: "Remove cohort" })).toBeTruthy();
+        expect(isOn()).toBe(false);
+    });
+
+    test("On · Off in its editor's foot turns the cohort on and off at once, the editor still open, and says which it is", async () => {
+        coarsePointer();
+        const { isOn } = mountCohorts("cohort.onoff", false);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: "Edit cohort EU" }));
+        const dialog = await screen.findByRole("dialog");
+        const pressed = () => within(within(dialog).getByRole("group", { name: "Cohort state" })).getAllByRole("button")
+            .map((b) => [b.textContent, b.getAttribute("aria-pressed")]);
+        expect(pressed()).toEqual([["On", "false"], ["Off", "true"]]);
+        await user.click(within(dialog).getByRole("button", { name: "On" }));
+        expect(isOn()).toBe(true);
+        await waitFor(() => expect(pressed()).toEqual([["On", "true"], ["Off", "false"]]));
+        expect(screen.getByRole("dialog")).toBe(dialog);
+        await user.click(within(dialog).getByRole("button", { name: "Off" }));
+        expect(isOn()).toBe(false);
+        await waitFor(() => expect(pressed()).toEqual([["On", "false"], ["Off", "true"]]));
+    });
+
+    test("Apply keeps the state On · Off set: a cohort turned off in its editor stays off", async () => {
+        coarsePointer();
+        const { isOn } = mountCohorts("cohort.apply", true);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: "Edit cohort EU" }));
+        const dialog = await screen.findByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: "Off" }));
+        expect(isOn()).toBe(false);
+        await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+        // Apply commits through the store, which closes the editor as it re-renders.
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect(isOn()).toBe(false);
+    });
+
+    test("with a mouse its editor has no On · Off, and Apply turns the cohort on, as it did", async () => {
+        const { isOn } = mountCohorts("cohort.mouse.apply", false);
+        const user = userEvent.setup();
+        await user.click(screen.getByRole("button", { name: "Edit cohort EU" }));
+        const dialog = await screen.findByRole("dialog");
+        expect(within(dialog).queryByRole("group", { name: "Cohort state" })).toBeNull();
+        await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+        expect(isOn()).toBe(true);
+    });
+
+    test("on a touch screen a preset bar's chip is one button that toggles the cohort", async () => {
+        coarsePointer();
+        const { isOn } = mountCohorts("cohort.preset", false, "toggle");
+        const chip = screen.getByRole("button", { name: "Toggle cohort EU" });
+        expect(chip.hasAttribute("data-slice-cohort")).toBe(true);
+        expect(chip.getAttribute("aria-pressed")).toBe("false");
+        await userEvent.setup().click(chip);
+        expect(isOn()).toBe(true);
+        await waitFor(() => expect(screen.getByRole("button", { name: "Toggle cohort EU" }).getAttribute("aria-pressed")).toBe("true"));
+    });
+});
+
+describe("the breakdown's chip — a button opening its editor: its × and Delete with a mouse, its editor alone on a touch screen (#1253)", () => {
+    const cfg = sliceConfig({
+        region:  variant("string", { label: "Region",  accessor: (r: { region: string }) => r.region, format: none }),
+        channel: variant("string", { label: "Channel", accessor: (r: { channel: string }) => r.channel, format: none }),
+    }, { breakdownFieldIds: ["region", "channel"] });
+    const rows = [{ region: "EU", channel: "web" }, { region: "NA", channel: "store" }];
+    const equalBreakdowns = equalFor(OptionType(Slice.Types.Breakdown));
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    /** The breakdown, split by region, over a REAL slice handle. */
+    function mountBreakdown(key: string, density: "compact" | "focused" = "compact") {
+        initializeStore(new UIStore());
+        const handle: any = buildSliceHandle(key, cfg, {
+            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: some({ fieldId: "region", limit: none }), search: none, visible: none, selectedIndex: none, resolution: none,
+        }, rows, none);
+        const utils = ui(<EastChakraSliceBreakdown value={{ slice: handle, density: some(variant(density, null)) } as never} />);
+        return { ...utils, handle, splitBy: () => handle.read().breakdown };
+    }
+    const chip = (label: string) => screen.getByRole("button", { name: `Split by ${label}` });
+
+    test("a click on its × clears the breakdown and opens no editor", async () => {
+        const { splitBy } = mountBreakdown("breakdown.mouse");
+        await userEvent.setup().click(within(chip("Region")).getByText("×"));
+        expect(equalBreakdowns(splitBy(), none)).toBe(true);
+        await expect(screen.findByRole("dialog", undefined, { timeout: 300 })).rejects.toThrow();
+    });
+
+    test("Delete on the focused chip clears the breakdown, the focus handed to + dimension", async () => {
+        const { splitBy, container } = mountBreakdown("breakdown.delete");
+        const user = userEvent.setup();
+        expect(await tabTo(user, chip("Region"))).toBe(true);
+        await user.keyboard("{Delete}");
+        expect(equalBreakdowns(splitBy(), none)).toBe(true);
+        await waitFor(() => expect(document.activeElement).toBe(triggerOf(container.querySelector("[data-slice-add='dimension']")!)));
+        expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    test("its editor — opened by Enter, then by Space — switches the dimension, and its foot clears the breakdown", async () => {
+        const { splitBy } = mountBreakdown("breakdown.editor");
+        const user = userEvent.setup();
+        expect(await tabTo(user, chip("Region"))).toBe(true);
+        await user.keyboard("{Enter}");
+        await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Channel" }));
+        expect(equalBreakdowns(splitBy(), some({ fieldId: "channel", limit: none }))).toBe(true);
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        expect(await tabTo(user, chip("Channel"))).toBe(true);
+        await user.keyboard(" ");
+        await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear breakdown" }));
+        expect(equalBreakdowns(splitBy(), none)).toBe(true);
+        expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    test("the breakdown cleared from elsewhere while its editor is open takes the editor with it: the next split opens none", async () => {
+        const { handle, splitBy } = mountBreakdown("breakdown.external");
+        await userEvent.setup().click(chip("Region"));
+        expect(await screen.findByRole("dialog")).toBeTruthy();
+        act(() => { handle.setBreakdown(none); });
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        act(() => { handle.setBreakdown(some({ fieldId: "channel", limit: none })); });
+        expect(equalBreakdowns(splitBy(), some({ fieldId: "channel", limit: none }))).toBe(true);
+        expect(await screen.findByRole("button", { name: "Split by Channel" })).toBeTruthy();
+        await expect(screen.findByRole("dialog", undefined, { timeout: 300 })).rejects.toThrow();
+    });
+
+    test("on a touch screen the chip draws no ×, and its tap opens its editor, Clear breakdown in its foot", async () => {
+        coarsePointer();
+        const { splitBy } = mountBreakdown("breakdown.coarse");
+        expect(within(chip("Region")).queryByText("×")).toBeNull();
+        const user = userEvent.setup();
+        await user.click(chip("Region"));
+        await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear breakdown" }));
+        expect(equalBreakdowns(splitBy(), none)).toBe(true);
+    });
+
+    test("focused, on a touch screen each dimension's chip is one button and none draws its ×: a tap on the active one clears it", async () => {
+        const fine = mountBreakdown("breakdown.focused.fine", "focused");
+        expect(screen.getByRole("button", { name: "Clear breakdown" })).toBeTruthy();
+        fine.unmount();
+
+        coarsePointer();
+        const { splitBy } = mountBreakdown("breakdown.focused.coarse", "focused");
+        expect(screen.queryByRole("button", { name: "Clear breakdown" })).toBeNull();
+        const region = screen.getByRole("button", { name: "Region" });
+        expect(region.getAttribute("aria-pressed")).toBe("true");
+        expect(screen.getByRole("button", { name: "Channel" }).getAttribute("aria-pressed")).toBe("false");
+        await userEvent.setup().click(region);
+        expect(equalBreakdowns(splitBy(), none)).toBe(true);
+    });
+});
+
+describe("the sectioned editor's disclosures — each trigger the button itself, saying it expands (#1253)", () => {
+    test("a clause chip's disclosure: aria-expanded follows it, Enter opens it and Space closes it, aria-controls naming it while open", async () => {
+        const slice = fakeSlice({ filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })] });
+        const { container } = ui(
+            <SliceDensityContext.Provider value="editor">
+                <EastChakraSliceFilter value={{ slice, unit: none, density: none, editOpen: none } as never} />
+            </SliceDensityContext.Provider>,
+        );
+        const chip = container.querySelector<HTMLElement>("[data-slice-clause='0']")!;
+        expect(chip.tagName).toBe("BUTTON");
+        expect(chip.getAttribute("aria-expanded")).toBe("false");
+        expect(chip.hasAttribute("aria-controls")).toBe(false);
+        const user = userEvent.setup();
+        expect(await tabTo(user, chip)).toBe(true);
+        await user.keyboard("{Enter}");
+        await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("true"));
+        const region = document.getElementById(chip.getAttribute("aria-controls")!);
+        expect(within(region!).getByRole("button", { name: "Remove filter" })).toBeTruthy();
+        await user.keyboard(" ");
+        await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("false"));
+        expect(within(container).queryByRole("button", { name: "Remove filter" })).toBeNull();
+    });
+
+    test("a trigger's own click is kept: it runs, and the disclosure opens", async () => {
+        const own = vi.fn();
+        function Host() {
+            const [open, setOpen] = useState(false);
+            return (
+                <SliceDensityContext.Provider value="editor">
+                    <SliceEditPopover open={open} onOpenChange={setOpen} label="Edit" trigger={<button type="button" onClick={own}>Trigger</button>}>
+                        <span>Body</span>
+                    </SliceEditPopover>
+                </SliceDensityContext.Provider>
+            );
+        }
+        ui(<Host />);
+        await userEvent.setup().click(screen.getByRole("button", { name: "Trigger" }));
+        expect(own).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole("button", { name: "Trigger" }).getAttribute("aria-expanded")).toBe("true");
+        expect(screen.getByText("Body")).toBeTruthy();
+    });
+
+    test("a click on a clause chip's × in the editor removes the clause and opens nothing", async () => {
+        const slice = fakeSlice({ filters: [variant("integer", { fieldId: "sessions", op: variant("gte", 20n) })] });
+        const { container } = ui(
+            <SliceDensityContext.Provider value="editor">
+                <EastChakraSliceFilter value={{ slice, unit: none, density: none, editOpen: none } as never} />
+            </SliceDensityContext.Provider>,
+        );
+        const chip = container.querySelector<HTMLElement>("[data-slice-clause='0']")!;
+        await userEvent.setup().click(within(chip).getByText("×"));
+        expect(slice.read().filters.length).toBe(0);
+        expect(chip.getAttribute("aria-expanded")).toBe("false");
     });
 });

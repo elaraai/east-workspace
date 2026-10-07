@@ -25,7 +25,9 @@
  * rail search hands the focus to the sheet, and Tab leaves the paged sheet's
  * key search, each leaving no list open over the sheet; the key search's box
  * blurred to nothing — the phone's keyboard dismissed — leaves its list open,
- * as a desktop does, and a Tab from there closes it.
+ * as a desktop does, and a Tab from there closes it. And in the rail's
+ * sectioned editor the cohort's chip and the breakdown's are each one 44px
+ * target (#1253), every chip there keeping its own width.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -610,5 +612,100 @@ test.describe("a search's list on a touch screen (#1228)", () => {
         await expect(box).not.toBeFocused();
         await expect(openList(page)).toHaveCount(0);
         await expect(box).toHaveValue("J-0");
+    });
+});
+
+// ── The rail's cohort and breakdown chips on a touch screen (#1253) ──────────
+
+/**
+ * What is wrong with the chips the rail's sectioned editor holds under a touch
+ * pointer, each a line saying what, empty when nothing is. Each chip — a
+ * clause's, a cohort's, the breakdown's, an add's — keeps its own width (its
+ * contents, its padding and its border: the editor stretches no trigger), and
+ * is a 44px tap target no other covers: a tap 21px above or below its middle
+ * lands on it, and so does one 2px inside either edge. A cohort's On · Off
+ * segments sit edge to edge: a tap 2px inside each one's edges, on its middle
+ * or 21px above or below it, lands on it.
+ */
+async function editorChipFaults(page: Page): Promise<string[]> {
+    return openEditor(page).evaluate((editor) => {
+        const bad: string[] = [];
+        const named = (el: Element | null) => (el === null ? "nothing"
+            : `${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 32)}"`);
+        /** Taps at `points` land on `el`, or name where they land instead. */
+        const lands = (el: HTMLElement, points: ReadonlyArray<readonly [number, number, string]>) => {
+            for (const [x, y, where] of points) {
+                const hit = document.elementFromPoint(x, y);
+                if (hit === null || !el.contains(hit)) {
+                    const t = el.getBoundingClientRect();
+                    bad.push(`${named(el)} (${t.width.toFixed(0)}×${t.height.toFixed(1)}): a tap ${where} lands on ${named(hit)}`);
+                }
+            }
+        };
+        const chips = [...editor.querySelectorAll<HTMLElement>("[data-slice-clause], [data-slice-cohort], [data-slice-breakdown], [data-slice-add]")]
+            .filter((el) => el.checkVisibility({ visibilityProperty: true }));
+        if (chips.length === 0) bad.push("no chip in the editor");
+        for (const chip of chips) {
+            chip.scrollIntoView({ block: "center" });
+            const t = chip.getBoundingClientRect();
+            const contents = document.createRange();
+            contents.selectNodeContents(chip);
+            const cs = getComputedStyle(chip);
+            const own = contents.getBoundingClientRect().width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+                + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+            if (Math.abs(t.width - own) > 1) bad.push(`${named(chip)}: ${t.width.toFixed(1)}px wide, its own width ${own.toFixed(1)}px`);
+            const x = t.left + t.width / 2;
+            const y = t.top + t.height / 2;
+            lands(chip, [[x, y - 21, "21px above its middle"], [x, y + 21, "21px below its middle"], [t.left + 2, y, "2px inside its start"], [t.right - 2, y, "2px inside its end"]]);
+        }
+        for (const segment of editor.querySelectorAll<HTMLElement>("[data-slice-cohort-state] button")) {
+            segment.scrollIntoView({ block: "center" });
+            const t = segment.getBoundingClientRect();
+            const y = t.top + t.height / 2;
+            lands(segment, [-21, 0, 21].flatMap((dy) => [[t.left + 2, y + dy, `2px inside its start, ${dy}px from its middle`], [t.right - 2, y + dy, `2px inside its end, ${dy}px from its middle`]] as const));
+        }
+        return bad;
+    });
+}
+
+test.describe("the rail's cohort and breakdown chips, under a touch pointer (#1253)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    test("in the narrow Table's sectioned editor — a split set from + dimension, the cohort's editor opened and its On · Off used, the split cleared from its own editor — every chip keeps its own width and is a 44px tap target no other covers", async ({ page }) => {
+        const hash = "slice/slice/sliceNarrow";
+        await page.goto(`/?theme=light#${hash}`);
+        await page.waitForSelector("header", { timeout: 20_000 });
+        const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
+        await entry.scrollIntoViewIfNeeded();
+        await expect(entry.locator("[data-slot='railTrigger']")).toBeVisible({ timeout: 20_000 });
+        await settled(page);
+        const editor = openEditor(page);
+        await entry.locator("[data-slot='railTrigger']").tap();
+        await expect(editor).toBeVisible();
+        await expect.poll(() => editorChipFaults(page)).toEqual([]);
+
+        // A split set from + dimension: its disclosure says it expands, and the split's chip takes its place.
+        const addDimension = editor.locator("[data-slice-add='dimension']");
+        await addDimension.tap();
+        await expect(addDimension).toHaveAttribute("aria-expanded", "true");
+        await editor.getByRole("button", { name: "Region", exact: true }).tap();
+        const split = editor.getByRole("button", { name: "Split by Region" });
+        await expect(split).toBeVisible();
+        await expect(split.locator("[data-chip-remove]")).toHaveCount(0);
+        await expect.poll(() => editorChipFaults(page), { message: "with the split set" }).toEqual([]);
+
+        // The cohort's chip, one target, opens its editor; its On · Off turns the cohort on at once.
+        const cohort = editor.locator("[data-slice-cohort='high-volume']");
+        await cohort.tap();
+        await expect(cohort).toHaveAttribute("aria-expanded", "true");
+        await editor.getByRole("group", { name: "Cohort state" }).getByRole("button", { name: "On" }).tap();
+        await expect(cohort).toHaveAttribute("data-state", "on");
+        await expect.poll(() => editorChipFaults(page), { message: "with the cohort's editor open and the cohort on" }).toEqual([]);
+
+        // The split cleared from its own editor.
+        await split.tap();
+        await editor.getByRole("button", { name: "Clear breakdown" }).tap();
+        await expect(split).toHaveCount(0);
+        await expect.poll(() => editorChipFaults(page), { message: "with the split cleared" }).toEqual([]);
     });
 });
