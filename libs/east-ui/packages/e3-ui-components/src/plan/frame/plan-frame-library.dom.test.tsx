@@ -17,115 +17,29 @@
  * popover's tests run in it, over a canvas whose series are picked.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, PatchType, applyFor, encodeBeast2For, none, some, variant, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
-} from "@elaraai/east-ui-components";
+import { UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi,
-} from "../../platform/index.js";
 import { EastChakraPlan, type PlanRootValue, type PlanValue } from "../index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
+import { entry, mount, planHarness, programOf, settle, slot, tabs } from "./harness.test-utils.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+const h = planHarness();
 
-const WORKSPACE = "plan-frame-library";
-
-let cache: ReactiveDatasetCache;
-
-/** A record of the examples', in memory, its patch door applying each patch with East's checks. */
-function patchable<T extends { name: string; type: Parameters<typeof applyFor>[0]; default?: unknown }>(record: T) {
-    const applyPatch = applyFor(record.type);
-    return {
-        name: record.name, stateType: record.type, initial: record.default!,
-        mutations: [{ name: "patch", argTypes: [PatchType(record.type)], reduce: (state: unknown, patch: unknown) => applyPatch(state as never, patch as never) }],
-    };
-}
-
-/** An input of the examples', its declared value in the cache. */
-function seed(input: { path: Parameters<ReactiveDatasetCache["write"]>[1]; type: Parameters<typeof encodeBeast2For>[0]; source?: { type: string; value?: unknown } }) {
-    if (input.source?.type !== "value") throw new Error("the input declares no value");
-    void cache.write(WORKSPACE, input.path, encodeBeast2For(input.type)(input.source.value as never));
-}
-
-beforeEach(() => {
-    StateRuntime.initializeStore(new UIStore());
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    initializeRecordApi(createInMemoryRecordApi(cache, WORKSPACE, [
-        patchable(ex.planPrintPresses), patchable(ex.planPrintCrews), patchable(ex.planPrintJobs), patchable(ex.planPrintStops),
-        patchable(ex.planPrintShifts), patchable(ex.planPrintCustomers), patchable(ex.planLibraryJobs),
-    ]), cache, WORKSPACE);
-    seed(ex.planPrintUtilisation);
-    seed(ex.planPrintOutput);
-});
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-/** Let the records' reads and the renders settle. */
-async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 8; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
-}
-
-/** A record's state as a commit to it leaves it: its dataset's new bytes. */
-async function commit<T extends { name: string; type: Parameters<typeof encodeBeast2For>[0] }>(record: T, state: unknown) {
-    await act(async () => {
-        await cache.write(WORKSPACE, [variant("field", "records"), variant("field", record.name)], encodeBeast2For(record.type)(state as never));
-    });
-    await settle();
-}
-
-/** Mount a compiled UI value through the dispatcher, as a surface does — under its drag layer, so cards drag. */
-function mount(program: () => ValueTypeOf<typeof UIComponentType>) {
-    return render(
-        <ChakraProvider value={system}>
-            <DragLayerProvider>
-                <EastChakraComponent value={program()} storageKey="plan-frame-library" />
-            </DragLayerProvider>
-        </ChakraProvider>,
-    );
-}
-
-/** An example's program — its `fn` erases its output type at the package boundary; the Plan's are UI components. */
-const programOf = (example: { fn: { toIR(): unknown } }) =>
-    (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
+/** Each Plan is mounted under the page's drag layer, so its cards drag. */
+const DRAG = { drag: true } as const;
 
 // ── The frame's regions, the pane's tabs and cards ───────────────────────────
 
-/** A region of the frame, if it draws it. */
-const slot = (c: HTMLElement, name: string) => c.querySelector<HTMLElement>(`[data-builder-frame] [data-frame-slot="${name}"]`);
 /** The library pane. */
 const pane = (c: HTMLElement) => slot(c, "start")!;
-/** A pane's tabs, as they read: each its name and its count. */
-const tabs = (region: HTMLElement) => [...region.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
 
 /** Opens a library tab, by its name. */
 async function openTab(c: HTMLElement, name: string) {
@@ -181,8 +95,6 @@ async function toggle(c: HTMLElement, name: string) {
 
 // ── The canvas's rows ───────────────────────────────────────────────────────
 
-/** A row's id by its series and path. */
-const entry = (series: string, ...path: string[]): PlanRowId => variant("entry", { series, path }) as PlanRowId;
 /** Whether the canvas draws a row — pinned under the ruler, or in its grid. */
 const draws = (c: HTMLElement, id: PlanRowId) => slot(c, "main")!.querySelector(`[data-plan-row=${JSON.stringify(rowKeyOf(id))}]`) !== null;
 /** Whether the canvas draws a group strip. */
@@ -240,7 +152,7 @@ function allScheduled(): Map<string, Job> {
 
 describe("the tabs `library` lists (PB26, PB61)", () => {
     test("in its order, each with its count; collapsed, the pane is a rail with the backlog's count", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         // Nine templates; eight jobs in the backlog; seven lines to hide; sixteen customers.
         expect(tabs(pane(container))).toEqual(["Events 9", "Backlog 8", "Series 7", "Customers 16"]);
@@ -251,11 +163,11 @@ describe("the tabs `library` lists (PB26, PB61)", () => {
     });
 
     test("a Plan whose library lists no tab has no pane; without a Backlog tab, the rail counts the first tab's cards", async () => {
-        const bare = mount(programOf(ex.planEvents));
+        const bare = mount(programOf(ex.planEvents), DRAG);
         await settle();
         expect(slot(bare.container, "start")).toBeNull();
         cleanup();
-        const { container } = mount(jobsPlan(["customers", "events"]));
+        const { container } = mount(jobsPlan(["customers", "events"]), DRAG);
         await settle();
         expect(tabs(pane(container))).toEqual(["Customers 16", "Events 0"]);
         fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Library" }));
@@ -270,7 +182,7 @@ describe("the tabs `library` lists (PB26, PB61)", () => {
 
 describe("Events (PB27)", () => {
     test("every kind's templates under its kind's name, then their group: each its kind's icon, its name, and its kind, how long it runs and the resource kinds it is placed on", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Events");
         expect(heads(container)).toEqual([["Print job · Jobs", "4"], ["Stop · Stops", "2"], ["Crew shift · Shifts", "3"]]);
@@ -304,7 +216,7 @@ describe("Events (PB27)", () => {
 
 describe("Backlog (PB28)", () => {
     test("every kind's unscheduled events, grouped by when they are due — counted from the week the axis's now is in — each how long it takes, its resource and its due day", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Backlog");
         // Now is Wednesday 14 October: this week runs to Sunday 18.
@@ -324,14 +236,14 @@ describe("Backlog (PB28)", () => {
     });
 
     test("a job overdue is due this week; one on a press names it; the tab reads the record again as it commits", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Backlog");
         const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
         // Price lists were due last week, and wait on Press B1; the guide reprint is scheduled.
         jobs.set("J-1028", { ...jobs.get("J-1028")!, due: some(new Date("2026-10-09T00:00:00Z")), press: some("b1") });
         jobs.set("J-1023", { ...jobs.get("J-1023")!, start: some(new Date("2026-10-15T06:00:00Z")), end: some(new Date("2026-10-15T09:00:00Z")), press: some("a1") });
-        await commit(ex.planPrintJobs, jobs);
+        await h.commit(ex.planPrintJobs, jobs);
         expect(tabs(pane(container))[1]).toBe("Backlog 7");
         expect(heads(container)).toEqual([["Due this week", "2"], ["Due next week", "2"], ["Later", "1"], ["No date", "2"]]);
         expect(cards(container).slice(0, 2)).toEqual([
@@ -347,7 +259,7 @@ describe("Backlog (PB28)", () => {
 
 describe("Series (PB29)", () => {
     test("each resource kind and its measures, the event kinds and the Plan's rows, in the order the canvas draws them, each with an eye, frameless in the pane", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Series");
         expect(lines(container)).toEqual([
@@ -362,7 +274,7 @@ describe("Series (PB29)", () => {
     });
 
     test("a hidden event kind leaves the canvas, and stays hidden for the viewer across a remount", async () => {
-        const first = mount(programOf(ex.planPrintWorks));
+        const first = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         const marks = entry("presses.marks", "Hall A", "a1");
         expect(draws(first.container, marks)).toBe(true);
@@ -376,7 +288,7 @@ describe("Series (PB29)", () => {
         first.unmount();
 
         // Kept for the viewer, under the Plan's id.
-        const again = mount(programOf(ex.planPrintWorks));
+        const again = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         expect(draws(again.container, marks)).toBe(false);
         await openTab(again.container, "Series");
@@ -387,7 +299,7 @@ describe("Series (PB29)", () => {
     });
 
     test("a hidden measure, resource kind or row of the Plan's own leaves the canvas", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Series");
         const util = entry("util", "Hall A", "a1");
@@ -409,12 +321,12 @@ describe("Series (PB29)", () => {
 
     test("a Plan without the Series tab hides nothing a store holds, nor does a store holding something other than a list of ids", async () => {
         localStorage.setItem("plan.series", JSON.stringify(["resources.presses"]));
-        const { container } = mount(jobsPlan(["events"]));
+        const { container } = mount(jobsPlan(["events"]), DRAG);
         await settle();
         expect(draws(container, entry("presses.span", "a1"))).toBe(true);
         cleanup();
         localStorage.setItem("plan.series", JSON.stringify({ "resources.presses": true }));
-        const odd = mount(jobsPlan(["series"]));
+        const odd = mount(jobsPlan(["series"]), DRAG);
         await settle();
         expect(draws(odd.container, entry("presses.span", "a1"))).toBe(true);
     });
@@ -426,7 +338,7 @@ describe("Series (PB29)", () => {
 
 describe("an author's tab (PB62)", () => {
     test("one card per row — its label, its meta, the tab's icon — grouped by its group, searched by key, label and meta; each drags", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Customers");
         expect(heads(container)).toEqual([["Old Town", "6"], ["North Quay", "5"], ["Riverside", "5"]]);
@@ -446,7 +358,7 @@ describe("an author's tab (PB62)", () => {
     });
 
     test("a tab with no `drop` and no `group` lists its cards ungrouped, with nothing to group by, and none of them drags: a card of it lands nowhere", async () => {
-        const { container } = mount(jobsPlan(["customers"]));
+        const { container } = mount(jobsPlan(["customers"]), DRAG);
         await settle();
         await openTab(container, "Customers");
         expect(cards(container)).toHaveLength(16);
@@ -456,7 +368,7 @@ describe("an author's tab (PB62)", () => {
     });
 
     test("a click on a card selects it, a click on another moves the selection, and a click on the selected card lets it go", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(container, "Customers");
         const placed = () => ["Alder & Finch", "Granite Hall"].map((name) => cardNamed(container, name).hasAttribute("data-placed"));
@@ -478,9 +390,9 @@ describe("an author's tab (PB62)", () => {
 
 describe("empty tabs (PB30)", () => {
     test("Backlog clear when every event is scheduled, Nothing in an author's tab with no rows, No templates, and No matches naming the search", async () => {
-        await commit(ex.planPrintJobs, allScheduled());
-        await commit(ex.planPrintCustomers, new Map() as unknown as Customers);
-        const { container } = mount(jobsPlan(["backlog", "customers", "events"]));
+        await h.commit(ex.planPrintJobs, allScheduled());
+        await h.commit(ex.planPrintCustomers, new Map() as unknown as Customers);
+        const { container } = mount(jobsPlan(["backlog", "customers", "events"]), DRAG);
         await settle();
         expect(tabs(pane(container))).toEqual(["Backlog 0", "Customers 0", "Events 0"]);
         await openTab(container, "Backlog");
@@ -490,7 +402,7 @@ describe("empty tabs (PB30)", () => {
         await openTab(container, "Events");
         expect(emptyState(container)).toEqual(["No templates", "No event kind declares a template to drag in."]);
         cleanup();
-        const works = mount(programOf(ex.planPrintWorks));
+        const works = mount(programOf(ex.planPrintWorks), DRAG);
         await settle();
         await openTab(works.container, "Events");
         await search(works.container, "zz");
@@ -504,7 +416,7 @@ describe("empty tabs (PB30)", () => {
 
 describe("the panes' state (PB25)", () => {
     test("the library's open tab and collapsed state persist under the Plan's id, and another Plan's are its own", async () => {
-        const first = mount(jobsPlan(["events", "backlog"], "ops"));
+        const first = mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
         await settle();
         await openTab(first.container, "Backlog");
         fireEvent.click(within(pane(first.container)).getByRole("button", { name: "Collapse Library" }));
@@ -512,7 +424,7 @@ describe("the panes' state (PB25)", () => {
         first.unmount();
 
         // The same Plan, again: collapsed, and on its Backlog tab once opened.
-        const again = mount(jobsPlan(["events", "backlog"], "ops"));
+        const again = mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
         await settle();
         expect(pane(again.container).hasAttribute("data-collapsed")).toBe(true);
         fireEvent.click(within(pane(again.container)).getByRole("button", { name: "Expand Library" }));
@@ -521,7 +433,7 @@ describe("the panes' state (PB25)", () => {
         again.unmount();
 
         // Another Plan keeps its own.
-        const other = mount(jobsPlan(["events", "backlog"], "night"));
+        const other = mount(jobsPlan(["events", "backlog"], "night"), DRAG);
         await settle();
         expect(pane(other.container).hasAttribute("data-collapsed")).toBe(false);
         expect(panel(other.container).querySelector("[data-library]")!.getAttribute("data-library")).toBe("plan.library.night:events");

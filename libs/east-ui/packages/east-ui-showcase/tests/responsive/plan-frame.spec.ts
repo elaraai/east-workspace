@@ -7,21 +7,23 @@
  * `<Plan>`'s frame, measured in a real browser (#1193, `Plan Builder Spec.md`
  * §7, PB19–PB21): every Plan is its `BuilderFrame` — one toolbar row, main
  * holding the canvas, the footer — drawing no border of its own and no pane it
- * is not given: the library its `library` lists (#1195). Its toolbar is one
- * 44px row at every width from 1440px to 360px and on a phone: the rail folds
- * first, then the Plan's own steps, the review's buttons into their menu and
- * the key search into its icon, the history item last. A declared height is
- * the whole Plan's, and a host that gives the frame a height bounds the
- * canvas, which then scrolls its own rows inside main. On a phone the library
- * opens from its rail over main, and its Series tab's search is a 44px field.
- * Read at the desktop and phone widths, in both themes.
+ * is not given: the library its `library` lists (#1195), and the inspector
+ * (#1197). Its toolbar is one 44px row at every width from 1440px to 360px
+ * and on a phone: the rail folds first, then the Plan's own steps, the
+ * review's buttons into their menu and the key search into its icon, the
+ * history item last. A declared height is the whole Plan's, and a host that
+ * gives the frame a height bounds the canvas, which then scrolls its own rows
+ * inside main. A selected event wears the brand's 1.5px ring, and the
+ * inspector shows it, every line inside the pane. On a phone the library and
+ * the inspector open from their rails over main, and the Series tab's search
+ * is a 44px field. Read at the desktop and phone widths, in both themes.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-frame`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EXAMPLES, openExample } from "./plan-page";
+import { PLAN_EXAMPLES, openExample, rowSel } from "./plan-page";
 import { settled } from "./settle";
 
 /** The event kinds' examples file (#1191). */
@@ -35,7 +37,7 @@ const FRAMED: ReadonlyArray<{ name: string; file: string; panes?: readonly strin
     { name: "planReview", file: PLAN_EXAMPLES },
     { name: "planEditing", file: PLAN_EXAMPLES },
     { name: "planEvents", file: EVENTS },
-    { name: "planPrintWorks", file: EVENTS, panes: ["start"] },
+    { name: "planPrintWorks", file: EVENTS, panes: ["start", "end"] },
     { name: "planLibrary", file: EVENTS, panes: ["start"] },
     { name: "planNarrow", file: PLAN_EXAMPLES },
 ];
@@ -71,7 +73,7 @@ async function frameFaults(entry: Locator, panes: readonly string[] = []): Promi
             if (body === null) bad.push("main holds no canvas");
             else borderless(body, "the canvas");
         }
-        // The panes it is given — the library (#1195) — and no other (#1197 adds the inspector).
+        // The panes it is given — the library (#1195) and the inspector (#1197) — and no other.
         for (const side of ["start", "end"]) {
             const drawn = frame.querySelector(`:scope > [data-frame-slot='body'] > [data-frame-slot='${side}']`) !== null;
             if (drawn && !given.includes(side)) bad.push(`a ${side} pane it was not given`);
@@ -249,6 +251,52 @@ test.describe("the Plan's frame — its toolbar at every width (#1193, PB21)", (
     });
 });
 
+/** What of the inspector's lines falls outside its pane's box, read in the page — the pane pinned beside main, or open over it. */
+async function inspectorFaults(pane: Locator): Promise<string[]> {
+    return pane.evaluate((slot) => {
+        const box = (slot.querySelector("[data-orientation][data-side][data-surface]") ?? slot).getBoundingClientRect();
+        const bad: string[] = [];
+        const lines = slot.querySelectorAll("[data-inspector-title], [data-inspector-when], [data-fact], [data-field], [data-inspector-action], [data-count], [data-plan-inspector] li");
+        if (lines.length === 0) bad.push("the inspector shows nothing");
+        for (const el of lines) {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0) continue;
+            const what = el.getAttribute("data-fact") ?? el.getAttribute("data-field") ?? el.getAttribute("data-inspector-action") ?? el.getAttribute("data-count") ?? el.tagName.toLowerCase();
+            if (r.left < box.left - 0.5 || r.right > box.right + 0.5) bad.push(`${what}: ${r.left.toFixed(1)}–${r.right.toFixed(1)} outside the pane's ${box.left.toFixed(1)}–${box.right.toFixed(1)}`);
+        }
+        return bad;
+    });
+}
+
+test.describe("the Plan's inspector (#1197)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read open at the desktop width; the phone's below");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`planPrintWorks (${theme}): a selected job's bar wears a 1.5px ring in the brand just outside it, and the inspector shows the job, every line inside the pane`, async ({ page }) => {
+            const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
+            const bar = entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" });
+            await bar.click();
+            await settled(page);
+            const ring = await bar.evaluate((el) => {
+                const s = getComputedStyle(el);
+                // The brand's ink, and 1.5px as this screen draws it (a width snaps to its device pixels), resolved as the page resolves them.
+                const probe = document.createElement("span");
+                probe.style.color = "var(--chakra-colors-brand-solid)";
+                probe.style.outline = "1.5px solid";
+                el.appendChild(probe);
+                const brand = getComputedStyle(probe).color;
+                const width = getComputedStyle(probe).outlineWidth;
+                probe.remove();
+                return { width: s.outlineWidth, style: s.outlineStyle, offset: s.outlineOffset, color: s.outlineColor, brand, want: width, pressed: el.getAttribute("aria-pressed") };
+            });
+            expect(ring).toEqual({ width: ring.want, style: "solid", offset: "1px", color: ring.brand, brand: ring.brand, want: ring.want, pressed: "true" });
+            const pane = entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='end']");
+            await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-title]")).toHaveText("Spring catalogue");
+            expect(await inspectorFaults(pane)).toEqual([]);
+        });
+    }
+});
+
 test.describe("the Plan's library on a phone (#1195)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 
@@ -257,9 +305,9 @@ test.describe("the Plan's library on a phone (#1195)", () => {
         const frame = entry.locator("[data-builder-frame]").first();
         await frame.getByRole("button", { name: "Expand Library" }).tap();
         await settled(page);
-        // Four tabs in a phone's pane: Series and Customers fold into the +n menu (#1210).
+        // Four tabs in a phone's pane, beside the inspector's rail (#1197): Backlog, Series and Customers fold into the +n menu (#1210).
         const pane = frame.locator("[data-frame-slot='start']");
-        await expect(pane.getByRole("tab")).toHaveText([/^Events/, /^Backlog/]);
+        await expect(pane.getByRole("tab")).toHaveText([/^Events/]);
         await pane.locator("[data-dock-more]").tap();
         await page.getByRole("menuitem", { name: /^Series/ }).tap();
         // The menu closes over the pane's head and its search: measured once it has gone.
@@ -283,5 +331,20 @@ test.describe("the Plan's library on a phone (#1195)", () => {
         expect(faults).toEqual([]);
         // The pane lies over main, which keeps its place.
         await expect(frame.locator("[data-frame-slot='start'][data-pane-mode='overlay']")).toHaveCount(1);
+    });
+});
+
+test.describe("the Plan's inspector on a phone (#1197)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    test("planPrintWorks: the inspector opens from its rail over main, the window's counts and hints in it, every line inside the pane", async ({ page }) => {
+        const entry = await openExample(page, "planPrintWorks", EVENTS);
+        const frame = entry.locator("[data-builder-frame]").first();
+        await frame.getByRole("button", { name: "Expand Inspector" }).tap();
+        await settled(page);
+        const pane = frame.locator("[data-frame-slot='end']");
+        await expect(pane).toHaveAttribute("data-pane-mode", "overlay");
+        await expect(pane.locator("[data-plan-inspector='none'] [data-count='events']")).toBeVisible();
+        expect(await inspectorFaults(pane)).toEqual([]);
     });
 });

@@ -20,6 +20,7 @@ import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { ApprovalStateType, EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
 import { PlanDrawType, PlanQuantityType, PlanRollupType } from "../plan/types.js";
+import { RowInspectorType } from "../utils/row-inspector.js";
 
 // ============================================================================
 // What an author meets
@@ -343,6 +344,17 @@ export const PlanEventItemType = StructType({
 export type PlanEventItemType = typeof PlanEventItemType;
 
 /**
+ * One event read by its key, as a Plan's inspector shows it (#1197).
+ *
+ * @property item - The event as Plan draws it
+ * @property row - Its row, as bytes at the record's entry type: what the kind's form and its own inspector read
+ */
+export const PlanEventReadType = StructType({ item: PlanEventItemType, row: BlobType });
+
+/** Type representing {@link PlanEventReadType}. */
+export type PlanEventReadType = typeof PlanEventReadType;
+
+/**
  * The fields an event kind's roles read on a Plan, by name: what a gesture
  * writes to change one (a `field` gesture's path), and what the inspector
  * draws in its own sections rather than in the kind's form.
@@ -365,7 +377,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
 /**
  * One event kind as Plan's builder takes it: the Calendar's closed kind
  * ({@link ScheduleKindType}), field for field, with how the kind draws and its
- * roles, and its events as Plan draws them.
+ * roles, its events as Plan draws them, and its own inspector.
  *
  * @property draw - How it draws: bars, tiles, chips or marks
  * @property instant - Whether each of its events is one instant (`at`), its start and its end the same
@@ -373,6 +385,8 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property roles - The fields its roles read
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight
  * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place
+ * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event
+ * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
  */
 export const PlanEventKindType = StructType({
     ...ScheduleKindType.fields,
@@ -382,6 +396,8 @@ export const PlanEventKindType = StructType({
     roles: PlanEventRolesType,
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
     planUnscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
+    planEvent: FunctionType([StringType, ScheduleDraftsType], OptionType(PlanEventReadType)),
+    inspector: OptionType(RowInspectorType),
 });
 
 /** Type representing {@link PlanEventKindType}. */
@@ -418,6 +434,7 @@ export type PlanResourceRowType = typeof PlanResourceRowType;
  * @property name - Its name
  * @property icon - Its Font Awesome icon
  * @property rollup - How a parent's bands roll its children's events up
+ * @property measures - Its measures' keys, in order: the rows under each of its resources, each at its resource's path (#1197)
  * @property rows - Its resources, in key order
  */
 export const PlanResourcesType = StructType({
@@ -425,6 +442,7 @@ export const PlanResourcesType = StructType({
     name: StringType,
     icon: StringType,
     rollup: PlanRollupType,
+    measures: ArrayType(StringType),
     rows: ArrayType(PlanResourceRowType),
 });
 

@@ -38,7 +38,7 @@ import { scheduleEvents, type ScheduleEventKind } from "./events.js";
 import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
-    PlanEventItemType, PlanEventKindType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
+    PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
     ScheduleCandidateType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleGestureType,
     ScheduleItemType, ScheduleKindType, ScheduleOverlapsType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
     ScheduleResourcesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
@@ -192,6 +192,8 @@ export interface ScheduleInternalNamespace extends Omit<ScheduleNamespace, "Type
         PlanKind: typeof PlanEventKindType;
         /** One event as Plan draws it. */
         PlanItem: typeof PlanEventItemType;
+        /** One event read by its key: as Plan draws it, and its row (#1197). */
+        PlanRead: typeof PlanEventReadType;
         /** The fields an event kind's roles read on a Plan. */
         PlanRoles: typeof PlanEventRolesType;
         /** One resource kind as Plan's builder takes it. */
@@ -222,6 +224,7 @@ export const ScheduleInternal: ScheduleInternalNamespace = {
         Overlaps: ScheduleOverlapsType,
         PlanKind: PlanEventKindType,
         PlanItem: PlanEventItemType,
+        PlanRead: PlanEventReadType,
         PlanRoles: PlanEventRolesType,
         PlanResources: PlanResourcesType,
         PlanResourceRow: PlanResourceRowType,

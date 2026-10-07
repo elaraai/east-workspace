@@ -383,6 +383,7 @@ accepted and ignored there.
 | `overlaps` | `"warn"`, `"allow"` | both | Whether two events of the kind on one resource at once are a conflict. `warn` by default. |
 | `backlog` | `{ duration, due? }` | both | For Option times: how long an unscheduled row takes, and when it is due. |
 | `fields`, `templates`, `ready`, `window`, `backlogWindow` | as the Calendar's | both | The inspector's editors (`Schedule.field` is `Fields`, #1147), the library's presets, the app's check on a draft, and reads by day index. |
+| `inspector` | `(row, update) => UIComponentType` | Plan | The kind's own inspector for one event, in place of the form over its `fields` (PB60, #1197): an East function over the event's row and a writer of the edited row, passed through untouched and called only where the pane draws it. A function over another row type, or with no writer, is refused at build. |
 
 ### 4.2 `Schedule.resources(rows, config)`: a resource kind
 
@@ -415,7 +416,7 @@ As built (#1191). A prop keeps one meaning: the first design's `view` and
 | `grain`, `date` | `"group"` or `"resource"`; a `DateTime` | The first grain and the date brought into view. The viewer's own changes persist per Plan. |
 | `canDrop` | `Fn(DragEvent) → Boolean`, or `Fn(Schedule.Types.Candidate) → Option<String>` | The drop veto, its arm read from its type: over a card or an element dragged onto `data`'s rows, or over an event kind's drop, its message on the ghost, as the Calendar's. A candidate's veto with no event kinds is refused. |
 | `library` | `Plan.library.*` calls (§4.4) | The start pane's tabs, in order (#1195): left out, or `[]`, no pane. |
-| `inspector` | the pane | An optional prop (#1197): no prop, no pane. |
+| `inspector` | `true` | The end pane: what is selected (§9.8, #1197). `false`, or left out, no pane; refused on a Plan with no event kinds. |
 | `id` | string | Names the Plan when a surface holds two: its viewer state's storage key (the panes' state and the series it hides among it), its library's drag-source id and its drop target. |
 
 ### 4.4 `Plan.library`: the library's tabs
@@ -479,14 +480,16 @@ paged canvas serves with every window. As built (#1191):
 ```ts
 PlanPayloadType = StructType({
     plan:      PlanRootType,                     // the canvas whole: the axis, the rows over `data` then `rows`, links, review, the slice, `data`'s session
-    resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, and its rows resolved (label, group, parent, gutter)
-    events:    ArrayType(PlanEventKindType),     // the Calendar's closed kind + draw and the state, quantity, lane and review roles
+    resources: ArrayType(PlanResourcesType),     // each kind: key, name, icon, its measures' keys (#1197), and its rows resolved (label, group, parent, gutter)
+    events:    ArrayType(PlanEventKindType),     // the Calendar's closed kind + draw and the state, quantity, lane and review roles,
+                                                 // one event by its key (`planEvent`) and the kind's own inspector, over bytes (#1197)
     blocks:    OptionType(FunctionType([DateTimeType, DateTimeType, DictType(StringType, DictType(StringType, BlobType)),
                                         ArrayType(StringType)],
                                        OptionType(Plan.Types.Blocks))),   // the resources' rows over a window, every kind's drafts in place (#1192), what the viewer hides left out (#1195)
     canDrop:   OptionType(FunctionType([Schedule.Types.Candidate], OptionType(StringType))),   // the event kinds' drop veto
     settings:  PlanSettingsType,                 // the event kinds' apply mode, and the date brought into view first
     library:   ArrayType(PlanLibraryTabType),    // the library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
+    inspector: BooleanType,                      // whether the Plan has its inspector pane (#1197)
 });
 
 PlanLibraryTabType = VariantType({
@@ -619,6 +622,9 @@ them.
   on a touch screen its search is a 44px field (#1195).
 - **An element of a drafted event** is tinted brand with a brand border, as
   the Calendar's blocks are; one in an overlap pair has a warn ring.
+- **A selected element** wears a 1.5px brand ring just outside it (#1197, the
+  Calendar's B10): an outline, so it rides every look and never moves the
+  element, under a keyboard focus's ring.
 
 ## 9. Behaviour
 
@@ -904,6 +910,57 @@ As built (#1195):
 - **PB41.** Nothing selected: the window's totals and three hints.
 - **PB42.** A field the drafts changed is tinted against what the record holds,
   and an edit in the inspector is one transaction.
+- **PB60.** With the kind's `inspector` given (§4.1), one event of the kind
+  shows what it returns for the event's draft in place of the kind's `Fields`
+  form, and its `update(edited)` is one transaction (PB42). The header, the
+  schedule, the state, the quantity, the verdict, the overlaps banner,
+  Duplicate and Delete stay the builder's, as do several events, a row and
+  nothing selected.
+
+As built (#1197; amended 2026-10-06, the user's ruling: the inspector edits
+with #1194):
+
+- The selection is the canvas's (the Calendar's B15). A click on an event
+  kind's element — a bar, a tile, a chip or a mark whose key reads back as a
+  `Schedule.Types.EventRef` of one of the Plan's kinds — selects the event and
+  its row; Shift, ⌘ or Ctrl adds the event to the selection or takes it out,
+  and Shift+Enter does from the keyboard. A selected element wears the ring
+  (§8) and is a pressed toggle to a reader, and the live region says how many
+  events are selected. A click on a row's name selects the row in place of
+  the events; a click in its plot also names the bucket under the pointer
+  (PB40's). The esc ladder's deselect rung clears the row, its bucket and the
+  events at once, as a grain change does. A record's commit keeps the events
+  selected, a changed declared grain takes them, and the bucket goes with its
+  row; a host's `ui` state selecting another row clears both. An element of a
+  row no event kind draws selects its row, as it always has.
+- The pane is e3-ui-components' `src/plan/frame/inspector.tsx`, the frame's
+  end pane: 320px open, its collapsed state kept per viewer under the Plan's
+  `id`, its rail naming what is selected — the event's title, `3 events`, or
+  the row's name. Its styles are the `planInspector` recipe's, beside the
+  parts it shares with the Sheet's (`slot-recipes/inspector.ts`).
+- One event is read through its kind's `planEvent(id, drafts)` seam — the
+  event as Plan draws it, and its row — tracked, so a commit reads it again; an
+  event no longer there is left out, and the pane shows its row. PB38's
+  overlaps banner is #1198's (PB53). The kind's form is its `fields` less the
+  fields its roles read, which have their own lines.
+- PB39's bulk edit is the state (a choice of the lifecycle's words), the
+  resource (the resources the selected kinds are placed on), a shift of a day
+  or an hour either way, and the verdict when a selected kind is reviewed.
+- PB40: a row stands for a resource by its id — a way its kinds draw
+  (`<slot>.<draw>`) or one of its measures, whose keys the resource kinds
+  carry — at the resource's path. Its events in the window are the kinds'
+  `planItems` on it; its measures at the bucket are what the canvas draws
+  there, folded to the period, in the words a reader hears. An Unassigned row
+  stands for its kind's events on no resource, and any other row shows what
+  it draws at the bucket. Its overlaps are #1198's.
+- PB41: the window's events, their hours, the backlog and the events to
+  review, as the footer counts them, then three hints.
+- PB42, and PB60's `update`, are #1194's: until the event kinds edit, the
+  form's fields, the verdict's buttons, the bulk edit, Duplicate and Delete,
+  and a kind's own inspector are drawn in one disabled fieldset.
+- `inspector` on a Plan with no event kinds is refused at build. A kind's own
+  `inspector` is checked when the kind is declared; the Calendar takes no
+  notice of it, and nor does a Plan without `inspector`.
 
 ### 9.9 Editing, undo and Apply (owner: the Plan's editing)
 
@@ -1001,7 +1058,9 @@ As built (#1195):
   the panes' state is (#1195).
 - **Payload.** The library's tabs ride the payload (#1195): a field of a UI
   task's output, carried by the packages, as the Sheet's library is (#1186) —
-  no repository upgrade step.
+  no repository upgrade step. So do the inspector's flag, each event kind's
+  own inspector and its by-key read, and each resource kind's measures' keys
+  (#1197).
 
 ## 13. Plan's sub-issues, in landing order
 

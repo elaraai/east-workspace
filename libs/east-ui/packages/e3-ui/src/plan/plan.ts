@@ -24,14 +24,16 @@
  * The Plan is an interface. Its payload holds the canvas whole
  * ({@link PlanRootType}) beside the event kinds and resources as Plan takes
  * them (`PlanEventKindType`, `PlanResourcesType`, #1190), the resources' rows
- * over a window (`blocks`, #1192), the event kinds' drop veto and the
- * settings. The `Plan` renderer in `@elaraai/e3-ui-components` draws it.
+ * over a window (`blocks`, #1192), the event kinds' drop veto, the settings,
+ * the library's tabs and whether it has an inspector. The `Plan` renderer in
+ * `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
 
 import {
     ArrayType,
+    BooleanType,
     DateTimeType,
     East,
     Expr,
@@ -137,6 +139,7 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property settings - When the event kinds' drafts go, and the date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
+ * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
  */
 export const PlanPayloadType = StructType({
     plan: PlanRootType,
@@ -146,6 +149,7 @@ export const PlanPayloadType = StructType({
     canDrop: OptionType(PlanEventCanDropType),
     settings: PlanSettingsType,
     library: ArrayType(PlanLibraryTabType),
+    inspector: BooleanType,
 });
 
 /** Type representing the `Plan` renderer's payload. */
@@ -203,6 +207,15 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> 
      * empty, the Plan has no library pane.
      */
     library?: readonly PlanLibraryTab[];
+    /**
+     * The inspector pane (#1197): what is selected on the canvas — one event,
+     * several, a row, or the window's totals when nothing is. One event shows
+     * its kind's form over `fields`, or the kind's own `inspector`
+     * (`Schedule.events`). Left out, or `false`, the Plan has no inspector
+     * pane. It shows the event kinds' events and the resources' rows, so it
+     * needs `events`.
+     */
+    inspector?: boolean;
     /**
      * The drop veto, by what it vets — its arm from its East type:
      * `Fn(DragEvent) → Boolean` over a card or an element dragged onto
@@ -338,14 +351,15 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  *   resource naming a slot `resources` has not, or one not keyed by String; event kinds on a number or ordinal axis; a
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
- *   batch nor auto, or with no event kinds; a resource kind with no event kind placed on it and no measures; a key the
- *   Plan gives its event rows that another series has; and everything the canvas refuses ({@link createPlanRoot}). An
+ *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
+ *   placed on it and no measures; a key the Plan gives its event rows that another series has; and everything the canvas
+ *   refuses ({@link createPlanRoot}). An
  *   axis held in a variable, and links whose kinds are not known at build, are refused in the same words as the Plan
  *   is evaluated
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, library, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, applyMode, date, canDrop, library, inspector, ...canvas } = props as PlanAnyProps;
     const kinds = events === undefined ? [] : Object.keys(events);
     if (events !== undefined) {
         scheduleCheck(resources ?? {}, events, "Plan");
@@ -378,6 +392,13 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         if (!APPLY_MODES.includes(applyMode)) throw new Error(`Plan: \`applyMode\` is "batch" or "auto" — and it is "${String(applyMode)}"`);
         if (events === undefined) throw new Error("Plan: `applyMode` says when the event kinds' drafts go, and this Plan has none — `data`'s session takes `editing.mode`");
     }
+    if (inspector !== undefined && typeof inspector !== "boolean") {
+        throw new Error("Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule.events' `inspector`");
+    }
+    const inspected = inspector === true;
+    if (inspected && events === undefined) {
+        throw new Error("Plan: `inspector` shows the event kinds' events and the resources' rows, and this Plan has no event kinds — declare `events` (Schedule.events), or leave `inspector` out");
+    }
     // The drop veto, by what it vets: a drag on `data`'s rows, or an event kind's drop.
     let canvasCanDrop: unknown;
     let eventCanDrop: ExprType<PlanEventCanDropType> | undefined;
@@ -406,7 +427,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     const picked = canvas.pick !== undefined;
     if (events === undefined) {
         const tabs = buildLibrary(library, { resources: [], events: [], rows, picked });
-        return East.value({ plan, resources: [], events: [], blocks: none, canDrop: veto, settings, library: tabs } as never, PlanPayloadType);
+        return East.value({ plan, resources: [], events: [], blocks: none, canDrop: veto, settings, library: tabs, inspector: false } as never, PlanPayloadType);
     }
     const resourceKinds = Object.entries(resources ?? {});
     const eventKinds = Object.entries(events);
@@ -426,6 +447,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             canDrop: canDropFn,
             settings: chosen,
             library: listed,
+            inspector: inspected,
         } as never, PlanPayloadType),
     );
     return assemble(

@@ -67,6 +67,15 @@ export type PlanLibraryTabWord = "events" | "backlog" | "series" | "tab";
 /** When a backlog event is due, as the Backlog tab groups it (PB28). */
 export type PlanDueWord = "thisWeek" | "nextWeek" | "later" | "none";
 
+/** A section of the inspector pane (#1197). */
+export type PlanInspectorSection = "verdict" | "fields" | "bulk" | "window" | "measures";
+
+/** A fact the inspector pane shows of an event or a row (#1197). */
+export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities";
+
+/** What the inspector pane counts when nothing is selected (#1197, PB41). */
+export type PlanInspectorStat = "events" | "hours" | "backlog" | "review";
+
 /**
  * The Plan's message table.
  *
@@ -179,6 +188,45 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     dueGroup: (p: { due: PlanDueWord }) => string;
     /** How long something takes — `6 h`, `2 h 15 m`, `45 m`: `hours` and `minutes` formatted, each `undefined` when it is none. */
     duration: (p: { hours: string | undefined; minutes: string | undefined }) => string;
+
+    // ── The inspector pane (#1197) ─────────────────────────────────────────
+    /** The inspector pane's name. */
+    inspectorPane: () => string;
+    /** Several events selected — `3 events`: the head of their list, and the collapsed pane's line. */
+    inspectorEvents: (p: { n: number; count: string }) => string;
+    /** How many of the events selected are of one kind — `Print job ×2`: `kind` is its name. */
+    inspectorKindCount: (p: { kind: string; n: number; count: string }) => string;
+    /** When an event runs — `Mon, Oct 5 · 06:00–14:00`; across days, `Mon, Oct 5, 22:00 – Tue, Oct 6, 06:00`
+     *  (`endDay` its last day); an instant's, `Wed, Oct 7 · 12:00` (`to` undefined). Days and times are formatted. */
+    inspectorWhen: (p: { day: string; from: string; endDay: string | undefined; to: string | undefined }) => string;
+    /** An event with no time: in its kind's backlog. */
+    inspectorUnscheduled: () => string;
+    /** A section's head. */
+    inspectorSection: (p: { section: PlanInspectorSection }) => string;
+    /** A fact's label. */
+    inspectorFact: (p: { fact: PlanInspectorFact }) => string;
+    /** An event on no resource — and an event kind's row of them. */
+    inspectorUnassigned: () => string;
+    /** A row that is no resource's: the eyebrow over its name. */
+    inspectorRow: () => string;
+    /** A verdict, in words — `Pending`. */
+    inspectorVerdict: (p: { verdict: string }) => string;
+    /** One of the gestures on what is selected. */
+    inspectorAction: (p: { action: "duplicate" | "delete" }) => string;
+    /** A step of the bulk edit's shift in time — `−1 d`, `+1 h`. */
+    inspectorShift: (p: { by: -1 | 1; unit: "day" | "hour" }) => string;
+    /** The bulk edit's shift in time: its steps' group's name. */
+    inspectorShiftLabel: () => string;
+    /** A row's measures at the bucket a click on its plot named — `At Tue, Oct 20`: `bucket` in the axis's words. */
+    inspectorAt: (p: { bucket: string }) => string;
+    /** A row's measures before a click on its plot has named a bucket. */
+    inspectorNoBucket: () => string;
+    /** A measure with no value at the bucket. */
+    inspectorNoValue: () => string;
+    /** What a count says it counts when nothing is selected. */
+    inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
+    /** A hint when nothing is selected — three of them. */
+    inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -344,6 +392,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     // ── The live region (#819) ─────────────────────────────────────────────
     /** A row was selected. */
     announceSelected: (p: { label: string }) => string;
+    /** The events selected on the canvas changed (#1197) — `3 events selected`; `n` 0 when the last left. */
+    announceEvents: (p: { n: number; count: string }) => string;
     /** A section closed. */
     announceCollapsed: (p: { label: string }) => string;
     /** A section opened. */
@@ -475,6 +525,35 @@ export const planMessages: PlanMessages = {
     dueGroup: ({ due }) => (due === "thisWeek" ? "Due this week" : due === "nextWeek" ? "Due next week" : due === "later" ? "Later" : "No date"),
     duration: ({ hours, minutes }) => (hours === undefined ? `${minutes ?? "0"} m` : minutes === undefined ? `${hours} h` : `${hours} h ${minutes} m`),
 
+    inspectorPane: () => "Inspector",
+    inspectorEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
+    inspectorKindCount: ({ kind, count }) => `${kind} ×${count}`,
+    inspectorWhen: ({ day, from, endDay, to }) => (to === undefined ? `${day} · ${from}`
+        : endDay === undefined ? `${day} · ${from}–${to}` : `${day}, ${from} – ${endDay}, ${to}`),
+    inspectorUnscheduled: () => "Not scheduled — in the backlog",
+    inspectorSection: ({ section }) => ({
+        verdict: "Verdict", fields: "Fields", bulk: "Edit all", window: "In the window", measures: "Measures",
+    })[section],
+    inspectorFact: ({ fact }) => ({
+        resource: "Resource", start: "Start", end: "End", at: "At", lane: "Lane", state: "State", quantity: "Quantity",
+        group: "Group", events: "Events", hours: "Hours", quantities: "Quantity",
+    })[fact],
+    inspectorUnassigned: () => "Unassigned",
+    inspectorRow: () => "Row",
+    inspectorVerdict: ({ verdict }) => (verdict === "approved" ? "Approved" : verdict === "rejected" ? "Rejected" : "Pending"),
+    inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
+    inspectorShift: ({ by, unit }) => `${by < 0 ? "−" : "+"}1 ${unit === "day" ? "d" : "h"}`,
+    inspectorShiftLabel: () => "Shift",
+    inspectorAt: ({ bucket }) => `At ${bucket}`,
+    inspectorNoBucket: () => "Click the row's plot to read its measures at that bucket.",
+    inspectorNoValue: () => "—",
+    inspectorStat: ({ stat, n }) => ({
+        events: plural(n, "Event", "Events"), hours: "Hours", backlog: "In backlog", review: "To review",
+    })[stat],
+    inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
+        : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
+            : "Esc clears what is selected."),
+
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     now: () => "NOW",
 
@@ -564,6 +643,7 @@ export const planMessages: PlanMessages = {
     chartNoData: () => "Chart: no data",
 
     announceSelected: ({ label }) => `Selected ${label}`,
+    announceEvents: ({ n, count }) => (n === 0 ? "No event selected" : `${count} ${plural(n, "event", "events")} selected`),
     announceCollapsed: ({ label }) => `${label} collapsed`,
     announceExpanded: ({ label }) => `${label} expanded`,
     announceChart: ({ label, expanded }) => `${label} chart ${expanded ? "expanded" : "collapsed"}`,

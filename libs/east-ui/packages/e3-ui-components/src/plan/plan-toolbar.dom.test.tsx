@@ -140,6 +140,8 @@ function Harness({ parts }: { parts: ChromeParts }) {
         slice: undefined, affordances: [], resolutions: [], grain: undefined, transport: undefined, search: undefined,
         diagnostics: { skipped: 0 }, review: undefined, reviewLabels: { approveAll: "Approve all", rejectAll: "Reject all" },
         history: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        // The inspector's reads: the toolbar takes none.
+        inspect: { row: () => undefined, valueAt: () => undefined },
         ...parts,
     };
     return <Toolbar items={usePlanToolbarItems(chrome)} />;

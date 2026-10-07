@@ -14,125 +14,27 @@
  * inputs in memory.
  */
 
-import { describe, test, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
+import { describe, test, expect, afterEach, afterAll, vi } from "vitest";
+import { fireEvent } from "@testing-library/react";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
-    applyFor, encodeBeast2For, none, printFor, some, variant, type EastIR, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, registerPlatformImplementation, system,
-} from "@elaraai/east-ui-components";
-import { Plan, Record, Schedule, ScheduleEventRefType } from "@elaraai/e3-ui/internal";
+import { getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
+import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi,
-} from "../platform/index.js";
 import { rowKeyOf, type PlanRowId, type PlanWireRow } from "./model.js";
 import { NO_EDITS } from "./plan.test-utils.js";
 import { PENDING, decide, mountCanvas, pressRow, releaseCanvases, verdictOf, type PressValue } from "./plan-editing.test-utils.js";
 import type { PlanEventRows } from "./root/events.js";
-// The canvas is an extension: its renderer registers as it loads.
-import "./index.js";
+import { el, elementKey, entry, mount, planHarness, programOf, rowAt, settle } from "./frame/harness.test-utils.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+const h = planHarness();
 
-const WORKSPACE = "plan-event-rows";
-
-let cache: ReactiveDatasetCache;
-
-/** A record of the examples', in memory, its patch door applying each patch with East's checks. */
-function patchable<T extends { name: string; type: Parameters<typeof applyFor>[0]; default?: unknown }>(record: T) {
-    const applyPatch = applyFor(record.type);
-    return {
-        name: record.name, stateType: record.type, initial: record.default!,
-        mutations: [{ name: "patch", argTypes: [PatchType(record.type)], reduce: (state: unknown, patch: unknown) => applyPatch(state as never, patch as never) }],
-    };
-}
-
-/** An input of the examples', its declared value in the cache. */
-function seed(input: { path: Parameters<ReactiveDatasetCache["write"]>[1]; type: Parameters<typeof encodeBeast2For>[0]; source?: { type: string; value?: unknown } }) {
-    if (input.source?.type !== "value") throw new Error("the input declares no value");
-    void cache.write(WORKSPACE, input.path, encodeBeast2For(input.type)(input.source.value as never));
-}
-
-beforeEach(() => {
-    StateRuntime.initializeStore(new UIStore());
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    const memory = createInMemoryRecordApi(cache, WORKSPACE, [
-        patchable(ex.planPrintPresses), patchable(ex.planPrintCrews), patchable(ex.planPrintJobs), patchable(ex.planPrintStops),
-        patchable(ex.planPrintShifts), patchable(ex.planLinkJobs), patchable(ex.planPrintCustomers),
-    ]);
-    initializeRecordApi(memory, cache, WORKSPACE);
-    seed(ex.planPrintUtilisation);
-    seed(ex.planPrintOutput);
-    seed(ex.planLinkStock);
-});
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-/** Let the records' reads, the canvas's windows and the renders settle. */
-async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 8; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
-}
-
-/** A record's state as a commit to it leaves it: its dataset's new bytes. */
-async function commit<T extends { name: string; type: Parameters<typeof encodeBeast2For>[0] }>(record: T, state: unknown) {
-    await act(async () => {
-        await cache.write(WORKSPACE, [variant("field", "records"), variant("field", record.name)], encodeBeast2For(record.type)(state as never));
-    });
-    await settle();
-}
-
-/** Mount a compiled UI value through the dispatcher, as a surface does. */
-function mount(program: () => ValueTypeOf<typeof UIComponentType>, storageKey = "plan-event-rows") {
-    return render(
-        <ChakraProvider value={system}>
-            <EastChakraComponent value={program()} storageKey={storageKey} />
-        </ChakraProvider>,
-    );
-}
-
-/** An example's program — its `fn` erases its output type at the package boundary; the Plan's are UI components. */
-const programOf = (example: { fn: { toIR(): unknown } }) =>
-    (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
-
-/** A row's id by its series and path. */
-const entry = (series: string, ...path: string[]): PlanRowId => variant("entry", { series, path }) as PlanRowId;
-/** The selector of a row, by its id — `data-plan-row` holds its id's text. */
-const rowAt = (id: PlanRowId) => `[data-plan-row=${JSON.stringify(rowKeyOf(id))}]`;
 /** The selector of a group strip, by its id. */
 const stripAt = (id: PlanRowId) => `[data-plan-group=${JSON.stringify(rowKeyOf(id))}]`;
-/** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
-const printRef = printFor(ScheduleEventRefType);
-const elementKey = (kind: string, key: string) => printRef({ kind, key });
-/** The selector of an element, by its attribute and key. */
-const el = (attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, key: string) =>
-    `[${attr}=${JSON.stringify(elementKey(kind, key))}]`;
 /** The ids' text of every row and strip the canvas's grid draws, in order. */
 const drawn = (container: HTMLElement): string[] =>
     [...container.querySelectorAll("[role='treegrid'] [data-plan-row], [role='treegrid'] [data-plan-group]")]
@@ -195,7 +97,7 @@ describe("the print works' rows (PB12–PB16, PB18)", () => {
     test("the rows are read over the range the canvas draws — its window and the periods it lays out beyond each edge", async () => {
         // One job the day before the window opens, on Press A1.
         const early = jobsWith("J-1001", (job) => ({ ...job, start: some(new Date("2026-10-04T06:00:00Z")), end: some(new Date("2026-10-04T08:00:00Z")) }));
-        await commit(ex.planPrintJobs, early);
+        await h.commit(ex.planPrintJobs, early);
         const { container } = mount(programOf(ex.planEvents));
         await settle();
         // Drawn past the window's start, where a pan reveals it.
@@ -203,7 +105,7 @@ describe("the print works' rows (PB12–PB16, PB18)", () => {
     });
 
     test("an event whose resource is none draws on its kind's Unassigned row, after every resource kind", async () => {
-        await commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: none })));
+        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: none })));
         const { container } = mount(programOf(ex.planEvents));
         await settle();
         const rows = drawn(container);
@@ -224,7 +126,7 @@ describe("the rows follow the records", () => {
         const { container } = mount(programOf(ex.planEvents));
         await settle();
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
-        await commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
+        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeNull();
         expect(container.querySelector(`${rowAt(entry("presses.span", "b3"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
     });
@@ -256,14 +158,14 @@ describe("the rows follow the records", () => {
         try {
             const more = new Map(PRESSES);
             more.set("c1", { name: "Press C1", hall: "Hall C", sheets_per_hour: 9000.0 });
-            await commit(ex.planPrintPresses, more);
+            await h.commit(ex.planPrintPresses, more);
             expect(container.querySelector('[data-plan-diagnostics="source"]')!.textContent).toMatch(/^source unavailable — /);
             expect(container.querySelector(`${a1} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
             expect(container.querySelector(rowAt(entry("presses.span", "c1")))).toBeNull();
         } finally {
             errors.mockRestore();
         }
-        await commit(ex.planPrintPresses, PRESSES);
+        await h.commit(ex.planPrintPresses, PRESSES);
         expect(container.querySelector('[data-plan-diagnostics="source"]')).toBeNull();
         expect(container.querySelector(`${a1} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
     });
@@ -461,9 +363,9 @@ describe("paged data beside event kinds", () => {
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
         const served = pagesServed;
         // A waiting job's customer: no row draws it.
-        await commit(ex.planPrintJobs, jobsWith("J-1030", (job) => ({ ...job, customer: "Someone else" })));
+        await h.commit(ex.planPrintJobs, jobsWith("J-1030", (job) => ({ ...job, customer: "Someone else" })));
         expect(pagesServed).toBe(served);
-        await commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
+        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
         expect(pagesServed).toBeGreaterThan(served);
     });
 
@@ -475,7 +377,7 @@ describe("paged data beside event kinds", () => {
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
         // A commit moves a job: the windows are read again, and the rows they
         // lead with are the commit's — once each, the units' unchanged.
-        await commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
+        await h.commit(ex.planPrintJobs, jobsWith("J-1001", (job) => ({ ...job, press: some("b3") })));
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeNull();
         expect(container.querySelector(`${rowAt(entry("presses.span", "b3"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();

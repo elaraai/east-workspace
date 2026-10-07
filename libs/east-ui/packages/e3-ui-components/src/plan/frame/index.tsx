@@ -33,9 +33,11 @@
  *   the changes waiting on Apply, the author's items, and a paged canvas's
  *   transport line;
  * - **the panes** — the library in the start pane when the Plan's `library`
- *   lists a tab (#1195, `library.tsx`), and the inspector in the end pane
- *   (#1197): optional props, no prop, no pane. Their open tab and collapsed
- *   state persist under the Plan's `id` (`planKeys(id).frame`, PB25).
+ *   lists a tab (#1195, `library.tsx`), and the inspector in the end pane when
+ *   it is given `inspector` — what is selected on the canvas (#1197,
+ *   `inspector.tsx`): optional props, no prop, no pane. Their open tab and
+ *   collapsed state persist under the Plan's `id` (`planKeys(id).frame`,
+ *   PB25).
  *
  * What a viewer hides in the library's Series tab persists under the Plan's
  * `id` too (`planKeys(id).series`, PB29, `hidden.ts`), and only while the
@@ -68,6 +70,7 @@ import type { PlanRootValue } from "../model.js";
 import { usePlanWords } from "../words.js";
 import { usePlanEventCounts } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
+import { usePlanInspector } from "./inspector.js";
 import { usePlanLibrary, type PlanPickValue } from "./library.js";
 
 /** The Plan's payload, decoded — what `<Plan>` returns through the `Plan` carrier (#1191). */
@@ -131,15 +134,17 @@ export interface EastChakraPlanProps {
     resources?: PlanResourceKinds | undefined;
     /** The library pane's tabs (#1195) — the payload carries them; none, no pane. */
     library?: PlanLibraryTabs | undefined;
+    /** Whether the Plan has its inspector pane (#1197) — the payload carries it; left out, no pane. */
+    inspector?: boolean | undefined;
 }
 
 /**
  * Renders the Plan in its frame — see the module docs.
  *
- * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, and the library's tabs
+ * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, and whether it has its inspector
  * @returns The Plan, in its frame
  */
-export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given }: EastChakraPlanProps) {
+export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given, inspector }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => planKeys(id), [id]);
@@ -153,12 +158,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
     const rowsHidden = useMemo(
         () => (series !== undefined && series.type === "series" ? rowsHiddenOf(series.value, hidden) : undefined),
         [series, hidden]);
-    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden });
+    // An event kind's element selects its event (#1197).
+    const eventKinds = useMemo(() => (kinds ?? NO_KINDS).map((kind) => kind.key), [kinds]);
+    const canvas = usePlanCanvas({ value, storageKey, events, hidden, rowsHidden, eventKinds });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resources ?? NO_RESOURCES} library={library}
-            hidden={hidden} onHidden={onHidden} />,
+            inspector={inspector === true} hidden={hidden} onHidden={onHidden} />,
     )}</>;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
+    && (prev.inspector === true) === (next.inspector === true)
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
     && (prev.resources === next.resources || resourcesEqual(prev.resources ?? NO_RESOURCES, next.resources ?? NO_RESOURCES))
@@ -176,6 +184,8 @@ interface PlanFrameProps {
     resources: PlanResourceKinds;
     /** The library pane's tabs; none, no pane. */
     library: PlanLibraryTabs;
+    /** Whether the Plan has its inspector pane. */
+    inspector: boolean;
     /** The ids this viewer hides in the Series tab. */
     hidden: readonly string[];
     /** Replaces them. */
@@ -183,7 +193,7 @@ interface PlanFrameProps {
 }
 
 /** The frame, its regions holding the canvas and its chrome — inside the canvas's contexts. */
-function PlanFrame({ canvas, root, kinds, resources, library, hidden, onHidden }: PlanFrameProps) {
+function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden, onHidden }: PlanFrameProps) {
     const { chrome, main, bound, vars } = canvas;
     const recipe = useSlotRecipe({ key: "plan" });
     const styles = useMemo(() => recipe() as unknown as Styles, [recipe]);
@@ -197,6 +207,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, hidden, onHidden }
     const start = usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words });
     const items = usePlanToolbarItems(chrome);
     const counts = usePlanEventCounts(kinds, chrome?.scale);
+    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words });
     const history = chrome?.history;
     const session = history?.session;
     const onAction = history?.onAction;
@@ -225,6 +236,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, hidden, onHidden }
                 toolbar={toolbar}
                 banners={banners}
                 start={start}
+                end={end}
                 footer={footer}
                 onKeyDown={onKeyDown}
             >
@@ -246,8 +258,8 @@ export interface EastChakraPlanPayloadProps {
  * Renders a Plan's payload (#1191): its canvas, `plan`, in its frame
  * ({@link EastChakraPlan}), with its event kinds' rows ahead of the canvas's
  * own (#1192) — one block per resource kind, then the Unassigned rows' — its
- * event kinds counted in the footer, and its library in the start pane
- * (#1195).
+ * event kinds counted in the footer, its library in the start pane (#1195),
+ * and its inspector in the end pane (#1197).
  *
  * @param props - The payload and its storage key
  * @returns The Plan, in its frame
@@ -258,7 +270,7 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
         (): PlanEventRows | undefined => (value.blocks.type === "some" ? { blocks: value.blocks.value, count: resourceKinds + 1 } : undefined),
         [value.blocks, resourceKinds]);
     return <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
-        resources={value.resources} library={value.library} />;
+        resources={value.resources} library={value.library} inspector={value.inspector} />;
 }, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(PlanComponent, EastChakraPlanPayload);

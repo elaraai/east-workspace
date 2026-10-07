@@ -39,6 +39,7 @@ import { usePlanWords } from "../words.js";
 import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
+import { PLAN_EVENT_ELEMENT_SELECTOR } from "./element-select.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -510,6 +511,15 @@ export function RowShell({
                     cursor.move((e.clientX - rect.left) / rect.width);
                 }}
                 onPointerLeave={() => { if (!dragActive) cursor.leave(); }}
+                // A click on the plot names the bucket it fell in (#1197) — first,
+                // so what was clicked in it selects the row after, the bucket kept.
+                // An event's element selects its event instead; a strip is the way back.
+                onClickCapture={(e: React.MouseEvent) => {
+                    if (ctx === true || (e.target as Element).closest(PLAN_EVENT_ELEMENT_SELECTOR) !== null) return;
+                    const bi = scale.bucketAtFrac(fracAt(e.clientX));
+                    const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
+                    if (bucket !== undefined) dispatch({ t: "row.select", key: row.key, at: bucket.start });
+                }}
             >
                 {noGrid !== true && <GridSeparators styles={styles} />}
                 {drop !== undefined && (

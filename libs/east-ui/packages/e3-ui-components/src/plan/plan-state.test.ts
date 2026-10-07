@@ -71,6 +71,52 @@ describe('planReducer', () => {
             expect(state.selected).toBe("r2");
             expect(effects).toEqual([{ t: "emit.select", key: "r2" }]);
         });
+
+        it('a click on a row\'s plot names the bucket it fell in; the same row at another bucket moves only the bucket, and a click naming none keeps it (#1197)', () => {
+            const at = variant("time", new Date("2026-10-14T00:00:00Z")) as never;
+            const later = variant("time", new Date("2026-10-15T00:00:00Z")) as never;
+            const a = run(init(), { t: "row.select", key: "r1", at });
+            expect([a.state.selected, a.state.selectedAt]).toEqual(["r1", at]);
+            expect(a.effects).toEqual([{ t: "emit.select", key: "r1" }]);
+            // Another bucket of the same row: the row's callback does not fire again.
+            const b = run(a.state, { t: "row.select", key: "r1", at: later });
+            expect(b.state.selectedAt).toEqual(later);
+            expect(b.effects).toEqual([]);
+            // The same bucket again holds, and so does a click that names none —
+            // what was clicked in the plot selects the row after the plot did.
+            expect(planReducer(b.state, { t: "row.select", key: "r1", at: later }).state).toBe(b.state);
+            expect(planReducer(b.state, { t: "row.select", key: "r1" }).state).toBe(b.state);
+            // Another row by its gutter: no bucket.
+            expect(run(b.state, { t: "row.select", key: "r2" }).state.selectedAt).toBeNull();
+        });
+
+        it('an event\'s click selects it and its row; Shift adds one and takes one out; a plain click selects the one (#1197, the Calendar\'s B15)', () => {
+            const one = run(init(), { t: "element.select", key: "e1", row: "r1", additive: false });
+            expect([one.state.selected, one.state.elements]).toEqual(["r1", ["e1"]]);
+            expect(one.effects).toEqual([{ t: "emit.select", key: "r1" }]);
+            const two = run(one.state, { t: "element.select", key: "e2", row: "r2", additive: true });
+            expect([two.state.selected, two.state.elements]).toEqual(["r2", ["e1", "e2"]]);
+            expect(run(two.state, { t: "element.select", key: "e1", row: "r1", additive: true }).state.elements).toEqual(["e2"]);
+            const plain = run(two.state, { t: "element.select", key: "e2", row: "r2", additive: false });
+            expect(plain.state.elements).toEqual(["e2"]);
+            // The one selected event clicked again holds.
+            expect(planReducer(plain.state, { t: "element.select", key: "e2", row: "r2", additive: false }).state).toBe(plain.state);
+        });
+
+        it('selecting a row takes the events away; one esc clears the row, its bucket and the events', () => {
+            const at = variant("time", new Date("2026-10-14T00:00:00Z")) as never;
+            const events = run(init(),
+                { t: "element.select", key: "e1", row: "r1", additive: false },
+                { t: "element.select", key: "e2", row: "r1", additive: true });
+            const row = run(events.state, { t: "row.select", key: "r1", at });
+            expect([row.state.selected, row.state.elements, row.state.selectedAt]).toEqual(["r1", [], at]);
+            // The row was selected already: its callback does not fire again.
+            expect(row.effects).toEqual([]);
+            const esc = run(events.state, { t: "key", key: "esc" });
+            expect([esc.state.selected, esc.state.elements]).toEqual([null, []]);
+            const escRow = run(row.state, { t: "key", key: "esc" });
+            expect([escRow.state.selected, escRow.state.selectedAt]).toEqual([null, null]);
+        });
     });
 
     describe('grain', () => {
@@ -82,6 +128,14 @@ describe('planReducer', () => {
             expect(state.selected).toBeNull();
             expect(state.collapsed.has("g1")).toBe(true);
             expect(effects).toEqual([{ t: "emit.grainChange", grain: "group" }]);
+        });
+
+        it('grain.set and g clear the events and the bucket too (#1197)', () => {
+            const s = run(init(), { t: "element.select", key: "e1", row: "r1", additive: false }).state;
+            for (const e of [{ t: "grain.set", grain: "group" }, { t: "key", key: "g" }] as const) {
+                const { state } = run(s, e);
+                expect([state.selected, state.elements, state.selectedAt]).toEqual([null, [], null]);
+            }
         });
 
         it('grain.set to the current grain is a no-op', () => {
@@ -338,6 +392,19 @@ describe('planStoreReducer (#610)', () => {
             // No emit.grainChange: the HOST changed it; echoing it back loops.
             expect(out.effects).toEqual([]);
         });
+
+        it('the bucket goes with its row; the events stay unless the declared grain changed (#1197)', () => {
+            const at = variant("time", new Date("2026-10-14T00:00:00Z")) as never;
+            const row = event(store0(), { t: "row.select", key: "r1", at });
+            const gone = act(row, { t: "reconcile", complete: true, alive: keys("r2"), declaredCollapsed: keys(), declaredGrain: "resource" });
+            expect([gone.ui.selected, gone.ui.selectedAt]).toEqual([null, null]);
+            const events = event(store0(), { t: "element.select", key: "e1", row: "r1", additive: false });
+            // An event's element may sit on a row not resident yet: what is gone is the inspector's to leave out.
+            const kept = act(events, { t: "reconcile", complete: true, alive: keys("r2"), declaredCollapsed: keys(), declaredGrain: "resource" });
+            expect(kept.ui.elements).toEqual(["e1"]);
+            const regrained = act(events, { t: "reconcile", complete: true, alive: keys("r1"), declaredCollapsed: keys(), declaredGrain: "group" });
+            expect(regrained.ui.elements).toEqual([]);
+        });
     });
 
     describe('seed (rows arrived without a data change)', () => {
@@ -445,6 +512,13 @@ describe('planStoreReducer (#610)', () => {
             // Order does not matter to a set.
             const two = act(store0(), external(null, [["a", true], ["b", false]], ["x", "y"]));
             expect(act(two, external(null, [["b", false], ["a", true]], ["y", "x"]))).toBe(two);
+        });
+
+        it('the host selecting another row takes the events and the bucket away; the same row keeps them (#1197)', () => {
+            const s = event(store0(), { t: "element.select", key: "e1", row: "r1", additive: false });
+            const moved = act(s, external("r2", [], []));
+            expect([moved.ui.selected, moved.ui.elements]).toEqual(["r2", []]);
+            expect(act(s, external("r1", [["g2", true]], [])).ui.elements).toEqual(["e1"]);
         });
 
         it('keeps the row focus, the grain and the brush — the bound state names none of them', () => {

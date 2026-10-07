@@ -20,13 +20,14 @@
  * another instant, or another row of its item type, by its glyph.
  */
 
-import { useMemo, type MouseEvent } from "react";
+import { useMemo } from "react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/e3-ui/internal";
-import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanScale, type PlanElementRefValue } from "../context.js";
+import { usePlanElementSelect } from "./element-select.js";
 import { markName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -57,9 +58,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     move: PlanRowMove | undefined;
 }) {
     const scale = usePlanScale();
-    const dispatch = usePlanDispatch();
     const words = usePlanWords();
-    const { onElementClick } = usePlanResolvers();
     const ctxAttr = ctx === true ? "" : undefined;
     const frac = x.toFixed(4);
     const label = mark.label.type === "some" ? mark.label.value : undefined;
@@ -70,20 +69,19 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         : undefined), [move, rowKey, mark, label]);
     const { handle, carried } = usePlanMovable(movable);
     const ref = variant("mark", { row: rowId, mark: mark.key }) as PlanElementRefValue;
-    const onClick = (e: MouseEvent) => {
-        e.stopPropagation();
-        dispatch({ t: "row.select", key: rowKey });
-        onElementClick?.(ref);
-    };
+    // An event's mark selects its event (#1197); any other mark, its row.
+    const select = usePlanElementSelect(rowKey, mark.key, ref);
     // Every glyph is the same button to a reader (#819) — and, where it
     // moves, the same draggable (#825).
     const common = {
         role: "button", "aria-label": markName(mark, scale, words),
-        "data-mark": mark.key, "data-plan-frac": frac, left: `${x * 100}%`, tabIndex: -1, onClick,
+        "data-mark": mark.key, "data-plan-frac": frac, left: `${x * 100}%`, tabIndex: -1, onClick: select.onClick,
         // A mark that moves takes the recipe's grab cursor.
         cursor: handle !== undefined ? undefined : "pointer",
         ...handle,
         "data-dragging": carried ? "" : undefined,
+        "data-selected": select.selected ? "" : undefined,
+        "aria-pressed": select.selectable ? select.selected : undefined,
     } as const;
     // ── R4 (#591) ──
     // A K7 override swaps the kind's geometry for the host's own
