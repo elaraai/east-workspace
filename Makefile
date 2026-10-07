@@ -290,8 +290,10 @@ test-all: services-up test-export
 
 # ── Versioning ───────────────────────────────────────────────────────
 
-## Set version across all manifests: npm (incl. root), Python, VSIX, plugin
-## Usage: make set-version VERSION=1.2.3  or  make set-version VERSION=1.2.3-beta.0
+## The release workflow's bump: one version into every manifest, npm (incl.
+## root), Python, VSIX and plugin. release.yml's prepare job runs it; nobody
+## runs it by hand, since CI alone sets versions.
+## Usage (CI): make set-version VERSION=1.2.3  or  make set-version VERSION=1.2.3-beta.0
 set-version:
 	@test -n "$(VERSION)" || (echo "Usage: make set-version VERSION=x.y.z"; exit 1)
 	node scripts/set-npm-version.mjs $(VERSION)
@@ -355,6 +357,6 @@ help:
 	@echo "  EAST_QUIET=1     - Only show failures + summaries (default in test-all)"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "  set-version      - Bump all manifests: make set-version VERSION=1.2.3"
+	@echo "  set-version      - The release workflow's version bump (CI only, never run by hand)"
 	@echo "  check-version    - Verify all manifests are aligned"
 	@echo "  clean            - Remove all build artifacts"

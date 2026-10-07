@@ -153,7 +153,12 @@ if (marketEntry && marketEntry.version !== canonical) {
 if (errors.length > 0) {
   console.error(`Version drift detected against canonical /package.json = ${canonical}:`);
   for (const e of errors) console.error(`  - ${e}`);
-  console.error(`\nFix by running: make set-version VERSION=${canonical}`);
+  // Versions are the release workflow's (release.yml's prepare job runs
+  // `make set-version`), so the remedy is never to set one by hand.
+  console.error(`\nVersions are set by the release workflow alone, never by hand.`);
+  console.error(`On a pull request, drift is a version line the pull request changed: a package it adds to the release`);
+  console.error(`joins at ${canonical}, the version main is on, and no other version line changes.`);
+  console.error(`In a release, it is a manifest the bump did not write.`);
   process.exit(1);
 }
 
