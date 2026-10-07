@@ -11,7 +11,9 @@
  *
  * - a card held at the canvas's bottom edge scrolls it there, and drops on it;
  * - content scrolled under a still pointer is read again — the row under the
- *   pointer is the one the drag rests over, never the one that scrolled away.
+ *   pointer is the one the drag rests over, never the one that scrolled away;
+ * - a cell that refuses a card wears Font Awesome's ban, never a text glyph
+ *   (#1261).
  *
  * And a move by touch (#825): on `planEditing`, a touch held on a run picks it
  * up after the long press, and a drag moves it — touch input dispatched
@@ -24,6 +26,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { faBan } from "@fortawesome/free-solid-svg-icons";
 import { settled } from "./settle";
 import { openExample, rowId, rowSel } from "./plan-page";
 
@@ -60,8 +63,8 @@ const EDGE = 48;
  * pointer pressed inside a band would scroll the page, and move the canvas
  * away from the point the drag was aimed at.
  */
-async function open(page: Page): Promise<Locator> {
-    const entry = await openExample(page, "planRowDrop");
+async function open(page: Page, theme: "light" | "dark" = "light"): Promise<Locator> {
+    const entry = await openExample(page, "planRowDrop", undefined, theme);
     await poster(entry).evaluate((card) => {
         card.scrollIntoView({ block: "start" });
         let scroller = card.parentElement;
@@ -165,6 +168,39 @@ test.describe("Plan drag and drop (#608)", () => {
         await expect(poster(entry)).not.toHaveAttribute("data-dragging", "");
         await page.mouse.up();
     });
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`a refused cell wears Font Awesome's solid ban — a 14px mask of its own path in the danger mark, never a text glyph (#1261, ${theme})`, async ({ page }) => {
+            const entry = await open(page, theme);
+            // PALLET belongs to no family: every row refuses it.
+            const pallet = entry.locator("[data-draggable]", { hasText: "PALLET" });
+            const from = await centre(pallet);
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            await page.mouse.move(from.x + 12, from.y + 12, { steps: 3 });
+            await expect(pallet).toHaveAttribute("data-dragging", "");
+            const cell = entry.locator(`${P03} [data-drag-cell]`);
+            const on = await centre(cell);
+            await page.mouse.move(on.x, on.y, { steps: 6 });
+            await expect(cell).toHaveAttribute("data-drop-invalid", "");
+            const badge = await cell.evaluate((el) => {
+                const s = getComputedStyle(el, "::after");
+                const probe = document.createElement("div");
+                probe.style.color = "var(--chakra-colors-status-neg)";
+                document.body.appendChild(probe);
+                const neg = getComputedStyle(probe).color;
+                probe.remove();
+                return { content: s.content, width: s.width, height: s.height, fill: s.backgroundColor, neg, mask: s.maskImage };
+            });
+            expect({ content: badge.content, width: badge.width, height: badge.height, fill: badge.fill })
+                .toEqual({ content: '""', width: "14px", height: "14px", fill: badge.neg });
+            // The mask is the icon's own path.
+            expect(decodeURIComponent(badge.mask)).toContain(faBan.icon[4] as string);
+            await page.keyboard.press("Escape");
+            await expect(pallet).not.toHaveAttribute("data-dragging", "");
+            await page.mouse.up();
+        });
+    }
 });
 
 test.describe("Plan moves by touch (#825)", () => {
