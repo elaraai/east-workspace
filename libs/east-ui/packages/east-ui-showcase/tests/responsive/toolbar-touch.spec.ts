@@ -20,7 +20,12 @@
  * (the lens's context switch, the pill's clear), then view tabs of its own —
  * the active tab's × shown and another's hidden — and the frame narrowed until
  * a tab folds into `+n`. On the phone the workshop's two views fold the strip
- * into its one chip, and the row still fits.
+ * into its one chip, and the row still fits. And a search's list closes when
+ * the focus moves outside it, as on a desktop (#1228): ⏎ in the workshop's
+ * rail search hands the focus to the sheet, and Tab leaves the paged sheet's
+ * key search, each leaving no list open over the sheet; the key search's box
+ * blurred to nothing — the phone's keyboard dismissed — leaves its list open,
+ * as a desktop does, and a Tab from there closes it.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -408,4 +413,66 @@ test.describe("the builders' toolbars under a touch pointer (#1221)", () => {
             await measure(page, hash, wide);
         });
     }
+});
+
+test.describe("a search's list on a touch screen (#1228)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a touch screen: the phone projects");
+
+    /** Whether the focus is in an entry's main — the grid, or anything in it. */
+    const focusInMain = (entry: Locator) => entry.evaluate((root) => root.querySelector("[data-frame-slot='main']")?.contains(document.activeElement) === true);
+
+    /** Two animation frames: a search looks at a focus a frame after it moves, as Zag does on a desktop. */
+    const frames = (page: Page) => page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+
+    test("⏎ in the workshop sheet's rail search hands the focus to the sheet, and leaves no list open", async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1000 });
+        const entry = await openToolbar(page, "e3/sheet/sheet/sheetWorkshop");
+        const box = entry.locator("[data-frame-slot='toolbar'] input[placeholder='Search…']");
+        await box.fill("oak");
+        await expect(openList(page)).toHaveCount(1);
+        await box.press("Enter");
+        await expect.poll(() => focusInMain(entry)).toBe(true);
+        await expect(openList(page)).toHaveCount(0);
+        await expect(box).toHaveValue("oak");
+    });
+
+    test("Tab out of the paged sheet's key search leaves no list open", async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1000 });
+        const entry = await openToolbar(page, "e3/sheet/sheet/sheetPaged");
+        const box = entry.locator("[data-toolbar-item='seek'] input");
+        await box.fill("J-0");
+        await expect(entry.getByRole("button", { name: "Next match" })).toBeVisible();
+        await expect(openList(page)).toHaveCount(1);
+        await box.press("Tab");
+        await expect(box).not.toBeFocused();
+        await expect(openList(page)).toHaveCount(0);
+        await expect(box).toHaveValue("J-0");
+    });
+
+    test("the paged sheet's key search blurred to nothing — the phone's keyboard dismissed — keeps its list open, as on a desktop, and so does the focus moved inside it; a Tab from there closes it", async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1000 });
+        const entry = await openToolbar(page, "e3/sheet/sheet/sheetPaged");
+        const box = entry.locator("[data-toolbar-item='seek'] input");
+        await box.fill("J-0");
+        await expect(entry.getByRole("button", { name: "Next match" })).toBeVisible();
+        await expect(openList(page)).toHaveCount(1);
+        await box.blur();
+        await frames(page);
+        await expect(openList(page)).toHaveCount(1);
+        // Inside, a focus a script moves closes nothing: onto the trigger, the list, the box again.
+        for (const inside of [entry.locator("[data-toolbar-item='seek'] [data-scope='combobox'][data-part='trigger']"), openList(page), box]) {
+            await inside.focus();
+            await expect(inside).toBeFocused();
+            await frames(page);
+            await expect(openList(page)).toHaveCount(1);
+        }
+        // Blurred to nothing again, a Tab from there moves the focus outside: the list closes.
+        await box.blur();
+        await frames(page);
+        await expect(openList(page)).toHaveCount(1);
+        await page.keyboard.press("Tab");
+        await expect(box).not.toBeFocused();
+        await expect(openList(page)).toHaveCount(0);
+        await expect(box).toHaveValue("J-0");
+    });
 });

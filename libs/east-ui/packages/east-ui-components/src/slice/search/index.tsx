@@ -10,6 +10,7 @@ import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useListClosesOnFocusOutside } from "../../forms/combobox/close-on-focus-outside.js";
 import { useSliceDensity } from "../density";
 import { useSliceReactivity } from "../use-slice-reactivity";
 
@@ -30,7 +31,14 @@ export interface EastChakraSliceSearchProps {
  * dropdown as-is (the Combobox does not re-filter); selecting one commits via
  * `slice.setSearch(some(id))`. Free text is the search (`allowCustomValue`):
  * a blur keeps what was typed rather than resetting the box to a picked item
- * — without it, clicking into the narrowed surface cleared the narrowing.
+ * — without it, clicking into the narrowed surface cleared the narrowing. The
+ * dropdown closes when the focus moves to anything outside it, the box and
+ * the combobox's trigger — ⏎ handing the focus to the surface, Tab, a host's
+ * script — on a touch screen too, where Zag leaves it open (#1228,
+ * `close-on-focus-outside.ts`); a blur to nothing — the phone's keyboard
+ * dismissed — moves the focus nowhere, and leaves it open, as on a desktop.
+ * Every query is the search's own (`allowCustomValue`), so no close reverts
+ * the box's text, on any device.
  */
 export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value }: EastChakraSliceSearchProps) {
     const styles = useSlotRecipe({ key: "sliceFrame" })();
@@ -41,6 +49,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
     // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
     const compact = density !== "focused";
     const matches = slice.matches();
+    const { epoch, onOpenChange: trackOpen, box } = useListClosesOnFocusOutside();
 
     const externalQuery = getSomeorUndefined(slice.read().search) ?? "";
     const [inputValue, setInputValue] = useState(externalQuery);
@@ -110,11 +119,13 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
     if (compact) {
         return (
             <ChakraCombobox.Root
+                key={epoch}
                 collection={collection}
                 value={[]}
                 inputValue={inputValue}
                 onInputValueChange={handleInput}
                 onValueChange={handleSelect}
+                onOpenChange={trackOpen}
                 openOnClick
                 allowCustomValue
                 flex="1 1 240px"
@@ -122,7 +133,7 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
                 maxWidth="480px"
             >
                 <ChakraCombobox.Control css={styles.searchPill}>
-                    <ChakraCombobox.Input placeholder="Search…" />
+                    <ChakraCombobox.Input ref={box} placeholder="Search…" />
                     {clearButton ?? <Box as="span" css={styles.searchKbd}>/</Box>}
                 </ChakraCombobox.Control>
                 {dropdown}
@@ -138,17 +149,19 @@ export const EastChakraSliceSearch = memo(function EastChakraSliceSearch({ value
             </Box>
             <Box css={styles.body}>
                 <ChakraCombobox.Root
+                    key={epoch}
                     collection={collection}
                     value={[]}
                     inputValue={inputValue}
                     onInputValueChange={handleInput}
                     onValueChange={handleSelect}
+                    onOpenChange={trackOpen}
                     openOnClick
                     allowCustomValue
                     width="full"
                 >
                     <ChakraCombobox.Control>
-                        <ChakraCombobox.Input placeholder="Search…" fontFamily="mono" />
+                        <ChakraCombobox.Input ref={box} placeholder="Search…" fontFamily="mono" />
                         <ChakraCombobox.IndicatorGroup>
                             {clearButton}
                             <ChakraCombobox.Trigger />
