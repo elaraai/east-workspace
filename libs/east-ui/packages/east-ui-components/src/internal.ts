@@ -6,8 +6,9 @@
 /**
  * `@elaraai/east-ui-components/internal` — the building blocks this package's
  * renderers share, for the sibling renderer packages whose components are made
- * of the same parts: e3-ui-components' Plan (#1177) and Sheet (#1179), which
- * moved out of this package. Not an API for apps, and not held stable: an app
+ * of the same parts: e3-ui-components' Plan (#1177), Sheet (#1179) and
+ * Flowchart (#1243), which moved out of this package. Not an API for apps, and
+ * not held stable: an app
  * renders through the public entry, and a sibling renderer package moves with
  * this one.
  *

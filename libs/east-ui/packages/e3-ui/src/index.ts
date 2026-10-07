@@ -15,6 +15,9 @@
  * - `<Sheet>` — the planning spreadsheet, rendered in its frame with its
  *   panes as optional props, and its authoring vocabulary on `Sheet`
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
+ * - `<Flowchart>` — the state-transition flowchart: states in ordered phase
+ *   lanes, H/V-routed transitions, decision triggers and evidence, from flat
+ *   tables, with its row and event types on `Flowchart.Types`.
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`).
  * - `<Diff>` — review pending changes for any combination of bindings.
@@ -155,6 +158,16 @@ export {
     Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplate, type SheetTemplatesInput,
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
+
+// The Flowchart (#1243): the state-transition flowchart a solution mounts,
+// `<Flowchart>` — states in ordered phase lanes, H/V-routed transitions,
+// decision triggers and evidence-weighted strokes, from flat tables — its row,
+// closed-set and event types on `Flowchart.Types`, and its props.
+export {
+    Flowchart, type FlowchartNamespace, type FlowchartConfig, type FlowchartStateFields, type FlowchartLinkFields,
+    type FlowchartLaneFields, type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartFreshnessInput,
+    type FlowchartLaneLiteral, type FlowchartLinkKindLiteral, type FlowchartOrientationLiteral, type FlowchartLinkModeLiteral,
+} from './flowchart/index.js';
 
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,

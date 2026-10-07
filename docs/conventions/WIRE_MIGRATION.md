@@ -118,3 +118,10 @@ Each wire changed under this rule, with the kind it is.
   repository upgrade step ships with it.
 
 - **east-ui's `UIComponentType` loses its `Board` and `Roster` arms (#1162, #1174)** — package-borne. Re-export packages and recompute UI task outputs: the sorted variant case indexes change. Staffing now uses e3-ui's `Roster` extension. Its new `Roster.Types.Weeks` is an application record type; this change does not rewrite an existing backend record or introduce a repository upgrade step. Applications adopting it declare and seed their own weeks record.
+- **east-ui's `UIComponentType` loses its `Flowchart` arm (#1243)** —
+  package-borne. The flowchart is e3-ui's `<Flowchart>`, carried as the
+  `Flowchart` extension, its payload the flowchart's root, with the fields the
+  arm had. As with the Plan's and the Sheet's arms, every case after
+  `Flowchart` moves down one, so a UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type.
