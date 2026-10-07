@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1251,
+    "totalEntries": 1250,
     "totalFiles": 205,
     "packages": {
       "east": 569,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 339,
-      "e3-ui": 100,
+      "e3-ui": 99,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -42019,7 +42019,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42094,7 +42094,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42153,7 +42153,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42203,7 +42203,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42254,7 +42254,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42303,7 +42303,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42363,7 +42363,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42378,7 +42378,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/plan/plan.examples.tsx",
       "suite": "",
-      "test": "Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last)",
+      "test": "Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last); the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK",
       "keywords": [
         "Plan",
         "fold",
@@ -42404,10 +42404,16 @@
         "column",
         "line",
         "format",
+        "Slice",
+        "Slice.bind",
+        "affordances",
+        "toolbar",
+        "segment",
+        "range",
+        "brush",
         "Reactive",
-        "State",
-        "SegmentGroup",
         "#824",
+        "#1258",
         "readings",
         "Data.bind",
         "bound",
@@ -42416,14 +42422,14 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last)\n// inputs: []\n/** One measure — its weekly readings from W27; `series` picks its row's series. */\nexport const FoldMeasure = StructType({ series: StringType, label: StringType, readings: ArrayType(FloatType) });\n\n/** Twelve weeks of each measure, W27–W38. */\nexport const planFoldMeasures = e3.input(\"plan_fold_measures\", DictType(StringType, FoldMeasure), variant(\"value\", new Map([\n    [\"load\",  { series: \"load\",  label: \"Hall load %\", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],\n    [\"peak\",  { series: \"peak\",  label: \"Peak load %\", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],\n    [\"book\",  { series: \"book\",  label: \"Booked\", readings: [0.4, 0.82, 0.64, 0.46, 0.88, 0.7, 0.52, 0.94, 0.76, 0.58, 0.4, 0.82] }],\n    [\"desp\",  { series: \"desp\",  label: \"Delivered · k\", readings: [80.0, 109.0, 138.0, 107.0, 136.0, 105.0, 134.0, 103.0, 132.0, 101.0, 130.0, 99.0] }],\n    [\"stock\", { series: \"stock\", label: \"Paper stock · k\", readings: [420.0, 398.0, 376.0, 354.0, 332.0, 310.0, 288.0, 266.0, 244.0, 222.0, 200.0, 178.0] }],\n    [\"out\",   { series: \"out\",   label: \"Printed · k\", readings: [60.0, 83.0, 66.0, 89.0, 72.0, 95.0, 78.0, 61.0, 84.0, 67.0, 90.0, 73.0] }],\n    [\"ontime\",   { series: \"ontime\",   label: \"On-time %\", readings: [88.0, 92.0, 96.0, 91.0, 95.0, 90.0, 94.0, 89.0, 93.0, 88.0, 92.0, 96.0] }],\n])));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const measures = $.let(Data.bind(planFoldMeasures));\n            // Monday of ISO week n, 2026 — twelve weeks, W27–W38.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const Weekly = StructType({ at: DateTimeType, value: OptionType(FloatType) });\n            const MeasureRow = StructType({ week: DateTimeType, v: FloatType });\n            // A measure's weekly readings from W27, as each row kind reads\n            // them: heat cells, booked fractions (the weeks after now are the\n            // planned, pale tail), table cells and chart points.\n            const heat = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), ($, readings) =>\n                East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$, i) => ({\n                    at: Plan.at.time(week(i.add(27n))), value: some(readings.get(i)), label: none,\n                }))));\n            const booked = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.WeightCell), ($, readings) =>\n                East.Array.generate(readings.size(), Plan.Types.WeightCell, (_$, i) => ({\n                    at: Plan.at.time(week(i.add(27n))), fraction: readings.get(i), planned: i.add(27n).greater(31n),\n                }))));\n            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(Weekly), ($, readings) =>\n                East.Array.generate(readings.size(), Weekly, (_$, i) => ({ at: week(i.add(27n)), value: some(readings.get(i)) }))));\n            const points = $.const(East.function([ArrayType(FloatType)], ArrayType(MeasureRow), ($, readings) =>\n                East.Array.generate(readings.size(), MeasureRow, (_$, i) => ({ week: week(i.add(27n)), v: readings.get(i) }))));\n            const whole = $.const(Format.Number({ maximumFractionDigits: 0n }));\n            const series = $.const([\n                // A level — a month shows its weeks' MEAN (the default). The\n                // declared format prints the folded values.\n                Plan.series.heat(FoldMeasure, {\n                    key: \"load\", title: \"Hall load\",\n                    match: r => r.series.equal(\"load\"), label: r => r.label,\n                    cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, format: whole }),\n                }),\n                // The same weeks, folded by their MAX — the peak a month hit.\n                Plan.series.heat(FoldMeasure, {\n                    key: \"peak\", title: \"Peak load\",\n                    match: r => r.series.equal(\"peak\"), label: r => r.label,\n                    cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, fold: \"max\", format: whole }),\n                }),\n                // A fraction of each bucket booked — a month's is its weeks' mean.\n                Plan.series.heat(FoldMeasure, {\n                    key: \"book\", title: \"Booked\",\n                    match: r => r.series.equal(\"book\"), label: r => r.label,\n                    cells: r => Plan.weightCells(booked(r.readings)),\n                }),\n                // An amount — a month shows its weeks' SUM (the default).\n                Plan.series.table(FoldMeasure, {\n                    key: \"desp\", title: \"Deliveries\",\n                    match: r => r.series.equal(\"desp\"), label: r => r.label,\n                    cells: r => Plan.tableCells(weekly(r.readings)), format: whole,\n                }),\n                // A balance — a month shows where it CLOSED, its last week.\n                Plan.series.table(FoldMeasure, {\n                    key: \"stock\", title: \"Paper stock\",\n                    match: r => r.series.equal(\"stock\"), label: r => r.label,\n                    cells: r => Plan.tableCells(weekly(r.readings)), fold: \"last\", format: whole,\n                }),\n                // Columns sum; a line averages.\n                Plan.series.chart(FoldMeasure, {\n                    key: \"out\", title: \"Output\",\n                    match: r => r.series.equal(\"out\"), label: r => r.label, id: true,\n                    layers: r => [Chart.Column(points(r.readings), { x: p => p.week, y: p => p.v })],\n                }),\n                Plan.series.chart(FoldMeasure, {\n                    key: \"ontime\", title: \"On-time\",\n                    match: r => r.series.equal(\"ontime\"), label: r => r.label, id: true,\n                    layers: r => [Plan.layer(Chart.Line(points(r.readings), { x: p => p.week, y: p => p.v }), { fold: \"mean\" })],\n                }),\n            ], ArrayType(Plan.Types.Series(FoldMeasure)));\n            // The resolution is the switch — two whole axis values, picked by\n            // key; the pick is the viewer's own state.\n            const axes = $.const([\n                { key: \"month\", axis: Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"month\", now: week(31n) }) },\n                { key: \"week\", axis: Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n) }) },\n            ], ArrayType(StructType({ key: StringType, axis: Plan.Types.Axis })));\n            const resBind = $.let(State.bind([StringType], \"plan_fold_resolution\", \"month\"));\n            const resKey = $.let(resBind.read());\n            const onRes = $.const(East.function([StringType], NullType, ($, next) => { $(resBind.write(next)); }));\n            const sel = $.let(axes.filter((_$, a) => a.key.equal(resKey)).get(0n, _$ => axes.get(0n)));\n            return (\n                <VStack gap=\"2\" align=\"stretch\">\n                    <SegmentGroup value={resKey} onChange={onRes} size=\"sm\"\n                        items={[SegmentGroup.Item(\"month\", <Text>MONTH</Text>), SegmentGroup.Item(\"week\", <Text>WEEK</Text>)]} />\n                    <Plan axis={sel.axis} data={measures} series={series} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last); the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK\n// inputs: []\n/** One measure — its weekly readings from W23; `series` picks its row's series. */\nexport const FoldMeasure = StructType({ series: StringType, label: StringType, readings: ArrayType(FloatType) });\n\n/** Twelve weeks of each measure, W23–W34 — from the first Monday of June, so\n *  the first month's column starts with the first week. */\nexport const planFoldMeasures = e3.input(\"plan_fold_measures\", DictType(StringType, FoldMeasure), variant(\"value\", new Map([\n    [\"load\",  { series: \"load\",  label: \"Hall load %\", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],\n    [\"peak\",  { series: \"peak\",  label: \"Peak load %\", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],\n    [\"book\",  { series: \"book\",  label: \"Booked\", readings: [0.4, 0.82, 0.64, 0.46, 0.88, 0.7, 0.52, 0.94, 0.76, 0.58, 0.4, 0.82] }],\n    [\"desp\",  { series: \"desp\",  label: \"Delivered · k\", readings: [80.0, 109.0, 138.0, 107.0, 136.0, 105.0, 134.0, 103.0, 132.0, 101.0, 130.0, 99.0] }],\n    [\"stock\", { series: \"stock\", label: \"Paper stock · k\", readings: [420.0, 398.0, 376.0, 354.0, 332.0, 310.0, 288.0, 266.0, 244.0, 222.0, 200.0, 178.0] }],\n    [\"out\",   { series: \"out\",   label: \"Printed · k\", readings: [60.0, 83.0, 66.0, 89.0, 72.0, 95.0, 78.0, 61.0, 84.0, 67.0, 90.0, 73.0] }],\n    [\"ontime\",   { series: \"ontime\",   label: \"On-time %\", readings: [88.0, 92.0, 96.0, 91.0, 95.0, 90.0, 94.0, 89.0, 93.0, 88.0, 92.0, 96.0] }],\n])));\n\n/** A week the canvas shows — the rows its slice narrows. */\nexport const FoldWeek = StructType({ week: DateTimeType });\n\nEast.function([], UIComponentType, (_$) => {\n        const cfg = Slice.config(FoldWeek, {\n            fields: { week: { label: \"Week\", format: { date: \"MMM D\" } } },\n            rangeFieldId: \"week\",\n        });\n        return (<Reactive>{$ => {\n            const measures = $.let(Data.bind(planFoldMeasures));\n            // Monday of ISO week n, 2026 — twelve weeks, W23–W34.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const Weekly = StructType({ at: DateTimeType, value: OptionType(FloatType) });\n            const MeasureRow = StructType({ week: DateTimeType, v: FloatType });\n            // A measure's weekly readings from W23, as each row kind reads\n            // them: heat cells, booked fractions (the weeks after now are the\n            // planned, pale tail), table cells and chart points.\n            const heat = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), ($, readings) =>\n                East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$, i) => ({\n                    at: Plan.at.time(week(i.add(23n))), value: some(readings.get(i)), label: none,\n                }))));\n            const booked = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.WeightCell), ($, readings) =>\n                East.Array.generate(readings.size(), Plan.Types.WeightCell, (_$, i) => ({\n                    at: Plan.at.time(week(i.add(23n))), fraction: readings.get(i), planned: i.add(23n).greater(27n),\n                }))));\n            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(Weekly), ($, readings) =>\n                East.Array.generate(readings.size(), Weekly, (_$, i) => ({ at: week(i.add(23n)), value: some(readings.get(i)) }))));\n            const points = $.const(East.function([ArrayType(FloatType)], ArrayType(MeasureRow), ($, readings) =>\n                East.Array.generate(readings.size(), MeasureRow, (_$, i) => ({ week: week(i.add(23n)), v: readings.get(i) }))));\n            const whole = $.const(Format.Number({ maximumFractionDigits: 0n }));\n            const series = $.const([\n                // A level — a month shows its weeks' MEAN (the default). The\n                // declared format prints the folded values.\n                Plan.series.heat(FoldMeasure, {\n                    key: \"load\", title: \"Hall load\",\n                    match: r => r.series.equal(\"load\"), label: r => r.label,\n                    cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, format: whole }),\n                }),\n                // The same weeks, folded by their MAX — the peak a month hit.\n                Plan.series.heat(FoldMeasure, {\n                    key: \"peak\", title: \"Peak load\",\n                    match: r => r.series.equal(\"peak\"), label: r => r.label,\n                    cells: r => Plan.heatCells(heat(r.readings), { min: 0, max: 100, fold: \"max\", format: whole }),\n                }),\n                // A fraction of each bucket booked — a month's is its weeks' mean.\n                Plan.series.heat(FoldMeasure, {\n                    key: \"book\", title: \"Booked\",\n                    match: r => r.series.equal(\"book\"), label: r => r.label,\n                    cells: r => Plan.weightCells(booked(r.readings)),\n                }),\n                // An amount — a month shows its weeks' SUM (the default).\n                Plan.series.table(FoldMeasure, {\n                    key: \"desp\", title: \"Deliveries\",\n                    match: r => r.series.equal(\"desp\"), label: r => r.label,\n                    cells: r => Plan.tableCells(weekly(r.readings)), format: whole,\n                }),\n                // A balance — a month shows where it CLOSED, its last week.\n                Plan.series.table(FoldMeasure, {\n                    key: \"stock\", title: \"Paper stock\",\n                    match: r => r.series.equal(\"stock\"), label: r => r.label,\n                    cells: r => Plan.tableCells(weekly(r.readings)), fold: \"last\", format: whole,\n                }),\n                // Columns sum; a line averages.\n                Plan.series.chart(FoldMeasure, {\n                    key: \"out\", title: \"Output\",\n                    match: r => r.series.equal(\"out\"), label: r => r.label, id: true,\n                    layers: r => [Chart.Column(points(r.readings), { x: p => p.week, y: p => p.v })],\n                }),\n                Plan.series.chart(FoldMeasure, {\n                    key: \"ontime\", title: \"On-time\",\n                    match: r => r.series.equal(\"ontime\"), label: r => r.label, id: true,\n                    layers: r => [Plan.layer(Chart.Line(points(r.readings), { x: p => p.week, y: p => p.v }), { fold: \"mean\" })],\n                }),\n            ], ArrayType(Plan.Types.Series(FoldMeasure)));\n            // The weeks the canvas shows — the rows its slice narrows.\n            const weeks = $.let(East.Array.generate(12n, FoldWeek, (_$, i) => ({ week: week(i.add(23n)) })));\n            // The resolution is the slice's, MONTH to start, and the window\n            // its range. A slice range is CLOSED — both ends inclusive — so\n            // the twelve weeks W23–W34 end the millisecond before W35.\n            const slice = $.let(Slice.bind([FoldWeek], \"ex.plan.fold\", cfg, Slice.state({\n                range: some(variant(\"datetime\", { from: week(23n), to: week(35n).addMilliseconds(-1n) })),\n                resolution: some(variant(\"month\", null)),\n            }), weeks, none));\n            const axis = $.const(Plan.axis({\n                window: { min: week(23n), max: week(35n) },\n                resolution: \"month\", resolutions: [\"month\", \"week\"], now: week(27n),\n            }));\n            return (\n                <Plan\n                    axis={axis}\n                    data={measures}\n                    series={series}\n                    slice={{ slice, affordances: [\"range\", \"resolution\", \"brush\"] }}\n                />\n            );\n        }}</Reactive>);\n    })"
     },
     {
       "id": "e3-ui:plan.examples.tsx:planCardRows",
@@ -42460,7 +42466,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42502,7 +42508,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42547,7 +42553,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42595,7 +42601,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42636,7 +42642,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42677,7 +42683,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42737,7 +42743,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42815,7 +42821,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42871,7 +42877,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42947,7 +42953,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -42995,7 +43001,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -43041,7 +43047,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -43089,7 +43095,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -43138,7 +43144,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -43185,7 +43191,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -43218,7 +43224,7 @@
       "imports": [
         "import {",
         "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
+        "import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -43226,41 +43232,6 @@
         "tsx"
       ],
       "source": "// Ops plan — Plan with the `slice` chrome option over tasks bound from e3: a header rail (`filter`, `search`, `range`) plus the `brush` affordance — drag a window on the horizon strip to set the slice's range; rows fed explicitly via `Slice.rows` and re-keyed into the canvas's keyed collection\n// inputs: []\n/** A task on the plan — its owner and its window. */\nexport const SliceJob = StructType({ task: StringType, owner: StringType, start: DateTimeType, end: DateTimeType });\n\n/** The plan's tasks — the rows the slice narrows. */\nexport const planSliceJobs = e3.input(\"plan_slice_jobs\", ArrayType(SliceJob), variant(\"value\", [\n    { task: \"Planning\",    owner: \"Team A\", start: new Date(\"2024-01-01T00:00:00Z\"), end: new Date(\"2024-01-15T00:00:00Z\") },\n    { task: \"Design\",      owner: \"Team B\", start: new Date(\"2024-01-10T00:00:00Z\"), end: new Date(\"2024-02-01T00:00:00Z\") },\n    { task: \"Development\", owner: \"Team C\", start: new Date(\"2024-01-20T00:00:00Z\"), end: new Date(\"2024-03-15T00:00:00Z\") },\n    { task: \"Testing\",     owner: \"Team A\", start: new Date(\"2024-03-01T00:00:00Z\"), end: new Date(\"2024-03-30T00:00:00Z\") },\n]));\n\nEast.function([], UIComponentType, (_$) => {\n        const cfg = Slice.config(SliceJob, {\n            fields: { task: { label: \"Task\" }, owner: { label: \"Owner\" }, start: { label: \"Start\" } },\n            searchFieldIds: [\"task\", \"owner\"],\n            rangeFieldId: \"start\",\n        });\n        return (\n            <Reactive>{$ => {\n                const tasks = $.let(Data.bind(planSliceJobs));\n                const slice = $.let(Slice.bind([SliceJob], \"ex.slice.plan.chrome\", cfg, Slice.state({\n                    filters: [variant(\"string\", { fieldId: \"owner\", op: variant(\"eq\", \"Team A\") })],\n                }), tasks.read(), none));\n                // The narrowed rows re-key into the canvas's keyed collection\n                // (#568) — the task name is the row identity here.\n                const narrowed = $.let(Slice.rows([SliceJob], slice));\n                const jobs = $.let(narrowed.toDict((_$, j) => j.task, (_$, j) => j));\n                const series = $.const([\n                    Plan.series.span(SliceJob, {\n                        key: \"jobs\", title: \"Jobs\",\n                        label: r => r.task, id: true,\n                        sub: r => some(r.owner),\n                        runs: (r, k) => [Plan.run({\n                            key: k, start: r.start, end: r.end,\n                            label: r.task, state: variant(\"confirmed\", null),\n                        })],\n                    }),\n                ], ArrayType(Plan.Types.Series(SliceJob)));\n                const axis = $.const(Plan.axis({\n                    window: { min: new Date(\"2024-01-01\"), max: new Date(\"2024-04-01\") },\n                    resolution: \"week\", now: new Date(\"2024-01-20\"),\n                }));\n                return (\n                    <Plan\n                        axis={axis}\n                        data={jobs}\n                        series={series}\n                        slice={{ slice, affordances: [\"filter\", \"search\", \"range\", \"brush\"] }}\n                    />\n                );\n            }}</Reactive>\n        );\n    })"
-    },
-    {
-      "id": "e3-ui:plan.examples.tsx:dockBesidePlan",
-      "skill": "e3-ui",
-      "package": "e3-ui",
-      "file": "east-ui/packages/e3-ui/test/plan/plan.examples.tsx",
-      "suite": "",
-      "test": "A Dock job-source panel beside a Plan board over presses bound from e3 — collapsing the dock frees width for the board without covering it",
-      "keywords": [
-        "Dock",
-        "layout",
-        "Plan",
-        "beside",
-        "drag",
-        "source",
-        "drop",
-        "target",
-        "in-flow",
-        "sidebar",
-        "board",
-        "Data.bind",
-        "bound",
-        "e3.input"
-      ],
-      "imports": [
-        "import {",
-        "import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
-        "import e3 from \"@elaraai/e3\";"
-      ],
-      "languages": [
-        "tsx"
-      ],
-      "source": "// A Dock job-source panel beside a Plan board over presses bound from e3 — collapsing the dock frees width for the board without covering it\n// inputs: []\n/** A press on the board — its operation and its planned run. */\nexport const DockPress = StructType({ operation: StringType, start: DateTimeType, end: DateTimeType });\n\n/** The board's presses, W28–W33. */\nexport const planDockPresses = e3.input(\"plan_dock_presses\", DictType(StringType, DockPress), variant(\"value\", new Map([\n    [\"Press A\", { operation: \"Offset\",   start: new Date(\"2026-07-06T00:00:00Z\"), end: new Date(\"2026-07-20T00:00:00Z\") }],\n    [\"Press B\", { operation: \"Digital\",  start: new Date(\"2026-07-13T00:00:00Z\"), end: new Date(\"2026-07-27T00:00:00Z\") }],\n    [\"Press C\", { operation: \"Coating\",  start: new Date(\"2026-07-20T00:00:00Z\"), end: new Date(\"2026-08-10T00:00:00Z\") }],\n])));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const presses = $.let(Data.bind(planDockPresses));\n            // Monday of ISO week n, 2026.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const series = $.const([\n                Plan.series.span(DockPress, {\n                    key: \"presses\", title: \"Presses\",\n                    label: (_r, k) => k, id: true,\n                    sub: r => some(r.operation),\n                    runs: (r, k) => [Plan.run({\n                        key: k, start: r.start, end: r.end,\n                        label: \"PLAN\", state: variant(\"proposed\", variant(\"added\", null)),\n                    })],\n                }),\n            ], ArrayType(Plan.Types.Series(DockPress)));\n            const axis = $.const(Plan.axis({\n                window: { min: week(27n), max: week(34n) }, resolution: \"week\", now: week(29n),\n            }));\n            return (\n                <Box height=\"260px\" width=\"100%\">\n                    <HStack gap=\"4\" width=\"100%\" height=\"100%\">\n                        <Dock icon=\"book\" label=\"Jobs\" badge=\"3\" expandedSize=\"30%\">\n                            <Stack gap=\"2\" padding=\"3\">\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Job 1042 — Lot 3</Text></Box>\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Job 1057 — Lot 7</Text></Box>\n                                <Box padding=\"2\" background=\"bg.subtle\" borderRadius=\"md\"><Text>Job 1063 — Lot 1</Text></Box>\n                            </Stack>\n                        </Dock>\n                        <Box flex=\"1\" minWidth=\"0\">\n                            <Plan axis={axis} data={presses} series={series} style={{ height: \"fill\" }} />\n                        </Box>\n                    </HStack>\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:query.examples.tsx:queryBuilder",

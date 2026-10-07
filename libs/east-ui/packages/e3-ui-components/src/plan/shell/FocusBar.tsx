@@ -4,10 +4,11 @@
  */
 
 /**
- * The row-focus header band (R1 links / R2 expand) — `← ALL ROWS` on the
- * left, the focus caption on the right (`LINKS · H1-P03 · 4 UPSTREAM ·
- * 6 DOWNSTREAM` / `EXPANDED · H4-P13`). Returning: the chip, esc, any rail
- * (R1), or the row's own control.
+ * The row-focus header band (R1 links / R2 expand) — the `← All rows` link on
+ * the left, the focus caption on the right, set in capitals (`Links · H1-P03 ·
+ * 4 upstream · 6 downstream` / `EXPANDED · H4-P13`); it names the row by its
+ * gutter label (`Plan links.html`, #1258). Returning: the link, esc, any rail
+ * or gap band (R1), or the row's own control.
  */
 
 import { Box, chakra } from "@chakra-ui/react";

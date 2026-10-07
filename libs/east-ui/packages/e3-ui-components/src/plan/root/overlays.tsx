@@ -26,9 +26,9 @@
  * - hovering an element opens the hover card after a short delay, on devices
  *   that can hover; leaving it closes the card unless the pointer moved into
  *   the card;
- * - hovering a labelled port, cell marker or link ribbon (#818) shows its
- *   `aria-label` as a tooltip — a ribbon opens no hover card: its caption is
- *   what hovering it says.
+ * - hovering a labelled port, cell marker, link ribbon (#818) or row control
+ *   (#1258) shows its `aria-label` as a tooltip — a ribbon opens no hover
+ *   card: its caption is what hovering it says.
  *
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
@@ -58,8 +58,9 @@ export const PLAN_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],[data-
  *  shows its caption as a tooltip, never a hover card. */
 export const PLAN_LINK_SELECTOR = "[data-link-key]";
 /** The labelled marks a tooltip reads — their `aria-label` is its text: ports,
- *  cell markers, and link ribbons (#818). */
-export const PLAN_TIP_SELECTOR = "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label]";
+ *  cell markers, link ribbons (#818) and a row's focus controls (#1258). */
+export const PLAN_TIP_SELECTOR =
+    "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label],[data-plan-control][aria-label]";
 
 /** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
 const OPEN_DELAY_MS = 150;
@@ -147,6 +148,8 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
     if (row === null || row === undefined) return undefined;
+    const control = el.getAttribute("data-plan-control");
+    if (control !== null) return { key: `${row}|control|${control}`, text };
     const port = el.getAttribute("data-port");
     return { key: port !== null ? `${row}|port|${port}` : `${row}|marker|${el.getAttribute("data-marker") ?? ""}`, text };
 }

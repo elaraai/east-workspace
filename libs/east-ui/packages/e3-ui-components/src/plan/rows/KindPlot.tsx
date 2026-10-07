@@ -24,7 +24,6 @@ import { CardsRow } from "./CardsRow.js";
 import { EventsRow } from "./EventsRow.js";
 import { TableRowCells } from "./TableRow.js";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { usePlanGeometry } from "../context.js";
 import type { PlanDerived, VisibleRow } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -46,9 +45,6 @@ export interface KindPlotProps {
 
 /** The plot content for a data row kind (`null` for a group band). */
 export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
-    // Bar heights are the canvas's geometry (#817) — the density's bar, or
-    // the rollup band's height for a collapsed parent.
-    const geometry = usePlanGeometry();
     const kind = v.row.kind;
     const rowKey = v.row.key;
     const rowId = v.row.id;
@@ -58,9 +54,12 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
     switch (kind.type) {
         case "span":
             return (
+                // Bar heights are the canvas's geometry (#817), drawn by the
+                // recipe: the density's bar, or the rollup band's height for a
+                // collapsed parent.
                 <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move}
                     bands={derived.bands.get(rowKey) ?? []}
-                    barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar} />
+                    rolled={v.collapsed && hasChildren} />
             );
         case "chart":
             // What the row DRAWS (#824) — its layers folded to the period

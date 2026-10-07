@@ -20,7 +20,7 @@ import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focu
 
 /** The slots this part styles. */
 export const elementsSlots = [
-    "bar", "barQty", "rollBand", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
+    "bar", "barLabel", "barQty", "rollBand", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
@@ -31,14 +31,28 @@ const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleOb
 /** Their base styles. */
 export const elementsBase = {
     // ── Span bars — base geometry; `data-state` drives the truth table ──
+    // The label holds the bar (#1258): the quantity shows beside it only when
+    // both fit whole. The bar is a wrapping row whose one line fills the box
+    // inside its border, so a quantity that does not fit wraps to a second
+    // line the bar clips, and the label, alone on the first, ellipsizes when
+    // it alone does not fit. Its height is the canvas's bar, or a collapsed
+    // parent's rollup bar (`data-rolled`). It is a size container, so its
+    // text's line is exactly the height inside its border as the page draws
+    // it (`100cqh`) — a lifecycle look's 1.5px dash is drawn 1px at 1×.
     bar: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
+        height: "var(--plan-bar-h)",
+        "&[data-rolled]": { height: "var(--plan-roll-bar-h)" },
+        containerType: "size",
         borderRadius: "2px",
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
-        gap: "4px",
+        alignContent: "flex-start",
+        columnGap: "4px",
+        rowGap: 0,
         padding: "0 7px",
         fontFamily: "mono",
         fontSize: "11px",
@@ -86,11 +100,25 @@ export const elementsBase = {
         ...planElementSelected,
         ...planElementFocus,
     },
+    // A span's label — whole, or ellipsized when it alone does not fit, its
+    // line the bar's inside height (#1258).
+    barLabel: {
+        flex: "0 1 auto",
+        minWidth: 0,
+        lineHeight: "100cqh",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+    },
     // A span's quantity — the label's own weight (#949: one weight per span).
+    // It never shrinks: when it does not fit beside the label it wraps out of
+    // the bar's line, whole (#1258).
     barQty: {
         opacity: 0.72,
         fontWeight: "semibold",
         flexShrink: 0,
+        lineHeight: "100cqh",
+        whiteSpace: "nowrap",
     },
     // Parent rollup band — 12px, centred `×k · qty` caption.
     rollBand: {
@@ -229,12 +257,14 @@ export const elementsBase = {
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
-        // An EXPANDED row pins its active ⤢ control to the band's corner
-        // (`rowControls[data-expanded]`: top 11px, right 6px, a 20px
-        // button in a 3px paper halo) — exactly where a 32px band's
-        // ticks sit. The ticks step left of the pill's footprint so the
-        // axis stays legible while the row has the canvas (#591).
-        "[data-expanded] &": { right: "36px" },
+        // An EXPANDED row's pill of controls stays shown, pinned to the
+        // band's top (`rowControls[data-expanded]`, #1258) — exactly where
+        // a 32px band's ticks sit. The ticks step left of its footprint, so
+        // the axis stays legible while the row has the canvas (#591): the
+        // pill's 8px inset, its 24px buttons and 8px lead, and a 4px gap.
+        // At rest the pill shows only on hover, over the gutter's end.
+        "[data-expanded][data-plan-controls='1'] &": { right: "44px" },
+        "[data-expanded][data-plan-controls='2'] &": { right: "68px" },
     },
     chartTickRight: {
         position: "absolute",

@@ -11,9 +11,10 @@
  * heights of the body items above it (`usePlanBody`'s `heights`, the same
  * numbers the frame lays the rows out at), and its bar sits centred in its
  * plot cell — the row less the rule under it — at the geometry table's bar
- * height. A run's x is its window fraction across the plot. So the ribbons follow the rows in the same render — a collapse, a chart
- * toggle or a landing window moves both at once — and they reach rows the
- * virtualizer has not mounted.
+ * height. A run's x is its window fraction across the plot. So the ribbons
+ * follow the rows in the same render — a collapse, a chart toggle or a landing
+ * window moves both at once — and they reach rows the virtualizer has not
+ * mounted.
  *
  * A bounded frame shows only part of its rows. An endpoint beyond that view
  * clamps to the edge it lies past and ends in a stub pointing toward its row
@@ -37,12 +38,23 @@ import { quantityText } from "../quantity.js";
 import type { PlanWords } from "../words.js";
 import { routeRibbon, type RibbonEnd, type RibbonOff, type RibbonPath } from "./ribbon-geometry.js";
 
-/** Ribbon fill opacity bounds — share of the largest family quantity; a link
- *  with no quantity draws at the faintest. */
-export const RIBBON_OPACITY_MIN = 0.16;
-export const RIBBON_OPACITY_MAX = 0.38;
-/** Width of the off-window fade band (px). */
-export const RIBBON_FADE_W = 42;
+/** Width of the dashed slot an end past the window lands in (px). */
+export const RIBBON_SLOT_W = 40;
+
+/**
+ * A link's weight — its stroke's width (`Plan links.html` §15): its
+ * quantity's third of the family's largest — above two thirds 8, above one
+ * third 4, else 2 — and 1.5 for a link with no quantity.
+ *
+ * @param quantity - The link's quantity's size, or `undefined` when it has none
+ * @param largest - The largest quantity among the family's links
+ * @returns The weight, in px
+ */
+export function ribbonWeight(quantity: number | undefined, largest: number): number {
+    if (quantity === undefined) return 1.5;
+    const share = largest > 0 ? quantity / largest : 0;
+    return share > 2 / 3 ? 8 : share > 1 / 3 ? 4 : 2;
+}
 
 /** Where one body row sits, in the rows' own px. */
 export interface RibbonSlot {
@@ -154,8 +166,10 @@ export interface RibbonViewport {
     bottom: number;
 }
 
-/** A full-row-height fade at a window edge — an off-window run's landing. */
-export interface RibbonFade {
+/** The dashed slot at a window edge an off-window end lands in — as tall as
+ *  its bar, {@link RIBBON_SLOT_W} wide, open toward the edge. */
+export interface RibbonEdgeSlot {
+    /** The plot edge it opens onto. */
     x: number;
     y: number;
     h: number;
@@ -168,7 +182,8 @@ export interface LaidRibbon extends RibbonPath {
     link: number;
     from: RibbonEnd;
     to: RibbonEnd;
-    opacity: number;
+    /** Its stroke's width, by its quantity ({@link ribbonWeight}). */
+    weight: number;
     /** The link's quantity caption (#824) — `undefined` for a link with no
      *  quantity, which then shows no caption and no tooltip. */
     label: string | undefined;
@@ -196,10 +211,10 @@ export interface RibbonLayoutInput {
     words: PlanWords;
 }
 
-/** One endpoint, and the fade its off-window run lands behind. */
+/** One endpoint, and the slot its off-window run lands in. */
 interface Endpoint {
     end: RibbonEnd;
-    fade: RibbonFade | undefined;
+    edgeSlot: RibbonEdgeSlot | undefined;
 }
 
 /**
@@ -210,8 +225,8 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
     const { body, plot, scale, viewport } = input;
     // ── x: the run's extent on the window, as its bar draws it ──
     // A run touching the window keeps its window-clamped extent (its bar's);
-    // one wholly outside it lands at the plot edge it lies past, behind the
-    // runoff fade. A row with no such run is met across its whole plot.
+    // one wholly outside it lands at the plot edge it lies past, in a dashed
+    // slot. A row with no such run is met across its whole plot.
     let leftX = plot.left;
     let rightX = plot.left + plot.width;
     let offWindow: "left" | "right" | undefined;
@@ -270,20 +285,20 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
         }
     }
     const end: RibbonEnd = off !== undefined ? { leftX, rightX, top, bottom, off } : { leftX, rightX, top, bottom };
-    // The runoff landing reads only where the row is in view.
-    const fade = offWindow !== undefined && off === undefined
-        ? { x: offWindow === "left" ? leftX : leftX - RIBBON_FADE_W, y: top, h: bottom - top, side: offWindow }
+    // The slot draws only while its row is in view.
+    const edgeSlot = offWindow !== undefined && off === undefined
+        ? { x: leftX, y: top, h: bottom - top, side: offWindow }
         : undefined;
-    return { end, fade };
+    return { end, edgeSlot };
 }
 
 /**
  * Lay out every drawable edge of the family.
  *
  * @param input - The model the ribbons follow
- * @returns The routed ribbons (in `links` order) and the off-window fades
+ * @returns The routed ribbons (in `links` order) and the off-window slots
  */
-export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]; fades: RibbonFade[] } {
+export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]; edgeSlots: RibbonEdgeSlot[] } {
     const { links, visibleKeys, words } = input;
     // A link names its ends by run ref — a row id (#822) and a run key (#824);
     // the body keys its rows by the ids' text.
@@ -293,37 +308,35 @@ export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]
         const toKey = rowKeyOf(l.to.row);
         if (visibleKeys.has(fromKey) && visibleKeys.has(toKey)) edges.push({ link, l, fromKey, toKey });
     });
-    // Opacity is a share of the FAMILY's largest quantity — over every edge
-    // the focus gathers, so a ribbon does not brighten as others scroll away.
-    // A link's weight is its quantity's value (#824); one with none weighs 0.
-    const weight = (l: PlanLinkValue): number => (l.quantity.type === "some" ? Math.abs(l.quantity.value.value) : 0);
-    const maxQty = edges.reduce((m, { l }) => Math.max(m, weight(l)), 0);
+    // The weight is a third of the FAMILY's largest quantity — over every
+    // edge the focus gathers, so a link holds its weight as others scroll
+    // away. A link's size is its quantity's value (#824).
+    const size = (l: PlanLinkValue): number | undefined => (l.quantity.type === "some" ? Math.abs(l.quantity.value.value) : undefined);
+    const largest = edges.reduce((m, { l }) => Math.max(m, size(l) ?? 0), 0);
     const ribbons: LaidRibbon[] = [];
-    const fades: RibbonFade[] = [];
+    const edgeSlots: RibbonEdgeSlot[] = [];
     for (const { link, l, fromKey, toKey } of edges) {
         const from = endpointOf(input, fromKey, l.from.run);
         const to = endpointOf(input, toKey, l.to.run);
         if (from === undefined || to === undefined) continue;
         // Both ends past the same edge: nothing of it is in view.
         if (from.end.off !== undefined && from.end.off === to.end.off) continue;
-        if (from.fade !== undefined) fades.push(from.fade);
-        if (to.fade !== undefined) fades.push(to.fade);
-        const opacity = maxQty > 0
-            ? RIBBON_OPACITY_MIN + (weight(l) / maxQty) * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN)
-            : RIBBON_OPACITY_MIN;
+        if (from.edgeSlot !== undefined) edgeSlots.push(from.edgeSlot);
+        if (to.edgeSlot !== undefined) edgeSlots.push(to.edgeSlot);
+        const weight = ribbonWeight(size(l), largest);
         const label = l.quantity.type === "some" ? quantityText(l.quantity.value, words) : undefined;
-        // Semantic routing (`routeRibbon`): the ribbon exits the source run's
+        // Semantic routing (`routeRibbon`): the link exits the source run's
         // END and enters the destination's BEGINNING in every arrangement.
-        ribbons.push({ ...routeRibbon(from.end, to.end), link, from: from.end, to: to.end, opacity, label });
+        ribbons.push({ ...routeRibbon(from.end, to.end, weight), link, from: from.end, to: to.end, weight, label });
     }
-    // Greedy caption de-overlap — bands sharing a source edge can land their
-    // captions on one another; nudge later ones down a line at a time. A
-    // ribbon with no caption takes no line.
+    // Greedy caption de-overlap — links sharing a source edge can land their
+    // captions on one another: a caption within 60 × 12 of an earlier one
+    // steps down 12 until clear. A link with no caption takes no line.
     const placed: { x: number; y: number }[] = [];
     for (const r of ribbons) {
         if (r.label === undefined) continue;
         while (placed.some((p) => Math.abs(p.x - r.lx) < 60 && Math.abs(p.y - r.ly) < 12)) r.ly += 12;
         placed.push({ x: r.lx, y: r.ly });
     }
-    return { ribbons, fades };
+    return { ribbons, edgeSlots };
 }

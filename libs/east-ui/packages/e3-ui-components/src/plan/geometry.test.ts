@@ -59,6 +59,9 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("focusGap").height).toBe(v("gap"));
         expect(slot("groupBand").minHeight).toBe(v("group"));
         expect(slot("toneCell").height).toBe(v("stripMark"));
+        // A span bar, a collapsed parent's, and either in a strip (#1258).
+        expect(slot("bar").height).toBe(v("bar"));
+        expect((slot("bar")["&[data-rolled]"] as Record<string, unknown>).height).toBe(v("rollBar"));
         expect((slot("bar")["&[data-ctx]"] as Record<string, unknown>).height).toBe(v("stripMark"));
         expect((slot("tile")["&[data-ctx]"] as Record<string, unknown>).height).toBe(v("stripMark"));
         expect((slot("cardChip")["&[data-ctx]"] as Record<string, unknown>).height).toBe(v("stripMark"));

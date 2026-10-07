@@ -24,7 +24,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Button, Chart, Configurator, Dock, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Stack, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -1585,10 +1585,11 @@ export const planTableRows = example({
 // planFold — a coarser resolution FOLDS each bucket's values (#824)
 // ============================================================================
 
-/** One measure — its weekly readings from W27; `series` picks its row's series. */
+/** One measure — its weekly readings from W23; `series` picks its row's series. */
 export const FoldMeasure = StructType({ series: StringType, label: StringType, readings: ArrayType(FloatType) });
 
-/** Twelve weeks of each measure, W27–W38. */
+/** Twelve weeks of each measure, W23–W34 — from the first Monday of June, so
+ *  the first month's column starts with the first week. */
 export const planFoldMeasures = e3.input("plan_fold_measures", DictType(StringType, FoldMeasure), variant("value", new Map([
     ["load",  { series: "load",  label: "Hall load %", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],
     ["peak",  { series: "peak",  label: "Peak load %", readings: [45.0, 62.0, 79.0, 46.0, 63.0, 80.0, 47.0, 64.0, 81.0, 48.0, 65.0, 82.0] }],
@@ -1599,50 +1600,64 @@ export const planFoldMeasures = e3.input("plan_fold_measures", DictType(StringTy
     ["ontime",   { series: "ontime",   label: "On-time %", readings: [88.0, 92.0, 96.0, 91.0, 95.0, 90.0, 94.0, 89.0, 93.0, 88.0, 92.0, 96.0] }],
 ])));
 
+/** A week the canvas shows — the rows its slice narrows. */
+export const FoldWeek = StructType({ week: DateTimeType });
+
 /**
  * Temporal fold (#824). The data is weekly; the canvas shows it at whatever
- * resolution the axis states, and at MONTH every row shows ONE value per
+ * resolution its slice states, and at MONTH every row shows ONE value per
  * month — the fold of its weeks there — where it used to stack four or five
  * on top of each other. Each cell builder and chart layer declares its fold,
  * defaulting to what its values mean: a heat level and a line fold by `mean`,
  * a table numeral and a column by `sum`, a weight fraction by `mean`. A row
  * overrides it where the meaning differs — peak load by `max`, closing stock
- * by `last`. The switch is the resolution; nothing in the data changes, and a
- * row whose weeks were never folded (WEEK) shows them as they are.
+ * by `last`. Nothing in the data changes, and a row whose weeks were never
+ * folded (WEEK) shows them as they are.
+ *
+ * The switch is the toolbar's (#1258): a slice bound over the weeks the
+ * canvas shows declares the `resolution` affordance, and the axis the
+ * resolutions it offers, so the toolbar's segment switches MONTH and WEEK. A
+ * switch keeps the canvas's column count — three months, then the first
+ * three weeks — and the horizon brush moves the window across the twelve.
  */
 export const planFold = example({
     keywords: [
         "Plan", "fold", "temporal fold", "resolution", "week", "month", "rebucket", "bucket",
         "sum", "mean", "max", "last", "count", "default", "override", "heatCells", "weightCells",
         "tableCells", "tableSeries", "layer", "Plan.layer", "column", "line", "format",
-        "Reactive", "State", "SegmentGroup", "#824", "readings", "Data.bind", "bound", "e3.input",
+        "Slice", "Slice.bind", "affordances", "toolbar", "segment", "range", "brush",
+        "Reactive", "#824", "#1258", "readings", "Data.bind", "bound", "e3.input",
     ],
-    description: "Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last)",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
+    description: "Temporal fold — weekly readings bound from e3 at MONTH resolution show one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last); the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK",
+    fn: East.function([], UIComponentType, (_$) => {
+        const cfg = Slice.config(FoldWeek, {
+            fields: { week: { label: "Week", format: { date: "MMM D" } } },
+            rangeFieldId: "week",
+        });
+        return (<Reactive>{$ => {
             const measures = $.let(Data.bind(planFoldMeasures));
-            // Monday of ISO week n, 2026 — twelve weeks, W27–W38.
+            // Monday of ISO week n, 2026 — twelve weeks, W23–W34.
             const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
                 const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
                 return w1.addWeeks(n.subtract(1n));
             }));
             const Weekly = StructType({ at: DateTimeType, value: OptionType(FloatType) });
             const MeasureRow = StructType({ week: DateTimeType, v: FloatType });
-            // A measure's weekly readings from W27, as each row kind reads
+            // A measure's weekly readings from W23, as each row kind reads
             // them: heat cells, booked fractions (the weeks after now are the
             // planned, pale tail), table cells and chart points.
             const heat = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), ($, readings) =>
                 East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$, i) => ({
-                    at: Plan.at.time(week(i.add(27n))), value: some(readings.get(i)), label: none,
+                    at: Plan.at.time(week(i.add(23n))), value: some(readings.get(i)), label: none,
                 }))));
             const booked = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.WeightCell), ($, readings) =>
                 East.Array.generate(readings.size(), Plan.Types.WeightCell, (_$, i) => ({
-                    at: Plan.at.time(week(i.add(27n))), fraction: readings.get(i), planned: i.add(27n).greater(31n),
+                    at: Plan.at.time(week(i.add(23n))), fraction: readings.get(i), planned: i.add(23n).greater(27n),
                 }))));
             const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(Weekly), ($, readings) =>
-                East.Array.generate(readings.size(), Weekly, (_$, i) => ({ at: week(i.add(27n)), value: some(readings.get(i)) }))));
+                East.Array.generate(readings.size(), Weekly, (_$, i) => ({ at: week(i.add(23n)), value: some(readings.get(i)) }))));
             const points = $.const(East.function([ArrayType(FloatType)], ArrayType(MeasureRow), ($, readings) =>
-                East.Array.generate(readings.size(), MeasureRow, (_$, i) => ({ week: week(i.add(27n)), v: readings.get(i) }))));
+                East.Array.generate(readings.size(), MeasureRow, (_$, i) => ({ week: week(i.add(23n)), v: readings.get(i) }))));
             const whole = $.const(Format.Number({ maximumFractionDigits: 0n }));
             const series = $.const([
                 // A level — a month shows its weeks' MEAN (the default). The
@@ -1688,25 +1703,29 @@ export const planFold = example({
                     layers: r => [Plan.layer(Chart.Line(points(r.readings), { x: p => p.week, y: p => p.v }), { fold: "mean" })],
                 }),
             ], ArrayType(Plan.Types.Series(FoldMeasure)));
-            // The resolution is the switch — two whole axis values, picked by
-            // key; the pick is the viewer's own state.
-            const axes = $.const([
-                { key: "month", axis: Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "month", now: week(31n) }) },
-                { key: "week", axis: Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }) },
-            ], ArrayType(StructType({ key: StringType, axis: Plan.Types.Axis })));
-            const resBind = $.let(State.bind([StringType], "plan_fold_resolution", "month"));
-            const resKey = $.let(resBind.read());
-            const onRes = $.const(East.function([StringType], NullType, ($, next) => { $(resBind.write(next)); }));
-            const sel = $.let(axes.filter((_$, a) => a.key.equal(resKey)).get(0n, _$ => axes.get(0n)));
+            // The weeks the canvas shows — the rows its slice narrows.
+            const weeks = $.let(East.Array.generate(12n, FoldWeek, (_$, i) => ({ week: week(i.add(23n)) })));
+            // The resolution is the slice's, MONTH to start, and the window
+            // its range. A slice range is CLOSED — both ends inclusive — so
+            // the twelve weeks W23–W34 end the millisecond before W35.
+            const slice = $.let(Slice.bind([FoldWeek], "ex.plan.fold", cfg, Slice.state({
+                range: some(variant("datetime", { from: week(23n), to: week(35n).addMilliseconds(-1n) })),
+                resolution: some(variant("month", null)),
+            }), weeks, none));
+            const axis = $.const(Plan.axis({
+                window: { min: week(23n), max: week(35n) },
+                resolution: "month", resolutions: ["month", "week"], now: week(27n),
+            }));
             return (
-                <VStack gap="2" align="stretch">
-                    <SegmentGroup value={resKey} onChange={onRes} size="sm"
-                        items={[SegmentGroup.Item("month", <Text>MONTH</Text>), SegmentGroup.Item("week", <Text>WEEK</Text>)]} />
-                    <Plan axis={sel.axis} data={measures} series={series} />
-                </VStack>
+                <Plan
+                    axis={axis}
+                    data={measures}
+                    series={series}
+                    slice={{ slice, affordances: ["range", "resolution", "brush"] }}
+                />
             );
-        }}</Reactive>
-    )),
+        }}</Reactive>);
+    }),
     inputs: [],
 });
 
@@ -4280,72 +4299,5 @@ export const slicePlanChrome = example({
             }}</Reactive>
         );
     }),
-    inputs: [],
-});
-
-// ============================================================================
-// dockBesidePlan — a Dock source panel beside a Plan board (#325)
-// ============================================================================
-
-/** A press on the board — its operation and its planned run. */
-export const DockPress = StructType({ operation: StringType, start: DateTimeType, end: DateTimeType });
-
-/** The board's presses, W28–W33. */
-export const planDockPresses = e3.input("plan_dock_presses", DictType(StringType, DockPress), variant("value", new Map([
-    ["Press A", { operation: "Offset",   start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z") }],
-    ["Press B", { operation: "Digital",  start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z") }],
-    ["Press C", { operation: "Coating",  start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z") }],
-])));
-
-/**
- * The concrete driver (#325): a `<Dock>` source panel beside a `<Plan>` drop
- * target in an `<HStack>`. The dock holds a job list and the Plan is the
- * schedule board; collapsing the dock reclaims horizontal space for the board
- * without covering it (in flow — never an overlay). The Plan sibling is
- * `flex="1" minWidth="0"` so it grows into the freed width.
- */
-export const dockBesidePlan = example({
-    keywords: ["Dock", "layout", "Plan", "beside", "drag", "source", "drop", "target", "in-flow", "sidebar", "board", "Data.bind", "bound", "e3.input"],
-    description: "A Dock job-source panel beside a Plan board over presses bound from e3 — collapsing the dock frees width for the board without covering it",
-    fn: East.function([], UIComponentType, (_$) => (
-        <Reactive>{$ => {
-            const presses = $.let(Data.bind(planDockPresses));
-            // Monday of ISO week n, 2026.
-            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
-                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
-                return w1.addWeeks(n.subtract(1n));
-            }));
-            const series = $.const([
-                Plan.series.span(DockPress, {
-                    key: "presses", title: "Presses",
-                    label: (_r, k) => k, id: true,
-                    sub: r => some(r.operation),
-                    runs: (r, k) => [Plan.run({
-                        key: k, start: r.start, end: r.end,
-                        label: "PLAN", state: variant("proposed", variant("added", null)),
-                    })],
-                }),
-            ], ArrayType(Plan.Types.Series(DockPress)));
-            const axis = $.const(Plan.axis({
-                window: { min: week(27n), max: week(34n) }, resolution: "week", now: week(29n),
-            }));
-            return (
-                <Box height="260px" width="100%">
-                    <HStack gap="4" width="100%" height="100%">
-                        <Dock icon="book" label="Jobs" badge="3" expandedSize="30%">
-                            <Stack gap="2" padding="3">
-                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Job 1042 — Lot 3</Text></Box>
-                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Job 1057 — Lot 7</Text></Box>
-                                <Box padding="2" background="bg.subtle" borderRadius="md"><Text>Job 1063 — Lot 1</Text></Box>
-                            </Stack>
-                        </Dock>
-                        <Box flex="1" minWidth="0">
-                            <Plan axis={axis} data={presses} series={series} style={{ height: "fill" }} />
-                        </Box>
-                    </HStack>
-                </Box>
-            );
-        }}</Reactive>
-    )),
     inputs: [],
 });

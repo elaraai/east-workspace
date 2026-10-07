@@ -65,7 +65,7 @@ export function PlanHeader({
                 are not exempt from "collapse, never remove". */}
             {pinnedId !== undefined && <Box role="rowgroup" id={pinnedId}>{pinned}</Box>}
             {/* The R1/R2 focus band — a SECTION row between the header and the
-                body (`← ALL ROWS` + caption); the ruler never moves. */}
+                body (`← All rows` + caption); the ruler never moves. */}
             {focus !== null && (
                 <FocusBar styles={styles} focus={focus} label={focusLabel ?? ""} counts={linkCounts} />
             )}
