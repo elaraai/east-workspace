@@ -246,12 +246,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     // ── Row focus (R1 / R2) ────────────────────────────────────────────────
     /** The focus band's way back. */
     allRows: () => string;
-    /** The links focus caption — `LINKS · H1-P03 · 4 UPSTREAM · 6 DOWNSTREAM`;
-     *  `label` is the focused row's gutter label. */
+    /** The links focus caption — `Links · H1-P03 · 4 upstream · 6 downstream`
+     *  (the band sets it in capitals); `label` is the focused row's gutter label. */
     focusLinks: (p: { label: string; upstream: string | undefined; downstream: string | undefined }) => string;
     /** The expand focus caption — `label` is the focused row's gutter label. */
     focusExpanded: (p: { label: string }) => string;
-    /** A row's family tag under a links focus. */
+    /** A row's family Tag under a links focus — `Upstream`, `Downstream`, `Linked`. */
     focusTag: (p: { tag: PlanFocusTagWord }) => string;
     /** The links-focus control's accessible name. */
     linksControl: () => string;
@@ -441,6 +441,11 @@ const LAYER_WORD: Record<PlanChartLayerWord, string> = {
     line: "line", area: "area", column: "columns", scatter: "points", band: "range",
 };
 
+/** A family row's Tag (`Plan links.html`, #1258). */
+const FOCUS_TAG: Record<PlanFocusTagWord, string> = {
+    UPSTREAM: "Upstream", DOWNSTREAM: "Downstream", LINKED: "Linked",
+};
+
 /** The parts of a list that are there, comma-joined. */
 const listed = (parts: ReadonlyArray<string | undefined>): string =>
     parts.filter((p): p is string => p !== undefined && p !== "").join(", ");
@@ -553,11 +558,11 @@ export const planMessages: PlanMessages = {
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     now: () => "NOW",
 
-    allRows: () => "← ALL ROWS",
+    allRows: () => "← All rows",
     focusLinks: ({ label, upstream, downstream }) =>
-        `LINKS · ${label}${upstream !== undefined && downstream !== undefined ? ` · ${upstream} UPSTREAM · ${downstream} DOWNSTREAM` : ""}`,
+        `Links · ${label}${upstream !== undefined && downstream !== undefined ? ` · ${upstream} upstream · ${downstream} downstream` : ""}`,
     focusExpanded: ({ label }) => `EXPANDED · ${label}`,
-    focusTag: ({ tag }) => tag,
+    focusTag: ({ tag }) => FOCUS_TAG[tag],
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
 
@@ -680,7 +685,7 @@ export interface PlanMessagesProviderProps {
  * @example
  * ```tsx
  * const GERMAN: Partial<PlanMessages> = {
- *     allRows: () => "← ALLE ZEILEN",
+ *     allRows: () => "← Alle Zeilen",
  *     tabRows: () => "Zeilen",
  *     groupMeta: ({ count, partial }) => `${partial ? "~" : ""}${count} Zeilen`,
  * };

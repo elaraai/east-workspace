@@ -69,17 +69,18 @@ export interface SpanRowProps {
     /** Renderer-derived rollup bands (the IR carries only the declaration). */
     bands: readonly DerivedBand[];
     styles: Styles;
-    /** Bar height, px — the canvas geometry's `bar` (or `rollBar` for a
-     *  collapsed parent; `KindPlot` decides). */
-    barHeight: number;
+    /** Whether its bars are a collapsed parent's, at the geometry's rollup
+     *  bar height rather than its bar's (`KindPlot` decides; the recipe
+     *  draws both). */
+    rolled: boolean;
     /** How its runs move (#825) — `undefined` when they do not. */
     move?: PlanRowMove | undefined;
 }
 
 /** One run bar — a button that moves, with its end handles, where its row takes moves (#825). */
-function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ctx, move }: {
+function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, move }: {
     run: RunValue; left: number; width: number; runoff: boolean;
-    rowKey: string; rowId: PlanRowId; styles: Styles; barHeight: number; ctx: boolean | undefined;
+    rowKey: string; rowId: PlanRowId; styles: Styles; rolled: boolean; ctx: boolean | undefined;
     move: PlanRowMove | undefined;
 }) {
     const scale = usePlanScale();
@@ -107,6 +108,9 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
             data-stuck={stuck ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
             data-runoff={runoff ? "" : undefined}
+            // A collapsed parent's bars are the geometry's rollup height —
+            // the recipe's, as every bar height is (#817, #1258).
+            data-rolled={rolled ? "" : undefined}
             data-run={run.key}
             data-plan-frac={left.toFixed(4)}
             // Focusable: Enter opens its popover (#816), and the
@@ -116,11 +120,6 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
             aria-label={runName(run, scale, words)}
             left={`${left * 100}%`}
             width={`${width * 100}%`}
-            // The bar height is a style PROP, and a style prop
-            // outranks the recipe — so in a strip it is not set at
-            // all, or the `bar[data-ctx]` 7px rule never wins and
-            // a 20px bar sits clipped inside a 16px strip (#591).
-            height={ctx === true ? undefined : `${barHeight}px`}
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
@@ -128,7 +127,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
-            <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{run.label}</Box>
+            <Box as="span" css={styles.barLabel}>{run.label}</Box>
             {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
             {moved !== undefined && moved > 0 && (
                 <Box as="span" css={styles.barQty}>{words.m.moved({ n: moved, count: words.number(moved) })}</Box>
@@ -144,7 +143,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ct
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeight, ctx, move }: SpanRowProps) {
+export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled, ctx, move }: SpanRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -175,7 +174,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeig
         <>
             {bars.map(({ run, left, width, runoff }) => (
                 <RunBar key={run.key} run={run} left={left} width={width} runoff={runoff}
-                    rowKey={rowKey} rowId={rowId} styles={styles} barHeight={barHeight} ctx={ctx} move={move} />
+                    rowKey={rowKey} rowId={rowId} styles={styles} rolled={rolled} ctx={ctx} move={move} />
             ))}
             {rollBands.map((band, i) => {
                 const f0 = scale.fracOf(band.from);

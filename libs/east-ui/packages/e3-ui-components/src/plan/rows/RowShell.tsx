@@ -124,8 +124,10 @@ export interface RowShellProps {
     gutterOverlay?: ReactNode;
     /** Suppress the bucket grid lines (rows drawing their own canvas). */
     noGrid?: boolean;
-    /** Row-scoped focus controls (R1 links / R2 expand) — 20px, hover-revealed
-     *  at the gutter's right edge, pinned while active. */
+    /** Row-scoped focus controls (R1 links / R2 expand) — 24px ghost buttons
+     *  on a pill in the row's surface, 8px from the gutter's edge and over its
+     *  meta, shown on the row's hover or keyboard focus, always on touch, and
+     *  while one is pressed (`Plan links.html`, #1258). */
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
     /** The links-focus family tag (R1) — shown in the canvas's words. */
     focusTag?: PlanFocusTagWord | undefined;
@@ -415,6 +417,9 @@ export function RowShell({
                 css={styles.gutterCell}
                 role="rowheader"
                 data-expanded={expandedAttr}
+                // How many controls its pill holds — an expanded chart's ticks
+                // step left of it (#1258).
+                data-plan-controls={controls !== undefined && controls.length > 0 ? String(controls.length) : undefined}
                 paddingLeft={`${12 + depth * INDENT_PX}px`}
                 onClick={onCaretClick !== undefined && ctx !== true
                     ? (e: React.MouseEvent) => { e.stopPropagation(); onCaretClick(); }
@@ -426,7 +431,7 @@ export function RowShell({
                             <FontAwesomeIcon icon={faCaretDown} />
                         </Box>
                     )}
-                    <Box as="span" overflow="hidden" textOverflow="ellipsis" minWidth={0} data-plan-gutter="label">{gutter.label}</Box>
+                    <Box as="span" css={styles.gutterLabel} data-plan-gutter="label">{gutter.label}</Box>
                     {/* The links-focus family tag (R1) — settles in after the
                         gather choreography. */}
                     {focusTag !== undefined && (
@@ -444,9 +449,11 @@ export function RowShell({
                                 data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />}
                         </Box>
                     )}
-                    {/* Row controls (R1/R2) — rightmost; a control click never
-                        selects or toggles the row. Out of the tab order: the
-                        row's Tab walk reaches them (#819). */}
+                    {/* Row controls (R1/R2) — a pill over the line's end, shown
+                        on the row's hover or focus (#1258), each named by the
+                        canvas's tooltip (`root/overlays.tsx`); a control click
+                        never selects or toggles the row. Out of the tab order:
+                        the row's Tab walk reaches them (#819). */}
                     {controls !== undefined && controls.length > 0 && (
                         <Box css={styles.rowControls} data-ctx={ctxAttr} data-expanded={expandedAttr}>
                             {controls.map((c) => (

@@ -813,6 +813,8 @@ gutter-imposing stack container any more.
 | `plannerSpan` | `planSpanRows` |
 | `plannerFill` | `planFill` |
 | `alignedStackAll` | `planTargetState` (all kinds, one axis), `planChartRows` (chart compositions) |
-| `alignedStackLibraryDnd` | `planRowDrop`; `dockBesidePlan` (source panel beside the target) |
+| `alignedStackLibraryDnd` | `planRowDrop` |
 
-`sliceGanttChrome` → `slicePlanChrome`; `dockBesidePlanner` → `dockBesidePlan`.
+`sliceGanttChrome` → `slicePlanChrome`. `dockBesidePlanner`, a `<Dock>` beside the
+canvas, became `dockBesidePlan` and is removed (#1258): the Plan renders in its
+frame, whose panes it holds.

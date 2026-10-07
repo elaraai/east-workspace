@@ -396,33 +396,84 @@ test.describe("Visual invariants — the Plan", () => {
             expect(read.summary).toMatch(/^\d+ OF \d+ ROWS · \d+ FILTERS?$/);
         });
 
-        test(`planSpanRows (${theme}): a links focus paints in the theme's brand — its bands, their heads and the off-window fade`, async ({ page }) => {
+        test(`planSpanRows (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
             const entry = await openExample(page, "planSpanRows", PLAN_EXAMPLES, theme);
             await entry.locator(`${rowSel("detail", "H1-P09")} [data-plan-control="links"]`).click();
-            await expect(entry.locator('[data-plan-linkfade="right"]')).toHaveCount(1);
-            const read = await entry.evaluate((root) => {
-                const probe = document.createElement("div");
-                probe.style.color = "var(--chakra-colors-brand-solid)";
-                root.appendChild(probe);
-                const brand = getComputedStyle(probe).color;
-                probe.remove();
-                const fade = root.querySelector('[data-plan-linkfade="right"]')!;
-                const id = /url\(#(.*)\)/u.exec(fade.getAttribute("fill") ?? "")?.[1] ?? "";
-                const stops = [...root.querySelectorAll(`[id="${id}"] stop`)].map((s) => {
-                    const cs = getComputedStyle(s);
-                    return { color: cs.stopColor, opacity: cs.stopOpacity };
-                });
+            await expect(entry.locator('[data-plan-linkslot="right"]')).toHaveCount(1);
+            await page.mouse.move(0, 0);
+            const T = {
+                muted: await tokenColour(page, "--chakra-colors-fg-muted"),
+                strong: await tokenColour(page, "--chakra-colors-fg-strong"),
+                subtle: await tokenColour(page, "--chakra-colors-fg-subtle"),
+                paper: await tokenColour(page, "--chakra-colors-bg-surface"),
+                paper2: await tokenColour(page, "--chakra-colors-bg-canvas"),
+                paper3: await tokenColour(page, "--chakra-colors-bg-subtle"),
+                rule: await tokenColour(page, "--chakra-colors-border-subtle"),
+                link: await tokenColour(page, "--chakra-colors-link"),
+                tint: await tokenColour(page, "--chakra-colors-brand-tint"),
+                pressed: await tokenColour(page, "--chakra-colors-brand-pressed"),
+            };
+            /** Every distinct computed look among what a selector matches. */
+            const looks = () => entry.evaluate((root) => {
+                const all = (sel: string, look: (s: CSSStyleDeclaration) => string) =>
+                    [...new Set([...root.querySelectorAll(sel)].map((el) => look(getComputedStyle(el))))].sort();
+                const one = (sel: string, look: (s: CSSStyleDeclaration) => string) => all(sel, look)[0] ?? "absent";
                 return {
-                    brand,
-                    band: getComputedStyle(root.querySelector("[data-plan-ribbon-band]")!).stroke,
-                    head: getComputedStyle(root.querySelector("[data-plan-ribbon-head]")!).fill,
-                    stops,
+                    band: all(":scope [data-plan-link]:not([data-lit]) [data-plan-ribbon-band]", (s) => s.stroke),
+                    head: all(":scope [data-plan-link]:not([data-lit]) [data-plan-ribbon-head]", (s) => s.fill),
+                    casing: all("[data-plan-casing='band']", (s) => `${s.stroke} ${s.fill}`),
+                    casingHead: all("[data-plan-casing='head']", (s) => `${s.fill} ${s.stroke} ${s.strokeWidth}`),
+                    knockout: all("[data-plan-ribbon-knockout]", (s) => s.fill),
+                    caption: all("[data-plan-ribbon-caption]", (s) => `${s.fill} ${s.fontSize} ${s.fontWeight} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
+                    slot: all("[data-plan-linkslot]", (s) => `${s.stroke} ${s.strokeWidth} ${s.strokeDasharray} ${s.fill}`),
+                    litBand: all("[data-plan-link][data-lit] [data-plan-ribbon-band]", (s) => s.stroke),
+                    litHead: all("[data-plan-link][data-lit] [data-plan-ribbon-head]", (s) => s.fill),
+                    halo: all("[data-plan-linkend]", (s) => `${s.stroke} ${s.strokeWidth} ${s.fill}`),
+                    focusBand: one("[data-plan-focusbar]", (s) => s.backgroundColor),
+                    back: one("[data-plan-focusback]", (s) => `${s.color} ${s.fontSize} ${s.fontWeight}`),
+                    focusCaption: one("[data-plan-focusbar] > :last-child", (s) => `${s.color} ${s.fontSize} ${s.fontWeight} ${s.textTransform} ${/mono/i.test(s.fontFamily) ? "mono" : s.fontFamily}`),
+                    tag: all("[data-plan-focustag]", (s) => `${s.backgroundColor} ${s.color} ${s.borderTopWidth} ${s.borderTopColor} ${s.borderTopLeftRadius} ${s.fontSize} ${s.fontWeight}`),
+                    pressed: one("[data-plan-control='links'][aria-pressed='true']", (s) => `${s.backgroundColor} ${s.color}`),
                 };
             });
-            expect(read.band).toBe(read.brand);
-            expect(read.head).toBe(read.brand);
-            // Clear inside the window, strongest at its edge — in the brand.
-            expect(read.stops).toEqual([{ color: read.brand, opacity: "0" }, { color: read.brand, opacity: "0.3" }]);
+            const rest = await looks();
+            expect(rest).toEqual({
+                band: [T.muted],
+                head: [T.muted],
+                casing: [`${T.paper} none`],
+                casingHead: [`${T.paper} ${T.paper} 2px`],
+                knockout: [T.paper],
+                caption: [`${T.muted} 10px 500 mono`],
+                slot: [`${T.subtle} 1px 4px, 4px none`],
+                litBand: [],
+                litHead: [],
+                halo: [],
+                focusBand: T.paper2,
+                back: `${T.link} 12.5px 500`,
+                focusCaption: `${T.subtle} 10px 600 uppercase mono`,
+                tag: [`${T.paper3} ${T.muted} 1px ${T.rule} 4px 10px 500`],
+                pressed: `${T.tint} ${T.pressed}`,
+            });
+            // Lit: the pointer on a link's band.
+            const at = await entry.locator('[data-link="2"]').evaluate((path: SVGPathElement) => {
+                const p = path.getPointAtLength(path.getTotalLength() / 2);
+                const svg = path.ownerSVGElement!.getBoundingClientRect();
+                return { x: svg.left + p.x, y: svg.top + p.y };
+            });
+            await page.mouse.move(at.x, at.y);
+            await expect(entry.locator('[data-plan-link="2"]')).toHaveAttribute("data-lit", "");
+            const lit = await looks();
+            expect({ band: lit.band, head: lit.head, litBand: lit.litBand, litHead: lit.litHead, halo: lit.halo }).toEqual({
+                band: [T.muted], head: [T.muted],
+                litBand: [T.strong], litHead: [T.strong],
+                halo: [`${T.strong} 1px none`],
+            });
+            // A rail and a gap band, hovered, step to the third paper.
+            for (const sel of ["[data-plan-rail]", "[data-plan-gap]"]) {
+                const target = entry.locator(sel).first();
+                await target.hover();
+                await expect(target, sel).toHaveCSS("background-color", T.paper3);
+            }
         });
     }
 });

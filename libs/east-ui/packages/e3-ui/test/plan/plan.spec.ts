@@ -63,9 +63,8 @@ describeEast("Plan", (test) => {
         planNarrow: ex.planNarrow,
         planNumberAxis: ex.planNumberAxis,
         planOrdinalAxis: ex.planOrdinalAxis,
-        // From east-ui's Slice and Dock examples, which drove a Plan (#1177).
+        // From east-ui's Slice examples, which drove a Plan (#1177).
         slicePlanChrome: ex.slicePlanChrome,
-        dockBesidePlan: ex.dockBesidePlan,
     });
 
     // =========================================================================

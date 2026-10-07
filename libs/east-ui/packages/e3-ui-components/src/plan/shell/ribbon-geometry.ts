@@ -8,22 +8,29 @@
  * permutation is testable offline (`ribbon-geometry.test.ts` holds the case
  * table) and the rendered cases can be reviewed as a contact sheet.
  *
- * The routing rule is SEMANTIC, not geometric: a ribbon always EXITS the
- * source run's END (right edge, heading right) and ENTERS the destination
- * run's BEGINNING (left edge, heading right) — flow direction is the same in
- * every case, whatever the interval arrangement. Paths are built from
- * straight lines and circular arcs ONLY, stroked at the span-rect thickness
- * with a plain triangle head:
+ * The grammar is `Plan links.html`'s (#1258), its case table this module's
+ * test table. The routing rule is SEMANTIC, not geometric: a link always
+ * EXITS the source run's END (right edge, heading right) and ENTERS the
+ * destination run's BEGINNING (left edge, heading right) — flow direction is
+ * the same in every case, whatever the interval arrangement. Paths are built
+ * from straight lines and circular arcs ONLY, stroked at the link's WEIGHT —
+ * the quantity's, never the bar's, each end centred on its own bar — with a
+ * plain triangle head 8 long and max(8, 2 × weight) wide:
  *
- * - Destination starts AFTER the source ends (causal, a real gap): the
- *   metro-S — straight, corner, riser, corner.
+ * - Destination starts at least head + 2 run-outs + 4 (34px) after the
+ *   source ends (causal, a real gap): the metro-S — straight, corner, riser,
+ *   corner.
  * - Anything else (abutting, overlapping, containing, backward): the
  *   LOOPBACK — exit right, turn toward the destination row, travel back
- *   left along the midpoint lane, turn into the destination's start.
+ *   left along the lane halfway between the bars, turn into the
+ *   destination's start. A destination at the window's start turns in the
+ *   gutter, under the row controls.
  * - Same-row links never loop: a forward feed is a straight centered band;
  *   an overlapping/backward one renders as an exit stub out of A's end plus
- *   a separate arrival head into B's start (the runoff grammar — the
- *   connection is implied, never drawn through impossible space).
+ *   a separate arrival into B's start (the runoff grammar — the connection is
+ *   implied, never drawn through the bars).
+ * - A link may cross a bar on its way. It is drawn over it, cased in the
+ *   paper (the renderer draws the casing).
  * - An endpoint OUT OF VIEW (#818) sits at the viewport edge its row lies
  *   beyond, and the ribbon meets that edge vertically with a STUB — an
  *   arrowhead pointing out of view, toward the row. A destination out of view
@@ -35,13 +42,17 @@
  *   end. Both out of view on the SAME side draws nothing — the caller never
  *   routes it.
  *
- * Direction changes turn at a small FIXED corner radius (CORNER_R, clamped
- * to the available drop); straight segments carry the remaining distance —
+ * Direction changes turn at a small FIXED corner radius (8, clamped to half
+ * the drop); straight segments carry the remaining distance —
  * rounded-orthogonal routing, so far-apart rows get straight risers with
  * tight corners rather than giant sweeping lobes. Both ends keep a
- * HORIZONTAL RUN-OUT longer than the head: the band always leaves A
+ * HORIZONTAL RUN-OUT of 11, longer than the head: the link always leaves A
  * straight before its first turn, and every head arrives along a straight
  * approach — never directly off a corner.
+ *
+ * Its caption sits on the riser at mid-height (an S, an out-of-view stub, the
+ * band across the view), on the lane (a loopback), or 6 above the source bar
+ * (one row).
  */
 
 /** The viewport edge an out-of-view endpoint lies beyond. */
@@ -61,8 +72,8 @@ export interface RibbonEnd {
     off?: RibbonOff | undefined;
 }
 
-/** A routed ribbon: centerline `stroke` (stroked at `width`), the arrowheads,
- *  and the caption anchor. */
+/** A routed link: centerline `stroke` (stroked at `width`, its weight), the
+ *  arrowheads, and where its caption's text is centred. */
 export interface RibbonPath {
     stroke: string;
     /** The arrowhead at the ribbon's end: into the destination's start, or —
@@ -77,10 +88,19 @@ export interface RibbonPath {
     anchor: "start" | "middle" | "end";
 }
 
+/** A head's length along the flow (px). */
+const HEAD_LEN = 8;
+/** The straight every link keeps out of its source's end and into its
+ *  destination's start (px). */
+const RUN_OUT = 11;
 /** Corner radius at every direction change (clamped to the available drop). */
-const CORNER_R = 10;
-/** Below this forward gap the metro-S degenerates — route the loopback. */
+const CORNER_R = 8;
+/** Below this gap past the head and two run-outs the metro-S degenerates —
+ *  route the loopback. */
 const MIN_S_GAP = 4;
+/** A caption's text sits this far below the point it is centred on (px) — a
+ *  10px label's middle. */
+const CAPTION_DROP = 3;
 
 const f = (n: number) => n.toFixed(1);
 
@@ -94,25 +114,24 @@ function arrow(bx: number, by: number, tx: number, ty: number, half: number): st
 }
 
 /**
- * Route one ribbon from the source run's END to the destination run's
+ * Route one link from the source run's END to the destination run's
  * BEGINNING — see the module doc for the case grammar.
  *
  * @param from - The source run's rect (out of view: at the edge it lies beyond)
  * @param to - The destination run's rect (the same)
- * @returns The ribbon's paths and caption anchor
+ * @param weight - The link's weight: its stroke's width (`ribbonWeight`)
+ * @returns The link's paths and caption anchor
  */
-export function routeRibbon(from: RibbonEnd, to: RibbonEnd): RibbonPath {
-    // The band rides at HALF the span-rect height — registered to the bar's
-    // centerline but with room to turn (a full-height band leaves adjacent-row
-    // loop radii below its own half-width, which degenerates the arcs).
-    const width = (from.bottom - from.top) / 2;
-    const halfH = width / 2;
-    // Head length rides the band width (base = band, length ≈ 0.7×) — a
-    // fixed-length head reads spiky once the band thinned.
-    const headLen = Math.max(5, width * 0.7);
+export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): RibbonPath {
+    // The weight is the quantity's, never the bar's: the same link draws as
+    // wide out of a 20px bar, a compact 16px one and a 12px rollup.
+    const width = weight;
+    // The head is 8 long and max(8, 2 × weight) wide.
+    const halfH = Math.max(HEAD_LEN, 2 * weight) / 2;
+    const headLen = HEAD_LEN;
     // Both ends keep a horizontal run-out LONGER than the head: the exit
     // straight out of A, and the approach straight into the head.
-    const runOut = headLen + 3;
+    const runOut = RUN_OUT;
     const ySrc = (from.top + from.bottom) / 2;
     const y2 = (to.top + to.bottom) / 2;
     const x1 = from.rightX;
@@ -145,7 +164,8 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd): RibbonPath {
         }
         // Overlapping/backward on one row: the runoff grammar — a squared
         // stub exits A's end; the arrival (approach + head) marks B's start.
-        // The connection is implied, never drawn over the bars.
+        // The connection is implied, never drawn through the bars; the stubs
+        // are cased where they sit on one.
         return {
             stroke: `M ${f(x1)} ${f(ySrc)} L ${f(x1 + runOut)} ${f(ySrc)}`
                 + ` M ${f(x2 - headLen - runOut)} ${f(y2)} L ${f(neckX)} ${f(y2)}`,
@@ -168,7 +188,8 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd): RibbonPath {
                 + ` A ${f(rad)} ${f(rad)} 0 0 ${1 - sweep1} ${f(approachX)} ${f(y2)}`
                 + ` L ${f(neckX)} ${f(y2)}`,
             head, tail: "", width,
-            lx: (x1 + neckX) / 2, ly: (ySrc + y2) / 2 - halfH - 5, anchor: "middle",
+            // The caption on the riser, at mid-height.
+            lx: xs + rad, ly: (ySrc + y2) / 2 + CAPTION_DROP, anchor: "middle",
         };
     }
 
@@ -202,11 +223,9 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd): RibbonPath {
             + ` A ${f(rB)} ${f(rB)} 0 0 ${s2} ${f(xC)} ${f(y2)}`
             + ` L ${f(neckX)} ${f(y2)}`,
         head, tail: "", width,
+        // The caption on the lane, at its middle — on its paper knockout.
         lx: (xR + xC) / 2,
-        // The caption rides ON the lane (halo-legible over the band) — an
-        // above-lane offset lands on the source bar when the lane is the
-        // narrow between-rows seam.
-        ly: yLane + 3,
+        ly: yLane + CAPTION_DROP,
         anchor: "middle",
     };
 }
@@ -254,7 +273,8 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
             head: arrow(xV, yEnd, xV, yB, halfH),
             tail: arrow(xV, yStart, xV, yA, halfH),
             width,
-            lx: xV + halfH + 4, ly: (yA + yB) / 2, anchor: "start",
+            // The caption on the band, at mid-height.
+            lx: xV, ly: (yStart + yEnd) / 2 + CAPTION_DROP, anchor: "middle",
         };
     }
 
@@ -280,7 +300,8 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
             head: arrow(xV, yNeck, xV, edge, halfH),
             tail: "",
             width,
-            lx: (x1 + xV) / 2, ly: ySrc - halfH - 5, anchor: "middle",
+            // The caption on the stub's riser, at mid-height.
+            lx: xV, ly: (ySrc + sgn * rad + yNeck) / 2 + CAPTION_DROP, anchor: "middle",
         };
     }
 
@@ -300,6 +321,7 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
         head: arrival,
         tail: arrow(xV, yStart, xV, edge, halfH),
         width,
-        lx: (xV + neckX) / 2, ly: y2 - halfH - 5, anchor: "middle",
+        // The caption on the riser it enters down, at mid-height.
+        lx: xV, ly: (yStart + y2 - sgnIn * rad) / 2 + CAPTION_DROP, anchor: "middle",
     };
 }

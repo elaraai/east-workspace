@@ -27,7 +27,7 @@ import type { PlanInstantValue } from "../instant.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { PLAN_WORDS } from "../words.js";
 import {
-    RIBBON_FADE_W, RIBBON_OPACITY_MAX, RIBBON_OPACITY_MIN, elementInstants, layoutRibbons, ribbonBody,
+    elementInstants, layoutRibbons, ribbonBody, ribbonWeight,
     type RibbonLayoutInput, type RibbonViewport,
 } from "./ribbon-layout.js";
 
@@ -164,17 +164,18 @@ describe("ribbon endpoints come from the model (#818)", () => {
         expect(ribbons[0]!.from.rightX).toBe(xOf(at("2026-07-06")));
     });
 
-    test("a run outside the window lands at the plot edge it lies past, behind a fade", () => {
-        const { ribbons, fades } = layoutRibbons(input({
+    test("a run outside the window lands on the plot edge it lies past, in a dashed slot as tall as its bar (#1258)", () => {
+        const { ribbons, edgeSlots } = layoutRibbons(input({
             links: [link("c", "early", "a", "ra"), link("a", "ra", "c", "late")], body, runDates,
         }));
         const mid = centre(32 + 22 + 32, 42);
         expect(ribbons[0]!.from.leftX).toBe(PLOT.left);
         expect(ribbons[0]!.from.rightX).toBe(PLOT.left);
-        expect(ribbons[1]!.to.leftX).toBe(PLOT.left + PLOT.width);
-        expect(fades).toEqual([
+        expect([ribbons[1]!.to.leftX, ribbons[1]!.to.rightX]).toEqual([PLOT.left + PLOT.width, PLOT.left + PLOT.width]);
+        // Each slot opens onto its edge; the overlay draws it 40 into the plot.
+        expect(edgeSlots).toEqual([
             { x: PLOT.left, y: mid - G.bar / 2, h: G.bar, side: "left" },
-            { x: PLOT.left + PLOT.width - RIBBON_FADE_W, y: mid - G.bar / 2, h: G.bar, side: "right" },
+            { x: PLOT.left + PLOT.width, y: mid - G.bar / 2, h: G.bar, side: "right" },
         ]);
     });
 
@@ -254,12 +255,12 @@ describe("the view (#818)", () => {
         expect(ribbons[0]!.to.top).toBe(centre(600, 32) - G.bar / 2);
     });
 
-    test("a fade is drawn only where its row is in view", () => {
+    test("a slot is drawn only while its row is in view (#1258)", () => {
         const late = runDatesOf({ "r0|x": [at("2026-06-29"), at("2026-07-06")], "r3|x": [at("2026-10-05"), at("2026-10-12")] });
-        expect(layoutRibbons(input({ links: [link("r0", "x", "r3", "x")], body, runDates: late })).fades).toHaveLength(1);
+        expect(layoutRibbons(input({ links: [link("r0", "x", "r3", "x")], body, runDates: late })).edgeSlots).toHaveLength(1);
         expect(layoutRibbons(input({
             links: [link("r0", "x", "r3", "x")], body, runDates: late, viewport: { top: 0, bottom: 300 },
-        })).fades).toEqual([]);
+        })).edgeSlots).toEqual([]);
     });
 });
 
@@ -346,30 +347,47 @@ describe("where a link's end meets its row (#1192)", () => {
     });
 });
 
-describe("ribbon ink and captions (#818)", () => {
-    const rows = ["a", "b", "c"].map((k) => spanRow(k));
-    const body = ribbonBody(rows.map((r) => rowItem(r)), [32, 32, 32], indexRows(rows), G);
+describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
+    const rows = ["a", "b", "c", "d"].map((k) => spanRow(k));
+    const body = ribbonBody(rows.map((r) => rowItem(r)), [32, 32, 32, 32], indexRows(rows), G);
     const runDates = runDatesOf({
         "a|x": [at("2026-06-29"), at("2026-07-06")],
         "b|x": [at("2026-07-27"), at("2026-08-03")],
         "c|x": [at("2026-07-27"), at("2026-08-03")],
+        "d|x": [at("2026-07-27"), at("2026-08-03")],
     });
 
-    test("opacity is the quantity's share of the family's largest", () => {
+    test("a weight is its quantity's third of the family's largest: above two thirds 8, above one third 4, else 2", () => {
+        // The spec's family: 96 t, 60 t and 24 t of a 96 t largest.
         const { ribbons } = layoutRibbons(input({
-            links: [link("a", "x", "b", "x", 40), link("a", "x", "c", "x", 10)], body, runDates,
+            links: [link("a", "x", "b", "x", 96), link("a", "x", "c", "x", 60), link("a", "x", "d", "x", 24)], body, runDates,
         }));
-        expect(ribbons[0]!.opacity).toBeCloseTo(RIBBON_OPACITY_MAX);
-        expect(ribbons[1]!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN + 0.25 * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN));
+        expect(ribbons.map((r) => r.weight)).toEqual([8, 4, 2]);
+        // The stroke is the weight.
+        expect(ribbons.map((r) => r.width)).toEqual([8, 4, 2]);
+        // A third or two thirds exactly is not above it.
+        expect([ribbonWeight(64, 96), ribbonWeight(32, 96), ribbonWeight(65, 96), ribbonWeight(33, 96)]).toEqual([4, 2, 8, 4]);
+        expect(ribbonWeight(0, 0)).toBe(2);
     });
 
-    test("a link with no quantity draws at the faintest, and says nothing — no caption, no tooltip (#824)", () => {
+    test("a link with no quantity weighs 1.5, and says nothing — no caption, no tooltip (#824)", () => {
         const { ribbons } = layoutRibbons(input({
             links: [link("a", "x", "b", "x", 40), link("a", "x", "c", "x", null)], body, runDates,
         }));
-        expect(ribbons[0]!.opacity).toBeCloseTo(RIBBON_OPACITY_MAX);
-        expect(ribbons[1]!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN);
+        expect(ribbons[0]!.weight).toBe(8);
+        expect(ribbons[1]!.weight).toBe(1.5);
         expect(ribbons[1]!.label).toBeUndefined();
+    });
+
+    test("the largest is the family's, over every link the focus gathers — a link keeps its weight as others scroll away", () => {
+        // A 96 t link between rows the view no longer shows still weighs the
+        // family: the 24 t link in view stays 2.
+        const tall = ribbonBody(rows.map((r) => rowItem(r)), [32, 400, 32, 32], indexRows(rows), G);
+        const { ribbons } = layoutRibbons(input({
+            links: [link("c", "x", "d", "x", 96), link("a", "x", "b", "x", 24)], body: tall, runDates,
+            viewport: { top: 0, bottom: 300 },
+        }));
+        expect(ribbons.map((r) => [r.link, r.weight])).toEqual([[1, 2]]);
     });
 
     test("a caption is the quantity's — its text, else its value through its format, then its unit (#824)", () => {
@@ -385,15 +403,31 @@ describe("ribbon ink and captions (#818)", () => {
         expect(told!.label).toBe("−24 k sheets");
         expect(formatted!.label).toBe("1,234.3 k sheets");
         // Weighed by value, whatever the caption says.
-        expect(told!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN + (24 / 1234.25) * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN));
+        expect([told!.weight, formatted!.weight]).toEqual([2, 8]);
     });
 
-    test("captions that would land on one another are nudged apart a line at a time", () => {
+    test("a caption within 60 × 12 of an earlier one steps down 12 until clear", () => {
         // Two ribbons from one source into two rows: their S-captions share a spot.
         const { ribbons } = layoutRibbons(input({
             links: [link("a", "x", "b", "x"), link("a", "x", "b", "x")], body, runDates,
         }));
         expect(ribbons[1]!.ly - ribbons[0]!.ly).toBe(12);
         expect(ribbons[1]!.lx).toBe(ribbons[0]!.lx);
+    });
+
+    test("a caption 50 across from an earlier one steps down; one 60 or more across stays on its riser", () => {
+        // Three S's out of one run end into one row: each caption sits on its
+        // riser, 27 short of its destination's start — at 473, 523 and 593.
+        const atPx = (px: number) => new Date(W27.getTime() + ((px - PLOT.left) / PLOT.width) * 84 * 86_400_000);
+        const dates = runDatesOf({
+            "a|x": [at("2026-06-29"), atPx(300)],
+            "b|p": [atPx(500), atPx(540)], "b|q": [atPx(550), atPx(590)], "b|r": [atPx(620), atPx(660)],
+        });
+        const { ribbons } = layoutRibbons(input({
+            links: [link("a", "x", "b", "p"), link("a", "x", "b", "q"), link("a", "x", "b", "r")], body, runDates: dates,
+        }));
+        expect(ribbons.map((r) => Math.round(r.lx))).toEqual([473, 523, 593]);
+        const ly = ribbons[0]!.ly;
+        expect(ribbons.map((r) => r.ly)).toEqual([ly, ly + 12, ly]);
     });
 });
