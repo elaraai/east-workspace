@@ -6,6 +6,13 @@ sort, is its own record with its own row type. It is laid out in
 `BuilderFrame` as Studio's builder and the query builder are, it has drag and
 drop throughout, and it replaces east-ui's heatmap `Calendar`.
 
+It is one component, `<Calendar>` (decision 14): it renders in its frame
+wherever it is used, its library and inspector are optional props, and given
+`readOnly` it writes nothing. The first design's two components,
+`<Calendar.Builder>` (the editor in its frame) and `<Calendar.View>` (the same
+calendar, read only), are one; where a section below says "the builder", it is
+`<Calendar>`.
+
 This document is the design the Calendar epic builds. Each sub-issue copies
 the sections it owns. `Calendar Spec.html` beside it is the visual design.
 
@@ -45,8 +52,9 @@ reads a screenshot.
 
 ## 1. Summary
 
-- **What.** `<Calendar.Builder>` plans events across resources and time.
-  `<Calendar.View>` is the same calendar, read-only.
+- **What.** `<Calendar>` plans events across resources and time, in its frame
+  wherever it is used. Given `readOnly`, it shows the same calendar and writes
+  nothing.
 - **Where.** The interface is in e3-ui (`libs/east-ui/packages/e3-ui/src/calendar/`)
   and the renderer in e3-ui-components (`src/calendar/`), as Studio's and the
   query builder's are. It binds records, so it is an e3 component.
@@ -54,12 +62,15 @@ reads a screenshot.
   record with its own row type, bound with its patch mutation.
   `resources={{ … }}` takes one entry per resource kind: rows of their own type,
   read only.
-- **Draws.** `BuilderFrame`: one toolbar; the library (Templates · Backlog) in
-  the start pane; the calendar, resource columns or timeline in main; the
-  inspector in the end pane; a status footer.
-- **Built in.** Drag and drop: templates and backlog rows onto the calendar,
-  moving, resizing, drag-to-create, and back to the backlog. Undo and redo,
-  Apply, and overlap warnings. The app wires none of it.
+- **Draws.** `BuilderFrame`: one toolbar; the library — the tabs `library`
+  lists (Templates · Backlog and the author's own) — in the start pane, and
+  none without it; the calendar, resource columns or timeline in main; the
+  inspector in the end pane when the calendar is given `inspector`, and none
+  without it; a status footer.
+- **Built in.** Drag and drop: templates, backlog rows and the author's cards
+  onto the calendar, moving, resizing, drag-to-create, and back to the
+  backlog. Undo, redo and discard, Save, and overlap warnings. The app wires
+  none of it.
 - **Replaces.** east-ui's `Calendar`, the day × week heatmap, which is removed.
 
 ## 2. Decisions
@@ -86,7 +97,7 @@ These are settled.
 7. **Times show as stored**, in UTC, as Plan's time axis does: no time-zone
    conversion.
 8. **Overlaps** on one resource are the built-in conflict. They warn and never
-   block Apply.
+   block Save.
 9. **Large records** are read through a record index on the days an event
    touches (`Calendar.days`); otherwise a record is read whole.
 10. **The inspector's form is a shared part**, `Fields`, that any builder can
@@ -95,19 +106,67 @@ These are settled.
     shown, not the size of a column.
 12. **Event kinds follow Plan's series conventions** (accessors, keys,
     `ready`, drops), with the three differences in §6, and the timeline shares
-    Plan's time parts in the renderer.
+    Plan's time parts in the renderer. Since #1218 the kinds are `Schedule`'s,
+    and `<Plan>`'s event kinds are the very same values (`Plan Builder
+    Spec.md` decision 2).
 13. **The mock's sample data is metal fabrication**: presses, lathes, brackets,
     housings, calibration and torque checks. Its people, customers and
-    addresses are made up. Nothing names a client or winemaking, in the mock,
-    the examples, the showcase or the tests.
+    addresses are made up. Nothing names a client or a client's trade, in the
+    mock, the examples, the showcase or the tests.
+14. **One Calendar** (the user's ruling for Plan and the Sheet, 2026-10-05,
+    `Plan Builder Spec.md` decision 16 and #1216; taken here 2026-10-07):
+    `<Calendar>` is the only Calendar, and it renders in its `BuilderFrame`
+    wherever it is used — in an app, in the showcase, in a test. Its library
+    and inspector are optional props: no prop, no pane. `Calendar.Builder` and
+    `Calendar.View` go, and one payload rides one carrier, `Calendar`. A
+    calendar that writes nothing is the same component given `readOnly`
+    (§9.9), as a sheet is.
+15. **The library is the author's** (2026-10-05, the ruling for every builder,
+    made on the Sheet's #1186): `library` lists its tabs, in order, each a
+    `Calendar.library.*` call — `templates()`, `backlog()`, and tabs of the
+    author's own cards (§4.6) — and left out, or `[]`, there is no pane.
+    Templates stay code, declared with their kind.
+16. **Save** (2026-10-07, the user's ruling, #1260): the history item is
+    Undo · Redo · Discard · Save, and every word a person reads says Save:
+    Saving…, a Save's conflicts, Save is off. The API keeps its own word:
+    `onApply`, `Record.onApply`. A calendar approves and rejects nothing: its
+    changes are its session's drafts, saved together.
+17. **Nothing outside the frame** (#1258, #1259): every control is an item of
+    the one toolbar, and nothing is drawn above or beside the calendar. Drags
+    come from the library pane and the view's own events; no example puts a
+    `<Library>` or a `<Dock>` beside a calendar.
+18. **Text is never cut, and controls show at rest** (#1258): an event's
+    title holds its block, chip or bar, and its time or sub-line shows only
+    where it fits whole; every control is drawn at rest, none only on hover,
+    and none wears a paper ring.
+19. **Touch** (#1193, #1221, #1229): a control keeps its size and is a 44px
+    tap target by its box or its halo (`coarseHitArea`), never by growing the
+    toolbar's row; a search box is a 44px field; segments that fold go into one
+    chip (`ChipMenu`). The toolbar's fold ladder has its spec, as every
+    builder's has (§7.1).
+20. **Every example uses bound sources** (§2a), as the Plan's and the Sheet's
+    do: each binds e3 records, seeded so no pane is empty, and runs on e3-web
+    in the showcase.
 
 ## 2a. Example data idiom
 
-Data an example or a test needs is an East value bound once with
-`$.let(value, Type)` inside the East body, and its variable is reused; never a
-module-scope TypeScript constant, and never a TypeScript helper that builds one
-(`no-host-in-east-block`, `no-module-scope-east-macro`). Times are East values:
-a time of day is `{ hour: 6n, minute: 0n }`, a duration `variant("hours", 8)`.
+Every example binds its data from e3, so it runs on e3-web in the showcase:
+`e3.record` and `e3.input` declarations at module scope, with small literal
+defaults (`no-compile-time-seed-data`), bound in the East body with
+`Record.bind`, `Data.bind` or `Data.bindPaged`. Writes go through each event
+record's patch mutation. Never `State.bind` for data, and never an inline
+collection as a component's data; `State` holds only a viewer's own state.
+
+Other values an example needs (a status table, a checklist, a template's
+values) are East values bound once with `$.let(value, Type)` inside the East
+body, and their variables reused; never a module-scope TypeScript constant, and
+never a TypeScript helper that builds one (`no-host-in-east-block`,
+`no-module-scope-east-macro`). Times are East values: a time of day is
+`{ hour: 6n, minute: 0n }`, a duration `variant("hours", 8)`.
+
+An example seeds the records its panes read, so none is empty: the events and
+their resources, a backlog, the author's cards, an event for the inspector to
+show, and an overlap for its banner.
 
 ## 3. The authoring surface
 
@@ -201,7 +260,7 @@ export const rota = ui("rota", [], East.function([], UIComponentType, _$ => (
         const people = $.let(Record.bind(d.people, []));
         const shifts = $.let(Record.bind(d.shifts, [d.shiftsPatch]));
         return (
-            <Calendar.Builder
+            <Calendar
                 resources={{
                     people: Calendar.resources(people.read(), { name: "People", icon: "user", label: p => p.name }),
                 }}
@@ -218,15 +277,18 @@ export const rota = ui("rota", [], East.function([], UIComponentType, _$ => (
 )));
 ```
 
-That is a working editor. Every other field of a shift shows in the inspector
-with the editor its East type gives it. Shifts drag, resize and move between
-people. Every gesture is a draft the toolbar can undo, and Apply commits them
-as one patch through `shiftsPatch`.
+That is a working editor. Shifts drag, resize and move between people. Every
+gesture is a draft the toolbar can undo, and Save commits them as one patch
+through `shiftsPatch`. It lists no `library` and is given no `inspector`, so it
+has neither pane: the toolbar, the view and the footer. Given them, its
+templates and backlog wait in the library, and every other field of a shift
+shows in the inspector with the editor its East type gives it.
 
 ### 3.3 The operations calendar
 
 The mock's surface: three event kinds on three resource kinds, with
-templates, a backlog, statuses and field editors.
+templates, a backlog, statuses and field editors, a library with a tab of the
+author's own, and the inspector.
 
 ```tsx
 // operations.tsx
@@ -256,7 +318,7 @@ export const operations = ui("operations", [], East.function([], UIComponentType
             { item: "Area clean", done: false },
         ], d.ChecklistType);
         return (
-            <Calendar.Builder
+            <Calendar
                 resources={{
                     people:   Calendar.resources(people.read(),   { name: "People",   icon: "user",         label: p => p.name, meta: p => some(p.role) }),
                     machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears",        label: m => m.name, meta: m => some(m.area) }),
@@ -291,9 +353,9 @@ export const operations = ui("operations", [], East.function([], UIComponentType
                         status: { field: "status", cases: status },
                         backlog: { duration: job => variant("hours", job.estimate_h), due: job => job.due },
                         fields: {
-                            work_order: Calendar.field.text({ label: "Work order", mono: true, placeholder: "WO-0000" }),
+                            work_order: Calendar.field.text({ label: "Work order", placeholder: "WO-0000" }),
                             priority:   Calendar.field.select({ labels: { p1: "P1 · critical", p2: "P2 · high", p3: "P3 · normal", p4: "P4 · low" } }),
-                            technician: Calendar.field.resource({ of: "people" }),
+                            technician: Calendar.field.reference({ of: "people" }),
                             estimate_h: Calendar.field.number({ label: "Estimate", unit: "h", step: 0.5, min: 0 }),
                             parts:      Calendar.field.tags({ options: ["Bearing 6204", "V-belt A42", "Seal kit", "Air filter"] }),
                             procedure:  Calendar.field.checklist({}),
@@ -311,7 +373,7 @@ export const operations = ui("operations", [], East.function([], UIComponentType
                         resource: { field: "target", of: { site: "sites", machine: "machines" } },   // a site or a machine
                         status: { field: "status", cases: status },
                         fields: {
-                            inspector: Calendar.field.resource({ of: "people" }),
+                            inspector: Calendar.field.reference({ of: "people" }),
                             standard:  Calendar.field.select({ labels: { safety_walk: "Safety walk", iso_9001: "ISO 9001", iso_45001: "ISO 45001" } }),
                             checks:    Calendar.field.checklist({ label: "Checklist" }),
                         },
@@ -324,6 +386,17 @@ export const operations = ui("operations", [], East.function([], UIComponentType
                 }}
                 view={{ layout: "calendar", period: "week" }}
                 hours={{ from: 6n, to: 22n }}
+                library={[
+                    Calendar.library.templates(),
+                    Calendar.library.backlog(),
+                    // The people as technicians: a card dropped on a job sets its technician.
+                    Calendar.library.tab(people.read(), {
+                        name: "Technicians", icon: "user-gear",
+                        label: p => p.name, meta: p => some(p.role),
+                        drop: (_p, key) => Calendar.patch(d.JobType, { technician: some(key) }),
+                    }),
+                ]}
+                inspector
             />
         );
     }}</Reactive>
@@ -335,7 +408,7 @@ export const operations = ui("operations", [], East.function([], UIComponentType
 By default a kind's record is read whole, as Studio's pages are. For a large
 one, give it an index on the days each event touches and pass a paged read of
 it as `window`. The calendar finds the first day in view and reads until it
-passes the last, so it holds only what it shows. Apply still commits through
+passes the last, so it holds only what it shows. Save still commits through
 the record's patch mutation.
 
 ```ts
@@ -365,7 +438,7 @@ has no start, nothing otherwise), passed as `backlogWindow`.
 ### 3.5 Refusing a drop, and the app's own check
 
 ```tsx
-<Calendar.Builder
+<Calendar
     // …
     canDrop={East.function([Calendar.Types.Candidate], OptionType(StringType), ($, drop) =>
         East.less(drop.start.getHour(), 6n).ifElse(
@@ -379,7 +452,7 @@ The structural refusals are built in: a slot whose resource is a kind the
 event kind doesn't take shows the red ghost "Needs people". `canDrop` adds the
 app's own, its message on the ghost; it is asked while the drag rests on a slot
 and once more at the drop. A kind's `ready` is the app's check on a drafted
-event, as Plan's `editing.ready` is: a refusal blocks Apply and names the event
+event, as Plan's `editing.ready` is: a refusal blocks Save and names the event
 and the field.
 
 ```tsx
@@ -398,8 +471,8 @@ The event and resource kinds are e3-ui's `Schedule` contract, which the
 Calendar and Plan's builder share (epic #1175): `Calendar.events`,
 `Calendar.resources`, `Calendar.field`, `Calendar.days`,
 `Calendar.unscheduled` and the shared `Calendar.Types` are aliases of
-`Schedule`'s (#1149). Plan's own options on them are accepted here and
-ignored.
+`Schedule`'s (#1149). Of Plan's own options the Calendar takes `overlaps`
+(§9.8) and `inspector` (§9.5); the rest are accepted here and ignored.
 
 ### 4.1 `Calendar.events(record, config)` — an event kind
 
@@ -423,7 +496,9 @@ a String as itself and any other key as East prints it, as Plan and
 | `backlog` | `{ duration, due? }` | For a kind whose times are Options: how long an unscheduled row takes (a `Calendar.Types.Duration`), which sizes it when it is dropped; and when it is due (`Option<DateTime>`), which groups the Backlog tab. Both accessors. |
 | `fields` | `{ [field]: Calendar.field.* }` | Editors for the inspector's fields, in this order; the row's other fields follow in declared order with the editor their type gives. |
 | `templates` | `CalendarTemplate[]` | Presets the Templates tab lists (§4.4). |
-| `ready` | `(row, key) => Editing.Types.Readiness` | The app's check on a drafted event. A refusal blocks Apply and names the event and field. |
+| `ready` | `(row, key) => Editing.Types.Readiness` | The app's check on a drafted event. A refusal blocks Save and names the event and field. |
+| `overlaps` | `"warn"`, `"allow"` | Whether two of the kind's events on one resource at once are an overlap (§9.8): `warn` by default; a kind that `allow`s them pairs with nothing. |
+| `inspector` | `(row, update) => UIComponentType` | The kind's own form for one event, in place of its `fields` (B46): an East function over the event's row and a writer of the edited row, passed through untouched and called only where the pane draws it. A function over another row type, or with no writer, is refused at build. |
 | `window`, `backlogWindow` | `Data.bindPaged` handles over a day index and an unscheduled index | Read the days in view, and the backlog, through record indexes instead of the whole record (§3.4). |
 
 ### 4.2 `Calendar.resources(rows, config)` — a resource kind
@@ -445,22 +520,31 @@ comes from its East type; a hint only adds what a type cannot say.
 
 | Field type | Editor with no hint | Hint |
 |---|---|---|
-| `String` | Text | `text({ label?, placeholder?, mono? })` |
-| `Integer`, `Float` | Number stepper (−/+, Shift for ×10) | `number({ label?, unit?, step?, min?, max? })`, bigints for an Integer field |
+| `String` | Text | `text({ label?, help?, placeholder? })` |
+| `Integer`, `Float` | Number, with its input's own steppers, moved by its step and clamped to its bounds; its unit and bounds in the line under it | `number({ label?, help?, unit?, step?, min?, max? })`, bigints for an Integer field |
 | `Boolean` | Checkbox | — |
 | `DateTime` | Date and time | — |
-| A variant of empty cases | Select; a case's name spelled out (`in_progress` → "In progress") | `select({ label?, labels? })` |
-| `Set<String>`, `Array<String>` | Tags, typed freely | `tags({ label?, options?, free? })`: options as dashed `+ option` chips |
-| `Array` of a struct with one String and one Boolean field | Checklist with its progress | `checklist({ label?, text?, done? })` names the fields when there are several |
-| A key of a resource kind | Text: a String can't say whose key it is | `resource({ label?, of })`: a select of that kind's resources, "Unassigned" first for an Option |
+| A variant of empty cases | Select; a case's name spelled out (`in_progress` → "In progress") | `select({ label?, help?, labels? })` |
+| `Set<String>`, `Array<String>` | Tags, typed freely | `tags({ label?, help?, options? })`: the options suggested as a tag is typed |
+| `Array` of a struct with one String and one Boolean field | Checklist with its progress | `checklist({ label?, help?, text?, done? })` names the fields when there are several |
+| A key of a resource kind | Text: a String can't say whose key it is | `reference({ label?, help?, of })`: a select of the rows of the resource slot `of` names, "Unassigned" first for an Option |
 | A struct | Its fields, grouped under its name | a hint per nested field, by path |
 | `Option<T>` | T's editor, which can be cleared | T's hint |
 | Anything else | Printed, read-only | `readonly()`; `hidden()` hides any field |
 
 `Fields` lives in east-ui (`src/contracts/fields.ts`: the hints, the closed
-`FieldSpecType`, and `fieldSpecs(R, hints)`, which resolves a struct's fields
+`FieldSpecType`, and `Fields.specs(R, hints)`, which resolves a struct's fields
 and hints into specs) and draws in east-ui-components (`FieldForm`, over a
 decoded struct value). Any builder's inspector can use it.
+
+As built (#1147, landed in #1201): `Calendar.field` is `Fields` itself, so the
+mock's resource hint is `Fields.reference`, whose `of` names a resource slot.
+Each field is the shared `Field` around the shared input its East type takes
+(`isTypeEqual`), never an editor of the form's own. What the mock had that the
+shared inputs do not is lost: a number's −/+ with Shift for ×10 (its input's
+own steppers move it by its step), the tags' dashed `+ option` chips (the
+options are suggested as a tag is typed, and `free` is gone), and a text box's
+mono face.
 
 ### 4.4 Templates
 
@@ -475,19 +559,54 @@ interface CalendarTemplate<R extends StructType> {
 }
 ```
 
-### 4.5 `Calendar.Builder` props
+### 4.5 `<Calendar>`'s props
 
 | Prop | Takes | What it does |
 |---|---|---|
 | `events` | `{ [kind]: Calendar.events(…) }` | The event kinds, at least one, in this order everywhere. |
 | `resources` | `{ [kind]: Calendar.resources(…) }` | The resource kinds, in this order everywhere. |
+| `library` | `Calendar.library.*` calls (§4.6) | The start pane's tabs, in order: left out, or `[]`, no pane (B47). |
+| `inspector` | `true` | The end pane: what is selected (§9.5). Left out, no pane (B50). A kind's own form is its `inspector` option (§4.1). |
+| `readOnly` | `Boolean` | A calendar that writes nothing (§9.9): the same kinds an editing calendar takes. |
+| `onSelect` | `Fn(Calendar.Types.EventRef) → Null` | Told of each event selected, by its ref (B53). |
 | `view` | `{ layout?, period?, date? }` | The first view: `"calendar"` (default), `"resources"` or `"timeline"`; `"day"`, `"week"` (default) or `"month"`; the date shown (today by default). The viewer's own changes persist per builder after that. |
 | `hours` | `{ from, to }` | Working hours, whole hours of the day; the rest is shaded. 06–22 by default. |
 | `week` | `{ start?, weekends? }` | The first day of the week (`"monday"` by default) and whether Saturday and Sunday show. |
 | `density` | `"compact"`, `"comfortable"`, `"spacious"` | The hour and lane heights (§8). |
 | `now` | `DateTime` | The instant the now line marks; the clock when omitted. A test or a showcase pins it. |
 | `canDrop` | `Fn(Calendar.Types.Candidate) → Option<String>` | The app's refusals, with their message. |
-| `id` | string | Names the builder when a surface holds two: its view state's storage key and its library's drag-source ids. |
+| `id` | string | Names the calendar when a surface holds two: its view state's storage key, its panes' state and its library's drag-source ids. |
+
+### 4.6 `Calendar.library`: the library's tabs
+
+The library is the author's (decision 15): `library` lists its tabs, in order,
+each a `Calendar.library.*` call returning the one tab type, as the Plan's and
+the Sheet's are (`Plan Builder Spec.md` §4.4).
+
+| Tab | Holds |
+|---|---|
+| `Calendar.library.templates()` | Every event kind's templates, by their `group` (§4.4, B18). |
+| `Calendar.library.backlog()` | Every event kind's unscheduled rows, by when they are due (B20). |
+| `Calendar.library.tab(rows, { name, icon?, label, meta?, group?, drop? })` | A card per row of a `Dict<K, R>`, read as `Calendar.resources` reads its rows, with accessors `(row, key)`: `label` (`String`), `meta` (`Option<String>`) and `group` (`String`). `drop` returns what a card dropped on an event sets: `Calendar.patch(R, { … })` (`Schedule.patch`, #1195) over an event kind's row type, every field an `Option`, the fields left out `none`. The patch's type picks the kind whose events take the drop (B48, B49). |
+
+```tsx
+library={[
+    Calendar.library.templates(),
+    Calendar.library.backlog(),
+    Calendar.library.tab(people.read(), {
+        name: "Technicians", icon: "user-gear",
+        label: p => p.name, meta: p => some(p.role),
+        drop: (_p, key) => Calendar.patch(d.JobType, { technician: some(key) }),   // dropped on a job, its technician
+    }),
+]}
+```
+
+Templates stay code, declared with their kind. Refused at build, naming the
+tab: a tab listed twice (an author's by its name); an author's rows that are
+not a `Dict`; and a `drop` patch over no event kind's row type, or over one two
+kinds share. Without the Templates tab, drag-to-create (B33) still creates from
+the first template that fits, with no active template marked; without the
+Backlog tab, nothing schedules a backlog row.
 
 ## 5. The East types
 
@@ -510,24 +629,50 @@ Calendar.Types.Candidate   = StructType({                                       
     end:      DateTimeType,
     resource: OptionType(ResourceRef),
 });
+Calendar.Types.Patch(R)                                                           // what Calendar.patch builds: every field of an event kind's row type an Option
 ```
+
+`ResourceRef`, `EventRef`, `Status`, `StatusCases`, `Clock`, `Duration`,
+`Candidate` and `Patch` are `Schedule.Types`' (#1218), the Calendar's names
+their aliases.
 
 ### 5.2 What the renderer receives: the payload
 
 Each kind's row type is closed behind East functions over beast2 bytes, so the
 payload is one type whatever the records hold: Plan's editing wire uses the same
-mechanism. The calendar depends on the shared contracts — `Editing`, the drag
-grammar, the `Library` card types, `BuilderFrame` — never on Plan's or Sheet's
-internals.
+mechanism. The calendar depends on the shared contracts — `Schedule`,
+`Editing`, the drag grammar, the `Library` card types, `BuilderFrame` — never on
+Plan's or Sheet's internals. The kinds' wire is `Schedule`'s (#1218):
+`CalendarKindType`, `CalendarResourcesType`, `CalendarItemType`,
+`CalendarWriteType` and `CalendarTemplateType` are aliases of
+`ScheduleKindType` and its siblings.
 
 ```ts
-CalendarBuilderPayloadType = StructType({
+CalendarPayloadType = StructType({
     events:    ArrayType(CalendarKindType),        // the event kinds, in slot order
     resources: ArrayType(CalendarResourcesType),   // the resource kinds, their rows resolved: { key, name, icon, rows: [{ key, label, meta }] }
-    settings:  CalendarSettingsType,               // the first view, week start, weekends, working hours, density, now
+    settings:  CalendarSettingsType,               // the first view, week start, weekends, working hours, density, now, read only
     canDrop:   OptionType(FunctionType([Candidate], OptionType(StringType))),
+    onSelect:  OptionType(FunctionType([EventRef], NullType)),
+    library:   ArrayType(CalendarLibraryTabType),  // the library pane's tabs, in the order `library` lists them; empty, no pane
+    inspector: BooleanType,                        // whether the calendar has its inspector pane
     id:        OptionType(StringType),
 });
+
+CalendarLibraryTabType = VariantType({
+    templates: NullType,                           // read off the kinds: their templates
+    backlog:   NullType,                           // read off the kinds: their unscheduled rows
+    tab:       StructType({
+        name: StringType, icon: OptionType(StringType),
+        drop: OptionType(StringType),              // the event kind a card lands on: named by the drop patch's type
+        cards: ArrayType(StructType({
+            key: StringType, label: StringType, meta: OptionType(StringType), group: OptionType(StringType),
+            sets: ArrayType(StructType({ path: ArrayType(StringType), value: BlobType })),   // each field the patch sets, as the kind's field write
+        })),
+    }),
+});
+
+CalendarComponent = EastUI.component("Calendar", CalendarPayloadType, { optional: true });
 
 CalendarKindType = StructType({
     key: StringType, name: StringType, icon: StringType,
@@ -565,10 +710,15 @@ CalendarWriteType = StructType({                   // one gesture, written into 
 ```
 
 `items` takes the window and the drafts by id, and draws a draft exactly as
-Apply would leave it. `write` turns a gesture into the entry's new bytes
+Save would leave it. `write` turns a gesture into the entry's new bytes
 through the kind's field names, so the renderer never needs the row type.
 
 ## 6. How it relates to Plan
+
+Since #1218 the kinds are shared: `<Plan events resources>` takes the very
+`Schedule` values a `<Calendar>` takes (#1191), and draws them on its rows
+(#1192). What follows compares an event kind with the series over Plan's
+`data`, whose conventions the kinds follow.
 
 An event kind is to the calendar what a series is to Plan: one kind of row,
 declared over its data with accessors and with the field names a gesture
@@ -582,7 +732,7 @@ thing:
 | Entries keyed by any type, named by their key's text | The same |
 | `editing.ready` | `ready` on each kind |
 | Drops from `Library` cards through the shared drag grammar; `canDrop` asked while resting and at the drop | The same |
-| A closed payload: entries cross as bytes at their exact type; a draft drawn by deriving it as Apply would leave it | The same mechanism in `items` and `write` |
+| A closed payload: entries cross as bytes at their exact type; a draft drawn by deriving it as Save would leave it | The same mechanism in `items` and `write` |
 
 It differs in three places on purpose:
 
@@ -597,27 +747,28 @@ It differs in three places on purpose:
   values are data.
 
 **Shared in the renderer.** The Timeline layout is a Plan canvas in shape. The
-time scale (units, ticks, the panning window), lane packing, the drag machine
-(snapping, ghosts, refusals), the now line and weekend and night shading become
-React parts both renderers use, taken out of Plan's renderer once
-(`e3-ui-components/src/shared/time/`, after Plan moves to e3, #1177). The calendar never composes `<Plan>`
-and its payload holds none of Plan's types. In the timeline, Day · Week · Month
-set the zoom, which is Plan's `resolution`; in the calendar layout the same
-control sets the stretch shown, hence `period`.
+time scale (units, ticks, the panning window), the lanes overlapping events
+take (`packLanes`), the drag machine (snapping, ghosts, refusals), the now line
+and weekend and night shading are React parts both renderers use, taken out of
+Plan's renderer once (`e3-ui-components/src/shared/time/`, #1148, landed in
+#1201). So are the overlaps (`shared/schedule/overlaps.ts`, #1198). The
+calendar never composes `<Plan>` and its payload holds none of Plan's types. In
+the timeline, Day · Week · Month set the zoom, which is Plan's `resolution`; in
+the calendar layout the same control sets the stretch shown, hence `period`.
 
 ## 7. Layout in BuilderFrame
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│ History · Calendar Resources Timeline · Day Week Month · <Today> · Filter · Apply │
-│          28 Sep - 4 Oct 2026                           2 conflicts (a warn chip)  │
+│ Calendar Resources Timeline · Day Week Month · ‹Today› · All ▾ · ⚠ 2 · ↶ ↷ ✕ Save │
+│ 28 Sep – 4 Oct 2026 · W40                                                         │
 ├───────────────────────────────────────────────────────────────────────────────────┤
-│ banners: an Apply's refusals and conflicts, by kind                               │
+│ banners: a Save's conflicts and refusals, by kind · out of date · unknown outcome │
 ├──────────────┬────────────────────────────────────────────────┬───────────────────┤
 │ LIBRARY      │ main: the view                                 │ INSPECTOR         │
 │ Templates    │  Calendar   time grid (day, week) or month     │ one event: header,│
 │ Backlog      │  Resources  a column per resource, one day     │  Schedule, fields │
-│ search       │  Timeline   a row per resource, pans in time   │ several: bulk edit│
+│ own tabs     │  Timeline   a row per resource, pans in time   │ several: bulk edit│
 │ cards (drag) │                                                │ none: hints       │
 ├──────────────┴────────────────────────────────────────────────┴───────────────────┤
 │ footer: 42 events · 6 in backlog · 3 pending · saved 14:02                        │
@@ -626,19 +777,42 @@ control sets the stretch shown, hence `period`.
 
 | Region | Holds |
 |---|---|
-| Toolbar | The history item (undo · redo · discard), Calendar · Resources · Timeline, Day · Week · Month, ‹ Today ›, the range and its week, the resource-kind filter, the conflicts chip, Apply. The shared `Toolbar` folds what doesn't fit. |
-| Banners | An Apply's refusals and conflicts, by kind. |
-| Start pane "Library" | Tabs Templates · Backlog, each a `Library` (§9.4). |
+| Toolbar | Every control the calendar has, as items of the shared `Toolbar` (§7.1). |
+| Banners | A Save's conflicts and refusals, by kind; a kind out of date; a write whose outcome is unknown (B51). |
+| Start pane "Library" | The tabs `library` lists — Templates · Backlog and the author's own (§4.6, §9.4); none, no pane. |
 | Main | The view (§8). |
-| End pane "Inspector" | The selection (§9.5). |
+| End pane "Inspector" | The selection (§9.5), when the calendar is given `inspector`; none, no pane. |
 | Footer | `42 events · 6 in backlog · 3 pending · saved 14:02`. |
 
 The panes are `BuilderFrame`'s: pinned beside main while main keeps 480px,
-overlaid with a rail and a scrim on a phone (560px and narrower), and slid off
-main during a drag so they never hide a drop target. The builder fills its
-parent and draws no border of its own. The mock's two control rows fold into
-the one toolbar, and its read-outs move to the footer. Every style is a slot
-recipe's: renderers set data attributes and geometry only.
+overlaid on their rails with a scrim at 560px of frame and narrower — the
+frame's own width, not the window's — and slid off main during a drag so they
+never hide a drop target. The calendar fills its parent and draws no border of
+its own. The mock's two control rows fold into the one toolbar, and its
+read-outs move to the footer. Every style is a slot recipe's: renderers set data
+attributes and geometry only.
+
+### 7.1 The toolbar's items
+
+| Item | Side | Under width pressure |
+|---|---|---|
+| Layout: Calendar · Resources · Timeline | start | Folds with the period into one View chip, whose menu holds both (a `ChipMenu` bundle, #1229) |
+| Period: Day · Week · Month | start | With the layout |
+| ‹ Today › | start | Keeps its buttons; Today folds to its icon |
+| The range and its week: `28 Sep – 4 Oct 2026`, `W40` | start | Its week line goes, then its year; then it hides, before the history item folds |
+| The resource-kind filter: All, then each kind | start | Folds first, into one chip naming the kind shown |
+| Overlaps: `⚠ 2 overlaps` | end | Folds to `⚠ 2` as the range shortens (B44) |
+| The history item: status line · Undo · Redo · Discard · Save | end | Folds last, to its buttons; absent on a read-only calendar |
+
+The history item is the shared `historyToolbarItem` (#988), its commit Save
+(#1260), at the row's end as every builder's is. The toolbar is one row, 44px,
+from the widest frame to a phone's: no item wraps or moves to a second row
+(B56). On a touch screen every control keeps its size and is a 44px tap target
+by its box or its halo (`coarseHitArea`, #1221) — a segment's halo grows its
+height alone, as its options sit edge to edge — and the library's search box is
+a 44px field. The ladder is held by the toolbars' visual invariant
+(`visual-invariants.spec.ts`, `TOOLBAR_HOSTS`) and by `toolbar-touch.spec.ts`,
+as the Plan's and the Sheet's are.
 
 ## 8. The views — anatomy, from the mock
 
@@ -647,12 +821,15 @@ these with visual invariants in the showcase's responsive suite.
 
 **Toolbar (mock).** At least 60px tall, padding 12px 20px. History buttons
 32×32. Segments 30px tall in mono 10.5px uppercase. In the product the toolbar
-is the shared `Toolbar`.
+is the shared `Toolbar`, one 44px row (§7.1).
 
 **Panes (mock).** Library 272px and Inspector 320px open, 44px as rails; the
 column change animates over `--dur-base` on `--ease-out`. A pane's tab row is
-44px. The Library's search band is padding 12px 14px on paper-2, around a 32px
-input.
+44px, and it folds when its tabs don't fit: the counts first, then a `+n` menu,
+the open tab kept (#1210). The Library's search band is padding 12px 14px on
+paper-2, around a 32px input; in the product each tab is a `Library`, whose
+search band is its own toolbar row, as the Sheet's and the Plan's are
+(`Sheet Builder Spec.md` §8).
 
 **Navigation (mock's band, the product's toolbar).** Prev · Today · Next in a
 28px group; the range label in DM Sans 15px 700; under it, in mono 10.5px, the
@@ -677,6 +854,9 @@ buttons.
   (wrapping when the lane is ≥ 110px), then a sub-line 11px (its resource, or
   its kind in Resources) when ≥ 64px tall and the lane ≥ 90px. A block
   continuing from the day before shows `↳` before its time;
+- no text in a block is cut (B54): the title holds it, ellipsized when it
+  alone doesn't fit, and the time and the sub-line show only where each fits
+  whole;
 - 6px resize handles at its top and bottom edges, where it starts or ends that
   day; selected, an 18×4px brand tab at each;
 - the now line: 1.5px brand across today's column, a 7px dot at its start,
@@ -686,7 +866,8 @@ buttons.
 mono 11px (`1 Oct` on the first; today 700 in the brand, with a `TODAY` tag);
 days outside the month on paper-2; event chips 21px tall, padding 0 6px — icon
 8.5px, the start time mono 10px when a column is ≥ 120px wide, title 11.5px
-600, overlap mark — as many as fit, then `+N more`.
+600, overlap mark — as many as fit, then `+N more`. A chip's title
+ellipsizes, and its time shows only where it fits whole (B54).
 
 **Timeline:**
 - a 52px header: a 24px units row (`Thu 1 Oct 2026`, `W40 · 28 Sep – 4 Oct`,
@@ -698,7 +879,9 @@ days outside the month on paper-2; event chips 21px tall, padding 0 6px — icon
   least 30 at Month) plus 9px; a bar sits 4px down its lane, the lane height
   less 4px tall, 1px in from its ends, radius 4 (2 under 8px wide);
 - a bar shows its title from 36px wide, its icon from 56px, its time from
-  110px, nothing under 16px; at Month bars span whole days with no handles;
+  110px, nothing under 16px; the title ellipsizes rather than being cut, and
+  the icon and the time show only where they fit whole (B54); at Month bars
+  span whole days with no handles;
   6px start and end handles where the bar's edge is in the window;
 - zoom: 1920px a day at Day (15 days loaded), 216px at Week (56 days), 40px
   at Month (154 days). Weekends shaded; at Day, nights shaded too.
@@ -713,7 +896,11 @@ days outside the month on paper-2; event chips 21px tall, padding 0 6px — icon
     time and title;
   - Schedule: rows of a 92px label column (label 12.5px over its key mono
     10px) and a 32px input; Time is two 15-minute-step inputs with the length
-    under them (`8 h · ends next day`);
+    under them (`8 h · ends next day`). In the product each field is the
+    shared `Field` (#1147): its label and key over the input its type takes,
+    every one-line control the design system's 32px input (44px on touch),
+    fields 16px apart (#1220). The mock's 92px label column is lost; nothing a
+    field says is;
   - the fields: a section headed `<Kind> fields` with `🔒 defined by type`,
     each field as §4.3;
   - Duplicate and Delete (danger) at the end.
@@ -755,7 +942,7 @@ mock.
   resources of that kind, and only that kind's columns and rows.
 - **B6.** The view, period and date persist per builder for the viewer.
 - **B7.** The footer counts the events, the backlog, the pending changes and
-  the last Apply's time.
+  the last Save's time.
 
 ### 9.2 The views (owner: frame and views)
 
@@ -764,8 +951,8 @@ mock.
   events that overlap one another takes as many lanes as it needs, and an event
   spans every free lane to its right.
 - **B10.** A block's look: drafted, tinted brand with a brand border; selected,
-  a 1.5px brand outline; overlapping, a warn border and ⚠; being dragged, a
-  shadow and above the rest.
+  a 1.5px brand outline; overlapping, the 1.5px warn ring the Plan's marks wear
+  (#1198) and ⚠; being dragged, a shadow and above the rest.
 - **B11.** Clicking a day's header in Week opens that day.
 - **B12.** In the month grid a day shows the events that start on it, earliest
   first, as many as fit; `+N more` opens that day.
@@ -779,12 +966,13 @@ mock.
 - **B15.** A click selects one event; Shift, ⌘ or Ctrl adds or removes one; a
   click on empty grid clears; Esc clears.
 - **B16.** Delete or Backspace deletes the selection; ⌘Z undoes; ⇧⌘Z or ⌘Y
-  redoes — never while typing in an input.
+  redoes — from anywhere in the frame, never while typing in an input.
 
 ### 9.4 The library pane (owner: library pane)
 
-- **B17.** Tabs Templates and Backlog, each with its count; a search filters
-  the tab by name, kind and resource.
+- **B17.** The library holds the tabs `library` lists, in its order, each with
+  its count; a search filters each: a template by name and kind, a backlog row
+  by title, kind and resource, an author's card by key, label and meta.
 - **B18.** Templates group by their `group`; each card shows a grip, its
   kind's icon tile, its name and `Maintenance · 2 h · machines`.
 - **B19.** Clicking a template makes it the active one, tinted and marked; the
@@ -793,9 +981,17 @@ mock.
 - **B20.** The backlog groups by due: Due this week, Due next week, Later, No
   date. Each card shows `2 h · Press 1 · due Fri 2`.
 - **B21.** Empty, a tab says `Backlog clear: every backlog item is on the
-  calendar` or `No matches: nothing matches "q"`.
-- **B22.** Collapsed, the pane is a rail: its icon, the backlog's count, and
-  `Library` set vertically.
+  calendar`, `Nothing in Technicians` for an author's tab with no rows, or
+  `No matches: nothing matches "q"`.
+- **B22.** Collapsed, the pane is a rail: its icon, the backlog's count (or
+  the first tab's when Backlog isn't listed), and `Library` set vertically.
+- **B47.** `library` is optional: left out, or `[]`, the calendar draws no
+  start pane. A tab listed twice is refused at build, naming it.
+- **B48.** `Calendar.library.tab(rows, { name, icon, label, meta?, group?,
+  drop? })` lists one card per row: its label and meta, grouped by `group`,
+  each a drag source when the tab has a `drop` (B49). `drop`'s patch is checked
+  at build: its type is one event kind's row type, or the build fails naming
+  the tab, as it does for a type two kinds share.
 
 ### 9.5 The inspector (owner: inspector)
 
@@ -812,6 +1008,13 @@ mock.
   variant's first case, and selects it.
 - **B29.** Collapsed, the pane is a rail: its icon, the selection's count, and
   `Inspector` and the selected event's title set vertically.
+- **B46.** With the kind's `inspector` given (§4.1), one event of the kind shows
+  what it returns for the event's draft in place of the fields; its
+  `update(edited)` is one undoable gesture, tinted as B26 says. The header, the
+  overlaps banner, Schedule, Duplicate and Delete stay the calendar's.
+- **B50.** The inspector is optional: given (`inspector`), the end pane shows
+  the selection; left out, the calendar draws no end pane, and a selection
+  still rings its events and is told to `onSelect`.
 
 ### 9.6 Drag and drop (owner: drag and drop)
 
@@ -824,9 +1027,9 @@ mock.
 - **B32.** A resize drags an edge; an event is at least 15 minutes long.
 - **B33.** Dragging across empty time creates an event from the active
   template — or, when that template's kind doesn't take the column's resource
-  kind, the first template that does. A ghost says
-  `Day shift · 06:00–14:00`; on release the event is created and selected. Not
-  at the timeline's Month zoom.
+  kind, the first template that does; with no Templates tab, the first template
+  that fits. A ghost says `Day shift · 06:00–14:00`; on release the event is
+  created and selected. Not at the timeline's Month zoom.
 - **B34.** A template card dropped on a slot creates its event there: at the
   slot's time (in the month grid, on that day at the template's `at`), for its
   `duration`.
@@ -840,29 +1043,74 @@ mock.
 - **B38.** While dragging, a dashed ghost shows where the event lands and when;
   on a slot it can't take, the ghost is red and says why: `Needs people`, or
   `canDrop`'s message (*product*).
+- **B49.** A card of an author's tab dropped on an event of its patch's kind
+  sets the fields the patch sets on that event, as one gesture. The ghost says
+  `A. Ash → Preventive maintenance`. Refused: on a slot (`Drop a technician onto
+  an event`), or on an event of another kind (`Shifts take no technician`).
+- **B57.** Every drag starts in the library pane or on the view's own events:
+  the calendar takes no card from a `<Library>` outside its frame (#1259).
 
-### 9.7 Editing and Apply (owner: editing)
+### 9.7 Editing and Save (owner: editing)
 
 - **B39.** Each kind is one session of the shared `Editing` contract over its
   record; every gesture is a draft and one undoable transaction. Typing into a
   title or a number joins the last transaction when it is under 1.5 seconds old.
 - **B40.** The history item undoes, redoes and discards across kinds, in the
   order the gestures were made.
-- **B41.** Apply commits each kind with drafts as one patch through its
+- **B41.** Save commits each kind with drafts as one patch through its
   record's patch mutation, checked against what its drafts began from. A kind
   whose record moved since is refused as a conflict: its drafts stay, and a
   banner names them. The other kinds commit.
-- **B42.** A kind's `ready` refusing a drafted event blocks Apply and names the
+- **B42.** A kind's `ready` refusing a drafted event blocks Save and names the
   event and field (*product*).
+- **B51.** The session's other outcomes are the shared session's, as the
+  Plan's and the Sheet's are (`Plan Builder Spec.md` PB46–PB48): a write with no
+  answer leaves its kind unknown, and Save turns into Retry for it, resending
+  the same request with its id unchanged; a record moving under a kind's pending
+  drafts marks the kind out of date, and a banner offers Discard. Drafts retire
+  once the records read back as the commit left them. A banner leaves when what
+  it reports does.
 
 ### 9.8 Overlaps (owner: overlaps)
 
 - **B43.** Two events on one resource whose times overlap are an overlap pair;
-  both are flagged (B10).
-- **B44.** The conflicts chip counts the pairs. A click selects the first pair,
-  earliest first, opens the inspector and brings it into view (from the month
-  grid, to Resources on its day).
-- **B45.** The inspector's banner lists what the selected event overlaps.
+  both are flagged (B10). The pairs are the shared `scheduleOverlaps` (#1198),
+  over the events in view with the drafts in place: on a calendar the events of
+  every kind that warns (`overlaps`, `warn` by default) pair, per resource, its
+  kind and its key together, so two kinds' events on one machine pair; a kind
+  that `allow`s pairs with nothing. Spans are half-open: two events that only
+  meet never pair, and an event with no time or on no resource never overlaps.
+- **B44.** The toolbar's warn chip counts the pairs, `⚠ 2 overlaps` (the mock's
+  `2 conflicts`), folding to `⚠ 2`. A click selects the first pair, earliest
+  first, opens the inspector and brings it into view (from the month grid, to
+  Resources on its day).
+- **B45.** The inspector's banner lists what the selected event overlaps, each
+  a link that selects it. Overlaps raise no issue and no banner of the
+  session's, and never block Save.
+
+### 9.9 A read-only calendar (owner: a read-only calendar)
+
+- **B52.** Given `readOnly`, the calendar writes nothing: no history item, no
+  Save and no session banners; no event moves, resizes or is made by a drag,
+  and its library's cards don't drag; its inspector shows the selection with its
+  edits off; `canDrop`, the kinds' `ready` and their templates are never asked.
+  It takes the kinds an editing calendar takes, reads them through the same
+  seams (`window` included), and flags overlaps.
+- **B53.** `onSelect` is told each event selected, by its `EventRef`, on any
+  calendar, read-only or not.
+
+### 9.10 Text, controls and the toolbar (owner: frame and views)
+
+- **B54.** No text in a block, a month chip or a timeline bar is cut: its title
+  holds it, ellipsized when it alone doesn't fit, and its time, icon and
+  sub-line show only where each fits whole (#1258).
+- **B55.** Every control is drawn at rest — none shows only on hover — and none
+  wears a paper ring (#1258).
+- **B56.** The toolbar is one row (§7.1): under width pressure its items fold on
+  one ladder, the history item last, and none wraps or moves to a second row.
+  On a touch screen each control keeps its size and is a 44px tap target by its
+  box or its halo, never by growing the row (#1221); the library's search box is
+  a 44px field.
 
 ## 10. Drag and drop, as a table
 
@@ -874,19 +1122,29 @@ mock.
 | An event's edge | along its axis | Resizes it (B32) | it would be shorter than 15 minutes |
 | An event | the Backlog tab | Unschedules it (B36) | its kind's times are not Options |
 | Across empty time | — | Creates from the active template (B33) | as for a template |
+| An author's card | an event of its patch's kind | Sets the fields its patch sets (B49) | a slot, or an event of another kind |
 
-All of it runs on the shared drag grammar (`LibraryRef`, `CellRef`,
-`DragEvent`), as Studio's canvas does. A calendar `CellRef`'s `row` is the
-resource's ref text (`East.print` of `Calendar.Types.ResourceRef`), or `""`
-where the view has no resources, and its `slot` the snapped start instant as
-East prints a `DateTime`.
+Every drag starts in the library pane or on the view's own events (B57). All of
+it runs on the shared drag grammar (`LibraryRef`, `CellRef`, `DragEvent`), as
+Studio's canvas does. A calendar `CellRef`'s `row` is the resource's ref text
+(`East.print` of `Calendar.Types.ResourceRef`), or `""` where the view has no
+resources, and its `slot` the snapped start instant as East prints a
+`DateTime`.
 
 ## 11. Where the product differs from the mock
+
+The mock is kept as it was exported. Where its words differ from the rulings
+since — its Apply and applied layer, its `conflicts`, its history buttons
+first — the product does what this table says.
 
 | The mock | The product | Why, and what is lost |
 |---|---|---|
 | Two control rows: the toolbar, and a band over the view | One toolbar, folding; counts in the footer | A component has one toolbar. Nothing is lost. |
-| Apply moves pending changes into an applied layer; Save persists | Apply commits; Discard sits in the history item | One editing session: drafts, then Apply. The applied-but-unsaved layer is lost. |
+| Apply moves pending changes into an applied layer; Save persists | Save commits; Discard sits in the history item | One editing session: drafts, then Save (#1260). The applied-but-unsaved layer is lost. |
+| The history buttons first in the toolbar | The history item last, as every builder's | One place for it in every builder. |
+| The `2 conflicts` chip | `⚠ 2 overlaps`, the warn chip the Plan's overlaps wear (#1198) | One word for one thing across the builders. |
+| The inspector's 92px label column; a number's −/+ with Shift for ×10; tags' dashed `+ option` chips; a mono text box | The shared `Field` and inputs (#1147, #1220) | The inspector's form is every builder's. Shift's ×10, the dashed chips and the mono face are lost. |
+| Templates · Backlog, always | The tabs `library` lists, and none without it | The library is the author's (decision 15). |
 | A Type select changes an event's type | No type change | Decision 4. |
 | Backlog items are their own list | A kind's rows with no time | Scheduling is one write to one record. |
 | Status levels `ring`, `ok`, `live`, `low` | The `Status` tones and an open ring | East's status vocabulary. |
@@ -898,8 +1156,8 @@ East prints a `DateTime`.
 ## 12. Wires
 
 - **UI.** east-ui's `Calendar` arm leaves `UIComponentType`; packages are
-  re-exported (`WIRE_MIGRATION.md`). The builder rides an `EastUI.component`
-  carrier, `CalendarBuilder`, as `StudioBuilder` does.
+  re-exported (`WIRE_MIGRATION.md`). `<Calendar>` rides one `EastUI.component`
+  carrier, `Calendar`, as `<Plan>` and `<Sheet>` ride theirs (#1191, #1216).
 - **Stored state.** None: the records are the app's own types.
 
 ## 13. The sub-issues, in landing order
@@ -910,11 +1168,17 @@ East prints a `DateTime`.
 4. Shared time parts, out of Plan's renderer.
 5. The types and factories (e3-ui).
 6. The frame and the views.
-7. Editing and Apply.
+7. Editing and Save.
 8. The library pane.
 9. Drag and drop.
 10. The inspector.
 11. Overlaps.
 12. Windowed reads.
 13. The showcase on e3-web, its responsive specs, the skill and examples.
-14. `Calendar.View`, read-only.
+14. A read-only calendar: `<Calendar readOnly>`, and `onSelect`.
+
+`Fields` (#1147), the shared time parts (#1148) and `Schedule` (#1218) land
+first in #1201, the Plan and Sheet builders' PR; this branch takes them once
+#1201 is on main. The frame, the library and the inspector are pushed
+together, so the calendar first appears with both panes full of the examples'
+seeded records.
