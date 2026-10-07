@@ -9,7 +9,7 @@
  * takes focus, so a row, a band, a bar and a cell all say "you are here" the
  * same way. Keyboard focus only (`:focus-visible`): a click that focuses a row
  * paints nothing new. A selected event (#1197) is ONE ring too, on every mark
- * an event draws.
+ * an event draws, and so is an event in an overlap pair (#1198).
  *
  * @packageDocumentation
  */
@@ -39,3 +39,12 @@ export const planElementFocus = {
 export const planElementSelected = {
     "&[data-selected]": { outline: "1.5px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
 } satisfies SystemStyleObject;
+
+/**
+ * An event in an overlap pair (#1198, `Plan Builder Spec.md` §8, PB51) — a
+ * 1.5px warn ring just outside its mark (`data-overlap`), the stuck ring's
+ * look. A box shadow, so the selected outline and a keyboard focus's ring draw
+ * over it, beside it, never in its place; a mark that has a ring of its own
+ * composes the two (a confirmed mark's inset brand ring inside this one).
+ */
+export const PLAN_OVERLAP_RING = "0 0 0 1.5px {colors.status.warn}";

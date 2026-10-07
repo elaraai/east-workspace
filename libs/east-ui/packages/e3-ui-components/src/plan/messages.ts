@@ -130,6 +130,13 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     /** The key search's icon — what a toolbar short of room folds its box
      *  to — and the head of the popover it opens the box in (#1193). */
     keySearch: () => string;
+    /** The overlaps chip (#1198, PB52) — `3 overlaps`: the pairs of events
+     *  that overlap in the window. */
+    overlaps: (p: { n: number; count: string }) => string;
+    /** The chip shortened to its count — `3` — what a toolbar short of room keeps of it. */
+    overlapsShort: (p: { n: number; count: string }) => string;
+    /** The chip's accessible name: its count, and what a click on it does. */
+    overlapsLabel: (p: { n: number; count: string }) => string;
 
     // ── Diagnostics (#811) ─────────────────────────────────────────────────
     /** Rows drawn as diagnostic rows. */
@@ -227,6 +234,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
     /** A hint when nothing is selected — three of them. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
+    /** One event's overlaps banner (#1198, PB53) — `Overlaps 2 events on Press B2`: `on` is its resource's name. */
+    inspectorOverlaps: (p: { n: number; count: string; on: string }) => string;
+    /** A row's overlaps banner (PB40) — `2 overlaps`: the pairs on the row's resource in the window. */
+    inspectorRowOverlaps: (p: { n: number; count: string }) => string;
+    /** One pair in a row's banner — `Market posters · Loyalty cards`: its events' titles. */
+    inspectorOverlapPair: (p: { first: string; second: string }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -486,6 +499,9 @@ export const planMessages: PlanMessages = {
     summaryShort: ({ result, total }) => `${result} of ${total}`,
     scopeBadge: () => "loaded rows only",
     keySearch: () => "Search keys",
+    overlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
+    overlapsShort: ({ count }) => count,
+    overlapsLabel: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")} — select the first pair`,
 
     rowsSkipped: ({ n, count }) => `${count} ${plural(n, "row", "rows")} skipped`,
     rowsSkippedSeek: ({ n, count }) => `${count} ${plural(n, "row", "rows")} skipped — show the first`,
@@ -553,6 +569,9 @@ export const planMessages: PlanMessages = {
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),
+    inspectorOverlaps: ({ n, count, on }) => `Overlaps ${count} ${plural(n, "event", "events")} on ${on}`,
+    inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
+    inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     now: () => "NOW",

@@ -51,9 +51,14 @@
  * The tabs are Chakra's `Tabs` (Zag, #819): a tablist with a roving tab stop,
  * the arrow keys between tabs, and a tabpanel per tab — the list is the
  * selected tab's panel.
+ *
+ * Events selected from outside the canvas — the overlaps chip's pair, a peer
+ * the inspector's banner names (#1198) — ask for their row: the list opens
+ * the row's group on the Rows tab, pages to it, and scrolls its card into
+ * view, as the desktop canvas scrolls to the row.
  */
 
-import { useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Box, Tabs } from "@chakra-ui/react";
 import { type EastChakraComponent } from "@elaraai/east-ui-components";
 import { NowLine } from "../../shared/time/now-line.js";
@@ -142,6 +147,7 @@ export interface PlanNarrowProps {
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
+const selectNav = (s: PlanSnapshot) => s.scroll.nav;
 
 /** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
@@ -239,8 +245,46 @@ export function PlanNarrow({
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `membersMeta` reads only `words`, which is a dependency
     }, [scope, index, ungrouped, hasGroups, derived, partial, words]);
 
+    // ── A row asked for from outside the canvas (#1198) ───────────────────
+    // Its group opened on the Rows tab, the list paged to it, and its card
+    // scrolled into view once drawn. A request made before the list mounted
+    // is the desktop canvas's, already served.
+    const nav = usePlanSelector(selectNav);
+    const served = useRef(nav?.seq);
+    const [revealing, setRevealing] = useState<RowKey | undefined>(undefined);
+    useEffect(() => {
+        if (nav === undefined || nav.seq === served.current) return;
+        served.current = nav.seq;
+        const row = nav.row !== undefined ? index.byKey.get(nav.row) : undefined;
+        if (row === undefined) return;
+        let root = row;
+        for (let up = row.parent; up.type === "some";) {
+            const parent = index.byKey.get(up.value);
+            if (parent === undefined) break;
+            root = parent;
+            up = parent.parent;
+        }
+        const scoped = root.key !== row.key && root.kind.type === "group" ? root.key : hasGroups ? OTHER_SCOPE : null;
+        const list = scoped === null ? allDataRows(index)
+            : scoped === OTHER_SCOPE ? ungrouped.flatMap((r) => [r, ...dataRowsUnder(index, r.key)])
+                : dataRowsUnder(index, scoped);
+        const at = list.findIndex((r) => r.key === row.key);
+        if (at < 0) return;
+        setTab("rows");
+        setScope(scoped);
+        setReveal((r) => ({ ...r, rows: Math.max(r.rows, (Math.floor(at / PAGE_ROWS) + 1) * PAGE_ROWS) }));
+        setRevealing(row.key);
+    }, [nav, index, ungrouped, hasGroups]);
+
     // ── Two-finger pan (§10) — one whole period per period width crossed ──
     const listRef = useRef<HTMLDivElement | null>(null);
+    useLayoutEffect(() => {
+        if (revealing === undefined) return;
+        const card = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-plan-card]") ?? [])]
+            .find((el) => el.getAttribute("data-plan-card") === revealing);
+        card?.scrollIntoView({ block: "nearest" });
+        setRevealing(undefined);
+    }, [revealing]);
     const gesture = useRef(newTwoFingerPan());
     const periodPx = () => {
         const w = listRef.current?.clientWidth ?? 0;

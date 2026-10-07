@@ -331,7 +331,10 @@ export function announcementOf(
                 ? w.m.announceSelected({ label: label(after.selected) })
                 : undefined;
         case "element.select":
-            // The element's own name says what it is; the live region, how many are selected (#1197).
+        case "elements.select":
+            // The element's own name says what it is; the live region, how
+            // many are selected (#1197) — the overlaps chip's pair, a banner's
+            // peer, alike (#1198).
             return after.elements === before.elements
                 ? undefined
                 : w.m.announceEvents({ n: after.elements.length, count: w.number(after.elements.length) });

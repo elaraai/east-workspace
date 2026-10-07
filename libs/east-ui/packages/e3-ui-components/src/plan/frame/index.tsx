@@ -32,6 +32,11 @@
  *   backlog, the events to review, and when a kind's record was last saved),
  *   the changes waiting on Apply, the author's items, and a paged canvas's
  *   transport line;
+ * - **the overlaps** (#1198, PB51–PB53) — read with the counts: two events of
+ *   a kind that warns of them, on one resource at once. Each event in a pair
+ *   wears the warn ring on the canvas, the toolbar's chip counts the pairs and
+ *   selects the first, and the inspector's banner lists what the selected
+ *   event overlaps. They never block Apply;
  * - **the panes** — the library in the start pane when the Plan's `library`
  *   lists a tab (#1195, `library.tsx`), and the inspector in the end pane when
  *   it is given `inspector` — what is selected on the canvas (#1197,
@@ -54,7 +59,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
@@ -67,8 +72,9 @@ import type { PlanEventRows } from "../root/events.js";
 import { usePlanToolbarItems } from "../shell/Toolbar.js";
 import { PlanFooter } from "../shell/Footer.js";
 import type { PlanRootValue } from "../model.js";
+import { PlanOverlapsContext } from "../rows/element-overlap.js";
 import { usePlanWords } from "../words.js";
-import { usePlanEventCounts } from "./counts.js";
+import { usePlanEventCounts, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
 import { usePlanInspector } from "./inspector.js";
 import { usePlanLibrary, type PlanPickValue } from "./library.js";
@@ -118,6 +124,27 @@ const resourcesEqual = equalFor(PlanPayloadType.fields.resources);
 function sameEventRows(a: PlanEventRows | undefined, b: PlanEventRows | undefined): boolean {
     if (a === undefined || b === undefined) return a === b;
     return a.count === b.count && eventBlocksEquivalent(a.blocks, b.blocks);
+}
+
+/** No event in an overlap pair. */
+const NO_OVERLAPS: ReadonlySet<string> = new Set();
+
+/**
+ * The events in an overlap pair, by their elements' keys (#1198) — the same
+ * set while its members hold, so a read that moved no pair renders no element.
+ *
+ * @param overlaps - The overlaps among the window's events
+ * @returns The keys of every event in a pair
+ */
+function useOverlapKeys(overlaps: PlanOverlaps | undefined): ReadonlySet<string> {
+    const held = useRef(NO_OVERLAPS);
+    return useMemo(() => {
+        const next = overlaps === undefined || overlaps.peers.size === 0 ? NO_OVERLAPS : new Set(overlaps.peers.keys());
+        const prev = held.current;
+        if (next.size === prev.size && [...next].every((key) => prev.has(key))) return prev;
+        held.current = next;
+        return next;
+    }, [overlaps]);
 }
 
 /** Props of {@link EastChakraPlan}. */
@@ -205,8 +232,11 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
     const start = usePlanLibrary({ library, kinds, resources, pick, keys, hidden, onHidden, now, words });
-    const items = usePlanToolbarItems(chrome);
     const counts = usePlanEventCounts(kinds, chrome?.scale);
+    // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
+    const overlaps = kinds.length > 0 ? counts?.overlaps : undefined;
+    const items = usePlanToolbarItems(chrome, overlaps);
+    const overlapKeys = useOverlapKeys(overlaps);
     const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words });
     const history = chrome?.history;
     const session = history?.session;
@@ -240,7 +270,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
                 footer={footer}
                 onKeyDown={onKeyDown}
             >
-                {main}
+                <PlanOverlapsContext.Provider value={overlapKeys}>{main}</PlanOverlapsContext.Provider>
             </BuilderFrame>
         </Box>
     );

@@ -72,6 +72,13 @@ export interface PlanChrome {
     narrow: boolean;
     /** What the inspector reads of the rows (#1197): a row by its key, and what a measure draws at a bucket. */
     inspect: PlanCanvasInspect;
+    /**
+     * Selects events from outside the canvas (#1198) — the overlaps chip's
+     * first pair, a peer the inspector's banner names — by their elements'
+     * keys: the selection replaced by them, on the row that draws the first,
+     * which is brought into view.
+     */
+    selectEvents: (keys: readonly string[]) => void;
 }
 
 /** What the canvas hands the frame it renders in. */

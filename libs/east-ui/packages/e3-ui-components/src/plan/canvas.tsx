@@ -134,7 +134,7 @@ import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
 import { originOf, unmoved, usePlanCarry } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
-import { PlanSelectableContext, elementKeyOf, selectableOf } from "./rows/element-select.js";
+import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -631,6 +631,14 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             return row === undefined || scale === undefined ? undefined : rowValueAt(row, derived, scale, words, at);
         },
     }), [index, derived, scale, words]);
+    // Events selected from the frame (#1198) — the overlaps chip's pair, the
+    // inspector's banner: on the row that draws the first, which the
+    // controller brings into view; none when no row on the canvas draws it.
+    const selectEvents = useCallback((keys: readonly string[]) => {
+        const first = keys[0];
+        if (first === undefined) return;
+        controller.selectEvents(keys, index.rows.find((row) => holdsElement(row, first))?.key ?? null);
+    }, [index, controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -1199,6 +1207,7 @@ export function usePlanCanvas({ value: hostValue, storageKey, events, hidden, ro
             id: getSomeorUndefined(data.id),
             narrow,
             inspect,
+            selectEvents,
         },
     };
 }

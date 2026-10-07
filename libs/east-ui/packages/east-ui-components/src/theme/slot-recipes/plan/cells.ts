@@ -15,7 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
-import { planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_OVERLAP_RING, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
 export const cellsSlots = [
@@ -202,6 +202,13 @@ export const cellsBase = {
         "&[data-tone='danger']":  { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
         "&[data-tone='success']": { boxShadow: "0 0 0 1.5px {colors.status.pos}" },
         "&[data-tone='info']":    { boxShadow: "0 0 0 1.5px {colors.status.info}" },
+        // An event in an overlap pair (#1198): the warn ring, in a tone's
+        // place — a confirmed tile keeps its inset brand ring inside it, and a
+        // danger tone, the worse, keeps its own (the worst wins, as a cell's
+        // marker does, #615).
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
+        "&[data-overlap][data-tone='danger']": { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
         "&[data-pulse]": {
             animation: "elara-pulse 1.6s ease-in-out infinite",
             "@media (prefers-reduced-motion: reduce)": { animation: "none" },
@@ -292,6 +299,10 @@ export const cellsBase = {
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "bg.surface", color: "{colors.status.warn}" },
         }),
+        // An event in an overlap pair (#1198): the warn ring — a confirmed
+        // chip keeps its inset brand ring inside it.
+        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
         // A chip that moves (#825) is picked up anywhere but its ends.
         "&[data-draggable]": { cursor: "grab" },
         // ── R1 GEOMETRY SHRINKS (#591) ──

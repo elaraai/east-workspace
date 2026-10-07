@@ -24,6 +24,7 @@ import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { EastChakraPlan, usePlanCanvas, type PlanRootValue } from "../index.js";
 import { PlanFooter } from "../shell/Footer.js";
+import { scheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
 import {
     SEED, banner, decide, history, mountCanvas, releaseCanvases, statusLine, verdictOf,
@@ -131,6 +132,10 @@ function renderCanvas(value: PlanRootValue, key: string) {
 
 describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
     test("main holds the canvas; the footer is the frame's; a Plan with no control has no toolbar, and none of the panes it is not given", async () => {
+        // The jobs with Press B2's overlap on the 20th moved apart: no overlaps chip either (#1198).
+        const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
+        jobs.set("J-1019", { ...jobs.get("J-1019")!, start: some(at("2026-10-20T13:00:00Z")), end: some(at("2026-10-20T16:00:00Z")) });
+        await h.commit(ex.planPrintJobs, jobs);
         const { container } = mount(programOf(ex.planEvents));
         await settle();
         const frame = container.querySelector("[data-builder-frame]");
@@ -222,7 +227,7 @@ describe("the footer (PB23)", () => {
         try {
             const footer = (saved: Date) => render(
                 <ChakraProvider value={system}>
-                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, toReview: undefined, saved }} />
+                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, toReview: undefined, saved, overlaps: scheduleOverlaps([]) }} />
                 </ChakraProvider>,
             ).container;
             const earlier = new Date("2026-10-06T09:15:00Z");

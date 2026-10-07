@@ -16,7 +16,11 @@
  * inside main. A selected event wears the brand's 1.5px ring, and the
  * inspector shows it, every line inside the pane. On a phone the library and
  * the inspector open from their rails over main, and the Series tab's search
- * is a 44px field. Read at the desktop and phone widths, in both themes.
+ * is a 44px field. An event in an overlap pair wears a 1.5px warn ring, a
+ * confirmed one keeping its own inside it; the toolbar's overlaps chip is the
+ * warn chip, a 44px target on a phone by its halo, and its click brings the
+ * pair's row into the canvas's view (#1198). Read at the desktop and phone
+ * widths, in both themes.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-frame`.
@@ -122,11 +126,17 @@ test.describe("the Plan's frame (#1193)", () => {
         }
     }
 
-    test("a Plan with a slice and a review has a toolbar; one with nothing to control has none", async ({ page }) => {
+    // A Plan with nothing to control draws no toolbar: the frame's DOM test holds
+    // it (`plan-frame.dom.test.tsx`), over the event kinds' Plan with its jobs'
+    // overlap moved apart — every Plan the showcase shows has a control.
+    test("a Plan with a slice and a review has a toolbar; the event kinds' Plan, whose jobs overlap, its overlaps chip alone", async ({ page }) => {
         const slice = await openExample(page, "planTargetState");
         expect((await frameFaults(slice)).toolbar).toBe(true);
-        const bare = await openExample(page, "planEvents", EVENTS);
-        expect((await frameFaults(bare)).toolbar).toBe(false);
+        // Press B2's two jobs on the 20th overlap (#1198).
+        const overlapping = await openExample(page, "planEvents", EVENTS);
+        expect((await frameFaults(overlapping)).toolbar).toBe(true);
+        await expect(overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-toolbar-item]")).toHaveCount(1);
+        await expect(overlapping.locator("[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]")).toHaveText("1 overlap");
     });
 
     test("a declared fill is the whole Plan's: the frame takes its host's height, and the canvas scrolls its own rows in main", async ({ page }) => {
@@ -300,6 +310,95 @@ test.describe("the Plan's inspector (#1197)", () => {
             expect(await inspectorFaults(pane)).toEqual([]);
         });
     }
+});
+
+/** The overlaps chip in a Plan's toolbar. */
+const OVERLAPS_CHIP = "[data-builder-frame] > [data-frame-slot='toolbar'] [data-plan-overlaps]";
+
+test.describe("the Plan's overlaps (#1198)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read on the desktop canvas's rows; a phone's canvas is its narrow list, its chip read below");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`planPrintWorks (${theme}): each job in an overlap pair wears a 1.5px warn ring just outside its bar — a confirmed job its inset brand ring inside it — a job in no pair none; the chip is the warn chip`, async ({ page }) => {
+            const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
+            const rings = await entry.evaluate((root, row) => {
+                // A shadow, and a colour, as this page resolves the tokens they are written in.
+                const probe = (style: Partial<CSSStyleDeclaration>, read: "boxShadow" | "color" | "backgroundColor" | "borderTopColor") => {
+                    const span = document.createElement("span");
+                    Object.assign(span.style, style);
+                    root.appendChild(span);
+                    const value = getComputedStyle(span)[read];
+                    span.remove();
+                    return value;
+                };
+                const bar = (title: string) => [...root.querySelectorAll<HTMLElement>(`${row} [data-run]`)].find((el) => el.textContent?.startsWith(title))!;
+                const chip = getComputedStyle(root.querySelector("[data-plan-overlaps]")!);
+                return {
+                    // Confirmed, and in the pair.
+                    posters: getComputedStyle(bar("Market posters")).boxShadow,
+                    // Proposed, and in the pair.
+                    cards: getComputedStyle(bar("Loyalty cards")).boxShadow,
+                    // Actual, on the same press on the 9th: in no pair.
+                    timetables: getComputedStyle(bar("Timetables")).boxShadow,
+                    ring: probe({ boxShadow: "0 0 0 1.5px var(--chakra-colors-status-warn)" }, "boxShadow"),
+                    both: probe({ boxShadow: "inset 0 0 0 1.5px var(--chakra-colors-brand-solid), 0 0 0 1.5px var(--chakra-colors-status-warn)" }, "boxShadow"),
+                    chip: { border: chip.borderTopColor, wash: chip.backgroundColor, ink: chip.color },
+                    warn: {
+                        border: probe({ borderTopColor: "var(--chakra-colors-status-warn)" }, "borderTopColor"),
+                        wash: probe({ backgroundColor: "var(--chakra-colors-status-warn-subtle)" }, "backgroundColor"),
+                        ink: probe({ color: "var(--chakra-colors-fg-warning)" }, "color"),
+                    },
+                };
+            }, rowSel("presses.span", "Hall B", "b2"));
+            expect(rings).toEqual({ ...rings, posters: rings.both, cards: rings.ring, timetables: "none", chip: rings.warn });
+            await expect(entry.locator(OVERLAPS_CHIP)).toHaveText("1 overlap");
+        });
+    }
+
+    test("planPrintWorks, in a host 420px tall: the chip's click selects the pair and brings Press B2's row into the canvas's view", async ({ page }) => {
+        const entry = await openExample(page, "planPrintWorks", EVENTS);
+        await page.addStyleTag({
+            content: "*:has(> [data-plan-frame]) { height: 420px; display: flex; flex-direction: column; } "
+                + "*:has(> [data-plan-frame]) > :not([data-plan-frame]) { display: none; }",
+        });
+        await expect(entry.locator("[data-plan-body][data-plan-bounded]")).toHaveCount(1);
+        await settled(page);
+        const b2 = rowSel("presses.span", "Hall B", "b2");
+        // Whether Press B2's row is drawn wholly inside the canvas's scroller.
+        const inView = () => entry.evaluate((root, args) => {
+            const scroller = root.querySelector<HTMLElement>(args.scroller)!.getBoundingClientRect();
+            const row = root.querySelector(args.row);
+            if (row === null) return false;
+            const r = row.getBoundingClientRect();
+            return r.top >= scroller.top - 0.5 && r.bottom <= scroller.bottom + 0.5;
+        }, { scroller: SCROLLER, row: b2 });
+        expect(await inView()).toBe(false);
+        await entry.locator(OVERLAPS_CHIP).click();
+        await settled(page);
+        expect(await inView()).toBe(true);
+        await expect(entry.locator(`${b2} [data-run][aria-pressed='true']`)).toHaveCount(2);
+    });
+});
+
+test.describe("the Plan's overlaps chip on a phone (#1198)", () => {
+    test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
+
+    test("planPrintWorks: the chip keeps its own size in the row and is a 44px tap target by its halo", async ({ page }) => {
+        const entry = await openExample(page, "planPrintWorks", EVENTS);
+        const faults = await entry.locator(OVERLAPS_CHIP).evaluate((chip) => {
+            const bad: string[] = [];
+            const r = chip.getBoundingClientRect();
+            if (r.height >= 43.5) bad.push(`the chip grew to ${r.height.toFixed(1)}px`);
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height / 2;
+            for (const dy of [-21, 21]) {
+                const hit = document.elementFromPoint(x, y + dy);
+                if (hit === null || !chip.contains(hit)) bad.push(`a tap ${Math.abs(dy)}px ${dy < 0 ? "above" : "below"} its middle lands on ${hit === null ? "nothing" : hit.tagName.toLowerCase()}`);
+            }
+            return bad;
+        });
+        expect(faults).toEqual([]);
+    });
 });
 
 test.describe("the Plan's library on a phone (#1195)", () => {
