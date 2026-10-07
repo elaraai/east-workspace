@@ -1021,25 +1021,33 @@ describe("Slice.Search — combobox drives the query", () => {
 
     // #1239 — a pick searches its id. Zag's default selection behaviour wrote the
     // picked item's label into the box, and the box's input handler then
-    // committed the label, after the id the pick had committed.
+    // committed the label, after the id the pick had committed. Over a REAL
+    // slice handle: its store renders the search again as each query lands, as
+    // an app's does. The fake renders nothing as its search changes, so the box
+    // re-synced from it whenever another render came — after the pick, from the
+    // query typed before it.
+    const pickCfg = sliceConfig({
+        name: variant("string", { label: "Name", accessor: (r: { sku: string; name: string }) => r.name, format: none }),
+    }, { searchFieldIds: ["name"] });
+    const skus = [{ sku: "SKU-1", name: "Oak board" }, { sku: "SKU-2", name: "Ash board" }];
     for (const density of ["compact", "focused"] as const) {
         test(`${density}: a suggestion picked searches its id, and the box shows the id — never its label (#1239)`, async () => {
-            const slice = fakeSlice({}, { matches: () => [
-                { id: "SKU-1", label: "Oak board", meta: none },
-                { id: "SKU-2", label: "Ash board", meta: none },
-            ] });
-            const value: any = { slice, recent: [], density: some(variant(density, null)) };
-            ui(<EastChakraSliceSearch value={value} />);
+            initializeStore(new UIStore());
+            const handle: any = buildSliceHandle(`search.pick.${density}`, pickCfg, {
+                range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+                breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+            }, skus, some((r: { sku: string; name: string }) => ({ id: r.sku, label: r.name, meta: none })));
+            ui(<EastChakraSliceSearch value={{ slice: handle, recent: [], density: some(variant(density, null)) } as never} />);
             const user = userEvent.setup();
-            await user.click(screen.getByPlaceholderText("Search…"));
+            const box = screen.getByPlaceholderText("Search…") as HTMLInputElement;
+            await user.click(box);
             await user.paste("board");
             const item = (await screen.findByText("Ash board")).closest<HTMLElement>('[data-part="item"]')!;
             fireEvent.pointerDown(item, { pointerType: "mouse", button: 0 });
             fireEvent.click(item);
-            // Every commit the pick queued has run: the last is what the slice searches.
-            await act(async () => { await Promise.resolve(); });
-            expect(slice.read().search).toEqual(some("SKU-2"));
-            expect((screen.getByPlaceholderText("Search…") as HTMLInputElement).value).toBe("SKU-2");
+            // Every commit the pick queued has run: the last is what the slice searches, and the box says it.
+            await waitFor(() => expect(handle.read().search).toEqual(some("SKU-2")));
+            await waitFor(() => expect(box.value).toBe("SKU-2"));
         });
     }
 
