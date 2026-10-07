@@ -24,10 +24,10 @@ import {
 import { rowId, rowKey, testKeyOf } from "../plan.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
-import { PLAN_GEOMETRY } from "../geometry.js";
+import { PLAN_CELL_INSET, PLAN_GEOMETRY } from "../geometry.js";
 import { PLAN_WORDS } from "../words.js";
 import {
-    elementInstants, layoutRibbons, ribbonBody, ribbonWeight,
+    RIBBON_CAPTION_CHAR, RIBBON_CAPTION_PAD, linkedElement, layoutRibbons, ribbonBody, ribbonWeight,
     type RibbonLayoutInput, type RibbonViewport,
 } from "./ribbon-layout.js";
 
@@ -68,18 +68,18 @@ const link = (from: string, fromRun: string, to: string, toRun: string, quantity
         quantity: quantity !== null ? some({ value: quantity, unit: some("k sheets"), format: none, text: none }) : none,
     }) as PlanLinkValue;
 
-/** Runs by `row|run` (the row's test key): [start, end]. */
-function runDatesOf(runs: Record<string, [Date, Date]>): RibbonLayoutInput["runDates"] {
+/** Runs by `row|run` (the row's test key): [start, end], each drawn as a bar. */
+function barsOf(runs: Record<string, [Date, Date]>): RibbonLayoutInput["element"] {
     return (row, run) => {
         const r = runs[`${testKeyOf(row)}|${run}`];
-        return r !== undefined ? { start: t(r[0]), end: t(r[1]) } : undefined;
+        return r !== undefined ? { start: t(r[0]), end: t(r[1]), draw: { kind: "bar" } } : undefined;
     };
 }
 
 /** The x a window fraction lands at on the plot. */
 const xOf = (d: Date) => PLOT.left + scale.fracOf(t(d)) * PLOT.width;
 
-function input(over: Partial<RibbonLayoutInput> & Pick<RibbonLayoutInput, "links" | "body" | "runDates">): RibbonLayoutInput {
+function input(over: Partial<RibbonLayoutInput> & Pick<RibbonLayoutInput, "links" | "body" | "element">): RibbonLayoutInput {
     return {
         visibleKeys: new Set(over.links.flatMap((l) => [rowKeyOf(l.from.row), rowKeyOf(l.to.row)])),
         beyond: () => undefined,
@@ -124,7 +124,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
     const items = [rowItem(a), gapItem("gap-x"), rowItem(b), rowItem(c)];
     const heights = [32, 22, 32, 42];
     const body = ribbonBody(items, heights, index, G);
-    const runDates = runDatesOf({
+    const element = barsOf({
         "a|ra": [at("2026-06-29"), at("2026-07-13")],
         "b|rb": [at("2026-07-20"), at("2026-08-03")],
         "c|rc": [at("2026-07-06"), at("2026-07-27")],
@@ -136,7 +136,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
     });
 
     test("x is the run's window fraction across the plot; y is its row's bar, centred", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body, runDates }));
+        const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body, element }));
         expect(ribbons).toHaveLength(1);
         const r = ribbons[0]!;
         expect(r.from).toEqual({
@@ -153,20 +153,20 @@ describe("ribbon endpoints come from the model (#818)", () => {
     });
 
     test("a two-line row's bar is centred in its full plot cell", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "c", "rc")], body, runDates }));
+        const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "c", "rc")], body, element }));
         const mid = centre(32 + 22 + 32, 42);
         expect([ribbons[0]!.to.top, ribbons[0]!.to.bottom]).toEqual([mid - G.bar / 2, mid + G.bar / 2]);
     });
 
     test("a run straddling the window keeps its window-clamped extent, as its bar draws", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("b", "straddle", "c", "rc")], body, runDates }));
+        const { ribbons } = layoutRibbons(input({ links: [link("b", "straddle", "c", "rc")], body, element }));
         expect(ribbons[0]!.from.leftX).toBe(PLOT.left);
         expect(ribbons[0]!.from.rightX).toBe(xOf(at("2026-07-06")));
     });
 
     test("a run outside the window lands on the plot edge it lies past, in a dashed slot as tall as its bar (#1258)", () => {
         const { ribbons, edgeSlots } = layoutRibbons(input({
-            links: [link("c", "early", "a", "ra"), link("a", "ra", "c", "late")], body, runDates,
+            links: [link("c", "early", "a", "ra"), link("a", "ra", "c", "late")], body, element,
         }));
         const mid = centre(32 + 22 + 32, 42);
         expect(ribbons[0]!.from.leftX).toBe(PLOT.left);
@@ -179,15 +179,25 @@ describe("ribbon endpoints come from the model (#818)", () => {
         ]);
     });
 
+    test("a caption near the plot's edges moves in with its knockout — its text at the widest a letter draws — before any step (#1258)", () => {
+        // Out of a run ended before the window into one at its start, and on into one starting after it.
+        const { ribbons } = layoutRibbons(input({
+            links: [link("c", "early", "a", "ra"), link("a", "ra", "c", "late")], body, element,
+        }));
+        const half = ("10 k sheets".length * RIBBON_CAPTION_CHAR) / 2 + RIBBON_CAPTION_PAD;
+        expect(ribbons[0]!.lx).toBe(PLOT.left + half);
+        expect(ribbons[1]!.lx).toBe(PLOT.left + PLOT.width - half);
+    });
+
     test("a row with no such run is met across its whole plot", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "b", "nope")], body, runDates }));
+        const { ribbons } = layoutRibbons(input({ links: [link("a", "ra", "b", "nope")], body, element }));
         expect([ribbons[0]!.to.leftX, ribbons[0]!.to.rightX]).toEqual([PLOT.left, PLOT.left + PLOT.width]);
     });
 
     test("the ribbons follow the heights — a band that goes moves every endpoint below it by exactly its height", () => {
-        const before = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body, runDates })).ribbons[0]!;
+        const before = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body, element })).ribbons[0]!;
         const collapsed = ribbonBody([rowItem(a), rowItem(b), rowItem(c)], [32, 32, 42], index, G);
-        const after = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body: collapsed, runDates })).ribbons[0]!;
+        const after = layoutRibbons(input({ links: [link("a", "ra", "b", "rb")], body: collapsed, element })).ribbons[0]!;
         expect(after.from).toEqual(before.from);
         expect(after.to.top).toBe(before.to.top - 22);
         expect(after.stroke).not.toBe(before.stroke);
@@ -195,7 +205,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
 
     test("an edge with an end outside the focus's family is not drawn", () => {
         const { ribbons } = layoutRibbons(input({
-            links: [link("a", "ra", "b", "rb"), link("a", "ra", "c", "rc")], body, runDates,
+            links: [link("a", "ra", "b", "rb"), link("a", "ra", "c", "rc")], body, element,
             visibleKeys: new Set([rowKey("a"), rowKey("b")]),
         }));
         expect(ribbons.map((r) => r.link)).toEqual([0]);
@@ -209,7 +219,7 @@ describe("the view (#818)", () => {
     const items = rows.flatMap((r, i) => (i === 0 ? [rowItem(r)] : [gapItem(`g${i}`), rowItem(r)]));
     const heights = items.map((it) => (it.kind === "gap" ? 168 : 32));
     const body = ribbonBody(items, heights, index, G);
-    const runDates = runDatesOf({
+    const element = barsOf({
         "r0|x": [at("2026-06-29"), at("2026-07-06")],
         "r1|x": [at("2026-07-13"), at("2026-07-20")],
         "r2|x": [at("2026-07-27"), at("2026-08-03")],
@@ -218,7 +228,7 @@ describe("the view (#818)", () => {
     const view: RibbonViewport = { top: 150, bottom: 450 };
 
     test("an endpoint past the bottom of the view sits on it, and the ribbon ends in a stub toward its row", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("r1", "x", "r3", "x")], body, runDates, viewport: view }));
+        const { ribbons } = layoutRibbons(input({ links: [link("r1", "x", "r3", "x")], body, element, viewport: view }));
         const r = ribbons[0]!;
         expect(r.from.off).toBeUndefined();
         expect(r.to).toMatchObject({ off: "below", bottom: 450, top: 450 - G.bar });
@@ -226,7 +236,7 @@ describe("the view (#818)", () => {
     });
 
     test("an endpoint past the top sits on the top edge, a stub at the ribbon's start", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("r0", "x", "r2", "x")], body, runDates, viewport: view }));
+        const { ribbons } = layoutRibbons(input({ links: [link("r0", "x", "r2", "x")], body, element, viewport: view }));
         const r = ribbons[0]!;
         expect(r.from).toMatchObject({ off: "above", top: 150, bottom: 150 + G.bar });
         expect(r.to.off).toBeUndefined();
@@ -235,31 +245,31 @@ describe("the view (#818)", () => {
 
     test("both ends past the same edge: nothing of it is in view, so it is not drawn", () => {
         const { ribbons } = layoutRibbons(input({
-            links: [link("r2", "x", "r3", "x")], body, runDates, viewport: { top: 0, bottom: 120 },
+            links: [link("r2", "x", "r3", "x")], body, element, viewport: { top: 0, bottom: 120 },
         }));
         expect(ribbons).toEqual([]);
     });
 
     test("ends past opposite edges: one band across the view", () => {
         const { ribbons } = layoutRibbons(input({
-            links: [link("r0", "x", "r3", "x")], body, runDates, viewport: { top: 100, bottom: 500 },
+            links: [link("r0", "x", "r3", "x")], body, element, viewport: { top: 100, bottom: 500 },
         }));
         expect(ribbons[0]!.from.off).toBe("above");
         expect(ribbons[0]!.to.off).toBe("below");
     });
 
     test("an unbounded frame shows every row — nothing clamps", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("r0", "x", "r3", "x")], body, runDates }));
+        const { ribbons } = layoutRibbons(input({ links: [link("r0", "x", "r3", "x")], body, element }));
         expect(ribbons[0]!.from.off).toBeUndefined();
         expect(ribbons[0]!.to.off).toBeUndefined();
         expect(ribbons[0]!.to.top).toBe(centre(600, 32) - G.bar / 2);
     });
 
     test("a slot is drawn only while its row is in view (#1258)", () => {
-        const late = runDatesOf({ "r0|x": [at("2026-06-29"), at("2026-07-06")], "r3|x": [at("2026-10-05"), at("2026-10-12")] });
-        expect(layoutRibbons(input({ links: [link("r0", "x", "r3", "x")], body, runDates: late })).edgeSlots).toHaveLength(1);
+        const late = barsOf({ "r0|x": [at("2026-06-29"), at("2026-07-06")], "r3|x": [at("2026-10-05"), at("2026-10-12")] });
+        expect(layoutRibbons(input({ links: [link("r0", "x", "r3", "x")], body, element: late })).edgeSlots).toHaveLength(1);
         expect(layoutRibbons(input({
-            links: [link("r0", "x", "r3", "x")], body, runDates: late, viewport: { top: 0, bottom: 300 },
+            links: [link("r0", "x", "r3", "x")], body, element: late, viewport: { top: 0, bottom: 300 },
         })).edgeSlots).toEqual([]);
     });
 });
@@ -267,11 +277,11 @@ describe("the view (#818)", () => {
 describe("rows the body does not hold (#818)", () => {
     const a = spanRow("a");
     const body = ribbonBody([rowItem(a)], [32], indexRows([a]), G);
-    const runDates = runDatesOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "pin|y": [at("2026-06-29"), at("2026-07-06")] });
+    const element = barsOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "pin|y": [at("2026-06-29"), at("2026-07-06")] });
 
     test("a pinned row sits past the rows' top — the ribbon meets it with a stub pointing up at the header", () => {
         const { ribbons } = layoutRibbons(input({
-            links: [link("pin", "y", "a", "x")], body, runDates,
+            links: [link("pin", "y", "a", "x")], body, element,
             beyond: (key) => (key === rowKey("pin") ? { off: "above" } : undefined),
         }));
         expect(ribbons[0]!.from).toMatchObject({ off: "above", top: 0, bottom: G.bar });
@@ -279,7 +289,7 @@ describe("rows the body does not hold (#818)", () => {
     });
 
     test("a row with no place is not drawn", () => {
-        const { ribbons } = layoutRibbons(input({ links: [link("gone", "y", "a", "x")], body, runDates }));
+        const { ribbons } = layoutRibbons(input({ links: [link("gone", "y", "a", "x")], body, element }));
         expect(ribbons).toEqual([]);
     });
 
@@ -291,14 +301,14 @@ describe("rows the body does not hold (#818)", () => {
             [32, 5_000], indexRows([a]), G);
         const place = { y: 32 + 3_000 };
         const beyond = (key: string) => (key === rowKey("far") ? place : undefined);
-        const dates = runDatesOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "far|y": [at("2026-07-27"), at("2026-08-03")] });
+        const dates = barsOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "far|y": [at("2026-07-27"), at("2026-08-03")] });
         // Unbounded: drawn AT its place.
-        const open = layoutRibbons(input({ links: [link("a", "x", "far", "y")], body: tall, runDates: dates, beyond })).ribbons[0]!;
+        const open = layoutRibbons(input({ links: [link("a", "x", "far", "y")], body: tall, element: dates, beyond })).ribbons[0]!;
         expect(open.to).toMatchObject({ top: place.y, bottom: place.y + G.bar });
         expect(open.to.off).toBeUndefined();
         // In a bounded view above it: on the view's bottom edge, a stub pointing down.
         const clamped = layoutRibbons(input({
-            links: [link("a", "x", "far", "y")], body: tall, runDates: dates, beyond, viewport: { top: 0, bottom: 400 },
+            links: [link("a", "x", "far", "y")], body: tall, element: dates, beyond, viewport: { top: 0, bottom: 400 },
         })).ribbons[0]!;
         expect(clamped.to).toMatchObject({ off: "below", bottom: 400 });
     });
@@ -308,49 +318,136 @@ describe("where a link's end meets its row (#1192)", () => {
     /** A row of `kind`, keyed `key`. */
     const rowOfKind = (key: string, kind: unknown): PlanRowValue => ({ ...spanRow(key), kind }) as PlanRowValue;
     const confirmed = variant("confirmed", null);
-    const run = { key: "r", start: t(at("2026-07-08")), end: t(at("2026-07-22")), label: "R", quantity: none, state: confirmed, status: none, moved: none, icon: none };
-    const chip = { key: "c", from: t(at("2026-07-13")), to: t(at("2026-07-27")), label: "C", state: confirmed, icon: none };
-    const tile = {
-        key: "e", at: t(at("2026-07-08")), lane: none, label: none, icon: none, state: confirmed, tone: none,
+    const runOf = (key: string, start: Date, end: Date) =>
+        ({ key, start: t(start), end: t(end), label: key, quantity: none, state: confirmed, status: none, moved: none, icon: none });
+    const chipOf = (key: string, from: Date, to: Date) => ({ key, from: t(from), to: t(to), label: key, state: confirmed, icon: none });
+    const tileOf = (key: string, on: Date, lane: string | null = null) => ({
+        key, at: t(on), lane: lane === null ? none : some(lane), label: none, icon: none, state: confirmed, tone: none,
         color: none, colorPalette: none, stretch: none, content: none, animation: none,
-    };
-    const mark = { key: "m", at: t(at("2026-08-05")), kind: variant("milestone", null), icon: none, label: none };
-    const bars = rowOfKind("bars", variant("span", { runs: [run], decisions: [], ports: [], rollup: none }));
-    const chips = rowOfKind("chips", variant("cards", { chips: [chip] }));
-    const tiles = rowOfKind("tiles", variant("buckets", { lanes: [], events: [tile], markers: [] }));
-    const marks = rowOfKind("marks", variant("events", { marks: [mark] }));
+    });
+    const markOf = (key: string, on: Date, kind: "milestone" | "decision" | "exception", icon = false) => ({
+        key, at: t(on), kind: kind === "decision" ? variant("decision", { applied: false }) : variant(kind, null),
+        icon: icon ? some({ prefix: "fas", name: "flag" }) : none, label: none,
+    });
+    const hour = (iso: string) => new Date(`${iso}Z`);
+    const bars = rowOfKind("bars", variant("span", {
+        runs: [runOf("r", at("2026-07-08"), at("2026-07-22")), runOf("tiny", hour("2026-07-08T06:00"), hour("2026-07-08T08:00")),
+            runOf("late", hour("2026-09-20T23:00"), at("2026-09-28"))],
+        decisions: [], ports: [], rollup: none,
+    }));
+    const chips = rowOfKind("chips", variant("cards", {
+        chips: [chipOf("c", at("2026-07-13"), at("2026-07-27")), chipOf("short", hour("2026-08-03T06:00"), hour("2026-08-03T14:00"))],
+    }));
+    const tiles = rowOfKind("tiles", variant("buckets", { lanes: [], events: [tileOf("e", at("2026-07-08"))], markers: [] }));
+    // Two lanes: a tile in the second; another bucket where a lane-less tile takes the whole cell, and the laned
+    // tile beside it with it.
+    const laned = rowOfKind("laned", variant("buckets", {
+        lanes: [{ key: "l1", label: none }, { key: "l2", label: none }],
+        events: [tileOf("in2", at("2026-07-15"), "l2"), tileOf("whole", at("2026-08-12")), tileOf("beside", at("2026-08-13"), "l1")],
+        markers: [],
+    }));
+    const marks = rowOfKind("marks", variant("events", {
+        marks: [markOf("m", at("2026-08-05"), "milestone"), markOf("d", at("2026-08-12"), "decision"),
+            markOf("x", at("2026-08-19"), "exception"), markOf("i", at("2026-08-26"), "milestone", true),
+            markOf("edge", W27, "milestone"), markOf("before", at("2026-06-22"), "milestone")],
+    }));
 
-    test("a run's and a chip's two ends, the bucket a tile sits in, a mark's instant", () => {
-        expect(elementInstants(bars, "r", scale)).toEqual({ start: t(at("2026-07-08")), end: t(at("2026-07-22")) });
-        expect(elementInstants(chips, "c", scale)).toEqual({ start: t(at("2026-07-13")), end: t(at("2026-07-27")) });
-        // A Wednesday's tile fills its week.
-        expect(elementInstants(tiles, "e", scale)).toEqual({ start: t(at("2026-07-06")), end: t(at("2026-07-13")) });
-        expect(elementInstants(marks, "m", scale)).toEqual({ start: t(at("2026-08-05")), end: t(at("2026-08-05")) });
+    test("a run, a chip, the cell a tile sits in, a mark — and how each draws", () => {
+        expect(linkedElement(bars, "r", scale)).toEqual({ start: t(at("2026-07-08")), end: t(at("2026-07-22")), draw: { kind: "bar" } });
+        expect(linkedElement(chips, "c", scale)).toEqual({ start: t(at("2026-07-13")), end: t(at("2026-07-27")), draw: { kind: "chip" } });
+        // A Wednesday's tile fills its week's cell — the whole of it in a row with no lanes.
+        expect(linkedElement(tiles, "e", scale)).toEqual({
+            start: t(at("2026-07-06")), end: t(at("2026-07-13")), draw: { kind: "cell", lane: 0, span: 1, lanes: 1 },
+        });
+        // In lanes: its own lane's cell, or the whole cell where a lane-less tile takes its bucket.
+        expect(linkedElement(laned, "in2", scale)!.draw).toEqual({ kind: "cell", lane: 1, span: 1, lanes: 2 });
+        expect(linkedElement(laned, "whole", scale)!.draw).toEqual({ kind: "cell", lane: 0, span: 2, lanes: 2 });
+        expect(linkedElement(laned, "beside", scale)!.draw).toEqual({ kind: "cell", lane: 0, span: 2, lanes: 2 });
+        // A mark at its instant: its kind's glyph, or its icon's box.
+        expect(linkedElement(marks, "m", scale)).toEqual({
+            start: t(at("2026-08-05")), end: t(at("2026-08-05")), draw: { kind: "mark", glyph: "dot" },
+        });
+        expect(["d", "x", "i"].map((k) => linkedElement(marks, k, scale)!.draw))
+            .toEqual([{ kind: "mark", glyph: "diamond" }, { kind: "mark", glyph: "triangle" }, { kind: "mark", glyph: "icon" }]);
     });
 
     test("a key the row draws no element of, or a row that draws none, meets nothing", () => {
-        expect(elementInstants(bars, "c", scale)).toBeUndefined();
-        expect(elementInstants(marks, "r", scale)).toBeUndefined();
+        expect(linkedElement(bars, "c", scale)).toBeUndefined();
+        expect(linkedElement(marks, "r", scale)).toBeUndefined();
         const strip: PlanRowValue["kind"] = variant("group", { summary: variant("none", null) });
-        expect(elementInstants(rowOfKind("strip", strip), "r", scale)).toBeUndefined();
+        expect(linkedElement(rowOfKind("strip", strip), "r", scale)).toBeUndefined();
     });
 
-    test("a ribbon to a mark lands on its instant, not across its row", () => {
-        const index = indexRows([bars, marks]);
-        const body = ribbonBody([rowItem(bars), rowItem(marks)], [32, 32], index, G);
-        const runDates: RibbonLayoutInput["runDates"] = (row, key) => {
+    describe("each end meets its element where it draws (#1258)", () => {
+        // The rows at 0, 32, 64, 96 (the laned row 52 tall) and 148.
+        const rows = [bars, chips, tiles, laned, marks];
+        const heights = [32, 32, 32, 52, 32];
+        const index = indexRows(rows);
+        const body = ribbonBody(rows.map((r) => rowItem(r)), heights, index, G);
+        const element: RibbonLayoutInput["element"] = (row, key) => {
             const r = index.byKey.get(row);
-            return r !== undefined ? elementInstants(r, key, scale) : undefined;
+            return r !== undefined ? linkedElement(r, key, scale) : undefined;
         };
-        const { ribbons } = layoutRibbons(input({ links: [link("bars", "r", "marks", "m")], body, runDates }));
-        expect([ribbons[0]!.to.leftX, ribbons[0]!.to.rightX]).toEqual([xOf(at("2026-08-05")), xOf(at("2026-08-05"))]);
+        /** The end a link from the bars row's long run meets at `row`'s `key`. */
+        const endAt = (row: string, key: string) =>
+            layoutRibbons(input({ links: [link("bars", "r", row, key)], body, element })).ribbons[0]!.to;
+        const mid = (top: number, h: number) => top + (h - G.rule) / 2;
+        const around = (top: number, h: number, size: number) => ({ top: mid(top, h) - size / 2, bottom: mid(top, h) + size / 2 });
+
+        test("a run shorter than its padding draws the narrowest bar from its start — a link leaves the end it shows", () => {
+            const from = layoutRibbons(input({ links: [link("bars", "tiny", "chips", "c")], body, element })).ribbons[0]!.from;
+            const x = xOf(hour("2026-07-08T06:00"));
+            expect(from).toEqual({ leftX: x, rightX: x + G.barMinWidth, ...around(0, 32, G.bar) });
+        });
+
+        test("a chip in from its ends by the cell inset, at least the narrowest chip, at the chip's height", () => {
+            expect(endAt("chips", "c")).toEqual({
+                leftX: xOf(at("2026-07-13")) + PLAN_CELL_INSET, rightX: xOf(at("2026-07-27")) - PLAN_CELL_INSET, ...around(32, 32, G.chip),
+            });
+            const short = endAt("chips", "short");
+            expect(short.rightX - short.leftX).toBe(G.chipMinWidth);
+            expect(short.leftX).toBe(xOf(hour("2026-08-03T06:00")) + PLAN_CELL_INSET);
+        });
+
+        test("a tile's cell in from its bucket and its lane by the cell inset — its own lane's, or the whole cell its bucket shares", () => {
+            const x0 = xOf(at("2026-07-06")) + PLAN_CELL_INSET;
+            const x1 = xOf(at("2026-07-13")) - PLAN_CELL_INSET;
+            expect(endAt("tiles", "e")).toEqual({ leftX: x0, rightX: x1, top: 64 + PLAN_CELL_INSET, bottom: 64 + 31 - PLAN_CELL_INSET });
+            // The laned row's plot cell is 51 tall: the second lane's cell is its lower half, in by the inset.
+            const half = 51 / 2;
+            expect(endAt("laned", "in2")).toMatchObject({ top: 96 + half + PLAN_CELL_INSET, bottom: 96 + 2 * half - PLAN_CELL_INSET });
+            expect(endAt("laned", "beside")).toMatchObject({ top: 96 + PLAN_CELL_INSET, bottom: 96 + 51 - PLAN_CELL_INSET });
+        });
+
+        test("a mark across its glyph, centred on its instant: the dot, the turned diamond, the triangle, the icon's box", () => {
+            const glyph = (key: string, on: Date, w: number, h: number) =>
+                expect(endAt("marks", key), key).toEqual({ leftX: xOf(on) - w / 2, rightX: xOf(on) + w / 2, ...around(148, 32, h) });
+            glyph("m", at("2026-08-05"), G.markDotWidth, G.markDotWidth);
+            glyph("d", at("2026-08-12"), G.markDiamondWidth * Math.SQRT2, G.markDiamondWidth * Math.SQRT2);
+            glyph("x", at("2026-08-19"), G.markTriangleWidth, G.markTriangle);
+            glyph("i", at("2026-08-26"), G.markIconWidth, G.markIconWidth);
+        });
+
+        test("drawn past the plot's edge, an element is met where the plot clips it", () => {
+            // A run an hour short of the window's end draws past it: its end is the plot's edge.
+            const late = layoutRibbons(input({ links: [link("bars", "late", "chips", "c")], body, element })).ribbons[0]!.from;
+            expect([late.leftX, late.rightX]).toEqual([xOf(hour("2026-09-20T23:00")), PLOT.left + PLOT.width]);
+            // A mark at the window's start is half drawn: its start is the plot's edge.
+            expect([endAt("marks", "edge").leftX, endAt("marks", "edge").rightX]).toEqual([PLOT.left, PLOT.left + G.markDotWidth / 2]);
+        });
+
+        test("a mark past the window lands on the plot's edge, in a slot as tall as its glyph", () => {
+            const { ribbons, edgeSlots } = layoutRibbons(input({ links: [link("marks", "before", "bars", "r")], body, element }));
+            expect([ribbons[0]!.from.leftX, ribbons[0]!.from.rightX]).toEqual([PLOT.left, PLOT.left]);
+            expect(edgeSlots).toEqual([{ x: PLOT.left, y: mid(148, 32) - G.markDotWidth / 2, h: G.markDotWidth, side: "left" }]);
+        });
     });
 });
 
 describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
     const rows = ["a", "b", "c", "d"].map((k) => spanRow(k));
     const body = ribbonBody(rows.map((r) => rowItem(r)), [32, 32, 32, 32], indexRows(rows), G);
-    const runDates = runDatesOf({
+    const element = barsOf({
         "a|x": [at("2026-06-29"), at("2026-07-06")],
         "b|x": [at("2026-07-27"), at("2026-08-03")],
         "c|x": [at("2026-07-27"), at("2026-08-03")],
@@ -360,7 +457,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
     test("a weight is its quantity's third of the family's largest: above two thirds 8, above one third 4, else 2", () => {
         // The spec's family: 96 t, 60 t and 24 t of a 96 t largest.
         const { ribbons } = layoutRibbons(input({
-            links: [link("a", "x", "b", "x", 96), link("a", "x", "c", "x", 60), link("a", "x", "d", "x", 24)], body, runDates,
+            links: [link("a", "x", "b", "x", 96), link("a", "x", "c", "x", 60), link("a", "x", "d", "x", 24)], body, element,
         }));
         expect(ribbons.map((r) => r.weight)).toEqual([8, 4, 2]);
         // The stroke is the weight.
@@ -372,7 +469,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
 
     test("a link with no quantity weighs 1.5, and says nothing — no caption, no tooltip (#824)", () => {
         const { ribbons } = layoutRibbons(input({
-            links: [link("a", "x", "b", "x", 40), link("a", "x", "c", "x", null)], body, runDates,
+            links: [link("a", "x", "b", "x", 40), link("a", "x", "c", "x", null)], body, element,
         }));
         expect(ribbons[0]!.weight).toBe(8);
         expect(ribbons[1]!.weight).toBe(1.5);
@@ -384,7 +481,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
         // family: the 24 t link in view stays 2.
         const tall = ribbonBody(rows.map((r) => rowItem(r)), [32, 400, 32, 32], indexRows(rows), G);
         const { ribbons } = layoutRibbons(input({
-            links: [link("c", "x", "d", "x", 96), link("a", "x", "b", "x", 24)], body: tall, runDates,
+            links: [link("c", "x", "d", "x", 96), link("a", "x", "b", "x", 24)], body: tall, element,
             viewport: { top: 0, bottom: 300 },
         }));
         expect(ribbons.map((r) => [r.link, r.weight])).toEqual([[1, 2]]);
@@ -398,7 +495,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
                 with_({ value: 24, unit: some("k sheets"), format: none, text: some("−24 k sheets") }),
                 with_({ value: 1234.25, unit: some("k sheets"), format: some(oneDp), text: none }),
             ],
-            body, runDates,
+            body, element,
         })).ribbons;
         expect(told!.label).toBe("−24 k sheets");
         expect(formatted!.label).toBe("1,234.3 k sheets");
@@ -409,7 +506,7 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
     test("a caption within 60 × 12 of an earlier one steps down 12 until clear", () => {
         // Two ribbons from one source into two rows: their S-captions share a spot.
         const { ribbons } = layoutRibbons(input({
-            links: [link("a", "x", "b", "x"), link("a", "x", "b", "x")], body, runDates,
+            links: [link("a", "x", "b", "x"), link("a", "x", "b", "x")], body, element,
         }));
         expect(ribbons[1]!.ly - ribbons[0]!.ly).toBe(12);
         expect(ribbons[1]!.lx).toBe(ribbons[0]!.lx);
@@ -419,12 +516,12 @@ describe("link weights and captions (`Plan links.html` §15, #1258)", () => {
         // Three S's out of one run end into one row: each caption sits on its
         // riser, 27 short of its destination's start — at 473, 523 and 593.
         const atPx = (px: number) => new Date(W27.getTime() + ((px - PLOT.left) / PLOT.width) * 84 * 86_400_000);
-        const dates = runDatesOf({
+        const dates = barsOf({
             "a|x": [at("2026-06-29"), atPx(300)],
             "b|p": [atPx(500), atPx(540)], "b|q": [atPx(550), atPx(590)], "b|r": [atPx(620), atPx(660)],
         });
         const { ribbons } = layoutRibbons(input({
-            links: [link("a", "x", "b", "p"), link("a", "x", "b", "q"), link("a", "x", "b", "r")], body, runDates: dates,
+            links: [link("a", "x", "b", "p"), link("a", "x", "b", "q"), link("a", "x", "b", "r")], body, element: dates,
         }));
         expect(ribbons.map((r) => Math.round(r.lx))).toEqual([473, 523, 593]);
         const ly = ribbons[0]!.ly;

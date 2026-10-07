@@ -26,6 +26,7 @@ import { getRegisteredPlatformImplementations, registerPlatformImplementation } 
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId, type PlanWireRow } from "./model.js";
+import { PLAN_GEOMETRY } from "./geometry.js";
 import { NO_EDITS } from "./plan.test-utils.js";
 import { dropJob, jobsDrawn, mountCanvas, pressRow, releaseCanvases, type PressValue } from "./plan-editing.test-utils.js";
 import type { PlanEventRows } from "./root/events.js";
@@ -211,39 +212,80 @@ describe("nesting (PB14)", () => {
 // ============================================================================
 
 describe("a link's event ends", () => {
-    /** The ribbon layer's width in jsdom — what it lays its ribbons out across. */
+    /**
+     * jsdom lays nothing out. Give the ribbon layer its width — the 168px
+     * gutter and a 1000px plot — and a bounded frame a view tall enough for
+     * every row (TanStack sizes the frame by `offsetHeight`, the view reads
+     * `clientHeight`), so every row mounts and no end clamps to an edge; every
+     * other element keeps measuring 0.
+     */
     function ribbonWidth(): () => void {
-        const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
-        Object.defineProperty(HTMLElement.prototype, "clientWidth", {
-            configurable: true,
-            get(this: HTMLElement) { return this.hasAttribute("data-plan-ribbons") ? 1168 : 0; },
-        });
+        const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? 4000 : 0);
+        const stubs: Record<string, (el: HTMLElement) => number> = {
+            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1168 : 0),
+            clientHeight: heightOf,
+            offsetHeight: heightOf,
+        };
+        const saved = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+        for (const [k, get] of Object.entries(stubs)) {
+            Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return get(this); } });
+        }
         return () => {
-            if (saved !== undefined) Object.defineProperty(HTMLElement.prototype, "clientWidth", saved);
-            else delete (HTMLElement.prototype as unknown as { clientWidth?: unknown }).clientWidth;
+            for (const [k, d] of saved) {
+                if (d !== undefined) Object.defineProperty(HTMLElement.prototype, k, d);
+                else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+            }
         };
     }
 
-    test("each end is found where its event draws: the rows its jobs are on take the links control, and each ribbon joins the jobs' bars", async () => {
+    test("each end is found where its event draws — a plate's mark, a job's bar, a bindery job's chip, a delivery's tile: every row a link touches takes the links control, and a row's family draws every link (#1258)", async () => {
         const restore = ribbonWidth();
         try {
             const { container } = mount(programOf(ex.planEventLinks));
             await settle();
-            const b3 = entry("presses.span", "Hall B", "b3");
+            const ps = entry("setters.marks", "ps");
             const a1 = entry("presses.span", "Hall A", "a1");
-            expect(container.querySelector(`${rowAt(b3)} [data-plan-control="links"]`)).toBeTruthy();
-            expect(container.querySelector(`${rowAt(a1)} [data-plan-control="links"]`)).toBeTruthy();
-            expect(container.querySelector(`${rowAt(entry("presses.span", "Hall A", "a2"))} [data-plan-control="links"]`)).toBeNull();
-            fireEvent.click(container.querySelector(`${rowAt(b3)} [data-plan-control="links"]`)!);
+            const a2 = entry("presses.span", "Hall A", "a2");
+            const a3 = entry("presses.span", "Hall A", "a3");
+            const b1 = entry("presses.span", "Hall B", "b1");
+            const b2 = entry("presses.span", "Hall B", "b2");
+            const b3 = entry("presses.span", "Hall B", "b3");
+            const fold = entry("lines.cards", "fold");
+            const bind = entry("lines.cards", "bind");
+            const bay = entry("bays.buckets", "bay");
+            for (const row of [ps, a1, a2, a3, b1, b2, b3, fold, bind, bay]) {
+                expect(container.querySelector(`${rowAt(row)} [data-plan-control="links"]`), rowKeyOf(row)).toBeTruthy();
+            }
+            fireEvent.click(container.querySelector(`${rowAt(a1)} [data-plan-control="links"]`)!);
             await settle();
             const ends = [...container.querySelectorAll("[data-link]")].map((path) => [
                 path.getAttribute("data-link-key"),
                 path.getAttribute("data-link-from"), path.getAttribute("data-link-from-run"),
                 path.getAttribute("data-link-to"), path.getAttribute("data-link-to-run"),
             ]);
+            const end = (row: PlanRowId, kind: string, key: string) => [rowKeyOf(row), elementKey(kind, key)];
             expect(ends).toEqual([
-                ["covers", rowKeyOf(b3), elementKey("job", "J-2001"), rowKeyOf(a1), elementKey("job", "J-2002")],
-                ["sleeves", rowKeyOf(b3), elementKey("job", "J-2003"), rowKeyOf(a1), elementKey("job", "J-2004")],
+                ["plates", ...end(ps, "plate", "P-01"), ...end(a1, "job", "J-2001")],
+                ["covers", ...end(a1, "job", "J-2001"), ...end(b1, "job", "J-2013")],
+                ["card", ...end(b3, "job", "J-2020"), ...end(a2, "job", "J-2005")],
+                ["inserts", ...end(a1, "job", "J-2003"), ...end(b2, "job", "J-2016")],
+                ["report-covers", ...end(b3, "job", "J-2022"), ...end(a3, "job", "J-2009")],
+                ["seed-prints", ...end(b1, "job", "J-2014"), ...end(b2, "job", "J-2017")],
+                ["tags", ...end(a2, "job", "J-2006"), ...end(a2, "job", "J-2007")],
+                ["pads", ...end(a3, "job", "J-2010"), ...end(a3, "job", "J-2011")],
+                ["proofs", ...end(a3, "job", "J-2008"), ...end(b2, "job", "J-2015")],
+                ["proof-sheets", ...end(b1, "job", "J-2012"), ...end(a2, "job", "J-2004")],
+                ["tickets", ...end(b2, "job", "J-2019"), ...end(b3, "job", "J-2023")],
+                ["sections", ...end(b3, "job", "J-2021"), ...end(fold, "binding", "B-01")],
+                ["sections-more", ...end(b3, "job", "J-2021"), ...end(fold, "binding", "B-02")],
+                ["folded", ...end(fold, "binding", "B-02"), ...end(bind, "binding", "B-03")],
+                ["books", ...end(bind, "binding", "B-03"), ...end(bay, "delivery", "D-01")],
+                ["posters", ...end(a1, "job", "J-2002"), ...end(bay, "delivery", "D-02")],
+                ["book-blocks", ...end(b2, "job", "J-2018"), ...end(bind, "binding", "B-04")],
+            ]);
+            // Each figure the case table names, in the links' order.
+            expect([...container.querySelectorAll("[data-plan-link]")].map((g) => g.getAttribute("data-plan-route"))).toEqual([
+                "s", "s", "s", "loop", "loop", "loop", "feed", "runoff", "loop", "s", "s", "s", "s", "s", "s", "s", "loop",
             ]);
         } finally {
             restore();
@@ -256,7 +298,7 @@ describe("a link's event ends", () => {
         return [nums[2]!, nums[3]!];
     };
 
-    test("a ribbon meets its event however it draws — at a stop's mark, not across its row", async () => {
+    test("a ribbon meets its event however it draws — at the edge of a stop's mark, not across its row (#1258)", async () => {
         const restore = ribbonWidth();
         try {
             const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -280,9 +322,10 @@ describe("a link's event ends", () => {
             await settle();
             expect(container.querySelector('[data-link="0"]')!.getAttribute("data-link-to")).toBe(rowKeyOf(entry("presses.marks", "a1")));
             // S-01 is at noon on 7 October: two and a half of the window's 28
-            // days across the 1000px plot, past the 168px gutter.
+            // days across the 1000px plot, past the 168px gutter. Its mark wears
+            // its kind's icon, so the link meets the left edge of the icon's box.
             const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
-            expect(tipOf(head.getAttribute("d")!)[0]).toBe(Number((168 + (2.5 / 28) * 1000).toFixed(1)));
+            expect(tipOf(head.getAttribute("d")!)[0]).toBe(Number((168 + (2.5 / 28) * 1000 - PLAN_GEOMETRY.default.markIconWidth / 2).toFixed(1)));
         } finally {
             restore();
         }

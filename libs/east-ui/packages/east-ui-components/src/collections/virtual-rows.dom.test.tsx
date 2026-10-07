@@ -90,6 +90,38 @@ describe("VirtualRows fixed-row geometry", () => {
         expect(match, "the window column carries the one translateY").toBeTruthy();
         expect(Number(match![1]) % ROW_H, "the window offset is an exact row multiple").toBe(0);
     });
+
+    test("an overlay over fixed rows is drawn in their column — their stacking context — back at the rows' top and as tall as all of them, wherever the window has scrolled to (#1258)", () => {
+        const frame = (measureRows: boolean) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={20} sizes={Array.from({ length: 20 }, () => ROW_H)}
+                    measureRows={measureRows} overscan={2} overlay={<div data-over="" />}
+                    renderRow={(i) => <div>row {i}</div>} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(frame(false));
+        const read = () => {
+            const column = container.querySelector("[data-index]")!.parentElement as HTMLElement;
+            const box = container.querySelector<HTMLElement>("[data-virtual-overlay]");
+            return {
+                column: Number(/translateY\((-?[\d.]+)px\)/.exec(column.style.transform)![1]),
+                inColumn: box?.parentElement === column,
+                holds: box?.querySelector("[data-over]") !== null,
+                top: box?.style.top,
+                height: box?.style.height,
+            };
+        };
+        expect(read()).toEqual({ column: 0, inColumn: true, holds: true, top: "0px", height: `${20 * ROW_H}px` });
+        // Ten rows down, the column starts at the overscan's first row; the box goes back up by as much.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        scrollEl.scrollTop = 10 * ROW_H;
+        fireEvent.scroll(scrollEl);
+        expect(read()).toEqual({ column: 8 * ROW_H, inColumn: true, holds: true, top: `${-8 * ROW_H}px`, height: `${20 * ROW_H}px` });
+        // Measured rows are translated one by one: the overlay is the rows' sibling, as it always was.
+        rerender(frame(true));
+        expect(container.querySelector("[data-virtual-overlay]")).toBeNull();
+        expect(container.querySelector("[data-over]")!.parentElement).toBe(container.querySelector("[data-virtual-extent]"));
+    });
 });
 
 describe("VirtualRows measured rows — device pixels and identity (#843)", () => {

@@ -156,7 +156,8 @@ export const cellsBase = {
         alignItems: "center",
         gap: "5px",
         padding: "0 6px",
-        minWidth: 0,
+        // Its padding at least — a link meets the cell as it draws (#1258).
+        minWidth: "var(--plan-cell-min-w)",
         overflow: "hidden",
         boxSizing: "border-box",
         zIndex: 2,
@@ -270,11 +271,14 @@ export const cellsBase = {
     },
     // ── Cards chips (K6) — the Roster `.shift` chip, verbatim: 5px
     //    radius, brand tint + 1px brand ring, mono 10/500, text left ──
+    // A chip too short for its padding draws the canvas's narrowest chip, and
+    // a link meets it where it ends as drawn (#1258).
     cardChip: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
         height: "var(--plan-chip-h)",
+        minWidth: "var(--plan-chip-min-w)",
         display: "flex",
         alignItems: "center",
         justifyContent: "flex-start",

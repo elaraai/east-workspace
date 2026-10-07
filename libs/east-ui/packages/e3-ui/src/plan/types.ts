@@ -329,9 +329,9 @@ export type PlanFoldLiteral = "sum" | "mean" | "min" | "max" | "last" | "count";
 
 /**
  * A quantity — a number, its unit, and how it prints (#824). Runs and links
- * carry one: a run's bar prints it after its label, a link's ribbon prints it
- * as its caption and takes its share from it, and a parent's rollup band sums
- * its runs' quantities unit by unit.
+ * carry one: a run's bar prints it after its label, a link prints it as its
+ * caption and takes its weight from it, and a parent's rollup band sums its
+ * runs' quantities unit by unit.
  *
  * @remarks
  * The number is the value the canvas computes with, and the words are derived
@@ -1199,20 +1199,22 @@ export type PlanStyleType = typeof PlanStyleType;
  * One quantity link between two runs — the Plan's edge vocabulary. The root's
  * `links` graph carries them and the links-focus control gathers a row's
  * transitive upstream/downstream family over these edges. Each edge renders as
- * a quantity-weighted ribbon between the run edges it names; geometry is fixed
- * by the spec and lives in the renderer.
+ * an arrow out of its source run's end and into its destination run's start,
+ * each as it draws; its geometry is fixed by the links spec and lives in the
+ * renderer, and nothing of it leaves the plot.
  *
  * @remarks
- * The quantity is a number with its unit and format (#824): its value weighs
- * the ribbon's share of the family's largest, and its caption — `text`, else
- * the value formatted with its unit — prints on the ribbon. A link without one
- * draws at the faintest share and prints nothing. A click on a ribbon reports
- * the `link` arm of the element ref, which names the link by its `key`.
+ * The quantity is a number with its unit and format (#824): its value's third
+ * of the family's largest sets the link's weight (2, 4 or 8), and its caption —
+ * `text`, else the value formatted with its unit — prints on the link, on a
+ * paper knockout. A link without one draws at the thinnest weight (1.5) and
+ * prints nothing. A click on a link reports the `link` arm of the element ref,
+ * which names the link by its `key`.
  *
  * @property key - The link's identity (what a `link` element ref names it by)
- * @property from - The source run (`{ row, run }` — the ribbon leaves its end)
- * @property to - The destination run (the ribbon lands on its start)
- * @property quantity - The moved quantity (share, opacity and caption)
+ * @property from - The source run (`{ row, run }` — the link leaves its end)
+ * @property to - The destination run (the link enters at its start)
+ * @property quantity - The moved quantity (the link's weight and caption)
  */
 export const PlanLinkType = StructType({
     key:      StringType,

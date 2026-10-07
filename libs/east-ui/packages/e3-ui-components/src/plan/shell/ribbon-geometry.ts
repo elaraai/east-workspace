@@ -23,8 +23,13 @@
  * - Anything else (abutting, overlapping, containing, backward): the
  *   LOOPBACK — exit right, turn toward the destination row, travel back
  *   left along the lane halfway between the bars, turn into the
- *   destination's start. A destination at the window's start turns in the
- *   gutter, under the row controls.
+ *   destination's start.
+ * - NOTHING of a link leaves the plot (ruled by the user over the spec's
+ *   gutter turn): not into the gutter, the canvas's first column, nor past the
+ *   plot's end. A destination too near the plot's start for a level approach
+ *   is entered from above or below at its start — the head DROPS onto its
+ *   edge — and a source too near the plot's end for a level exit LIFTS off its
+ *   edge at its end; a lane between them runs between the facing edges.
  * - Same-row links never loop: a forward feed is a straight centered band;
  *   an overlapping/backward one renders as an exit stub out of A's end plus
  *   a separate arrival into B's start (the runoff grammar — the connection is
@@ -72,9 +77,17 @@ export interface RibbonEnd {
     off?: RibbonOff | undefined;
 }
 
+/**
+ * Which of the grammar's figures a link draws: the metro-`s`, the `loop`back,
+ * a one-row `feed` or `runoff`, a `stub` toward an end out of view, or the
+ * `band` across the view between two.
+ */
+export type RibbonRoute = "s" | "loop" | "feed" | "runoff" | "stub" | "band";
+
 /** A routed link: centerline `stroke` (stroked at `width`, its weight), the
- *  arrowheads, and where its caption's text is centred. */
+ *  arrowheads, where its caption's text is centred, and the figure it draws. */
 export interface RibbonPath {
+    route: RibbonRoute;
     stroke: string;
     /** The arrowhead at the ribbon's end: into the destination's start, or —
      *  the destination out of view — the stub pointing toward it. */
@@ -101,8 +114,50 @@ const MIN_S_GAP = 4;
 /** A caption's text sits this far below the point it is centred on (px) — a
  *  10px label's middle. */
 const CAPTION_DROP = 3;
+/** The paper a link's casing lays either side of its ink, and the half px a
+ *  stroke is drawn on — what keeps a line or a head at the plot's edge inside
+ *  it (px). */
+const EDGE_CLEAR = 1.5;
+
+/** The plot's two edges, which nothing of a link crosses — not into the
+ *  gutter, the canvas's first column, nor past the plot's end. */
+export interface RibbonBounds {
+    left: number;
+    right: number;
+}
+
+/** No edges: a route as the grammar draws it, wherever that reaches. */
+const UNBOUNDED: RibbonBounds = { left: -Infinity, right: Infinity };
 
 const f = (n: number) => n.toFixed(1);
+
+/**
+ * A rounded orthogonal polyline as path data: straight runs between the
+ * points, each corner turned at radius `r`, clamped to half of either run
+ * beside it. Consecutive points share an x or a y; a point that turns
+ * nothing is passed straight through.
+ */
+function rounded(points: readonly (readonly [number, number])[], r: number): string {
+    const [x0, y0] = points[0]!;
+    let d = `M ${f(x0)} ${f(y0)}`;
+    for (let i = 1; i < points.length - 1; i++) {
+        const [px, py] = points[i - 1]!;
+        const [x, y] = points[i]!;
+        const [nx, ny] = points[i + 1]!;
+        const [ix, iy] = [Math.sign(x - px), Math.sign(y - py)];
+        const [ox, oy] = [Math.sign(nx - x), Math.sign(ny - y)];
+        const turn = ix * oy - iy * ox;
+        if (turn === 0) {
+            d += ` L ${f(x)} ${f(y)}`;
+            continue;
+        }
+        const rad = Math.min(r, (Math.abs(x - px) + Math.abs(y - py)) / 2, (Math.abs(nx - x) + Math.abs(ny - y)) / 2);
+        // A turn clockwise on the page sweeps positive.
+        d += ` L ${f(x - ix * rad)} ${f(y - iy * rad)} A ${f(rad)} ${f(rad)} 0 0 ${turn > 0 ? 1 : 0} ${f(x + ox * rad)} ${f(y + oy * rad)}`;
+    }
+    const [lx, ly] = points[points.length - 1]!;
+    return `${d} L ${f(lx)} ${f(ly)}`;
+}
 
 /** A triangle arrowhead: its base centred on `(bx, by)` across the flow, its
  *  tip at `(tx, ty)`, `half` px either side of the flow line. */
@@ -120,9 +175,10 @@ function arrow(bx: number, by: number, tx: number, ty: number, half: number): st
  * @param from - The source run's rect (out of view: at the edge it lies beyond)
  * @param to - The destination run's rect (the same)
  * @param weight - The link's weight: its stroke's width (`ribbonWeight`)
+ * @param bounds - The plot's edges, which nothing of the link crosses; left out, none
  * @returns The link's paths and caption anchor
  */
-export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): RibbonPath {
+export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number, bounds: RibbonBounds = UNBOUNDED): RibbonPath {
     // The weight is the quantity's, never the bar's: the same link draws as
     // wide out of a 20px bar, a compact 16px one and a 12px rollup.
     const width = weight;
@@ -142,9 +198,18 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): Rib
     const approachX = neckX - runOut;
     const forward = approachX - x1 >= runOut + MIN_S_GAP;
     const arrival = arrow(neckX, y2, x2, y2, halfH);
+    // ── The plot's edges ──
+    // A drop lands in from the destination's start by the head's half width
+    // and the casing, never past the element's middle; a lift leaves in from
+    // the source's end by the line's.
+    const startX = Math.max(to.leftX, bounds.left);
+    const dropX = Math.min(startX + halfH + EDGE_CLEAR, Math.max(startX, (startX + Math.min(to.rightX, bounds.right)) / 2));
+    const endX = Math.min(from.rightX, bounds.right);
+    const liftX = Math.max(endX - width / 2 - EDGE_CLEAR, Math.min(endX, (Math.max(from.leftX, bounds.left) + endX) / 2));
+    const edges = { bounds, dropX, liftX };
 
     if (from.off !== undefined || to.off !== undefined) {
-        return routeOutOfView(from, to, { width, halfH, headLen, runOut, ySrc, y2, x1, neckX, approachX, forward, arrival });
+        return routeOutOfView(from, to, { width, halfH, headLen, runOut, ySrc, y2, x1, neckX, approachX, forward, arrival, edges });
     }
 
     const sameRowLink = Math.abs(ySrc - y2) < 0.5;
@@ -157,6 +222,7 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): Rib
             // A straight centered feed — the run's output flows directly
             // into the next run.
             return {
+                route: "feed",
                 stroke: `M ${f(x1)} ${f(ySrc)} L ${f(neckX)} ${f(y2)}`,
                 head, tail: "", width,
                 lx: (x1 + neckX) / 2, ly: from.top - 6, anchor: "middle",
@@ -165,11 +231,21 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): Rib
         // Overlapping/backward on one row: the runoff grammar — a squared
         // stub exits A's end; the arrival (approach + head) marks B's start.
         // The connection is implied, never drawn through the bars; the stubs
-        // are cased where they sit on one.
+        // are cased where they sit on one. At the plot's end the exit stub
+        // lifts off A's top at its end; at its start the arrival drops onto
+        // B's top at its start.
+        const lift = x1 + runOut > bounds.right;
+        const drop = x2 - headLen - runOut < bounds.left;
         return {
-            stroke: `M ${f(x1)} ${f(ySrc)} L ${f(x1 + runOut)} ${f(ySrc)}`
-                + ` M ${f(x2 - headLen - runOut)} ${f(y2)} L ${f(neckX)} ${f(y2)}`,
-            head, tail: "", width,
+            route: "runoff",
+            stroke: (lift
+                ? `M ${f(liftX)} ${f(from.top)} L ${f(liftX)} ${f(from.top - runOut)}`
+                : `M ${f(x1)} ${f(ySrc)} L ${f(x1 + runOut)} ${f(ySrc)}`)
+                + (drop
+                    ? ` M ${f(dropX)} ${f(to.top - headLen - runOut)} L ${f(dropX)} ${f(to.top - headLen)}`
+                    : ` M ${f(x2 - headLen - runOut)} ${f(y2)} L ${f(neckX)} ${f(y2)}`),
+            head: drop ? arrow(dropX, to.top - headLen, dropX, to.top, halfH) : head,
+            tail: "", width,
             lx: (x1 + x2) / 2, ly: from.top - 6, anchor: "middle",
         };
     }
@@ -181,6 +257,7 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): Rib
         const xs = approachX - 2 * rad;
         const sweep1 = sgn === 1 ? 1 : 0;
         return {
+            route: "s",
             stroke: `M ${f(x1)} ${f(ySrc)}`
                 + ` L ${f(xs)} ${f(ySrc)}`
                 + ` A ${f(rad)} ${f(rad)} 0 0 ${sweep1} ${f(xs + rad)} ${f(ySrc + sgn * rad)}`
@@ -209,9 +286,40 @@ export function routeRibbon(from: RibbonEnd, to: RibbonEnd, weight: number): Rib
     const rB = Math.min(CORNER_R, dropB / 2);
     const xC = approachX;
     const xR = exitTurnX(x1, runOut, approachX);
+    // At the plot's edges: an exit with no room to turn before the plot's end
+    // lifts off the source's edge at its end; an entry with no room to turn
+    // after the plot's start drops onto the destination's edge at its start.
+    // The lane then runs between the two facing edges — the head's base where
+    // it drops.
+    const lift = xR + CORNER_R + width / 2 + EDGE_CLEAR > bounds.right;
+    const drop = xC - CORNER_R - width / 2 - EDGE_CLEAR < bounds.left;
+    if (lift || drop) {
+        const sgn = y2 > ySrc ? 1 : -1;
+        const srcFacing = sgn > 0 ? from.bottom : from.top;
+        const dstFacing = sgn > 0 ? to.top : to.bottom;
+        const headBase = dstFacing - sgn * headLen;
+        const lane = (srcFacing + (drop ? headBase : dstFacing)) / 2;
+        const exitR = Math.min(CORNER_R, Math.abs(lane - ySrc) / 2);
+        const entryR = Math.min(CORNER_R, Math.abs(y2 - lane) / 2);
+        const laneFrom = lift ? liftX : xR + exitR;
+        const laneTo = drop ? dropX : xC - entryR;
+        const points: (readonly [number, number])[] = [
+            ...(lift ? [[liftX, srcFacing], [liftX, lane]] as const : [[x1, ySrc], [xR + exitR, ySrc], [xR + exitR, lane]] as const),
+            ...(drop ? [[dropX, lane], [dropX, headBase]] as const : [[xC - entryR, lane], [xC - entryR, y2], [neckX, y2]] as const),
+        ];
+        return {
+            route: "loop",
+            stroke: rounded(points, CORNER_R),
+            head: drop ? arrow(dropX, headBase, dropX, dstFacing, halfH) : head,
+            tail: "", width,
+            // The caption on the lane, at its middle.
+            lx: (laneFrom + laneTo) / 2, ly: lane + CAPTION_DROP, anchor: "middle",
+        };
+    }
     const s1 = sgnA > 0 ? 1 : 0;
     const s2 = sgnB > 0 ? 0 : 1;
     return {
+        route: "loop",
         stroke: `M ${f(x1)} ${f(ySrc)}`
             + ` L ${f(xR)} ${f(ySrc)}`
             + ` A ${f(rA)} ${f(rA)} 0 0 ${s1} ${f(xR + rA)} ${f(ySrc + sgnA * rA)}`
@@ -249,11 +357,16 @@ interface RouteMeasures {
     approachX: number;
     forward: boolean;
     arrival: string;
+    /** The plot's edges, and where a drop lands and a lift leaves. */
+    edges: { bounds: RibbonBounds; dropX: number; liftX: number };
 }
 
 /** The out-of-view cases — see the module doc. */
 function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): RibbonPath {
-    const { width, halfH, headLen, runOut, ySrc, y2, x1, neckX, approachX, forward, arrival } = m;
+    const { width, halfH, headLen, runOut, ySrc, y2, x1, neckX, approachX, forward, arrival, edges } = m;
+    const { bounds, dropX, liftX } = edges;
+    // A vertical with a head on it keeps the head inside the plot.
+    const inside = (x: number) => Math.max(bounds.left + halfH + EDGE_CLEAR, Math.min(bounds.right - halfH - EDGE_CLEAR, x));
     // The edge an out-of-view end sits on, and which way is "toward its row".
     const edgeOf = (end: RibbonEnd): number => (end.off === "above" ? end.top : end.bottom);
     const outward = (end: RibbonEnd): number => (end.off === "above" ? -1 : 1);
@@ -261,14 +374,16 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
     if (from.off !== undefined && to.off !== undefined) {
         // ── Both out of view, on opposite sides: ONE vertical band across the
         // view, a stub at each edge. It stands where the destination's riser
-        // would (forward) or the loopback's first turn would (otherwise).
-        const xV = forward ? approachX - CORNER_R : exitTurnX(x1, runOut, approachX) + CORNER_R;
+        // would (forward) or the loopback's first turn would (otherwise),
+        // inside the plot.
+        const xV = inside(forward ? approachX - CORNER_R : exitTurnX(x1, runOut, approachX) + CORNER_R);
         const yA = edgeOf(from);
         const yB = edgeOf(to);
         const sgn = yB > yA ? 1 : -1;
         const yStart = yA + sgn * headLen;
         const yEnd = yB - sgn * headLen;
         return {
+            route: "band",
             stroke: `M ${f(xV)} ${f(yStart)} L ${f(xV)} ${f(yEnd)}`,
             head: arrow(xV, yEnd, xV, yB, halfH),
             tail: arrow(xV, yStart, xV, yA, halfH),
@@ -289,10 +404,26 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
         const room = forward ? (approachX - x1 - runOut) / 2 : CORNER_R;
         const rad = Math.min(CORNER_R, room, Math.max(0, (drop - headLen) / 2));
         const xV = forward ? approachX - rad : exitTurnX(x1, runOut, approachX) + rad;
+        if (xV + halfH + EDGE_CLEAR > bounds.right) {
+            // No room to turn before the plot's end: lift straight off the
+            // source's edge at its end, out of view.
+            const lifted = Math.min(liftX, bounds.right - halfH - EDGE_CLEAR);
+            const facing = sgn > 0 ? from.bottom : from.top;
+            const neck = sgn * (edge - sgn * headLen - facing) > 0 ? edge - sgn * headLen : facing;
+            return {
+                route: "stub",
+                stroke: `M ${f(lifted)} ${f(facing)} L ${f(lifted)} ${f(neck)}`,
+                head: arrow(lifted, neck, lifted, edge, halfH),
+                tail: "",
+                width,
+                lx: lifted, ly: (facing + neck) / 2 + CAPTION_DROP, anchor: "middle",
+            };
+        }
         // The vertical run stops where the stub's base begins — never past
         // the source's own centerline, however close the row is to the edge.
         const yNeck = sgn * (edge - sgn * headLen - ySrc) > rad ? edge - sgn * headLen : ySrc + sgn * rad;
         return {
+            route: "stub",
             stroke: `M ${f(x1)} ${f(ySrc)}`
                 + ` L ${f(xV - rad)} ${f(ySrc)}`
                 + ` A ${f(rad)} ${f(rad)} 0 0 ${sgn === 1 ? 1 : 0} ${f(xV)} ${f(ySrc + sgn * rad)}`
@@ -312,8 +443,25 @@ function routeOutOfView(from: RibbonEnd, to: RibbonEnd, m: RouteMeasures): Ribbo
     const drop = Math.abs(y2 - edge);
     const rad = Math.min(CORNER_R, Math.max(0, (drop - headLen) / 2));
     const xV = approachX - rad;
+    if (xV - halfH - EDGE_CLEAR < bounds.left) {
+        // No room to turn after the plot's start: come straight down (or up)
+        // onto the destination's edge at its start.
+        const dropped = Math.max(dropX, bounds.left + halfH + EDGE_CLEAR);
+        const facing = sgnIn > 0 ? to.top : to.bottom;
+        const base = facing - sgnIn * headLen;
+        const start = sgnIn * (base - (edge + sgnIn * headLen)) >= 0 ? edge + sgnIn * headLen : base;
+        return {
+            route: "stub",
+            stroke: `M ${f(dropped)} ${f(start)} L ${f(dropped)} ${f(base)}`,
+            head: arrow(dropped, base, dropped, facing, halfH),
+            tail: arrow(dropped, start, dropped, edge, halfH),
+            width,
+            lx: dropped, ly: (start + base) / 2 + CAPTION_DROP, anchor: "middle",
+        };
+    }
     const yStart = sgnIn * (y2 - sgnIn * rad - (edge + sgnIn * headLen)) >= 0 ? edge + sgnIn * headLen : y2 - sgnIn * rad;
     return {
+        route: "stub",
         stroke: `M ${f(xV)} ${f(yStart)}`
             + ` L ${f(xV)} ${f(y2 - sgnIn * rad)}`
             + ` A ${f(rad)} ${f(rad)} 0 0 ${sgnIn === 1 ? 0 : 1} ${f(xV + rad)} ${f(y2)}`

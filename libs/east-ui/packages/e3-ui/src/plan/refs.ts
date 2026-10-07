@@ -72,7 +72,7 @@ const EVENT_REFS = new WeakMap<object, string>();
  *     ["uncoated", { name: "Uncoated", weekly: [300.0, 260.0, 280.0, 240.0] }],
  * ])));
  *
- * const planEventLinks = East.function([], UIComponentType, (_$) => (
+ * const planEventRefs = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const presses = $.let(Record.bind(planPrintPresses, []));
  *         const jobs = $.let(Record.bind(planLinkJobs, [planLinkJobsPatch]));

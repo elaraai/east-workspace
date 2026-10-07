@@ -25,7 +25,7 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
-import { openExample, rowId, rowSel } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, openExample, rowId, rowSel } from "./plan-page";
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes, rows folded to a coarser resolution and a
@@ -58,39 +58,92 @@ const KINDS = ["buckets", "cards", "chart", "events", "heat", "span", "table"];
 // Each returns what it found wrong, in words: an empty list holds.
 
 /**
- * Each link that does not leave its source run's END or enter its destination
- * run's START (#1258): its band starts on the run's right edge at its bar's
- * middle, and its head's tip meets the destination's left edge at its bar's
- * middle — each on the plot's edge where the run lies past the window. A link
- * names its ends on its hit path, each a row's id and a run's key.
+ * Each link that does not leave its source's END or enter its destination's
+ * START as the element draws (#1258) — a bar, a chip, a mark's glyph or the
+ * cell a tile sits in. Its band starts on the source's right edge at its
+ * middle, or — no room before the plot's end — lifts off its top or bottom edge
+ * within its last 7px; its head's tip meets the destination's left edge at its
+ * middle, or — no room after the plot's start — drops onto its top or bottom
+ * edge within its first 10px; each on the plot's edge where the element lies
+ * past the window. An end out of view meets the view's edge in a stub instead,
+ * which this leaves to the view's checks. A link names its ends on its hit
+ * path, each a row's id and an element's key.
  */
 const ribbonEnds = (root: Element): string[] => {
     const svg = root.querySelector("[data-plan-ribbons] svg")!.getBoundingClientRect();
     const nums = (d: string) => d.split(/[\sMLAZ]+/).filter((t) => t !== "").map(Number);
     const near = (a: number, b: number) => Math.abs(a - b) <= 0.6;
+    const within = (v: number, lo: number, hi: number) => v >= lo - 0.6 && v <= hi + 0.6;
     const out: string[] = [];
+    /** The element an end names, as it draws. */
+    const elementOf = (rowKey: string | null, key: string | null): Element | null => {
+        const row = root.querySelector(`[data-plan-row=${JSON.stringify(rowKey)}]`);
+        if (row === null) return null;
+        const keyed = (sel: string, attr: string) => [...row.querySelectorAll(sel)].find((e) => e.getAttribute(attr) === key);
+        return keyed("[data-run]", "data-run") ?? keyed("[data-chip]", "data-chip")
+            ?? keyed("[data-mark][role='button']", "data-mark") ?? keyed("[data-event]", "data-event")?.closest("[data-plan-cell]") ?? null;
+    };
     for (const g of root.querySelectorAll("[data-plan-link]")) {
         const hit = g.querySelector("[data-link]")!;
-        const name = `link ${g.getAttribute("data-plan-link")}`;
-        const bar = (end: "from" | "to") => root.querySelector(
-            `[data-plan-row=${JSON.stringify(hit.getAttribute(`data-link-${end}`))}] [data-run=${JSON.stringify(hit.getAttribute(`data-link-${end}-run`))}]`);
-        const srcEl = bar("from");
-        const dstEl = bar("to");
-        if (srcEl === null || dstEl === null) { out.push(`${name}: a run it joins is not drawn`); continue; }
-        const src = srcEl.getBoundingClientRect();
-        const dst = dstEl.getBoundingClientRect();
-        const plot = dstEl.closest("[data-plan-plot]")!.getBoundingClientRect();
+        const name = `link ${hit.getAttribute("data-link-key")}`;
+        const heads = g.querySelectorAll("[data-plan-ribbon-head]");
+        const toOff = heads[0]!.hasAttribute("data-plan-stub");
+        const fromOff = heads[1]?.hasAttribute("data-plan-stub") ?? false;
+        const srcEl = elementOf(hit.getAttribute("data-link-from"), hit.getAttribute("data-link-from-run"));
+        const dstEl = elementOf(hit.getAttribute("data-link-to"), hit.getAttribute("data-link-to-run"));
+        if ((!fromOff && srcEl === null) || (!toOff && dstEl === null)) { out.push(`${name}: an element it joins is not drawn`); continue; }
+        const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
         const onPlot = (x: number) => Math.min(plot.right, Math.max(plot.left, x));
-        const p0 = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]")!.getPointAtLength(0);
-        const [x0, y0] = [svg.left + p0.x, svg.top + p0.y];
-        const tip = nums(g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!).slice(2, 4);
-        const [tx, ty] = [svg.left + tip[0]!, svg.top + tip[1]!];
-        if (!near(x0, onPlot(src.right)) || !near(y0, (src.top + src.bottom) / 2)) {
-            out.push(`${name} leaves at (${x0.toFixed(1)}, ${y0.toFixed(1)}), not its source's end (${onPlot(src.right).toFixed(1)}, ${((src.top + src.bottom) / 2).toFixed(1)})`);
+        if (!fromOff) {
+            const src = srcEl!.getBoundingClientRect();
+            const p0 = g.querySelector<SVGPathElement>("[data-plan-ribbon-band]")!.getPointAtLength(0);
+            const [x0, y0] = [svg.left + p0.x, svg.top + p0.y];
+            const end = onPlot(src.right);
+            const level = near(x0, end) && near(y0, (src.top + src.bottom) / 2);
+            const lifted = within(x0, Math.max(onPlot(src.left), end - 7), end) && (near(y0, src.top) || near(y0, src.bottom));
+            if (!level && !lifted) out.push(`${name} leaves at (${x0.toFixed(1)}, ${y0.toFixed(1)}), not its source's end (${end.toFixed(1)}, ${((src.top + src.bottom) / 2).toFixed(1)})`);
         }
-        if (!near(tx, onPlot(dst.left)) || !near(ty, (dst.top + dst.bottom) / 2)) {
-            out.push(`${name} enters at (${tx.toFixed(1)}, ${ty.toFixed(1)}), not its destination's start (${onPlot(dst.left).toFixed(1)}, ${((dst.top + dst.bottom) / 2).toFixed(1)})`);
+        if (!toOff) {
+            const dst = dstEl!.getBoundingClientRect();
+            const tip = nums(heads[0]!.getAttribute("d")!).slice(2, 4);
+            const [tx, ty] = [svg.left + tip[0]!, svg.top + tip[1]!];
+            const start = onPlot(dst.left);
+            const level = near(tx, start) && near(ty, (dst.top + dst.bottom) / 2);
+            const dropped = within(tx, start, Math.min(start + 10, onPlot(dst.right))) && (near(ty, dst.top) || near(ty, dst.bottom));
+            if (!level && !dropped) out.push(`${name} enters at (${tx.toFixed(1)}, ${ty.toFixed(1)}), not its destination's start (${start.toFixed(1)}, ${((dst.top + dst.bottom) / 2).toFixed(1)})`);
         }
+    }
+    return out;
+};
+
+/**
+ * Whatever of a links focus lies outside the plot (ruled by the user): no
+ * link, head, casing, caption or slot crosses into the gutter — the canvas's
+ * first column — or past the plot's end, and the layer is clipped to the plot.
+ * A link's hit area is its band's own path.
+ */
+const outsidePlot = (root: Element): string[] => {
+    const out: string[] = [];
+    const svgEl = root.querySelector<SVGSVGElement>("[data-plan-ribbons] svg");
+    if (svgEl === null) return ["no links layer"];
+    const svg = svgEl.getBoundingClientRect();
+    const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+    for (const el of svgEl.querySelectorAll<SVGGraphicsElement>("[data-plan-clip] path, [data-plan-clip] rect, [data-plan-clip] text")) {
+        const b = el.getBBox();
+        const [left, right] = [svg.left + b.x, svg.left + b.x + b.width];
+        const what = [...el.attributes].map((a) => a.name).find((n) => n.startsWith("data-")) ?? el.tagName;
+        if (left < plot.left - 0.05) out.push(`${what}: ${(plot.left - left).toFixed(1)}px into the gutter`);
+        if (right > plot.right + 0.05) out.push(`${what}: ${(right - plot.right).toFixed(1)}px past the plot's end`);
+    }
+    const clip = svgEl.querySelector("clipPath rect");
+    const group = svgEl.querySelector("[data-plan-clip]");
+    if (clip === null || group === null || !group.getAttribute("clip-path")?.includes(svgEl.querySelector("clipPath")!.id)) {
+        out.push("the layer is not clipped to the plot");
+    } else {
+        // A clip path's shapes are never drawn: its rect's place is its attributes, in the layer's coordinates.
+        const left = svg.left + Number(clip.getAttribute("x"));
+        const right = left + Number(clip.getAttribute("width"));
+        if (Math.abs(left - plot.left) > 0.5 || Math.abs(right - plot.right) > 0.5) out.push(`clipped to ${left}–${right}, the plot is ${plot.left}–${plot.right}`);
     }
     return out;
 };
@@ -130,8 +183,8 @@ const linkFigures = (root: Element, want: { weights: readonly number[]; slots: n
         if (Number(cband.getAttribute("stroke-width")) !== w + 2) out.push(`link ${i}: casing ${cband.getAttribute("stroke-width")} wide round a ${w} band, want ${w + 2}`);
         if (casing.querySelector("[data-plan-casing='head']")?.getAttribute("d") !== headD) out.push(`link ${i}: its head is not cased`);
     }
-    // Every casing under every link's ink.
-    const kids = [...svgEl.children];
+    // Every casing under every link's ink — the layer's children, in the plot's clip.
+    const kids = [...svgEl.querySelector("[data-plan-clip]")!.children];
     const lastCasing = kids.map((k) => k.hasAttribute("data-plan-ribbon-casing")).lastIndexOf(true);
     const firstInk = kids.findIndex((k) => k.hasAttribute("data-plan-link"));
     if (lastCasing > firstInk) out.push("a casing is drawn over a link's ink");
@@ -206,36 +259,37 @@ const cutBarText = (root: Element): string[] => {
 };
 
 /**
- * Each row control drawn otherwise than `Plan links.html` draws it (#1258):
- * 24px sm ghost buttons on a pill in the row's own surface, no ring, 8 from the
- * gutter cell's edge and inside it, centred on the row's line — shown on the
- * rows `shown` names and hidden (opacity 0) on every other.
+ * Each row control drawn otherwise than #1258 draws it — the user's ruling
+ * over `Plan links.html`'s hover reveal: 24px sm ghost buttons, no ring, at the
+ * end of the row's gutter line, after its label, value and status, inside the
+ * gutter cell and centred on the line — and always shown, so a row says it has
+ * links before it is hovered.
  */
-const controlPills = (root: Element, shown: readonly string[]): string[] => {
+const rowControlsLaidOut = (root: Element): string[] => {
     const out: string[] = [];
-    const pills = [...new Set([...root.querySelectorAll("[data-plan-control]")].map((c) => c.parentElement!))];
-    if (pills.length === 0) return ["no row control"];
-    for (const pill of pills) {
-        const rowEl = pill.closest("[data-plan-row]")!;
-        const row = rowEl.getAttribute("data-plan-row")!;
-        const cell = pill.closest("[role='rowheader']")!;
+    const boxes = [...new Set([...root.querySelectorAll("[data-plan-control]")].map((c) => c.parentElement!))];
+    if (boxes.length === 0) return ["no row control"];
+    for (const box of boxes) {
+        const row = box.closest("[data-plan-row]")!.getAttribute("data-plan-row")!;
+        const cell = box.closest("[role='rowheader']")!;
+        const line = box.closest("[data-plan-gutter='name']")!;
         let opacity = 1;
-        for (let el: Element | null = pill; el !== null && el !== cell; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
-        const want = shown.includes(row) ? 1 : 0;
-        if (Math.abs(opacity - want) > 0.01) out.push(`${row}: its controls at opacity ${opacity.toFixed(2)}, want ${want}`);
-        const ps = getComputedStyle(pill);
-        if (ps.boxShadow !== "none") out.push(`${row}: a ring round its controls (${ps.boxShadow})`);
-        if (ps.backgroundColor !== getComputedStyle(rowEl).backgroundColor) out.push(`${row}: its pill ${ps.backgroundColor} on a ${getComputedStyle(rowEl).backgroundColor} row`);
-        const box = pill.getBoundingClientRect();
-        const c = cell.getBoundingClientRect();
-        const inner = c.right - Number.parseFloat(getComputedStyle(cell).borderRightWidth);
-        if (Math.abs(inner - 8 - box.right) > 0.5) out.push(`${row}: its pill ends ${(inner - box.right).toFixed(1)}px from the gutter's edge, want 8`);
-        if (box.left < c.left - 0.5 || box.top < c.top - 0.5 || box.bottom > c.bottom + 0.5) out.push(`${row}: its controls leave the gutter cell`);
-        if (!rowEl.hasAttribute("data-expanded") && Math.abs((box.top + box.bottom) / 2 - (c.top + c.bottom) / 2) > 0.5) out.push(`${row}: its controls are off its line`);
-        for (const b of pill.querySelectorAll("[data-plan-control]")) {
-            const r = b.getBoundingClientRect();
+        for (let el: Element | null = box; el !== null && el !== cell; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
+        if (Math.abs(opacity - 1) > 0.01 || getComputedStyle(box).visibility !== "visible") out.push(`${row}: its controls are hidden (opacity ${opacity.toFixed(2)})`);
+        const b = box.getBoundingClientRect();
+        const cs = getComputedStyle(cell);
+        const end = cell.getBoundingClientRect().right - Number.parseFloat(cs.borderRightWidth) - Number.parseFloat(cs.paddingRight);
+        if (Math.abs(end - b.right) > 0.5) out.push(`${row}: its controls end ${(end - b.right).toFixed(1)}px short of its gutter line's end`);
+        const l = line.getBoundingClientRect();
+        if (Math.abs((b.top + b.bottom) / 2 - (l.top + l.bottom) / 2) > 0.5) out.push(`${row}: its controls are off its line`);
+        for (const part of ["label", "right"]) {
+            const before = line.querySelector(`[data-plan-gutter='${part}']`);
+            if (before !== null && before.getBoundingClientRect().right > b.left + 0.5) out.push(`${row}: its ${part} runs under its controls`);
+        }
+        for (const btn of box.querySelectorAll("[data-plan-control]")) {
+            const r = btn.getBoundingClientRect();
             if (Math.abs(r.width - 24) > 0.5 || Math.abs(r.height - 24) > 0.5) out.push(`${row}: a control ${r.width}×${r.height}, want 24×24`);
-            if (getComputedStyle(b).boxShadow !== "none") out.push(`${row}: a ring round a control`);
+            if (getComputedStyle(btn).boxShadow !== "none") out.push(`${row}: a ring round a control`);
         }
     }
     return out;
@@ -391,21 +445,30 @@ test.describe("Plan links focus (#818, #1258)", () => {
      *  third of the family's largest — and how many of their ends land past the
      *  window. planSpanRows' family is the spec's own: 24, 40, 88, 32, 18 and 91
      *  k sheets, the largest 91 — an S, a same-row runoff between abutting runs,
-     *  loopbacks, one turning in the gutter at the window's start, a rising
-     *  loop, and a landing past the window (dlv's run starts where the window
-     *  ends). planTargetState's one link, its family's largest, leaves a run that
-     *  abuts the next and enters one that abuts the last. */
+     *  loopbacks, one dropping onto its destination at the window's start, a
+     *  rising loop, and a landing past the window (dlv's run starts where the
+     *  window ends). planTargetState's one link, its family's largest, leaves a
+     *  run that abuts the next and enters one that abuts the last.
+     *  planEventLinks is every case at once (`EVENT_ROUTES` below), on a
+     *  bounded canvas: at rest the two links between rows below its view draw
+     *  nothing. */
     const FOCUSES = [
-        { name: "planSpanRows", row: rowSel("detail", "H1-P09"), weights: [2, 4, 8, 4, 2, 8], slots: 1 },
-        { name: "planTargetState", row: rowSel("presses", "H1-P03"), weights: [8], slots: 0 },
+        { name: "planSpanRows", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 8, 4, 2, 8], slots: 1 },
+        { name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "H1-P03"), weights: [8], slots: 0 },
+        {
+            name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses.span", "Hall A", "a1"),
+            weights: [1.5, 2, 2, 8, 4, 8, 2, 4, 2, 2, 4, 4, 4, 2, 4], slots: 2,
+        },
     ] as const;
     /** The desktop project's width, and a laptop's. */
     const WIDTHS = [1280, 1024] as const;
 
-    /** Open a family's links focus at a width, and let the focused canvas come to rest. */
-    async function focusLinks(page: Page, focus: (typeof FOCUSES)[number], width: number): Promise<Locator> {
+    /** Open a family's links focus at a width — the page taking `css` first, when given — and let the focused
+     *  canvas come to rest. */
+    async function focusLinks(page: Page, focus: (typeof FOCUSES)[number], width: number, css?: string): Promise<Locator> {
         await page.setViewportSize({ width, height: 800 });
-        const entry = await openExample(page, focus.name);
+        const entry = await openExample(page, focus.name, focus.file);
+        if (css !== undefined) await page.addStyleTag({ content: css });
         await entry.locator(`${focus.row} [data-plan-control="links"]`).click();
         await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(focus.weights.length);
         // Away from every link and row: nothing lit, no control hovered.
@@ -416,9 +479,10 @@ test.describe("Plan links focus (#818, #1258)", () => {
 
     for (const focus of FOCUSES) {
         for (const width of WIDTHS) {
-            test(`${focus.name} at ${width}px: each link leaves its source run's end and enters its destination run's start, at the middles of their bars`, async ({ page }) => {
+            test(`${focus.name} at ${width}px: each link leaves its source's end and enters its destination's start as they draw, and nothing of it leaves the plot`, async ({ page }) => {
                 const entry = await focusLinks(page, focus, width);
                 await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
+                await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
             });
 
             test(`${focus.name} at ${width}px: each link at its quantity's weight, its head 8 × max(8, 2 × weight), cased in the paper under every link's ink; each caption on its knockout, none within 60 × 12 of another; an end past the window in its 40px slot; the links under the row controls and the now line`, async ({ page }) => {
@@ -427,6 +491,57 @@ test.describe("Plan links focus (#818, #1258)", () => {
             });
         }
     }
+
+    /** planEventLinks' links by key, and the figure each draws at rest: every case of the grammar once. The two
+     *  links between rows below the view (`folded`, `books`) draw nothing; four reach a row below it in a stub. */
+    const EVENT_ROUTES_AT_REST = {
+        plates: "s", covers: "s", card: "s", inserts: "loop", "report-covers": "loop", "seed-prints": "loop",
+        tags: "feed", pads: "runoff", proofs: "loop", "proof-sheets": "s", tickets: "s",
+        sections: "stub", "sections-more": "stub", posters: "stub", "book-blocks": "stub",
+    };
+    /** …and scrolled to the end: the plates draw nothing, and three leave a row above the view in a stub. */
+    const EVENT_ROUTES_AT_THE_END = {
+        covers: "stub", card: "s", inserts: "stub", "report-covers": "loop", "seed-prints": "loop", tags: "feed",
+        pads: "runoff", proofs: "loop", "proof-sheets": "s", tickets: "s", sections: "s", "sections-more": "s",
+        folded: "s", books: "s", posters: "stub", "book-blocks": "loop",
+    };
+
+    test("planEventLinks: every case its own link — each draws its figure at rest and scrolled to the end, meeting its elements as they draw; scrolled between, the posters' link crosses the view as a band; the night run is entered from above; the layer lies in the rows' own stacking context", async ({ page }) => {
+        const entry = await focusLinks(page, FOCUSES[2], 1280);
+        const routes = () => entry.evaluate((root) => Object.fromEntries([...root.querySelectorAll("[data-plan-link]")].map((g) =>
+            [g.querySelector("[data-link]")!.getAttribute("data-link-key"), g.getAttribute("data-plan-route")])));
+        await expect.poll(routes).toEqual(EVENT_ROUTES_AT_REST);
+        // The night run starts at the window's start: its link drops onto it, its head pointing down onto the bar.
+        const proofsHead = () => entry.evaluate((root) => {
+            const g = root.querySelector('[data-link-key="proofs"]')!.closest("[data-plan-link]")!;
+            const n = g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.split(/[\sMLZ]+/).filter((t) => t !== "").map(Number);
+            return n[1] === n[5] && n[3]! > n[1]! ? "down" : "level";
+        });
+        expect(await proofsHead()).toBe("down");
+        const frame = entry.locator('[data-virtual-rows="bounded"]');
+        await frame.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+        await expect.poll(routes).toEqual(EVENT_ROUTES_AT_THE_END);
+        await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
+        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
+        // Between: the shop posters' press above the view and the dispatch bay below it.
+        await frame.evaluate((el) => { el.scrollTop = 80; });
+        await expect.poll(async () => (await routes())["posters"]).toBe("band");
+        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
+        // In the rows' translated column, the layer sorts with what they draw: the row controls and the now line over it.
+        expect(await entry.evaluate((root) => {
+            const box = root.querySelector("[data-plan-ribbons]")!.closest("[data-virtual-overlay]");
+            return box !== null && box.parentElement!.querySelector(":scope > [data-index]") !== null;
+        })).toBe(true);
+    });
+
+    test("planEventLinks: a caption drawn wider than the layout reckons it — as a minimum font size draws it — still lies inside the plot, moved in by its drawn width", async ({ page }) => {
+        // Each letter 3px wider than the mono face draws it: the layout places
+        // a caption by its reckoned width, and only the drawn width keeps the
+        // captions it moved in at the plot's edges inside it.
+        const entry = await focusLinks(page, FOCUSES[2], 1280, "[data-plan-ribbon-caption] { letter-spacing: 3px; }");
+        expect(await entry.evaluate((root) => getComputedStyle(root.querySelector("[data-plan-ribbon-caption]")!).letterSpacing)).toBe("3px");
+        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
+    });
 
     test("planSpanRows: the focus band is 32 tall, its link and caption 20 in from its ends; each family row's Tag is 20 tall and the focused row has none; a lone unrelated row is an 11 rail and each run of hidden rows one 22 gap band", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
@@ -492,7 +607,7 @@ test.describe("Plan links focus (#818, #1258)", () => {
         const read = await entry.evaluate((root) => {
             const svg = root.querySelector("[data-plan-ribbons] svg")!;
             const s = svg.getBoundingClientRect();
-            const order = [...svg.querySelectorAll(":scope > [data-plan-link]")].map((el) => el.getAttribute("data-plan-link"));
+            const order = [...svg.querySelectorAll("[data-plan-clip] > [data-plan-link]")].map((el) => el.getAttribute("data-plan-link"));
             const lit = svg.querySelector('[data-plan-link="2"]')!;
             const hit = lit.querySelector("[data-link]")!;
             const halos = (["from", "to"] as const).map((side) => {
@@ -518,10 +633,10 @@ test.describe("Plan links focus (#818, #1258)", () => {
 /**
  * A bar's text and a row's controls (#1258). A bar's label holds the bar, its
  * quantity beside it only when both fit whole. A row's controls are 24px sm
- * ghost buttons on a pill in the row's own surface (`Plan links.html`), no
- * ring, 8 from the gutter's edge and over its meta: shown on the row's hover
- * or keyboard focus and while one is pressed, always on touch, and never under
- * 480; the canvas's tooltip names each.
+ * ghost buttons at the end of its gutter line, after its value, no ring — and
+ * always shown (the user's ruling over `Plan links.html`'s hover reveal), a
+ * pressed one in the brand tint; never under 480; the canvas's tooltip names
+ * each.
  */
 test.describe("Plan bars and row controls (#1258)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop project's widths");
@@ -537,65 +652,58 @@ test.describe("Plan bars and row controls (#1258)", () => {
         }
     }
 
-    test("planSpanRows: a row's controls rest hidden; its hover shows them, the canvas's tooltip naming each; pressed, one stays; its keyboard focus shows them", async ({ page }) => {
+    test("planSpanRows: a row's controls show at rest, at the end of its gutter line after its value; the canvas's tooltip names each; pressed, one wears the press and every row's controls stay shown", async ({ page }) => {
         const entry = await openExample(page, "planSpanRows");
-        const p09 = rowId("detail", "H1-P09");
         const row = entry.locator(rowSel("detail", "H1-P09"));
-        // Away from every row: nothing hovered, every pill hidden.
+        // Away from every row, nothing hovered or focused: every row's controls show.
         await page.mouse.move(0, 0);
-        await expect.poll(() => entry.evaluate(controlPills, [])).toEqual([]);
-        // The row's hover shows its pill, and only its.
-        await row.locator("[data-plan-gutter='label']").hover();
-        await expect.poll(() => entry.evaluate(controlPills, [p09])).toEqual([]);
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
         const control = row.locator("[data-plan-control='links']");
         await control.hover();
         await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("Focus linked rows");
-        // Pressed, it stays with the pointer gone and the focus elsewhere.
+        // Pressed: the press marks it, with the pointer gone and the focus elsewhere.
         await control.click();
         await expect(entry.locator("[data-plan-focusbar='links']")).toBeVisible();
         await expect(control).toHaveAttribute("aria-pressed", "true");
+        await expect(control).toHaveAttribute("data-active", "");
         await control.evaluate((el) => (el as HTMLElement).blur());
-        expect(await row.evaluate((el) => el.matches(":focus-within"))).toBe(false);
         await page.mouse.move(0, 0);
-        await expect.poll(() => entry.evaluate(controlPills, [p09])).toEqual([]);
-        // Every row back; the keyboard steps onto H1-P09 from the row above it.
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
+        // Every row back: nothing pressed, every control still shown.
         await entry.locator("[data-plan-focusback]").click();
         await page.mouse.move(0, 0);
-        await expect.poll(() => entry.evaluate(controlPills, [])).toEqual([]);
-        await entry.locator(rowSel("flavours", "H1-P07")).focus();
-        await page.keyboard.press("ArrowDown");
-        await expect.poll(() => row.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
-        await expect.poll(() => entry.evaluate(controlPills, [p09])).toEqual([]);
+        await expect(entry.locator("[data-plan-control][aria-pressed='true']")).toHaveCount(0);
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 
-    test("planExpand: an expanded chart row's control stays shown, 9 from its cell's top on the row's own line, and the chart's ticks step left of it", async ({ page }) => {
+    test("planExpand: an expanded chart row's control stays on its gutter's first line, and the chart's ticks step left of it", async ({ page }) => {
         const entry = await openExample(page, "planExpand");
         const chart = entry.locator(rowSel("ontime", "ON-TIME"));
         const control = chart.locator('[data-plan-control="expand"]');
         await control.click();
         await expect(chart).toHaveAttribute("data-expanded", "");
-        // Shown because it is pressed — not because it holds the focus.
         await control.evaluate((el) => (el as HTMLElement).blur());
         await page.mouse.move(0, 0);
         const read = () => chart.evaluate((row) => {
-            const cell = row.querySelector("[role='rowheader']")!.getBoundingClientRect();
-            const pill = row.querySelector("[data-plan-control]")!.parentElement!;
-            const p = pill.getBoundingClientRect();
+            const box = row.querySelector("[data-plan-control]")!.parentElement!;
+            const p = box.getBoundingClientRect();
+            const line = box.closest("[data-plan-gutter='name']")!.getBoundingClientRect();
             const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => t.getBoundingClientRect());
             return {
-                opacity: getComputedStyle(pill).opacity,
-                top: Math.round((p.top - cell.top) * 10) / 10,
+                opacity: getComputedStyle(box).opacity,
+                onLine: Math.abs((p.top + p.bottom) / 2 - (line.top + line.bottom) / 2) <= 0.5,
                 ticks: ticks.length,
-                // Each tick ends 4 or more left of the pill.
+                // Each tick ends 4 or more left of the controls.
                 clear: ticks.every((t) => t.right <= p.left - 3.5),
             };
         });
-        await expect.poll(read).toEqual({ opacity: "1", top: 9, ticks: 2, clear: true });
+        await expect.poll(read).toEqual({ opacity: "1", onLine: true, ticks: 2, clear: true });
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 });
 
-/** A row's controls where nothing hovers (#1258): always shown — and, below 480,
- *  where the narrow layout is in charge, none at all. */
+/** A row's controls where nothing hovers (#1258): shown at rest, as everywhere —
+ *  and, below 480, where the narrow layout is in charge, none at all. */
 test.describe("Plan row controls on touch (#1258)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) >= 1000, "read on the touch projects");
 
@@ -603,10 +711,7 @@ test.describe("Plan row controls on touch (#1258)", () => {
         await page.setViewportSize({ width: 1280, height: 800 });
         const entry = await openExample(page, "planSpanRows");
         expect(await page.evaluate(() => matchMedia("(hover: none)").matches), "the screen cannot hover").toBe(true);
-        const rows = await entry.evaluate((root) => [...new Set([...root.querySelectorAll("[data-plan-control]")]
-            .map((c) => c.closest("[data-plan-row]")!.getAttribute("data-plan-row")!))]);
-        expect(rows.length, "rows with controls").toBeGreaterThan(0);
-        await expect.poll(() => entry.evaluate(controlPills, rows)).toEqual([]);
+        await expect.poll(() => entry.evaluate(rowControlsLaidOut)).toEqual([]);
     });
 
     test("planSpanRows below 480: the narrow layout draws no row control", async ({ page }) => {

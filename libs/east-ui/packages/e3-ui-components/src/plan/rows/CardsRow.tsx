@@ -30,6 +30,7 @@ import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
+import { PLAN_CELL_INSET } from "../geometry.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type CardsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "cards" }>["value"];
@@ -77,8 +78,9 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             aria-label={chipName(chip, scale, words)}
             data-plan-frac={left.toFixed(4)}
             data-state={runStateKey(chip.state)}
-            left={`calc(${left * 100}% + 2px)`}
-            width={`calc(${width * 100}% - 4px)`}
+            // In from its ends — the inset a link meets it by (#1258).
+            left={`calc(${left * 100}% + ${PLAN_CELL_INSET}px)`}
+            width={`calc(${width * 100}% - ${2 * PLAN_CELL_INSET}px)`}
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}

@@ -174,14 +174,14 @@ describeEast("Plan", (test) => {
         $(Assert.equal(links.get(0n).from.run, "j4642"));
         $(Assert.equal(links.get(0n).to.row, Plan.ref("presses", "p04")));
         $(Assert.equal(links.get(0n).to.run, "j4624"));
-        // ONE quantity: the value weighs the ribbon, the unit and format print
+        // ONE quantity: the value weighs the link, the unit and format print
         // its caption — there is no second, display-only string to disagree.
         const q = $.let(links.get(0n).quantity.unwrap("some"));
         $(Assert.equal(q.value, 24.0));
         $(Assert.equal(q.unit.unwrap("some"), "k sheets"));
         $(Assert.equal(q.format.unwrap("some").unwrap("number").maximumFractionDigits.unwrap("some"), 0n));
         $(Assert.equal(q.text.hasTag("none"), true));
-        // A link may carry no quantity at all — it then draws at the faintest share.
+        // A link may carry no quantity at all — it then draws at the thinnest weight, with no caption.
         const bare = $.let(Plan.link({ key: "x", from: Plan.ref("a", "1"), fromRun: "r", to: Plan.ref("a", "2"), toRun: "r" }));
         $(Assert.equal(bare.quantity.hasTag("none"), true));
     });
