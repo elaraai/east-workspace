@@ -14,17 +14,22 @@
  * spec's literal DS tokens.
  *
  * The Flowchart is e3-ui's (#1243): the renderer registers itself against
- * the `Flowchart` extension (`Flowchart.Component`) as the module loads.
+ * the `Flowchart` extension (`Flowchart.Component`) as the module loads. Its
+ * payload (#1244) carries where the flows come from — a record of flows by
+ * name, or the host's flows or flow — and the canvas's options: the renderer
+ * reads the flows (a record's where it renders, and again when it moves),
+ * opens one, and draws it on the canvas.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faArrowDown, faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf, type option } from "@elaraai/east";
 import { Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import {
+    BannerView,
     EastChakraComponent,
     SliceRailCluster,
     getSomeorUndefined,
@@ -32,10 +37,11 @@ import {
     useDataStable,
     useFormatters,
     useSliceReactivity,
+    useTrackedEvaluation,
 } from "@elaraai/east-ui-components";
 import { SliceDensityContext, parseCssSize } from "@elaraai/east-ui-components/internal";
 import {
-    buildModel, type FlowchartModel, type FlowchartValue, type ModelLink,
+    buildModel, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartModel, type FlowchartValue, type ModelLink,
 } from "./model.js";
 import {
     computeLayout, previewCursorPath, previewLinkPath,
@@ -44,10 +50,14 @@ import {
 } from "./layout.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
 
-const flowchartEqual = equivalentFor(Flowchart.Types.Flowchart);
-const flowchartDataEqual = equalFor(Flowchart.Types.Flowchart);
+/** The memo's comparison: a changed callback re-renders. */
+const payloadEqual = equivalentFor(Flowchart.Types.Payload);
+/** The model's gate: only a change of the flow's data rebuilds it. */
+const flowEqual = equalFor(Flowchart.Types.Flow);
+/** Flows by name, in East's order. */
+const nameOrder = compareFor(StringType);
 
-export type { FlowchartValue };
+export type { FlowchartValue, FlowchartCanvasValue, FlowchartFlowValue };
 
 type SelectFn = ((key: string) => unknown) | undefined;
 type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
@@ -55,6 +65,84 @@ type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
 export interface EastChakraFlowchartProps {
     value: FlowchartValue;
     storageKey: string;
+}
+
+/** The flows a payload's source holds: many by name, or one. */
+type FlowsHeld =
+    | { readonly many: true; readonly flows: ValueTypeOf<typeof Flowchart.Types.Flows> }
+    | { readonly many: false; readonly flow: FlowchartFlowValue };
+
+/** A flow with nothing in it: the canvas over a record of flows that holds none. */
+const NO_FLOW: FlowchartFlowValue = { description: none, lanes: [], states: [], links: [], triggers: [] };
+
+/**
+ * The flows a source holds: a record's flows by name, read — a reactive read,
+ * which the flowchart's tracked evaluation follows — or the host's flows or
+ * flow, as they came.
+ *
+ * @param source - The payload's source
+ * @returns The flows by name, or the one flow
+ */
+function flowsHeld(source: FlowchartValue["source"]): FlowsHeld {
+    switch (source.type) {
+        case "record": return { many: true, flows: source.value.read() };
+        case "data": return source.value.type === "flows"
+            ? { many: true, flows: source.value.value.value }
+            : { many: false, flow: source.value.value.value };
+    }
+}
+
+/**
+ * Over many flows, the open one: the one `open` names, while the flows hold
+ * it; else the first by name; else none (an empty record).
+ *
+ * @param flows - The flows by name
+ * @param open - The flow the payload opens first
+ * @returns The open flow, or `undefined` when the flows hold none
+ */
+export function openFlow(flows: ValueTypeOf<typeof Flowchart.Types.Flows>, open: option<string>): FlowchartFlowValue | undefined {
+    if (open.type === "some") {
+        const named = flows.get(open.value);
+        if (named !== undefined) return named;
+    }
+    let first: string | undefined;
+    for (const name of flows.keys()) {
+        if (first === undefined || nameOrder(name, first) < 0) first = name;
+    }
+    return first === undefined ? undefined : flows.get(first);
+}
+
+/**
+ * Renders the flowchart: reads its flows from the payload's source, opens one
+ * over many, and draws it on the canvas.
+ *
+ * @param props - The payload and its storage key
+ * @returns The flowchart
+ */
+export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, storageKey }: EastChakraFlowchartProps) {
+    const source = value.source;
+    // The flows, read where the flowchart renders, and again when they move.
+    const read = useCallback(() => flowsHeld(source), [source]);
+    const { result } = useTrackedEvaluation(read);
+    if (!result.ok) {
+        const message = result.error instanceof Error ? result.error.message : String(result.error);
+        return <BannerView status="error" title={`The flows could not be read: ${message}`} />;
+    }
+    const held = result.value;
+    const flow = held.many ? openFlow(held.flows, value.open) ?? NO_FLOW : held.flow;
+    return <FlowchartCanvasView canvas={value.canvas} flow={flow} readOnly={value.readOnly} storageKey={storageKey} />;
+}, (prev, next) => payloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+/** Props of {@link FlowchartCanvasView}. */
+interface FlowchartCanvasViewProps {
+    /** What the canvas draws its flow with. */
+    readonly canvas: FlowchartCanvasValue;
+    /** The flow it draws. */
+    readonly flow: FlowchartFlowValue;
+    /** No gesture edits; selection and hover stay. */
+    readonly readOnly: boolean;
+    /** The structural storage key. */
+    readonly storageKey: string;
 }
 
 /** All East callbacks route through one funnel: microtask + try/catch. */
@@ -156,63 +244,67 @@ function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string;
     return { stroke: RULE_STRONG, dash: undefined, text: INK };
 }
 
-export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, storageKey }: EastChakraFlowchartProps) {
+/**
+ * The canvas: one flow, drawn with the canvas's options — today's flowchart,
+ * its eyebrow and its footer.
+ *
+ * @param props - The canvas's options, the flow, read only and the storage key
+ * @returns The canvas
+ */
+function FlowchartCanvasView({ canvas, flow, readOnly, storageKey }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
-    // Keyed on the value's DATA identity (#809): a closure-only change
+    // Keyed on the flow's DATA identity (#809): a closure-only change
     // re-renders with the new callbacks but keeps the model — and the routed
     // layout derived from it.
-    const data = useDataStable(value, flowchartDataEqual);
+    const data = useDataStable(flow, flowEqual);
     // Badges, counts and dates, in the app's locale (#850).
     const words = useFormatters();
     const model = useMemo(() => buildModel(data, words), [data, words]);
-    const orientationDefault = (getSomeorUndefined(value.orientation)?.type ?? "LR") as "LR" | "TD";
-    const freshness = getSomeorUndefined(value.freshness);
-    const legendOn = getSomeorUndefined(value.legend) ?? true;
-    const minimapOpt = getSomeorUndefined(value.minimap);
-    const density = getSomeorUndefined(value.density)?.type;
-    const fixedHeight = parseCssSize(getSomeorUndefined(value.height));
-    const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
-    const linkMode = getSomeorUndefined(value.linkMode)?.type;
-    // Runtime edit gate — true suppresses every authoring affordance without
-    // unwiring callbacks (permissions / published mode); inspect stays live.
-    const readOnly = getSomeorUndefined(value.readOnly) ?? false;
+    const orientationDefault = (getSomeorUndefined(canvas.orientation)?.type ?? "LR") as "LR" | "TD";
+    const freshness = getSomeorUndefined(canvas.freshness);
+    const legendOn = getSomeorUndefined(canvas.legend) ?? true;
+    const minimapOpt = getSomeorUndefined(canvas.minimap);
+    const density = getSomeorUndefined(canvas.density)?.type;
+    const fixedHeight = parseCssSize(getSomeorUndefined(canvas.height));
+    const maxHeightCss = parseCssSize(getSomeorUndefined(canvas.maxHeight));
+    const linkMode = getSomeorUndefined(canvas.linkMode)?.type;
 
-    const onSelectStateFn = useMemo(() => getSomeorUndefined(value.onSelectState) as SelectFn, [value.onSelectState]);
-    const onSelectLinkFn = useMemo(() => getSomeorUndefined(value.onSelectLink) as SelectFn, [value.onSelectLink]);
-    const onSelectTriggerFn = useMemo(() => getSomeorUndefined(value.onSelectTrigger) as SelectFn, [value.onSelectTrigger]);
-    const onTracePathFn = useMemo(() => getSomeorUndefined(value.onTracePath) as SelectFn, [value.onTracePath]);
-    const onAddLaneFn = useMemo(() => getSomeorUndefined(value.onAddLane) as (() => unknown) | undefined, [value.onAddLane]);
+    const onSelectStateFn = useMemo(() => getSomeorUndefined(canvas.onSelectState) as SelectFn, [canvas.onSelectState]);
+    const onSelectLinkFn = useMemo(() => getSomeorUndefined(canvas.onSelectLink) as SelectFn, [canvas.onSelectLink]);
+    const onSelectTriggerFn = useMemo(() => getSomeorUndefined(canvas.onSelectTrigger) as SelectFn, [canvas.onSelectTrigger]);
+    const onTracePathFn = useMemo(() => getSomeorUndefined(canvas.onTracePath) as SelectFn, [canvas.onTracePath]);
+    const onAddLaneFn = useMemo(() => getSomeorUndefined(canvas.onAddLane) as (() => unknown) | undefined, [canvas.onAddLane]);
     const onRenameLaneFn = useMemo(
-        () => getSomeorUndefined(value.onRenameLane) as ((e: { key: string; label: string }) => unknown) | undefined,
-        [value.onRenameLane]);
-    const onDeleteLaneFn = useMemo(() => getSomeorUndefined(value.onDeleteLane) as SelectFn, [value.onDeleteLane]);
+        () => getSomeorUndefined(canvas.onRenameLane) as ((e: { key: string; label: string }) => unknown) | undefined,
+        [canvas.onRenameLane]);
+    const onDeleteLaneFn = useMemo(() => getSomeorUndefined(canvas.onDeleteLane) as SelectFn, [canvas.onDeleteLane]);
     const onAddStateFn = useMemo(
-        () => getSomeorUndefined(value.onAddState) as ((e: { lane: string; key: string; label: string }) => unknown) | undefined,
-        [value.onAddState]);
+        () => getSomeorUndefined(canvas.onAddState) as ((e: { lane: string; key: string; label: string }) => unknown) | undefined,
+        [canvas.onAddState]);
     const onEditStateFn = useMemo(
-        () => getSomeorUndefined(value.onEditState) as ((e: { key: string; code: string; label: string }) => unknown) | undefined,
-        [value.onEditState]);
+        () => getSomeorUndefined(canvas.onEditState) as ((e: { key: string; code: string; label: string }) => unknown) | undefined,
+        [canvas.onEditState]);
     const onMoveStateFn = useMemo(
-        () => getSomeorUndefined(value.onMoveState) as ((e: { key: string; lane: string }) => unknown) | undefined,
-        [value.onMoveState]);
+        () => getSomeorUndefined(canvas.onMoveState) as ((e: { key: string; lane: string }) => unknown) | undefined,
+        [canvas.onMoveState]);
     const addStateActive = onAddStateFn !== undefined && !readOnly;
     const editStateActive = onEditStateFn !== undefined && !readOnly;
     const moveStateActive = onMoveStateFn !== undefined && !readOnly;
     const onCreateLinkFn = useMemo(
-        () => getSomeorUndefined(value.onCreateLink) as ((e: { from: string; to: string }) => unknown) | undefined,
-        [value.onCreateLink]);
-    const onDeleteLinkFn = useMemo(() => getSomeorUndefined(value.onDeleteLink) as SelectFn, [value.onDeleteLink]);
+        () => getSomeorUndefined(canvas.onCreateLink) as ((e: { from: string; to: string }) => unknown) | undefined,
+        [canvas.onCreateLink]);
+    const onDeleteLinkFn = useMemo(() => getSomeorUndefined(canvas.onDeleteLink) as SelectFn, [canvas.onDeleteLink]);
     const canConnectFn = useMemo(
-        () => getSomeorUndefined(value.canConnect) as ((from: string, to: string) => boolean) | undefined,
-        [value.canConnect]);
-    const stateHoverFn = useMemo(() => getSomeorUndefined(value.stateHover) as HoverContentFn | undefined, [value.stateHover]);
-    const linkHoverFn = useMemo(() => getSomeorUndefined(value.linkHover) as HoverContentFn | undefined, [value.linkHover]);
-    const triggerHoverFn = useMemo(() => getSomeorUndefined(value.triggerHover) as HoverContentFn | undefined, [value.triggerHover]);
+        () => getSomeorUndefined(canvas.canConnect) as ((from: string, to: string) => boolean) | undefined,
+        [canvas.canConnect]);
+    const stateHoverFn = useMemo(() => getSomeorUndefined(canvas.stateHover) as HoverContentFn | undefined, [canvas.stateHover]);
+    const linkHoverFn = useMemo(() => getSomeorUndefined(canvas.linkHover) as HoverContentFn | undefined, [canvas.linkHover]);
+    const triggerHoverFn = useMemo(() => getSomeorUndefined(canvas.triggerHover) as HoverContentFn | undefined, [canvas.triggerHover]);
 
     // ── slice chrome (compact density — the spec eyebrow, no wide input) ──
-    const sliceChrome = getSomeorUndefined(value.slice) as
+    const sliceChrome = getSomeorUndefined(canvas.slice) as
         | { slice: ValueTypeOf<typeof SliceInternal.Types.Bind>; affordances: ReadonlyArray<{ type: string }> }
         | undefined;
     const sliceHandle = sliceChrome?.slice;
@@ -524,7 +616,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
 
     // Footer counts narrowed ROWS (the slice feed), not rendered arrows —
     // self-loop folding and ghost derivation are rendering, not narrowing.
-    const rowCount = value.links.length;
+    const rowCount = flow.links.length;
     const narrowed = sliceTotal !== undefined && sliceResult !== undefined && sliceResult < sliceTotal;
     const pct = narrowed ? Math.round((1 - sliceResult / sliceTotal) * 100) : undefined;
     const footer = (
@@ -1181,7 +1273,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
             {footer}
         </Box>
     );
-}, (prev, next) => flowchartEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+}
 
 // =============================================================================
 // Side-effect — register the renderer for the Flowchart extension on module load.

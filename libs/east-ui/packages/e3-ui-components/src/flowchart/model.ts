@@ -15,8 +15,14 @@ import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import type { Flowchart } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, type Formatters, type TickFormatOpt } from "@elaraai/east-ui-components";
 
-/** The decoded Flowchart root value. */
-export type FlowchartValue = ValueTypeOf<typeof Flowchart.Types.Flowchart>;
+/** The decoded Flowchart payload — what `<Flowchart>` hands the renderer (#1244). */
+export type FlowchartValue = ValueTypeOf<typeof Flowchart.Types.Payload>;
+
+/** The decoded canvas: what the flowchart draws its flow with. */
+export type FlowchartCanvasValue = ValueTypeOf<typeof Flowchart.Types.Canvas>;
+
+/** One decoded flow: its lanes, states, transitions and decisions. */
+export type FlowchartFlowValue = ValueTypeOf<typeof Flowchart.Types.Flow>;
 
 export type FlowchartStateValue = ValueTypeOf<typeof Flowchart.Types.State>;
 export type FlowchartLinkValue = ValueTypeOf<typeof Flowchart.Types.Link>;

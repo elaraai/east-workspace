@@ -45,12 +45,12 @@ screenshot.
   stays in east-ui-components' theme, and the shared parts it imports reach it
   through `@elaraai/east-ui-components/internal`.
 - **Flows.** `record={…}`, a `Record.bind` handle bound with its patch
-  mutation, whose type is either `Flowchart.Types.Flows` — a `Dict` of whole
-  flowcharts, by name, the usual case — or `Flowchart.Types.Flow`, one
-  flowchart. The type decides (decision 3). Over a `Dict`, the library's Flows
-  tab lists every flow and opens one on the canvas, as the query builder's
-  Library tab opens a saved query. Or `data={…}`: the host's value, read only
-  unless the host gives `onApply`.
+  mutation, whose type is `Flowchart.Types.Flows` — a `Dict` of whole
+  flowcharts, by name; a lone flow is a record of one entry (decision 3). The
+  library's Flows tab lists every flow and opens one on the canvas, as the
+  query builder's Library tab opens a saved query. Or `data={…}`: the host's
+  flows by name or one flow, the value's type picking the arm, read only unless
+  the host gives `onApply`.
 - **Draws.** `BuilderFrame`: one toolbar (find state, LR · TD, the slice's rail
   over host data, the history item with Apply); the library in the start pane,
   the tabs `library` lists, none when it lists none; the open flow's canvas in
@@ -81,14 +81,20 @@ screenshot.
    pane. A flowchart with neither is its toolbar, its canvas and its footer. It
    fills the box it is given and scrolls its own canvas.
 3. **The flows are a record's** (ruled 2026-10-07, "One flow per record
-   entry"), its type `Flowchart.Types.Flows` (`Dict<String, Flow>`, by name) or
-   `Flowchart.Types.Flow` (one flow). One prop takes either, and the record's
-   type picks the arm at build, by East's type machinery (`isTypeEqual`) and the
-   tag's overloads — never a second prop (the user, 2026-10-07: "we could always
-   make the type be Dict<FlowchartType> | FlowchartType … you could do type
-   inference"). Many flows are the usual case (the user: "its rare that … there
-   would ever be a single flowchart"). Apply is one commit of the open flow, so a
-   state and the transitions that point at it always commit together.
+   entry"), and a record always holds `Flowchart.Types.Flows`,
+   `Dict<String, Flow>` by name. The user ruled it on 2026-10-07 ("Drop the
+   one-flow record"): e3's patch mutation needs a keyed record, a `Dict` or a
+   `Set` (`checkKeyed` in e3's `mutation.ts`), so a record of one flow could
+   not commit through it. A lone flow is a Flows record with one entry, or the
+   host's `data`; a record of one flow is refused at build, the refusal naming
+   both. The `Dict | Flow` inference stays, for `data` only: `data` takes
+   either type, and the value's type picks the arm at build, by East's type
+   machinery (`isTypeEqual`) and the tag's overloads — never a second prop (the
+   user, 2026-10-07: "we could always make the type be Dict<FlowchartType> |
+   FlowchartType … you could do type inference"). Many flows are the usual case
+   (the user: "its rare that … there would ever be a single flowchart"). Apply
+   is one commit of the open flow, so a state and the transitions that point at
+   it always commit together.
 4. **The record holds the Flowchart's own types**, as the query builder's record
    holds `Query.Types.Saved`: a flow is `{ description, lanes, states, links,
    triggers }` of today's row types. Today's mappers from an app's own tables
@@ -141,10 +147,10 @@ through a record's patch mutation. Never `State.bind` for data, and never an
 inline collection as a component's data; `State` holds only a viewer's own
 state.
 
-A record of flows ships with its flows through `Flowchart.values(…)`, and a
-record of one flow with it through `Flowchart.value(…)` (§4.3), each checked
-when the package builds. Templates are rows of the app's own
-types in an `e3.input` or an `e3.record`.
+A record of flows ships with its flows through `Flowchart.values(…)` — a lone
+flow as its one entry — and an input of one flow, the host's `data`, with its
+flow through `Flowchart.value(…)` (§4.3), each checked when the package builds.
+Templates are rows of the app's own types in an `e3.input` or an `e3.record`.
 
 An example seeds what its panes read, so none is empty: several flows in the
 record, state and transition templates in the library, a flow with a decision,
@@ -175,8 +181,8 @@ export const flows      = e3.record("depot_flows", Flowchart.Types.Flows, Flowch
 }));
 export const flowsPatch = e3.mutation.patch(flows);
 
-// One flow, for an app that has only one.
-export const handover      = e3.record("handover", Flowchart.Types.Flow, Flowchart.value({ lanes: [], states: [], links: [] }));
+// One flow, for an app that has only one: a record of flows with one entry.
+export const handover      = e3.record("handover", Flowchart.Types.Flows, Flowchart.values({ "Hand-over": { lanes: [], states: [], links: [] } }));
 export const handoverPatch = e3.mutation.patch(handover);
 
 // The templates: the app's own rows, read only.
@@ -202,17 +208,21 @@ import * as d from "./records.js";
 
 export const handoverUi = ui("handover", [], East.function([], UIComponentType, _$ => (
     <Reactive>{$ => {
-        const flow = $.let(Record.bind(d.handover, [d.handoverPatch]));
-        return <Box height="560px"><Flowchart record={flow} /></Box>;
+        const flows = $.let(Record.bind(d.handover, [d.handoverPatch]));
+        return <Box height="560px"><Flowchart record={flows} /></Box>;
     }}</Reactive>
 )));
 ```
 
-That is a working editor over one flow: "+ LANE", the "+ STATE" ghost, drag to
-connect, double-click to edit, drag across lanes, Del to delete. Every gesture
-is a draft the history item undoes, and Apply commits the drafts as one patch
+That is a working editor over the record's one flow, which the canvas opens as
+the first by name: "+ LANE", the "+ STATE" ghost, drag to connect,
+double-click to edit, drag across lanes, Del to delete. Every gesture is a
+draft the history item undoes, and Apply commits the drafts as one patch
 through `handoverPatch`. It lists no `library` and is given no `inspector`, so
-it has neither pane: the toolbar, the canvas and the footer.
+it has neither pane: the toolbar, the canvas and the footer. A lone flow the
+host holds instead — an `e3.input` of `Flowchart.Types.Flow`, its value written
+with `Flowchart.value` — is `data`, bound with `Data.bind`: read only unless the
+host gives `onApply`.
 
 ### 3.3 The depot's flows
 
@@ -286,8 +296,8 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 
 | | `record` | `data` |
 |---|---|---|
-| Takes | `Record.bind(rec, [patch])`, `rec` of `Flowchart.Types.Flows` or `Flowchart.Types.Flow` | a value, an expression or a bind handle of either type |
-| Many flows | The Flows tab lists them; `flow` opens one first | The same, read from the value |
+| Takes | `Record.bind(rec, [patch])`, `rec` of `Flowchart.Types.Flows` only (a lone flow is its one entry) | a value, an expression or a bind handle of `Flowchart.Types.Flows` or `Flowchart.Types.Flow`, the value's type picking the arm |
+| Many flows | The Flows tab lists them; `flow` opens one first | Over flows by name the same, read from the value; one flow has no Flows tab |
 | Edits | The session; Apply through the record's patch mutation | Read only; with `onApply`, the session and the host's commit |
 | A slice | No | `slice` narrows what the host builds (`Flowchart.over` over `Slice.rows`) |
 
@@ -297,10 +307,10 @@ const slice = $.let(Slice.bind([d.ScanRow], "depot.scans", cfg, Slice.state({}),
 
 | Prop | Takes | What it does |
 |---|---|---|
-| `record` | `Record.bind(rec, [patch])` | The flows the canvas shows and Apply commits to. `rec`'s type is `Flowchart.Types.Flows` or `Flowchart.Types.Flow`; the type picks the arm. A flowchart takes `record` or `data`, never both. |
-| `data` | `Flowchart.Types.Flows` or `Flowchart.Types.Flow`: a value, an expression or a bind handle | The host's flows: read only, unless `onApply` is given. |
+| `record` | `Record.bind(rec, [e3.mutation.patch(rec)])` | The flows the canvas shows and Apply commits to. `rec`'s type is `Flowchart.Types.Flows`, flows by name; a lone flow is a record of one entry, and a record of one flow is refused (§4.4). A flowchart takes `record` or `data`, never both. |
+| `data` | `Flowchart.Types.Flows` or `Flowchart.Types.Flow`: a value, an expression or a bind handle | The host's flows by name or one flow, the value's type picking the arm: read only, unless `onApply` is given. |
 | `onApply` | `(patch) => Editing.Types.ApplyResult`, async | Over `data`, the host's commit: one patch of the value, as a record's would be. |
-| `flow` | String | Over many flows, the one opened first. A flow opened later, from the Flows tab, takes its place. Refused over one flow. |
+| `flow` | String | Over many flows, the one opened first. A flow opened later, from the Flows tab, takes its place. Refused over one flow (`data` of `Flowchart.Types.Flow`). |
 | `library` | `Flowchart.library.*` calls | The library's tabs, in order (§4.2); left out, or `[]`, no library pane. |
 | `inspector` | `true` | The inspector pane (§9.9); left out, no inspector pane. |
 | `orientation`, `minimap`, `legend`, `density`, `freshness` | as today's | Unchanged. LR · TD is the viewer's, kept under `name`. |
@@ -344,8 +354,10 @@ type picks what it lands on: a state, a transition, a lane or a decision.
 
 ### 4.3 `Flowchart.value`, `Flowchart.values` and `Flowchart.over`
 
-- `Flowchart.value(flow)` — one flow's literal value, `Flowchart.Types.Flow`: it
-  fills the literal's Options and checks it (§4.4) when the package builds.
+- `Flowchart.value(flow)` — one flow's literal value, `Flowchart.Types.Flow`
+  (the value of an input of one flow, which the host hands the flowchart as
+  `data`): it fills the literal's Options and checks it (§4.4) when the package
+  builds.
 - `Flowchart.values({ [name]: flow })` — a record of flows' literal value,
   `Flowchart.Types.Flows`, each flow as `Flowchart.value` builds it: a record's
   value, as `Query.value` is one.
@@ -360,15 +372,20 @@ type picks what it lands on: a state, a transition, a lane or a decision.
 
 Each names the prop and the remedy:
 - both `record` and `data`, or neither; `onApply` over a record; `flow` over
-  one flow; `slice` or `affordances` over a record;
-- a record whose type is neither `Flowchart.Types.Flows` nor
-  `Flowchart.Types.Flow`, or one not bound with its patch mutation;
+  one flow (`data` of `Flowchart.Types.Flow`); `slice` or `affordances` over a
+  record;
+- a record of one flow, `Flowchart.Types.Flow` (decision 3): a record holds
+  flows by name, so the remedy is a record of flows with one entry, or the
+  flow as `data`;
+- a record of any other type than `Flowchart.Types.Flows`, or one not bound
+  with its patch mutation;
 - `"brush"` among the affordances (today's);
 - a library that lists a tab twice (an author's by its name), `flows()` over
-  one flow, a data tab whose rows are neither an Array nor a `Dict<String, T>`,
-  a `states` drop over another type than `Flowchart.Types.State`, a
-  `transitions` drop over another type than `Flowchart.Types.Link` or one that
-  sets `key`, `from` or `to`, and a `tab` drop over none of the four row types;
+  one flow (`data` of `Flowchart.Types.Flow`), a data tab whose rows are
+  neither an Array nor a `Dict<String, T>`, a `states` drop over another type
+  than `Flowchart.Types.State`, a `transitions` drop over another type than
+  `Flowchart.Types.Link` or one that sets `key`, `from` or `to`, and a `tab`
+  drop over none of the four row types;
 - in `Flowchart.value` and `Flowchart.values`: two states, links, lanes or
   decisions of one key in a flow, a state naming no lane the flow has, a link
   naming a decision the flow doesn't have.
@@ -398,17 +415,19 @@ their names and their types. The event types (`LinkCreateEvent`,
 
 ### 5.2 What the renderer receives: the payload
 
-The payload holds the flows' source and a whole `FlowchartRootType` of today's
-canvas options, rather than a copy of their parts: a component made of parts
-reuses the parts' interface types.
+The payload holds the flows' source and a whole `FlowchartCanvasType` of
+today's canvas options, rather than a copy of their parts: a component made of
+parts reuses the parts' interface types.
 
 ```ts
 FlowchartPayloadType = StructType({
     canvas:    FlowchartCanvasType,                    // today's root, less the tables and the callbacks that go: the drawing options, hover, selection, canConnect, slice
-    source:    VariantType({                           // where the flows come from; the arm the type picked
-        flows: StructType({ read, history, commit }),  //   a record of many flows, bound with its patch: Record.bind's handle
-        flow:  StructType({ read, history, commit }),  //   a record of one flow
-        data:  StructType({ value: VariantType({ flows: …, flow: … }), onApply: OptionType(…) }),
+    source:    VariantType({                           // where the flows come from
+        record: StructType({ read, history, commit: StructType({ patch }) }),   //   a record of flows by name, bound with its patch: Record.bind's handle
+        data:   VariantType({                          //   the host's flows or flow, the arm its value's type picked
+            flows: StructType({ value: Flowchart.Types.Flows, onApply: OptionType(…) }),
+            flow:  StructType({ value: Flowchart.Types.Flow,  onApply: OptionType(…) }),
+        }),
     }),
     open:      OptionType(StringType),                 // the flow opened first, over many
     library:   ArrayType(FlowchartLibraryTabType),     // the tabs, in order; none, no pane
@@ -548,10 +567,12 @@ has a test there. Today's canvas behaviour keeps holding.
   `Flowchart.value` and `Flowchart.values` build them from literals and refuse
   §4.4's cases; `Flowchart.over` builds one `Flow` from an app's tables with
   today's mappers; `Flowchart.patch` builds a patch over a row type.
-- **FB5.** `<Flowchart>` takes `record` or `data` and §4.1's props; the source's
-  type picks the arm, by `isTypeEqual`, and the tag's overloads type the props
-  of each; every case of §4.4 is refused at build, naming the prop and the
-  remedy.
+- **FB5.** `<Flowchart>` takes `record` or `data` and §4.1's props: a record of
+  `Flowchart.Types.Flows` only — a record of one flow is refused, its remedy a
+  record of flows with one entry or the flow as `data` — and `data` of either
+  type, the value's type picking the arm, by `isTypeEqual`. The tag's overloads
+  type the props of each, and every case of §4.4 is refused at build, naming
+  the prop and the remedy.
 - **FB6.** The payload is `FlowchartPayloadType` (§5.2) on the `Flowchart`
   carrier.
 
@@ -574,9 +595,10 @@ has a test there. Today's canvas behaviour keeps holding.
 
 ### 9.5 Flows from a record (owner: the flows and the Flows tab)
 
-- **FB12.** Over many flows the canvas shows the open flow: `flow`, else the
-  first by name, else none; the open flow is held in the UI store under the
-  flowchart's `name`, so a remount keeps it.
+- **FB12.** Over many flows — a record's, or `data`'s flows by name — the
+  canvas shows the open flow: `flow`, else the first by name, else none; the
+  open flow is held in the UI store under the flowchart's `name`, so a remount
+  keeps it.
 - **FB13.** `Flowchart.library.flows()` lists every flow in the record by name,
   each card its name and its description or counts, the open one placed, one
   with drafts marked Pending; a click opens it; the tab's search reads names and
@@ -586,7 +608,9 @@ has a test there. Today's canvas behaviour keeps holding.
   lane, as a draft insert that Apply commits and Discard drops.
 - **FB15.** Each flow keeps its own session: opening another keeps the drafts of
   the one left, and the history item, Apply and Discard act on the open flow.
-- **FB16.** Over one flow there is no Flows tab, and the canvas shows the flow.
+- **FB16.** Over one flow — `data` of `Flowchart.Types.Flow` — there is no
+  Flows tab (`flows()` is refused), and the canvas shows the flow. A record's
+  lone flow is its one entry, which the Flows tab lists.
 
 ### 9.6 Editing, undo and Apply (owner: the editing)
 
@@ -609,11 +633,11 @@ has a test there. Today's canvas behaviour keeps holding.
   frame, never while typing in an input: a field being typed into keeps its own
   undo.
 - **FB22.** Apply is on when the open flow has a change and no blocking issue
-  (two of one key). It sends one commit: over many flows,
+  (two of one key). It sends one commit: over a record,
   `Record.onApply(record, { keyed: true })` with the open flow's insert, update
-  or delete by name; over one flow, one patch of the record's value through its
-  patch mutation, checked against the value the edits began from; over `data`,
-  the host's `onApply`.
+  or delete by name; over `data`, one flow or many, one patch of the value
+  through the host's `onApply`. Apply over one flow exists only through
+  `data`'s `onApply`: a record always holds flows by name (decision 3).
 - **FB23.** A conflict or a refusal keeps every draft and shows its banner; a
   write with no answer turns Apply into Retry, which resends the same request.
   After a commit the drafts retire once the flow reads back as the commit left
@@ -714,8 +738,9 @@ has a test there. Today's canvas behaviour keeps holding.
 - **UI.** east-ui's `Flowchart` arm leaves `UIComponentType`; packages are
   re-exported (`WIRE_MIGRATION.md`). `<Flowchart>` rides one `EastUI.component`
   carrier, `Flowchart`.
-- **Stored state.** New: `Flowchart.Types.Flow` and `Flowchart.Types.Flows` are
-  a record's type, so they are a stored form from their first release.
+- **Stored state.** New: `Flowchart.Types.Flows` is a record's type, and
+  `Flowchart.Types.Flow` the type of its entries and of an input of one flow,
+  so both are stored forms from their first release.
 
 ## 13. The sub-issues, in landing order
 

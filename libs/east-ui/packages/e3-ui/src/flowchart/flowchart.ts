@@ -3,55 +3,72 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** `<Flowchart>` tag — see the export's JSDoc. */
+/**
+ * `<Flowchart>` (#1244) — the tag: one form per source of flows — a record of
+ * flows by name, or the host's flows or flow, `data`'s type picking its form —
+ * each form's props typed (`Flowchart Builder Spec.md` §4.1, decision 3). A
+ * record always holds flows by name (ruled 2026-10-07). Its payload and every
+ * refusal are `payload.ts`'s.
+ *
+ * @packageDocumentation
+ */
 
-import { type ExprType, type SubtypeExprOrValue, ArrayType, StructType } from "@elaraai/east";
-import type { UIComponentType } from "@elaraai/east-ui";
+import type { StringType, SubtypeExprOrValue } from "@elaraai/east";
+import type { UIElement } from "@elaraai/east-ui";
+import type { FlowchartSliceOptions } from "./canvas.js";
 import {
-    createFlowchartRoot,
-    type FlowchartConfig,
-    type FlowchartLaneLiteral,
-    type RowElement,
-} from "./root.js";
+    FlowchartComponent,
+    createFlowchartPayload,
+    type FlowchartBindHandle,
+    type FlowchartCommon,
+    type FlowchartFlowApplyType,
+    type FlowchartFlowsApplyType,
+    type FlowchartRecordHandle,
+} from "./payload.js";
+import type { FlowchartFlowType, FlowchartFlowsType } from "./types.js";
 
 /**
- * `<Flowchart>` — a self-contained state-transition flowchart (see the
- * namespace's docs on `Flowchart`): states as nodes in ordered phase lanes,
- * H/V-routed transition arrows, optional per-link decision triggers
- * (lettered diamonds) and evidence-weighted strokes — all from flat data
- * tables. Hover cards, the selection inspector and the pointer-highlight
- * grammar are built-in surfaces derived from core + declared fields; view
- * lenses are saved slice cohorts, never props.
- *
- * @remarks
- * Interaction is opt-in per channel: selection (`onSelectState`,
- * `onSelectLink`, `onSelectTrigger`), path tracing (`onTracePath`),
- * link authoring (`linkMode`, `onCreateLink`, `onDeleteLink`,
- * `canConnect`) and the bound slice (`slice`, `affordances`). With no
- * callbacks bound it is a read-only picture. Desugars to
- * `Flowchart.Root(states, config)` (`@elaraai/e3-ui/internal`), which
- * returns the flowchart's root through the `Flowchart` carrier.
- *
- * @typeParam S - The states-table input
- * @typeParam L - The links-table input
- * @typeParam N - The lanes-table input
- * @typeParam T - The triggers-table input
- * @param props - The `states`, `links` and `lanes` tables (required), the
- *   `triggers` table, and the rest of the configuration ({@link FlowchartConfig})
- * @returns The flowchart — the `Flowchart` carrier over its root
+ * `<Flowchart record={flows} flow="Inbound parcels" />` — a record of flows
+ * by name, bound with its patch mutation: the canvas shows `flow`, opened
+ * first, else the first flow by name. A lone flow is a record of one entry.
  */
-export function FlowchartTag<
-    S extends SubtypeExprOrValue<ArrayType<StructType>>,
-    L extends SubtypeExprOrValue<ArrayType<StructType>>,
-    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
-    T extends SubtypeExprOrValue<ArrayType<StructType>> = [],
->(
-    props: { states: S } & FlowchartConfig<RowElement<S>, RowElement<L>, RowElement<N>, RowElement<T>>
-        & { links: L; lanes: N | readonly FlowchartLaneLiteral[]; triggers?: T },
-): ExprType<UIComponentType> {
-    const { states, ...config } = props;
-    return createFlowchartRoot(states, config as never);
+export function FlowchartTag(
+    props: {
+        record: FlowchartRecordHandle;
+        /** Over many flows, the one opened first. */
+        flow?: SubtypeExprOrValue<StringType>;
+    } & FlowchartCommon,
+): UIElement;
+/**
+ * `<Flowchart data={flows} />` — the host's flows by name: a value, an
+ * expression or a bind handle. Read only unless the host commits its edits
+ * through `onApply`, one patch of the flows at a time.
+ */
+export function FlowchartTag(
+    props: {
+        data: SubtypeExprOrValue<FlowchartFlowsType> | FlowchartBindHandle<FlowchartFlowsType>;
+        /** Over many flows, the one opened first. */
+        flow?: SubtypeExprOrValue<StringType>;
+        /** The host's commit: one patch of the flows, answered as the editing session's Apply is. */
+        onApply?: SubtypeExprOrValue<FlowchartFlowsApplyType>;
+    } & FlowchartSliceOptions & FlowchartCommon,
+): UIElement;
+/**
+ * `<Flowchart data={Flowchart.over(states, { … })} />` — the host's one flow:
+ * a value, an expression or a bind handle, `Flowchart.over` building it from
+ * the host's tables. Read only unless the host commits its edits through
+ * `onApply`, one patch of the flow at a time.
+ */
+export function FlowchartTag(
+    props: {
+        data: SubtypeExprOrValue<FlowchartFlowType> | FlowchartBindHandle<FlowchartFlowType>;
+        /** The host's commit: one patch of the flow, answered as the editing session's Apply is. */
+        onApply?: SubtypeExprOrValue<FlowchartFlowApplyType>;
+    } & FlowchartSliceOptions & FlowchartCommon,
+): UIElement;
+export function FlowchartTag(props: object): UIElement {
+    return FlowchartComponent.Root(createFlowchartPayload(props));
 }
 
-/** The type of `<Flowchart>` as a tag. */
+/** The type of `<Flowchart>` as a tag: every form its props take. */
 export type FlowchartTagType = typeof FlowchartTag;

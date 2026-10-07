@@ -4,23 +4,29 @@
  *
  * @vitest-environment jsdom
  *
- * The Flowchart through its carrier (#1243). `<Flowchart>` returns the
- * flowchart as the `Flowchart` extension — its root's bytes beside its kind —
- * and the dispatcher hands it to the renderer registered against that kind,
- * decoding the root's functions against the registered platform: a hover
- * card's builder, which returns UI, and a select callback, which writes a
- * bound State. Every flowchart here is built by `<Flowchart>`, compiled, and
+ * The Flowchart through its carrier (#1243, #1244). `<Flowchart>` returns
+ * the flowchart as the `Flowchart` extension — its payload's bytes beside its
+ * kind — and the dispatcher hands it to the renderer registered against that
+ * kind, decoding the payload's functions against the registered platform: a
+ * record's read, which the canvas draws the open flow from, a hover card's
+ * builder, which returns UI, and a select callback, which writes a bound
+ * State. Every flowchart here is built by `<Flowchart>`, compiled, and
  * rendered through `EastChakraComponent`, as an app renders it.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, StringType, encodeBeast2For, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, BooleanType, East, NullType, OptionType, PatchType, StringType, encodeBeast2For, none, variant, type ValueTypeOf,
+} from "@elaraai/east";
+import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import { Reactive, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
-import { Flowchart } from "@elaraai/e3-ui/internal";
+import {
+    Flowchart, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
+} from "@elaraai/e3-ui/internal";
 // The flowchart is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -62,17 +68,59 @@ const LINKS = [
 ];
 const LANES = [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }];
 
-/** A flowchart of the three states. */
+/** A flowchart of the three states: the host's one flow, built from its tables. */
 const VIEW = East.function([], UIComponentType, (_$) => Flowchart({
-    states: STATES,
-    state: (s) => ({ key: s.code, label: s.name, lane: s.phase }),
-    links: LINKS,
-    link: (l) => ({ from: l.src, to: l.dst, kind: l.kind }),
-    lanes: LANES,
+    data: Flowchart.over(STATES, {
+        state: (s) => ({ key: s.code, label: s.name, lane: s.phase }),
+        links: LINKS,
+        link: (l) => ({ from: l.src, to: l.dst, kind: l.kind }),
+        lanes: LANES,
+    }),
 }));
 
-describe("<Flowchart> through its carrier (#1243)", () => {
-    test("the flowchart is the Flowchart extension — its root carried as bytes beside its kind — and the dispatcher draws it", async () => {
+/** The depot's flows by name, as a record of flows holds them. */
+const FLOWS = Flowchart.values({
+    "Inbound parcels": {
+        lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }],
+        states: [{ key: "ARV", label: "Arrived", lane: "intake" }, { key: "SRT", label: "Sorting", lane: "sort" }],
+        links: [{ from: "ARV", to: "SRT" }],
+    },
+    "Returns": {
+        lanes: [{ key: "counter", label: "Counter" }],
+        states: [{ key: "RCV", label: "Received", lane: "counter" }, { key: "INS", label: "Inspected", lane: "counter" }],
+        links: [{ from: "RCV", to: "INS", kind: "observed" }],
+    },
+});
+
+/**
+ * A record of the flows, bound with its patch mutation, as the record runtime
+ * gives one — its read, its history and its patch write East functions the
+ * payload carries, and the renderer calls once decoded.
+ */
+const FlowsHandle = RecordBindHandleType(Flowchart.Types.Flows, { patch: [PatchType(Flowchart.Types.Flows)] });
+const boundFlows = East.function([], FlowsHandle, (_$) => ({
+    read: East.function([], Flowchart.Types.Flows, (_$2) => FLOWS),
+    status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+    history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
+    mutate: {
+        pending: East.function([], BooleanType, (_$2) => false),
+        status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
+        error: East.function([], OptionType(RecordErrorType), (_$2) => none),
+        cancel: East.function([], NullType, (_$2) => null),
+        patch: East.function([PatchType(Flowchart.Types.Flows)], NullType, (_$2) => null),
+    },
+    commit: {
+        patch: East.asyncFunction([StringType, PatchType(Flowchart.Types.Flows)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })),
+    },
+    start: East.function([], NullType, (_$2) => null),
+    binding: { name: "depot_flows", mutations: ["patch"] },
+}) as never);
+
+/** A flowchart over the record of flows, the returns flow opened first. */
+const RECORD_VIEW = East.function([], UIComponentType, ($) => Flowchart({ record: $.let(boundFlows()), flow: "Returns" }));
+
+describe("<Flowchart> through its carrier (#1243, #1244)", () => {
+    test("the flowchart is the Flowchart extension — its payload carried as bytes beside its kind — and the dispatcher draws it", async () => {
         initializeStore(new UIStore());
         const value = East.compile(VIEW, getRegisteredPlatformImplementations())();
         if (value.type !== "Extension") throw new Error(`expected the Flowchart extension, got the ${value.type} arm`);
@@ -81,6 +129,14 @@ describe("<Flowchart> through its carrier (#1243)", () => {
         await waitFor(() => expect(stateKeys(container)).toEqual(["ARV", "SCN", "SRT"]));
         expect(container.querySelector('[data-flowchart-node="SCN"]')!.textContent).toContain("Scanned");
         expect(container.querySelector("[data-flowchart-footer]")!.textContent).toContain("1 planned · 1 observed");
+    });
+
+    test("over a record of flows, the decoded handle's read gives the flows, and the canvas draws the one `flow` opens first", async () => {
+        initializeStore(new UIStore());
+        const value = East.compile(RECORD_VIEW, getRegisteredPlatformImplementations())();
+        const { container } = mount(value, "flowchart-carrier-record");
+        await waitFor(() => expect(stateKeys(container)).toEqual(["RCV", "INS"]));
+        expect(container.querySelector("[data-flowchart-footer]")!.textContent).toContain("0 planned · 1 observed");
     });
 });
 
@@ -100,11 +156,12 @@ const reactiveFlowchart = East.compile(East.function([], UIComponentType, (_$) =
         const selected = $.let(State.bind([StringType], SELECTED_KEY, ""));
         const stateHover = $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(East.str`${label} · ${key}`)));
         return Flowchart({
-            states: STATES,
-            state: (s) => ({ key: s.code, label: s.name, lane: s.phase }),
-            links: LINKS,
-            link: (l) => ({ from: l.src, to: l.dst, kind: l.kind }),
-            lanes: LANES,
+            data: Flowchart.over(STATES, {
+                state: (s) => ({ key: s.code, label: s.name, lane: s.phase }),
+                links: LINKS,
+                link: (l) => ({ from: l.src, to: l.dst, kind: l.kind }),
+                lanes: LANES,
+            }),
             stateHover,
             onSelectState: selected.write,
         });
