@@ -32,14 +32,14 @@ import { UIComponentType } from "../../component.js";
  * const flow = East.function([], UIComponentType, _$ => (
  *     <Flowchart
  *         states={[
- *             { code: "RMI", name: "Raw intake", phase: "prep" },
- *             { code: "CUT", name: "Cut blanks", phase: "prep" },
- *             { code: "ASM", name: "Assembled", phase: "build" },
+ *             { code: "ARV", name: "Arrived", phase: "intake" },
+ *             { code: "SCN", name: "Scanned", phase: "intake" },
+ *             { code: "SRD", name: "Sorted", phase: "sort" },
  *         ]}
  *         state={s => ({ key: s.code, label: s.name, lane: s.phase })}
- *         links={[{ src: "RMI", dst: "CUT" }, { src: "CUT", dst: "ASM" }]}
+ *         links={[{ src: "ARV", dst: "SCN" }, { src: "SCN", dst: "SRD" }]}
  *         link={l => ({ from: l.src, to: l.dst })}
- *         lanes={[{ key: "prep", label: "Prep" }, { key: "build", label: "Build" }]}
+ *         lanes={[{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }]}
  *     />
  * ));
  * ```
