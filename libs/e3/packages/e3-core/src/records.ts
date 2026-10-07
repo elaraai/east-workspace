@@ -18,7 +18,7 @@
 
 import {
   variant, some, none, ArrayType, BlobType, DateTimeType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
-  decodeBeast2For, fromEastTypeValue, isTypeValueEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
+  decodeBeast2For, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
   toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
 import {
@@ -1740,7 +1740,9 @@ export interface RecordSystemCommitOptions {
  * chain no longer reaches, which a compaction cut from it, since what that
  * commit had applied is unknown. A restore names the migrations its state had
  * applied, which must be the record's. Either is refused a state whose type is
- * not the record's.
+ * not the record's, read by its structure: a restored state may come from
+ * another build, which can give a recursive type that differs inside the id
+ * the record's type gives its own.
  *
  * The state's indexes are reconciled with the package's declarations as a
  * deploy reconciles them: one built under another declaration, or none, is
@@ -1796,7 +1798,7 @@ export async function recordSystemCommit(
       const state = await readRecordState(storage, repo, target.state);
       const opened = await openDatasetObject(storage, repo, state.primary);
       const held = opened.manifest !== null ? opened.manifest.type : readBeast2Type(await storage.objects.read(repo, opened.hash));
-      if (!isTypeValueEqual(held, resolved.type)) {
+      if (!isTypeValueStructurallyEqual(held, resolved.type)) {
         return {
           kind: 'invalid',
           message: `record '${recordName}' is declared as ${printTypeValueSummary(resolved.type, 2, 8)}, ` +
