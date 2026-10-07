@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { toEastTypeValue, EastTypeValueType, canonicalTypeValue, isTypeValueEqual, type EastTypeValue } from "./type_of_type.js";
 import { variant } from "./containers/variant.js";
 import { equalFor, isTypeValueStructurallyEqual } from "./comparison.js";
+import { IRType } from "./ir.js";
 import {
   NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
   ArrayType, SetType, DictType, StructType, VariantType, RefType,
@@ -513,5 +514,43 @@ describe("isTypeValueStructurallyEqual", () => {
     assert.ok(isTypeValueStructurallyEqual(forest(1n, 2n, integer), forest(5n, 0n, integer)));
     const Tree = RecursiveType(self => StructType({ head: IntegerType, kids: ArrayType(self) }));
     assert.ok(isTypeValueStructurallyEqual(toEastTypeValue(Tree), tree(0n, integer)), "a type built here and one read off the wire");
+  });
+
+  it("tells which wrapper a ref names, scope by scope", () => {
+    // `next` names the trees' wrapper, outside it, where the forest's names its own.
+    const crossed = variant("Recursive", variant("wrapper", {
+      id: 1n,
+      inner: variant("Struct", [
+        { name: "trees", type: tree(2n, integer) },
+        { name: "next", type: variant("Array", variant("Recursive", variant("ref", 2n))) },
+      ]),
+    })) as EastTypeValue;
+    assert.ok(!isTypeValueStructurallyEqual(forest(1n, 2n, integer), crossed));
+    assert.ok(!isTypeValueStructurallyEqual(crossed, forest(1n, 2n, integer)));
+  });
+
+  it("answers as comparing the two types renamed canonically does", () => {
+    /** A wrapper inside a wrapper of the same id, and a ref to each. */
+    const shadowed = (id: bigint) => variant("Recursive", variant("wrapper", {
+      id,
+      inner: variant("Struct", [
+        { name: "a", type: variant("Recursive", variant("wrapper", { id, inner: variant("Array", variant("Recursive", variant("ref", id))) })) },
+        { name: "b", type: variant("Recursive", variant("ref", id)) },
+      ]),
+    })) as EastTypeValue;
+    const IR = toEastTypeValue(IRType);
+    const types: EastTypeValue[] = [
+      tree(3n, integer), tree(9n, integer), tree(3n, string), forest(1n, 2n, integer), forest(5n, 0n, integer),
+      forest(1n, 2n, string), shadowed(5n), shadowed(8n), integer,
+      toEastTypeValue(FunctionType([IntegerType, StringType], ArrayType(BooleanType))),
+      toEastTypeValue(AsyncFunctionType([IntegerType], StringType)),
+      IR, canonicalTypeValue(IR), EastTypeValueType, canonicalTypeValue(EastTypeValueType),
+    ];
+    for (const [i, a] of types.entries()) {
+      for (const [j, b] of types.entries()) {
+        assert.equal(isTypeValueStructurallyEqual(a, b), typeEqual(canonicalTypeValue(a), canonicalTypeValue(b)), `types ${i} and ${j}`);
+      }
+    }
+    assert.ok(isTypeValueStructurallyEqual(IR, canonicalTypeValue(IR)), "a large recursive type, renamed");
   });
 });

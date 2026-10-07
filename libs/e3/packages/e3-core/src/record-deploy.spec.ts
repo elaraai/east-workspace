@@ -22,16 +22,18 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
-  ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, RecursiveType, SetType, SortedMap, StringType, StructType, compareFor,
-  decodeBeast2For, encodeBeast2For, equalFor, isTypeValueEqual, none, some, toEastTypeValue, variant, type ValueTypeOf,
+  ArrayType, DictType, East, EastTypeType, IntegerType, OptionType, RecursiveType, SetType, SortedMap, StringType, StructType,
+  canonicalTypeValue, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isTypeValueEqual, none, some, toEastTypeValue, variant,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PackageDef } from '@elaraai/e3';
 import {
-  RecordMigrationAppliedType, type DeployProgress, type RecordIndexPlan, type RecordMigrationApplied, type RecordPlan, type TreePath,
+  PackageObjectType, RecordMigrationAppliedType, decodePackageObject, type DeployProgress, type RecordIndexPlan,
+  type RecordMigrationApplied, type RecordPlan, type Structure, type TreePath,
 } from '@elaraai/e3-types';
 import {
   appliedMigrations, readRecordState, recordCompact, recordDescribe, recordHistory, recordMutate, recordReindex, recordSystemCommit,
-  type RecordHistoryEntry, type RecordSystemCommitOptions, type RecordSystemCommitTarget,
+  resolveRecord, type RecordHistoryEntry, type RecordSystemCommitOptions, type RecordSystemCommitTarget,
 } from './records.js';
 import { storeDatasetBytes } from './store-collection.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -132,6 +134,17 @@ const Tree = RecursiveType((self) => StructType(owned
 const root = owned ? { title: 'root', owner: '', kids: [] } : { title: 'root', kids: [] };
 await e3.export(e3.package('trees', version, e3.record('tree', Tree, root), e3.input('pinned', Tree, variant('value', root))), zip);
 `;
+
+/** A package object with each dataset's type renumbered from 0, as a build
+ *  that numbers its recursive types as a header numbers them would export it. */
+function renumbered(bytes: Uint8Array): Uint8Array {
+  const pkg = decodePackageObject(bytes);
+  const renumber = (structure: Structure): Structure => structure.type === 'value'
+    ? variant('value', { type: canonicalTypeValue(structure.value.type), writable: structure.value.writable })
+    : variant('struct', new SortedMap([...structure.value].map(([name, child]): [string, Structure] => [name, renumber(child)]),
+      compareFor(StringType)));
+  return encodeBeast2For(PackageObjectType)({ ...pkg, data: { ...pkg.data, structure: renumber(pkg.data.structure) } });
+}
 
 describe('a deploy\'s record migrations', () => {
   let repo: string;
@@ -575,6 +588,36 @@ describe('a deploy\'s record migrations', () => {
     assert.equal(restored.kind, 'committed', JSON.stringify(restored));
     assert.deepEqual([...(await workspaceGetDataset(storage, repo, ws, plansPath) as Map<string, unknown>).keys()], ['a']);
     assert.deepEqual((await history()).slice(0, 2), ['$restore', 'add']);
+  });
+
+  it("refuses a restored state whose tree differs inside, under the id the record's type gives its own (#1233)", async () => {
+    const Tree = RecursiveType((self) => StructType({ title: StringType, kids: ArrayType(self) }));
+    const Owned = RecursiveType((self) => StructType({ title: StringType, owner: StringType, kids: ArrayType(self) }));
+    await deploy(e3.package('trees', '1.0.0', e3.record('trees', DictType(StringType, Tree), new Map())));
+    // The package as a build that numbers its trees from 0 would export it. A
+    // state's manifest numbers its tree from 0 too, so one id names both.
+    const { hash } = await workspaceGetPackage(storage, repo, ws);
+    const objects = storage.objects;
+    const read = objects.read.bind(objects);
+    objects.read = async (r: string, h: string) => h === hash ? renumbered(await read(r, h)) : read(r, h);
+    const resolved = await resolveRecord(storage, repo, ws, 'trees');
+    assert.ok(resolved !== null);
+    assert.ok(isTypeValueEqual(resolved.type, canonicalTypeValue(toEastTypeValue(DictType(StringType, Owned)))),
+      'one id names both trees, which isTypeValueEqual does not read');
+
+    const restore = (state: string) => recordSystemCommit(storage, runner, repo, ws, 'trees',
+      { name: '$restore', target: { state, applied: [] }, actor: 'ops:test' });
+    const owned = await storeDatasetBytes(storage, repo, encodeBeast2For(DictType(StringType, Owned))(
+      new SortedMap([['t', { title: 'T', owner: 'O', kids: [] }]], compareFor(StringType))));
+    const refused = await restore(owned);
+    assert.equal(refused.kind, 'invalid', JSON.stringify(refused));
+    assert.match((refused as { message: string }).message, /is declared as .*, and the state [0-9a-f]+ holds /);
+
+    const plain = await storeDatasetBytes(storage, repo, encodeBeast2For(DictType(StringType, Tree))(
+      new SortedMap([['t', { title: 'T', kids: [] }]], compareFor(StringType))));
+    const restored = await restore(plain);
+    objects.read = read;
+    assert.equal(restored.kind, 'committed', JSON.stringify(restored));
   });
 
   it('builds the indexes a state was not built under, and refuses a name of its own or a head it did not expect', async () => {
