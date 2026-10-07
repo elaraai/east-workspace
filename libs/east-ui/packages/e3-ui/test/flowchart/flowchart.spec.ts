@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { test as hostTest } from "node:test";
+import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, some, variant } from "@elaraai/east";
-import { Flowchart } from "@elaraai/east-ui/internal";
+import { East, decodeBeast2For, equalFor, some, variant } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
+import { Flowchart as PublicFlowchart } from "@elaraai/e3-ui";
+import { Flowchart, FlowchartRootType } from "@elaraai/e3-ui/internal";
 import * as ex from "./flowchart.examples.js";
 
 describeEast("Flowchart", (test) => {
@@ -17,7 +21,7 @@ describeEast("Flowchart", (test) => {
     });
 
     test("creates a flowchart with bare defaults", $ => {
-        const flow = $.let(Flowchart.Root(
+        const root = $.let(Flowchart.Payload(
             [{ code: "ARV", name: "Arrived", phase: "intake" }],
             {
                 state: s => ({ key: s.code, label: s.name, lane: s.phase }),
@@ -26,7 +30,6 @@ describeEast("Flowchart", (test) => {
                 lanes: [{ key: "intake", label: "Intake" }],
             },
         ));
-        const root = $.let(flow.unwrap().unwrap("Flowchart"));
 
         $(Assert.equal(root.states.get(0n).key, "ARV"));
         $(Assert.equal(root.states.get(0n).lane, "intake"));
@@ -57,7 +60,7 @@ describeEast("Flowchart", (test) => {
     });
 
     test("links resolve kinds, triggers and evidence through the encoding", $ => {
-        const flow = $.let(Flowchart.Root(
+        const root = $.let(Flowchart.Payload(
             [
                 { code: "IND", name: "Inducting", phase: "induct" },
                 { code: "CH*", name: "Sort chutes", phase: "sort" },
@@ -78,7 +81,6 @@ describeEast("Flowchart", (test) => {
                 trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
             },
         ));
-        const root = $.let(flow.unwrap().unwrap("Flowchart"));
 
         $(Assert.equal(root.links.get(0n).key.unwrap("some"), "l4"));
         $(Assert.equal(root.links.get(0n).kind.unwrap("some").hasTag("planned"), true));
@@ -97,7 +99,7 @@ describeEast("Flowchart", (test) => {
         $(Assert.equal(East.value(
             (() => {
                 try {
-                    Flowchart.Root(
+                    Flowchart.Payload(
                         [{ code: "A", phase: "p" }],
                         {
                             state: s => ({ key: s.code, lane: s.phase }),
@@ -114,3 +116,28 @@ describeEast("Flowchart", (test) => {
         ), true));
     });
 }, { platformFns: TestImpl });
+
+// The move to e3 (#1243): `<Flowchart>` returns its root through the
+// `Flowchart` carrier — the extension's kind and its payload's bytes — and the
+// root it carries is the one `Flowchart.Payload` builds from the same props.
+const STATES = [{ code: "ARV", name: "Arrived", phase: "intake" }, { code: "SCN", name: "Scanned", phase: "intake" }];
+const LINKS = [{ src: "ARV", dst: "SCN" }];
+const LANES = [{ key: "intake", label: "Intake" }];
+
+hostTest("<Flowchart> returns its root through the `Flowchart` carrier", () => {
+    const ui = East.compile(East.function([], UIComponentType, (_$) => PublicFlowchart({
+        states: STATES, state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+        links: LINKS, link: l => ({ from: l.src, to: l.dst }),
+        lanes: LANES,
+    })), [])();
+    if (ui.type !== "Extension") assert.fail(`expected the Flowchart extension, got the ${ui.type} arm`);
+    assert.equal(ui.value.kind, "Flowchart");
+    const carried = decodeBeast2For(FlowchartRootType)(ui.value.payload);
+    const built = East.compile(East.function([], FlowchartRootType, (_$) => Flowchart.Payload(STATES, {
+        state: s => ({ key: s.code, label: s.name, lane: s.phase }),
+        links: LINKS, link: l => ({ from: l.src, to: l.dst }),
+        lanes: LANES,
+    })), [])();
+    assert.deepEqual(carried.states.map((s) => s.key), ["ARV", "SCN"]);
+    assert.ok(equalFor(FlowchartRootType)(carried, built), "the carrier's payload is the root Flowchart.Payload builds");
+});

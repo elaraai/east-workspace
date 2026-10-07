@@ -124,7 +124,7 @@ src/
   component.tsx              # Top-level variant dispatcher
   hooks/usePersistedState.ts # localStorage persistence hook
   platform/                  # East state management (UIStore, DatasetStore)
-  collections/               # Table, Matrix, TreeView, DataList (the Plan's and the Sheet's renderers are e3-ui-components')
+  collections/               # Table, Matrix, TreeView, DataList (the Plan's, the Sheet's and the Flowchart's renderers are e3-ui-components')
   disclosure/                # Tabs, Accordion, Carousel
   layout/                    # Box, Flex, Grid, Stack, Splitter, Separator
   forms/                     # Input, Select, Checkbox, Switch, Slider, etc.
@@ -603,7 +603,7 @@ barrel export.
 Two more entries serve the sibling renderer packages, never apps:
 `src/internal.ts` (`@elaraai/east-ui-components/internal`) re-exports the
 renderers' shared building blocks a component made of the same parts needs
-(e3-ui-components' Plan and Sheet, #1177, #1179), and `src/testing.ts` (`/testing`) the
+(e3-ui-components' Plan, Sheet and Flowchart, #1177, #1179, #1243), and `src/testing.ts` (`/testing`) the
 renderer tests' DOM helpers — React's `act` and the DOM, no test framework —
 and the editing words (`editingMessages`), which a browser spec names the
 history item's controls by: unlike the package's own entry, it loads in Node.

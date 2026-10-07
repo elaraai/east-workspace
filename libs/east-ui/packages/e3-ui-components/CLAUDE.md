@@ -12,8 +12,11 @@ handing the frame main and its chrome's facts), the Sheet's
 (`src/sheet/frame/`, #1216) around its grid: there is no frameless Plan or
 Sheet. Both build on east-ui-components' shared parts through its
 `./internal` entry, and their tests on `./testing`; their slot recipes
-stay in east-ui-components' theme. The time parts the Plan shares with
-the Calendar are in `src/shared/time/` (#1148): the scale (its engine and
+stay in east-ui-components' theme. The Flowchart's renderer
+(`src/flowchart/`, #1243) registers against its `Flowchart` extension the
+same way, builds on the same parts, and keeps its slot recipe there too.
+The time parts the Plan shares with the Calendar are in `src/shared/time/`
+(#1148): the scale (its engine and
 time arm), the move, draw and slot arithmetic, the now line, lane packing
 and weekend and off-hours shading. The now line's look is one part of the
 theme, merged into the recipe of each component that draws one
