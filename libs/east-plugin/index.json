@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1251,
+    "totalEntries": 1252,
     "totalFiles": 205,
     "packages": {
       "east": 569,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 339,
-      "e3-ui": 100,
+      "e3-ui": 101,
       "e3": 17,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -44075,6 +44075,61 @@
         "tsx"
       ],
       "source": "// A sheet over a large record, read a window at a time in key order — Data.bindPaged over the same record its Apply commits to — whose edits add rows (gutter seams, the selection strip, Alt+Insert) and never remove one\n// inputs: []\n/** A job — what it is, when it starts and how many. */\nexport const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });\n\n/** The jobs, keyed J-0001, J-0002, …: the record's entries are the sheet's rows. */\nexport const sheetJobs = e3.record(\"sheet_jobs\", DictType(StringType, SheetJob), new Map([\n    [\"J-0001\", { task: \"Panel cutting\", start: some(new Date(\"2026-10-12T00:00:00Z\")), qty: some(48.0) }],\n    [\"J-0002\", { task: \"Edge banding\", start: some(new Date(\"2026-10-13T00:00:00Z\")), qty: some(120.0) }],\n    [\"J-0003\", { task: \"CNC routing\", start: none, qty: some(48.0) }],\n    [\"J-0004\", { task: \"Spray finish\", start: none, qty: none }],\n]));\n\n/** The jobs' patch door — every Apply commits through it. */\nexport const sheetJobsPatch = e3.mutation.patch(sheetJobs);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));\n            const page = $.let(Data.bindPaged(sheetJobs));\n            return (\n                <Box height=\"560px\">\n                    <Sheet\n                        record={jobs}\n                        window={page}\n                        name=\"paged\"\n                        edits={{ insertRows: true, removeRows: false }}\n                        columns={{\n                            task:  Sheet.column.text(SheetJob, { header: \"Task\", width: \"240px\" }),\n                            start: Sheet.column.date(SheetJob, { header: \"Start\", width: \"96px\" }),\n                            qty:   Sheet.column.quantity(SheetJob, { header: \"Qty\", width: \"96px\" }),\n                        }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:sheet.examples.tsx:sheetUpkeep",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/sheet/sheet.examples.tsx",
+      "suite": "",
+      "test": "A sheet whose inspector pane edits one field of every kind over the workshop's machines' upkeep — a number with its unit and bounds, a select of a variant's cases, a reference, a text emptied to none, tags, a checklist, a nested struct's fields under its name, a checkbox, a date and a time, Options set and cleared, and a stamped code read only — the hinted fields leading, with a row rule's issue",
+      "keywords": [
+        "Sheet",
+        "BuilderFrame",
+        "inspector",
+        "fields",
+        "Sheet.field",
+        "Fields",
+        "form",
+        "text",
+        "placeholder",
+        "number",
+        "unit",
+        "min",
+        "max",
+        "step",
+        "select",
+        "labels",
+        "reference",
+        "register",
+        "checkbox",
+        "datetime",
+        "Option",
+        "Set",
+        "Clear",
+        "tags",
+        "options",
+        "checklist",
+        "nested",
+        "struct",
+        "stamped",
+        "readonly",
+        "integer",
+        "ready",
+        "row",
+        "Readiness",
+        "record"
+      ],
+      "imports": [
+        "import {",
+        "import {",
+        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A sheet whose inspector pane edits one field of every kind over the workshop's machines' upkeep — a number with its unit and bounds, a select of a variant's cases, a reference, a text emptied to none, tags, a checklist, a nested struct's fields under its name, a checkbox, a date and a time, Options set and cleared, and a stamped code read only — the hinted fields leading, with a row rule's issue\n// inputs: []\n/** A machine's family — the kind of machine it is. */\nexport const UpkeepFamily = VariantType({ beam_saw: NullType, edge_bander: NullType, cnc_router: NullType, spray_booth: NullType });\n\n/** One check of a service — what is checked, and whether it was done. */\nexport const UpkeepCheck = StructType({ text: StringType, done: BooleanType });\n\n/** Who supplies a machine's parts. */\nexport const UpkeepSupplier = StructType({ name: StringType, phone: StringType });\n\n/** A machine's upkeep — one field of each kind the inspector's form edits. */\nexport const MachineUpkeep = StructType({\n    name:          StringType,                 // a text column\n    bay:           StringType,                 // a reference column: a key of the bays\n    hours:         IntegerType,                // an integer column: a number with its unit and bounds\n    family:        UpkeepFamily,               // a select of the variant's cases\n    wear:          OptionType(FloatType),      // a number with its unit, bounds and step, cleared to none\n    crew:          OptionType(StringType),     // a text, emptied to none\n    tickets:       SetType(StringType),        // tags, the tickets offered as they are typed\n    checks:        ArrayType(UpkeepCheck),     // a checklist\n    supplier:      UpkeepSupplier,             // a nested struct: its fields under its name\n    in_service:    BooleanType,                // a checkbox\n    guard_checked: OptionType(BooleanType),    // a checkbox, cleared to none: not recorded\n    serviced:      DateTimeType,               // a date and a time\n    next_service:  OptionType(DateTimeType),   // a date and a time, set or cleared\n    serial:        StringType,                 // a stamped column: read only\n});\n\n/** The machines' upkeep, keyed by machine code. */\nexport const sheetMachineUpkeep = e3.record(\"sheet_machine_upkeep\", DictType(StringType, MachineUpkeep), new Map([\n    [\"S101\", { name: \"Beam saw\", bay: \"Bay 1\", hours: 1240n, family: variant(\"beam_saw\", null), wear: some(35.5), crew: some(\"Cutting crew\"),\n        tickets: new Set([\"Panel saw ticket\", \"Dust extraction\"]),\n        checks: [{ text: \"Blade sharpened\", done: true }, { text: \"Fence squared\", done: true }, { text: \"Extraction cleaned\", done: false }],\n        supplier: { name: \"Kestrelmoor Saw Works\", phone: \"01632 960 118\" },\n        in_service: true, guard_checked: some(true),\n        serviced: new Date(\"2026-09-28T07:30:00Z\"), next_service: some(new Date(\"2026-11-09T07:30:00Z\")), serial: \"BS-4410-0193\" }],\n    [\"E201\", { name: \"Edge bander\", bay: \"Bay 2\", hours: 860n, family: variant(\"edge_bander\", null), wear: none, crew: none,\n        tickets: new Set<string>(), checks: [], supplier: { name: \"\", phone: \"\" },\n        in_service: true, guard_checked: none,\n        serviced: new Date(\"2026-08-17T06:00:00Z\"), next_service: none, serial: \"EB-2207-0457\" }],\n    [\"R301\", { name: \"CNC router\", bay: \"Bay 3\", hours: 2210n, family: variant(\"cnc_router\", null), wear: some(62.0), crew: some(\"Machining crew\"),\n        tickets: new Set([\"Router ticket\"]),\n        checks: [{ text: \"Spindle greased\", done: true }, { text: \"Bed vacuum tested\", done: false }],\n        supplier: { name: \"Brindlecote Tooling\", phone: \"01632 960 342\" },\n        in_service: false, guard_checked: some(false),\n        serviced: new Date(\"2026-07-06T13:15:00Z\"), next_service: none, serial: \"CR-5120-0088\" }],\n    [\"F401\", { name: \"Spray booth\", bay: \"Bay 4\", hours: 540n, family: variant(\"spray_booth\", null), wear: none, crew: some(\"Finishing crew\"),\n        tickets: new Set([\"Spray ticket\", \"First aid\"]),\n        checks: [{ text: \"Filters changed\", done: true }],\n        supplier: { name: \"Fennimarsh Coatings\", phone: \"01632 960 775\" },\n        in_service: true, guard_checked: some(true),\n        serviced: new Date(\"2026-10-01T08:00:00Z\"), next_service: some(new Date(\"2026-12-01T08:00:00Z\")), serial: \"SB-0391-0017\" }],\n]));\n\n/** The upkeep's patch door — every Apply commits through it. */\nexport const sheetMachineUpkeepPatch = e3.mutation.patch(sheetMachineUpkeep);\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const upkeep = $.let(Record.bind(sheetMachineUpkeep, [sheetMachineUpkeepPatch]));\n            const bays = $.let([\"Bay 1\", \"Bay 2\", \"Bay 3\", \"Bay 4\", \"Bay 7\"], ArrayType(StringType));\n            // A machine out of service needs its next service booked.\n            const readyMachine = $.const(East.function([Sheet.Types.Draft(MachineUpkeep), Sheet.Types.DraftContext(MachineUpkeep)], Sheet.Types.Readiness, ($, row) => {\n                const out = $.const(row.in_service.match({ value: (_$2, on) => on.not() }, () => false));\n                const unbooked = $.const(row.next_service.match({ value: (_$2, next) => next.hasTag(\"none\") }, () => false));\n                $.if(out.and(() => unbooked), $ => {\n                    $.return(East.value(variant(\"incomplete\", [{ field: \"next_service\", message: \"Out of service — book its next service\" }]), Sheet.Types.Readiness));\n                });\n                return East.value(variant(\"ready\", null), Sheet.Types.Readiness);\n            }));\n            return (\n                <Box height=\"640px\">\n                    <Sheet\n                        record={upkeep}\n                        name=\"upkeep\"\n                        registers={{ bays: Sheet.register.members(bays, { kind: \"bay\", key: b => b, label: b => b }) }}\n                        columns={{\n                            name:   Sheet.column.text(MachineUpkeep, { header: \"Machine\", width: \"200px\" }),\n                            bay:    Sheet.column.reference(MachineUpkeep, \"bays\", { header: \"Bay\", width: \"96px\" }),\n                            hours:  Sheet.column.integer(MachineUpkeep, { header: \"Hours\", sub: \"run since new\", width: \"96px\" }),\n                            serial: Sheet.column.stamped(MachineUpkeep, { header: \"Serial\", sub: \"on the maker's plate\", owner: \"Maker\", width: \"140px\" }),\n                        }}\n                        // The inspector pane: every field of a machine — the hinted ones first, in this order.\n                        inspector\n                        fields={{\n                            name:     Sheet.field.text({ placeholder: \"Its name on the floor\" }),\n                            bay:      Sheet.field.reference({ of: \"bays\", help: \"Where it stands\" }),\n                            hours:    Sheet.field.number({ unit: \"h\", min: 0n, step: 10n }),\n                            family:   Sheet.field.select({ labels: { beam_saw: \"Beam saw\", edge_bander: \"Edge bander\", cnc_router: \"CNC router\", spray_booth: \"Spray booth\" } }),\n                            wear:     Sheet.field.number({ label: \"Blade wear\", unit: \"%\", min: 0, max: 100, step: 0.5 }),\n                            crew:     Sheet.field.text({ placeholder: \"Which crew runs it\" }),\n                            tickets:  Sheet.field.tags({ options: [\"Panel saw ticket\", \"Router ticket\", \"Spray ticket\", \"Dust extraction\", \"First aid\"] }),\n                            checks:   Sheet.field.checklist({ help: \"Signed off at the last service\" }),\n                            supplier: { name: Sheet.field.text({ placeholder: \"Who supplies its parts\" }), phone: Sheet.field.text({ placeholder: \"01632 960 000\" }) },\n                        }}\n                        ready={{ row: readyMachine }}\n                    />\n                </Box>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:component.examples.tsx:studioComponent",

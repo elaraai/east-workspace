@@ -6,13 +6,16 @@
 /**
  * Select slot recipe — inherits Input chrome on the trigger; the content
  * listbox is flat and bordered — no shadow (the design system shadows
- * nothing but the focus ring).
+ * nothing but the focus ring). Each size's trigger is the shared input's one
+ * line (`fieldHeights`, #1220), its value centred in it; it clears the
+ * `textStyle` Chakra's default trigger sizes carry, which outranks a size's
+ * own `fontSize`.
  *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
-import { fieldChrome, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { fieldChrome, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 
 export const selectSlotRecipe = defineSlotRecipe({
     className: "elara-select",
@@ -104,9 +107,9 @@ export const selectSlotRecipe = defineSlotRecipe({
         // (`indicatorGroup` sits over the trigger's right edge), so the value
         // text never collides with it — per size (#130).
         size: {
-            sm: { trigger: { fontSize: "{fontSizes.body.sm}", paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "{spacing.1}" } },
-            md: { trigger: { fontSize: "{fontSizes.body}", paddingX: "10px", paddingInlineEnd: "30px", paddingY: "7px" } },
-            lg: { trigger: { fontSize: "{fontSizes.body.lg}", paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "{spacing.3}" } },
+            sm: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.sm}", height: fieldHeights.sm, paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "0" } },
+            md: { trigger: { textStyle: "none", fontSize: "{fontSizes.body}", height: fieldHeights.md, paddingX: "10px", paddingInlineEnd: "30px", paddingY: "0" } },
+            lg: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.lg}", height: fieldHeights.lg, paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "0" } },
         },
     },
     defaultVariants: {

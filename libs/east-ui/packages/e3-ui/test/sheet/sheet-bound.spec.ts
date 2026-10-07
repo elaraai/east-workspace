@@ -42,6 +42,7 @@ const WRITES: Record<string, string[]> = {
     sheetBatches: ["sheet_batch_days"],
     sheetLoose: ["sheet_loose_work"],
     sheetPaged: ["sheet_jobs"],
+    sheetUpkeep: ["sheet_machine_upkeep"],
 };
 
 describe("Sheet examples read e3", () => {

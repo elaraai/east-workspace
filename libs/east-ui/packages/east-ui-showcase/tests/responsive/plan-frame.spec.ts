@@ -274,6 +274,9 @@ test.describe("the Plan's inspector (#1197)", () => {
     for (const theme of ["light", "dark"] as const) {
         test(`planPrintWorks (${theme}): a selected job's bar wears a 1.5px ring in the brand just outside it, and the inspector shows the job, every line inside the pane`, async ({ page }) => {
             const entry = await openExample(page, "planPrintWorks", EVENTS, theme);
+            // A box wide enough for both panes beside main's 480px: the inspector pinned open, its lines laid out (#1220 —
+            // at the desktop project's own width the inspector rests on its rail, and a collapsed pane has nothing to measure).
+            await sizeTo(page, entry.locator("[data-plan-frame]").first().locator("xpath=.."), 1440);
             const bar = entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" });
             await bar.click();
             await settled(page);
@@ -291,6 +294,8 @@ test.describe("the Plan's inspector (#1197)", () => {
             });
             expect(ring).toEqual({ width: ring.want, style: "solid", offset: "1px", color: ring.brand, brand: ring.brand, want: ring.want, pressed: "true" });
             const pane = entry.locator("[data-builder-frame] > [data-frame-slot='body'] > [data-frame-slot='end']");
+            await expect(pane).toHaveAttribute("data-pane-mode", "pinned");
+            await expect(pane).not.toHaveAttribute("data-collapsed", /.*/);
             await expect(pane.locator("[data-plan-inspector='event'] [data-inspector-title]")).toHaveText("Spring catalogue");
             expect(await inspectorFaults(pane)).toEqual([]);
         });

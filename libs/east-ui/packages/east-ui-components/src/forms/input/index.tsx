@@ -4,21 +4,11 @@
  */
 
 import { memo, useMemo, useCallback, useState, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
-import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box, useFieldContext } from "@chakra-ui/react";
+import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, type SystemStyleObject, Box, useFieldContext, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor, parseFor, printFor, FloatType, IntegerType, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import { useValueSync } from "../../hooks/useValueSync";
-
-/** Bordered shell wrapping the date/time segments — same chrome as every input. */
-const dateFieldShell = {
-    ...fieldChrome,
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "{spacing.2}",
-    _focusWithin: fieldFocusRing,
-};
 import { CalendarDate, Time, type DateValue } from "@internationalized/date";
 import {
     CompoundDateField,
@@ -397,6 +387,8 @@ export interface ChakraDateTimeInputProps {
     timeValue: Time;
     precision: "date" | "time" | "datetime";
     disabled: boolean;
+    /** The input's size: the line its bordered box takes, as a text input of that size does (#1220). */
+    size: "xs" | "sm" | "md" | "lg";
 }
 
 /**
@@ -405,11 +397,13 @@ export interface ChakraDateTimeInputProps {
  */
 export function toChakraDateTimeInput(value: DateTimeInputValue): ChakraDateTimeInputProps {
     const dateValue = value.value;
+    const style = getSomeorUndefined(value.style);
     return {
         calendarDate: dateToCalendarDate(dateValue),
         timeValue: dateToTime(dateValue),
         precision: (getSomeorUndefined(value.precision)?.type as "date" | "time" | "datetime") ?? "datetime",
         disabled: getSomeorUndefined(value.disabled) ?? false,
+        size: (style === undefined ? undefined : getSomeorUndefined(style.size)?.type) ?? "md",
     };
 }
 
@@ -420,9 +414,12 @@ export interface EastChakraDateTimeInputProps {
 /**
  * Renders an East UI DateTimeInput value using compound date field components.
  * Supports date-only, time-only, and datetime modes based on the precision property.
+ * The bordered box around them is the `dateField` recipe's `shell`, at the
+ * input's size.
  */
 export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ value }: EastChakraDateTimeInputProps) {
     const [props, setProps] = useState(toChakraDateTimeInput(value));
+    const shell = (useSlotRecipe({ key: "dateField" })({ size: props.size }) as Record<string, SystemStyleObject>).shell;
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
 
     // Mirror the latest local props so handlers can read the cross-field
@@ -470,7 +467,7 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     // Render based on precision
     if (props.precision === "time") {
         return (
-            <Box css={dateFieldShell}>
+            <Box css={shell}>
                 <TimeField value={props.timeValue} onChange={handleTimeChange} isReadOnly={readOnly} {...labelled}>
                     <TimeInput>
                         {({ segment }) => <TimeSegment segment={segment} />}
@@ -482,8 +479,8 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
 
     if (props.precision === "date") {
         return (
-            <Box css={dateFieldShell}>
-                <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
+            <Box css={shell}>
+                <CompoundDateField size={props.size} value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
                     <CompoundDateInput>
                         {({ segment }) => <CompoundDateSegment segment={segment} />}
                     </CompoundDateInput>
@@ -494,8 +491,8 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
 
     // Default: datetime (both date and time)
     return (
-        <Box css={dateFieldShell}>
-            <CompoundDateField value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
+        <Box css={shell}>
+            <CompoundDateField size={props.size} value={props.calendarDate} onChange={handleDateChange} isReadOnly={readOnly} {...labelled}>
                 <CompoundDateInput>
                     {({ segment }) => <CompoundDateSegment segment={segment} />}
                 </CompoundDateInput>

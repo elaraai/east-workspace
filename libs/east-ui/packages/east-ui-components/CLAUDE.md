@@ -248,6 +248,23 @@ choice is an edit at once. A field that differs from `baseline` is tinted
 for renderers, as `BuilderFrame` is. Inside a `Field`, the shared date input
 takes the field's label and read-only as the Ark inputs do.
 
+Every field is one column (#1220): its label, its control's line — the
+input filling it, an Option's Set or Clear at its end (`data-field-line`,
+`data-field-side`) — and its help line. Each input is the design system's
+Input size, so every kind stands on one 32px line (44px on a coarse
+pointer); fields sit 16px apart, a nested struct's head 8px over its first
+field. The showcase's `inspector-form.spec.ts` measures it in both
+inspectors.
+
+The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
+`fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
+bordered box (the input, the select's trigger, the number's root, the date's
+shell, the tags' control) with what it holds centred. Chakra's default
+recipes merge beneath ours and give their sizes a `textStyle` (14px on 20px)
+that outranks a size's own `fontSize`: a size variant that sets a font clears
+it (`textStyle: "none"`). `field-heights.spec.ts` holds every kind to its
+size's line.
+
 ## Platform function registration
 
 East programs declare platform functions (e.g. `Clipboard.copy`,
